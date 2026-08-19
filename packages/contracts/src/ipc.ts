@@ -463,6 +463,7 @@ export interface DesktopInstalledApp {
     name: string;
     required: boolean;
     reason: string;
+    audience?: string;
   }>;
   skills: ReadonlyArray<{ path: string }>;
   handlers: ReadonlyArray<
@@ -627,6 +628,7 @@ export interface DesktopRegistryAppDetail extends DesktopRegistryAppSummary {
       permission: string;
       required: boolean;
       rationale: string;
+      audience?: string;
     }>;
   }>;
 }
@@ -680,6 +682,8 @@ export interface DesktopAppTabDescriptor {
   spaceId: string;
   threadId: string;
   route: string;
+  /** JSON-compatible App navigation state paired with `route` for exact reconstruction. */
+  state?: unknown;
   status: "loading" | "ready" | "crashed";
   /** Runtime v2 document URL on the host-minted opaque App×Space origin. */
   documentUrl: string;
@@ -938,6 +942,10 @@ export interface DesktopBridge {
     /** Keep the display awake while this renderer observes active Penkra work. */
     setActiveWork: (input: { threadExecution: boolean; voice: boolean }) => Promise<void>;
   };
+  composerStage?: {
+    onRequest(listener: (request: DesktopComposerStageRequest) => void): () => void;
+    respond(response: DesktopComposerStageResponse): void;
+  };
   composerDrafts?: DesktopComposerDraftsBridge;
   accountAuth?: {
     getState: () => Promise<DesktopAccountAuthState>;
@@ -969,6 +977,34 @@ export interface DesktopBridge {
     onOpenRequest: (listener: () => void) => () => void;
   };
 }
+
+export interface DesktopComposerStageAttachment {
+  name: string;
+  mimeType: string;
+  bytes: Uint8Array;
+}
+
+export interface DesktopComposerStageRequest {
+  id: string;
+  threadId: string;
+  input: {
+    text?: string;
+    documents?: Array<{ title: string; content: string }>;
+    files?: DesktopComposerStageAttachment[];
+    images?: DesktopComposerStageAttachment[];
+    skills?: Array<{ name: string; path: string }>;
+    model?: ReadonlyArray<{ provider: string; model: string; options?: Record<string, unknown> }>;
+    effort?: string;
+  };
+}
+
+export type DesktopComposerStageResponse =
+  | {
+      id: string;
+      ok: true;
+      resolvedModel: { provider: string; model: string; options?: Record<string, unknown> } | null;
+    }
+  | { id: string; ok: false; code: string; message: string };
 
 export interface NativeApi {
   dialogs: {

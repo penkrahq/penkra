@@ -64,6 +64,7 @@ function appPaneFromTab(tab: DesktopAppTabDescriptor) {
     appRendererId: tab.rendererId,
     appDocumentUrl: tab.documentUrl,
     appRoute: tab.route,
+    ...(tab.state === undefined ? {} : { appState: tab.state }),
     appStatus: tab.status,
   };
 }
@@ -72,6 +73,14 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
   const dockState = useRightDockStore(
     useMemo(() => selectRightDockState(props.threadId), [props.threadId]),
   );
+  const dockStateByThreadId = useRightDockStore((store) => store.dockStateByThreadId);
+  const retainedAppPanes = useMemo(() => {
+    const panes = new Map<string, RightDockPane>();
+    for (const state of Object.values(dockStateByThreadId)) {
+      for (const pane of state?.panes ?? []) panes.set(pane.id, pane);
+    }
+    return [...panes.values()];
+  }, [dockStateByThreadId]);
   const openPane = useRightDockStore((store) => store.openPane);
   const closePane = useRightDockStore((store) => store.closePane);
   const setActivePane = useRightDockStore((store) => store.setActivePane);
@@ -118,36 +127,34 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
     const removeOpened = bridge.onOpened((tab) => {
-      if (tab.threadId !== props.threadId) return;
       setConfirmedAppPaneIds((current) => new Set(current).add(tab.id));
-      openPane(props.threadId, appPaneFromTab(tab));
+      openPane(tab.threadId as ThreadId, appPaneFromTab(tab));
     });
     const removeState = bridge.onState((tab) => {
-      if (tab.threadId !== props.threadId) return;
-      updatePane(props.threadId, tab.id, {
+      updatePane(tab.threadId as ThreadId, tab.id, {
         appIconDataUrl: tab.iconDataUrl,
         appRendererId: tab.rendererId,
         appDocumentUrl: tab.documentUrl,
         appRoute: tab.route,
+        ...(tab.state === undefined ? { appState: undefined } : { appState: tab.state }),
         appStatus: tab.status,
       });
     });
     const removeClosed = bridge.onClosed((tab) => {
-      if (tab.threadId !== props.threadId) return;
       setConfirmedAppPaneIds((current) => {
         if (!current.has(tab.id)) return current;
         const next = new Set(current);
         next.delete(tab.id);
         return next;
       });
-      closePane(props.threadId, tab.id);
+      closePane(tab.threadId as ThreadId, tab.id);
     });
     return () => {
       removeOpened();
       removeState();
       removeClosed();
     };
-  }, [closePane, openPane, props.threadId, updatePane]);
+  }, [closePane, openPane, updatePane]);
 
   useEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
@@ -161,18 +168,20 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
         .then((tabs) => {
           if (cancelled) return;
           const tabsForThread = tabs.filter((tab) => tab.threadId === props.threadId);
-          const liveIds = new Set(tabsForThread.map((tab) => tab.id));
+          const liveIds = new Set(tabs.map((tab) => tab.id));
           setConfirmedAppPaneIds(liveIds);
-          const renderedIds = new Set(dockState.panes.map((pane) => pane.id));
-          for (const tab of tabsForThread) {
-            if (!renderedIds.has(tab.id)) {
-              openPane(props.threadId, appPaneFromTab(tab));
+          const currentDockStates = useRightDockStore.getState().dockStateByThreadId;
+          for (const tab of tabs) {
+            const stateForThread = currentDockStates[tab.threadId];
+            if (!stateForThread?.panes.some((pane) => pane.id === tab.id)) {
+              openPane(tab.threadId as ThreadId, appPaneFromTab(tab));
             } else {
-              updatePane(props.threadId, tab.id, {
+              updatePane(tab.threadId as ThreadId, tab.id, {
                 appIconDataUrl: tab.iconDataUrl,
                 appRendererId: tab.rendererId,
                 appDocumentUrl: tab.documentUrl,
                 appRoute: tab.route,
+                ...(tab.state === undefined ? { appState: undefined } : { appState: tab.state }),
                 appStatus: tab.status,
               });
             }
@@ -190,6 +199,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
                 spaceId: currentSpaceId,
                 threadId: props.threadId,
                 route: pane.appRoute,
+                ...(pane.appState === undefined ? {} : { state: pane.appState }),
               })
               .catch((error: unknown) => {
                 toastManager.add({
@@ -369,6 +379,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
         </div>
         <RightDock
           state={dockState}
+          retainedPanes={retainedAppPanes}
           minWidth={APP_PANEL_MIN_WIDTH}
           defaultWidth={APP_PANEL_DEFAULT_WIDTH}
           shouldAcceptWidth={shouldAcceptAppPanelWidth}

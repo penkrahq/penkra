@@ -24,6 +24,8 @@ export interface AppPermissionDeclaration {
   required: boolean;
   /** Concise user-visible explanation of why the App needs this authority. */
   reason: string;
+  /** DNS audience receiving identity tokens. Required only for `account-identity`. */
+  audience?: string;
 }
 
 export interface OperationDeclaration {
@@ -299,6 +301,26 @@ export function validateAppManifest(value: unknown): AppManifestValidationResult
           issue(issues, `${path}.required`, "invalid-format", "required must be a boolean.");
         }
         requireString(candidate.reason, `${path}.reason`, issues);
+        if (candidate.name === "account-identity") {
+          if (
+            requireString(candidate.audience, `${path}.audience`, issues) &&
+            !isIdentityAudience(candidate.audience)
+          ) {
+            issue(
+              issues,
+              `${path}.audience`,
+              "invalid-format",
+              "Identity audiences must be lowercase DNS host names.",
+            );
+          }
+        } else if (candidate.audience !== undefined) {
+          issue(
+            issues,
+            `${path}.audience`,
+            "invalid-format",
+            "audience is supported only for the account-identity permission.",
+          );
+        }
       });
     }
   }
@@ -375,6 +397,13 @@ export function validateAppManifest(value: unknown): AppManifestValidationResult
   return issues.length === 0
     ? { ok: true, manifest: value as unknown as PenkraAppManifest }
     : { ok: false, issues };
+}
+
+function isIdentityAudience(value: string): boolean {
+  return (
+    value.length <= 253 &&
+    /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(?::\d{1,5})?$/.test(value)
+  );
 }
 
 function validateContributions(

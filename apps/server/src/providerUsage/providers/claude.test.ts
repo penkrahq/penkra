@@ -9,7 +9,11 @@ import nodePath from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { outboundHttp } from "@penkra/shared/outboundHttp";
-import { __resetClaudeUsageRateLimitState, claudeUsageFetcher } from "./claude";
+import {
+  __resetClaudeUsageRateLimitState,
+  claudeUsageFetcher,
+  parseClaudeCliUsage,
+} from "./claude";
 
 const NOW_MS = 1_780_000_000_000;
 
@@ -83,6 +87,26 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+describe("parseClaudeCliUsage", () => {
+  it("maps Claude's local usage command into session and weekly limits", () => {
+    const snapshot = parseClaudeCliUsage({
+      nowMs: NOW_MS,
+      text: [
+        "You are currently using your subscription to power your Claude Code usage",
+        "",
+        "Current session: 6% used · resets Aug 18 at 8:40pm (America/Denver)",
+        "Current week (all models): 4% used · resets Aug 24 at 8pm (America/Denver)",
+      ].join("\n"),
+    });
+
+    expect(snapshot?.source).toBe("claude-cli-usage");
+    expect(snapshot?.limits).toEqual([
+      { window: "5h", usedPercent: 6, windowDurationMins: 300 },
+      { window: "Weekly", usedPercent: 4, windowDurationMins: 10_080 },
+    ]);
+  });
 });
 
 describe("claudeUsageFetcher", () => {

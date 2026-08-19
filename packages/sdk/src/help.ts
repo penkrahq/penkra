@@ -68,7 +68,7 @@ function operationHelp(
     ...(manifest.permissions?.length
       ? manifest.permissions.map(
           (permission) =>
-            `  ${permission.name} (${permission.required ? "required" : "optional"}) — ${permission.reason}`,
+            `  ${permission.name} (${permission.required ? "required" : "optional"})${permission.audience ? ` for ${permission.audience}` : ""} — ${permission.reason}`,
         )
       : ["  None."]),
   ];

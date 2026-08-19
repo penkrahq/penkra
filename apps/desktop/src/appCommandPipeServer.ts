@@ -40,6 +40,8 @@ type Request = {
     | "tabs.select"
     | "tabs.scroll"
     | "tabs.wait"
+    | "tabs.handle-dialog"
+    | "tabs.upload"
     | "developer.publishers.list"
     | "developer.publishers.create"
     | "developer.apps.list"
@@ -65,16 +67,18 @@ type Request = {
 };
 
 interface AppTabObserverBridge {
-  snapshot(tabId: string): Promise<unknown>;
+  snapshot(tabId: string, expand?: boolean): Promise<unknown>;
   extract(tabId: string): Promise<unknown>;
   screenshot(tabId: string): Promise<unknown>;
-  click(tabId: string, reference: string): Promise<unknown>;
-  hover(tabId: string, reference: string): Promise<unknown>;
-  type(tabId: string, reference: string, text: string): Promise<unknown>;
-  press(tabId: string, key: string): Promise<unknown>;
-  select(tabId: string, reference: string, value: string): Promise<unknown>;
-  scroll(tabId: string, deltaX: number, deltaY: number): Promise<unknown>;
+  click(tabId: string, reference: string, observe?: boolean): Promise<unknown>;
+  hover(tabId: string, reference: string, observe?: boolean): Promise<unknown>;
+  type(tabId: string, reference: string, text: string, observe?: boolean): Promise<unknown>;
+  press(tabId: string, key: string, observe?: boolean): Promise<unknown>;
+  select(tabId: string, reference: string, value: string, observe?: boolean): Promise<unknown>;
+  scroll(tabId: string, deltaX: number, deltaY: number, observe?: boolean): Promise<unknown>;
   wait(tabId: string, text: string, timeoutMs: number): Promise<unknown>;
+  handleDialog(tabId: string, accept: boolean, text?: string): Promise<unknown>;
+  upload(tabId: string, reference: string, paths: ReadonlyArray<string>): Promise<unknown>;
 }
 
 export function resolveAppCommandPipePath(_userDataPath: string): string {
@@ -305,7 +309,10 @@ export class AppCommandPipeServer {
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.snapshot(this.#tab(params).id),
+          result: await this.#observer.snapshot(
+            this.#tab(params).id,
+            optionalBoolean(params.expand, "expand") ?? false,
+          ),
         };
       case "tabs.extract":
         return {
@@ -326,6 +333,7 @@ export class AppCommandPipeServer {
           result: await this.#observer.click(
             this.#tab(params).id,
             requiredString(params.ref, "ref"),
+            optionalBoolean(params.observe, "observe") ?? false,
           ),
         };
       case "tabs.hover":
@@ -335,6 +343,7 @@ export class AppCommandPipeServer {
           result: await this.#observer.hover(
             this.#tab(params).id,
             requiredString(params.ref, "ref"),
+            optionalBoolean(params.observe, "observe") ?? false,
           ),
         };
       case "tabs.type":
@@ -345,6 +354,7 @@ export class AppCommandPipeServer {
             this.#tab(params).id,
             requiredString(params.ref, "ref"),
             requiredStringAllowEmpty(params.text, "text"),
+            optionalBoolean(params.observe, "observe") ?? false,
           ),
         };
       case "tabs.press":
@@ -354,6 +364,7 @@ export class AppCommandPipeServer {
           result: await this.#observer.press(
             this.#tab(params).id,
             requiredString(params.key, "key"),
+            optionalBoolean(params.observe, "observe") ?? false,
           ),
         };
       case "tabs.select":
@@ -364,6 +375,7 @@ export class AppCommandPipeServer {
             this.#tab(params).id,
             requiredString(params.ref, "ref"),
             requiredStringAllowEmpty(params.value, "value"),
+            optionalBoolean(params.observe, "observe") ?? false,
           ),
         };
       case "tabs.scroll":
@@ -374,6 +386,27 @@ export class AppCommandPipeServer {
             this.#tab(params).id,
             optionalNumber(params.deltaX, "deltaX") ?? 0,
             optionalNumber(params.deltaY, "deltaY") ?? 0,
+            optionalBoolean(params.observe, "observe") ?? false,
+          ),
+        };
+      case "tabs.handle-dialog":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observer.handleDialog(
+            this.#tab(params).id,
+            optionalBoolean(params.accept, "accept") ?? true,
+            optionalString(params.text, "text") ?? undefined,
+          ),
+        };
+      case "tabs.upload":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observer.upload(
+            this.#tab(params).id,
+            requiredString(params.ref, "ref"),
+            requiredStringArray(params.paths, "paths"),
           ),
         };
       case "tabs.wait":
@@ -698,6 +731,19 @@ function optionalNumber(value: unknown, name: string): number | null {
     throw new Error(`${name} must be a finite number.`);
   }
   return value;
+}
+
+function optionalBoolean(value: unknown, name: string): boolean | null {
+  if (value === undefined) return null;
+  if (typeof value !== "boolean") throw new Error(`${name} must be a boolean.`);
+  return value;
+}
+
+function requiredStringArray(value: unknown, name: string): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${name} must be a non-empty string array.`);
+  }
+  return value.map((entry) => requiredString(entry, name));
 }
 
 function requiredVisibility(value: unknown): "public" | "private" {

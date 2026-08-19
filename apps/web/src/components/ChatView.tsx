@@ -351,6 +351,7 @@ import {
   resolveProviderModelLabel,
 } from "./chat/ProviderModelPicker";
 import { ComposerModelEffortPicker } from "./chat/ComposerModelEffortPicker";
+import { ComposerConnectionControl } from "./chat/ComposerConnectionControl";
 import { resolveTraitsTriggerSummary, TraitsPicker } from "./chat/TraitsPicker";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import {
@@ -359,7 +360,6 @@ import {
 } from "./chat/ComposerLocalDirectoryMenu";
 import { ComposerPendingApprovalPanel } from "./middle-panel/composer-pending-approval/ComposerPendingApprovalPanel";
 import { ComposerExtrasMenu } from "./chat/ComposerExtrasMenu";
-import { ComposerQuickSettings } from "./chat/ComposerQuickSettings";
 import { ComposerPendingUserInputPanel } from "./middle-panel/composer-user-question/ComposerPendingUserInputPanel";
 import { ButtonSend } from "./middle-panel/button-send/ButtonSend";
 import { ComposerActions } from "./middle-panel/composer-actions/ComposerActions";
@@ -1940,6 +1940,30 @@ export default function ChatView({
   }, [
     providerConnectionsQuery.data,
     runtimeModelsByProvider,
+    selectedModelSelection.model,
+    selectedProvider,
+  ]);
+  const composerConnectionCandidates = useMemo(() => {
+    if (selectedModelConnections.length > 0 || hasThreadStarted) {
+      return selectedModelConnections;
+    }
+    const snapshot = providerConnectionsQuery.data;
+    if (snapshot === undefined) return selectedModelConnections;
+    return snapshot.connections.filter(
+      (connection) =>
+        connection.harness === selectedProvider &&
+        connection.lifecycle === "active" &&
+        connectionAuthorizesModel({
+          snapshot,
+          connectionId: connection.id,
+          provider: selectedProvider,
+          model: selectedModelSelection.model,
+        }),
+    );
+  }, [
+    hasThreadStarted,
+    providerConnectionsQuery.data,
+    selectedModelConnections,
     selectedModelSelection.model,
     selectedProvider,
   ]);
@@ -6878,14 +6902,6 @@ export default function ChatView({
           hiddenProviders={composerHiddenProviders}
           providerOrder={settings.providerOrder}
           onProviderModelChange={onProviderModelSelect}
-          {...(hasThreadStarted
-            ? {
-                connections: selectedModelConnections,
-                ...(selectedConnectionId === undefined ? {} : { selectedConnectionId }),
-                onConnectionChange: handleConnectionChange,
-                onManageConnections: handleManageConnections,
-              }
-            : {})}
           onSelectionCommitted={scheduleComposerFocus}
           open={isModelPickerOpen}
           onOpenChange={handleModelPickerOpenChange}
@@ -6937,14 +6953,6 @@ export default function ChatView({
       prompt={prompt}
       onPromptChange={setPromptFromTraits}
       onProviderModelChange={onProviderModelSelect}
-      {...(hasThreadStarted
-        ? {
-            connections: selectedModelConnections,
-            ...(selectedConnectionId === undefined ? {} : { selectedConnectionId }),
-            onConnectionChange: handleConnectionChange,
-            onManageConnections: handleManageConnections,
-          }
-        : {})}
       onSelectionCommitted={scheduleComposerFocus}
       open={isComposerModelEffortPickerOpen}
       onOpenChange={handleComposerModelEffortPickerOpenChange}
@@ -8066,15 +8074,18 @@ export default function ChatView({
                     applicationTrailing={
                       <>
                         {!isVoiceRecording && !isVoiceTranscribing ? composerPickerControls : null}
-                        {!isVoiceRecording && !isVoiceTranscribing ? (
-                          <span
-                            className="inline-flex shrink-0 @max-[280px]:hidden"
-                            data-pencil-action="mode"
-                          >
-                            <ComposerQuickSettings
-                              onSelect={() => handleComposerModelEffortPickerOpenChange(true)}
-                            />
-                          </span>
+                        {!isVoiceRecording &&
+                        !isVoiceTranscribing &&
+                        selectedConnectionId !== null &&
+                        composerConnectionCandidates.length > 0 ? (
+                          <ComposerConnectionControl
+                            provider={selectedProvider}
+                            connections={composerConnectionCandidates}
+                            selectedConnectionId={selectedConnectionId}
+                            onConnectionChange={handleConnectionChange}
+                            onManageConnections={handleManageConnections}
+                            onSelectionCommitted={scheduleComposerFocus}
+                          />
                         ) : null}
                         {showVoiceNotesControl && (isVoiceRecording || isVoiceTranscribing) ? (
                           <VoiceRecorderShared

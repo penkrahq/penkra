@@ -1,6 +1,6 @@
 // FILE: providerUsage/providers/codex.ts
 // Purpose: Live Codex (ChatGPT/OpenAI) usage fetcher. Reads the OAuth access token from the
-// Codex CLI auth.json (or the macOS keychain) read-only and calls the ChatGPT backend usage
+// Codex CLI auth.json read-only and calls the ChatGPT backend usage
 // endpoint, mapping rate-limit windows + credit balance into the shared snapshot shape.
 // Reference: openusage plugins/codex/plugin.js.
 
@@ -8,7 +8,7 @@ import nodePath from "node:path";
 
 import type { ServerProviderUsageLimit, ServerProviderUsageLine } from "@penkra/contracts";
 
-import { decodeKeychainJson, readJsonFile, readKeychainPassword } from "../credentials";
+import { readJsonFile } from "../credentials";
 import { fetchJson, isAuthFailureStatus } from "../http";
 import {
   asFiniteNumber,
@@ -60,17 +60,6 @@ async function resolveCodexAuth(ctx: ProviderUsageContext): Promise<CodexAuth | 
 
   for (const path of authFilePaths(ctx)) {
     const parsed = readCodexAuthRecord(asRecord(await readJsonFile(path)));
-    if (parsed && parsed !== "api-key-only") {
-      return parsed;
-    }
-    if (parsed === "api-key-only") {
-      sawApiKeyOnly = true;
-    }
-  }
-
-  const keychain = await readKeychainPassword({ service: "Codex Auth", platform: ctx.platform });
-  if (keychain) {
-    const parsed = readCodexAuthRecord(asRecord(decodeKeychainJson(keychain)));
     if (parsed && parsed !== "api-key-only") {
       return parsed;
     }

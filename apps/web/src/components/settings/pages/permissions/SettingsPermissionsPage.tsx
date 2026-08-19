@@ -83,6 +83,7 @@ export function SettingsPermissionsPage() {
                       </span>
                       <span className="block text-[length:var(--app-font-size-ui,12px)] leading-relaxed text-[var(--color-text-foreground-tertiary)]">
                         {permission.reason}
+                        {permission.audience ? ` Audience: ${permission.audience}.` : ""}
                         {permission.required ? " Required while the App is enabled." : " Optional."}
                       </span>
                     </span>
@@ -133,7 +134,12 @@ const STANDARD_PERMISSION_REASONS: Readonly<Record<string, string>> = {
 };
 
 function permissionRows(
-  declared: ReadonlyArray<{ name: string; required: boolean; reason: string }>,
+  declared: ReadonlyArray<{
+    name: string;
+    required: boolean;
+    reason: string;
+    audience?: string;
+  }>,
   grants: Readonly<Record<string, "denied" | "granted">>,
 ) {
   const rows = [...declared];

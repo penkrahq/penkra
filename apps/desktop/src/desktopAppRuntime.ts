@@ -80,6 +80,7 @@ export async function startDesktopAppRuntime(input: {
   onInvalidRendererMessage?: (error: Error, senderId: number) => void;
   assertAppAllowed?: (app: import("./appInstallationState").InstalledAppPackage) => Promise<void>;
   getAccountId?: () => Promise<string | null>;
+  eraseAppStorage?: (appId: string, spaceId: string) => Promise<void>;
   requestStandardPermissions?: (input: {
     appId: string;
     appName: string;
@@ -232,6 +233,7 @@ export async function startDesktopAppRuntime(input: {
       eraseData: async (appId, spaceId, eraseAppHandles) => {
         await sessions.eraseData(appId, spaceId);
         await vault.erase(appId, eraseAppHandles ? undefined : spaceId);
+        await input.eraseAppStorage?.(appId, spaceId);
       },
     },
     settingSecrets: vault,

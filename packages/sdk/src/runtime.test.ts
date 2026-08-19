@@ -6,6 +6,7 @@ import {
   operations,
   permissions,
   settings,
+  storage,
   tab,
   type PenkraAppRuntimeApi,
 } from "./runtime";
@@ -20,6 +21,7 @@ function createBrowserMock(): PenkraAppRuntimeApi["browser"] {
     close: vi.fn(),
     getState: vi.fn(),
     onState: vi.fn(),
+    onDownload: vi.fn(),
     setSurfaceLayout: vi.fn(),
     navigate: vi.fn(),
     reload: vi.fn(),
@@ -45,9 +47,24 @@ function createFilesMock(): PenkraAppRuntimeApi["files"] {
     listDirectory: vi.fn(),
     readText: vi.fn(),
     readBinary: vi.fn(),
+    beginWrite: vi.fn(),
+    writeChunk: vi.fn(),
+    commitWrite: vi.fn(),
+    abortWrite: vi.fn(),
     writeText: vi.fn(),
     createDirectory: vi.fn(),
     watch: vi.fn(),
+  };
+}
+
+function createStorageMock(): PenkraAppRuntimeApi["storage"] {
+  return {
+    fetchToFile: vi.fn(),
+    writeFile: vi.fn(),
+    uploadFromFile: vi.fn(),
+    remove: vi.fn(),
+    list: vi.fn(),
+    usage: vi.fn(),
   };
 }
 
@@ -82,10 +99,15 @@ describe("framework-neutral App runtime exports", () => {
     const runtime: PenkraAppRuntimeApi = {
       contextMenu: { show: vi.fn(async () => null) },
       files: createFilesMock(),
+      storage: createStorageMock(),
+      composer: { stage: vi.fn() },
       open: vi.fn(),
       browser: createBrowserMock(),
       simulator: createSimulatorMock(),
-      identity: { get: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })) },
+      identity: {
+        get: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })),
+        getToken: vi.fn(),
+      },
       account: { request: vi.fn(), subscribe: vi.fn() },
       settings: {
         get: vi.fn(async () => "value"),
@@ -114,7 +136,9 @@ describe("framework-neutral App runtime exports", () => {
       },
       operations: { handle: vi.fn(() => vi.fn()) },
       tab: {
+        getContext: vi.fn(),
         setRoute: vi.fn(async () => undefined),
+        onVisibilityChange: vi.fn(() => vi.fn()),
         handle: vi.fn(() => vi.fn()),
         onNavigate: vi.fn(() => vi.fn()),
       },
@@ -123,29 +147,39 @@ describe("framework-neutral App runtime exports", () => {
     const operationHandler = vi.fn();
     const tabHandler = vi.fn();
     const navigationHandler = vi.fn();
+    const visibilityHandler = vi.fn();
 
     operations.handle("issues.create", operationHandler);
     tab.handle("selection.replace-text", tabHandler);
     tab.onNavigate(navigationHandler);
+    tab.onVisibilityChange(visibilityHandler);
     await tab.setRoute({ route: "/document", state: { documentId: "doc-1" } });
+    await storage.usage();
 
     expect(runtime.operations.handle).toHaveBeenCalledWith("issues.create", operationHandler);
     expect(runtime.tab.handle).toHaveBeenCalledWith("selection.replace-text", tabHandler);
     expect(runtime.tab.onNavigate).toHaveBeenCalledWith(navigationHandler);
+    expect(runtime.tab.onVisibilityChange).toHaveBeenCalledWith(visibilityHandler);
     expect(runtime.tab.setRoute).toHaveBeenCalledWith({
       route: "/document",
       state: { documentId: "doc-1" },
     });
+    expect(runtime.storage.usage).toHaveBeenCalledOnce();
   });
 
   it("forwards read-only permission inspection to the preload-owned API", async () => {
     const runtime: PenkraAppRuntimeApi = {
       contextMenu: { show: vi.fn(async () => null) },
       files: createFilesMock(),
+      storage: createStorageMock(),
+      composer: { stage: vi.fn() },
       open: vi.fn(),
       browser: createBrowserMock(),
       simulator: createSimulatorMock(),
-      identity: { get: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })) },
+      identity: {
+        get: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })),
+        getToken: vi.fn(),
+      },
       account: {
         request: vi.fn(async () => ({ status: 200, headers: {}, body: new Uint8Array() })),
         subscribe: vi.fn(async () => vi.fn()),
@@ -177,7 +211,9 @@ describe("framework-neutral App runtime exports", () => {
       },
       operations: { handle: vi.fn(() => vi.fn()) },
       tab: {
+        getContext: vi.fn(),
         setRoute: vi.fn(async () => undefined),
+        onVisibilityChange: vi.fn(() => vi.fn()),
         handle: vi.fn(() => vi.fn()),
         onNavigate: vi.fn(() => vi.fn()),
       },

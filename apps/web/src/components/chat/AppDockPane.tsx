@@ -37,14 +37,17 @@ export function AppDockPane(props: {
   useEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
-    void bridge.setActive({
+    return () => {
+      void bridge.setActive({ tabId: props.tabId, rendererId: props.rendererId, active: false });
+    };
+  }, [props.rendererId, props.tabId]);
+
+  useEffect(() => {
+    void window.desktopBridge?.appTabs?.setActive({
       tabId: props.tabId,
       rendererId: props.rendererId,
       active: props.visible,
     });
-    return () => {
-      void bridge.setActive({ tabId: props.tabId, rendererId: props.rendererId, active: false });
-    };
   }, [props.rendererId, props.tabId, props.visible]);
 
   useEffect(() => {

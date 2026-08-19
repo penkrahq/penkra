@@ -1,11 +1,12 @@
 // FILE: providerUsage/providers/claude.ts
-// Purpose: Live Claude (Anthropic) usage fetcher. Reads the Claude Code OAuth token from
-// ~/.claude/.credentials.json or the macOS keychain ("Claude Code-credentials", possibly
-// hex-encoded) read-only, and calls the OAuth usage endpoint, mapping the 5h/weekly/sonnet
-// utilization windows + extra-usage credits. Reference: openusage plugins/claude/plugin.js.
+// Purpose: Live Claude (Anthropic) usage fetcher. Managed macOS Connections ask Claude Code's
+// local `/usage` command for live limits (so Penkra never reads the Keychain directly); file-backed
+// credentials use the OAuth usage endpoint. Reference: openusage plugins/claude/plugin.js.
 
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import nodePath from "node:path";
+import { promisify } from "node:util";
 
 import type {
   ServerProviderUsageLimit,
@@ -13,12 +14,7 @@ import type {
   ServerProviderUsageSnapshot,
 } from "@penkra/contracts";
 
-import {
-  decodeKeychainJson,
-  readJsonFile,
-  readKeychainPassword,
-  refreshOAuthAccessToken,
-} from "../credentials";
+import { readJsonFile, refreshOAuthAccessToken } from "../credentials";
 import { fetchJson, isAuthFailureStatus, isRateLimitStatus, parseRetryAfterMs } from "../http";
 import {
   asFiniteNumber,
@@ -39,10 +35,11 @@ const SOURCE = "claude-oauth-usage";
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const REFRESH_URL = "https://platform.claude.com/v1/oauth/token";
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-const KEYCHAIN_SERVICE = "Claude Code-credentials";
 const SCOPES =
   "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
+const CLAUDE_USAGE_COMMAND_TIMEOUT_MS = 15_000;
+const execFileAsync = promisify(execFile);
 
 interface ClaudeCreds {
   accessToken: string;
@@ -93,29 +90,6 @@ async function resolveClaudeCredCandidates(ctx: ProviderUsageContext): Promise<C
     }
   }
 
-  // Claude Code may store the same service under the current macOS account; try that before
-  // the legacy service-only lookup so file-less installs still resolve like OpenUsage.
-  const keychainAccount = asString(ctx.env.USER) ?? asString(ctx.env.LOGNAME);
-  const keychain =
-    keychainAccount !== undefined
-      ? await readKeychainPassword({
-          service: KEYCHAIN_SERVICE,
-          account: keychainAccount,
-          platform: ctx.platform,
-        })
-      : null;
-  const keychainFallback =
-    keychain ??
-    (await readKeychainPassword({
-      service: KEYCHAIN_SERVICE,
-      platform: ctx.platform,
-    }));
-  if (keychainFallback) {
-    const creds = readClaudeCreds(asRecord(decodeKeychainJson(keychainFallback)));
-    if (creds) {
-      candidates.push(creds);
-    }
-  }
   return candidates;
 }
 
@@ -137,6 +111,69 @@ function claudePlanName(creds: ClaudeCreds): string | undefined {
     name += ` (${tier.toLowerCase()})`;
   }
   return name;
+}
+
+export function parseClaudeCliUsage(input: { text: string; nowMs: number }) {
+  const limits: ServerProviderUsageLimit[] = [];
+  const linePattern = /^(.+?):\s*(\d+(?:\.\d+)?)%\s+used(?:\s+·\s+resets\s+.+)?$/gimu;
+  for (const match of input.text.matchAll(linePattern)) {
+    const label = match[1]?.trim().toLowerCase();
+    const usedPercent = clampPercent(Number(match[2]));
+    if (!label || usedPercent === undefined) continue;
+
+    if (label === "current session") {
+      limits.push({ window: "5h", usedPercent, windowDurationMins: 300 });
+    } else if (label.startsWith("current week")) {
+      limits.push({ window: "Weekly", usedPercent, windowDurationMins: 10_080 });
+    } else if (label.includes("sonnet")) {
+      limits.push({ window: "Sonnet", usedPercent, windowDurationMins: 10_080 });
+    } else if (label.includes("opus")) {
+      limits.push({ window: "Opus", usedPercent, windowDurationMins: 10_080 });
+    }
+  }
+  if (limits.length === 0) return null;
+  return buildSnapshot({
+    provider: "claudeAgent",
+    nowMs: input.nowMs,
+    status: "ok",
+    source: "claude-cli-usage",
+    limits,
+  });
+}
+
+async function fetchManagedClaudeCliUsage(
+  ctx: ProviderUsageContext,
+): Promise<ServerProviderUsageSnapshot | null> {
+  if (ctx.credentialScope !== "managed-connection") return null;
+  try {
+    const { stdout } = await execFileAsync(
+      "claude",
+      [
+        "-p",
+        "/usage",
+        "--output-format",
+        "json",
+        "--tools",
+        "",
+        "--no-session-persistence",
+        "--setting-sources",
+        "",
+      ],
+      {
+        cwd: ctx.homeDir,
+        env: ctx.env,
+        encoding: "utf8",
+        timeout: CLAUDE_USAGE_COMMAND_TIMEOUT_MS,
+        maxBuffer: 256 * 1024,
+      },
+    );
+    const result = asRecord(JSON.parse(stdout));
+    if (result?.is_error === true || asString(result?.subtype) !== "success") return null;
+    const text = asString(result?.result);
+    return text ? parseClaudeCliUsage({ text, nowMs: ctx.nowMs }) : null;
+  } catch {
+    return null;
+  }
 }
 
 // Builds a non-secret cooldown key tied to the credential currently resolved from disk/keychain.
@@ -248,6 +285,8 @@ export const claudeUsageFetcher: ProviderUsageFetcher = {
   async fetch(ctx) {
     const candidates = await resolveClaudeCredCandidates(ctx);
     if (candidates.length === 0) {
+      const cliSnapshot = await fetchManagedClaudeCliUsage(ctx);
+      if (cliSnapshot) return cliSnapshot;
       return needsAuthSnapshot("claudeAgent", ctx.nowMs, SOURCE);
     }
 

@@ -96,6 +96,7 @@ function tab(id: string, overrides: Partial<AppTabEndpoint> = {}): AppTabEndpoin
     appId: "com.acme.linear",
     spaceId: "personal",
     threadId: "thread-1",
+    close: vi.fn(async () => undefined),
     navigate: vi.fn(async () => undefined),
     navigateForResult: vi.fn(async () => ({ accepted: true })) as never,
     invoke: vi.fn(async () => ({ updated: true })) as never,

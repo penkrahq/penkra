@@ -11,6 +11,7 @@ export interface PastedTextDraft {
   id: string;
   createdAt: string;
   text: string;
+  title?: string;
   // Cached metrics so cards render a label without recomputing on every render.
   lineCount: number;
   charCount: number;
@@ -66,12 +67,14 @@ export function createPastedTextDraft(input: {
   id: string;
   createdAt: string;
   text: string;
+  title?: string;
 }): PastedTextDraft {
   const text = normalizePastedTextContent(input.text);
   return {
     id: input.id,
     createdAt: input.createdAt,
     text,
+    ...(input.title?.trim() ? { title: input.title.trim() } : {}),
     lineCount: countPastedTextLines(text),
     charCount: text.length,
   };

@@ -330,6 +330,15 @@ export class DesktopBrowserManager {
     this.sessionPartitionByThreadId.set(threadId, partition);
   }
 
+  pageForWebContentsId(webContentsId: number): { threadId: ThreadId; pageId: string } | null {
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.webContents.id === webContentsId) {
+        return { threadId: runtime.threadId, pageId: runtime.tabId };
+      }
+    }
+    return null;
+  }
+
   hasSession(threadId: ThreadId): boolean {
     return this.states.has(threadId);
   }

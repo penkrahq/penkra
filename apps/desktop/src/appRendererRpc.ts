@@ -17,6 +17,7 @@ export type AppRendererRpcMethod = (typeof APP_RENDERER_RPC_METHODS)[number];
 
 export const APP_RENDERER_CONTEXT_METHODS = [
   "context.tab.invoke",
+  "context.tab.close",
   "context.tab.navigate",
   "context.tab.navigate-for-result",
   "context.tabs.open",

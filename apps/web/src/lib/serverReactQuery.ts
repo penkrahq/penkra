@@ -1,4 +1,5 @@
 import type {
+  ProviderConnectionId,
   ProviderKind,
   ServerConfig,
   ServerListProviderUsageInput,
@@ -22,8 +23,11 @@ export const serverQueryKeys = {
   localServers: () => ["server", "localServers"] as const,
   providerUsage: (provider: ProviderKind | null | undefined, homePath?: string | null) =>
     ["server", "providerUsage", provider ?? null, homePath ?? null] as const,
-  allProviderUsage: (provider?: ProviderKind | null) =>
-    ["server", "allProviderUsage", provider ?? null] as const,
+  allProviderUsage: (
+    provider?: ProviderKind | null,
+    connectionIds?: ReadonlyArray<ProviderConnectionId>,
+  ) =>
+    ["server", "allProviderUsage", provider ?? null, ...(connectionIds ?? []).toSorted()] as const,
   profileStats: (utcOffsetMinutes: number) =>
     ["server", "profileStats", "peak-hour-v2", utcOffsetMinutes] as const,
   profileTokenStats: (utcOffsetMinutes: number) =>
@@ -325,17 +329,23 @@ export function serverAllProviderUsageQueryOptions(
     | {
         enabled?: boolean;
         provider?: ProviderKind | null;
+        connectionIds?: ReadonlyArray<ProviderConnectionId>;
       } = true,
 ) {
   const enabled = typeof input === "boolean" ? input : (input.enabled ?? true);
   const provider = typeof input === "boolean" ? null : (input.provider ?? null);
+  const connectionIds = typeof input === "boolean" ? undefined : input.connectionIds;
   return queryOptions({
-    queryKey: serverQueryKeys.allProviderUsage(provider),
+    queryKey: serverQueryKeys.allProviderUsage(provider, connectionIds),
     enabled,
     staleTime: 60_000,
-    refetchInterval: 60_000,
+    refetchInterval: false,
     refetchOnWindowFocus: false,
     retry: false,
-    queryFn: async () => fetchAllProviderUsage(provider ? { provider } : {}),
+    queryFn: async () =>
+      fetchAllProviderUsage({
+        ...(provider ? { provider } : {}),
+        ...(connectionIds === undefined ? {} : { connectionIds: [...connectionIds] }),
+      }),
   });
 }

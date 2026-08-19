@@ -253,6 +253,13 @@ export class ElectronAppTabHost implements AppTabHost {
     } else {
       if (this.#visibleTabId === tabId) this.#visibleTabId = null;
     }
+    this.#sendEvent(record, "lifecycle.visibility", { active });
+    this.#onDiagnostic({
+      kind: active ? "tab-activated" : "tab-deactivated",
+      appId: record.app.appId,
+      spaceId: record.descriptor.spaceId,
+      tabId,
+    });
     return true;
   }
 
@@ -266,8 +273,19 @@ export class ElectronAppTabHost implements AppTabHost {
       route: input.route,
       ...(input.state === undefined ? {} : { state: input.state }),
     };
-    record.descriptor = { ...record.descriptor, route: input.route };
+    record.descriptor = {
+      ...record.descriptor,
+      route: input.route,
+      ...(input.state === undefined ? { state: undefined } : { state: input.state }),
+    };
     this.#onState(record.descriptor);
+    this.#onDiagnostic({
+      kind: "tab-navigation-recorded",
+      appId: record.app.appId,
+      spaceId: record.descriptor.spaceId,
+      tabId,
+      message: input.route,
+    });
   }
 
   acceptFrameMessage(tabId: string, rendererId: number, message: unknown): void {
@@ -303,7 +321,35 @@ export class ElectronAppTabHost implements AppTabHost {
   markFrameReady(tabId: string, rendererId: number): void {
     const record = this.#matchingRenderer(tabId, rendererId);
     if (!record) throw new Error("The App frame is stale.");
-    if (record.frameReady) return;
+    if (record.frameReady) {
+      const startedAt = performance.now();
+      void this.#request(tabId, "tab.navigate", record.navigation).then(
+        () =>
+          this.#onDiagnostic({
+            kind: "tab-navigation-restored",
+            appId: record.app.appId,
+            spaceId: record.descriptor.spaceId,
+            tabId,
+            durationMs: Math.round(performance.now() - startedAt),
+            message: record.navigation.route,
+          }),
+        (error: unknown) =>
+          this.#onDiagnostic({
+            kind: "tab-navigation-restore-failed",
+            appId: record.app.appId,
+            spaceId: record.descriptor.spaceId,
+            tabId,
+            durationMs: Math.round(performance.now() - startedAt),
+            message: error instanceof Error ? error.message : String(error),
+          }),
+      );
+      if (this.#themeCss) this.#sendEvent(record, "appearance.theme-css", this.#themeCss);
+      if (this.#typographyCss) {
+        this.#sendEvent(record, "appearance.typography-css", this.#typographyCss);
+      }
+      this.#sendEvent(record, "lifecycle.visibility", { active: this.#visibleTabId === tabId });
+      return;
+    }
     record.frameReady = true;
     record.descriptor = { ...record.descriptor, status: "ready" };
     this.#onState(record.descriptor);
@@ -433,6 +479,7 @@ export class ElectronAppTabHost implements AppTabHost {
       spaceId: input.spaceId,
       threadId: input.threadId,
       route: input.route,
+      ...(input.state === undefined ? {} : { state: input.state }),
       status: "loading",
       documentUrl,
     };
@@ -457,6 +504,7 @@ export class ElectronAppTabHost implements AppTabHost {
       appId: input.app.appId,
       spaceId: input.spaceId,
       threadId: input.threadId,
+      close: async () => this.close(id),
       navigate: (navigation) => this.#navigate(id, navigation),
       navigateForResult: (navigation) => this.#request(id, "tab.navigate-for-result", navigation),
       invoke: (request) => this.#request(id, "tab.invoke", request),

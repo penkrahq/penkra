@@ -129,6 +129,7 @@ function operationContext(tab?: AppTabHandle): OperationContext {
 function tabHandle(id: string): AppTabHandle {
   return {
     id,
+    close: vi.fn(async () => undefined),
     navigate: vi.fn(async () => undefined),
     navigateForResult: vi.fn(async () => ({ saved: true })) as never,
     invoke: vi.fn(async () => ({ updated: true })) as never,

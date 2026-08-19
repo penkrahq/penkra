@@ -70,6 +70,8 @@ describe("AppCommandPipeServer", () => {
         select: vi.fn(async () => ({})),
         scroll: vi.fn(async () => ({})),
         wait: vi.fn(async () => ({})),
+        handleDialog: vi.fn(async () => ({})),
+        upload: vi.fn(async () => ({})),
       },
       providerCredentialVault: {
         store: vi.fn(async () => "provider-secret:stored"),

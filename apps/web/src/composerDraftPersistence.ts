@@ -102,6 +102,7 @@ const PersistedPastedTextDraft = Schema.Struct({
   id: Schema.String,
   createdAt: Schema.String,
   text: Schema.String,
+  title: Schema.optionalKey(Schema.String),
 });
 
 type PersistedPastedTextDraft = typeof PersistedPastedTextDraft.Type;
@@ -456,10 +457,11 @@ function normalizePersistedPastedTextDraft(value: unknown): PersistedPastedTextD
   const id = typeof candidate.id === "string" ? candidate.id : "";
   const createdAt = typeof candidate.createdAt === "string" ? candidate.createdAt : "";
   const text = typeof candidate.text === "string" ? normalizePastedTextContent(candidate.text) : "";
+  const title = typeof candidate.title === "string" ? candidate.title.trim() : "";
   if (id.length === 0 || text.length === 0) {
     return null;
   }
-  return { id, createdAt, text };
+  return { id, createdAt, text, ...(title ? { title } : {}) };
 }
 
 function normalizePersistedQueuedTurns(
@@ -973,6 +975,7 @@ export function partializeComposerDraftStoreState(
                   id: pasted.id,
                   createdAt: pasted.createdAt,
                   text: pasted.text,
+                  ...(pasted.title ? { title: pasted.title } : {}),
                 })),
               }
             : {}),
@@ -1081,6 +1084,7 @@ export function partializeComposerDraftStoreState(
                       id: pasted.id,
                       createdAt: pasted.createdAt,
                       text: pasted.text,
+                      ...(pasted.title ? { title: pasted.title } : {}),
                     })),
                   }
                 : {}),
@@ -1146,6 +1150,7 @@ export function partializeComposerDraftStoreState(
               id: pasted.id,
               createdAt: pasted.createdAt,
               text: pasted.text,
+              ...(pasted.title ? { title: pasted.title } : {}),
             })),
           }
         : {}),

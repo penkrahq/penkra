@@ -19,9 +19,11 @@ const runtime = new AppPreloadRuntime({
   },
   ready: () => ipcRenderer.send(APP_RUNTIME_IPC_CHANNELS.ready),
   tabSetRoute: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.tabSetRoute, input),
+  tabGetContext: () => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.tabGetContext),
   queryPermission: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.permissionQuery, name),
   requestPermission: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.permissionRequest, name),
   getIdentity: () => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.identityGet),
+  getIdentityToken: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.identityGetToken, input),
   accountDataRequest: (input) =>
     ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.accountDataRequest, input),
   accountDataSubscribe: (channel, listener, options) =>
@@ -66,6 +68,14 @@ const runtime = new AppPreloadRuntime({
     ipcRenderer.on(APP_RUNTIME_IPC_CHANNELS.browserState, wrapped);
     return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.browserState, wrapped);
   },
+  onBrowserDownload: (listener) => {
+    const wrapped = (
+      _event: Electron.IpcRendererEvent,
+      download: import("@penkra/sdk").AppBrowserDownloadEvent,
+    ) => listener(download);
+    ipcRenderer.on(APP_RUNTIME_IPC_CHANNELS.browserDownload, wrapped);
+    return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.browserDownload, wrapped);
+  },
   simulatorCall: (method, input) =>
     ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.simulatorCall, { method, input }),
   onSimulatorState: (listener) => {
@@ -77,6 +87,9 @@ const runtime = new AppPreloadRuntime({
     return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.simulatorState, wrapped);
   },
   networkFetch: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.networkFetch, input),
+  storageCall: (method, input) =>
+    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.storageCall, { method, input }),
+  composerStage: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.composerStage, input),
   showContextMenu: (items) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.contextMenu, items),
 });
 

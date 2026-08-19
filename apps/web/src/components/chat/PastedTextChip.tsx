@@ -31,12 +31,14 @@ function PastedTextCardAction({ children, ...props }: ButtonHTMLAttributes<HTMLB
 
 function PastedTextCardShell({
   text,
+  title,
   metrics,
   action,
   onRemove,
   className,
 }: {
   text: string;
+  title?: string;
   metrics: PastedTextCardMetrics;
   action: ReactNode;
   onRemove?: () => void;
@@ -47,7 +49,7 @@ function PastedTextCardShell({
       size="sm"
       className={className}
       icon={<FileIcon className="size-3" />}
-      title={pastedTextTitle(text)}
+      title={title || pastedTextTitle(text)}
       subtitle={action}
       onRemove={onRemove}
       removeLabel={`Remove pasted text (${formatPastedTextCountLabel(metrics)})`}
@@ -57,6 +59,7 @@ function PastedTextCardShell({
 
 interface ComposerPastedTextCardProps {
   text: string;
+  title?: string;
   metrics: PastedTextCardMetrics;
   onShowInTextField: () => void;
   onRemove: () => void;
@@ -66,6 +69,7 @@ interface ComposerPastedTextCardProps {
 // "Show in text field" action that drops the full text back into the editor.
 export function ComposerPastedTextCard({
   text,
+  title,
   metrics,
   onShowInTextField,
   onRemove,
@@ -73,6 +77,7 @@ export function ComposerPastedTextCard({
   return (
     <PastedTextCardShell
       text={text}
+      {...(title ? { title } : {})}
       metrics={metrics}
       onRemove={onRemove}
       action={

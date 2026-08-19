@@ -37,6 +37,8 @@ export type OperationCancellationCode = (typeof OPERATION_CANCELLATION_CODES)[nu
 
 export interface AppTabHandle {
   readonly id: string;
+  /** Close this validated App-owned tab. */
+  close(): Promise<void>;
   /** Navigate the explicitly targeted existing tab and await accepted delivery. */
   navigate(input: { route: string; state?: unknown }): Promise<void>;
   /** Navigate the targeted tab and wait for its UI to complete the request. */

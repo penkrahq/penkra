@@ -155,6 +155,12 @@ async function handleContextCall(
       await resolveTab(context, openedTabs, record).navigate(parseNavigation(record));
       return null;
     }
+    case "context.tab.close": {
+      const tab = resolveTab(context, openedTabs, record);
+      await tab.close();
+      openedTabs.delete(tab.id);
+      return null;
+    }
     case "context.tab.navigate-for-result":
       return resolveTab(context, openedTabs, record).navigateForResult(parseNavigation(record));
     case "context.tab.invoke": {

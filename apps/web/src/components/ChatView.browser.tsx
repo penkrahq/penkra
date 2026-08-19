@@ -3155,7 +3155,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("hides Connection selection until the Thread has started", async () => {
+  it("shows the standalone Connection control on a new Thread", async () => {
     const base = createSnapshotForTargetUser({
       targetMessageId: "msg-user-new-thread-connection-menu" as MessageId,
       targetText: "unused bootstrap",
@@ -3175,6 +3175,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       const composerEditor = await waitForComposerEditor();
       await waitForServerConfigToApply();
+      const connectionTrigger = page.getByRole("button", { name: "Change connection" });
+      await expect.element(connectionTrigger).toBeVisible();
+      await connectionTrigger.hover();
+      await expect.element(page.getByText("personal@example.com", { exact: true })).toBeVisible();
+      expect(page.getByRole("button", { name: "Change mode", exact: true }).query()).toBeNull();
+
       composerEditor.focus();
       dispatchComposerPickerShortcut(composerEditor, "m");
 
@@ -3185,7 +3191,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("shows Connection selection after the Thread has started", async () => {
+  it("keeps Connection selection standalone after the Thread has started", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -3197,11 +3203,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       const composerEditor = await waitForComposerEditor();
       await waitForServerConfigToApply();
+      await expect.element(page.getByRole("button", { name: "Change connection" })).toBeVisible();
+      expect(page.getByRole("button", { name: "Change mode", exact: true }).query()).toBeNull();
+
       composerEditor.focus();
       dispatchComposerPickerShortcut(composerEditor, "m");
 
       await waitForComposerPickerSurfaceOpen();
-      await expect.element(page.getByText("Connection", { exact: true })).toBeVisible();
+      await expect.element(page.getByText("Connection", { exact: true })).not.toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }

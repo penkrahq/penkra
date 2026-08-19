@@ -15,6 +15,7 @@ export interface RightDockPane {
   appRendererId?: number;
   appDocumentUrl?: string;
   appRoute: string;
+  appState?: unknown;
   appStatus: "loading" | "ready" | "crashed";
 }
 
@@ -34,6 +35,7 @@ export interface OpenPaneInput {
   appRendererId?: number;
   appDocumentUrl?: string;
   appRoute: string;
+  appState?: unknown;
   appStatus: "loading" | "ready" | "crashed";
 }
 
@@ -60,6 +62,7 @@ function parsePersistedAppPane(value: unknown): RightDockPane | null {
     appSlug: value.appSlug,
     appName: value.appName,
     appRoute: value.appRoute,
+    ...(value.appState === undefined ? {} : { appState: value.appState }),
     appStatus: value.appStatus,
   };
 }
@@ -95,6 +98,7 @@ function createPane(input: OpenPaneInput): RightDockPane {
     ...(input.appRendererId === undefined ? {} : { appRendererId: input.appRendererId }),
     ...(input.appDocumentUrl === undefined ? {} : { appDocumentUrl: input.appDocumentUrl }),
     appRoute: input.appRoute,
+    ...(input.appState === undefined ? {} : { appState: input.appState }),
     appStatus: input.appStatus,
   };
 }
@@ -151,7 +155,7 @@ export function updatePaneInState(
   patch: Partial<
     Pick<
       RightDockPane,
-      "appDocumentUrl" | "appIconDataUrl" | "appRendererId" | "appRoute" | "appStatus"
+      "appDocumentUrl" | "appIconDataUrl" | "appRendererId" | "appRoute" | "appState" | "appStatus"
     >
   >,
 ): RightDockThreadState {
@@ -160,9 +164,11 @@ export function updatePaneInState(
     if (pane.id !== paneId) return pane;
     const next = { ...pane, ...patch };
     if (
+      next.appDocumentUrl === pane.appDocumentUrl &&
       next.appIconDataUrl === pane.appIconDataUrl &&
       next.appRendererId === pane.appRendererId &&
       next.appRoute === pane.appRoute &&
+      jsonValuesEqual(next.appState, pane.appState) &&
       next.appStatus === pane.appStatus
     ) {
       return pane;
@@ -171,6 +177,15 @@ export function updatePaneInState(
     return next;
   });
   return changed ? { ...state, panes } : state;
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
 }
 
 export function resolveActivePane(state: RightDockThreadState): RightDockPane | null {

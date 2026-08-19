@@ -65,6 +65,26 @@ describe("validateAppManifest", () => {
     expect(defineApp(validManifest)).toBe(validManifest);
   });
 
+  it("requires a DNS audience only for account identity", () => {
+    const permission = {
+      name: "account-identity",
+      required: true,
+      reason: "Sign in to Borge.",
+      audience: "api.borge.ai",
+    } as const;
+    expect(validateAppManifest({ ...validManifest, permissions: [permission] }).ok).toBe(true);
+    const missing = validateAppManifest({
+      ...validManifest,
+      permissions: [{ name: "account-identity", required: true, reason: "Sign in." }],
+    });
+    expect(missing.ok).toBe(false);
+    const leaked = validateAppManifest({
+      ...validManifest,
+      permissions: [{ ...validManifest.permissions[0], audience: "api.borge.ai" }],
+    });
+    expect(leaked.ok).toBe(false);
+  });
+
   it("keeps App slug and operation key separate", () => {
     const result = validateAppManifest({
       ...validManifest,

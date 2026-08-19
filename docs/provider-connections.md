@@ -89,7 +89,16 @@ turn admission.
 
 - Settings > Agents owns installation readiness and Connections.
 - Settings > Spaces owns per-Space defaults.
-- The composer model menu owns per-Thread Connection selection.
+- The composer owns a separate per-Thread Connection control beside the model
+  control. Connection switching is not nested inside model selection.
+- Account Connections show a user glyph. Opening their popup loads the
+  provider-reported usage windows for the exact isolated Connection profile;
+  usage is never prefetched or refreshed in the background.
+- API-key Connections show a key glyph instead of the account glyph. Their
+  popup explains that usage is unavailable in Penkra and opens the provider's
+  usage dashboard through the default system URL handler.
+- Codex and Claude declare account and API-key Connections. OpenCode declares
+  API-key Connections only.
 - Onboarding embeds the same Agents setup surface and remains skippable because
   OpenCode can expose provider-declared free models without a Connection.
 - OpenCode's anonymous model list comes from its live managed inventory. Penkra

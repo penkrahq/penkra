@@ -28,6 +28,7 @@ import {
   pruneProjectThreadListPagingForCollapsedProjects,
   resolveSidebarThreadListPaging,
   resolveProjectEmptyState,
+  resolveProjectHeaderState,
   resolveSettingsBackTarget,
   resolveProjectStatusIndicator,
   resolveSidebarWorkStatus,
@@ -47,6 +48,38 @@ import {
   type SidebarThreadSummary,
   type Thread,
 } from "../types";
+
+describe("resolveProjectHeaderState", () => {
+  it("highlights the folder only while its focused chat is still a local draft", () => {
+    expect(
+      resolveProjectHeaderState({
+        projectId: "project-a",
+        activeDraftProjectId: "project-a",
+        activeDraftPromotedTo: undefined,
+      }),
+    ).toBe("active");
+  });
+
+  it("clears the folder highlight as soon as the draft becomes a durable thread", () => {
+    expect(
+      resolveProjectHeaderState({
+        projectId: "project-a",
+        activeDraftProjectId: "project-a",
+        activeDraftPromotedTo: "thread-a",
+      }),
+    ).toBe("default");
+  });
+
+  it("does not highlight an unrelated folder", () => {
+    expect(
+      resolveProjectHeaderState({
+        projectId: "project-b",
+        activeDraftProjectId: "project-a",
+        activeDraftPromotedTo: undefined,
+      }),
+    ).toBe("default");
+  });
+});
 
 function makeLatestTurn(overrides?: {
   completedAt?: string | null;

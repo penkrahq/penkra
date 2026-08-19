@@ -53,7 +53,12 @@ export interface AppPackageEvidence {
   instructionsDigest: string;
   packageDigest: string;
   packageSizeBytes: number;
-  permissions: ReadonlyArray<{ permission: string; required: boolean; rationale: string }>;
+  permissions: ReadonlyArray<{
+    permission: string;
+    required: boolean;
+    rationale: string;
+    audience?: string;
+  }>;
 }
 
 export async function packageAppDirectory(input: {
@@ -101,6 +106,7 @@ export async function packageAppDirectory(input: {
       permission: permission.name,
       required: permission.required,
       rationale: permission.reason,
+      ...(permission.audience ? { audience: permission.audience } : {}),
     })),
   };
 }

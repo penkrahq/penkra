@@ -1,17 +1,12 @@
 // FILE: providerUsage/credentials.ts
-// Purpose: Credential resolution helpers for the usage fetchers — JSON files, macOS Keychain
-// reads (via the `security` CLI), OAuth refresh, JWT expiry decoding, and hex/JSON keychain
-// payload decoding. Helpers are defensive and resolve to null/false on failure.
+// Purpose: Credential resolution helpers for the usage fetchers — JSON files, OAuth refresh,
+// JWT expiry decoding, and legacy hex/JSON payload decoding. Helpers are defensive and resolve
+// to null/false on failure.
 
-import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
-import { promisify } from "node:util";
 
 import { fetchJson } from "./http";
 
-const execFileAsync = promisify(execFile);
-
-const KEYCHAIN_TIMEOUT_MS = 5_000;
 const DEFAULT_OAUTH_REFRESH_TIMEOUT_MS = 15_000;
 
 export interface OAuthRefreshAccessTokenResult {
@@ -95,32 +90,6 @@ export async function refreshOAuthAccessToken(input: {
       ? { expiresAtMs: Date.now() + expiresInSeconds * 1000 }
       : {}),
   };
-}
-
-/**
- * Read a generic-password secret from the macOS Keychain. Returns the raw secret string (the
- * caller decodes hex/JSON as needed), or null on any platform other than darwin / on failure.
- * Read-only: we never call `add-generic-password`.
- */
-export async function readKeychainPassword(input: {
-  service: string;
-  account?: string;
-  platform: NodeJS.Platform;
-}): Promise<string | null> {
-  if (input.platform !== "darwin") {
-    return null;
-  }
-  const args = ["find-generic-password", "-s", input.service, "-w"];
-  if (input.account) {
-    args.push("-a", input.account);
-  }
-  try {
-    const { stdout } = await execFileAsync("security", args, { timeout: KEYCHAIN_TIMEOUT_MS });
-    const value = stdout.trim();
-    return value.length > 0 ? value : null;
-  } catch {
-    return null;
-  }
 }
 
 /**

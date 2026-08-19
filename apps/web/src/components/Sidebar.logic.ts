@@ -29,6 +29,16 @@ export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
 export const DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY = "penkra:show-debug-feature-flags-menu";
 export type SidebarView = "threads" | "studio" | "workspace";
 
+export function resolveProjectHeaderState(input: {
+  readonly projectId: string;
+  readonly activeDraftProjectId: string | null | undefined;
+  readonly activeDraftPromotedTo: string | null | undefined;
+}): "active" | "default" {
+  return input.activeDraftProjectId === input.projectId && !input.activeDraftPromotedTo
+    ? "active"
+    : "default";
+}
+
 export function isProjectsSidebarSurface(input: {
   readonly isOnSettings: boolean;
   readonly isOnStudio: boolean;

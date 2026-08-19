@@ -106,6 +106,40 @@ describe("resolveAppTabObservationTarget", () => {
     expect(browserWebContents).not.toHaveBeenCalled();
   });
 
+  it("targets the hosted page for an ordinary App granted browser-session", async () => {
+    const hostedContents = makeContents().contents;
+    const browserWebContents = vi.fn(async () => hostedContents);
+    await expect(
+      resolveAppTabObservationTarget({
+        descriptor,
+        browserAppId: "com.penkra.browser",
+        allowHostedPage: true,
+        appTarget: vi.fn(),
+        browserWebContents,
+      }),
+    ).resolves.toEqual({ descriptor, webContents: hostedContents });
+  });
+
+  it("composes App and hosted-page targets for a partial reserved rectangle", async () => {
+    const appContents = makeContents().contents;
+    const hostedContents = makeContents().contents;
+    const insets = { top: 42, right: 0, bottom: 0, left: 0 };
+    await expect(
+      resolveAppTabObservationTarget({
+        descriptor,
+        browserAppId: "com.penkra.browser",
+        allowHostedPage: true,
+        hostedInsets: insets,
+        appTarget: () => ({ descriptor, webContents: appContents }),
+        browserWebContents: async () => hostedContents,
+      }),
+    ).resolves.toEqual({
+      descriptor,
+      webContents: appContents,
+      embedded: { target: { descriptor, webContents: hostedContents }, insets },
+    });
+  });
+
   it("prefers a trusted hosted surface when the App tab has one", async () => {
     const appContents = makeContents().contents;
     const hostedContents = makeContents().contents;
@@ -169,6 +203,57 @@ describe("AppTabObserver", () => {
       kind: "image",
       mimeType: "image/png",
       data: Buffer.from("png").toString("base64"),
+    });
+  });
+
+  it("can return a fresh observation with an action", async () => {
+    const { contents } = makeContents();
+    const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
+    await observer.snapshot("tab-1");
+    const result = (await observer.click("tab-1", "a1", true)) as {
+      clicked: boolean;
+      observation: { nodes: Array<{ name?: string }> };
+    };
+    expect(result.clicked).toBe(true);
+    expect(result.observation.nodes[0]).toMatchObject({ name: "Save" });
+  });
+
+  it("splices a partial hosted page into the App tree with frame-owned refs", async () => {
+    const app = makeContents().contents;
+    const page = makeContents().contents;
+    const observer = new AppTabObserver({
+      resolve: () => ({
+        descriptor,
+        webContents: app,
+        embedded: {
+          target: { descriptor, webContents: page },
+          insets: { top: 40, right: 0, bottom: 0, left: 0 },
+        },
+      }),
+    });
+    await expect(observer.snapshot("tab-1")).resolves.toMatchObject({
+      nodes: [
+        { ref: "a1" },
+        { ref: "a2" },
+        { role: "iframe", children: [{ ref: "p3" }, { ref: "p4" }] },
+      ],
+    });
+  });
+
+  it("validates App-storage paths before assigning a file input", async () => {
+    const { contents, sendCommand } = makeContents();
+    const validateUploadPaths = vi.fn(async () => ["/validated/report.pdf"]);
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents }),
+      validateUploadPaths,
+    });
+    await observer.snapshot("tab-1");
+    await expect(observer.upload("tab-1", "a1", ["report.pdf"])).resolves.toMatchObject({
+      uploaded: 1,
+    });
+    expect(sendCommand).toHaveBeenCalledWith("DOM.setFileInputFiles", {
+      files: ["/validated/report.pdf"],
+      backendNodeId: 7,
     });
   });
 });

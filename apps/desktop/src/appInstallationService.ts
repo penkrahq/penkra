@@ -303,7 +303,12 @@ export class AppInstallationService {
     appId: string;
     spaceId: string;
     permission: string;
-    confirm(request: { appName: string; permission: string; reason: string }): Promise<boolean>;
+    confirm(request: {
+      appName: string;
+      permission: string;
+      reason: string;
+      audience?: string;
+    }): Promise<boolean>;
   }): Promise<AppInstallationState> {
     const key = permissionKey(input.appId, input.spaceId, input.permission);
     const pending = this.#pendingPermissionRequests.get(key);
@@ -322,7 +327,12 @@ export class AppInstallationService {
       appId: string;
       spaceId: string;
       permission: string;
-      confirm(request: { appName: string; permission: string; reason: string }): Promise<boolean>;
+      confirm(request: {
+        appName: string;
+        permission: string;
+        reason: string;
+        audience?: string;
+      }): Promise<boolean>;
     },
     key: string,
   ): Promise<AppInstallationState> {
@@ -334,6 +344,7 @@ export class AppInstallationService {
       appName: getInstalledAppPackage(initial, input.appId, input.spaceId)!.name,
       permission: input.permission,
       reason: declaration.reason,
+      ...(declaration.audience ? { audience: declaration.audience } : {}),
     });
     if (!approved) return this.#store.snapshot();
     return this.#enqueue(async () => {

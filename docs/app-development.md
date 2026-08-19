@@ -116,17 +116,26 @@ blocked. Packaged WebAssembly is supported with `wasm-unsafe-eval`, which permit
 Wasm without permitting JavaScript `eval` or remote code loading. Network and hosted-service work
 crosses explicit host capabilities so permissions, destination checks,
 attribution, credentials, and revocation stay enforceable. The current special permissions are
-`network-fetch`, `browser-session`, `simulator-session`, and `account-data`.
+`network-fetch`, `browser-session`, `simulator-session`, `account-data`, and `account-identity`.
 
 ### Files and directories
 
 Use `files.pick("file")` or `files.pick("directory")`. The native picker is one authorization
 boundary; the trusted host may also hand an App one explicitly opened resource through a declared
 file or directory handler. Penkra returns an opaque handle ID plus bounded metadata, never an
-absolute path or a Chromium `FileSystemHandle`. Use `files.stat`, `files.listDirectory`, `files.readText`, chunked
-`files.readBinary`, `files.writeText`, `files.createDirectory`, and `files.watch` against that
+absolute path or a Chromium `FileSystemHandle`. Use `files.stat`, `files.listDirectory`,
+`files.readText`, chunked `files.readBinary`, `files.writeText`, atomic chunked writes with
+`files.beginWrite` / `files.writeChunk` / `files.commitWrite`, `files.createDirectory`, and
+`files.watch` against that
 handle. `open({ handleId, relativePath, with: "system" })` asks the trusted host to open one selected
 resource with the operating system.
+
+`readText` and `writeText` are convenience methods for text up to 16 MB. For larger files, read
+successive binary chunks and decode them with a streaming `TextDecoder`. To write a larger file,
+begin a write with its expected byte count (and optionally its SHA-256), send the returned maximum
+chunk size in order, then commit. Penkra writes to a temporary sibling and replaces the destination
+only after the size and checksum are valid. Abort the write on an App-side failure; Penkra also
+cleans unfinished writes when their tab, handle, or App scope closes.
 
 For a document whose relative asset URLs must resolve beside it, ask for the containing directory,
 then start the file picker in that directory and verify the returned file belongs to it:
@@ -189,6 +198,27 @@ the credential never enters the App renderer. The backend also verifies that the
 the calling registry App. A Space ID is context an App may use, not a claim that App data is
 automatically Space-owned or shared with Space members.
 
+For a backend outside Penkra's Account-data namespace, declare the high-risk `account-identity`
+permission with one lowercase DNS audience:
+
+```json
+{
+  "name": "account-identity",
+  "required": true,
+  "reason": "Sign you in to Borge.",
+  "audience": "api.borge.ai"
+}
+```
+
+After the grant, `identity.getToken({ audience: "api.borge.ai" })` returns a five-minute EdDSA JWT
+and its expiry. The host requires the requested audience to exactly match the reviewed manifest,
+keeps the Penkra Account cookie out of the renderer, and stops issuing tokens when the App loses
+access or its permission is revoked. The JWT contains the App ID, opaque Space ID, a verified email,
+and an audience-pairwise subject: two Apps using the same backend audience see the same subject,
+but another audience cannot correlate it. Backends must verify the signature through Penkra's JWKS,
+the exact issuer and audience, expiry, App ID, and `email_verified: true`. See
+[`app-account-identity.md`](./app-account-identity.md) for the verifier and key-rotation contract.
+
 `account.request` accepts only a namespace-relative path. Penkra constructs the destination from
 its configured Account service and the calling App ID, attaches the encrypted desktop Account
 session outside the renderer, rejects redirects and namespace traversal, bounds request and
@@ -226,6 +256,10 @@ const bar = createAppBar({
 });
 document.body.prepend(bar.element);
 tab.onNavigate(({ route, state }) => openRoute(route, state, { recordRoute: false }));
+tab.onVisibilityChange(({ active }) => {
+  if (active) resumeVisualWork();
+  else pauseVisualWork();
+});
 
 async function openDocument(documentId) {
   renderDocument(documentId);
@@ -249,6 +283,8 @@ host-asserted as `user`, `agent`, `app`, or `host`; caller identity is not expos
 
 When an invocation includes `tabId`, `context.tab` addresses exactly that validated App tab. Use
 `context.tab.invoke` for an in-place UI function and `context.tab.navigate` to change its App route.
+Call `context.tab.close()` to close that same validated, App-owned tab; do not retain a handle across
+invocations. Resolve the target again from each invocation so ownership and liveness are rechecked.
 Without a target, use `context.tabs.open`. Use `ForResult` variants only when an operation genuinely
 waits for a person. Cancellation includes tab close, timeout, disable, uninstall, and host shutdown.
 
@@ -257,6 +293,32 @@ navigation event. Penkra uses that latest recorded route and state when it recre
 
 Apps may invoke another enabled App's public operation through `context.operations.invoke`; the
 callee's schemas and permissions still apply. Apps cannot invoke private installation operations.
+
+## App storage, downloads, and composer staging
+
+`storage` is private to one App and Space. `writeFile`, `list`, `usage`, and `remove` operate only
+inside that root. `fetchToFile` streams an HTTPS response into it and `uploadFromFile` streams a
+stored file into an HTTPS request; both require `network-fetch`. Destinations are relative, returned
+paths are absolute, and an absolute upload source is accepted only when it resolves inside the same
+root. The host rejects traversal and symlinks, keeps a free-disk safety floor, and erases the root
+when App data is removed.
+
+The App never holds bulk bytes. Do not implement download-then-write as `network.fetch` followed by
+`storage.writeFile`: renderer RPC is limited to 1 MiB and that design fails only when real data
+arrives. Name both endpoints and let the host stream with `fetchToFile` or `uploadFromFile`.
+Absolute paths work because Penkra Threads execute locally. If execution becomes remote, this
+contract will require opaque handles and an explicit export step.
+
+Hosted-page downloads for an App with `browser-session` are redirected into
+`downloads/<tab-id>/` under its storage root. Subscribe with `browser.onDownload`; each transfer
+emits `pending` followed by `completed` or `failed`, with a sanitized collision-free destination.
+Wait for pending transfers before deleting run data or closing a workflow.
+
+An App declaring high-risk `thread-compose` may call `composer.stage` to stage text, titled
+documents, App-storage files/images, its own contributed Skills, effort, and an ordered list of model
+fallbacks. The host selects the first usable model and returns it. Staging never sends. It is rejected
+atomically with `COMPOSER_NOT_EMPTY` when the operator already has visible draft content or queued
+turns, so an App cannot silently overwrite work.
 
 Agents call the single registered `penkra_exec_command` host tool. Core commands start with
 `penkra`; App commands start with the enabled App's slug:
@@ -281,27 +343,36 @@ state, accessibility, and manual QA:
 ```text
 penkra tabs current
 penkra tabs list
-penkra tabs snapshot --tab-id <tab-id>
+penkra tabs snapshot --tab-id <tab-id> [--expand true]
 penkra tabs extract --tab-id <tab-id>
 penkra tabs screenshot --tab-id <tab-id>
-penkra tabs click --tab-id <tab-id> --ref a17
+penkra tabs click --tab-id <tab-id> --ref a17 [--observe true]
 penkra tabs hover --tab-id <tab-id> --ref a17
 penkra tabs type --tab-id <tab-id> --ref a18 --text "Updated copy"
 penkra tabs press --tab-id <tab-id> --key Enter
 penkra tabs select --tab-id <tab-id> --ref a19 --value done
 penkra tabs scroll --tab-id <tab-id> --delta-y 640
 penkra tabs wait --tab-id <tab-id> --text "Saved"
+penkra tabs handle-dialog --tab-id <tab-id> --accept true
+penkra tabs upload --tab-id <tab-id> --ref a20 --paths '["/absolute/app-storage/file.pdf"]'
 ```
 
 Take a fresh snapshot before using an element reference. References belong to one tab and document
 generation; navigation, reload, replacement, or close invalidates them. Snapshots retain relevant
 roles, names, values, and relationships while protected values are redacted. Extract returns
 bounded readable content. Screenshot returns an image result rather than a rediscoverable path.
+Use `--expand true` when a normal snapshot reports `truncated: true`. Action commands accept
+`--observe true` to return the acknowledgement and a fresh post-action snapshot together.
+`handle-dialog` resolves a blocking JavaScript alert, confirm, or prompt. `upload` accepts only files
+inside the owning App and Space's storage root and assigns them to the referenced file input.
 
 For ordinary Apps the observable document is the App iframe. The host resolves its exact
 `WebFrameMain`, executes inside that frame, and crops screenshots to its current shell DOM bounds.
-For an authorized hosted-document App, the target is the active visible hosted page. The target
-must belong to the caller Thread and Space. The
+For an App granted `browser-session`, observation follows the visible geometry. No hosted surface
+means the App document is observed; a full-frame hosted surface means the page is observed; a
+partial surface is spliced into the App tree as an iframe with `p`-prefixed page refs beside
+`a`-prefixed App refs. Actions route to the frame that issued each ref. The target must belong to the
+caller Thread and Space. The
 Penkra shell, composer, transcript, other Apps, other Threads, other Spaces, controllers, and hidden
 credential surfaces remain outside the boundary. App/page content is untrusted data and cannot
 amend agent instructions.

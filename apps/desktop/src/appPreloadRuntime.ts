@@ -27,6 +27,7 @@ export interface AppPreloadTransport {
   onHostMessage(listener: (message: unknown) => void): () => void;
   ready(): void;
   tabSetRoute(input: import("@penkra/sdk").AppTabNavigationInput): Promise<void>;
+  tabGetContext(): Promise<{ threadId: string; tabId: string | null }>;
   queryPermission(
     name: import("@penkra/sdk").PenkraPermissionName,
   ): Promise<import("@penkra/sdk").AppPermissionStatus>;
@@ -34,6 +35,7 @@ export interface AppPreloadTransport {
     name: import("@penkra/sdk").PenkraPermissionName,
   ): Promise<import("@penkra/sdk").AppPermissionStatus>;
   getIdentity(): Promise<import("@penkra/sdk").AppIdentity>;
+  getIdentityToken(input: { audience: string }): Promise<import("@penkra/sdk").AppIdentityToken>;
   accountDataRequest(
     input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["account"]["request"]>[0],
   ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["account"]["request"]>;
@@ -52,6 +54,9 @@ export interface AppPreloadTransport {
   onBrowserState(
     listener: (state: import("@penkra/sdk").AppBrowserSessionState) => void,
   ): () => void;
+  onBrowserDownload(
+    listener: (event: import("@penkra/sdk").AppBrowserDownloadEvent) => void,
+  ): () => void;
   simulatorCall(method: string, input?: unknown): Promise<unknown>;
   onSimulatorState(
     listener: (state: import("@penkra/sdk").AppSimulatorSessionState) => void,
@@ -59,6 +64,10 @@ export interface AppPreloadTransport {
   networkFetch(
     input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["network"]["fetch"]>[0],
   ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["network"]["fetch"]>;
+  storageCall(method: string, input?: unknown): Promise<unknown>;
+  composerStage(
+    input: import("@penkra/sdk").AppComposerStageInput,
+  ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["composer"]["stage"]>;
   showContextMenu<T extends string>(
     items: ReadonlyArray<import("@penkra/sdk").AppContextMenuItem<T>>,
   ): Promise<T | null>;
@@ -101,6 +110,10 @@ export class AppPreloadRuntime {
         readText: (handleId, relativePath) =>
           this.#runtimeV2Call("files.readText", { handleId, relativePath }),
         readBinary: (input) => this.#runtimeV2Call("files.readBinary", input),
+        beginWrite: (input) => this.#runtimeV2Call("files.beginWrite", input),
+        writeChunk: (input) => this.#runtimeV2Call("files.writeChunk", input),
+        commitWrite: (writeId) => this.#runtimeV2Call("files.commitWrite", { writeId }),
+        abortWrite: (writeId) => this.#runtimeV2Call("files.abortWrite", { writeId }),
         writeText: (handleId, source, relativePath) =>
           this.#runtimeV2Call("files.writeText", { handleId, source, relativePath }),
         createDirectory: (handleId, relativePath) =>
@@ -117,6 +130,29 @@ export class AppPreloadRuntime {
           };
         },
       },
+      storage: {
+        fetchToFile: (input) =>
+          this.#transport.storageCall("fetchToFile", input) as ReturnType<
+            PenkraAppRuntimeApi["storage"]["fetchToFile"]
+          >,
+        writeFile: (input) =>
+          this.#transport.storageCall("writeFile", input) as ReturnType<
+            PenkraAppRuntimeApi["storage"]["writeFile"]
+          >,
+        uploadFromFile: (input) =>
+          this.#transport.storageCall("uploadFromFile", input) as ReturnType<
+            PenkraAppRuntimeApi["storage"]["uploadFromFile"]
+          >,
+        remove: (input) => this.#transport.storageCall("remove", input) as Promise<void>,
+        list: (input) =>
+          this.#transport.storageCall("list", input) as ReturnType<
+            PenkraAppRuntimeApi["storage"]["list"]
+          >,
+        usage: () => this.#transport.storageCall("usage") as Promise<{ bytes: number }>,
+      },
+      composer: {
+        stage: (input) => this.#transport.composerStage(input),
+      },
       open: (input) => this.#runtimeV2Call("resources.open", input),
       browser: {
         open: (initialUrl) =>
@@ -129,6 +165,7 @@ export class AppPreloadRuntime {
             import("@penkra/sdk").AppBrowserSessionState
           >,
         onState: (listener) => this.#transport.onBrowserState(listener),
+        onDownload: (listener) => this.#transport.onBrowserDownload(listener),
         setSurfaceLayout: (insets) =>
           this.#transport.browserCall("setSurfaceLayout", insets) as Promise<void>,
         navigate: (input) =>
@@ -232,6 +269,7 @@ export class AppPreloadRuntime {
       },
       identity: {
         get: () => this.#transport.getIdentity(),
+        getToken: (input) => this.#transport.getIdentityToken(input),
       },
       account: {
         request: (input) => this.#transport.accountDataRequest(input),
@@ -265,7 +303,25 @@ export class AppPreloadRuntime {
           ),
       },
       tab: {
+        getContext: () => this.#transport.tabGetContext(),
         setRoute: (input) => this.#transport.tabSetRoute(input),
+        onVisibilityChange: (listener) => {
+          if (typeof listener !== "function") {
+            throw new TypeError("Visibility listener must be a function.");
+          }
+          return (
+            this.#transport.onEvent?.("lifecycle.visibility", (payload) => {
+              if (
+                payload &&
+                typeof payload === "object" &&
+                !Array.isArray(payload) &&
+                typeof (payload as { active?: unknown }).active === "boolean"
+              ) {
+                listener({ active: (payload as { active: boolean }).active });
+              }
+            }) ?? (() => undefined)
+          );
+        },
         handle: (operation, handler) =>
           registerUnique(
             this.#tabHandlers,
@@ -506,6 +562,9 @@ export class AppPreloadRuntime {
       opened ? { ...input, handleId: id } : input;
     return {
       id,
+      close: async () => {
+        await this.#contextCall(parentId, request, "context.tab.close", withHandle({}));
+      },
       navigate: async (input: { route: string; state?: unknown }) => {
         await this.#contextCall(parentId, request, "context.tab.navigate", withHandle(input));
       },

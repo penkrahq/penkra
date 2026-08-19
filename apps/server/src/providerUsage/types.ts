@@ -15,6 +15,8 @@ export interface ProviderUsageContext {
   readonly platform: NodeJS.Platform;
   /** Reference "now" in epoch ms, used for token-expiry checks (kept injectable for tests). */
   readonly nowMs: number;
+  /** Managed Connection profiles must never fall back to ambient OS credentials. */
+  readonly credentialScope?: "ambient" | "managed-connection";
 }
 
 export interface ProviderUsageFetcher {

@@ -38,9 +38,11 @@ describe("App tab state", () => {
     const activated = setActivePaneInState(second, "tab-1");
     const updated = updatePaneInState(activated, "tab-1", {
       appRoute: "/files/readme",
+      appState: { documentId: "readme" },
       appStatus: "loading",
     });
     expect(updated.panes[0]?.appRoute).toBe("/files/readme");
+    expect(updated.panes[0]?.appState).toEqual({ documentId: "readme" });
     expect(updated.panes[0]?.appStatus).toBe("loading");
 
     const closed = closePaneInState(updated, "tab-1");
@@ -68,12 +70,17 @@ describe("persisted App tabs", () => {
           appSlug: "explorer",
           appName: "Explorer",
           appRoute: "/",
+          appState: { documentId: "doc-1", viewport: { x: 20, y: 40 } },
           appStatus: "ready",
         },
         { id: "unsupported", kind: "unknown" },
       ],
     });
     expect(state.panes.map((pane) => pane.id)).toEqual(["valid"]);
+    expect(state.panes[0]?.appState).toEqual({
+      documentId: "doc-1",
+      viewport: { x: 20, y: 40 },
+    });
     expect(state.activePaneId).toBe("valid");
     expect(state.open).toBe(true);
   });
@@ -103,5 +110,17 @@ describe("persisted App tabs", () => {
       },
     });
     expect(result.thread?.panes[0]?.appSlug).toBe("apps");
+  });
+
+  it("does not churn state when equivalent reconstructed navigation is received", () => {
+    const state = openPaneInState(createDefaultRightDockState(), {
+      ...APP_PANE,
+      appState: { documentId: "doc-1", selection: ["node-1"] },
+    });
+    expect(
+      updatePaneInState(state, "tab-1", {
+        appState: { documentId: "doc-1", selection: ["node-1"] },
+      }),
+    ).toBe(state);
   });
 });

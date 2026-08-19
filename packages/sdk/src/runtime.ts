@@ -27,6 +27,11 @@ export interface AppIdentity {
   space: string;
 }
 
+export interface AppIdentityToken {
+  token: string;
+  expiresAt: string;
+}
+
 export interface AppAccountDataResponse {
   status: number;
   headers: Readonly<Record<string, string>>;
@@ -74,6 +79,11 @@ export interface AppScopedBinaryRead {
   complete: boolean;
 }
 
+export interface AppScopedFileWrite {
+  writeId: string;
+  chunkBytes: number;
+}
+
 export interface AppBrowserPage {
   id: string;
   url: string;
@@ -93,6 +103,17 @@ export interface AppBrowserSessionState {
   activePageId: string | null;
   pages: ReadonlyArray<AppBrowserPage>;
   lastError: string | null;
+}
+
+export interface AppBrowserDownloadEvent {
+  pageId: string;
+  url: string;
+  suggestedName: string;
+  mimeType: string;
+  state: "pending" | "completed" | "failed";
+  path: string;
+  bytes: number;
+  error?: string;
 }
 
 export interface AppBrowserFindResult {
@@ -127,6 +148,34 @@ export interface AppTabNavigationInput {
   state?: unknown;
 }
 
+export interface AppTabVisibility {
+  /** True while this tab is the visible right-panel App surface. */
+  active: boolean;
+}
+
+export interface AppStorageFileEntry {
+  /** Absolute host path inside this App's private storage root. */
+  path: string;
+  bytes: number;
+  modifiedAt: string;
+}
+
+export interface AppComposerModelSelection {
+  provider: string;
+  model: string;
+  options?: Readonly<Record<string, unknown>>;
+}
+
+export interface AppComposerStageInput {
+  text?: string;
+  documents?: Array<{ title: string; content: string }>;
+  files?: Array<{ name?: string; mimeType?: string; path: string }>;
+  images?: Array<{ name?: string; mimeType?: string; path: string }>;
+  skills?: string[];
+  model?: ReadonlyArray<AppComposerModelSelection>;
+  effort?: string;
+}
+
 export type AppTabNavigationHandler<Result = void> = (
   input: AppTabNavigationInput,
   context: AppTabHandlerContext,
@@ -154,6 +203,17 @@ export interface PenkraAppRuntimeApi {
       offset?: number;
       length?: number;
     }): Promise<AppScopedBinaryRead>;
+    beginWrite(input: {
+      handleId: string;
+      relativePath?: string;
+      expectedBytes: number;
+      expectedSha256?: string;
+    }): Promise<AppScopedFileWrite>;
+    writeChunk(input: { writeId: string; offset: number; bytes: Uint8Array }): Promise<{
+      writtenBytes: number;
+    }>;
+    commitWrite(writeId: string): Promise<void>;
+    abortWrite(writeId: string): Promise<void>;
     writeText(handleId: string, source: string, relativePath?: string): Promise<void>;
     createDirectory(handleId: string, relativePath: string): Promise<AppScopedFileEntry>;
     watch(
@@ -161,6 +221,37 @@ export interface PenkraAppRuntimeApi {
       relativePath: string | undefined,
       listener: () => void,
     ): Promise<() => void>;
+  };
+  /** Host-mediated private storage scoped to this App and Space. */
+  storage: {
+    fetchToFile(input: {
+      url: string;
+      method?: "GET" | "POST";
+      headers?: Record<string, string>;
+      body?: string;
+      into: string;
+    }): Promise<{ path: string; bytes: number; sha256: string }>;
+    writeFile(input: {
+      into: string;
+      content: string;
+      encoding?: "utf-8" | "base64";
+    }): Promise<{ path: string; bytes: number }>;
+    uploadFromFile(input: {
+      url: string;
+      method?: "POST" | "PUT";
+      headers?: Record<string, string>;
+      from: string;
+      field?: string;
+    }): Promise<{ status: number; headers: Record<string, string>; body: string }>;
+    remove(input: { path: string; recursive?: boolean }): Promise<void>;
+    list(input?: { path?: string }): Promise<ReadonlyArray<AppStorageFileEntry>>;
+    usage(): Promise<{ bytes: number }>;
+  };
+  composer: {
+    /** Stage a visible draft in this App surface's thread. Never sends it. */
+    stage(input: AppComposerStageInput): Promise<{
+      resolvedModel: AppComposerModelSelection | null;
+    }>;
   };
   /** Open one descendant of a scoped file handle with a trusted host handler. */
   open(input: { handleId: string; relativePath?: string; with: "system" }): Promise<void>;
@@ -170,6 +261,7 @@ export interface PenkraAppRuntimeApi {
     close(): Promise<void>;
     getState(): Promise<AppBrowserSessionState>;
     onState(listener: (state: AppBrowserSessionState) => void): () => void;
+    onDownload(listener: (event: AppBrowserDownloadEvent) => void): () => void;
     setSurfaceLayout(insets: AppHostedSurfaceInsets | null): Promise<void>;
     navigate(input: { pageId?: string; url: string }): Promise<AppBrowserSessionState>;
     reload(pageId: string): Promise<AppBrowserSessionState>;
@@ -216,6 +308,8 @@ export interface PenkraAppRuntimeApi {
   };
   identity: {
     get(): Promise<AppIdentity>;
+    /** Mint a short-lived token for this App's manifest-declared backend audience. */
+    getToken(input: { audience: string }): Promise<AppIdentityToken>;
   };
   /** Credential-hidden access to this App's Account-scoped backend namespace. */
   account: {
@@ -268,8 +362,12 @@ export interface PenkraAppRuntimeApi {
     ): () => void;
   };
   tab: {
+    /** Identity of this App-owned surface; thread is implicit for all privileged calls. */
+    getContext(): Promise<{ threadId: string; tabId: string | null }>;
     /** Record the App's current route so the host can restore it after reloads and updates. */
     setRoute(input: AppTabNavigationInput): Promise<void>;
+    /** Pause expensive visual work while the tab is retained but not visible. */
+    onVisibilityChange(listener: (visibility: AppTabVisibility) => void): () => void;
     handle<Input = unknown, Result = unknown>(
       operation: string,
       handler: AppTabOperationHandler<Input, Result>,
@@ -298,12 +396,29 @@ export const files: PenkraAppRuntimeApi["files"] = {
   listDirectory: (handleId, relativePath) => runtime().files.listDirectory(handleId, relativePath),
   readText: (handleId, relativePath) => runtime().files.readText(handleId, relativePath),
   readBinary: (input) => runtime().files.readBinary(input),
+  beginWrite: (input) => runtime().files.beginWrite(input),
+  writeChunk: (input) => runtime().files.writeChunk(input),
+  commitWrite: (writeId) => runtime().files.commitWrite(writeId),
+  abortWrite: (writeId) => runtime().files.abortWrite(writeId),
   writeText: (handleId, source, relativePath) =>
     runtime().files.writeText(handleId, source, relativePath),
   createDirectory: (handleId, relativePath) =>
     runtime().files.createDirectory(handleId, relativePath),
   watch: (handleId, relativePath, listener) =>
     runtime().files.watch(handleId, relativePath, listener),
+};
+
+export const storage: PenkraAppRuntimeApi["storage"] = {
+  fetchToFile: (input) => runtime().storage.fetchToFile(input),
+  writeFile: (input) => runtime().storage.writeFile(input),
+  uploadFromFile: (input) => runtime().storage.uploadFromFile(input),
+  remove: (input) => runtime().storage.remove(input),
+  list: (input) => runtime().storage.list(input),
+  usage: () => runtime().storage.usage(),
+};
+
+export const composer: PenkraAppRuntimeApi["composer"] = {
+  stage: (input) => runtime().composer.stage(input),
 };
 
 export const open: PenkraAppRuntimeApi["open"] = (input) => runtime().open(input);
@@ -313,6 +428,7 @@ export const browser: PenkraAppRuntimeApi["browser"] = {
   close: () => runtime().browser.close(),
   getState: () => runtime().browser.getState(),
   onState: (listener) => runtime().browser.onState(listener),
+  onDownload: (listener) => runtime().browser.onDownload(listener),
   setSurfaceLayout: (insets) => runtime().browser.setSurfaceLayout(insets),
   navigate: (input) => runtime().browser.navigate(input),
   reload: (pageId) => runtime().browser.reload(pageId),
@@ -366,6 +482,7 @@ export const permissions: PenkraAppRuntimeApi["permissions"] = {
 /** Installation-local pairwise subject and opaque Space identity for the current App context. */
 export const identity: PenkraAppRuntimeApi["identity"] = {
   get: () => runtime().identity.get(),
+  getToken: (input) => runtime().identity.getToken(input),
 };
 
 export const account: PenkraAppRuntimeApi["account"] = {
@@ -393,7 +510,9 @@ export const network: PenkraAppRuntimeApi["network"] = {
 
 /** Framework-neutral tab registration backed by the host preload bridge. */
 export const tab: PenkraAppRuntimeApi["tab"] = {
+  getContext: () => runtime().tab.getContext(),
   setRoute: (input) => runtime().tab.setRoute(input),
+  onVisibilityChange: (listener) => runtime().tab.onVisibilityChange(listener),
   handle: (operation, handler) => runtime().tab.handle(operation, handler),
   onNavigate: (handler) => runtime().tab.onNavigate(handler),
 };

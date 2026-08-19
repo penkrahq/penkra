@@ -34,7 +34,12 @@ interface RightDockStore {
     patch: Partial<
       Pick<
         RightDockPane,
-        "appDocumentUrl" | "appIconDataUrl" | "appRendererId" | "appRoute" | "appStatus"
+        | "appDocumentUrl"
+        | "appIconDataUrl"
+        | "appRendererId"
+        | "appRoute"
+        | "appState"
+        | "appStatus"
       >
     >,
   ) => void;

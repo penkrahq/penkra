@@ -376,7 +376,12 @@ export class AppRegistryClient {
       readmeDigest: string;
       instructionsDigest: string;
       packageSizeBytes: number;
-      permissions: ReadonlyArray<{ permission: string; required: boolean; rationale: string }>;
+      permissions: ReadonlyArray<{
+        permission: string;
+        required: boolean;
+        rationale: string;
+        audience?: string;
+      }>;
     };
   }): Promise<unknown> {
     assertUuid(input.appId, "App");
@@ -717,6 +722,9 @@ function parseDetail(value: unknown): DesktopRegistryAppDetail {
             permission: stringField(permission, "permission"),
             required: booleanField(permission, "required"),
             rationale: stringField(permission, "rationale"),
+            ...(permission.audience === undefined
+              ? {}
+              : { audience: stringField(permission, "audience") }),
           };
         }),
       };

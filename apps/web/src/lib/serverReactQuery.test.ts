@@ -2,7 +2,7 @@
 // Purpose: Locks down server React Query polling profiles and cache options.
 // Layer: Web data-fetching unit tests
 
-import type { ServerConfig, ServerProviderStatus } from "@penkra/contracts";
+import type { ProviderConnectionId, ServerConfig, ServerProviderStatus } from "@penkra/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
@@ -192,6 +192,7 @@ describe("serverAllProviderUsageQueryOptions", () => {
     const options = serverAllProviderUsageQueryOptions(false);
 
     expect(options.enabled).toBe(false);
+    expect(options.refetchInterval).toBe(false);
   });
 
   it("keys provider-scoped usage separately from the all-provider batch", () => {
@@ -200,6 +201,19 @@ describe("serverAllProviderUsageQueryOptions", () => {
 
     expect(scoped.queryKey).toEqual(serverQueryKeys.allProviderUsage("claudeAgent"));
     expect(all.queryKey).toEqual(serverQueryKeys.allProviderUsage(null));
+  });
+
+  it("keys connection-scoped usage independently", () => {
+    const first = "connection-a" as ProviderConnectionId;
+    const second = "connection-b" as ProviderConnectionId;
+    const scoped = serverAllProviderUsageQueryOptions({
+      provider: "claudeAgent",
+      connectionIds: [second, first],
+    });
+
+    expect(scoped.queryKey).toEqual(
+      serverQueryKeys.allProviderUsage("claudeAgent", [first, second]),
+    );
   });
 });
 

@@ -4,6 +4,7 @@ import { AppPreloadRuntime, type AppPreloadRendererMessage } from "./appPreloadR
 
 function fixture() {
   const sent: AppPreloadRendererMessage[] = [];
+  const eventListeners = new Map<string, (payload: unknown) => void>();
   let hostListener: ((message: unknown) => void) | null = null;
   const ready = vi.fn();
   const tabSetRoute = vi.fn(async () => undefined);
@@ -29,6 +30,10 @@ function fixture() {
     lastError: null,
   }));
   const runtime = new AppPreloadRuntime({
+    onEvent: (name, listener) => {
+      eventListeners.set(name, listener);
+      return () => eventListeners.delete(name);
+    },
     send: (message) => sent.push(message),
     onHostMessage: (listener) => {
       hostListener = listener;
@@ -38,6 +43,7 @@ function fixture() {
     },
     ready,
     tabSetRoute,
+    tabGetContext: vi.fn(),
     queryPermission: vi.fn(async (name) => ({
       name,
       declared: true,
@@ -51,6 +57,10 @@ function fixture() {
       state: "granted" as const,
     })),
     getIdentity: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })),
+    getIdentityToken: vi.fn(async () => ({
+      token: "header.payload.signature",
+      expiresAt: "2026-08-18T12:05:00Z",
+    })),
     accountDataRequest: vi.fn(async () => ({
       status: 200,
       headers: {},
@@ -70,6 +80,7 @@ function fixture() {
         browserStateListener = null;
       };
     },
+    onBrowserDownload: vi.fn(() => () => undefined),
     simulatorCall,
     onSimulatorState: (listener) => {
       simulatorStateListener = listener;
@@ -83,6 +94,8 @@ function fixture() {
       headers: {},
       body: new Uint8Array(),
     })),
+    storageCall: vi.fn(),
+    composerStage: vi.fn(),
     showContextMenu: vi.fn(async () => null),
   });
   runtime.start();
@@ -97,6 +110,7 @@ function fixture() {
       browserStateListener?.(state),
     simulatorState: (state: import("@penkra/sdk").AppSimulatorSessionState) =>
       simulatorStateListener?.(state),
+    event: (name: string, payload: unknown) => eventListeners.get(name)?.(payload),
     host: (message: unknown) => hostListener?.(message),
   };
 }
@@ -133,6 +147,21 @@ describe("AppPreloadRuntime", () => {
       route: "/document",
       state: { documentId: "doc-1" },
     });
+  });
+
+  it("reports retained tab visibility without exposing host internals", () => {
+    const test = fixture();
+    const listener = vi.fn();
+    const unsubscribe = test.runtime.api.tab.onVisibilityChange(listener);
+
+    test.event("lifecycle.visibility", { active: false });
+    test.event("lifecycle.visibility", { active: true });
+    test.event("lifecycle.visibility", { active: "yes" });
+
+    expect(listener.mock.calls).toEqual([[{ active: false }], [{ active: true }]]);
+    unsubscribe();
+    test.event("lifecycle.visibility", { active: false });
+    expect(listener).toHaveBeenCalledTimes(2);
   });
 
   it("announces readiness once and enforces unique handler registration", () => {

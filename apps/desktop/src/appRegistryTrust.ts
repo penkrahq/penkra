@@ -23,7 +23,12 @@ export type RegistryReleaseExpectation = {
   packageDigest: string;
   publishedAt: string;
   publisherSlug: string;
-  permissions: ReadonlyArray<{ permission: string; required: boolean; rationale: string }>;
+  permissions: ReadonlyArray<{
+    permission: string;
+    required: boolean;
+    rationale: string;
+    audience?: string;
+  }>;
 };
 
 export type VerifiedRegistryRelease = RegistryReleaseExpectation & {
@@ -309,7 +314,7 @@ function digestField(value: Record<string, unknown>, key: string): string {
 function permissionsField(
   value: Record<string, unknown>,
   key: string,
-): Array<{ permission: string; required: boolean; rationale: string }> {
+): Array<{ permission: string; required: boolean; rationale: string; audience?: string }> {
   const field = value[key];
   if (!Array.isArray(field))
     throw new Error("Registry release attestation permissions are invalid.");
@@ -325,6 +330,9 @@ function permissionsField(
       permission: stringField(permission, "permission"),
       required: permission.required,
       rationale: stringField(permission, "rationale"),
+      ...(permission.audience === undefined
+        ? {}
+        : { audience: stringField(permission, "audience") }),
     };
   });
 }

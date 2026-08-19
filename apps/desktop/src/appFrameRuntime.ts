@@ -68,6 +68,10 @@ class AppFramePortTransport implements AppPreloadTransport {
     return this.#call("tab.setRoute", input);
   }
 
+  tabGetContext(): Promise<{ threadId: string; tabId: string | null }> {
+    return this.#call("tab.getContext");
+  }
+
   queryPermission(name: PenkraPermissionName): Promise<AppPermissionStatus> {
     return this.#call("permissions.query", name);
   }
@@ -78,6 +82,10 @@ class AppFramePortTransport implements AppPreloadTransport {
 
   getIdentity(): Promise<import("@penkra/sdk").AppIdentity> {
     return this.#call("identity.get");
+  }
+
+  getIdentityToken(input: { audience: string }): Promise<import("@penkra/sdk").AppIdentityToken> {
+    return this.#call("identity.getToken", input);
   }
 
   accountDataRequest(
@@ -138,6 +146,14 @@ class AppFramePortTransport implements AppPreloadTransport {
     return this.#onEvent("browser.state", (payload) => listener(payload as AppBrowserSessionState));
   }
 
+  onBrowserDownload(
+    listener: (event: import("@penkra/sdk").AppBrowserDownloadEvent) => void,
+  ): () => void {
+    return this.#onEvent("browser.download", (payload) =>
+      listener(payload as import("@penkra/sdk").AppBrowserDownloadEvent),
+    );
+  }
+
   simulatorCall(method: string, input?: unknown): Promise<unknown> {
     return this.#call(`simulator.${method}`, input);
   }
@@ -152,6 +168,16 @@ class AppFramePortTransport implements AppPreloadTransport {
     input: Parameters<PenkraAppRuntimeApi["network"]["fetch"]>[0],
   ): ReturnType<PenkraAppRuntimeApi["network"]["fetch"]> {
     return this.#call("network.fetch", input);
+  }
+
+  storageCall(method: string, input?: unknown): Promise<unknown> {
+    return this.#call(`storage.${method}`, input);
+  }
+
+  composerStage(
+    input: import("@penkra/sdk").AppComposerStageInput,
+  ): ReturnType<PenkraAppRuntimeApi["composer"]["stage"]> {
+    return this.#call("composer.stage", input);
   }
 
   showContextMenu<T extends string>(
@@ -257,6 +283,10 @@ const exposedApi = Object.assign(runtime.api, {
     readText: (handleId: unknown, relativePath?: unknown) =>
       transport.call("files.readText", { handleId, relativePath }),
     readBinary: (input: unknown) => transport.call("files.readBinary", input),
+    beginWrite: (input: unknown) => transport.call("files.beginWrite", input),
+    writeChunk: (input: unknown) => transport.call("files.writeChunk", input),
+    commitWrite: (writeId: unknown) => transport.call("files.commitWrite", { writeId }),
+    abortWrite: (writeId: unknown) => transport.call("files.abortWrite", { writeId }),
     writeText: (handleId: unknown, source: unknown, relativePath?: unknown) =>
       transport.call("files.writeText", { handleId, source, relativePath }),
     createDirectory: (handleId: unknown, relativePath: unknown) =>

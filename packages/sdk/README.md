@@ -50,11 +50,18 @@ The host validates every descendant and symlink boundary and never reveals an ab
 Handles survive iframe reload but currently expire when the desktop runtime restarts; there is no
 filesystem manifest permission or ambient filesystem namespace. Apps may also declare exact
 `open-file` extensions or `open-directory`; trusted host openings deliver the same kind of scoped
-handle to the declared operation.
+handle to the declared operation. Use `readBinary` for bounded reads and the
+`beginWrite` / `writeChunk` / `commitWrite` session for larger atomic writes; abort unfinished
+writes when App-side work fails.
 
 Privileged Penkra APIs require matching manifest declarations and per-Space grants. Hosted browser
 APIs require `browser-session`, and hosted simulated-device APIs require `simulator-session`. Both
 are scoped to the calling App and Space and cannot address another App or Space's session.
+
+External Account identity requires the high-risk `account-identity` permission with a manifest
+`audience`. `identity.getToken({ audience })` returns a five-minute, audience-bound JWT only when
+the argument exactly matches that reviewed declaration. See `docs/app-account-identity.md` in the
+Penkra repository for backend verification and key rotation.
 
 The Browser page is host-owned while the App owns its surrounding chrome. Call
 `browser.setSurfaceLayout({ top, right, bottom, left })` with App-local edge insets, or `null` when

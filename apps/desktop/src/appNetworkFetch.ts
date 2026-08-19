@@ -43,10 +43,10 @@ async function request(
   input: AppNetworkFetchRequest,
   redirects: number,
 ): Promise<AppNetworkFetchResponse> {
-  const url = parseUrl(input.url);
+  const url = parseAppNetworkUrl(input.url);
   const method = (input.method ?? "GET").toUpperCase();
   if (!ALLOWED_METHODS.has(method)) throw new Error(`Network method ${method} is not supported.`);
-  const headers = validateHeaders(input.headers ?? {});
+  const headers = validateAppNetworkHeaders(input.headers ?? {});
   const body =
     input.body === undefined
       ? null
@@ -58,7 +58,7 @@ async function request(
   if ((method === "GET" || method === "HEAD") && body)
     throw new Error(`${method} requests cannot include a body.`);
   const timeoutMs = Math.min(Math.max(input.timeoutMs ?? 30_000, 1), 60_000);
-  const address = await resolvePublicAddress(url.hostname);
+  const address = await resolvePublicAppNetworkAddress(url.hostname);
   const response = await send({ url, address, method, headers, body, timeoutMs });
   if ([301, 302, 303, 307, 308].includes(response.status) && response.headers.location) {
     if (redirects >= MAX_REDIRECTS) throw new Error("Network request exceeded five redirects.");
@@ -133,7 +133,7 @@ function send(input: {
   });
 }
 
-function parseUrl(value: string): URL {
+export function parseAppNetworkUrl(value: string): URL {
   let url: URL;
   try {
     url = new URL(value);
@@ -146,7 +146,7 @@ function parseUrl(value: string): URL {
   return url;
 }
 
-async function resolvePublicAddress(hostname: string): Promise<string> {
+export async function resolvePublicAppNetworkAddress(hostname: string): Promise<string> {
   const literal = isIP(hostname) ? hostname : null;
   const address = literal ?? (await DNS.lookup(hostname, { verbatim: true })).address;
   if (isPrivateAddress(address))
@@ -180,7 +180,9 @@ export function isPrivateAddress(address: string): boolean {
   );
 }
 
-function validateHeaders(input: Readonly<Record<string, string>>): Record<string, string> {
+export function validateAppNetworkHeaders(
+  input: Readonly<Record<string, string>>,
+): Record<string, string> {
   const output: Record<string, string> = {};
   for (const [name, value] of Object.entries(input)) {
     const normalized = name.toLowerCase();

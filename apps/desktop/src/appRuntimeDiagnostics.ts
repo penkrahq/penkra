@@ -16,6 +16,11 @@ export type AppRuntimeDiagnosticKind =
   | "permission-used"
   | "runtime-disabled"
   | "tab-crashed"
+  | "tab-activated"
+  | "tab-deactivated"
+  | "tab-navigation-recorded"
+  | "tab-navigation-restored"
+  | "tab-navigation-restore-failed"
   | "tab-opened"
   | "tab-ready"
   | "tab-responsive"
@@ -147,6 +152,11 @@ function validateEntry(value: unknown): AppRuntimeDiagnosticEntry {
     "permission-used",
     "runtime-disabled",
     "tab-crashed",
+    "tab-activated",
+    "tab-deactivated",
+    "tab-navigation-recorded",
+    "tab-navigation-restored",
+    "tab-navigation-restore-failed",
     "tab-opened",
     "tab-ready",
     "tab-responsive",

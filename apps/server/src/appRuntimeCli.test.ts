@@ -320,6 +320,47 @@ describe("penkra_exec_command discovery", () => {
     ]);
   });
 
+  it("parses expanded snapshots, observed actions, dialogs, and App-storage uploads", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const bridge = async (method: string, params: unknown) => {
+      calls.push({ method, params });
+      return {};
+    };
+    await executePenkraExecCommand(
+      "penkra tabs snapshot --tab-id tab-A --expand true",
+      context,
+      {},
+      bridge,
+    );
+    await executePenkraExecCommand(
+      "penkra tabs click --tab-id tab-A --ref a1 --observe true",
+      context,
+      {},
+      bridge,
+    );
+    await executePenkraExecCommand(
+      "penkra tabs handle-dialog --tab-id tab-A --accept false",
+      context,
+      {},
+      bridge,
+    );
+    await executePenkraExecCommand(
+      "penkra tabs upload --tab-id tab-A --ref a2 --paths '[\"/app/report.pdf\"]'",
+      context,
+      {},
+      bridge,
+    );
+    expect(calls).toEqual([
+      { method: "tabs.snapshot", params: { ...context, tabId: "tab-A", expand: true } },
+      { method: "tabs.click", params: { ...context, tabId: "tab-A", ref: "a1", observe: true } },
+      { method: "tabs.handle-dialog", params: { ...context, tabId: "tab-A", accept: false } },
+      {
+        method: "tabs.upload",
+        params: { ...context, tabId: "tab-A", ref: "a2", paths: ["/app/report.pdf"] },
+      },
+    ]);
+  });
+
   it("points unknown core commands back to the canonical help command", async () => {
     await expect(
       executePenkraExecCommand("penkra app unknown", context, {}, async () => []),

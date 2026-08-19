@@ -137,6 +137,8 @@ export function deriveProviderUsageDisplayRows(
 export function selectPrimaryProviderUsageDisplayRow(
   rows: ReadonlyArray<ProviderUsageDisplayRow>,
 ): ProviderUsageDisplayRow | null {
+  const session = rows.find((row) => row.label === "5h" || row.label.toLowerCase() === "session");
+  if (session) return session;
   return rows.reduce<ProviderUsageDisplayRow | null>((selected, row) => {
     if (!selected || row.remainingPercent < selected.remainingPercent) {
       return row;

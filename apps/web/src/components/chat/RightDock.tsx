@@ -32,6 +32,8 @@ export const RIGHT_DOCK_DEFAULT_WIDTH = "max(28rem, calc(50vw - 8rem))";
 
 interface RightDockProps {
   state: RightDockThreadState;
+  /** All live App panes retained by the chat route, including panes owned by inactive Threads. */
+  retainedPanes?: ReadonlyArray<RightDockPane>;
   minWidth: number;
   defaultWidth: string;
   shouldAcceptWidth: (context: { nextWidth: number; wrapper: HTMLElement }) => boolean;
@@ -66,6 +68,7 @@ function RightDockTab(props: {
 export function RightDock(props: RightDockProps) {
   const registerFindSurface = useOptionalFind()?.register;
   const activePane = resolveActivePane(props.state);
+  const retainedPanes = props.retainedPanes ?? (activePane ? [activePane] : []);
   // The dock is the right-most surface when open, so its header sits under the
   // fixed Windows caption cluster — reserve the same gutter the chat header uses.
   const desktopTopBarWindowControlsGutterClassName =
@@ -191,11 +194,19 @@ export function RightDock(props: RightDockProps) {
             </div>
           </div>
           <div className="relative min-h-0 flex-1">
-            {activePane ? (
-              <div key={activePane.id} className="absolute inset-0 flex min-h-0 w-full">
-                {props.renderPane(activePane, { isVisible: props.state.open })}
-              </div>
-            ) : null}
+            {retainedPanes.map((pane) => {
+              const isVisible = props.state.open && pane.id === activePane?.id;
+              return (
+                <div
+                  key={pane.id}
+                  aria-hidden={!isVisible}
+                  className="absolute inset-0 flex min-h-0 w-full"
+                  hidden={!isVisible}
+                >
+                  {props.renderPane(pane, { isVisible })}
+                </div>
+              );
+            })}
           </div>
         </div>
         <SidebarRail />

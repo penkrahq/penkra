@@ -69,6 +69,7 @@ import { RotatingFileSink } from "@penkra/shared/logging";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
+import { requestAppIdentityToken } from "./appIdentityToken";
 import { parseAppHostedSurfaceInsets } from "./appHostedSurfaceLayout";
 import { openLocalAppResource } from "./appLocalResourceOpener";
 import {
@@ -80,6 +81,7 @@ import {
   AppScopedFileHandleStore,
   type AppScopedFileHandleRecord,
 } from "./appScopedFileHandleStore";
+import { AppScopedFileWriteStore } from "./appScopedFileWriteStore";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
 import {
@@ -257,6 +259,7 @@ import {
   renderDesktopAppTypographyCss,
 } from "./appTheme";
 import { mediatedAppFetch } from "./appNetworkFetch";
+import { AppStorageService } from "./appStorage";
 import { requestAppAccountData, subscribeAppAccountData } from "./appAccountData";
 import { APP_STANDARD_PERMISSIONS, isAppStandardPermissionName } from "./appStandardPermissions";
 import {
@@ -450,6 +453,206 @@ type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 let mainWindow: BrowserWindow | null = null;
 let pendingAppListingRequest: { appId: string } | null = null;
 let desktopAppRuntime: DesktopAppRuntime | null = null;
+
+function requireGrantedIdentityAudience(
+  runtime: DesktopAppRuntime,
+  identity: { appId: string; spaceId: string },
+  input: unknown,
+): string {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("Identity token request must be an object.");
+  }
+  const audience = (input as Record<string, unknown>).audience;
+  if (typeof audience !== "string") throw new Error("Identity token audience is required.");
+  const permission = queryAppPermission(
+    runtime.installations.snapshot(),
+    identity,
+    "account-identity",
+  );
+  if (!permission.declared || permission.state !== "granted") {
+    throw Object.assign(new Error("account-identity is not granted for this App."), {
+      code: "PERMISSION_DENIED",
+    });
+  }
+  const installed = getInstalledAppPackage(
+    runtime.installations.snapshot(),
+    identity.appId,
+    identity.spaceId,
+  );
+  const declaration = installed?.manifest.permissions?.find(
+    (candidate) => candidate.name === "account-identity",
+  );
+  if (!declaration?.audience || audience !== declaration.audience) {
+    throw Object.assign(new Error("The requested identity audience is not declared by this App."), {
+      code: "AUDIENCE_NOT_DECLARED",
+    });
+  }
+  return audience;
+}
+
+async function invokeAppStorageCall(
+  runtime: DesktopAppRuntime,
+  identity: { appId: string; spaceId: string },
+  method: string,
+  value: unknown,
+): Promise<unknown> {
+  const storage = appStorage;
+  if (!storage) throw new Error("The App storage service is not ready.");
+  const owner = { appId: identity.appId, spaceId: identity.spaceId };
+  const requiresNetwork = method === "fetchToFile" || method === "uploadFromFile";
+  if (requiresNetwork) {
+    const permission = queryAppPermission(
+      runtime.installations.snapshot(),
+      identity,
+      "network-fetch",
+    );
+    if (!permission.declared || permission.state !== "granted") {
+      throw Object.assign(new Error("network-fetch is not granted for this App."), {
+        code: "PERMISSION_DENIED",
+      });
+    }
+  }
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const startedAt = performance.now();
+  try {
+    switch (method) {
+      case "fetchToFile":
+        return storage.fetchToFile(owner, input as Parameters<AppStorageService["fetchToFile"]>[1]);
+      case "writeFile":
+        return storage.writeFile(owner, input as Parameters<AppStorageService["writeFile"]>[1]);
+      case "uploadFromFile":
+        return storage.uploadFromFile(
+          owner,
+          input as Parameters<AppStorageService["uploadFromFile"]>[1],
+        );
+      case "remove":
+        return storage.remove(owner, input as Parameters<AppStorageService["remove"]>[1]);
+      case "list":
+        return storage.list(owner, input as Parameters<AppStorageService["list"]>[1]);
+      case "usage":
+        return storage.usage(owner);
+      default:
+        throw new Error(`Unsupported App storage method: ${method}.`);
+    }
+  } finally {
+    if (requiresNetwork) {
+      void runtime.diagnostics
+        .record({
+          kind: "permission-used",
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          operation: "network-fetch",
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+        .catch(() => undefined);
+    }
+  }
+}
+
+async function requestAppComposerStage(
+  runtime: DesktopAppRuntime,
+  identity: { appId: string; spaceId: string; threadId?: string },
+  value: unknown,
+): Promise<{ resolvedModel: import("@penkra/sdk").AppComposerModelSelection | null }> {
+  if (!identity.threadId) {
+    throw new Error("Only an App surface attached to a thread can stage its composer.");
+  }
+  const permission = queryAppPermission(
+    runtime.installations.snapshot(),
+    identity,
+    "thread-compose",
+  );
+  if (!permission.declared || permission.state !== "granted") {
+    throw Object.assign(new Error("thread-compose is not granted for this App."), {
+      code: "PERMISSION_DENIED",
+    });
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Composer stage input must be an object.");
+  }
+  if (!mainWindow || mainWindow.isDestroyed()) throw new Error("The Penkra shell is unavailable.");
+  const input = value as import("@penkra/sdk").AppComposerStageInput;
+  const storage = appStorage;
+  if (!storage) throw new Error("The App storage service is not ready.");
+  const owner = { appId: identity.appId, spaceId: identity.spaceId };
+  const [files, images] = await Promise.all([
+    Promise.all((input.files ?? []).map((item) => storage.readComposerAttachment(owner, item))),
+    Promise.all((input.images ?? []).map((item) => storage.readComposerAttachment(owner, item))),
+  ]);
+  const contributed = await runtime.operationCatalog.skills(identity.spaceId);
+  const ownSkills = new Map(
+    contributed
+      .filter((skill) => skill.appId === identity.appId && skill.enabled)
+      .flatMap(
+        (skill) =>
+          [
+            [skill.name, { name: skill.name, path: skill.skillPath }],
+            [skill.path, { name: skill.name, path: skill.skillPath }],
+          ] as const,
+      ),
+  );
+  const skills = (input.skills ?? []).map((name) => {
+    const skill = ownSkills.get(name);
+    if (!skill) throw new Error(`Skill ${name} is not an enabled contribution from this App.`);
+    return skill;
+  });
+  const id = Crypto.randomUUID();
+  const request = {
+    id,
+    threadId: identity.threadId,
+    input: {
+      ...(input.text === undefined ? {} : { text: input.text }),
+      ...(input.documents === undefined ? {} : { documents: input.documents }),
+      ...(files.length === 0 ? {} : { files }),
+      ...(images.length === 0 ? {} : { images }),
+      ...(skills.length === 0 ? {} : { skills }),
+      ...(input.model === undefined ? {} : { model: input.model }),
+      ...(input.effort === undefined ? {} : { effort: input.effort }),
+    },
+  };
+  const startedAt = performance.now();
+  try {
+    return await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingComposerStages.delete(id);
+        reject(
+          Object.assign(new Error("Composer staging timed out."), {
+            code: "COMPOSER_STAGE_TIMEOUT",
+          }),
+        );
+      }, 30_000);
+      pendingComposerStages.set(id, { resolve, reject, timer });
+      mainWindow?.webContents.send(IPC.composerStageRequest, request);
+    });
+  } finally {
+    void runtime.diagnostics
+      .record({
+        kind: "permission-used",
+        appId: identity.appId,
+        spaceId: identity.spaceId,
+        operation: "thread-compose",
+        durationMs: Math.round(performance.now() - startedAt),
+      })
+      .catch(() => undefined);
+  }
+}
+
+function acceptComposerStageResponse(
+  event: Electron.IpcMainEvent,
+  response: import("@penkra/contracts").DesktopComposerStageResponse,
+): void {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+    throw new Error("Composer staging responses are accepted only from the Penkra shell.");
+  }
+  if (!response || typeof response !== "object" || typeof response.id !== "string") return;
+  const pending = pendingComposerStages.get(response.id);
+  if (!pending) return;
+  pendingComposerStages.delete(response.id);
+  clearTimeout(pending.timer);
+  if (response.ok) pending.resolve({ resolvedModel: response.resolvedModel });
+  else pending.reject(Object.assign(new Error(response.message), { code: response.code }));
+}
+
 let desktopSimulatorRuntime: DesktopSimulatorHostRuntime | null = null;
 const runtimeV2SimulatorSurfaces = new Map<
   string,
@@ -473,6 +676,16 @@ const appAccountSubscriptions = new Map<
   { senderId: number; tabId?: string; stop(): void }
 >();
 const runtimeV2FileHandles = new AppScopedFileHandleStore();
+const runtimeV2FileWrites = new AppScopedFileWriteStore();
+let appStorage: AppStorageService | null = null;
+const pendingComposerStages = new Map<
+  string,
+  {
+    resolve(value: { resolvedModel: import("@penkra/sdk").AppComposerModelSelection | null }): void;
+    reject(error: Error): void;
+    timer: ReturnType<typeof setTimeout>;
+  }
+>();
 const runtimeV2FileWatches = new Map<
   string,
   { appId: string; spaceId: string; tabId: string; rendererId: number; watcher: FS.FSWatcher }
@@ -480,6 +693,9 @@ const runtimeV2FileWatches = new Map<
 
 function revokeRuntimeV2FileScope(appId: string, spaceId: string): void {
   runtimeV2FileHandles.revokeScope(appId, spaceId);
+  void runtimeV2FileWrites.abortMatching(
+    (write) => write.appId === appId && write.spaceId === spaceId,
+  );
   for (const [watchId, watch] of runtimeV2FileWatches) {
     if (watch.appId !== appId || watch.spaceId !== spaceId) continue;
     watch.watcher.close();
@@ -749,6 +965,12 @@ const browserManager = new DesktopBrowserManager({
 });
 let appCommandPipeServer: AppCommandPipeServer | null = null;
 const appBrowserTrackedRendererIds = new Set<number>();
+const appBrowserOwnerByThreadId = new Map<string, { appId: string; spaceId: string }>();
+const appBrowserSurfaceInsetsByTabId = new Map<
+  string,
+  { top: number; right: number; bottom: number; left: number }
+>();
+const configuredAppBrowserDownloadPartitions = new Set<string>();
 let configuredUpdaterCacheDirName: string | null = null;
 
 browserManager.subscribe((state) => {
@@ -759,6 +981,55 @@ browserManager.subscribe((state) => {
     runtime.appTabs.sendFrameEvent(state.threadId, "browser.state", appState);
   }
 });
+
+function configureAppBrowserDownloads(threadId: ThreadId, appId: string, spaceId: string): void {
+  appBrowserOwnerByThreadId.set(threadId, { appId, spaceId });
+  const partition = createScopedBrowserSessionPartition(appId, spaceId);
+  if (configuredAppBrowserDownloadPartitions.has(partition)) return;
+  configuredAppBrowserDownloadPartitions.add(partition);
+  session.fromPartition(partition).on("will-download", (_event, item, source) => {
+    const page = browserManager.pageForWebContentsId(source.id);
+    if (!page) return;
+    const owner = appBrowserOwnerByThreadId.get(page.threadId);
+    const storage = appStorage;
+    const runtime = desktopAppRuntime;
+    if (!owner || !storage || !runtime?.appTabs.has(page.threadId)) {
+      item.cancel();
+      return;
+    }
+    let destination: string;
+    try {
+      destination = storage.prepareDownloadSync(owner, {
+        directory: Path.join("downloads", page.threadId),
+        suggestedName: item.getFilename(),
+      });
+      item.setSavePath(destination);
+    } catch {
+      item.cancel();
+      return;
+    }
+    const base = {
+      pageId: page.pageId,
+      url: item.getURL(),
+      suggestedName: item.getFilename(),
+      mimeType: item.getMimeType(),
+      path: destination,
+    };
+    runtime.appTabs.sendFrameEvent(page.threadId, "browser.download", {
+      ...base,
+      state: "pending",
+      bytes: 0,
+    });
+    item.once("done", (_doneEvent, state) => {
+      runtime.appTabs.sendFrameEvent(page.threadId, "browser.download", {
+        ...base,
+        state: state === "completed" ? "completed" : "failed",
+        bytes: item.getReceivedBytes(),
+        ...(state === "completed" ? {} : { error: `Download ${state}.` }),
+      });
+    });
+  });
+}
 
 function toAppBrowserState(
   state: ThreadBrowserState,
@@ -855,6 +1126,7 @@ async function invokeRuntimeV2BrowserCall(input: {
     threadId,
     createScopedBrowserSessionPartition(input.appId, input.spaceId),
   );
+  configureAppBrowserDownloads(threadId, input.appId, input.spaceId);
   const state = () => toAppBrowserState(browserManager.getState({ threadId }));
   const pageId = () => {
     if (typeof value !== "string" || !value) throw new Error("Browser page ID is required.");
@@ -876,10 +1148,12 @@ async function invokeRuntimeV2BrowserCall(input: {
     case "setSurfaceLayout": {
       const insets = parseAppHostedSurfaceInsets(value);
       if (insets === null) {
+        appBrowserSurfaceInsetsByTabId.delete(input.tabId);
         browserManager.setRendererSurfaceActive(threadId, false);
         desktopAppRuntime?.appTabs.sendFrameEvent(input.tabId, "browser.surface", null);
         return;
       }
+      appBrowserSurfaceInsetsByTabId.set(input.tabId, insets);
       browserManager.setRendererSurfaceActive(threadId, true);
       desktopAppRuntime?.appTabs.sendFrameEvent(input.tabId, "browser.surface", {
         insets,
@@ -4101,6 +4375,11 @@ async function disposeAppCommandPipeServerForShutdown(reason: string): Promise<v
 
 async function stopAppRuntimeAndBackend(): Promise<void> {
   const failures: unknown[] = [];
+  try {
+    await runtimeV2FileWrites.abortAll();
+  } catch (error) {
+    failures.push(error);
+  }
   const sideloadRegistry = developmentSideloadRegistry;
   developmentSideloadRegistry = null;
   if (sideloadRegistry) {
@@ -4199,6 +4478,8 @@ function registerIpcHandlers(): void {
       throw new Error("Composer drafts are available only to the Penkra shell.");
     }
   };
+  ipcMain.removeListener(IPC.composerStageResponse, acceptComposerStageResponse);
+  ipcMain.on(IPC.composerStageResponse, acceptComposerStageResponse);
   for (const channel of Object.values(IPC.composerDrafts)) ipcMain.removeHandler(channel);
   ipcMain.handle(IPC.composerDrafts.readSnapshot, async (event) => {
     requireMainRenderer(event);
@@ -4315,6 +4596,12 @@ function registerIpcHandlers(): void {
     if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
     runtime.appTabs.setRoute(identity.tabId, parseAppTabRouteRequest(input));
   });
+  ipcMain.removeHandler(IPC.appRuntime.tabGetContext);
+  ipcMain.handle(IPC.appRuntime.tabGetContext, async (event) => {
+    const { identity } = requireAppRenderer(event.sender.id);
+    if (!identity.threadId) throw new Error("This App renderer is not attached to a thread.");
+    return { threadId: identity.threadId, tabId: identity.tabId ?? null };
+  });
 
   ipcMain.removeHandler(IPC.appRuntime.permissionQuery);
   ipcMain.handle(IPC.appRuntime.permissionQuery, async (event, input: unknown) => {
@@ -4356,6 +4643,18 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.appRuntime.identityGet, async (event) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     return runtime.identities.resolve(identity.appId, identity.spaceId);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.identityGetToken);
+  ipcMain.handle(IPC.appRuntime.identityGetToken, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const audience = requireGrantedIdentityAudience(runtime, identity, input);
+    return requestAppIdentityToken({
+      apiUrl: penkraAccountServices.apiUrl,
+      appId: identity.appId,
+      spaceId: identity.spaceId,
+      audience,
+      cookie: getPenkraAccountCookie(),
+    });
   });
   ipcMain.removeHandler(IPC.appRuntime.accountDataRequest);
   ipcMain.handle(IPC.appRuntime.accountDataRequest, async (event, input: unknown) => {
@@ -4617,6 +4916,7 @@ function registerIpcHandlers(): void {
     }
     const { method, input: value } = input as Record<string, unknown>;
     if (typeof method !== "string") throw new Error("Browser call method is required.");
+    if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
     const threadId = identity.tabId as ThreadId;
     if (!appBrowserTrackedRendererIds.has(event.sender.id)) {
       appBrowserTrackedRendererIds.add(event.sender.id);
@@ -4629,6 +4929,7 @@ function registerIpcHandlers(): void {
       threadId,
       createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
     );
+    configureAppBrowserDownloads(threadId, identity.appId, identity.spaceId);
     const state = () => toAppBrowserState(browserManager.getState({ threadId }));
     const pageId = () => {
       if (typeof value !== "string" || !value) throw new Error("Browser page ID is required.");
@@ -4786,6 +5087,21 @@ function registerIpcHandlers(): void {
         })
         .catch(() => undefined);
     }
+  });
+  ipcMain.removeHandler(IPC.appRuntime.storageCall);
+  ipcMain.handle(IPC.appRuntime.storageCall, async (event, request: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (!request || typeof request !== "object" || Array.isArray(request)) {
+      throw new Error("Storage call must be an object.");
+    }
+    const record = request as { method?: unknown; input?: unknown };
+    if (typeof record.method !== "string") throw new Error("Storage method is required.");
+    return invokeAppStorageCall(runtime, identity, record.method, record.input);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.composerStage);
+  ipcMain.handle(IPC.appRuntime.composerStage, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    return requestAppComposerStage(runtime, identity, input);
   });
   const requireAppInstallations = (senderId: number) => {
     const service = desktopAppRuntime?.installations;
@@ -5107,6 +5423,8 @@ function registerIpcHandlers(): void {
         permissionReviewUpdatesForSpace(identity.spaceId),
       );
     switch (method) {
+      case "tab.getContext":
+        return { threadId: identity.threadId, tabId };
       case "tab.setRoute":
         tabs.setRoute(tabId, parseAppTabRouteRequest(value));
         return;
@@ -5121,7 +5439,7 @@ function registerIpcHandlers(): void {
           appId: identity.appId,
           spaceId: identity.spaceId,
           permission: current.name,
-          confirm: async ({ appName, reason }) => {
+          confirm: async ({ appName, reason, audience }) => {
             const options: Electron.MessageBoxOptions = {
               type: "question",
               buttons: ["Allow", "Not now"],
@@ -5130,7 +5448,7 @@ function registerIpcHandlers(): void {
               noLink: true,
               title: `${appName} permission`,
               message: `${appName} would like permission to ${reason.replace(/[.\s]+$/, "").toLowerCase()}.`,
-              detail: "You can revoke this permission later in Penkra Settings.",
+              detail: `${audience ? `Identity audience: ${audience}\n\n` : ""}You can revoke this permission later in Penkra Settings.`,
             };
             const result = mainWindow
               ? await dialog.showMessageBox(mainWindow, options)
@@ -5142,6 +5460,16 @@ function registerIpcHandlers(): void {
       }
       case "identity.get":
         return runtime.identities.resolve(identity.appId, identity.spaceId);
+      case "identity.getToken": {
+        const audience = requireGrantedIdentityAudience(runtime, identity, value);
+        return requestAppIdentityToken({
+          apiUrl: penkraAccountServices.apiUrl,
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          audience,
+          cookie: getPenkraAccountCookie(),
+        });
+      }
       case "contextMenu.show":
         if (!Array.isArray(value)) throw new Error("Context menu items must be an array.");
         return showAppContextMenu(value as ContextMenuItem[]);
@@ -5168,7 +5496,14 @@ function registerIpcHandlers(): void {
         });
       }
       case "files.revoke": {
+        const handle = runtimeV2FileHandles.resolve(identity.appId, identity.spaceId, value);
         runtimeV2FileHandles.revoke(identity.appId, identity.spaceId, value);
+        await runtimeV2FileWrites.abortMatching(
+          (write) =>
+            write.appId === identity.appId &&
+            write.spaceId === identity.spaceId &&
+            write.handleId === handle.id,
+        );
         return;
       }
       case "files.stat":
@@ -5267,6 +5602,50 @@ function registerIpcHandlers(): void {
         } finally {
           await file.close();
         }
+      }
+      case "files.beginWrite": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Chunked file write input must be an object.");
+        }
+        const record = value as Record<string, unknown>;
+        const handle = runtimeV2FileHandles.resolve(
+          identity.appId,
+          identity.spaceId,
+          record.handleId,
+        );
+        const destinationPath = await resolveWritableAppScopedPath(handle, record.relativePath);
+        return runtimeV2FileWrites.begin(
+          { appId: identity.appId, spaceId: identity.spaceId, tabId, rendererId },
+          {
+            handleId: handle.id,
+            destinationPath,
+            expectedBytes: record.expectedBytes as number,
+            ...(typeof record.expectedSha256 === "string"
+              ? { expectedSha256: record.expectedSha256 }
+              : {}),
+          },
+        );
+      }
+      case "files.writeChunk": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("File chunk input must be an object.");
+        }
+        const record = value as Record<string, unknown>;
+        return runtimeV2FileWrites.write(
+          { appId: identity.appId, spaceId: identity.spaceId, tabId, rendererId },
+          { writeId: record.writeId, offset: record.offset, bytes: record.bytes },
+        );
+      }
+      case "files.commitWrite":
+      case "files.abortWrite": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("File write session input must be an object.");
+        }
+        const writeId = (value as Record<string, unknown>).writeId;
+        const owner = { appId: identity.appId, spaceId: identity.spaceId, tabId, rendererId };
+        if (method === "files.commitWrite") await runtimeV2FileWrites.commit(owner, writeId);
+        else await runtimeV2FileWrites.abort(owner, writeId);
+        return;
       }
       case "files.unwatch": {
         const watchId =
@@ -5505,6 +5884,15 @@ function registerIpcHandlers(): void {
         }
         return mediatedAppFetch(value as import("./appNetworkFetch").AppNetworkFetchRequest);
       }
+      case "storage.fetchToFile":
+      case "storage.writeFile":
+      case "storage.uploadFromFile":
+      case "storage.remove":
+      case "storage.list":
+      case "storage.usage":
+        return invokeAppStorageCall(runtime, identity, method.slice("storage.".length), value);
+      case "composer.stage":
+        return requestAppComposerStage(runtime, identity, value);
       case "installations.getState":
         requireAppsFrame();
         return installationSnapshot();
@@ -6584,6 +6972,7 @@ async function bootstrap(): Promise<void> {
   backendAuthToken = Crypto.randomBytes(24).toString("hex");
   await reserveBackendEndpoint("bootstrap");
 
+  appStorage = new AppStorageService(app.getPath("userData"));
   registerIpcHandlers();
   writeDesktopLogHeader("bootstrap ipc handlers registered");
   desktopAppRuntime = await startDesktopAppRuntime({
@@ -6592,6 +6981,7 @@ async function bootstrap(): Promise<void> {
     appFrameRuntimePath: Path.join(__dirname, "appFrameRuntime.iife.js"),
     ipcMain,
     getAccountId: getPenkraAccountId,
+    eraseAppStorage: (appId, spaceId) => appStorage?.erase({ appId, spaceId }) ?? Promise.resolve(),
     requestStandardPermissions: async (request) => {
       if (!mainWindow || mainWindow.isDestroyed()) return false;
       const labels = request.permissions.map((permission) => APP_STANDARD_PERMISSIONS[permission]);
@@ -6621,6 +7011,7 @@ async function bootstrap(): Promise<void> {
       mainWindow.webContents.send(IPC.appTabs.frameHostMessage, message);
     },
     onTabClosed: (descriptor) => {
+      appBrowserSurfaceInsetsByTabId.delete(descriptor.id);
       for (const [subscriptionId, subscription] of appAccountSubscriptions) {
         if (subscription.tabId !== descriptor.id) continue;
         subscription.stop();
@@ -6631,6 +7022,7 @@ async function bootstrap(): Promise<void> {
         watch.watcher.close();
         runtimeV2FileWatches.delete(watchId);
       }
+      void runtimeV2FileWrites.abortMatching((write) => write.tabId === descriptor.id);
       runtimeV2SimulatorSurfaces.get(descriptor.id)?.stopFrames?.();
       runtimeV2SimulatorSurfaces.delete(descriptor.id);
       void desktopSimulatorRuntime?.manager.closeTab(descriptor.id).catch((error) => {
@@ -6645,7 +7037,17 @@ async function bootstrap(): Promise<void> {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       mainWindow.webContents.send(IPC.appTabs.closed, descriptor);
     },
-    onTabRendererCreated: (renderer) => attachDesktopWindowZoomShortcuts(renderer),
+    onTabRendererCreated: (renderer) => {
+      attachDesktopWindowZoomShortcuts(renderer);
+      renderer.once("destroyed", () => {
+        for (const [watchId, watch] of runtimeV2FileWatches) {
+          if (watch.rendererId !== renderer.id) continue;
+          watch.watcher.close();
+          runtimeV2FileWatches.delete(watchId);
+        }
+        void runtimeV2FileWrites.abortMatching((write) => write.rendererId === renderer.id);
+      });
+    },
     onInvalidRendererMessage: (error, senderId) => {
       console.warn(
         `[penkra-app] Rejected invalid renderer message sender=${senderId}: ${formatErrorMessage(error)}`,
@@ -6784,6 +7186,19 @@ async function bootstrap(): Promise<void> {
       return resolveAppTabObservationTarget({
         descriptor,
         browserAppId: BROWSER_APP_ID,
+        allowHostedPage: (() => {
+          const permission = queryAppPermission(
+            desktopAppRuntime!.installations.snapshot(),
+            { appId: descriptor.appId, spaceId: descriptor.spaceId },
+            "browser-session",
+          );
+          return (
+            permission.declared &&
+            permission.state === "granted" &&
+            appBrowserSurfaceInsetsByTabId.has(descriptor.id)
+          );
+        })(),
+        hostedInsets: appBrowserSurfaceInsetsByTabId.get(descriptor.id) ?? null,
         appTarget: async (targetTabId) => {
           if (!mainWindow || mainWindow.isDestroyed()) {
             throw new Error("The Penkra window is unavailable.");
@@ -6816,6 +7231,14 @@ async function bootstrap(): Promise<void> {
         browserWebContents: (appTabId) =>
           browserManager.observationWebContents(appTabId as ThreadId),
       });
+    },
+    validateUploadPaths: async (descriptor, paths) => {
+      if (!appStorage) throw new Error("App storage is unavailable.");
+      return Promise.all(
+        paths.map((path) =>
+          appStorage!.resolveFile({ appId: descriptor.appId, spaceId: descriptor.spaceId }, path),
+        ),
+      );
     },
   });
   appCommandPipeServer = new AppCommandPipeServer({

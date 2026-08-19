@@ -110,6 +110,15 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   power: {
     setActiveWork: (input) => ipcRenderer.invoke(IPC.powerSetActiveWork, input),
   },
+  composerStage: {
+    onRequest: (listener) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, request: unknown) =>
+        listener(request as Parameters<typeof listener>[0]);
+      ipcRenderer.on(IPC.composerStageRequest, wrapped);
+      return () => ipcRenderer.removeListener(IPC.composerStageRequest, wrapped);
+    },
+    respond: (response) => ipcRenderer.send(IPC.composerStageResponse, response),
+  },
   composerDrafts: {
     readSnapshot: () => ipcRenderer.invoke(IPC.composerDrafts.readSnapshot),
     writeSnapshot: (value) => ipcRenderer.invoke(IPC.composerDrafts.writeSnapshot, value),

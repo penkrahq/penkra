@@ -73,6 +73,7 @@ export function ComposerReferenceAttachments({
         <ComposerPastedTextCard
           key={pasted.id}
           text={pasted.text}
+          {...(pasted.title ? { title: pasted.title } : {})}
           metrics={{ lineCount: pasted.lineCount, charCount: pasted.charCount }}
           onShowInTextField={() => onShowPastedTextInField?.(pasted.id)}
           onRemove={() => onRemovePastedText?.(pasted.id)}

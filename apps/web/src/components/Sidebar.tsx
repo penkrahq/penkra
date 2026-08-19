@@ -125,6 +125,7 @@ import {
   orderPinnedProjectsForSidebar,
   orderSidebarSpaceItems,
   pruneProjectThreadListPagingForCollapsedProjects,
+  resolveProjectHeaderState,
   resolveSidebarWorkStatus,
   resolveSidebarThreadListPaging,
   resolveThreadStatusPill,
@@ -2391,7 +2392,11 @@ export default function Sidebar() {
         <FolderGroupShared
           expanded={project.expanded}
           hasContent={hasProjectContent}
-          headerState={activeDraftThread?.projectId === project.id ? "active" : "default"}
+          headerState={resolveProjectHeaderState({
+            projectId: project.id,
+            activeDraftProjectId: activeDraftThread?.projectId,
+            activeDraftPromotedTo: activeDraftThread?.promotedTo,
+          })}
           header={
             renamingThisFolder ? (
               <FolderRowInlineEdit

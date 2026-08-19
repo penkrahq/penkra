@@ -11,7 +11,7 @@ describe("providerUsageDisplay", () => {
     vi.useRealTimers();
   });
 
-  it("selects the most constrained display row for compact header chips", () => {
+  it("selects the short session window for compact connection usage", () => {
     const rows = deriveProviderUsageDisplayRows([
       {
         provider: "claudeAgent",
@@ -35,9 +35,9 @@ describe("providerUsageDisplay", () => {
 
     const primary = selectPrimaryProviderUsageDisplayRow(rows);
 
-    expect(primary?.label).toBe("Weekly");
-    expect(primary?.remainingLabel).toBe("16%");
-    expect(primary?.remainingTone).toBe("warning");
+    expect(primary?.label).toBe("5h");
+    expect(primary?.remainingLabel).toBe("93%");
+    expect(primary?.remainingTone).toBe("healthy");
   });
 
   it("centralizes reserve and eta details for display rows", () => {

@@ -139,6 +139,9 @@ export type ProviderUsageStatus = typeof ProviderUsageStatus.Type;
 
 export const ServerProviderUsageSnapshot = Schema.Struct({
   provider: ProviderKind,
+  // Present when the snapshot was fetched for one managed Connection. Legacy
+  // provider-wide snapshots intentionally omit it.
+  connectionId: Schema.optional(ProviderConnectionId),
   updatedAt: IsoDateTime,
   limits: Schema.Array(ServerProviderUsageLimit),
   usageLines: Schema.Array(ServerProviderUsageLine),
@@ -164,6 +167,7 @@ export type ServerGetProviderUsageSnapshotResult = typeof ServerGetProviderUsage
 export const ServerListProviderUsageInput = Schema.Struct({
   forceRefresh: Schema.optional(Schema.Boolean),
   provider: Schema.optional(ProviderKind),
+  connectionIds: Schema.optional(Schema.Array(ProviderConnectionId)),
 });
 export type ServerListProviderUsageInput = typeof ServerListProviderUsageInput.Type;
 

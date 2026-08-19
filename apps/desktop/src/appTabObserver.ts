@@ -6,6 +6,7 @@ import type { Rectangle, WebContents, WebFrameMain } from "electron";
 import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 
 const MAX_AX_NODES = 500;
+const MAX_EXPANDED_AX_NODES = 5_000;
 const MAX_TEXT_LENGTH = 200_000;
 const MAX_VALUE_LENGTH = 2_000;
 const MAX_SCREENSHOT_BYTES = 12 * 1024 * 1024;
@@ -54,6 +55,7 @@ interface CdpAxNode {
 interface SnapshotReference {
   backendNodeId: number;
   generation: number;
+  target: AppTabObservationTarget;
 }
 
 interface TabSnapshotState {
@@ -68,26 +70,49 @@ export interface AppTabObservationTarget {
   webContents: WebContents;
   frame?: WebFrameMain;
   captureBounds?: () => Promise<Rectangle> | Rectangle;
+  embedded?: {
+    target: AppTabObservationTarget;
+    insets: { top: number; right: number; bottom: number; left: number };
+  };
 }
 
 export interface AppTabObserverResolver {
   resolve(tabId: string): Promise<AppTabObservationTarget> | AppTabObservationTarget;
+  validateUploadPaths?(
+    descriptor: DesktopAppTabDescriptor,
+    paths: ReadonlyArray<string>,
+  ): Promise<ReadonlyArray<string>>;
 }
 
 export async function resolveAppTabObservationTarget(input: {
   descriptor: DesktopAppTabDescriptor;
   browserAppId: string;
+  allowHostedPage?: boolean;
+  hostedInsets?: { top: number; right: number; bottom: number; left: number } | null;
   appTarget: (tabId: string) => Promise<AppTabObservationTarget> | AppTabObservationTarget;
   browserWebContents: (appTabId: string) => Promise<WebContents | null>;
   hostedWebContents?: (appTabId: string) => WebContents | null;
 }): Promise<AppTabObservationTarget> {
   const hostedSurface = input.hostedWebContents?.(input.descriptor.id) ?? null;
   const hostedPage =
-    !hostedSurface && input.descriptor.appId === input.browserAppId
+    !hostedSurface &&
+    (input.allowHostedPage === true || input.descriptor.appId === input.browserAppId)
       ? await input.browserWebContents(input.descriptor.id)
       : null;
   if (hostedSurface || hostedPage) {
-    return { descriptor: input.descriptor, webContents: hostedSurface ?? hostedPage! };
+    const hostedTarget = {
+      descriptor: input.descriptor,
+      webContents: hostedSurface ?? hostedPage!,
+    };
+    const insets = input.hostedInsets;
+    if (
+      insets &&
+      [insets.top, insets.right, insets.bottom, insets.left].some((value) => value > 0)
+    ) {
+      const app = await input.appTarget(input.descriptor.id);
+      return { ...app, embedded: { target: hostedTarget, insets } };
+    }
+    return hostedTarget;
   }
   return input.appTarget(input.descriptor.id);
 }
@@ -104,62 +129,29 @@ export class AppTabObserver {
     this.#states.delete(tabId);
   }
 
-  async snapshot(tabId: string): Promise<unknown> {
+  async snapshot(tabId: string, expand = false): Promise<unknown> {
     const target = await this.#target(tabId);
     const state = this.#state(tabId, target);
     state.generation += 1;
     state.nextReference = 1;
     state.references.clear();
-    const response = asRecord(
-      await this.#cdp(
-        target.webContents,
-        "Accessibility.getFullAXTree",
-        target.frame ? { frameId: target.frame.frameTreeNodeId } : undefined,
-      ),
-    );
-    const rawNodes = Array.isArray(response.nodes) ? (response.nodes as CdpAxNode[]) : [];
-    const nodes: unknown[] = [];
-    let truncated = false;
-
-    for (const raw of rawNodes) {
-      if (raw.ignored === true) continue;
-      const role = cdpText(raw.role) || "generic";
-      const name = cdpText(raw.name);
-      const value = cdpText(raw.value);
-      const description = cdpText(raw.description);
-      const properties = axProperties(raw.properties);
-      const focusable = properties.focusable === true;
-      const interactive = INTERACTIVE_ROLES.has(role) || focusable;
-      const entry: Record<string, unknown> = { role };
-      if (name) entry.name = bounded(name);
-      if (description) entry.description = bounded(description);
-      if (value)
-        entry.value = isProtectedValue(role, properties, value) ? "[redacted]" : bounded(value);
-      for (const key of [
-        "checked",
-        "disabled",
-        "expanded",
-        "level",
-        "pressed",
-        "selected",
-      ] as const) {
-        if (properties[key] !== undefined) entry[key] = properties[key];
-      }
-      if (interactive && typeof raw.backendDOMNodeId === "number") {
-        const reference = `a${state.nextReference}`;
-        state.nextReference += 1;
-        state.references.set(reference, {
-          backendNodeId: raw.backendDOMNodeId,
-          generation: state.generation,
-        });
-        entry.ref = reference;
-      }
-      if (entry.ref || name || value || description || role !== "generic") nodes.push(entry);
-      if (nodes.length >= MAX_AX_NODES) {
-        truncated = rawNodes.length > nodes.length;
-        break;
-      }
-    }
+    const limit = expand ? MAX_EXPANDED_AX_NODES : MAX_AX_NODES;
+    const appTree = await this.#snapshotNodes(target, state, "a", limit);
+    const embeddedTree = target.embedded
+      ? await this.#snapshotNodes(target.embedded.target, state, "p", limit)
+      : null;
+    const nodes = embeddedTree
+      ? [
+          ...appTree.nodes,
+          {
+            role: "iframe",
+            name: "Hosted page",
+            insets: target.embedded!.insets,
+            children: embeddedTree.nodes,
+          },
+        ]
+      : appTree.nodes;
+    const truncated = appTree.truncated || embeddedTree?.truncated === true;
 
     return {
       tabId,
@@ -175,16 +167,76 @@ export class AppTabObserver {
     };
   }
 
-  async extract(tabId: string): Promise<unknown> {
-    const target = await this.#target(tabId);
-    const result = asRecord(
-      await this.#execute(
-        target,
-        `(() => ({ title: document.title, url: location.href, text: document.body?.innerText ?? "" }))()`,
-        true,
+  async #snapshotNodes(
+    target: AppTabObservationTarget,
+    state: TabSnapshotState,
+    prefix: "a" | "p",
+    limit: number,
+  ): Promise<{ nodes: unknown[]; truncated: boolean }> {
+    const response = asRecord(
+      await this.#cdp(
+        target.webContents,
+        "Accessibility.getFullAXTree",
+        target.frame ? { frameId: target.frame.frameTreeNodeId } : undefined,
       ),
     );
-    const text = typeof result.text === "string" ? result.text : "";
+    const rawNodes = Array.isArray(response.nodes) ? (response.nodes as CdpAxNode[]) : [];
+    const nodes: unknown[] = [];
+    for (const raw of rawNodes) {
+      if (raw.ignored === true) continue;
+      const role = cdpText(raw.role) || "generic";
+      const name = cdpText(raw.name);
+      const value = cdpText(raw.value);
+      const description = cdpText(raw.description);
+      const properties = axProperties(raw.properties);
+      const entry: Record<string, unknown> = { role };
+      if (name) entry.name = bounded(name);
+      if (description) entry.description = bounded(description);
+      if (value)
+        entry.value = isProtectedValue(role, properties, value) ? "[redacted]" : bounded(value);
+      for (const key of [
+        "checked",
+        "disabled",
+        "expanded",
+        "level",
+        "pressed",
+        "selected",
+      ] as const) {
+        if (properties[key] !== undefined) entry[key] = properties[key];
+      }
+      if (
+        (INTERACTIVE_ROLES.has(role) || properties.focusable === true) &&
+        typeof raw.backendDOMNodeId === "number"
+      ) {
+        const reference = `${prefix}${state.nextReference++}`;
+        state.references.set(reference, {
+          backendNodeId: raw.backendDOMNodeId,
+          generation: state.generation,
+          target,
+        });
+        entry.ref = reference;
+      }
+      if (entry.ref || name || value || description || role !== "generic") nodes.push(entry);
+      if (nodes.length >= limit) return { nodes, truncated: rawNodes.length > nodes.length };
+    }
+    return { nodes, truncated: false };
+  }
+
+  async extract(tabId: string): Promise<unknown> {
+    const target = await this.#target(tabId);
+    const extractTarget = async (value: AppTabObservationTarget) =>
+      asRecord(
+        await this.#execute(
+          value,
+          `(() => ({ title: document.title, url: location.href, text: document.body?.innerText ?? "" }))()`,
+          true,
+        ),
+      );
+    const result = await extractTarget(target);
+    const embedded = target.embedded ? await extractTarget(target.embedded.target) : null;
+    const appText = typeof result.text === "string" ? result.text : "";
+    const pageText = typeof embedded?.text === "string" ? embedded.text : "";
+    const text = embedded ? `${appText}\n\n[Hosted page]\n${pageText}` : appText;
     return {
       tabId,
       app: target.descriptor.slug,
@@ -211,7 +263,7 @@ export class AppTabObserver {
     return { kind: "image", mimeType: "image/png", data: bytes.toString("base64") };
   }
 
-  async click(tabId: string, reference: string): Promise<unknown> {
+  async click(tabId: string, reference: string, observe = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
     const point = await this.#nodeCenter(target.webContents, node.backendNodeId);
     await this.#cdp(target.webContents, "Input.dispatchMouseEvent", {
@@ -230,20 +282,20 @@ export class AppTabObserver {
       clickCount: 1,
       ...point,
     });
-    return { tabId, ref: reference, clicked: true };
+    return this.#actionResult(tabId, { tabId, ref: reference, clicked: true }, observe);
   }
 
-  async hover(tabId: string, reference: string): Promise<unknown> {
+  async hover(tabId: string, reference: string, observe = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
     const point = await this.#nodeCenter(target.webContents, node.backendNodeId);
     await this.#cdp(target.webContents, "Input.dispatchMouseEvent", {
       type: "mouseMoved",
       ...point,
     });
-    return { tabId, ref: reference, hovered: true };
+    return this.#actionResult(tabId, { tabId, ref: reference, hovered: true }, observe);
   }
 
-  async type(tabId: string, reference: string, text: string): Promise<unknown> {
+  async type(tabId: string, reference: string, text: string, observe = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
     const objectId = await this.#resolveObject(target.webContents, node.backendNodeId);
     await this.#cdp(target.webContents, "Runtime.callFunctionOn", {
@@ -266,10 +318,14 @@ export class AppTabObserver {
       awaitPromise: true,
       returnByValue: true,
     });
-    return { tabId, ref: reference, typed: true, characters: text.length };
+    return this.#actionResult(
+      tabId,
+      { tabId, ref: reference, typed: true, characters: text.length },
+      observe,
+    );
   }
 
-  async press(tabId: string, key: string): Promise<unknown> {
+  async press(tabId: string, key: string, observe = false): Promise<unknown> {
     const target = await this.#target(tabId);
     const normalized = bounded(key, 100);
     await this.#cdp(target.webContents, "Input.dispatchKeyEvent", {
@@ -280,10 +336,10 @@ export class AppTabObserver {
       type: "keyUp",
       key: normalized,
     });
-    return { tabId, key: normalized, pressed: true };
+    return this.#actionResult(tabId, { tabId, key: normalized, pressed: true }, observe);
   }
 
-  async select(tabId: string, reference: string, value: string): Promise<unknown> {
+  async select(tabId: string, reference: string, value: string, observe = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
     const objectId = await this.#resolveObject(target.webContents, node.backendNodeId);
     await this.#cdp(target.webContents, "Runtime.callFunctionOn", {
@@ -298,17 +354,40 @@ export class AppTabObserver {
       awaitPromise: true,
       returnByValue: true,
     });
-    return { tabId, ref: reference, value, selected: true };
+    return this.#actionResult(tabId, { tabId, ref: reference, value, selected: true }, observe);
   }
 
-  async scroll(tabId: string, deltaX: number, deltaY: number): Promise<unknown> {
+  async scroll(tabId: string, deltaX: number, deltaY: number, observe = false): Promise<unknown> {
     const target = await this.#target(tabId);
     await this.#execute(
       target,
       `window.scrollBy(${JSON.stringify(deltaX)}, ${JSON.stringify(deltaY)})`,
       true,
     );
-    return { tabId, deltaX, deltaY, scrolled: true };
+    return this.#actionResult(tabId, { tabId, deltaX, deltaY, scrolled: true }, observe);
+  }
+
+  async handleDialog(tabId: string, accept: boolean, text?: string): Promise<unknown> {
+    const target = await this.#target(tabId);
+    await this.#cdp(target.webContents, "Page.handleJavaScriptDialog", {
+      accept,
+      ...(text === undefined ? {} : { promptText: bounded(text) }),
+    });
+    return { tabId, accepted: accept };
+  }
+
+  async upload(tabId: string, reference: string, paths: ReadonlyArray<string>): Promise<unknown> {
+    if (paths.length === 0)
+      throw observerError("UPLOAD_PATH_REQUIRED", "At least one path is required.");
+    const { target, node } = await this.#referencedTarget(tabId, reference);
+    const validatedPaths = this.#resolver.validateUploadPaths
+      ? await this.#resolver.validateUploadPaths(target.descriptor, paths)
+      : paths;
+    await this.#cdp(target.webContents, "DOM.setFileInputFiles", {
+      files: [...validatedPaths],
+      backendNodeId: node.backendNodeId,
+    });
+    return { tabId, ref: reference, uploaded: validatedPaths.length };
   }
 
   async wait(tabId: string, text: string, timeoutMs: number): Promise<unknown> {
@@ -327,16 +406,27 @@ export class AppTabObserver {
     throw observerError("WAIT_TIMED_OUT", `Text did not appear within ${boundedTimeout} ms.`);
   }
 
+  async #actionResult(
+    tabId: string,
+    action: Record<string, unknown>,
+    observe: boolean,
+  ): Promise<unknown> {
+    if (!observe) return action;
+    return { ...action, observation: await this.snapshot(tabId) };
+  }
+
   async #target(tabId: string): Promise<AppTabObservationTarget> {
     const target = await this.#resolver.resolve(tabId);
     if (target.webContents.isDestroyed())
       throw observerError("TAB_CLOSED", `App tab ${tabId} is closed.`);
+    if (target.embedded?.target.webContents.isDestroyed())
+      throw observerError("TAB_CLOSED", `Hosted page in App tab ${tabId} is closed.`);
     return target;
   }
 
   #state(tabId: string, target: AppTabObservationTarget): TabSnapshotState {
     const contents = target.webContents;
-    const targetKey = `${contents.id}:${target.frame?.routingId ?? "main"}`;
+    const targetKey = observationTargetKey(target);
     const existing = this.#states.get(tabId);
     if (existing?.observedTargetKey === targetKey) return existing;
     const state = {
@@ -348,6 +438,10 @@ export class AppTabObserver {
     this.#states.set(tabId, state);
     contents.once("destroyed", () => this.invalidate(tabId));
     contents.on("did-start-navigation", () => this.invalidate(tabId));
+    if (target.embedded) {
+      target.embedded.target.webContents.once("destroyed", () => this.invalidate(tabId));
+      target.embedded.target.webContents.on("did-start-navigation", () => this.invalidate(tabId));
+    }
     return state;
   }
 
@@ -360,7 +454,7 @@ export class AppTabObserver {
   }> {
     const target = await this.#target(tabId);
     const state = this.#states.get(tabId);
-    const targetKey = `${target.webContents.id}:${target.frame?.routingId ?? "main"}`;
+    const targetKey = observationTargetKey(target);
     if (!state || state.observedTargetKey !== targetKey) {
       throw observerError(
         "SNAPSHOT_REQUIRED",
@@ -374,7 +468,7 @@ export class AppTabObserver {
         `Reference ${reference} is not in the latest tab snapshot.`,
       );
     }
-    return { target, node };
+    return { target: node.target, node };
   }
 
   async #nodeCenter(
@@ -469,6 +563,13 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function observationTargetKey(target: AppTabObservationTarget): string {
+  const primary = `${target.webContents.id}:${target.frame?.routingId ?? "main"}`;
+  if (!target.embedded) return primary;
+  const embedded = target.embedded.target;
+  return `${primary}|${embedded.webContents.id}:${embedded.frame?.routingId ?? "main"}`;
 }
 
 function observerError(code: string, message: string): Error {

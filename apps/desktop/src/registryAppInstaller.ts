@@ -196,11 +196,22 @@ function resolvePermissionGrants(
 }
 
 function manifestPermissionsMatch(
-  manifest: ReadonlyArray<{ name: string; required: boolean; reason: string }>,
-  registry: ReadonlyArray<{ permission: string; required: boolean; rationale: string }>,
+  manifest: ReadonlyArray<{ name: string; required: boolean; reason: string; audience?: string }>,
+  registry: ReadonlyArray<{
+    permission: string;
+    required: boolean;
+    rationale: string;
+    audience?: string;
+  }>,
 ): boolean {
-  const normalize = (values: Array<{ permission: string; required: boolean; rationale: string }>) =>
-    values.sort((left, right) => left.permission.localeCompare(right.permission));
+  const normalize = (
+    values: Array<{
+      permission: string;
+      required: boolean;
+      rationale: string;
+      audience?: string;
+    }>,
+  ) => values.sort((left, right) => left.permission.localeCompare(right.permission));
   return (
     JSON.stringify(
       normalize(
@@ -208,6 +219,7 @@ function manifestPermissionsMatch(
           permission: permission.name,
           required: permission.required,
           rationale: permission.reason,
+          ...(permission.audience ? { audience: permission.audience } : {}),
         })),
       ),
     ) === JSON.stringify(normalize([...registry]))

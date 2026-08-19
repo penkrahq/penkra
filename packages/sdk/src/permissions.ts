@@ -22,6 +22,16 @@ export const PENKRA_PERMISSIONS = {
     summary: "Use the signed-in Penkra Account with this App's own backend data namespace.",
     risk: "standard",
   },
+  "account-identity": {
+    name: "account-identity",
+    summary: "Receive a short-lived identity token for one declared backend audience.",
+    risk: "high",
+  },
+  "thread-compose": {
+    name: "thread-compose",
+    summary: "Stage visible content and model choices in this App tab's thread composer.",
+    risk: "high",
+  },
 } as const;
 
 export type PenkraPermissionName = keyof typeof PENKRA_PERMISSIONS;
@@ -34,7 +44,8 @@ export type AppPermissionDeclarationChange =
       before: AppPermissionDeclaration;
       after: AppPermissionDeclaration;
     }
-  | { kind: "reason-changed"; before: AppPermissionDeclaration; after: AppPermissionDeclaration };
+  | { kind: "reason-changed"; before: AppPermissionDeclaration; after: AppPermissionDeclaration }
+  | { kind: "audience-changed"; before: AppPermissionDeclaration; after: AppPermissionDeclaration };
 
 export function isPenkraPermissionName(value: string): value is PenkraPermissionName {
   return Object.hasOwn(PENKRA_PERMISSIONS, value);
@@ -59,6 +70,9 @@ export function diffAppPermissionDeclarations(
     if (existing.reason !== permission.reason) {
       changes.push({ kind: "reason-changed", before: existing, after: permission });
     }
+    if (existing.audience !== permission.audience) {
+      changes.push({ kind: "audience-changed", before: existing, after: permission });
+    }
   }
   for (const permission of before) {
     if (!next.has(permission.name)) changes.push({ kind: "removed", permission });
@@ -75,6 +89,9 @@ export function permissionsRequiringUpdateReview(
       return isPenkraPermissionName(change.permission.name) ? [change.permission.name] : [];
     if (change.kind === "requirement-changed" && change.after.required) {
       return isPenkraPermissionName(change.after.name) ? [change.after.name] : [];
+    }
+    if (change.kind === "audience-changed" && change.after.name === "account-identity") {
+      return [change.after.name];
     }
     return [];
   });

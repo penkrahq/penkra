@@ -206,6 +206,60 @@ describe("ElectronAppTabHost", () => {
     ]);
   });
 
+  it("replays complete navigation when an existing tab frame reconnects", async () => {
+    const app = installedApp();
+    const rpc = createRpcMock();
+    rpc.request.mockResolvedValue(undefined);
+    const onDiagnostic = vi.fn();
+    const host = new ElectronAppTabHost({
+      installations: {
+        snapshot: () => ({
+          packagesByInstallationKey: { [`personal\0${app.appId}`]: app },
+        }),
+        isActive: () => true,
+        setEnabled: vi.fn(),
+      } as never,
+      sessions: {
+        get: () => ({ appId: app.appId, spaceId: "personal", origin: TEST_ORIGIN }) as never,
+      },
+      frameDocuments: { activate: async () => `/app.html` },
+      broker: { registerTab: vi.fn(() => vi.fn()) },
+      rpc,
+      ipcBridge: { waitForReady: vi.fn(async () => undefined) },
+      onOpened: vi.fn(),
+      onState: vi.fn(),
+      onDiagnostic,
+    });
+
+    const descriptor = await host.openInstalled({
+      appId: app.appId,
+      spaceId: "personal",
+      threadId: "thread-1",
+      route: "/document",
+      state: { documentId: "doc-1", viewport: { x: 20, y: 40 } },
+    });
+    expect(descriptor.state).toEqual({ documentId: "doc-1", viewport: { x: 20, y: 40 } });
+    rpc.request.mockClear();
+
+    host.markFrameReady(descriptor.id, descriptor.rendererId);
+    expect(rpc.request).not.toHaveBeenCalled();
+    host.markFrameReady(descriptor.id, descriptor.rendererId);
+
+    expect(rpc.request).toHaveBeenCalledWith(descriptor.rendererId, "tab.navigate", {
+      route: "/document",
+      state: { documentId: "doc-1", viewport: { x: 20, y: 40 } },
+    });
+    await vi.waitFor(() =>
+      expect(onDiagnostic).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "tab-navigation-restored",
+          tabId: descriptor.id,
+          message: "/document",
+        }),
+      ),
+    );
+  });
+
   it("lazily activates a persisted enabled App before opening its UI", async () => {
     const base = installedApp();
     const app: InstalledAppPackage = {

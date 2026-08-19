@@ -85,6 +85,7 @@ export async function reconcileAutomaticRegistryAppUpdates(input: {
         name: permission.permission,
         required: permission.required,
         reason: permission.rationale,
+        ...(permission.audience ? { audience: permission.audience } : {}),
       }));
       const reviewPermissions = permissionsRequiringUpdateReview(
         current.manifest.permissions ?? [],
