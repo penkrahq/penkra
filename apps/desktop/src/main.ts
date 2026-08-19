@@ -81,6 +81,7 @@ import {
   AppScopedFileHandleStore,
   type AppScopedFileHandleRecord,
 } from "./appScopedFileHandleStore";
+import { readAppScopedTextFile, writeAppScopedTextFile } from "./appScopedTextFile";
 import { AppScopedFileWriteStore } from "./appScopedFileWriteStore";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
@@ -5534,16 +5535,11 @@ function registerIpcHandlers(): void {
           return resolved.flatMap((entry) => (entry.status === "fulfilled" ? [entry.value] : []));
         }
         if (method === "files.readText") {
-          const stat = await FS.promises.stat(absolutePath);
-          if (stat.size > 16 * 1024 * 1024) throw new Error("Text file exceeds the 16 MB limit.");
-          return FS.promises.readFile(absolutePath, "utf8");
+          return readAppScopedTextFile(absolutePath);
         }
         if (method === "files.writeText") {
           if (typeof record.source !== "string") throw new Error("File contents must be text.");
-          if (Buffer.byteLength(record.source) > 16 * 1024 * 1024) {
-            throw new Error("Text file exceeds the 16 MB limit.");
-          }
-          await FS.promises.writeFile(absolutePath, record.source, "utf8");
+          await writeAppScopedTextFile(absolutePath, record.source);
           return;
         }
         if (method === "files.createDirectory") {

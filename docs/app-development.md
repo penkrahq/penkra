@@ -130,7 +130,7 @@ absolute path or a Chromium `FileSystemHandle`. Use `files.stat`, `files.listDir
 handle. `open({ handleId, relativePath, with: "system" })` asks the trusted host to open one selected
 resource with the operating system.
 
-`readText` and `writeText` are convenience methods for text up to 16 MB. For larger files, read
+`readText` and `writeText` are convenience methods for text up to 32 MB. For larger files, read
 successive binary chunks and decode them with a streaming `TextDecoder`. To write a larger file,
 begin a write with its expected byte count (and optionally its SHA-256), send the returned maximum
 chunk size in order, then commit. Penkra writes to a temporary sibling and replaces the destination
