@@ -10,6 +10,7 @@ import { app, BrowserWindow, ipcMain, protocol } from "electron";
 import { startDesktopAppRuntime } from "./desktopAppRuntime";
 import { bootstrapDevelopmentSideload } from "./developmentAppSideload";
 import { PENKRA_APP_SCHEME } from "./appRuntimePolicy";
+import { resolveAppTestHandshake } from "./appTestHostHandshake";
 import { withAppTestPhaseTimeout } from "./appTestHostPhases";
 
 const sourcePath = requiredEnvironment("PENKRA_APP_TEST_SOURCE");
@@ -178,8 +179,8 @@ async function connectTestFrame(window: BrowserWindow, documentUrl: string): Pro
       true,
     ),
   );
-  try {
-    await runHostPhase("runtime-handshake", async () => {
+  const handshake = await resolveAppTestHandshake(() =>
+    runHostPhase("runtime-handshake", async () => {
       while (true) {
         if (
           await window.webContents.executeJavaScript("window.__penkraAppTestReady === true", true)
@@ -188,12 +189,9 @@ async function connectTestFrame(window: BrowserWindow, documentUrl: string): Pro
         }
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
-    });
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes('phase "runtime-handshake"')) {
-      throw error;
-    }
-  }
+    }),
+  );
+  if (handshake === "ready") return;
   const documentState = await runHostPhase(
     "handshake-document-diagnostics",
     () =>
