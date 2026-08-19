@@ -3,6 +3,10 @@ import * as FS from "node:fs/promises";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
+import { defaultProcessTreeKiller } from "./terminal/processTreeKiller";
+
+const APP_TEST_HOST_STOP_TIMEOUT_MS = 1_000;
+
 export { packageAppDirectory, type AppPackageEvidence } from "@penkra/shared/appPackaging";
 
 export interface AppIntegrationTestEvidence {
@@ -104,24 +108,47 @@ function spawnAppTestHost(input: {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
+    let settled = false;
+    let terminating = false;
+    let resolveExited: (() => void) | undefined;
+    const childExited = new Promise<void>((resolveExit) => {
+      resolveExited = resolveExit;
+    });
     const append = (chunk: Buffer) => {
       output = `${output}${chunk.toString("utf8")}`.slice(-8_192);
     };
     child.stdout?.on("data", append);
     child.stderr?.on("data", append);
     const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(
-        new Error(
-          appTestHostFailure(`App integration test exceeded ${input.timeoutMs} ms.`, output),
-        ),
-      );
+      if (settled || terminating) return;
+      terminating = true;
+      void stopTimedOutAppTestHost(child, childExited).then((cleanupFailure) => {
+        if (settled) return;
+        settled = true;
+        const timeoutMessage = appTestHostFailure(
+          `App integration test exceeded ${input.timeoutMs} ms.`,
+          output,
+        );
+        reject(
+          new Error(
+            cleanupFailure
+              ? `${timeoutMessage}\nApp test cleanup failed: ${cleanupFailure}`
+              : timeoutMessage,
+          ),
+        );
+      });
     }, input.timeoutMs);
     child.once("error", (error) => {
+      resolveExited?.();
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
       reject(error);
     });
     child.once("exit", async (code, signal) => {
+      resolveExited?.();
+      if (settled || terminating) return;
+      settled = true;
       clearTimeout(timeout);
       if (
         code === 0 ||
@@ -142,6 +169,59 @@ function spawnAppTestHost(input: {
       }
     });
   });
+}
+
+async function stopTimedOutAppTestHost(
+  child: ReturnType<typeof spawn>,
+  childExited: Promise<void>,
+): Promise<string | null> {
+  const rootPid = child.pid;
+  if (!rootPid) {
+    child.kill("SIGKILL");
+    return null;
+  }
+
+  const tree = defaultProcessTreeKiller.capture(rootPid);
+  const signalErrors: string[] = [];
+  const signal = (signalName: "SIGTERM" | "SIGKILL", includeRootTree = true) => {
+    defaultProcessTreeKiller.signal({
+      rootPid,
+      signal: signalName,
+      tree,
+      includeRootTree,
+      onError: (error, context) => {
+        signalErrors.push(`${context.source}:${context.pid}:${error.message}`);
+      },
+    });
+  };
+
+  signal("SIGTERM");
+  const rootExited = await waitForExit(childExited, APP_TEST_HOST_STOP_TIMEOUT_MS);
+  const afterTerm = defaultProcessTreeKiller.inspect?.(tree);
+  if (!rootExited || !afterTerm?.verified || afterTerm.survivors.length > 0) {
+    signal("SIGKILL", !rootExited);
+    await waitForExit(childExited, APP_TEST_HOST_STOP_TIMEOUT_MS);
+  }
+
+  const finalInspection = defaultProcessTreeKiller.inspect?.(tree);
+  if (finalInspection?.verified && finalInspection.survivors.length === 0) return null;
+  if (finalInspection && !finalInspection.verified) {
+    return `descendant cleanup could not be verified${signalErrors.length ? ` (${signalErrors.join(", ")})` : ""}`;
+  }
+  if (finalInspection?.survivors.length) {
+    return `renderer helpers remain live: ${finalInspection.survivors.map(({ pid }) => pid).join(", ")}`;
+  }
+  return signalErrors.length ? signalErrors.join(", ") : null;
+}
+
+async function waitForExit(exited: Promise<void>, timeoutMs: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), timeoutMs);
+  });
+  const result = await Promise.race([exited.then(() => true as const), timedOut]);
+  if (timer) clearTimeout(timer);
+  return result;
 }
 
 function appTestHostFailure(message: string, output: string): string {

@@ -73,6 +73,35 @@ writeFileSync(process.env.PENKRA_APP_TEST_RESULT, JSON.stringify({
     expect((error as Error).message).toBe("App integration test exceeded 20 ms.");
   });
 
+  it("terminates descendants captured from a timed-out host", async () => {
+    const source = await mkdtemp(join(tmpdir(), "penkra-app-test-source-"));
+    roots.push(source);
+    const host = join(source, "host.mjs");
+    const childPidPath = join(source, "child.pid");
+    await writeFile(
+      host,
+      `import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
+const child = spawn(process.execPath, ["-e", "setInterval(() => undefined, 1000)"], {
+  stdio: "ignore"
+});
+writeFileSync(${JSON.stringify(childPidPath)}, String(child.pid));
+setInterval(() => undefined, 1000);
+`,
+    );
+    vi.stubEnv("PENKRA_APP_TEST_ELECTRON", process.execPath);
+    vi.stubEnv("PENKRA_APP_TEST_HOST", host);
+    vi.stubEnv("PENKRA_APP_TEST_PACKAGED", "0");
+
+    await expect(testAppDirectory({ directory: source, timeoutMs: 100 })).rejects.toThrow(
+      "App integration test exceeded 100 ms.",
+    );
+
+    const childPid = Number(await readFile(childPidPath, "utf8"));
+    expect(Number.isInteger(childPid)).toBe(true);
+    expect(processExists(childPid)).toBe(false);
+  });
+
   it("reports structured host failures when the isolated host exits nonzero", async () => {
     const source = await mkdtemp(join(tmpdir(), "penkra-app-test-source-"));
     roots.push(source);
@@ -185,4 +214,14 @@ async function fixture(): Promise<string> {
     ),
   );
   return root;
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") return false;
+    throw error;
+  }
 }
