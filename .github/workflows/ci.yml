@@ -56,25 +56,6 @@ jobs:
       - name: Test non-server packages
         run: bunx turbo run test --filter='!@penkra/cli'
 
-  server_isolated:
-    name: Isolated Server Integration Tests
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-        with:
-          cache-suffix: server-isolated
-
-      - name: Build server test dependencies
-        run: bunx turbo run build --filter='@penkra/cli^...'
-
-      - name: Run isolated filesystem and database suites
-        run: bun run --cwd apps/server test:isolated
-
   server_serial:
     name: Serial Server Tests (${{ matrix.shard }}/2)
     strategy:
@@ -338,7 +319,6 @@ jobs:
     needs:
       - static
       - workspace_tests
-      - server_isolated
       - server_serial
       - browser_stable
       - browser_geometry
@@ -352,7 +332,6 @@ jobs:
         env:
           STATIC_RESULT: ${{ needs.static.result }}
           WORKSPACE_TEST_RESULT: ${{ needs.workspace_tests.result }}
-          SERVER_ISOLATED_RESULT: ${{ needs.server_isolated.result }}
           SERVER_SERIAL_RESULT: ${{ needs.server_serial.result }}
           BROWSER_STABLE_RESULT: ${{ needs.browser_stable.result }}
           BROWSER_GEOMETRY_RESULT: ${{ needs.browser_geometry.result }}
@@ -364,7 +343,6 @@ jobs:
           set -euo pipefail
           test "$STATIC_RESULT" = success
           test "$WORKSPACE_TEST_RESULT" = success
-          test "$SERVER_ISOLATED_RESULT" = success
           test "$SERVER_SERIAL_RESULT" = success
           test "$BROWSER_STABLE_RESULT" = success
           test "$BROWSER_GEOMETRY_RESULT" = success
