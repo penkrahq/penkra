@@ -4,55 +4,6 @@ import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
 import { OpenInEditorInput } from "./editor";
 import { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
-import { StudioListThreadOutputsInput, StudioListThreadOutputsResult } from "./studio";
-import {
-  GitCheckoutInput,
-  GitCreateBranchInput,
-  GitCreateDetachedWorktreeInput,
-  GitCreateDetachedWorktreeResult,
-  GitCreateWorktreeInput,
-  GitCreateWorktreeResult,
-  GitSwitchThreadEnvironmentInput,
-  GitSwitchThreadEnvironmentResult,
-  GitListBranchesInput,
-  GitListBranchesResult,
-  GitPreparePullRequestThreadInput,
-  GitPreparePullRequestThreadResult,
-  GitPullRequestRefInput,
-  GitPullRequestSnapshotInput,
-  GitPullRequestSnapshotResult,
-  GitReadWorkingTreeDiffInput,
-  GitReadWorkingTreeDiffResult,
-  GitWorkingTreeDiffStatsResult,
-  GitRemoveIndexLockInput,
-  GitRemoveWorktreeInput,
-  GitResolvePullRequestResult,
-  GitStageFilesInput,
-  GitStageFilesResult,
-  GitStashAndCheckoutInput,
-  GitStashDropInput,
-  GitStashInfoInput,
-  GitStashInfoResult,
-  GitStatusInput,
-  GitStatusResult,
-  GitUnstageFilesInput,
-  GitUnstageFilesResult,
-} from "./git";
-import {
-  PullRequestActionInput,
-  PullRequestCommentInput,
-  PullRequestActionResult,
-  PullRequestDetail,
-  PullRequestDetailInput,
-  PullRequestDiffResult,
-  PullRequestReviewRequestCountInput,
-  PullRequestReviewRequestCountResult,
-  PullRequestSetPinnedInput,
-  PullRequestSetPinnedResult,
-  PullRequestsListInput,
-  PullRequestsListResult,
-  PullRequestsUnavailableError,
-} from "./pullRequests";
 import { KeybindingRule } from "./keybindings";
 import {
   ClientOrchestrationCommand,
@@ -159,12 +110,6 @@ import {
   TerminalSessionSnapshot,
   TerminalWriteInput,
 } from "./terminal";
-import {
-  StatsGetProfileStatsInput,
-  StatsGetProfileStatsResult,
-  StatsGetProfileTokenStatsInput,
-  StatsGetProfileTokenStatsResult,
-} from "./stats";
 import { WS_METHODS } from "./ws";
 import {
   WS_BOOTSTRAP_METHOD,
@@ -222,21 +167,6 @@ export const WsOrchestrationRepairStateRpc = Rpc.make(ORCHESTRATION_WS_METHODS.r
   success: OrchestrationRpcSchemas.repairState.output,
   error: WsRpcError,
 });
-
-export const WsOrchestrationGetTurnDiffRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getTurnDiff, {
-  payload: OrchestrationRpcSchemas.getTurnDiff.input,
-  success: OrchestrationRpcSchemas.getTurnDiff.output,
-  error: WsRpcError,
-});
-
-export const WsOrchestrationGetFullThreadDiffRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getFullThreadDiff,
-  {
-    payload: OrchestrationRpcSchemas.getFullThreadDiff.input,
-    success: OrchestrationRpcSchemas.getFullThreadDiff.output,
-    error: WsRpcError,
-  },
-);
 
 export const WsOrchestrationGetThreadDetailSnapshotRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot,
@@ -399,12 +329,6 @@ export const WsSubscribeProjectWorkspaceChangesRpc = Rpc.make(
   },
 );
 
-export const WsStudioListThreadOutputsRpc = Rpc.make(WS_METHODS.studioListThreadOutputs, {
-  payload: StudioListThreadOutputsInput,
-  success: StudioListThreadOutputsResult,
-  error: WsRpcError,
-});
-
 export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   payload: FilesystemBrowseInput,
   success: FilesystemBrowseResult,
@@ -414,169 +338,6 @@ export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: OpenInEditorInput,
   success: Schema.Void,
-  error: WsRpcError,
-});
-
-export const WsGitStatusRpc = Rpc.make(WS_METHODS.gitStatus, {
-  payload: GitStatusInput,
-  success: GitStatusResult,
-  error: WsRpcError,
-});
-
-export const WsGitReadWorkingTreeDiffRpc = Rpc.make(WS_METHODS.gitReadWorkingTreeDiff, {
-  payload: GitReadWorkingTreeDiffInput,
-  success: GitReadWorkingTreeDiffResult,
-  error: WsRpcError,
-});
-
-export const WsGitWorkingTreeDiffStatsRpc = Rpc.make(WS_METHODS.gitWorkingTreeDiffStats, {
-  payload: GitReadWorkingTreeDiffInput,
-  success: GitWorkingTreeDiffStatsResult,
-  error: WsRpcError,
-});
-
-export const WsGitResolvePullRequestRpc = Rpc.make(WS_METHODS.gitResolvePullRequest, {
-  payload: GitPullRequestRefInput,
-  success: GitResolvePullRequestResult,
-  error: WsRpcError,
-});
-
-export const WsGitPullRequestSnapshotRpc = Rpc.make(WS_METHODS.gitPullRequestSnapshot, {
-  payload: GitPullRequestSnapshotInput,
-  success: GitPullRequestSnapshotResult,
-  error: WsRpcError,
-});
-
-export const WsGitPreparePullRequestThreadRpc = Rpc.make(WS_METHODS.gitPreparePullRequestThread, {
-  payload: GitPreparePullRequestThreadInput,
-  success: GitPreparePullRequestThreadResult,
-  error: WsRpcError,
-});
-
-const PullRequestsRpcError = Schema.Union([PullRequestsUnavailableError, WsRpcError]);
-
-export const WsPullRequestsListRpc = Rpc.make(WS_METHODS.pullRequestsList, {
-  payload: PullRequestsListInput,
-  success: PullRequestsListResult,
-  error: PullRequestsRpcError,
-});
-
-export const WsPullRequestsReviewRequestCountRpc = Rpc.make(
-  WS_METHODS.pullRequestsReviewRequestCount,
-  {
-    payload: PullRequestReviewRequestCountInput,
-    success: PullRequestReviewRequestCountResult,
-    error: PullRequestsRpcError,
-  },
-);
-
-export const WsPullRequestsDetailRpc = Rpc.make(WS_METHODS.pullRequestsDetail, {
-  payload: PullRequestDetailInput,
-  success: PullRequestDetail,
-  error: PullRequestsRpcError,
-});
-
-export const WsPullRequestsDiffRpc = Rpc.make(WS_METHODS.pullRequestsDiff, {
-  payload: PullRequestDetailInput,
-  success: PullRequestDiffResult,
-  error: PullRequestsRpcError,
-});
-
-export const WsPullRequestsActionRpc = Rpc.make(WS_METHODS.pullRequestsAction, {
-  payload: PullRequestActionInput,
-  success: PullRequestActionResult,
-  error: PullRequestsRpcError,
-});
-
-// Comments reuse the action acknowledgment shape: the mutation is confirmed independently of
-// the follow-up detail refetch that surfaces the new comment.
-export const WsPullRequestsCommentRpc = Rpc.make(WS_METHODS.pullRequestsComment, {
-  payload: PullRequestCommentInput,
-  success: PullRequestActionResult,
-  error: PullRequestsRpcError,
-});
-
-export const WsPullRequestsSetPinnedRpc = Rpc.make(WS_METHODS.pullRequestsSetPinned, {
-  payload: PullRequestSetPinnedInput,
-  success: PullRequestSetPinnedResult,
-  error: WsRpcError,
-});
-
-export const WsGitListBranchesRpc = Rpc.make(WS_METHODS.gitListBranches, {
-  payload: GitListBranchesInput,
-  success: GitListBranchesResult,
-  error: WsRpcError,
-});
-
-export const WsGitCreateWorktreeRpc = Rpc.make(WS_METHODS.gitCreateWorktree, {
-  payload: GitCreateWorktreeInput,
-  success: GitCreateWorktreeResult,
-  error: WsRpcError,
-});
-
-export const WsGitCreateDetachedWorktreeRpc = Rpc.make(WS_METHODS.gitCreateDetachedWorktree, {
-  payload: GitCreateDetachedWorktreeInput,
-  success: GitCreateDetachedWorktreeResult,
-  error: WsRpcError,
-});
-
-export const WsGitRemoveWorktreeRpc = Rpc.make(WS_METHODS.gitRemoveWorktree, {
-  payload: GitRemoveWorktreeInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
-export const WsGitCreateBranchRpc = Rpc.make(WS_METHODS.gitCreateBranch, {
-  payload: GitCreateBranchInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
-export const WsGitCheckoutRpc = Rpc.make(WS_METHODS.gitCheckout, {
-  payload: GitCheckoutInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
-export const WsGitStashAndCheckoutRpc = Rpc.make(WS_METHODS.gitStashAndCheckout, {
-  payload: GitStashAndCheckoutInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
-export const WsGitStashDropRpc = Rpc.make(WS_METHODS.gitStashDrop, {
-  payload: GitStashDropInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
-export const WsGitStashInfoRpc = Rpc.make(WS_METHODS.gitStashInfo, {
-  payload: GitStashInfoInput,
-  success: GitStashInfoResult,
-  error: WsRpcError,
-});
-
-export const WsGitRemoveIndexLockRpc = Rpc.make(WS_METHODS.gitRemoveIndexLock, {
-  payload: GitRemoveIndexLockInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
-export const WsGitStageFilesRpc = Rpc.make(WS_METHODS.gitStageFiles, {
-  payload: GitStageFilesInput,
-  success: GitStageFilesResult,
-  error: WsRpcError,
-});
-
-export const WsGitUnstageFilesRpc = Rpc.make(WS_METHODS.gitUnstageFiles, {
-  payload: GitUnstageFilesInput,
-  success: GitUnstageFilesResult,
-  error: WsRpcError,
-});
-
-export const WsGitSwitchThreadEnvironmentRpc = Rpc.make(WS_METHODS.gitSwitchThreadEnvironment, {
-  payload: GitSwitchThreadEnvironmentInput,
-  success: GitSwitchThreadEnvironmentResult,
   error: WsRpcError,
 });
 
@@ -683,12 +444,6 @@ export const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvide
   error: ServerProviderUpdateError,
 });
 
-export const WsServerListWorktreesRpc = Rpc.make(WS_METHODS.serverListWorktrees, {
-  payload: Schema.Struct({}),
-  success: ServerListWorktreesResult,
-  error: WsRpcError,
-});
-
 export const WsServerListLocalServersRpc = Rpc.make(WS_METHODS.serverListLocalServers, {
   payload: Schema.Struct({}),
   success: ServerListLocalServersResult,
@@ -713,18 +468,6 @@ export const WsServerGetProviderUsageSnapshotRpc = Rpc.make(
 export const WsServerListProviderUsageRpc = Rpc.make(WS_METHODS.serverListProviderUsage, {
   payload: ServerListProviderUsageInput,
   success: ServerListProviderUsageResult,
-  error: WsRpcError,
-});
-
-export const WsStatsGetProfileStatsRpc = Rpc.make(WS_METHODS.statsGetProfileStats, {
-  payload: StatsGetProfileStatsInput,
-  success: StatsGetProfileStatsResult,
-  error: WsRpcError,
-});
-
-export const WsStatsGetProfileTokenStatsRpc = Rpc.make(WS_METHODS.statsGetProfileTokenStats, {
-  payload: StatsGetProfileTokenStatsInput,
-  success: StatsGetProfileTokenStatsResult,
   error: WsRpcError,
 });
 
@@ -891,8 +634,6 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsOrchestrationGetShellSnapshotRpc,
   WsOrchestrationGetThreadDetailSnapshotRpc,
   WsOrchestrationRepairStateRpc,
-  WsOrchestrationGetTurnDiffRpc,
-  WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationReplayEventsRpc,
   WsOrchestrationListProviderDeliveryBlockersRpc,
   WsOrchestrationReconcileProviderDeliveryRpc,
@@ -913,35 +654,8 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsProjectsListDevServersRpc,
   WsSubscribeProjectDevServerEventsRpc,
   WsSubscribeProjectWorkspaceChangesRpc,
-  WsStudioListThreadOutputsRpc,
   WsFilesystemBrowseRpc,
   WsShellOpenInEditorRpc,
-  WsGitStatusRpc,
-  WsGitReadWorkingTreeDiffRpc,
-  WsGitWorkingTreeDiffStatsRpc,
-  WsGitResolvePullRequestRpc,
-  WsGitPullRequestSnapshotRpc,
-  WsGitPreparePullRequestThreadRpc,
-  WsPullRequestsListRpc,
-  WsPullRequestsReviewRequestCountRpc,
-  WsPullRequestsDetailRpc,
-  WsPullRequestsDiffRpc,
-  WsPullRequestsActionRpc,
-  WsPullRequestsCommentRpc,
-  WsPullRequestsSetPinnedRpc,
-  WsGitListBranchesRpc,
-  WsGitCreateWorktreeRpc,
-  WsGitCreateDetachedWorktreeRpc,
-  WsGitRemoveWorktreeRpc,
-  WsGitCreateBranchRpc,
-  WsGitCheckoutRpc,
-  WsGitStashAndCheckoutRpc,
-  WsGitStashDropRpc,
-  WsGitStashInfoRpc,
-  WsGitRemoveIndexLockRpc,
-  WsGitStageFilesRpc,
-  WsGitUnstageFilesRpc,
-  WsGitSwitchThreadEnvironmentRpc,
   WsTerminalOpenRpc,
   WsTerminalWriteRpc,
   WsTerminalAckOutputRpc,
@@ -958,13 +672,10 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsServerUpdateSpaceNavigationStateRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
-  WsServerListWorktreesRpc,
   WsServerListLocalServersRpc,
   WsServerStopLocalServerRpc,
   WsServerGetProviderUsageSnapshotRpc,
   WsServerListProviderUsageRpc,
-  WsStatsGetProfileStatsRpc,
-  WsStatsGetProfileTokenStatsRpc,
   WsServerGetDiagnosticsRpc,
   WsServerTranscribeVoiceRpc,
   WsServerUpsertKeybindingRpc,

@@ -45,7 +45,6 @@ import { makeServerReadiness } from "./server/readiness";
 import { makeServerShutdownController, type ServerShutdownController } from "./serverShutdown";
 import { makeBoundedNodeHttpServer } from "./nodeHttpServer";
 import { websocketRpcRouteLayer } from "./wsRpc";
-import { recoverGitEnvironmentSwitchOperations } from "./gitEnvironmentSwitchOperations";
 import { WorkspaceWatcher, type WorkspaceWatcherShape } from "./workspaceWatcher";
 
 export interface ServerShape {
@@ -240,14 +239,6 @@ export const createEffectServer = Effect.fn(function* (
   // process start cannot replay state-dependent commands against the terminal
   // projection.
   yield* orchestrationReactor.reconcileSettledOpenTurns;
-  yield* recoverGitEnvironmentSwitchOperations((command) =>
-    orchestrationEngine.dispatch(command),
-  ).pipe(
-    Effect.mapError(
-      (cause) =>
-        new ServerLifecycleError({ operation: "recoverGitEnvironmentSwitchOperations", cause }),
-    ),
-  );
   yield* providerThreadSwitchCoordinator.recoverOpen;
   yield* recoverRestartInterruptedTurns;
   yield* runtimeStartup.markCommandReady;
@@ -258,7 +249,6 @@ export const createEffectServer = Effect.fn(function* (
       cwd: config.cwd,
       homeDir: config.homeDir,
       chatWorkspaceRoot: config.chatWorkspaceRoot,
-      studioWorkspaceRoot: config.studioWorkspaceRoot,
       projectName: config.cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? config.cwd,
     },
   });

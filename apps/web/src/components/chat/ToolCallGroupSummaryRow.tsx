@@ -12,7 +12,7 @@ import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { extractWebFetchUrl } from "../../lib/toolCallLabel";
 import { LinkChipIcon } from "../LinkChipIcon";
 import type { ToolCallGroupSummary } from "./toolCallGroup.logic";
-import { renderWorkEntryIcon, workEntryLeftIcon } from "./TimelineWorkEntryRow";
+import { WorkEntryLeftIcon } from "./TimelineWorkEntryRow";
 
 export function ToolCallGroupSummaryRow(props: {
   summary: ToolCallGroupSummary;
@@ -40,7 +40,7 @@ export function ToolCallGroupSummaryRow(props: {
           {iconWebFetchUrl ? (
             <LinkChipIcon url={iconWebFetchUrl} className="size-3.5" />
           ) : (
-            renderWorkEntryIcon(workEntryLeftIcon(summary.iconEntry), "size-3.5")
+            <WorkEntryLeftIcon workEntry={summary.iconEntry} className="size-3.5" />
           )}
         </span>
         <span>{summary.label}</span>

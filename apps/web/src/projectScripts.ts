@@ -59,14 +59,12 @@ interface ProjectScriptRuntimeEnvInput {
   project: {
     cwd: string;
   };
-  worktreePath?: string | null;
   extraEnv?: Record<string, string>;
 }
 
 export interface ProjectScriptRunOptions {
   cwd?: string;
   env?: Record<string, string>;
-  worktreePath?: string | null;
   preferNewTerminal?: boolean;
   rememberAsLastInvoked?: boolean;
   throwOnError?: boolean;
@@ -80,9 +78,8 @@ export function projectScriptCwd(input: {
   project: {
     cwd: string;
   };
-  worktreePath?: string | null;
 }): string {
-  return input.worktreePath ?? input.project.cwd;
+  return input.project.cwd;
 }
 
 export function projectScriptRuntimeEnv(
@@ -91,9 +88,6 @@ export function projectScriptRuntimeEnv(
   const env: Record<string, string> = {
     PENKRA_PROJECT_ROOT: input.project.cwd,
   };
-  if (input.worktreePath) {
-    env.PENKRA_WORKTREE_PATH = input.worktreePath;
-  }
   if (input.extraEnv) {
     return { ...env, ...input.extraEnv };
   }
@@ -101,10 +95,10 @@ export function projectScriptRuntimeEnv(
 }
 
 export function primaryProjectScript(scripts: ProjectScript[]): ProjectScript | null {
-  const regular = scripts.find((script) => !script.runOnWorktreeCreate);
-  return regular ?? scripts[0] ?? null;
+  return scripts[0] ?? null;
 }
 
 export function setupProjectScript(scripts: ProjectScript[]): ProjectScript | null {
-  return scripts.find((script) => script.runOnWorktreeCreate) ?? null;
+  void scripts;
+  return null;
 }

@@ -13,8 +13,7 @@ import { Button } from "../ui/button";
 
 function threadMeta(thread: WorkLogPenkraThreadCreation["threads"][number]): string {
   const model = formatModelDisplayName(thread.model) ?? thread.model;
-  const environment = thread.environment === "worktree" ? "Worktree" : "Local";
-  return `${PROVIDER_DISPLAY_NAMES[thread.provider]} · ${model} · ${environment}`;
+  return `${PROVIDER_DISPLAY_NAMES[thread.provider]} · ${model}`;
 }
 
 export const PenkraThreadCreationCard = memo(function PenkraThreadCreationCard({

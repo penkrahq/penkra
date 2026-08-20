@@ -3,7 +3,7 @@
  *
  * This service owns Claude runtime/session semantics and emits canonical
  * provider runtime events. It does not perform cross-provider routing, shared
- * event fan-out, or checkpoint orchestration.
+ * event fan-out, or orchestration policy.
  *
  * Uses Effect `ServiceMap.Service` for dependency injection and returns the
  * shared provider-adapter error channel with `provider: "claudeAgent"` context.

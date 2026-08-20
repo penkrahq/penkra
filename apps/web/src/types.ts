@@ -10,7 +10,6 @@ import type {
   OrchestrationPendingInteraction,
   TurnDispatchMode,
   OrchestrationLatestTurn,
-  OrchestrationThreadPullRequest,
   PinnedMessage,
   ThreadMarker,
   OrchestrationSessionStatus,
@@ -25,11 +24,9 @@ import type {
   ProviderMentionReference,
   ProviderSkillReference,
   ProviderKind,
-  CheckpointRef,
   ContainerKind,
   RuntimeMode,
   ThreadCreationSource,
-  ThreadEnvironmentMode,
 } from "@penkra/contracts";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
@@ -116,24 +113,6 @@ export interface ChatMessage {
   source?: OrchestrationMessageSource;
 }
 
-export interface TurnDiffFileChange {
-  path: string;
-  kind?: string | undefined;
-  additions?: number | undefined;
-  deletions?: number | undefined;
-}
-
-export interface TurnDiffSummary {
-  turnId: TurnId;
-  completedAt: string;
-  status?: string | undefined;
-  files: TurnDiffFileChange[];
-  checkpointRef?: CheckpointRef | undefined;
-  assistantMessageId?: MessageId | undefined;
-  checkpointTurnCount?: number | undefined;
-  checkpointTurnCounts?: number[] | undefined;
-}
-
 export interface Project {
   id: ContainerId;
   kind: ContainerKind;
@@ -164,25 +143,11 @@ export interface Space {
 }
 
 export interface ThreadWorkspaceState {
-  envMode?: ThreadEnvironmentMode | undefined;
-  branch: string | null;
-  worktreePath: string | null;
   workingDirectory?: string | null;
-  associatedWorktreePath?: string | null;
-  associatedWorktreeBranch?: string | null;
-  associatedWorktreeRef?: string | null;
-  createBranchFlowCompleted?: boolean;
 }
 
 export interface ThreadWorkspacePatch {
-  envMode?: ThreadEnvironmentMode | undefined;
-  branch?: string | null;
-  worktreePath?: string | null;
   workingDirectory?: string | null;
-  associatedWorktreePath?: string | null;
-  associatedWorktreeBranch?: string | null;
-  associatedWorktreeRef?: string | null;
-  createBranchFlowCompleted?: boolean;
 }
 
 export interface Thread extends ThreadWorkspaceState {
@@ -215,12 +180,13 @@ export interface Thread extends ThreadWorkspaceState {
   subagentNickname?: string | null;
   subagentRole?: string | null;
   forkSourceThreadId?: ThreadId | null;
-  lastKnownPr?: OrchestrationThreadPullRequest | null;
   latestUserMessageAt?: string | null;
   hasPendingApprovals?: boolean;
   hasPendingUserInput?: boolean;
+  workStatus?: "idle" | "running" | "done" | "attention";
+  lastMessagePreview?: string | null;
+  lastActivityAt?: string | null;
   pendingInteractions?: OrchestrationPendingInteraction[];
-  turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }
 
@@ -252,10 +218,12 @@ export interface ThreadShell extends ThreadWorkspaceState {
   subagentNickname?: string | null;
   subagentRole?: string | null;
   forkSourceThreadId?: ThreadId | null;
-  lastKnownPr?: OrchestrationThreadPullRequest | null;
   latestUserMessageAt?: string | null;
   hasPendingApprovals?: boolean;
   hasPendingUserInput?: boolean;
+  workStatus?: "idle" | "running" | "done" | "attention";
+  lastMessagePreview?: string | null;
+  lastActivityAt?: string | null;
   pendingInteractions?: OrchestrationPendingInteraction[];
   lastVisitedAt?: string | undefined;
 }
@@ -273,13 +241,7 @@ export interface SidebarThreadSummary {
   sidebarSortOrder?: number;
   title: string;
   modelSelection: ModelSelection;
-  envMode?: ThreadEnvironmentMode | undefined;
-  branch: string | null;
-  worktreePath: string | null;
   workingDirectory?: string | null;
-  associatedWorktreePath?: string | null;
-  associatedWorktreeBranch?: string | null;
-  associatedWorktreeRef?: string | null;
   session: ThreadSession | null;
   createdAt: string;
   archivedAt?: string | null;
@@ -294,8 +256,10 @@ export interface SidebarThreadSummary {
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
+  workStatus?: "idle" | "running" | "done" | "attention";
+  lastMessagePreview?: string | null;
+  lastActivityAt?: string | null;
   forkSourceThreadId?: ThreadId | null;
-  lastKnownPr?: OrchestrationThreadPullRequest | null;
 }
 
 /** Lightweight composer identity that ignores live turn/status churn. */

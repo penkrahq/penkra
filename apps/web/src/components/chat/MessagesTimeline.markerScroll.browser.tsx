@@ -58,13 +58,9 @@ function MarkerTimeline({
           },
         },
       ]}
-      turnDiffSummaryByAssistantMessageId={new Map()}
       nowIso="2026-06-06T00:00:01.000Z"
       expandedWorkGroups={{}}
       onToggleWorkGroup={() => {}}
-      revertTurnCountByUserMessageId={new Map()}
-      onRevertUserMessage={() => {}}
-      isRevertingCheckpoint={false}
       onImageExpand={() => {}}
       markdownCwd={undefined}
       resolvedTheme="light"

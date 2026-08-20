@@ -2353,7 +2353,7 @@ describe("CodexAppServerManager discovery", () => {
   });
 });
 
-describe("thread checkpoint control", () => {
+describe("provider thread control", () => {
   it("reads thread turns from thread/read", async () => {
     const { manager, context, requireSession, sendRequest } = createThreadControlHarness();
     sendRequest.mockResolvedValue({

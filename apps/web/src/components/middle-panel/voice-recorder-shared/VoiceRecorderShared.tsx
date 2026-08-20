@@ -2,7 +2,6 @@
 // Purpose: Implements Pencil's shared live voice recorder surface for the middle-panel composer.
 
 import { useEffect, useRef, useState } from "react";
-import { FiArrowUp } from "react-icons/fi";
 import { IoStopSharp } from "react-icons/io5";
 
 import { Loader2Icon } from "~/lib/icons";
@@ -14,7 +13,6 @@ export interface VoiceRecorderSharedProps {
   isTranscribing: boolean;
   waveformLevels: readonly number[];
   onCancel: () => void;
-  onSubmit: () => void;
 }
 
 const BAR_WIDTH_PX = 2;
@@ -92,16 +90,6 @@ export function VoiceRecorderShared(props: VoiceRecorderSharedProps) {
         ) : (
           <IoStopSharp aria-hidden="true" className="size-[11px]" />
         )}
-      </button>
-
-      <button
-        type="button"
-        className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-transform duration-150 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 sm:h-7 sm:w-7"
-        aria-label={props.isTranscribing ? "Transcribing voice note" : "Send voice note"}
-        disabled={props.disabled || props.isTranscribing}
-        onClick={props.onSubmit}
-      >
-        <FiArrowUp aria-hidden="true" className="size-[13px]" strokeWidth={2.25} />
       </button>
     </div>
   );

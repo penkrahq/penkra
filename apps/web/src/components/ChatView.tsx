@@ -42,10 +42,7 @@ import {
   buildPromptThreadTitleFallback,
   GENERIC_CHAT_THREAD_TITLE,
 } from "@penkra/shared/chatThreads";
-import {
-  resolveThreadBranchSourceCwd,
-  resolveThreadWorkspaceCwd as resolveSharedThreadWorkspaceCwd,
-} from "@penkra/shared/threadEnvironment";
+import { resolveThreadWorkspaceCwd as resolveSharedThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 import {
   useCallback,
   useEffect,
@@ -58,7 +55,6 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Debouncer, useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate } from "@tanstack/react-router";
-import { gitBranchesQueryOptions } from "~/lib/gitReactQuery";
 import { resolveProviderDiscoveryCwd } from "~/lib/providerDiscovery";
 import {
   providerComposerCapabilitiesQueryOptions,
@@ -76,6 +72,7 @@ import {
   providerConnectionsQueryOptions,
   threadProviderBindingQueryOptions,
 } from "~/lib/providerConnectionsReactQuery";
+import { resolveThreadBindingRevisionAtAdmission as resolveBindingRevisionAtAdmission } from "~/lib/threadBindingAdmission";
 import {
   anonymousRouteAuthorizesModel,
   connectionAuthorizesModel,
@@ -112,7 +109,6 @@ import { parseChatRouteSearch } from "../chatRouteSearch";
 import { openThreadUrlReference, useThreadResourceOpener } from "../lib/threadResourceOpener";
 import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
 import { isHomeChatContainerProject } from "../lib/chatProjects";
-import { isStudioContainerProject } from "../lib/studioProjects";
 import { resolveFirstSendTarget } from "../lib/chatFirstSend";
 import { readActiveSpaceId, useSpacesUiStore } from "../spacesUiStore";
 import {
@@ -139,9 +135,7 @@ import {
   buildTranscriptAutoFollowSignal,
   derivePromptHistoryFromMessages,
   enrichSubagentWorkEntries,
-  hasFileUndoSettled,
   promptStillMatchesActiveHistoryBrowse,
-  type PendingFileUndo,
   type PromptHistoryNavigationState,
   resolveActiveThreadTitle,
   resolveCommittedProviderModel,
@@ -181,7 +175,6 @@ import {
   canOfferReviewSlashCommand,
   hasProviderNativeSlashCommand,
   providerSupportsTextNativeReviewCommand,
-  resolveComposerSlashRootBranch,
 } from "../composerSlashCommands";
 import {
   derivePendingApprovals,
@@ -220,7 +213,6 @@ import {
   useComposerCommandMenuItems,
 } from "../hooks/useComposerCommandMenuItems";
 import { useProviderModelCatalog } from "../hooks/useProviderModelCatalog";
-import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { RuntimeUsageControls } from "./RuntimeUsageControls";
 import { PenkraMark } from "./foundations/penkra-mark-shared/PenkraMark";
 import {
@@ -261,7 +253,6 @@ import {
   type ComposerFileAttachment,
   type ComposerImageAttachment,
   type ComposerAssistantSelectionAttachment,
-  type DraftThreadEnvMode,
   type PersistedComposerImageAttachment,
   type QueuedComposerChatTurn,
   type QueuedComposerTurn,
@@ -342,7 +333,6 @@ import { ThreadScreenEmpty } from "./middle-panel/thread-screen-empty/ThreadScre
 import { ThreadShell } from "./middle-panel/thread-shell/ThreadShell";
 import { TopBarThreadAdapter } from "./middle-panel/top-bar-thread/TopBarThreadAdapter";
 import type { TranscriptVirtualListRef } from "./chat/TranscriptVirtualList";
-import { buildTurnDiffSummaryByAssistantMessageId } from "./chat/MessagesTimeline.logic";
 import { deriveAgentActivityTimelineState } from "./chat/agentActivity.logic";
 import { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import {
@@ -976,8 +966,7 @@ export default function ChatView({
   >(null);
   const cancelPendingTurnStartMessageIdsRef = useRef<Set<MessageId>>(new Set());
   const [isLocalConnecting, _setIsLocalConnecting] = useState(false);
-  const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
-  const [pendingFileUndo, setPendingFileUndo] = useState<PendingFileUndo | null>(null);
+  const [isEditingMessageHistory, setIsEditingMessageHistory] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [respondingRequestKeys, setRespondingRequestKeys] = useState<string[]>([]);
   const [respondingUserInputRequestKeys, setRespondingUserInputRequestKeys] = useState<string[]>(
@@ -1389,24 +1378,6 @@ export default function ChatView({
     ],
   );
   const activeThread = serverThread ?? localDraftThread;
-  useEffect(() => {
-    if (
-      !pendingFileUndo ||
-      !hasFileUndoSettled({
-        pending: pendingFileUndo,
-        thread: activeThread ?? null,
-      })
-    ) {
-      return;
-    }
-    // Async setState (post-paint) keeps this settled-undo cleanup out of the
-    // render->effect->render cascade.
-    const settle = window.setTimeout(() => {
-      setPendingFileUndo(null);
-      setIsRevertingCheckpoint(false);
-    }, 0);
-    return () => window.clearTimeout(settle);
-  }, [activeThread, pendingFileUndo]);
   const runtimeMode =
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const isServerThread = serverThread !== undefined;
@@ -1553,7 +1524,6 @@ export default function ChatView({
   });
   const homeDir = useWorkspacePathsStore((state) => state.homeDir);
   const chatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
-  const studioWorkspaceRoot = useWorkspacePathsStore((state) => state.studioWorkspaceRoot);
   const selectedSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const emptyLandingSpaceId =
     activeThread?.spaceId ?? draftThread?.spaceId ?? activeProject?.spaceId ?? selectedSpaceId;
@@ -1564,12 +1534,7 @@ export default function ChatView({
     homeDir,
     chatWorkspaceRoot,
   });
-  const isStudioContainer = isStudioContainerProject(activeProject, {
-    homeDir,
-    chatWorkspaceRoot,
-    studioWorkspaceRoot,
-  });
-  const isContainerLandingProject = isHomeChatContainer || isStudioContainer;
+  const isContainerLandingProject = isHomeChatContainer;
   const activeProjectDisplayName = isHomeChatContainer
     ? activeProject?.folderName
     : activeProject?.name;
@@ -1579,12 +1544,6 @@ export default function ChatView({
   const threadLineageThreads = useStore(
     useMemo(() => createThreadLineageSelector(activeThread?.id ?? null), [activeThread?.id]),
   );
-  const resolvedThreadEnvMode = isServerThread
-    ? (activeThread?.envMode ?? null)
-    : (draftThread?.envMode ?? null);
-  const resolvedThreadWorktreePath = isServerThread
-    ? (activeThread?.worktreePath ?? null)
-    : (draftThread?.worktreePath ?? null);
   const resolvedThreadWorkingDirectory = isServerThread
     ? (activeThread?.workingDirectory ?? null)
     : (draftThread?.workingDirectory ?? null);
@@ -1598,7 +1557,18 @@ export default function ChatView({
     const lastVisitedAt = activeThread.lastVisitedAt ? Date.parse(activeThread.lastVisitedAt) : NaN;
     if (!Number.isNaN(lastVisitedAt) && lastVisitedAt >= turnCompletedAt) return;
 
-    markThreadVisited(activeThread.id);
+    const visitedAt = new Date().toISOString();
+    markThreadVisited(activeThread.id, visitedAt);
+    const api = readNativeApi();
+    if (!api) return;
+    void api.orchestration
+      .dispatchCommand({
+        type: "thread.meta.update",
+        commandId: newCommandId(),
+        threadId: activeThread.id,
+        lastVisitedAt: visitedAt,
+      })
+      .catch(() => undefined);
   }, [
     activeThread?.id,
     activeThread?.lastVisitedAt,
@@ -1701,7 +1671,6 @@ export default function ChatView({
     composerDraft.modelSelectionByProvider,
   ]);
   const providerModelDiscoveryCwd = resolveProviderDiscoveryCwd({
-    activeThreadWorktreePath: resolvedThreadWorktreePath,
     activeThreadWorkingDirectory: resolvedThreadWorkingDirectory,
     activeProjectCwd: activeProject?.cwd ?? null,
     serverCwd: serverConfigQuery.data?.cwd ?? null,
@@ -1978,18 +1947,14 @@ export default function ChatView({
   }, [navigate]);
   const selectedBindingRevision = threadProviderBindingQuery.data?.binding?.revision;
   const resolveThreadBindingRevisionAtAdmission = useCallback(async (): Promise<number> => {
-    if (!hasThreadStarted) {
-      return 0;
-    }
-    if (selectedBindingRevision !== undefined) {
-      return selectedBindingRevision;
-    }
-    const refreshed = await threadProviderBindingQuery.refetch();
-    const revision = refreshed.data?.binding?.revision;
-    if (revision === undefined) {
-      throw new Error("Could not load the thread's current provider binding.");
-    }
-    return revision;
+    return resolveBindingRevisionAtAdmission({
+      hasThreadStarted,
+      ...(selectedBindingRevision === undefined ? {} : { cachedRevision: selectedBindingRevision }),
+      loadCurrentRevision: async () => {
+        const refreshed = await threadProviderBindingQuery.refetch();
+        return refreshed.data?.binding?.revision;
+      },
+    });
   }, [hasThreadStarted, selectedBindingRevision, threadProviderBindingQuery]);
   const providerOptionsForDispatch = useMemo(() => getProviderStartOptions(settings), [settings]);
   const selectedModelForPicker =
@@ -2439,7 +2404,7 @@ export default function ChatView({
     }
   }, [hasPendingTurnStart, isSendBusy, phase]);
   const isWorking =
-    hasLiveTurn || isSendBusy || hasPendingTurnStart || isConnecting || isRevertingCheckpoint;
+    hasLiveTurn || isSendBusy || hasPendingTurnStart || isConnecting || isEditingMessageHistory;
   const hasStreamingAssistantText =
     activeThread?.messages.some((message) => message.role === "assistant" && message.streaming) ??
     false;
@@ -2806,84 +2771,18 @@ export default function ChatView({
   const isCenteredEmptyLanding = timelineEntries.length === 0 && !activeThread?.parentThreadId;
   const isEmptyChatLanding =
     isCenteredEmptyLanding && Boolean(homeDir) && isContainerLandingProject;
-  const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
-    useTurnDiffSummaries(activeThread);
-  const turnDiffSummaryByAssistantMessageId = useMemo(() => {
-    const messagesForDiffAnchoring: {
-      id: MessageId;
-      role: "user" | "assistant" | "system";
-      turnId: TurnId | null;
-    }[] = [];
-    for (const message of timelineMessages) {
-      messagesForDiffAnchoring.push({
-        id: message.id,
-        role: message.role,
-        turnId: message.turnId ?? null,
-      });
-    }
-    return buildTurnDiffSummaryByAssistantMessageId({
-      turnDiffSummaries: turnDiffSummaries.map((summary) => ({
-        ...summary,
-        checkpointTurnCount:
-          summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId],
-      })),
-      messages: messagesForDiffAnchoring,
-    });
-  }, [inferredCheckpointTurnCountByTurnId, turnDiffSummaries, timelineMessages]);
-  const revertTurnCountByUserMessageId = useMemo(() => {
-    const byUserMessageId = new Map<MessageId, number>();
-    for (let index = 0; index < timelineEntries.length; index += 1) {
-      const entry = timelineEntries[index];
-      if (!entry || entry.kind !== "message" || entry.message.role !== "user") {
-        continue;
-      }
-
-      for (let nextIndex = index + 1; nextIndex < timelineEntries.length; nextIndex += 1) {
-        const nextEntry = timelineEntries[nextIndex];
-        if (!nextEntry || nextEntry.kind !== "message") {
-          continue;
-        }
-        if (nextEntry.message.role === "user") {
-          break;
-        }
-        const summary = turnDiffSummaryByAssistantMessageId.get(nextEntry.message.id);
-        if (!summary) {
-          continue;
-        }
-        const turnCount =
-          summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId];
-        if (typeof turnCount !== "number") {
-          break;
-        }
-        byUserMessageId.set(entry.message.id, Math.max(0, turnCount - 1));
-        break;
-      }
-    }
-
-    return byUserMessageId;
-  }, [inferredCheckpointTurnCountByTurnId, timelineEntries, turnDiffSummaryByAssistantMessageId]);
 
   const threadWorkspaceCwd = activeProject
     ? resolveSharedThreadWorkspaceCwd({
         projectCwd: activeProject.cwd,
-        envMode: resolvedThreadEnvMode,
-        worktreePath: resolvedThreadWorktreePath,
         workingDirectory: resolvedThreadWorkingDirectory,
       })
     : null;
-  const gitCwd = threadWorkspaceCwd;
-  const gitBranchSourceCwd = activeProject
-    ? resolveThreadBranchSourceCwd({
-        projectCwd: activeProject.cwd,
-        worktreePath: resolvedThreadWorktreePath,
-        workingDirectory: resolvedThreadWorkingDirectory,
-      })
-    : null;
+  const workspaceCwd = threadWorkspaceCwd;
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const mentionTriggerQuery = composerTrigger?.kind === "mention" ? composerTrigger.query : "";
   const isMentionTrigger = composerTriggerKind === "mention";
   const platform = typeof navigator === "undefined" ? "" : navigator.platform;
-  const branchesQuery = useQuery(gitBranchesQueryOptions(gitBranchSourceCwd));
   const localFolderBrowseRootPath = getLocalFolderBrowseRootPath(
     serverConfigQuery.data?.homeDir ?? null,
     isMacPlatform(platform),
@@ -2958,22 +2857,13 @@ export default function ChatView({
   );
   const workspaceEntriesQuery = useQuery(
     projectSearchEntriesQueryOptions({
-      cwd: gitCwd,
+      cwd: workspaceCwd,
       query: effectiveMentionQuery,
       enabled: isMentionTrigger && !isLocalFolderBrowserOpen,
       limit: 80,
     }),
   );
   const workspaceEntries = workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
-  const activeRootBranch = useMemo(
-    () =>
-      resolveComposerSlashRootBranch({
-        branches: branchesQuery.data?.branches,
-        activeProjectCwd: gitBranchSourceCwd,
-        activeThreadBranch: activeThread?.branch,
-      }),
-    [activeThread?.branch, branchesQuery.data?.branches, gitBranchSourceCwd],
-  );
   // Keep plugin suggestions referentially stable so prompt-sync effects do not loop on rerender.
   const providerPlugins = useMemo(
     () =>
@@ -3031,15 +2921,13 @@ export default function ChatView({
     composerTrigger?.kind === "slash-command"
       ? stripComposerTriggerText(prompt, composerTrigger)
       : prompt;
-  const canOfferReviewCommand =
-    (branchesQuery.data?.isRepo ?? true) &&
-    canOfferReviewSlashCommand({
-      prompt: composerPromptWithoutActiveSlashTrigger,
-      imageCount: composerImages.length,
-      terminalContextCount: composerTerminalContexts.length,
-      selectedSkillCount: selectedComposerSkills.length,
-      selectedMentionCount: selectedComposerMentions.length,
-    });
+  const canOfferReviewCommand = canOfferReviewSlashCommand({
+    prompt: composerPromptWithoutActiveSlashTrigger,
+    imageCount: composerImages.length,
+    terminalContextCount: composerTerminalContexts.length,
+    selectedSkillCount: selectedComposerSkills.length,
+    selectedMentionCount: selectedComposerMentions.length,
+  });
   const canOfferForkCommand =
     supportsThreadFork(providerComposerCapabilitiesQuery.data) &&
     isServerThread &&
@@ -3086,21 +2974,11 @@ export default function ChatView({
     if (composerCommandPicker === "fork-target") {
       return [
         {
-          id: "fork-target:worktree",
-          type: "fork-target" as const,
-          target: "worktree" as const,
-          label: "Fork Into New Worktree",
-          description: "Continue in a new worktree",
-        },
-        {
           id: "fork-target:local",
           type: "fork-target" as const,
           target: "local" as const,
           label: "Fork Into Local",
-          description:
-            activeThread?.worktreePath || activeThread?.envMode === "worktree"
-              ? "Continue in this local worktree"
-              : "Continue in the current local thread",
+          description: "Continue in a new local thread",
         },
       ];
     }
@@ -3113,23 +2991,11 @@ export default function ChatView({
           label: "Review Uncommitted Changes",
           description: "Review local uncommitted changes",
         },
-        {
-          id: "review-target:base-branch",
-          type: "review-target" as const,
-          target: "base-branch" as const,
-          label: "Review Against Base Branch",
-          description: "Review the current branch diff against its base",
-        },
       ];
     }
 
     return normalComposerMenuItems;
-  }, [
-    activeThread?.envMode,
-    activeThread?.worktreePath,
-    composerCommandPicker,
-    normalComposerMenuItems,
-  ]);
+  }, [composerCommandPicker, normalComposerMenuItems]);
   const composerMenuOpen = Boolean(composerTrigger || composerCommandPicker);
   const activeComposerMenuItem = useMemo(
     () =>
@@ -3502,7 +3368,7 @@ export default function ChatView({
           return { ...current, [activeProject.id]: script.id };
         });
       }
-      const targetCwd = options?.cwd ?? gitCwd ?? activeProject.cwd;
+      const targetCwd = options?.cwd ?? workspaceCwd ?? activeProject.cwd;
       const baseTerminalId =
         terminalState.activeTerminalId ||
         terminalState.terminalIds[0] ||
@@ -3536,7 +3402,6 @@ export default function ChatView({
           },
           cwd: targetCwd,
           command: script.command,
-          worktreePath: options?.worktreePath ?? activeThread.worktreePath ?? null,
           ...(options?.env ? { env: options.env } : {}),
         });
 
@@ -3566,7 +3431,7 @@ export default function ChatView({
       activeProject,
       activeThread,
       activeThreadId,
-      gitCwd,
+      workspaceCwd,
       requestTerminalFocus,
       setTerminalOpen,
       setThreadError,
@@ -3623,16 +3488,8 @@ export default function ChatView({
         name: input.name,
         command: input.command,
         icon: input.icon,
-        runOnWorktreeCreate: input.runOnWorktreeCreate,
       };
-      const nextScripts = input.runOnWorktreeCreate
-        ? [
-            ...activeProject.scripts.map((script) =>
-              script.runOnWorktreeCreate ? { ...script, runOnWorktreeCreate: false } : script,
-            ),
-            nextScript,
-          ]
-        : [...activeProject.scripts, nextScript];
+      const nextScripts = [...activeProject.scripts, nextScript];
 
       await persistProjectScripts({
         projectId: activeProject.id,
@@ -3658,14 +3515,9 @@ export default function ChatView({
         name: input.name,
         command: input.command,
         icon: input.icon,
-        runOnWorktreeCreate: input.runOnWorktreeCreate,
       };
       const nextScripts = activeProject.scripts.map((script) =>
-        script.id === scriptId
-          ? updatedScript
-          : input.runOnWorktreeCreate
-            ? { ...script, runOnWorktreeCreate: false }
-            : script,
+        script.id === scriptId ? updatedScript : script,
       );
 
       await persistProjectScripts({
@@ -4177,7 +4029,7 @@ export default function ChatView({
     // Async setState (post-paint) keeps this thread-change reset out of the
     // render->effect->render cascade.
     const settle = window.setTimeout(() => {
-      setIsRevertingCheckpoint(false);
+      setIsEditingMessageHistory(false);
     }, 0);
     return () => window.clearTimeout(settle);
   }, [activeThread?.id]);
@@ -4521,10 +4373,6 @@ export default function ChatView({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [composerMenuOpen]);
 
-  const envMode: DraftThreadEnvMode = isServerThread
-    ? (activeThread?.envMode ?? "local")
-    : (draftThread?.envMode ?? "local");
-
   const visibleQueuedComposerTurns = useMemo(() => {
     const visibleLocalTurns = queuedComposerTurns.filter(
       (queuedTurn) =>
@@ -4573,7 +4421,6 @@ export default function ChatView({
           connectionId: selectedConnectionId ?? null,
           ...(providerOptionsForDispatch ? { providerOptionsForDispatch } : {}),
           runtimeMode,
-          envMode,
         },
       ];
     });
@@ -4583,7 +4430,6 @@ export default function ChatView({
   }, [
     activeThread?.messages,
     activeThread?.queuedMessageIds,
-    envMode,
     providerOptionsForDispatch,
     queuedActionStateByMessageId,
     queuedComposerTurns,
@@ -5139,99 +4985,6 @@ export default function ChatView({
     setIsDragOverComposer,
   });
 
-  const onRevertToTurnCount = useCallback(
-    async (turnCount: number) => {
-      const api = readNativeApi();
-      if (!api || !activeThread || isRevertingCheckpoint) return;
-
-      if (hasLiveTurn || isSendBusy || isConnecting) {
-        setThreadError(activeThread.id, "Interrupt the current turn before reverting checkpoints.");
-        return;
-      }
-      const confirmed = await api.dialogs.confirm(
-        [
-          `Revert this thread to checkpoint ${turnCount}?`,
-          "This will discard newer messages and turn diffs in this thread.",
-          "This action cannot be undone.",
-        ].join("\n"),
-      );
-      if (!confirmed) {
-        return;
-      }
-
-      setIsRevertingCheckpoint(true);
-      setThreadError(activeThread.id, null);
-      try {
-        await api.orchestration.dispatchCommand({
-          type: "thread.checkpoint.revert",
-          commandId: newCommandId(),
-          threadId: activeThread.id,
-          turnCount,
-          scope: "thread",
-          createdAt: new Date().toISOString(),
-        });
-      } catch (err) {
-        setThreadError(
-          activeThread.id,
-          err instanceof Error ? err.message : "Failed to revert thread state.",
-        );
-      }
-      setIsRevertingCheckpoint(false);
-    },
-    [activeThread, hasLiveTurn, isConnecting, isRevertingCheckpoint, isSendBusy, setThreadError],
-  );
-
-  const onUndoTurnFiles = useCallback(
-    async (turnCounts: readonly number[]) => {
-      const api = readNativeApi();
-      if (!api || !activeThread || isRevertingCheckpoint || turnCounts.length === 0) return;
-
-      if (hasLiveTurn || isSendBusy || isConnecting) {
-        setThreadError(activeThread.id, "Interrupt the current turn before undoing file changes.");
-        return;
-      }
-      const confirmed = await api.dialogs.confirm(
-        [
-          "Undo the latest file changes shown in this card?",
-          "Earlier file changes will remain available to undo.",
-          "Messages and provider conversation history will be kept.",
-          "This action cannot be undone.",
-        ].join("\n"),
-      );
-      if (!confirmed) return;
-
-      setIsRevertingCheckpoint(true);
-      setThreadError(activeThread.id, null);
-      const turnCount = Math.max(...turnCounts);
-      const requestedAt = new Date().toISOString();
-      setPendingFileUndo({
-        threadId: activeThread.id,
-        turnCounts,
-        existingFailureActivityIds: activeThread.activities
-          .filter((activity) => activity.kind === "checkpoint.revert.failed")
-          .map((activity) => activity.id),
-      });
-      try {
-        await api.orchestration.dispatchCommand({
-          type: "thread.checkpoint.revert",
-          commandId: newCommandId(),
-          threadId: activeThread.id,
-          turnCount,
-          scope: "files",
-          createdAt: requestedAt,
-        });
-      } catch (err) {
-        setPendingFileUndo(null);
-        setIsRevertingCheckpoint(false);
-        setThreadError(
-          activeThread.id,
-          err instanceof Error ? err.message : "Failed to undo file changes.",
-        );
-      }
-    },
-    [activeThread, hasLiveTurn, isConnecting, isRevertingCheckpoint, isSendBusy, setThreadError],
-  );
-
   const clearComposerInput = useCallback(
     (threadId: ThreadId) => {
       promptHistoryNavigationRef.current = null;
@@ -5262,10 +5015,7 @@ export default function ChatView({
       clearComposerDraftContent(activeThread.id);
       setComposerDraftPrompt(activeThread.id, nextPrompt);
       // Editing a queued turn should recreate the same draft state the user queued.
-      setDraftThreadContext(activeThread.id, {
-        runtimeMode: queuedTurn.runtimeMode,
-        envMode: queuedTurn.envMode,
-      });
+      setDraftThreadContext(activeThread.id, { runtimeMode: queuedTurn.runtimeMode });
       if (restoredImages.length > 0) {
         addComposerImagesToDraft(restoredImages);
       }
@@ -5416,13 +5166,11 @@ export default function ChatView({
         connectionId: liveConnectionId ?? null,
         ...(providerOptionsForDispatch ? { providerOptionsForDispatch } : {}),
         runtimeMode,
-        envMode,
       });
     },
     [
       activeThread,
       enqueueQueuedComposerTurn,
-      envMode,
       providerOptionsForDispatch,
       resolveSelectedConnection,
       restoreQueuedTurnToComposer,
@@ -5672,7 +5420,6 @@ export default function ChatView({
     const providerOptionsForDispatchForSend =
       queuedChatTurn?.providerOptionsForDispatch ?? providerOptionsForDispatch;
     const runtimeModeForSend = queuedChatTurn?.runtimeMode ?? runtimeMode;
-    const envModeForSend = queuedChatTurn?.envMode ?? envMode;
     const {
       trimmedPrompt: trimmed,
       sendableTerminalContexts: sendableComposerTerminalContexts,
@@ -5772,7 +5519,6 @@ export default function ChatView({
           ? { providerOptionsForDispatch: providerOptionsForDispatchForSend }
           : {}),
         runtimeMode: runtimeModeForSend,
-        envMode: envModeForSend,
       });
       return true;
     }
@@ -5819,7 +5565,6 @@ export default function ChatView({
       createdAt: firstSendCreatedAt,
       isFirstMessage,
       isHomeChatContainer,
-      isStudioContainer,
       projects: currentStoreState.projects,
       selectedWorkspaceRoot: null,
       title,
@@ -5837,12 +5582,6 @@ export default function ChatView({
         }
       : firstSendTarget.target;
     let nextRuntimeModeForSend = runtimeModeForSend;
-    const nextThreadEnvMode = "local" as const;
-    const nextThreadBranch = null;
-    const nextThreadWorktreePath = null;
-    const nextAssociatedWorktreePath = null;
-    const nextAssociatedWorktreeBranch = null;
-    const nextAssociatedWorktreeRef = null;
 
     if (isFirstMessage && isContainerLandingProject && firstSendTarget.kind !== "current") {
       if (firstSendTarget.kind === "create-project") {
@@ -5898,9 +5637,6 @@ export default function ChatView({
       clearProjectDraftThreadId(targetProjectIdForSend);
       setDraftThreadContext(threadIdForSend, {
         projectId: targetProjectIdForSend,
-        envMode: "local",
-        worktreePath: null,
-        branch: null,
       });
     }
     const messageIdForSend = newMessageId();
@@ -5968,7 +5704,6 @@ export default function ChatView({
           ? { providerOptionsForDispatch: providerOptionsForDispatchForSend }
           : {}),
         runtimeMode: runtimeModeForSend,
-        envMode: envModeForSend,
       };
     }
     const throwIfPendingTurnStartCancelled = () => {
@@ -6090,14 +5825,7 @@ export default function ChatView({
             title,
             modelSelection: threadCreateModelSelection,
             runtimeMode: nextRuntimeModeForSend,
-            envMode: nextThreadEnvMode,
-            branch: nextThreadBranch,
-            worktreePath: nextThreadWorktreePath,
             workingDirectory: resolvedThreadWorkingDirectory,
-            associatedWorktreePath: nextAssociatedWorktreePath,
-            associatedWorktreeBranch: nextAssociatedWorktreeBranch,
-            associatedWorktreeRef: nextAssociatedWorktreeRef,
-            lastKnownPr: activeThread.lastKnownPr ?? null,
             createdAt: activeThread.createdAt,
           },
           api,
@@ -6500,7 +6228,7 @@ export default function ChatView({
   const onEditUserMessage = useCallback(
     async (messageId: MessageId, text: string): Promise<boolean> => {
       const api = readNativeApi();
-      if (!api || !activeThread || !isServerThread || isRevertingCheckpoint) {
+      if (!api || !activeThread || !isServerThread || isEditingMessageHistory) {
         return false;
       }
       const editTarget = resolveTailUserMessageEditTarget({
@@ -6529,7 +6257,7 @@ export default function ChatView({
         return false;
       }
 
-      setIsRevertingCheckpoint(true);
+      setIsEditingMessageHistory(true);
       setThreadError(activeThread.id, null);
       const messageCreatedAt = new Date().toISOString();
       const editedTextWithOriginalContext = appendOriginalComposerPromptBlocks({
@@ -6576,13 +6304,13 @@ export default function ChatView({
           return false;
         })
         .finally(() => {
-          setIsRevertingCheckpoint(false);
+          setIsEditingMessageHistory(false);
         });
     },
     [
       activeThread,
       isConnecting,
-      isRevertingCheckpoint,
+      isEditingMessageHistory,
       isSendBusy,
       isServerThread,
       persistThreadSettingsForNextTurn,
@@ -6656,14 +6384,12 @@ export default function ChatView({
       connectionId: selectedConnectionId,
       ...(providerOptionsForDispatch ? { providerOptionsForDispatch } : {}),
       runtimeMode,
-      envMode,
     });
     if (sent && activeThreadId) {
       markWorkflowRunDismissed(activeThreadId, workflowTaskId);
     }
   }, [
     activeThreadId,
-    envMode,
     markWorkflowRunDismissed,
     providerOptionsForDispatch,
     runtimeMode,
@@ -7224,7 +6950,6 @@ export default function ChatView({
   } = useComposerSlashCommands({
     activeProject,
     activeThread,
-    activeRootBranch,
     isServerThread,
     supportsFastSlashCommand,
     canOfferCompactCommand:
@@ -7241,7 +6966,6 @@ export default function ChatView({
     currentProviderModelOptions,
     selectedModelSelection,
     selectedConnectionId,
-    environmentMode: envMode ?? null,
     runtimeMode,
     threadId,
     syncServerShellSnapshot,
@@ -7264,7 +6988,7 @@ export default function ChatView({
     },
     openForkTargetPicker: () => {
       setComposerCommandPicker("fork-target");
-      setComposerHighlightedItemId("fork-target:worktree");
+      setComposerHighlightedItemId("fork-target:local");
     },
     openReviewTargetPicker: () => {
       setComposerCommandPicker("review-target");
@@ -7679,16 +7403,6 @@ export default function ChatView({
     },
     [navigate],
   );
-  const onRevertUserMessage = useCallback(
-    (messageId: MessageId) => {
-      const targetTurnCount = revertTurnCountByUserMessageId.get(messageId);
-      if (typeof targetTurnCount !== "number") {
-        return;
-      }
-      void onRevertToTurnCount(targetTurnCount);
-    },
-    [onRevertToTurnCount, revertTurnCountByUserMessageId],
-  );
   const dismissActiveThreadError = useCallback(() => {
     if (!activeThread) return;
     setThreadError(activeThread.id, null);
@@ -8088,24 +7802,36 @@ export default function ChatView({
                           />
                         ) : null}
                         {showVoiceNotesControl && (isVoiceRecording || isVoiceTranscribing) ? (
-                          <VoiceRecorderShared
-                            disabled={isComposerApprovalState || isConnecting || isSendBusy}
-                            isTranscribing={isVoiceTranscribing}
-                            durationLabel={voiceRecordingDurationLabel}
-                            waveformLevels={voiceWaveformLevels}
-                            onCancel={() => {
-                              if (isVoiceRecording) {
-                                void submitComposerVoiceRecording();
-                                return;
+                          <>
+                            <VoiceRecorderShared
+                              disabled={isComposerApprovalState || isConnecting || isSendBusy}
+                              isTranscribing={isVoiceTranscribing}
+                              durationLabel={voiceRecordingDurationLabel}
+                              waveformLevels={voiceWaveformLevels}
+                              onCancel={() => {
+                                if (isVoiceRecording) {
+                                  void submitComposerVoiceRecording();
+                                  return;
+                                }
+                                cancelComposerVoiceRecording();
+                              }}
+                            />
+                            <ButtonSend
+                              type="button"
+                              disabled={
+                                isComposerApprovalState ||
+                                isConnecting ||
+                                isSendBusy ||
+                                isVoiceTranscribing
                               }
-                              cancelComposerVoiceRecording();
-                            }}
-                            onSubmit={() => {
-                              void submitComposerVoiceRecording();
-                            }}
-                          />
+                              aria-label={
+                                isVoiceTranscribing ? "Transcribing voice note" : "Send voice note"
+                              }
+                              onClick={() => void submitComposerVoiceRecording()}
+                            />
+                          </>
                         ) : null}
-                        {activePendingProgress ? (
+                        {isVoiceRecording || isVoiceTranscribing ? null : activePendingProgress ? (
                           <Button
                             type="submit"
                             size="sm"
@@ -8280,14 +8006,9 @@ export default function ChatView({
                       enteringUserMessageIds={enteringUserMessageIds}
                       crossTaskOrigin={crossTaskOrigin}
                       timelineEntries={timelineEntries}
-                      turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
                       onOpenThread={onNavigateToThread}
                       subagentToolTraceByThreadId={subagentToolTraceByThreadId}
-                      revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-                      onRevertUserMessage={onRevertUserMessage}
-                      onUndoTurnFiles={onUndoTurnFiles}
                       onEditUserMessage={onEditUserMessageFromTranscript}
-                      isRevertingCheckpoint={isRevertingCheckpoint}
                       onExpandTimelineImage={onExpandTimelineImage}
                       followLiveOutput={hasStreamingAssistantText}
                       onIsAtEndChange={onIsAtEndChange}

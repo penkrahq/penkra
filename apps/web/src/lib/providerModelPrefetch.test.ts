@@ -78,7 +78,7 @@ describe("resolveNewThreadModelPrefetchCwd", () => {
   it("prefers draft worktree, then project cwd, then server cwd", () => {
     expect(
       resolveNewThreadModelPrefetchCwd({
-        draftWorktreePath: "/tmp/worktree",
+        draftWorkingDirectory: "/tmp/worktree",
         projectCwd: "/tmp/project",
         serverCwd: "/tmp/server",
       }),
@@ -86,7 +86,6 @@ describe("resolveNewThreadModelPrefetchCwd", () => {
 
     expect(
       resolveNewThreadModelPrefetchCwd({
-        draftWorktreePath: null,
         projectCwd: "/tmp/project",
         serverCwd: "/tmp/server",
       }),

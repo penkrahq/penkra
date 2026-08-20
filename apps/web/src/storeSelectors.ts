@@ -2,7 +2,7 @@
 // Purpose: Stable Zustand selectors for entity lookups and lightweight sidebar projections.
 // Exports: Selector factories used by routes and sidebar-heavy components.
 
-import type { ContainerId, ThreadEnvironmentMode, ThreadId } from "@penkra/contracts";
+import type { ContainerId, ThreadId } from "@penkra/contracts";
 
 import type { AppState } from "./storeState";
 import { resolveThreadDisplayProvider } from "./lib/threadDisplayProvider";
@@ -18,14 +18,10 @@ import type {
 const EMPTY_THREAD_SHELLS: ThreadShell[] = [];
 
 export interface ThreadWorkspaceMetadata {
-  envMode: ThreadEnvironmentMode | undefined;
-  worktreePath: string | null;
   workingDirectory: string | null;
 }
 
 const EMPTY_THREAD_WORKSPACE_METADATA: ThreadWorkspaceMetadata = Object.freeze({
-  envMode: undefined,
-  worktreePath: null,
   workingDirectory: null,
 });
 
@@ -73,8 +69,6 @@ export function createAllThreadsSelector(): (state: AppState) => readonly Thread
   let previousMessageByThreadId = {} as AppState["messageByThreadId"];
   let previousActivityIdsByThreadId = {} as AppState["activityIdsByThreadId"];
   let previousActivityByThreadId = {} as AppState["activityByThreadId"];
-  let previousTurnDiffIdsByThreadId = {} as AppState["turnDiffIdsByThreadId"];
-  let previousTurnDiffSummaryByThreadId = {} as AppState["turnDiffSummaryByThreadId"];
   let previousThreads: readonly Thread[] = [];
 
   return (state) => {
@@ -86,9 +80,7 @@ export function createAllThreadsSelector(): (state: AppState) => readonly Thread
       previousMessageIdsByThreadId === state.messageIdsByThreadId &&
       previousMessageByThreadId === state.messageByThreadId &&
       previousActivityIdsByThreadId === state.activityIdsByThreadId &&
-      previousActivityByThreadId === state.activityByThreadId &&
-      previousTurnDiffIdsByThreadId === state.turnDiffIdsByThreadId &&
-      previousTurnDiffSummaryByThreadId === state.turnDiffSummaryByThreadId
+      previousActivityByThreadId === state.activityByThreadId
     ) {
       return previousThreads;
     }
@@ -101,8 +93,6 @@ export function createAllThreadsSelector(): (state: AppState) => readonly Thread
     previousMessageByThreadId = state.messageByThreadId;
     previousActivityIdsByThreadId = state.activityIdsByThreadId;
     previousActivityByThreadId = state.activityByThreadId;
-    previousTurnDiffIdsByThreadId = state.turnDiffIdsByThreadId;
-    previousTurnDiffSummaryByThreadId = state.turnDiffSummaryByThreadId;
     previousThreads = getThreadsFromState(state);
     return previousThreads;
   };
@@ -163,8 +153,6 @@ export function createThreadProjectIdSelector(
 export function createThreadWorkspaceMetadataSelector(
   threadId: ThreadId | null | undefined,
 ): (state: AppState) => ThreadWorkspaceMetadata {
-  let previousEnvMode: ThreadEnvironmentMode | undefined = undefined;
-  let previousWorktreePath: string | null = null;
   let previousWorkingDirectory: string | null = null;
   let previousResult = EMPTY_THREAD_WORKSPACE_METADATA;
 
@@ -175,24 +163,14 @@ export function createThreadWorkspaceMetadataSelector(
 
     // Shell-only: avoid subscribing preview panes to live message/activity detail slices.
     const source = state.threadShellById?.[threadId];
-    const envMode = source?.envMode;
-    const worktreePath = source?.worktreePath ?? null;
     const workingDirectory = source?.workingDirectory ?? null;
-    if (
-      previousEnvMode === envMode &&
-      previousWorktreePath === worktreePath &&
-      previousWorkingDirectory === workingDirectory
-    ) {
+    if (previousWorkingDirectory === workingDirectory) {
       return previousResult;
     }
 
-    previousEnvMode = envMode;
-    previousWorktreePath = worktreePath;
     previousWorkingDirectory = workingDirectory;
     previousResult =
-      envMode === undefined && worktreePath === null && workingDirectory === null
-        ? EMPTY_THREAD_WORKSPACE_METADATA
-        : { envMode, worktreePath, workingDirectory };
+      workingDirectory === null ? EMPTY_THREAD_WORKSPACE_METADATA : { workingDirectory };
     return previousResult;
   };
 }

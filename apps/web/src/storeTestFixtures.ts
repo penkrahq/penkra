@@ -30,7 +30,6 @@ export function makeThread(overrides: Partial<Thread> = {}): Thread {
     runtimeMode: DEFAULT_RUNTIME_MODE,
     session: null,
     messages: [],
-    turnDiffSummaries: [],
     activities: [],
     error: null,
     createdAt: "2026-02-13T00:00:00.000Z",
@@ -38,9 +37,6 @@ export function makeThread(overrides: Partial<Thread> = {}): Thread {
     latestUserMessageAt: null,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
-    envMode: "local",
-    branch: null,
-    worktreePath: null,
     forkSourceThreadId: null,
     ...overrides,
   };
@@ -100,7 +96,7 @@ export function makeActivity(overrides: {
 }
 
 export function makeState(thread: Thread): AppState {
-  const { session, latestTurn, messages, activities, turnDiffSummaries, ...shell } = thread;
+  const { session, latestTurn, messages, activities, ...shell } = thread;
   return {
     spaces: [],
     archivedSpaces: [],
@@ -118,12 +114,6 @@ export function makeState(thread: Thread): AppState {
     activityIdsByThreadId: { [thread.id]: activities.map((activity) => activity.id) },
     activityByThreadId: {
       [thread.id]: Object.fromEntries(activities.map((activity) => [activity.id, activity])),
-    },
-    turnDiffIdsByThreadId: { [thread.id]: turnDiffSummaries.map((summary) => summary.turnId) },
-    turnDiffSummaryByThreadId: {
-      [thread.id]: Object.fromEntries(
-        turnDiffSummaries.map((summary) => [summary.turnId, summary]),
-      ),
     },
   };
 }
@@ -160,9 +150,6 @@ export function makeReadModelThread(overrides: Partial<OrchestrationReadModel["t
       model: "gpt-5.3-codex",
     },
     runtimeMode: DEFAULT_RUNTIME_MODE,
-    envMode: "local",
-    branch: null,
-    worktreePath: null,
     forkSourceThreadId: null,
     latestTurn: null,
     createdAt: "2026-02-27T00:00:00.000Z",
@@ -170,7 +157,6 @@ export function makeReadModelThread(overrides: Partial<OrchestrationReadModel["t
     deletedAt: null,
     messages: [],
     activities: [],
-    checkpoints: [],
     session: null,
     ...overrides,
   } satisfies OrchestrationReadModel["threads"][number];

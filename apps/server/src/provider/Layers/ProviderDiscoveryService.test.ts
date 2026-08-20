@@ -23,7 +23,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   deriveServerPaths,
   resolveDefaultChatWorkspaceRoot,
-  resolveDefaultStudioWorkspaceRoot,
   ServerConfig,
   type ServerConfigShape,
 } from "../../config.ts";
@@ -68,7 +67,6 @@ const makeConfigLayer = () =>
         cwd,
         homeDir,
         chatWorkspaceRoot: resolveDefaultChatWorkspaceRoot({ homeDir }),
-        studioWorkspaceRoot: resolveDefaultStudioWorkspaceRoot({ homeDir }),
         baseDir,
         ...derived,
         staticDir: undefined,

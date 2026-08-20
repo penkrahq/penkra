@@ -417,16 +417,25 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
 
       if (changed) {
         if (input.bindingRevision === undefined) {
-          return yield* fail("Changing a thread selection requires its exact binding revision.");
+          return yield* new ProviderTurnSelectionResolutionError({
+            detail: "Changing a thread selection requires its exact binding revision.",
+            reason: "binding-revision-required",
+          });
         }
         if (input.bindingRevision !== binding.value.revision) {
-          return yield* fail("The thread binding changed before this selection was accepted.");
+          return yield* new ProviderTurnSelectionResolutionError({
+            detail: "The thread binding changed before this selection was accepted.",
+            reason: "binding-revision-stale",
+          });
         }
       } else if (
         input.bindingRevision !== undefined &&
         input.bindingRevision !== binding.value.revision
       ) {
-        return yield* fail("The supplied thread binding revision is stale.");
+        return yield* new ProviderTurnSelectionResolutionError({
+          detail: "The supplied thread binding revision is stale.",
+          reason: "binding-revision-stale",
+        });
       }
 
       const installation = yield* installations.getRecord(binding.value.installationId).pipe(

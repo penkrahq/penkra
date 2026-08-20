@@ -47,6 +47,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           delivery_queued,
           delivery_sequence,
           is_streaming,
+          applied_len,
           source,
           sequence,
           created_at,
@@ -67,6 +68,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           ${row.deliveryQueued === undefined ? null : row.deliveryQueued ? 1 : 0},
           ${row.deliverySequence ?? null},
           ${row.isStreaming ? 1 : 0},
+          ${Buffer.byteLength(row.text, "utf8")},
           ${row.source},
           ${row.sequence ?? null},
           ${row.createdAt},
@@ -116,6 +118,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
             ELSE projection_thread_messages.delivery_sequence
           END,
           is_streaming = excluded.is_streaming,
+          applied_len = length(CAST(excluded.text AS BLOB)),
           source = excluded.source,
           sequence = COALESCE(projection_thread_messages.sequence, excluded.sequence),
           created_at = excluded.created_at,

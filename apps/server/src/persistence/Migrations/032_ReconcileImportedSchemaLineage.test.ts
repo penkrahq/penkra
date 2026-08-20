@@ -268,11 +268,11 @@ layer("032_ReconcileImportedSchemaLineage", (it) => {
       const threadsColumns = yield* projectionThreadsColumnNames(sql);
       const messagesColumns = yield* projectionThreadMessagesColumnNames(sql);
 
-      // Columns from the regular in-order runs of 17-23 are still there,
-      // confirming #032 didn't try to ADD COLUMN on top of existing ones.
-      assert.include(threadsColumns, "env_mode");
-      assert.include(threadsColumns, "associated_worktree_ref");
-      assert.include(threadsColumns, "create_branch_flow_completed");
+      // The full chain completes without #032 trying to ADD COLUMN on top of
+      // the historical schema, and the later cleanup removes obsolete Git fields.
+      assert.notInclude(threadsColumns, "env_mode");
+      assert.notInclude(threadsColumns, "associated_worktree_ref");
+      assert.notInclude(threadsColumns, "create_branch_flow_completed");
       assert.include(messagesColumns, "skills_json");
       assert.include(messagesColumns, "dispatch_mode");
     }),

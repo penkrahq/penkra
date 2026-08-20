@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 
 import { ThreadId } from "@penkra/contracts";
+import { nativeImage } from "electron";
 import type { BrowserWindow, View, WebContents, WebContentsView } from "electron";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -46,11 +47,21 @@ type WindowOpenHandler = (details: WindowOpenDetails) => {
 class FakeWebContents extends EventEmitter {
   readonly id = 1;
   windowOpenHandler: WindowOpenHandler | null = null;
+  currentUrl = "https://example.com/";
+  currentTitle = "Example";
+  loading = false;
+  readonly session = { fetch: vi.fn() };
 
   setUserAgent = vi.fn();
   setZoomFactor = vi.fn();
   isDestroyed = vi.fn(() => false);
   findInPage = vi.fn(() => 7);
+  executeJavaScript = vi.fn(async (): Promise<unknown[]> => []);
+  getURL = vi.fn(() => this.currentUrl);
+  getTitle = vi.fn(() => this.currentTitle);
+  isLoading = vi.fn(() => this.loading);
+  canGoBack = vi.fn(() => false);
+  canGoForward = vi.fn(() => false);
 
   setWindowOpenHandler(handler: WindowOpenHandler): void {
     this.windowOpenHandler = handler;
@@ -183,6 +194,126 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
 
     manager.selectTab({ threadId: THREAD_ID, tabId: secondTabId });
     expect(states).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers a failed renderer page when Reload has no live runtime", () => {
+    const manager = new DesktopBrowserManager();
+    const opened = manager.open({
+      threadId: THREAD_ID,
+      initialUrl: "https://example.com/failed",
+    });
+    const tabId = opened.activeTabId;
+    expect(tabId).not.toBeNull();
+    if (!tabId) return;
+
+    const state = (
+      manager as unknown as {
+        states: Map<
+          ThreadId,
+          { tabs: Array<{ id: string; isLoading: boolean; lastError: string | null }> }
+        >;
+      }
+    ).states.get(THREAD_ID);
+    const tab = state?.tabs.find((candidate) => candidate.id === tabId);
+    expect(tab).toBeDefined();
+    if (!tab) return;
+    tab.isLoading = false;
+    tab.lastError = "Couldn't open this page.";
+
+    const onState = vi.fn();
+    manager.subscribe(onState);
+    const recovered = manager.reload({ threadId: THREAD_ID, tabId });
+
+    expect(recovered.tabs.find((candidate) => candidate.id === tabId)).toMatchObject({
+      isLoading: true,
+      lastError: null,
+    });
+    expect(onState).toHaveBeenCalledOnce();
+  });
+
+  it("recovers a missed page favicon on attach and converts it to an App-safe data URL", async () => {
+    const manager = new DesktopBrowserManager();
+    const opened = manager.open({ threadId: THREAD_ID, initialUrl: "https://example.com" });
+    const tabId = opened.activeTabId;
+    expect(tabId).not.toBeNull();
+    if (!tabId) return;
+
+    const tabContents = new FakeWebContents();
+    tabContents.executeJavaScript.mockResolvedValue(["https://example.com/favicon.ico"]);
+    tabContents.session.fetch.mockResolvedValue(
+      new Response(Uint8Array.from([1, 2, 3]), {
+        headers: { "content-type": "image/png" },
+        status: 200,
+      }),
+    );
+    vi.mocked(nativeImage.createFromBuffer).mockReturnValue({
+      isEmpty: () => false,
+      toDataURL: () => "data:image/png;base64,AQID",
+    } as Electron.NativeImage);
+
+    const runtime = {
+      key: `${THREAD_ID}:${tabId}`,
+      threadId: THREAD_ID,
+      tabId,
+      webContents: tabContents as unknown as WebContents,
+      view: null,
+      ownsWebContents: false as const,
+      listenerDisposers: [],
+    };
+    (
+      manager as unknown as {
+        runtimes: Map<string, typeof runtime>;
+      }
+    ).runtimes.set(runtime.key, runtime);
+    asCharacterizationAccess(manager).configureRuntimeWebContents(runtime);
+
+    await vi.waitFor(() => {
+      expect(
+        manager.getState({ threadId: THREAD_ID }).tabs.find((tab) => tab.id === tabId)?.faviconUrl,
+      ).toBe("data:image/png;base64,AQID");
+    });
+    expect(tabContents.session.fetch).toHaveBeenCalledWith("https://example.com/favicon.ico");
+  });
+
+  it("reports the underlying Electron load failure while keeping concise UI copy", () => {
+    const reportLoadFailure = vi.fn();
+    const manager = new DesktopBrowserManager({ reportLoadFailure });
+    const opened = manager.open({ threadId: THREAD_ID, initialUrl: "https://example.com" });
+    const tabId = opened.activeTabId;
+    expect(tabId).not.toBeNull();
+    if (!tabId) return;
+
+    const tabContents = new FakeWebContents();
+    asCharacterizationAccess(manager).configureRuntimeWebContents({
+      key: `${THREAD_ID}:${tabId}`,
+      threadId: THREAD_ID,
+      tabId,
+      webContents: tabContents as unknown as WebContents,
+      view: null,
+      ownsWebContents: false,
+      listenerDisposers: [],
+    });
+
+    tabContents.emit(
+      "did-fail-load",
+      {},
+      -7,
+      "ERR_TIMED_OUT_DURING_REDIRECT",
+      "https://example.com/redirect",
+      true,
+    );
+
+    expect(reportLoadFailure).toHaveBeenCalledWith({
+      source: "did-fail-load",
+      threadId: THREAD_ID,
+      tabId,
+      url: "https://example.com/redirect",
+      errorCode: -7,
+      errorDescription: "ERR_TIMED_OUT_DURING_REDIRECT",
+    });
+    expect(
+      manager.getState({ threadId: THREAD_ID }).tabs.find((tab) => tab.id === tabId)?.lastError,
+    ).toBe("Couldn't open this page.");
   });
 
   it("applies the same popup, tab-open, and scheme-denial policy to tabs and popups", () => {

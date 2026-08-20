@@ -1,0 +1,77 @@
+/**
+ * TextGeneration - Effect service contract for first-message Thread titles.
+ *
+ * @module TextGeneration
+ */
+import { ServiceMap } from "effect";
+import type { Effect } from "effect";
+import type { ChatAttachment, ModelSelection, ProviderStartOptions } from "@penkra/contracts";
+
+import type { TextGenerationError } from "../Errors.ts";
+
+export interface ThreadTitleGenerationInput {
+  cwd: string;
+  message: string;
+  attachments?: ReadonlyArray<ChatAttachment> | undefined;
+  /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
+  model?: string;
+  /** Optional provider-aware selection for providers that need more than a raw model slug. */
+  modelSelection?: ModelSelection;
+  /** Optional provider startup overrides, such as custom binary paths or server URLs. */
+  providerOptions?: ProviderStartOptions;
+}
+
+export interface ThreadTitleGenerationResult {
+  title: string;
+}
+
+export type TextGenerationOperation = "generateThreadTitle";
+
+/** TextGenerationShape - Service API for first-message Thread titles. */
+export interface TextGenerationShape {
+  /**
+   * Generate a concise chat-thread title from the first user message.
+   */
+  readonly generateThreadTitle: (
+    input: ThreadTitleGenerationInput,
+  ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
+}
+
+/**
+ * CodexTextGeneration - Provider-specific Codex implementation for Thread titles.
+ */
+export class CodexTextGeneration extends ServiceMap.Service<
+  CodexTextGeneration,
+  TextGenerationShape
+>()("penkra/textGeneration/Services/TextGeneration/CodexTextGeneration") {}
+
+/**
+ * OpenCodeTextGeneration - Provider-specific OpenCode implementation for Thread titles.
+ */
+export class OpenCodeTextGeneration extends ServiceMap.Service<
+  OpenCodeTextGeneration,
+  TextGenerationShape
+>()("penkra/textGeneration/Services/TextGeneration/OpenCodeTextGeneration") {}
+
+/**
+ * KiloTextGeneration - Provider-specific Kilo implementation for Thread titles.
+ */
+export class KiloTextGeneration extends ServiceMap.Service<
+  KiloTextGeneration,
+  TextGenerationShape
+>()("penkra/textGeneration/Services/TextGeneration/KiloTextGeneration") {}
+
+/**
+ * CursorTextGeneration - Provider-specific Cursor implementation for Thread titles.
+ */
+export class CursorTextGeneration extends ServiceMap.Service<
+  CursorTextGeneration,
+  TextGenerationShape
+>()("penkra/textGeneration/Services/TextGeneration/CursorTextGeneration") {}
+
+/**
+ * TextGeneration - Service tag for first-message thread titles.
+ */
+export class TextGeneration extends ServiceMap.Service<TextGeneration, TextGenerationShape>()(
+  "penkra/textGeneration/Services/TextGeneration",
+) {}

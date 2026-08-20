@@ -17,14 +17,12 @@ describe("Thread route logic", () => {
     expect(
       resolveThreadWorkingDirectory({
         projectCwd: "/project",
-        threadEnvMode: "worktree",
-        threadWorktreePath: "/worktree",
+        threadWorkingDirectory: "/worktree",
       }),
     ).toBe("/worktree");
     expect(
       resolveThreadWorkingDirectory({
         projectCwd: "/project",
-        threadEnvMode: "local",
         threadWorkingDirectory: "/chosen",
       }),
     ).toBe("/chosen");

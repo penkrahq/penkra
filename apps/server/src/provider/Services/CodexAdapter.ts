@@ -3,7 +3,7 @@
  *
  * This service owns Codex app-server process / JSON-RPC semantics and emits
  * Codex provider events. It does not perform cross-provider routing, shared
- * event fan-out, or checkpoint orchestration.
+ * event fan-out, or orchestration policy.
  *
  * Uses Effect `ServiceMap.Service` for dependency injection and returns the
  * shared provider-adapter error channel with `provider: "codex"` context.

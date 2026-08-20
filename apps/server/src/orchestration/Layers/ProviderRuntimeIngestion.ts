@@ -2,12 +2,9 @@ import {
   type AssistantDeliveryMode,
   CommandId,
   EventId,
+  isToolLifecycleItemType,
   MessageId,
-  type OrchestrationCheckpointFile,
   type OrchestrationEvent,
-  type OrchestrationProjectShell,
-  CheckpointRef,
-  STUDIO_OUTPUTS_ACTIVITY_KIND,
   ThreadId,
   TurnId,
   type OrchestrationThreadActivity,
@@ -19,6 +16,7 @@ import {
 import { createHash } from "node:crypto";
 import { Cache, Cause, Deferred, Duration, Effect, Layer, Option, Ref, Stream } from "effect";
 import * as Semaphore from "effect/Semaphore";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { makeDrainableWorker, startDrainableWorkerProducers } from "@penkra/shared/DrainableWorker";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import {
@@ -33,8 +31,6 @@ import {
   generatedImagePathFromRuntimeEvent,
   isCodexGeneratedImageArtifact,
 } from "../../codexGeneratedImages.ts";
-import { copyAndAttributeStudioGeneratedImage } from "../../studioGeneratedImages.ts";
-import { parseCheckpointFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import {
   classifyTerminalTurnApplicability,
@@ -49,8 +45,6 @@ import {
   PROVIDER_RUNTIME_INGESTION_CONSUMER,
   ProviderRuntimeEventRepository,
 } from "../../persistence/Services/ProviderRuntimeEvents.ts";
-import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
-import { isGitRepository } from "../../git/isRepo.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
   ProjectionSnapshotQuery,
@@ -115,7 +109,7 @@ const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.PENKRA_STRICT_PROVIDER_LIFEC
 type RuntimeIngestionDomainEvent = Extract<
   OrchestrationEvent,
   {
-    type: "thread.turn-start-requested" | "thread.reverted" | "thread.conversation-rolled-back";
+    type: "thread.turn-start-requested" | "thread.conversation-rolled-back";
   }
 >;
 
@@ -134,6 +128,84 @@ type BufferedToolOutput = {
   readonly text: string;
   readonly truncated: boolean;
 };
+
+type CanonicalOperationStatus =
+  | "started"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "aborted"
+  | "interrupted";
+
+function canonicalOperationStatus(event: ProviderRuntimeEvent): CanonicalOperationStatus {
+  if (event.type === "tool.progress") return "running";
+  if (event.type === "item.started") return "started";
+  if (event.type === "item.updated") return "running";
+  if (event.type !== "item.completed") return "running";
+  const status = String(event.payload.status).toLowerCase();
+  if (status === "failed" || status === "error") return "failed";
+  if (status === "cancelled" || status === "canceled") return "cancelled";
+  if (status === "aborted") return "aborted";
+  if (status === "interrupted") return "interrupted";
+  return "completed";
+}
+
+function canonicalOperationFromRuntimeEvent(event: ProviderRuntimeEvent) {
+  if (event.type === "tool.progress") {
+    if (!event.payload.toolUseId) return null;
+    const activity = projectProviderRuntimeActivities(event)[0];
+    if (!activity) return null;
+    return {
+      providerOperationId: event.payload.toolUseId,
+      threadId: event.threadId,
+      turnId: event.turnId ?? null,
+      provider: event.provider,
+      itemType: "mcp_tool_call",
+      title: event.payload.toolName ?? event.payload.summary ?? null,
+      status: "running" as const,
+      inputJson: null,
+      activityJson: JSON.stringify(activity),
+      startedAt: event.createdAt,
+      endedAt: null,
+      sourceEventId: event.eventId,
+      updatedAt: event.createdAt,
+    } as const;
+  }
+  if (
+    (event.type !== "item.started" &&
+      event.type !== "item.updated" &&
+      event.type !== "item.completed") ||
+    event.itemId === undefined ||
+    !isToolLifecycleItemType(event.payload.itemType)
+  ) {
+    return null;
+  }
+  const activity = projectProviderRuntimeActivities(event)[0];
+  if (!activity) return null;
+  const status = canonicalOperationStatus(event);
+  const terminal =
+    status === "completed" ||
+    status === "failed" ||
+    status === "cancelled" ||
+    status === "aborted" ||
+    status === "interrupted";
+  return {
+    providerOperationId: event.itemId,
+    threadId: event.threadId,
+    turnId: event.turnId ?? null,
+    provider: event.provider,
+    itemType: event.payload.itemType,
+    title: event.payload.title ?? null,
+    status,
+    inputJson: event.payload.input === undefined ? null : JSON.stringify(event.payload.input),
+    activityJson: JSON.stringify(activity),
+    startedAt: event.createdAt,
+    endedAt: terminal ? event.createdAt : null,
+    sourceEventId: event.eventId,
+    updatedAt: event.createdAt,
+  } as const;
+}
 type BufferedReasoningSummary = {
   readonly parts: ReadonlyMap<number, string>;
   readonly sourceEvent: Extract<ProviderRuntimeEvent, { readonly type: "content.delta" }>;
@@ -142,15 +214,6 @@ type AssistantDeliveryModeBindingState = {
   readonly pendingModesByThreadId: ReadonlyMap<ThreadId, ReadonlyArray<AssistantDeliveryMode>>;
   readonly unmatchedTurnIdsByThreadId: ReadonlyMap<ThreadId, ReadonlyArray<TurnId>>;
   readonly settledUnmatchedRequestDebtByThreadId: ReadonlyMap<ThreadId, number>;
-};
-type ProviderDiffPlaceholder = {
-  readonly checkpointRef: CheckpointRef;
-  readonly checkpointTurnCount: number;
-  // Immutable snapshot of the turn's diff files. Stored values are only ever read
-  // (forwarded to dispatch / re-stored), never mutated in place, so this is a
-  // ReadonlyArray — which also lets it accept the readonly `checkpoint.files` from
-  // an OrchestrationThread without a defensive copy.
-  readonly files: ReadonlyArray<OrchestrationCheckpointFile>;
 };
 type NativeChildSlotState = {
   initialized: boolean;
@@ -169,7 +232,6 @@ function threadDetailFromShell(shell: OrchestrationThreadShell): OrchestrationTh
     deletedAt: null,
     messages: [],
     activities: [],
-    checkpoints: [],
   };
 }
 
@@ -182,7 +244,7 @@ function threadDetailFromShell(shell: OrchestrationThreadShell): OrchestrationTh
  *
  * The overwhelming majority of events (assistant deltas, tool-call lifecycle,
  * message parts) only ever read thread *shell* fields. Only the handlers for the
- * event types below read the heavy arrays (`thread.messages` / `thread.checkpoints`),
+ * event types below read the heavy message array,
  * so only those pay for the full
  * detail; everything else uses the cheap shell.
  */
@@ -201,17 +263,8 @@ function eventNeedsHeavyThreadDetail(event: ProviderRuntimeEvent): boolean {
   return (
     event.type === "turn.completed" ||
     event.type === "turn.aborted" ||
-    event.type === "turn.diff.updated" ||
     event.type === "session.exited" ||
     event.type === "runtime.error"
-  );
-}
-
-function parseProviderTurnDiffFiles(
-  unifiedDiff: string,
-): Effect.Effect<OrchestrationCheckpointFile[] | null> {
-  return parseCheckpointFilesFromUnifiedDiff(unifiedDiff).pipe(
-    Effect.catchCause(() => Effect.succeed(null)),
   );
 }
 
@@ -403,32 +456,15 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
 }
 
 /**
- * Resolves persisted image tool records to their durable display paths. Studio
- * copies add a source -> workspace-path marker; non-Studio images keep the
- * provider artifact path. The query supplying these records is turn-scoped and
- * independent of the bounded thread-detail activity window.
+ * Resolves persisted image tool records to their provider artifact paths. The
+ * query supplying these records is turn-scoped and independent of the bounded
+ * thread-detail activity window.
  */
 export function collectPersistedGeneratedImagePaths(
   records: ReadonlyArray<ProjectionGeneratedImageActivityRecord>,
 ): string[] {
-  const studioDisplayPathBySourcePath = new Map<string, string>();
-  for (const record of records) {
-    if (record.kind !== STUDIO_OUTPUTS_ACTIVITY_KIND) {
-      continue;
-    }
-    const payload = asObject(record.payload);
-    const data = asObject(payload?.data);
-    const generatedImage = asObject(data?.generatedImage);
-    const sourcePath = asString(generatedImage?.sourcePath)?.trim();
-    const fullPath = asString(generatedImage?.fullPath)?.trim();
-    if (sourcePath && fullPath) {
-      studioDisplayPathBySourcePath.set(sourcePath, fullPath);
-    }
-  }
-
   const paths: string[] = [];
   const seenPaths = new Set<string>();
-  const representedSourcePaths = new Set<string>();
   const addPath = (path: string) => {
     if (!seenPaths.has(path)) {
       seenPaths.add(path);
@@ -448,16 +484,7 @@ export function collectPersistedGeneratedImagePaths(
     if (!artifact) {
       continue;
     }
-    representedSourcePaths.add(artifact.path);
-    addPath(studioDisplayPathBySourcePath.get(artifact.path) ?? artifact.path);
-  }
-
-  // A Studio marker can survive even if a provider's corresponding tool row was
-  // pruned or malformed. It is image-specific, so retaining the copied path is safe.
-  for (const [sourcePath, fullPath] of studioDisplayPathBySourcePath) {
-    if (!representedSourcePaths.has(sourcePath)) {
-      addPath(fullPath);
-    }
+    addPath(artifact.path);
   }
 
   return paths;
@@ -517,12 +544,250 @@ const takeCached = <Key, Value>(cache: Cache.Cache<Key, Value>, key: Key) =>
   );
 
 const make = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const runtimeEvents = yield* ProviderRuntimeEventRepository;
   const commandReceipts = yield* OrchestrationCommandReceiptRepository;
+
+  const materializeCanonicalOperation = (event: ProviderRuntimeEvent) => {
+    const operation = canonicalOperationFromRuntimeEvent(event);
+    if (operation === null) return Effect.succeed(false);
+    return sql.withTransaction(
+      Effect.gen(function* () {
+        const existing = yield* sql<{
+          readonly operationId: string;
+          readonly lastSourceEventId: string;
+        }>`
+          SELECT operation_id AS "operationId", last_source_event_id AS "lastSourceEventId"
+          FROM operations
+          WHERE provider = ${operation.provider}
+            AND thread_id = ${operation.threadId}
+            AND COALESCE(turn_id, '') = COALESCE(${operation.turnId}, '')
+            AND provider_operation_id = ${operation.providerOperationId}
+        `;
+        if (existing[0]?.lastSourceEventId === operation.sourceEventId) return true;
+        const operationId = existing[0]?.operationId ?? `operation:${crypto.randomUUID()}`;
+
+        yield* sql`
+          INSERT INTO operations (
+            operation_id, provider_operation_id, thread_id, turn_id, provider,
+            item_type, title, status, input_json, started_at,
+            activity_json, ended_at, last_source_event_id, updated_at
+          ) VALUES (
+            ${operationId}, ${operation.providerOperationId}, ${operation.threadId},
+            ${operation.turnId}, ${operation.provider}, ${operation.itemType}, ${operation.title},
+            ${operation.status}, ${operation.inputJson}, ${operation.startedAt},
+            ${operation.activityJson}, ${operation.endedAt},
+            ${operation.sourceEventId},
+            ${operation.updatedAt}
+          )
+          ON CONFLICT DO UPDATE SET
+            item_type = excluded.item_type,
+            title = COALESCE(excluded.title, operations.title),
+            status = CASE
+              WHEN operations.status IN (
+                'completed', 'failed', 'cancelled', 'aborted', 'interrupted'
+              ) AND excluded.status IN ('started', 'running')
+                THEN operations.status
+              ELSE excluded.status
+            END,
+            input_json = CASE
+              WHEN operations.status IN (
+                'completed', 'failed', 'cancelled', 'aborted', 'interrupted'
+              ) AND excluded.status IN ('started', 'running')
+                THEN operations.input_json
+              ELSE COALESCE(excluded.input_json, operations.input_json)
+            END,
+            activity_json = CASE
+              WHEN operations.status IN (
+                'completed', 'failed', 'cancelled', 'aborted', 'interrupted'
+              ) AND excluded.status IN ('started', 'running')
+                THEN operations.activity_json
+              ELSE excluded.activity_json
+            END,
+            ended_at = COALESCE(operations.ended_at, excluded.ended_at),
+            last_source_event_id = excluded.last_source_event_id,
+            updated_at = excluded.updated_at
+        `;
+        return true;
+      }),
+    );
+  };
+
+  const materializeCanonicalNotice = (event: ProviderRuntimeEvent) => {
+    if (event.type !== "runtime.warning") return Effect.succeed(false);
+    const activity = projectProviderRuntimeActivities(event)[0];
+    if (!activity) return Effect.succeed(false);
+    return sql.withTransaction(
+      Effect.gen(function* () {
+        const existing = yield* sql<{ readonly present: number }>`
+          SELECT 1 AS present FROM notices WHERE notice_id = ${event.eventId}
+        `;
+        if (existing.length > 0) return true;
+        yield* sql`
+          INSERT INTO notices (
+            notice_id, thread_id, turn_id, kind, tone, summary,
+            detail_json, created_at
+          ) VALUES (
+            ${event.eventId}, ${event.threadId}, ${event.turnId ?? null},
+            ${activity.kind}, ${activity.tone}, ${activity.summary},
+            ${JSON.stringify(activity.payload)}, ${event.createdAt}
+          )
+        `;
+        return true;
+      }),
+    );
+  };
+
+  const resolveEventConnectionId = (event: ProviderRuntimeEvent) =>
+    sql<{ readonly connectionId: string }>`
+      SELECT connection_id AS "connectionId"
+      FROM thread_runtime_bindings
+      WHERE thread_id = ${event.threadId} AND connection_id IS NOT NULL
+      LIMIT 1
+    `.pipe(Effect.map((rows) => rows[0]?.connectionId));
+
+  const materializeConnectionFacts = (event: ProviderRuntimeEvent) =>
+    Effect.gen(function* () {
+      if (
+        event.type !== "account.rate-limits.updated" &&
+        event.type !== "thread.token-usage.updated" &&
+        event.type !== "turn.completed"
+      ) {
+        return;
+      }
+      const connectionId = yield* resolveEventConnectionId(event);
+      if (connectionId === undefined) {
+        yield* Effect.logWarning("provider account fact has no bound connection", {
+          threadId: event.threadId,
+          eventType: event.type,
+          eventId: event.eventId,
+        });
+        return;
+      }
+      const utcDay = event.createdAt.slice(0, 10);
+
+      if (event.type === "account.rate-limits.updated") {
+        const rateLimits = event.payload.rateLimits;
+        const status =
+          rateLimits !== null && typeof rateLimits === "object" && "status" in rateLimits
+            ? String((rateLimits as { readonly status?: unknown }).status ?? "") || null
+            : null;
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const existing = yield* sql<{ readonly sourceEventId: string }>`
+              SELECT last_source_event_id AS "sourceEventId"
+              FROM connection_rate_limits WHERE connection_id = ${connectionId}
+            `;
+            if (existing[0]?.sourceEventId === event.eventId) return;
+            yield* sql`
+              INSERT INTO connection_rate_limits (
+                connection_id, provider, limits_json, status,
+                last_source_event_id, updated_at
+              ) VALUES (
+                ${connectionId}, ${event.provider}, ${JSON.stringify(rateLimits)}, ${status},
+                ${event.eventId}, ${event.createdAt}
+              )
+              ON CONFLICT(connection_id) DO UPDATE SET
+                provider = excluded.provider,
+                limits_json = excluded.limits_json,
+                status = excluded.status,
+                last_source_event_id = excluded.last_source_event_id,
+                updated_at = excluded.updated_at
+            `;
+          }),
+        );
+        return;
+      }
+
+      if (event.type === "thread.token-usage.updated") {
+        const usage = event.payload.usage;
+        const currentInput = usage.inputTokens ?? 0;
+        const currentOutput = usage.outputTokens ?? 0;
+        const currentReasoning = usage.reasoningOutputTokens ?? 0;
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const cursors = yield* sql<{
+              readonly inputTokens: number;
+              readonly outputTokens: number;
+              readonly reasoningOutputTokens: number;
+              readonly sourceEventId: string;
+            }>`
+              SELECT input_tokens AS "inputTokens", output_tokens AS "outputTokens",
+                     reasoning_output_tokens AS "reasoningOutputTokens",
+                     last_source_event_id AS "sourceEventId"
+              FROM connection_usage_cursors
+              WHERE thread_id = ${event.threadId} AND connection_id = ${connectionId}
+            `;
+            const previous = cursors[0];
+            if (previous?.sourceEventId === event.eventId) return;
+            const delta = (current: number, prior: number | undefined) =>
+              prior === undefined || current < prior ? current : current - prior;
+            const inputDelta = delta(currentInput, previous?.inputTokens);
+            const outputDelta = delta(currentOutput, previous?.outputTokens);
+            const reasoningDelta = delta(currentReasoning, previous?.reasoningOutputTokens);
+            yield* sql`
+              INSERT INTO connection_usage_daily (
+                utc_day, connection_id, provider, input_tokens, output_tokens,
+                reasoning_output_tokens, turns, updated_at
+              ) VALUES (
+                ${utcDay}, ${connectionId}, ${event.provider}, ${inputDelta}, ${outputDelta},
+                ${reasoningDelta}, 0, ${event.createdAt}
+              )
+              ON CONFLICT(utc_day, connection_id) DO UPDATE SET
+                input_tokens = connection_usage_daily.input_tokens + excluded.input_tokens,
+                output_tokens = connection_usage_daily.output_tokens + excluded.output_tokens,
+                reasoning_output_tokens =
+                  connection_usage_daily.reasoning_output_tokens + excluded.reasoning_output_tokens,
+                updated_at = excluded.updated_at
+            `;
+            yield* sql`
+              INSERT INTO connection_usage_cursors (
+                thread_id, connection_id, input_tokens, output_tokens,
+                reasoning_output_tokens, last_source_event_id, updated_at
+              ) VALUES (
+                ${event.threadId}, ${connectionId}, ${currentInput}, ${currentOutput},
+                ${currentReasoning}, ${event.eventId}, ${event.createdAt}
+              )
+              ON CONFLICT(thread_id, connection_id) DO UPDATE SET
+                input_tokens = excluded.input_tokens,
+                output_tokens = excluded.output_tokens,
+                reasoning_output_tokens = excluded.reasoning_output_tokens,
+                last_source_event_id = excluded.last_source_event_id,
+                updated_at = excluded.updated_at
+            `;
+          }),
+        );
+        return;
+      }
+
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          const inserted = yield* sql<{ readonly sourceEventId: string }>`
+            INSERT INTO connection_usage_turn_events (source_event_id, connection_id, utc_day)
+            VALUES (${event.eventId}, ${connectionId}, ${utcDay})
+            ON CONFLICT(source_event_id) DO NOTHING
+            RETURNING source_event_id AS "sourceEventId"
+          `;
+          if (inserted.length === 0) return;
+          yield* sql`
+            INSERT INTO connection_usage_daily (
+              utc_day, connection_id, provider, input_tokens, output_tokens,
+              reasoning_output_tokens, turns, updated_at
+            ) VALUES (
+              ${utcDay}, ${connectionId}, ${event.provider}, 0, 0, 0, 1,
+              ${event.createdAt}
+            )
+            ON CONFLICT(utc_day, connection_id) DO UPDATE SET
+              turns = connection_usage_daily.turns + 1,
+              updated_at = excluded.updated_at
+          `;
+        }),
+      );
+    });
   const outstandingTurnIdsByThreadRef = yield* Ref.make<ReadonlyMap<ThreadId, ReadonlySet<TurnId>>>(
     new Map(),
   );
@@ -734,7 +999,6 @@ const make = Effect.gen(function* () {
     timeToLive: ACTIVITY_UPDATE_FINGERPRINT_TTL,
     lookup: () => Effect.succeed(undefined),
   });
-  const providerDiffPlaceholdersRef = yield* Ref.make(new Map<string, ProviderDiffPlaceholder>());
   const nativeChildIdsBySourceTurn = yield* Cache.make<string, NativeChildSlotState>({
     capacity: NATIVE_CHILD_IDS_BY_SOURCE_TURN_CACHE_CAPACITY,
     timeToLive: NATIVE_CHILD_IDS_BY_SOURCE_TURN_TTL,
@@ -845,51 +1109,6 @@ const make = Effect.gen(function* () {
     );
     return shell ? threadDetailFromShell(shell) : undefined;
   });
-
-  const getProjectShell = Effect.fnUntraced(function* (
-    thread: Pick<OrchestrationThread, "projectId">,
-  ): Effect.fn.Return<OrchestrationProjectShell | undefined> {
-    return Option.getOrUndefined(
-      yield* projectionSnapshotQuery
-        .getProjectShellById(thread.projectId)
-        .pipe(Effect.catch(() => Effect.succeed(Option.none()))),
-    );
-  });
-
-  const isGitRepoForThread = Effect.fnUntraced(function* (threadId: ThreadId) {
-    const thread = yield* getThreadDetail(threadId);
-    if (!thread) {
-      return false;
-    }
-    const project = yield* getProjectShell(thread);
-    if (!project) {
-      return false;
-    }
-    const workspaceCwd = resolveThreadWorkspaceCwd({
-      thread,
-      projects: [project],
-    });
-    if (!workspaceCwd) {
-      return false;
-    }
-    return isGitRepository(workspaceCwd);
-  });
-
-  const supportsLiveTurnDiffPatch = Effect.fnUntraced(function* (
-    provider: ProviderRuntimeEvent["provider"],
-  ) {
-    const capabilities = yield* providerService
-      .getCapabilities(provider)
-      .pipe(Effect.catch(() => Effect.succeed(null)));
-    return capabilities?.supportsLiveTurnDiffPatch === true;
-  });
-
-  const clearProviderDiffPlaceholder = (threadId: ThreadId, turnId: TurnId) =>
-    Ref.update(providerDiffPlaceholdersRef, (placeholders) => {
-      const next = new Map(placeholders);
-      next.delete(providerTurnKey(threadId, turnId));
-      return next;
-    });
 
   const rememberAssistantMessageId = (threadId: ThreadId, turnId: TurnId, messageId: MessageId) =>
     Cache.getOption(turnMessageIdsByTurnKey, providerTurnKey(threadId, turnId)).pipe(
@@ -1394,53 +1613,6 @@ const make = Effect.gen(function* () {
       });
     });
 
-  /**
-   * For Studio threads, copies a completed generated image into the thread's Studio
-   * workspace (Outbox/Images) and appends direct output attribution. Returns null —
-   * and must stay non-fatal — for non-Studio threads and on any copy failure, so the
-   * transcript path falls back to the original Codex-home file.
-   */
-  const materializeStudioGeneratedImage = (input: {
-    event: ProviderRuntimeEvent;
-    thread: OrchestrationThread;
-    imagePath: string;
-    turnId: TurnId | undefined;
-    createdAt: string;
-  }) =>
-    Effect.gen(function* () {
-      const project = yield* getProjectShell(input.thread);
-      if (!project || project.kind !== "studio") {
-        return null;
-      }
-      const workspaceRoot = resolveThreadWorkspaceCwd({
-        thread: input.thread,
-        projects: [project],
-      });
-      if (!workspaceRoot) {
-        return null;
-      }
-      return yield* copyAndAttributeStudioGeneratedImage({
-        orchestrationEngine,
-        sourcePath: input.imagePath,
-        workspaceRoot,
-        threadId: input.thread.id,
-        turnId: input.turnId,
-        eventId: input.event.eventId,
-        createdAt: input.createdAt,
-      });
-    }).pipe(
-      Effect.catchCause((cause) => {
-        if (Cause.hasInterruptsOnly(cause)) {
-          return Effect.failCause(cause);
-        }
-        return Effect.logWarning("failed to copy generated image into Studio workspace", {
-          threadId: input.thread.id,
-          imagePath: input.imagePath,
-          cause: Cause.pretty(cause),
-        }).pipe(Effect.as(null));
-      }),
-    );
-
   const clearTurnStateForSession = (threadId: ThreadId) =>
     Effect.gen(function* () {
       const prefix = `${threadId}:`;
@@ -1465,11 +1637,23 @@ const make = Effect.gen(function* () {
       );
     });
 
-  const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
+  const commitCanonicalRuntimeEvent = (event: ProviderRuntimeEvent) =>
+    Effect.gen(function* () {
+      yield* materializeCanonicalOperation(event);
+      yield* materializeCanonicalNotice(event);
+      yield* materializeConnectionFacts(event);
+    });
+
+  const processRuntimeEvent = (
+    event: ProviderRuntimeEvent,
+    commitCanonical: (
+      event: ProviderRuntimeEvent,
+    ) => Effect.Effect<void, unknown> = commitCanonicalRuntimeEvent,
+  ) =>
     Effect.gen(function* () {
       const now = event.createdAt;
       // Load the full (heavy) detail only when this event's handlers actually read
-      // thread.messages / checkpoints; otherwise use the cheap
+      // thread.messages; otherwise use the cheap
       // shell so high-frequency streaming events don't re-decode the whole
       // transcript. See eventNeedsHeavyThreadDetail for the safety rationale.
       const needsHeavyThreadDetail = eventNeedsHeavyThreadDetail(event);
@@ -1493,7 +1677,7 @@ const make = Effect.gen(function* () {
           // A single provider event can describe the child both as a collab receiver and
           // as the event's provider thread, so re-read after any earlier dispatch in this handler.
           // Mirror the parent load: only this event's heavy-detail handlers read the
-          // child's message/plan/checkpoint arrays, so otherwise use the cheap shell.
+          // child's message array, so otherwise use the cheap shell.
           const existingThread = needsHeavyThreadDetail
             ? yield* projectionSnapshotQuery.getThreadDetailById(childThreadId)
             : Option.map(
@@ -1546,12 +1730,7 @@ const make = Effect.gen(function* () {
               }),
               modelSelection: resolvedModelSelection ?? parentThread.modelSelection,
               runtimeMode: parentThread.runtimeMode,
-              envMode: parentThread.envMode,
-              branch: parentThread.branch,
-              worktreePath: parentThread.workingDirectory ?? parentThread.worktreePath,
-              associatedWorktreePath: parentThread.associatedWorktreePath,
-              associatedWorktreeBranch: parentThread.associatedWorktreeBranch,
-              associatedWorktreeRef: parentThread.associatedWorktreeRef,
+              workingDirectory: parentThread.workingDirectory ?? null,
               parentThreadId: parentThread.id,
               creationSource: "provider_native",
               sourceThreadId: parentThread.id,
@@ -1622,7 +1801,6 @@ const make = Effect.gen(function* () {
                 latestTurn: null,
                 messages: [],
                 activities: [],
-                checkpoints: [],
                 session: null,
                 createdAt: now,
                 updatedAt: now,
@@ -1942,21 +2120,10 @@ const make = Effect.gen(function* () {
       const generatedImagePath = generatedImagePathFromRuntimeEvent(event);
       if (generatedImagePath) {
         const generatedImageTurnId = toTurnId(event.turnId) ?? activeTurnId ?? undefined;
-        // Studio threads get a durable in-workspace copy (plus direct Output panel
-        // attribution); the transcript then references that copy so the image outlives
-        // any Codex-home cleanup. Non-Studio threads keep the original path.
-        const copied = yield* materializeStudioGeneratedImage({
-          event,
-          thread,
-          imagePath: generatedImagePath,
-          turnId: generatedImageTurnId,
-          createdAt: now,
-        });
-        const displayPath = copied?.fullPath ?? generatedImagePath;
         if (generatedImageTurnId) {
           // Defer the transcript reference to turn settle (see the flush helper); the
           // "Generated image" work row already surfaces progress mid-turn.
-          yield* rememberPendingGeneratedImage(thread.id, generatedImageTurnId, displayPath);
+          yield* rememberPendingGeneratedImage(thread.id, generatedImageTurnId, generatedImagePath);
         } else {
           // No turn to correlate with: attach immediately to the same provider item
           // (replay) or an existing reference, else a standalone image-only message.
@@ -1964,12 +2131,12 @@ const make = Effect.gen(function* () {
           const sameItemMessageId = event.itemId
             ? MessageId.makeUnsafe(`assistant:${event.itemId}`)
             : undefined;
-          const markdown = generatedImageMarkdown(displayPath);
+          const markdown = generatedImageMarkdown(generatedImagePath);
           const targetMessage = messages.find(
             (message) =>
               message.role === "assistant" &&
               (message.id === sameItemMessageId ||
-                message.text.includes(displayPath) ||
+                message.text.includes(generatedImagePath) ||
                 message.text.includes(markdown)),
           );
           yield* appendGeneratedImagesToAssistantMessage({
@@ -1977,7 +2144,7 @@ const make = Effect.gen(function* () {
             threadId: thread.id,
             targetMessage,
             newMessageId: MessageId.makeUnsafe(`assistant:image:${event.itemId ?? event.eventId}`),
-            imagePaths: [displayPath],
+            imagePaths: [generatedImagePath],
             createdAt: now,
           });
         }
@@ -2012,8 +2179,6 @@ const make = Effect.gen(function* () {
             turnId: finalizedTurnId,
             createdAt: now,
           });
-
-          yield* clearProviderDiffPlaceholder(thread.id, finalizedTurnId);
         }
       }
 
@@ -2036,7 +2201,6 @@ const make = Effect.gen(function* () {
             turnId: exitedTurnId,
             createdAt: now,
           });
-          yield* clearProviderDiffPlaceholder(thread.id, exitedTurnId);
         }
         yield* clearTurnStateForSession(thread.id);
       }
@@ -2061,7 +2225,6 @@ const make = Effect.gen(function* () {
             turnId: erroredTurnId,
             createdAt: now,
           });
-          yield* clearProviderDiffPlaceholder(thread.id, erroredTurnId);
         }
 
         const shouldApplyRuntimeError = !STRICT_PROVIDER_LIFECYCLE_GUARD
@@ -2096,81 +2259,6 @@ const make = Effect.gen(function* () {
         });
       }
 
-      if (event.type === "turn.diff.updated") {
-        const turnId = toTurnId(event.turnId);
-        if (turnId && (yield* isGitRepoForThread(thread.id))) {
-          const existingCheckpoint = thread.checkpoints.find((c) => c.turnId === turnId);
-          const placeholderKey = providerTurnKey(thread.id, turnId);
-          const trackedPlaceholder = (yield* Ref.get(providerDiffPlaceholdersRef)).get(
-            placeholderKey,
-          );
-          const existingProviderPlaceholder =
-            existingCheckpoint?.checkpointRef.startsWith("provider-diff:") === true
-              ? {
-                  checkpointRef: existingCheckpoint.checkpointRef,
-                  checkpointTurnCount: existingCheckpoint.checkpointTurnCount,
-                  files: existingCheckpoint.files,
-                }
-              : null;
-          // Only provider-diff placeholders are live-updated. A real checkpoint from
-          // CheckpointReactor is the terminal turn diff and must stay authoritative.
-          if (existingCheckpoint && !existingProviderPlaceholder) {
-            yield* clearProviderDiffPlaceholder(thread.id, turnId);
-          } else {
-            const canParseLiveDiffPatch = yield* supportsLiveTurnDiffPatch(event.provider);
-            const livePlaceholder = trackedPlaceholder ?? existingProviderPlaceholder;
-            const maxTurnCount = thread.checkpoints.reduce(
-              (max, c) => Math.max(max, c.checkpointTurnCount),
-              0,
-            );
-            const files =
-              (canParseLiveDiffPatch
-                ? yield* parseProviderTurnDiffFiles(event.payload.unifiedDiff)
-                : null) ??
-              trackedPlaceholder?.files ??
-              existingCheckpoint?.files ??
-              [];
-            const checkpointRef =
-              livePlaceholder?.checkpointRef ??
-              CheckpointRef.makeUnsafe(`provider-diff:${event.eventId}`);
-            const checkpointTurnCount = livePlaceholder?.checkpointTurnCount ?? maxTurnCount + 1;
-            // Leave assistantMessageId undefined on the placeholder: the real
-            // capture performed by CheckpointReactor will resolve the actual
-            // assistant MessageId once the message is finalized. Emitting a
-            // synthetic id here would leak an incorrect key that can collide
-            // across turns and cause the diff card to render on the wrong row.
-            yield* orchestrationEngine.dispatch({
-              type: "thread.turn.diff.complete",
-              commandId: providerCommandId(
-                event,
-                "thread-turn-diff-complete",
-                `${thread.id}:${turnId}`,
-              ),
-              threadId: thread.id,
-              turnId,
-              completedAt: now,
-              checkpointRef,
-              status: "missing",
-              files,
-              assistantMessageId: undefined,
-              checkpointTurnCount,
-              createdAt: now,
-            });
-            if (canParseLiveDiffPatch) {
-              yield* Ref.update(providerDiffPlaceholdersRef, (placeholders) => {
-                const next = new Map(placeholders);
-                next.set(placeholderKey, {
-                  checkpointRef,
-                  checkpointTurnCount,
-                  files,
-                });
-                return next;
-              });
-            }
-          }
-        }
-      }
-
       const activityEvent =
         event.type === "item.completed" && reasoningSummaryKey
           ? withBufferedReasoningSummary(
@@ -2182,8 +2270,18 @@ const make = Effect.gen(function* () {
             : event.type === "item.updated" && toolOutputKey
               ? withBufferedToolOutputData(event, yield* getBufferedToolOutput(toolOutputKey))
               : event;
+      const canonicalActivityEvent =
+        activityEvent.threadId === thread.id
+          ? activityEvent
+          : ({ ...activityEvent, threadId: thread.id } as ProviderRuntimeEvent);
+      const canonicalOperationMaterialized =
+        canonicalOperationFromRuntimeEvent(canonicalActivityEvent) !== null;
+      const canonicalNoticeMaterialized = canonicalActivityEvent.type === "runtime.warning";
+      yield* commitCanonical(canonicalActivityEvent);
       yield* Effect.forEach(projectProviderRuntimeActivities(activityEvent), (activity) =>
-        dispatchActivityUpdate(activityEvent, thread.id, activity),
+        canonicalOperationMaterialized || canonicalNoticeMaterialized
+          ? Effect.void
+          : dispatchActivityUpdate(activityEvent, thread.id, activity),
       );
 
       if (isTerminalTurnEvent) {
@@ -2209,7 +2307,7 @@ const make = Effect.gen(function* () {
 
   const processDomainEvent = (event: RuntimeIngestionDomainEvent) =>
     Effect.gen(function* () {
-      if (event.type === "thread.reverted" || event.type === "thread.conversation-rolled-back") {
+      if (event.type === "thread.conversation-rolled-back") {
         yield* clearActivityUpdateFingerprints(event.payload.threadId);
         yield* clearAssistantDeliveryModeBindingsForThread(event.payload.threadId);
         yield* clearOutstandingTurns(event.payload.threadId);
@@ -2271,27 +2369,37 @@ const make = Effect.gen(function* () {
       });
     });
 
-  const processInput = (input: RuntimeIngestionInput) =>
-    input.source === "runtime"
-      ? processRuntimeEvent(input.event).pipe(
-          Effect.andThen(
-            runtimeEvents.advanceThreadCursor({
+  const processInput = (input: RuntimeIngestionInput): Effect.Effect<void, unknown> => {
+    if (input.source !== "runtime") return processDomainEvent(input.event);
+    let canonicalEvent: ProviderRuntimeEvent | undefined;
+    return processRuntimeEvent(input.event, (event) =>
+      Effect.sync(() => {
+        canonicalEvent = event;
+      }),
+    ).pipe(
+      Effect.andThen(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            if (canonicalEvent !== undefined) {
+              yield* commitCanonicalRuntimeEvent(canonicalEvent);
+            }
+            const advanced = yield* runtimeEvents.advanceThreadCursor({
               threadId: input.event.threadId,
               eventSequence: input.sequence,
               updatedAt: new Date().toISOString(),
-            }),
-          ),
-          Effect.flatMap((advanced) =>
-            advanced
-              ? Effect.void
-              : Effect.die(
-                  new Error(
-                    `Provider runtime thread cursor could not advance through event ${input.sequence}`,
-                  ),
+            });
+            if (!advanced) {
+              return yield* Effect.die(
+                new Error(
+                  `Provider runtime thread cursor could not advance through event ${input.sequence}`,
                 ),
-          ),
-        )
-      : processDomainEvent(input.event);
+              );
+            }
+          }),
+        ),
+      ),
+    );
+  };
 
   const projectionFailureFingerprint = (event: ProviderRuntimeEvent, detail: string) =>
     createHash("sha256")
@@ -2339,13 +2447,13 @@ const make = Effect.gen(function* () {
   // unrelated thread head in the same journal window to make progress.
   let runtimeThreadsBlockedThisDrain = new Set<string>();
 
-  const processInputSafely = (input: RuntimeIngestionInput) =>
+  const processInputSafely = (input: RuntimeIngestionInput): Effect.Effect<void> =>
     input.source === "runtime" && runtimeThreadsBlockedThisDrain.has(input.event.threadId)
       ? Effect.void
       : processInput(input).pipe(
           Effect.catchCause((cause) => {
             if (Cause.hasInterruptsOnly(cause)) {
-              return Effect.failCause(cause);
+              return Effect.interrupt;
             }
             if (input.source !== "runtime") {
               return Effect.logWarning("provider runtime ingestion failed to process event", {
@@ -2647,7 +2755,6 @@ const make = Effect.gen(function* () {
         Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
           if (
             event.type !== "thread.turn-start-requested" &&
-            event.type !== "thread.reverted" &&
             event.type !== "thread.conversation-rolled-back"
           ) {
             return Effect.void;

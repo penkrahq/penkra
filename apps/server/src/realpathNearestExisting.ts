@@ -5,7 +5,7 @@
 // Exports: realpathNearestExisting
 //
 // Used by:
-//  - config.ts, to canonicalize homeDir/chatWorkspaceRoot/studioWorkspaceRoot so
+//  - config.ts, to canonicalize homeDir/chatWorkspaceRoot so
 //    the roots the server reports match what project rows store (see
 //    wsRpc.ts's canonicalizeProjectWorkspaceRoot, which canonicalizes project
 //    workspace roots the same way once they exist on disk).
@@ -21,7 +21,7 @@ import { Effect, FileSystem, Path } from "effect";
  * *that*, then re-append the non-existing remainder untouched.
  *
  * This keeps the result stable for paths that are created lazily after the
- * fact (e.g. the Studio workspace root, or a project workspace root prior to
+ * fact (e.g. a project workspace root prior to
  * being scaffolded) while still matching what `realpath` will return once the
  * directory exists — which is exactly what stored/reported roots must agree
  * on for downstream classifiers (`isStudioContainerProject`,

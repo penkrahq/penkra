@@ -130,59 +130,6 @@ describe("store facade", () => {
     expect(next).toEqual(initialState);
   });
 
-  it("does not regress a semantic branch when local workspace patches only report a temp branch", () => {
-    const state = makeState(
-      makeThread({
-        branch: "feature/semantic-branch",
-      }),
-    );
-
-    const next = setThreadWorkspace(state, ThreadId.makeUnsafe("thread-1"), {
-      branch: "penkra/abc123ef",
-    });
-
-    expect(threadsOf(next)[0]?.branch).toBe("feature/semantic-branch");
-  });
-
-  it("preserves optimistic createBranchFlowCompleted during stale read-model syncs", () => {
-    const threadId = ThreadId.makeUnsafe("thread-1");
-    const optimisticState = setThreadWorkspace(
-      makeState(
-        makeThread({
-          envMode: "worktree",
-          branch: "penkra/tmp-working",
-          worktreePath: "/tmp/project/.worktrees/tmp-working",
-          associatedWorktreePath: "/tmp/project/.worktrees/tmp-working",
-          associatedWorktreeBranch: "penkra/tmp-working",
-          associatedWorktreeRef: "penkra/tmp-working",
-        }),
-      ),
-      threadId,
-      {
-        createBranchFlowCompleted: true,
-      },
-    );
-
-    const next = syncServerReadModel(
-      optimisticState,
-      makeReadModel(
-        makeReadModelThread({
-          envMode: "worktree",
-          branch: "penkra/tmp-working",
-          worktreePath: "/tmp/project/.worktrees/tmp-working",
-          associatedWorktreePath: "/tmp/project/.worktrees/tmp-working",
-          associatedWorktreeBranch: "penkra/tmp-working",
-          associatedWorktreeRef: "penkra/tmp-working",
-          createBranchFlowCompleted: false,
-          updatedAt: "2026-02-27T00:05:00.000Z",
-        }),
-      ),
-    );
-
-    expect(threadsOf(next)[0]?.createBranchFlowCompleted).toBe(true);
-    expect(next.threadShellById?.[threadId]?.createBranchFlowCompleted).toBe(true);
-  });
-
   it("reorderProjects moves a project to a target index", () => {
     const project1 = ContainerId.makeUnsafe("project-1");
     const project2 = ContainerId.makeUnsafe("project-2");

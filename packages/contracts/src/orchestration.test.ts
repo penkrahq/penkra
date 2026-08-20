@@ -8,14 +8,11 @@ import {
   ModelSelection,
   OrchestrationCommand,
   OrchestrationEvent,
-  OrchestrationGetFullThreadDiffInput,
-  OrchestrationGetTurnDiffInput,
   OrchestrationLatestTurn,
   OrchestrationReadModel,
   ProjectCreatedPayload,
   ProjectMetaUpdatedPayload,
   OrchestrationSession,
-  OrchestrationThreadPullRequest,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderStartOptions,
@@ -25,13 +22,9 @@ import {
   ThreadMetaUpdatedPayload,
   ThreadTurnStartCommand,
   ThreadCreatedPayload,
-  ThreadTurnDiff,
   ThreadTurnStartRequestedPayload,
 } from "./orchestration";
 
-const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
-const decodeFullThreadDiffInput = Schema.decodeUnknownEffect(OrchestrationGetFullThreadDiffInput);
-const decodeThreadTurnDiff = Schema.decodeUnknownEffect(ThreadTurnDiff);
 const decodeProjectCreateCommand = Schema.decodeUnknownEffect(ProjectCreateCommand);
 const decodeProjectCreatedPayload = Schema.decodeUnknownEffect(ProjectCreatedPayload);
 const decodeProjectMetaUpdatedPayload = Schema.decodeUnknownEffect(ProjectMetaUpdatedPayload);
@@ -48,41 +41,6 @@ const decodeProviderStartOptions = Schema.decodeUnknownEffect(ProviderStartOptio
 const decodeClientOrchestrationCommand = Schema.decodeUnknownEffect(ClientOrchestrationCommand);
 const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
-const decodeThreadPullRequest = Schema.decodeUnknownEffect(OrchestrationThreadPullRequest);
-
-it.effect("decodes last-known PRs persisted before draft/mergeability/diff fields existed", () =>
-  Effect.gen(function* () {
-    const legacy = yield* decodeThreadPullRequest({
-      number: 42,
-      title: "Legacy PR",
-      url: "https://github.com/o/r/pull/42",
-      baseBranch: "main",
-      headBranch: "feature/legacy",
-      state: "open",
-    });
-    assert.equal(legacy.number, 42);
-    assert.equal(legacy.isDraft, undefined);
-    assert.equal(legacy.mergeability, undefined);
-
-    const enriched = yield* decodeThreadPullRequest({
-      number: 43,
-      title: "Enriched PR",
-      url: "https://github.com/o/r/pull/43",
-      baseBranch: "main",
-      headBranch: "feature/enriched",
-      state: "open",
-      isDraft: true,
-      mergeability: "conflicting",
-      additions: 38,
-      deletions: 36,
-      changedFiles: 3,
-    });
-    assert.equal(enriched.isDraft, true);
-    assert.equal(enriched.mergeability, "conflicting");
-    assert.equal(enriched.additions, 38);
-  }),
-);
-
 it.effect("preserves thread activity payloads through the RPC JSON codec", () =>
   Effect.gen(function* () {
     const codec = Schema.toCodecJson(OrchestrationReadModel);
@@ -140,7 +98,6 @@ it.effect("preserves thread activity payloads through the RPC JSON codec", () =>
               createdAt: "2026-01-01T00:00:00.000Z",
             },
           ],
-          checkpoints: [],
           session: null,
         },
       ],
@@ -234,59 +191,6 @@ it.effect("drops legacy provider passwords from decoded provider options", () =>
       },
     });
     assert.doesNotMatch(JSON.stringify(parsed), /serverPassword|legacy-.*-secret/);
-  }),
-);
-
-it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
-  Effect.gen(function* () {
-    const parsed = yield* decodeTurnDiffInput({
-      threadId: "thread-1",
-      fromTurnCount: 1,
-      toTurnCount: 2,
-      ignoreWhitespace: true,
-    });
-    assert.strictEqual(parsed.fromTurnCount, 1);
-    assert.strictEqual(parsed.toTurnCount, 2);
-    assert.strictEqual(parsed.ignoreWhitespace, true);
-  }),
-);
-
-it.effect("parses full thread diff input with optional whitespace flag", () =>
-  Effect.gen(function* () {
-    const parsed = yield* decodeFullThreadDiffInput({
-      threadId: "thread-1",
-      toTurnCount: 2,
-      ignoreWhitespace: false,
-    });
-    assert.strictEqual(parsed.toTurnCount, 2);
-    assert.strictEqual(parsed.ignoreWhitespace, false);
-  }),
-);
-
-it.effect("rejects turn diff input when fromTurnCount > toTurnCount", () =>
-  Effect.gen(function* () {
-    const result = yield* Effect.exit(
-      decodeTurnDiffInput({
-        threadId: "thread-1",
-        fromTurnCount: 3,
-        toTurnCount: 2,
-      }),
-    );
-    assert.strictEqual(result._tag, "Failure");
-  }),
-);
-
-it.effect("rejects thread turn diff when fromTurnCount > toTurnCount", () =>
-  Effect.gen(function* () {
-    const result = yield* Effect.exit(
-      decodeThreadTurnDiff({
-        threadId: "thread-1",
-        fromTurnCount: 3,
-        toTurnCount: 2,
-        diff: "patch",
-      }),
-    );
-    assert.strictEqual(result._tag, "Failure");
   }),
 );
 

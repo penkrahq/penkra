@@ -79,10 +79,9 @@ export function useSpacesController(input: {
   const hydrateSpacesUi = useSpacesUiStore((store) => store.hydrateFromServer);
   const homeDir = useWorkspacePathsStore((store) => store.homeDir);
   const chatWorkspaceRoot = useWorkspacePathsStore((store) => store.chatWorkspaceRoot);
-  const studioWorkspaceRoot = useWorkspacePathsStore((store) => store.studioWorkspaceRoot);
   const workspacePaths = useMemo(
-    () => ({ homeDir, chatWorkspaceRoot, studioWorkspaceRoot }),
-    [chatWorkspaceRoot, homeDir, studioWorkspaceRoot],
+    () => ({ homeDir, chatWorkspaceRoot }),
+    [chatWorkspaceRoot, homeDir],
   );
 
   const routeSpaceProject = activeRouteProject;
@@ -269,11 +268,62 @@ export function useSpacesController(input: {
         return;
       }
 
-      const { spaceId, sequence } = await createSpace({
-        api,
-        name: value.name,
-        icon: toSpaceIconName(value.icon),
-      });
+      const submittedIcon = toSpaceIconName(value.icon);
+      let createResult: Awaited<ReturnType<typeof createSpace>>;
+      try {
+        createResult = await createSpace({
+          api,
+          name: value.name,
+          icon: submittedIcon,
+        });
+      } catch (error) {
+        // A duplicate-name rejection can reveal that this renderer missed an earlier
+        // committed create. Hydrate that Space immediately while preserving the concise
+        // invariant detail in the inline editor.
+        try {
+          const snapshot = await api.orchestration.getShellSnapshot();
+          useStore.getState().syncServerShellSnapshot(snapshot);
+        } catch {
+          // Preserve the original command failure when recovery cannot reach the shell.
+        }
+        throw error;
+      }
+      const { spaceId, sequence, createdAt } = createResult;
+      // The shell stream is the normal update path, but a command can finish while this
+      // renderer is reconnecting and its live Space upsert can be missed. Reconcile the
+      // committed create from the authoritative shell before closing the editor so the
+      // new Space cannot remain invisible until the next app launch.
+      let reconciledFromShell = false;
+      try {
+        const snapshot = await api.orchestration.getShellSnapshot();
+        if (
+          snapshot.snapshotSequence >= sequence &&
+          snapshot.spaces.some((space) => space.id === spaceId)
+        ) {
+          useStore.getState().syncServerShellSnapshot(snapshot);
+          reconciledFromShell = true;
+        }
+      } catch {
+        // The command is already committed. Keep the successful create and let the live
+        // stream (or its reconnect snapshot) perform the eventual reconciliation.
+      }
+      if (
+        !reconciledFromShell &&
+        !useStore.getState().spaces.some((space) => space.id === spaceId)
+      ) {
+        useStore.getState().applyShellEvent({
+          kind: "space-upserted",
+          sequence,
+          space: {
+            id: spaceId,
+            name: value.name,
+            icon: submittedIcon,
+            sortOrder: spaces.reduce((next, space) => Math.max(next, space.sortOrder + 1), 0),
+            createdAt,
+            updatedAt: createdAt,
+          },
+        });
+      }
       const projectId = spaceEditorState.projectIdAfterCreate;
       if (projectId) {
         try {

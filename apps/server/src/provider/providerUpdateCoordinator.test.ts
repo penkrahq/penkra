@@ -30,13 +30,6 @@ function thread(overrides: Partial<OrchestrationThreadShell> = {}): Orchestratio
     title: "Thread",
     modelSelection: { provider: "codex", model: "gpt-5" },
     runtimeMode: "full-access",
-    envMode: "local",
-    branch: null,
-    worktreePath: null,
-    associatedWorktreePath: null,
-    associatedWorktreeBranch: null,
-    associatedWorktreeRef: null,
-    createBranchFlowCompleted: false,
     isPinned: false,
     parentThreadId: null,
     creationSource: null,
@@ -58,7 +51,7 @@ function thread(overrides: Partial<OrchestrationThreadShell> = {}): Orchestratio
       updatedAt: "2026-07-30T00:00:00.000Z",
     },
     ...overrides,
-  } as OrchestrationThreadShell;
+  } as unknown as OrchestrationThreadShell;
 }
 
 function outdatedCodex(): ServerProviderStatus {

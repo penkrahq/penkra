@@ -97,13 +97,11 @@ describe("orchestration command admission", () => {
         expect(admit("normal-1", "project.create")).toEqual({ accepted: true });
         expect(admit("normal-2", "thread.meta.update")).toEqual({ accepted: true });
         expect(admit("start-1", "thread.turn.start")).toEqual({ accepted: true });
-        expect(admit("revert", "thread.checkpoint.revert")).toEqual({ accepted: true });
         expect(admit("stop", "thread.turn.interrupt")).toEqual({ accepted: true });
 
         expect(yield* takeNextOrchestrationCommand(queues)).toBe("stop");
         // FIFO is preserved within each lane.
         expect(yield* takeNextOrchestrationCommand(queues)).toBe("start-1");
-        expect(yield* takeNextOrchestrationCommand(queues)).toBe("revert");
         expect(yield* takeNextOrchestrationCommand(queues)).toBe("normal-1");
         expect(yield* takeNextOrchestrationCommand(queues)).toBe("normal-2");
       }),

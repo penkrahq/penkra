@@ -758,6 +758,41 @@ describe("migration backups", () => {
     expect(await backupPaths(dbPath)).toEqual([]);
   });
 
+  it("applies reduced backup retention on a current-schema startup", async () => {
+    const dbPath = await makeDbPath();
+
+    await runWithDatabase(
+      dbPath,
+      Effect.gen(function* () {
+        yield* runMigrations();
+        for (let version = 0; version < MIGRATION_BACKUP_RETENTION + 3; version += 1) {
+          yield* createMigrationBackup(dbPath, {
+            sourceVersion: `v${version}`,
+            targetVersion: version + 1,
+          });
+        }
+      }),
+    );
+
+    const backupDirectory = migrationBackupDirectory(dbPath);
+    const retained = await backupPaths(dbPath);
+    const source = retained[0];
+    expect(source).toBeDefined();
+    for (let index = 0; index < 3; index += 1) {
+      await fs.copyFile(
+        source!,
+        path.join(
+          backupDirectory,
+          `state.sqlite.pre-migration-vlegacy${index}-to-vlegacy-${artifactDay(index + 1)}T000000000Z-${randomUUID()}.sqlite`,
+        ),
+      );
+    }
+
+    await runWithDatabase(dbPath, runWithPreMigrationBackup(dbPath, runMigrations()));
+
+    expect(await backupPaths(dbPath)).toHaveLength(MIGRATION_BACKUP_RETENTION);
+  });
+
   it("bounds every unreferenced artifact family without touching the live database", async () => {
     // Regression: retention only ever matched the `pre-migration-` prefix, so
     // `failed-migration-` bundles and legacy `pre-tracker-repair-` snapshots —

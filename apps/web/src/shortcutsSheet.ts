@@ -289,10 +289,8 @@ export function buildShortcutSheetSections(
       if (!shortcutLabel) return null;
       return {
         id: script.id,
-        label: script.runOnWorktreeCreate ? `${script.name} setup script` : script.name,
-        description: script.runOnWorktreeCreate
-          ? "Run the folder setup script directly from the keyboard."
-          : "Run this folder script without opening the scripts menu.",
+        label: script.name,
+        description: "Run this folder script without opening the scripts menu.",
         shortcutLabel,
       } satisfies ShortcutSheetEntry;
     })

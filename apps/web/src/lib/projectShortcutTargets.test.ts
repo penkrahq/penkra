@@ -12,7 +12,6 @@ import {
 const CURRENT_PROJECT_ID = "project-current" as ContainerId;
 const LATEST_PROJECT_ID = "project-latest" as ContainerId;
 const HOME_PROJECT_ID = "project-home" as ContainerId;
-const STUDIO_PROJECT_ID = "project-studio" as ContainerId;
 
 function makeProject(id: ContainerId, kind: Project["kind"] = "project"): Project {
   return {
@@ -34,7 +33,6 @@ describe("project shortcut targets", () => {
     makeProject(CURRENT_PROJECT_ID),
     makeProject(LATEST_PROJECT_ID),
     makeProject(HOME_PROJECT_ID, "chat"),
-    makeProject(STUDIO_PROJECT_ID, "studio"),
   ];
 
   it("prefers the focused ordinary project over the latest project", () => {
@@ -64,12 +62,9 @@ describe("project shortcut targets", () => {
     ).toEqual({ projectId: LATEST_PROJECT_ID, inheritContext: false });
   });
 
-  it.each([HOME_PROJECT_ID, STUDIO_PROJECT_ID])(
-    "rejects a non-ordinary latest project target (%s)",
-    (projectId) => {
-      expect(resolveLatestProjectTargetId(projects, projectId)).toBeNull();
-    },
-  );
+  it("rejects a managed-chat latest project target", () => {
+    expect(resolveLatestProjectTargetId(projects, HOME_PROJECT_ID)).toBeNull();
+  });
 
   it("returns no target for a stale latest project id", () => {
     expect(

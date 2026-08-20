@@ -75,7 +75,6 @@ export async function executePenkraExecCommand(
       return coreHelp(
         (await bridgeRequest("catalog.list", scope, env)) as CatalogEntry[],
         context.additionalCoreCommands ?? [],
-        env.PENKRA_DESKTOP_FLAVOR === "development",
       );
     }
     if (args[1] === "app") {
@@ -317,14 +316,6 @@ const APP_DEVELOPER_COMMANDS = [
   "penkra app access revoke --app-id <app-id> --invitation-id <id>",
 ] as const;
 
-const APP_SIDELOAD_COMMAND = "penkra app sideload <directory>";
-
-function visibleAppDeveloperCommands(development: boolean): ReadonlyArray<string> {
-  return development
-    ? APP_DEVELOPER_COMMANDS
-    : APP_DEVELOPER_COMMANDS.filter((command) => command !== APP_SIDELOAD_COMMAND);
-}
-
 function registryTarget(env: NodeJS.ProcessEnv): {
   environment: "production" | "local" | "custom";
   apiOrigin: string;
@@ -359,9 +350,8 @@ async function executeAppDeveloperCommand(
   operations: AppDeveloperOperations,
 ): Promise<unknown> {
   if (args.length === 0 || (args.length === 1 && (args[0] === "--help" || args[0] === "-h"))) {
-    const development = env.PENKRA_DESKTOP_FLAVOR === "development";
     return {
-      commands: visibleAppDeveloperCommands(development),
+      commands: APP_DEVELOPER_COMMANDS,
       description:
         "Build, publish, and manage Apps through registered commands. These commands do not invoke a Penkra shell executable.",
       registryTarget: registryTarget(env),
@@ -371,9 +361,6 @@ async function executeAppDeveloperCommand(
   const command = args[0]!;
   if (!new Set(["test", "package", "sideload", "status", "publish", "access"]).has(command)) {
     throw new Error(`Unknown penkra app command ${command}. Run penkra app --help.`);
-  }
-  if (command === "sideload" && env.PENKRA_DESKTOP_FLAVOR !== "development") {
-    throw new Error("penkra app sideload is an internal Penkra development command.");
   }
   if (args.length === 2 && (args[1] === "--help" || args[1] === "-h")) {
     return appDeveloperCommandHelp(command);
@@ -535,14 +522,13 @@ function appDeveloperCommandHelp(command: string): {
 function coreHelp(
   catalog: ReadonlyArray<CatalogEntry>,
   additionalCoreCommands: ReadonlyArray<string>,
-  development: boolean,
 ): unknown {
   return {
     description:
       "Penkra registered commands run through penkra_exec_command; they are not shell commands.",
     commands: [
       ...additionalCoreCommands,
-      ...visibleAppDeveloperCommands(development),
+      ...APP_DEVELOPER_COMMANDS,
       "penkra apps list",
       "penkra tabs current",
       "penkra tabs list",

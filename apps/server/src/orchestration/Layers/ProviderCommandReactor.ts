@@ -4,7 +4,6 @@
 
 import {
   type ChatAttachment,
-  type CheckpointRef,
   CommandId,
   EventId,
   type ModelSelection,
@@ -58,15 +57,8 @@ import {
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
 } from "@penkra/shared/providerDeliveryBlock";
 import { buildStalePendingRequestFailureDetail } from "@penkra/shared/threadSummary";
-import { resolveThreadWorkspaceState } from "@penkra/shared/threadEnvironment";
+import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 
-import {
-  checkpointRefForThreadMessageStart,
-  checkpointRefForThreadTurn,
-  resolveThreadWorkspaceCwd,
-} from "../../checkpointing/Utils.ts";
-import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
-import { GitCore } from "../../git/Services/GitCore.ts";
 import {
   ProviderAdapterRequestError,
   ProviderAdapterValidationError,
@@ -81,8 +73,8 @@ import {
 import {
   TextGeneration,
   type ThreadTitleGenerationInput,
-} from "../../git/Services/TextGeneration.ts";
-import { resolveTextGenerationInputForSelection } from "../../git/textGenerationSelection.ts";
+} from "../../textGeneration/Services/TextGeneration.ts";
+import { resolveTextGenerationInputForSelection } from "../../textGeneration/textGenerationSelection.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
@@ -103,7 +95,6 @@ import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedA
 import { ServerConfig } from "../../config.ts";
 import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../../managedAttachmentPrincipal.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { clearWorkspaceIndexCache } from "../../workspaceEntries.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderThreadSwitchCoordinator } from "../Services/ProviderThreadSwitchCoordinator.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -111,7 +102,6 @@ import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
-import { StudioOutputReactor } from "../Services/StudioOutputReactor.ts";
 import {
   isClaimedProviderIntent,
   isProviderIntentEvent,
@@ -122,7 +112,6 @@ import {
 } from "../providerIntentClassification.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
 import { RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
-import { TurnCheckpointCoordinator } from "../Services/TurnCheckpointCoordinator.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 
 type ProviderQueueDrainEvent = Extract<
@@ -402,7 +391,6 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
   const deliveryRepository = yield* OrchestrationEventDeliveryRepository;
-  const turnCheckpointCoordinator = yield* TurnCheckpointCoordinator;
   const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
@@ -410,9 +398,6 @@ const make = Effect.gen(function* () {
   const providerLaunchResolver = yield* ProviderLaunchResolver;
   const threadProviderBindings = yield* ThreadProviderBindingRepository;
   const pendingInteractions = yield* ProjectionPendingInteractionRepository;
-  const checkpointStore = yield* CheckpointStore;
-  const studioOutputReactor = yield* StudioOutputReactor;
-  const git = yield* GitCore;
   const textGeneration = yield* TextGeneration;
   const serverSettings = yield* ServerSettingsService;
   const managedAttachments = yield* ManagedAttachmentRepository;
@@ -462,19 +447,18 @@ const make = Effect.gen(function* () {
   });
 
   const resolveProjectedThreadWorkspaceCwd = Effect.fnUntraced(function* (
-    thread: Pick<
-      OrchestrationThread,
-      "projectId" | "envMode" | "worktreePath" | "workingDirectory"
-    >,
+    thread: Pick<OrchestrationThread, "projectId" | "workingDirectory">,
   ): Effect.fn.Return<string | undefined> {
     const project = yield* resolveThreadWorkspaceProject(thread);
     if (!project) {
       return undefined;
     }
-    return resolveThreadWorkspaceCwd({
-      thread,
-      projects: [project],
-    });
+    return (
+      resolveThreadWorkspaceCwd({
+        workingDirectory: thread.workingDirectory,
+        projectCwd: project.workspaceRoot,
+      }) ?? undefined
+    );
   });
   const editResendTurnStartKeys = new Set<string>();
   const quarantinedThreads = new Set<string>();
@@ -653,12 +637,8 @@ const make = Effect.gen(function* () {
   const resolveProviderSessionThread = (threadId: ThreadId) =>
     resolveProviderSessionThreadFromProjection(projectionSnapshotQuery, threadId);
 
-  const withProviderSessionLease = <A, E, R>(threadId: ThreadId, effect: Effect.Effect<A, E, R>) =>
-    resolveProviderSessionThread(threadId).pipe(
-      Effect.flatMap((providerThread) =>
-        turnCheckpointCoordinator.withThreadLease(providerThread?.id ?? threadId, effect),
-      ),
-    );
+  const withProviderSessionLease = <A, E, R>(_threadId: ThreadId, effect: Effect.Effect<A, E, R>) =>
+    effect;
 
   const resolveSubagentProviderThreadId = (
     threadId: ThreadId,
@@ -803,105 +783,6 @@ const make = Effect.gen(function* () {
       }
       return yield* Effect.fail(rollbackError);
     }
-  });
-
-  interface EditReplayWorkspaceRestorePlan {
-    readonly cwd: string;
-    readonly checkpointRef: CheckpointRef;
-    readonly targetTurnCount: number;
-  }
-
-  /**
-   * Resolves and validates the workspace restore before the provider
-   * conversation rollback runs, so a missing checkpoint refuses the whole edit
-   * replay instead of leaving the conversation trimmed with the files intact.
-   * Returns `null` when there is legitimately nothing to restore.
-   */
-  const planWorkspaceRestoreForEditReplay = Effect.fnUntraced(function* (input: {
-    readonly threadId: ThreadId;
-    readonly removedTurnIds: ReadonlyArray<TurnId>;
-  }) {
-    if (input.removedTurnIds.length === 0) {
-      return null;
-    }
-
-    const thread = yield* resolveThread(input.threadId);
-    if (!thread) {
-      return null;
-    }
-
-    const removedTurnIdSet = new Set(input.removedTurnIds);
-    const removedCheckpoints = thread.checkpoints.filter((checkpoint) =>
-      removedTurnIdSet.has(checkpoint.turnId),
-    );
-    if (removedCheckpoints.length === 0) {
-      return null;
-    }
-
-    const firstRemovedTurnCount = removedCheckpoints.reduce(
-      (minTurnCount, checkpoint) => Math.min(minTurnCount, checkpoint.checkpointTurnCount),
-      Number.POSITIVE_INFINITY,
-    );
-    const targetTurnCount = Math.max(0, firstRemovedTurnCount - 1);
-    const cwd = yield* resolveProjectedThreadWorkspaceCwd(thread);
-    if (!cwd) {
-      return null;
-    }
-
-    if (!(yield* checkpointStore.isGitRepository(cwd))) {
-      return null;
-    }
-
-    const targetCheckpointRef =
-      targetTurnCount === 0
-        ? checkpointRefForThreadTurn(input.threadId, 0)
-        : thread.checkpoints.find(
-            (checkpoint) => checkpoint.checkpointTurnCount === targetTurnCount,
-          )?.checkpointRef;
-    if (!targetCheckpointRef) {
-      return yield* Effect.fail(
-        new Error(`Checkpoint ref for edit replay turn ${targetTurnCount} is unavailable.`),
-      );
-    }
-
-    // Turn zero restores with `fallbackToHead`, so a missing baseline ref is
-    // tolerated there; every other turn must have its checkpoint on disk.
-    if (
-      targetTurnCount !== 0 &&
-      !(yield* checkpointStore.hasCheckpointRef({ cwd, checkpointRef: targetCheckpointRef }))
-    ) {
-      return yield* Effect.fail(
-        new Error(`Filesystem checkpoint is unavailable for edit replay turn ${targetTurnCount}.`),
-      );
-    }
-
-    return {
-      cwd,
-      checkpointRef: targetCheckpointRef,
-      targetTurnCount,
-    } satisfies EditReplayWorkspaceRestorePlan;
-  });
-
-  const executeEditReplayWorkspaceRestore = Effect.fnUntraced(function* (
-    plan: EditReplayWorkspaceRestorePlan | null,
-  ) {
-    if (plan === null) {
-      return;
-    }
-    const restored = yield* checkpointStore.restoreCheckpoint({
-      cwd: plan.cwd,
-      checkpointRef: plan.checkpointRef,
-      fallbackToHead: plan.targetTurnCount === 0,
-    });
-    if (!restored) {
-      return yield* Effect.fail(
-        new Error(
-          `Filesystem checkpoint for edit replay turn ${plan.targetTurnCount} became unavailable during the rollback.`,
-        ),
-      );
-    }
-
-    clearWorkspaceIndexCache(plan.cwd);
   });
 
   const resolveManagedTurnRuntime = Effect.fnUntraced(function* (input: {
@@ -1078,17 +959,6 @@ const make = Effect.gen(function* () {
       });
     }
     const effectiveCwd = yield* resolveProjectedThreadWorkspaceCwd(thread);
-    const workspaceState = resolveThreadWorkspaceState({
-      envMode: thread.envMode,
-      worktreePath: thread.worktreePath,
-    });
-    if (workspaceState === "worktree-pending") {
-      return yield* new ProviderAdapterValidationError({
-        provider: threadProvider,
-        operation: "thread.turn.start",
-        issue: `Thread '${threadId}' targets a worktree that has not been created yet.`,
-      });
-    }
     const providerSessionOptions = {
       threadId,
       ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
@@ -1590,72 +1460,19 @@ const make = Effect.gen(function* () {
         ...(messageText ? { input: messageText } : {}),
       });
 
-    const captureMessageStartCheckpoint = Effect.gen(function* () {
-      if ((input.dispatchMode ?? "queue") === "steer") {
-        return;
-      }
-
-      const currentThread = yield* resolveThread(input.threadId);
-      if (!currentThread) {
-        return;
-      }
-
-      const cwd = yield* resolveProjectedThreadWorkspaceCwd(currentThread);
-      if (!cwd || !(yield* checkpointStore.isGitRepository(cwd))) {
-        return;
-      }
-
-      // Capture before provider dispatch so the later turn diff is bounded by
-      // the user's submit moment, not early provider edits. skipIfExists keeps
-      // a backup baseline from CheckpointReactor as the first-writer winner.
-      yield* checkpointStore.captureCheckpoint({
-        cwd,
-        checkpointRef: checkpointRefForThreadMessageStart(
-          input.threadId,
-          MessageId.makeUnsafe(input.messageId),
-        ),
-        skipIfExists: true,
-      });
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("failed to capture provider turn start checkpoint", {
-          threadId: input.threadId,
-          messageId: input.messageId,
-          cause: Cause.pretty(cause),
-        }),
-      ),
-    );
-
-    // Both Git and non-Git Studio baselines must finish before provider execution
-    // starts. Otherwise a fast command can write a file while the baseline scan is
-    // still running and make that output look unchanged at turn completion.
-    const capturePreTurnBaselines = Effect.all(
-      [
-        captureMessageStartCheckpoint,
-        studioOutputReactor.captureBaselineBeforeTurn(input.threadId),
-      ],
-      { concurrency: 2, discard: true },
-    );
-    const cancelPendingStudioBaseline = studioOutputReactor.cancelPendingTurnBaseline(
-      input.threadId,
-    );
     let startedTurn: ProviderTurnStartResult | undefined;
 
     if (input.reviewTarget !== undefined) {
-      yield* capturePreTurnBaselines;
-      startedTurn = yield* providerService
-        .startReview({
-          threadId: input.threadId,
-          target: input.reviewTarget,
-        })
-        .pipe(Effect.onError(() => cancelPendingStudioBaseline));
+      startedTurn = yield* providerService.startReview({
+        threadId: input.threadId,
+        target: input.reviewTarget,
+      });
     } else if (input.dispatchMode === "steer") {
       startedTurn = yield* providerService.steerTurn({
         ...providerTurnInput,
         ...(normalizedInput ? { input: normalizedInput } : {}),
       });
     } else {
-      yield* capturePreTurnBaselines;
       const ensureSessionForStaleRetry = ensureSessionForThread(input.threadId, input.createdAt, {
         ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
         ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
@@ -1720,7 +1537,6 @@ const make = Effect.gen(function* () {
             return yield* sendQueuedProviderTurn(normalizedInput);
           }),
         ),
-        Effect.onError(() => cancelPendingStudioBaseline),
       );
       startedTurn = sentTurn;
       if (
@@ -1907,7 +1723,8 @@ const make = Effect.gen(function* () {
         return;
       }
 
-      const isRestartRecovery = event.payload.recoveryOfTurnId !== undefined;
+      const isRestartRecovery =
+        event.payload.restartRecovery || event.payload.recoveryOfTurnId !== undefined;
       const message = isRestartRecovery
         ? {
             id: event.payload.messageId,
@@ -1941,8 +1758,7 @@ const make = Effect.gen(function* () {
       // Steering is only meaningful against a live turn. The projection can
       // lag the runtime in the other direction too (turn already settled but
       // still projected as running), so recheck live state and dispatch a
-      // settled "steer" as a normal queued turn — the native steer path
-      // would skip the turn-start checkpoint.
+      // settled "steer" as a normal queued turn.
       const isNativeSteer =
         event.payload.dispatchMode === "steer" &&
         providerSupportsNativeTurnSteering(providerName) &&
@@ -2019,7 +1835,7 @@ const make = Effect.gen(function* () {
       }
       // Only a native steer against a genuinely live turn keeps steer
       // semantics; anything else that reaches direct dispatch runs as a
-      // normal queued turn (with its turn-start checkpoint).
+      // normal queued turn.
       const immediateDispatchMode =
         event.payload.dispatchMode === "steer" && !isNativeSteer
           ? "queue"
@@ -2237,7 +2053,12 @@ const make = Effect.gen(function* () {
           );
         }
         const readModel = yield* orchestrationEngine.getReadModel();
-        const cwd = resolveThreadWorkspaceCwd({ thread, projects: readModel.projects });
+        const cwd = resolveThreadWorkspaceCwd({
+          workingDirectory: thread.workingDirectory,
+          projectCwd:
+            readModel.projects.find((project) => project.id === thread.projectId)?.workspaceRoot ??
+            null,
+        });
         const providerName = thread.session?.providerName ?? thread.modelSelection.provider;
         const providerThread = yield* resolveProviderSessionThread(event.payload.threadId);
         const sessionThreadId = providerThread?.id ?? event.payload.threadId;
@@ -2289,7 +2110,7 @@ const make = Effect.gen(function* () {
               createdAt: event.payload.createdAt,
             },
             attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-            ...(cwd === undefined ? {} : { cwd }),
+            ...(cwd === null ? {} : { cwd }),
           })
           .pipe(
             Effect.onError(() =>
@@ -2363,6 +2184,7 @@ const make = Effect.gen(function* () {
             `server:dispatch-queued-turn:${promotion.queuedEventSequence}`,
           ),
           threadId,
+          turnId: nextQueuedTurn.turnId ?? TurnId.makeUnsafe(`turn:${sourceEvent.commandId}`),
           messageId: nextQueuedTurn.messageId,
           ...(nextQueuedTurn.modelSelection !== undefined
             ? { modelSelection: nextQueuedTurn.modelSelection }
@@ -2966,20 +2788,12 @@ const make = Effect.gen(function* () {
         ),
       );
     }
-    // Validate the workspace restore before the provider conversation rollback:
-    // once the provider trims its conversation there is no undo, so a missing
-    // checkpoint must refuse the edit replay while nothing has happened yet.
-    const workspaceRestorePlan = yield* planWorkspaceRestoreForEditReplay({
-      threadId: payload.threadId,
-      removedTurnIds: editTarget.removedTurnIds.map((turnId) => TurnId.makeUnsafe(turnId)),
-    });
     if (options?.skipProviderRollback !== true && editTarget.rollbackTurnCount > 0) {
       yield* rollbackProviderConversationForEdit({
         threadId: payload.threadId,
         numTurns: editTarget.rollbackTurnCount,
       });
     }
-    yield* executeEditReplayWorkspaceRestore(workspaceRestorePlan);
     yield* orchestrationEngine.dispatch({
       type: "thread.conversation.rollback.complete",
       commandId:
@@ -3012,7 +2826,12 @@ const make = Effect.gen(function* () {
     }
 
     const readModel = yield* orchestrationEngine.getReadModel();
-    const cwd = resolveThreadWorkspaceCwd({ thread: originalThread, projects: readModel.projects });
+    const cwd = resolveThreadWorkspaceCwd({
+      workingDirectory: originalThread.workingDirectory,
+      projectCwd:
+        readModel.projects.find((project) => project.id === originalThread.projectId)
+          ?.workspaceRoot ?? null,
+    });
     editResendTurnStartKeys.add(editResendTurnStartKey(payload.threadId, payload.messageId));
     yield* providerThreadSwitchCoordinator.dispatchTurnStart({
       command: {
@@ -3044,7 +2863,7 @@ const make = Effect.gen(function* () {
         createdAt: payload.createdAt,
       },
       attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-      ...(cwd === undefined ? {} : { cwd }),
+      ...(cwd === null ? {} : { cwd }),
     });
   });
 

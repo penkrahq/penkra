@@ -92,8 +92,6 @@ async function addThread(input: {
     title: input.id,
     modelSelection: { provider: "codex", model: "gpt-5-codex" },
     runtimeMode: "full-access",
-    branch: null,
-    worktreePath: null,
     ...(input.parentThreadId ? { parentThreadId: input.parentThreadId } : {}),
     createdAt: CREATED_AT,
   });

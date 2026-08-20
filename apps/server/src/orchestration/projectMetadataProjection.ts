@@ -17,7 +17,6 @@ export const PROJECT_METADATA_SNAPSHOT_PROJECTORS = [
   "projection.thread-messages",
   "projection.thread-activities",
   "projection.thread-sessions",
-  "projection.checkpoints",
 ] as const;
 
 export const applyProjectMetadataProjection = (input: {

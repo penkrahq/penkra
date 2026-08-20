@@ -76,6 +76,25 @@ import {
   makeProviderRuntimeEventPumpHealthRegistry,
   runProviderRuntimeEventPump,
 } from "../providerRuntimeEventPump.ts";
+import { providerRuntimeEventIdFromNative } from "../providerRuntimeEventIdentity.ts";
+
+/** Shared adapter boundary: replayable native notifications never retain random ids. */
+export function canonicalizeProviderRuntimeEventIdentity(
+  event: ProviderRuntimeEvent,
+): ProviderRuntimeEvent {
+  if (event.raw === undefined) return event;
+  return {
+    ...event,
+    eventId: providerRuntimeEventIdFromNative({
+      provider: event.provider,
+      source: [event.type, event.turnId, event.itemId, event.requestId]
+        .filter((value) => value !== undefined)
+        .join(":"),
+      threadId: event.threadId,
+      nativeEvent: event.raw,
+    }),
+  };
+}
 
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogPath?: string;
@@ -1078,7 +1097,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               eventLifecycleGeneration: event.lifecycleGeneration,
             });
           }
-          const canonicalEvent = event;
+          const canonicalEvent = canonicalizeProviderRuntimeEventIdentity(event);
           return Effect.sync(() => {
             if (canonicalEvent.type === "turn.started") {
               reconcileRuntimeIdleTimer(canonicalEvent);
@@ -2620,7 +2639,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       closeRuntimeEvents,
       getRuntimeEventPumpHealth: () => Effect.sync(runtimeEventPumpHealth.snapshot),
       // Each access creates a fresh PubSub subscription so that multiple
-      // consumers (ProviderRuntimeIngestion, CheckpointReactor, etc.) each
+      // consumers (ProviderRuntimeIngestion and other reactors) each
       // independently receive all runtime events.
       get streamEvents(): ProviderServiceShape["streamEvents"] {
         return Stream.fromPubSub(runtimeEventPubSub);

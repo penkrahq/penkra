@@ -14,11 +14,7 @@ import {
   THREAD_MARKERS_MAX_COUNT,
   TurnId,
 } from "@penkra/contracts";
-import {
-  deriveAssociatedWorktreeMetadata,
-  deriveAssociatedWorktreeMetadataPatch,
-  workspaceRootsEqual,
-} from "@penkra/shared/threadWorkspace";
+import { workspaceRootsEqual } from "@penkra/shared/threadWorkspace";
 import { doThreadMarkerRangesOverlap } from "@penkra/shared/threadMarkers";
 import {
   collectTailTurnIds,
@@ -33,11 +29,6 @@ import { resolveStableMessageTurnId } from "./messageTurnId.ts";
 import {
   findSpaceById,
   isLegacyHomeChatContainerRow,
-  CHECKPOINT_REVERT_STARTED_ACTIVITY_KIND,
-  CHECKPOINT_REVERT_SUCCEEDED_ACTIVITY_KIND,
-  checkpointRevertActiveTurnDetail,
-  checkpointRevertDeleteInProgressDetail,
-  checkpointRevertInProgressDetail,
   listActiveProjectsByWorkspaceRoot,
   listActiveSpaces,
   listThreadsByProjectId,
@@ -56,7 +47,6 @@ import {
   requireThreadArchived,
   requireThreadNotArchived,
   threadHasInFlightTurn,
-  threadHasCheckpointRevertInProgress,
 } from "./commandInvariants.ts";
 
 const nowIso = () => new Date().toISOString();
@@ -79,7 +69,7 @@ export interface AcceptedConnectionChange {
 }
 // Kinds that claim exclusive ownership of a workspace root. Chat containers are excluded: they
 // use placeholder roots (e.g. the home dir) that legitimately coexist with real projects.
-const WORKSPACE_OWNING_PROJECT_KIND_SET = new Set<ContainerKind>(["project", "studio"]);
+const WORKSPACE_OWNING_PROJECT_KIND_SET = new Set<ContainerKind>(["project"]);
 
 const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload"> = {
   eventId: crypto.randomUUID() as OrchestrationEvent["eventId"],
@@ -109,37 +99,6 @@ function withEventBase(
     commandId: input.commandId,
     correlationId: input.commandId,
     metadata: input.metadata ?? {},
-  };
-}
-
-function checkpointRevertSucceededEvent(input: {
-  readonly commandId: OrchestrationCommand["commandId"];
-  readonly threadId: Extract<OrchestrationCommand, { type: "thread.revert.complete" }>["threadId"];
-  readonly turnCount: number;
-  readonly createdAt: string;
-  readonly causationEventId: OrchestrationEvent["eventId"];
-}): Omit<OrchestrationEvent, "sequence"> {
-  return {
-    ...withEventBase({
-      aggregateKind: "thread",
-      aggregateId: input.threadId,
-      occurredAt: input.createdAt,
-      commandId: input.commandId,
-    }),
-    causationEventId: input.causationEventId,
-    type: "thread.activity-appended",
-    payload: {
-      threadId: input.threadId,
-      activity: {
-        id: EventId.makeUnsafe(crypto.randomUUID()),
-        tone: "info",
-        kind: CHECKPOINT_REVERT_SUCCEEDED_ACTIVITY_KIND,
-        summary: "Checkpoint revert completed",
-        payload: { turnCount: input.turnCount },
-        turnId: null,
-        createdAt: input.createdAt,
-      },
-    },
   };
 }
 
@@ -177,7 +136,7 @@ function validateProjectPinLimit(input: {
   readonly staleProjectIds?: ReadonlySet<string>;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
   // The kind invariant must hold for the EFFECTIVE pin state, not only when the command sets
-  // isPinned: a kind-only update (e.g. project -> studio) would otherwise carry an existing pin
+  // isPinned: a kind-only update would otherwise carry an existing pin
   // onto a kind that can never be pinned.
   const nextIsPinned = input.command.isPinned ?? input.wasPinned ?? false;
   if (nextIsPinned && input.nextKind !== "project") {
@@ -243,148 +202,26 @@ function collectThreadTreeIds(
   return ids;
 }
 
-function deriveCommandAssociatedWorktreeMetadata(input: {
-  readonly branch: string | null;
-  readonly worktreePath: string | null;
-  readonly associatedWorktreePath?: string | null;
-  readonly associatedWorktreeBranch?: string | null;
-  readonly associatedWorktreeRef?: string | null;
-}) {
-  return deriveAssociatedWorktreeMetadata({
-    branch: input.branch,
-    worktreePath: input.worktreePath,
-    ...(input.associatedWorktreePath !== undefined
-      ? { associatedWorktreePath: input.associatedWorktreePath }
-      : {}),
-    ...(input.associatedWorktreeBranch !== undefined
-      ? { associatedWorktreeBranch: input.associatedWorktreeBranch }
-      : {}),
-    ...(input.associatedWorktreeRef !== undefined
-      ? { associatedWorktreeRef: input.associatedWorktreeRef }
-      : {}),
-  });
-}
-
-function deriveCommandAssociatedWorktreeMetadataPatch(input: {
-  readonly branch?: string | null;
-  readonly worktreePath?: string | null;
-  readonly associatedWorktreePath?: string | null;
-  readonly associatedWorktreeBranch?: string | null;
-  readonly associatedWorktreeRef?: string | null;
-}) {
-  return deriveAssociatedWorktreeMetadataPatch({
-    ...(input.branch !== undefined ? { branch: input.branch } : {}),
-    ...(input.worktreePath !== undefined ? { worktreePath: input.worktreePath } : {}),
-    ...(input.associatedWorktreePath !== undefined
-      ? { associatedWorktreePath: input.associatedWorktreePath }
-      : {}),
-    ...(input.associatedWorktreeBranch !== undefined
-      ? { associatedWorktreeBranch: input.associatedWorktreeBranch }
-      : {}),
-    ...(input.associatedWorktreeRef !== undefined
-      ? { associatedWorktreeRef: input.associatedWorktreeRef }
-      : {}),
-  });
-}
-
 type CreatedThreadWorkspaceCommand = Pick<
   Extract<OrchestrationCommand, { type: "thread.create" | "thread.fork.create" }>,
-  | "envMode"
-  | "branch"
-  | "worktreePath"
-  | "workingDirectory"
-  | "associatedWorktreePath"
-  | "associatedWorktreeBranch"
-  | "associatedWorktreeRef"
+  "workingDirectory"
 >;
 
 function resolveCreatedThreadWorkspaceMetadata(
-  projectKind: ContainerKind | undefined,
+  _projectKind: ContainerKind | undefined,
   command: CreatedThreadWorkspaceCommand,
 ) {
-  if (projectKind === "studio") {
-    return {
-      envMode: "local" as const,
-      branch: null,
-      worktreePath: null,
-      // Backward compatibility: older Studio clients sent "Use a folder" through
-      // worktreePath. Preserve that folder while stripping its worktree semantics.
-      workingDirectory:
-        command.workingDirectory !== undefined ? command.workingDirectory : command.worktreePath,
-      associatedWorktreePath: null,
-      associatedWorktreeBranch: null,
-      associatedWorktreeRef: null,
-    };
-  }
-
-  return {
-    envMode: command.envMode,
-    branch: command.branch,
-    worktreePath: command.worktreePath,
-    workingDirectory: command.workingDirectory ?? command.worktreePath ?? null,
-    ...deriveCommandAssociatedWorktreeMetadata({
-      branch: command.branch,
-      worktreePath: command.worktreePath,
-      ...(command.associatedWorktreePath !== undefined
-        ? { associatedWorktreePath: command.associatedWorktreePath }
-        : {}),
-      ...(command.associatedWorktreeBranch !== undefined
-        ? { associatedWorktreeBranch: command.associatedWorktreeBranch }
-        : {}),
-      ...(command.associatedWorktreeRef !== undefined
-        ? { associatedWorktreeRef: command.associatedWorktreeRef }
-        : {}),
-    }),
-  };
+  return { workingDirectory: command.workingDirectory ?? null };
 }
 
 function resolveThreadWorkspaceMetadataPatch(
-  projectKind: ContainerKind | undefined,
+  _projectKind: ContainerKind | undefined,
   command: Extract<OrchestrationCommand, { type: "thread.meta.update" }>,
-  currentThread: OrchestrationThread,
+  _currentThread: OrchestrationThread,
 ) {
-  if (projectKind === "studio") {
-    return {
-      envMode: "local" as const,
-      branch: null,
-      worktreePath: null,
-      workingDirectory:
-        command.workingDirectory !== undefined
-          ? command.workingDirectory
-          : command.worktreePath
-            ? command.worktreePath
-            : (currentThread.workingDirectory ?? currentThread.worktreePath),
-      associatedWorktreePath: null,
-      associatedWorktreeBranch: null,
-      associatedWorktreeRef: null,
-      createBranchFlowCompleted: false,
-    };
-  }
-
   return {
-    ...(command.envMode !== undefined ? { envMode: command.envMode } : {}),
-    ...(command.branch !== undefined ? { branch: command.branch } : {}),
-    ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
     ...(command.workingDirectory !== undefined
       ? { workingDirectory: command.workingDirectory }
-      : command.worktreePath !== undefined
-        ? { workingDirectory: command.worktreePath }
-        : {}),
-    ...deriveCommandAssociatedWorktreeMetadataPatch({
-      ...(command.branch !== undefined ? { branch: command.branch } : {}),
-      ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
-      ...(command.associatedWorktreePath !== undefined
-        ? { associatedWorktreePath: command.associatedWorktreePath }
-        : {}),
-      ...(command.associatedWorktreeBranch !== undefined
-        ? { associatedWorktreeBranch: command.associatedWorktreeBranch }
-        : {}),
-      ...(command.associatedWorktreeRef !== undefined
-        ? { associatedWorktreeRef: command.associatedWorktreeRef }
-        : {}),
-    }),
-    ...(command.createBranchFlowCompleted !== undefined
-      ? { createBranchFlowCompleted: command.createBranchFlowCompleted }
       : {}),
   };
 }
@@ -965,7 +802,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       if (nextProjectKind !== "project" && command.workspaceRoot === null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: "Managed chat and Studio containers require a workspace root.",
+          detail: "Managed chat containers require a workspace root.",
         });
       }
       if (nextProjectKind === "project" && command.workspaceRoot !== null) {
@@ -974,22 +811,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail:
             "Folders are virtual containers. Set the physical directory on the thread instead.",
         });
-      }
-      if (nextProjectKind === "studio" && command.workspaceRoot !== null) {
-        // Cross-kind on purpose: a regular project already using this root would otherwise
-        // coexist with the Studio container, breaking workspace-root-to-project uniqueness
-        // that shell snapshot mapping and duplicate recovery rely on.
-        const existingOwningProject = listActiveProjectsByWorkspaceRoot(
-          readModel,
-          command.workspaceRoot,
-          { kinds: WORKSPACE_OWNING_PROJECT_KIND_SET },
-        )[0];
-        if (existingOwningProject) {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `Project '${existingOwningProject.id}' already uses workspace root '${existingOwningProject.workspaceRoot}'.`,
-          });
-        }
       }
       yield* validateProjectPinLimit({
         command,
@@ -1017,7 +838,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       } else if (command.spaceId != null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: "Managed chat and Studio containers do not belong to a Space.",
+          detail: "Managed chat containers do not belong to a Space.",
         });
       }
 
@@ -1083,7 +904,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       if (nextProjectKind !== "project" && effectiveSpaceId !== null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: "Managed chat and Studio containers do not belong to a Space.",
+          detail: "Managed chat containers do not belong to a Space.",
         });
       }
       const changedSpaceId =
@@ -1172,16 +993,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       // Ownership must hold for the project's *effective* root, not only when the root field is
-      // present on the command: a kind-only update (e.g. chat -> studio) would otherwise slip a
-      // second workspace-owning project onto a root that a project- or studio-kind row already
-      // claims, bypassing the same cross-kind rule project.create enforces.
+      // present on the command: a kind-only update can otherwise bypass the same ownership
+      // rule project.create enforces.
       const ownershipMayChange =
         command.workspaceRoot !== undefined ||
         (command.kind !== undefined && command.kind !== (existingProject.kind ?? "project"));
       if (nextProjectKind !== "project" && effectiveWorkspaceRoot === null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: "Managed chat and Studio containers require a workspace root.",
+          detail: "Managed chat containers require a workspace root.",
         });
       }
       if (ownershipMayChange && nextProjectKind !== "chat" && effectiveWorkspaceRoot !== null) {
@@ -1291,8 +1111,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
           ...resolveCreatedThreadWorkspaceMetadata(project.kind, command),
-          createBranchFlowCompleted:
-            project.kind === "studio" ? false : command.createBranchFlowCompleted,
           isPinned: command.isPinned,
           parentThreadId: command.parentThreadId,
           ...(command.creationSource !== undefined
@@ -1308,7 +1126,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           subagentNickname: command.subagentNickname,
           subagentRole: command.subagentRole,
           forkSourceThreadId: null,
-          lastKnownPr: command.lastKnownPr,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -1360,8 +1177,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
           ...resolveCreatedThreadWorkspaceMetadata(project.kind, command),
-          createBranchFlowCompleted:
-            project.kind === "studio" ? false : command.createBranchFlowCompleted,
           isPinned: false,
           parentThreadId: null,
           subagentAgentId: null,
@@ -1410,12 +1225,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      if (threadHasCheckpointRevertInProgress(thread)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: checkpointRevertDeleteInProgressDetail(command.threadId),
-        });
-      }
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -1504,6 +1313,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       const occurredAt = nowIso();
+      const visitAcknowledgementOnly = Object.keys(command).every((key) =>
+        ["type", "commandId", "threadId", "lastVisitedAt"].includes(key),
+      );
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -1534,12 +1346,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { subagentNickname: command.subagentNickname }
             : {}),
           ...(command.subagentRole !== undefined ? { subagentRole: command.subagentRole } : {}),
-          ...(command.lastKnownPr !== undefined ? { lastKnownPr: command.lastKnownPr } : {}),
           ...(command.pinnedMessages !== undefined
             ? { pinnedMessages: command.pinnedMessages }
             : {}),
           ...(command.notes !== undefined ? { notes: command.notes } : {}),
-          updatedAt: occurredAt,
+          ...(command.lastVisitedAt !== undefined ? { lastVisitedAt: command.lastVisitedAt } : {}),
+          updatedAt: visitAcknowledgementOnly ? thread.updatedAt : occurredAt,
         },
       };
     }
@@ -1596,6 +1408,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.pinned-message-removed",
         payload: {
           threadId: command.threadId,
+          turnId: TurnId.makeUnsafe(`turn:${command.commandId}`),
           messageId: command.messageId,
           updatedAt: occurredAt,
         },
@@ -1829,8 +1642,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       if (
-        thread.latestTurn?.turnId !== command.interruptedTurnId ||
-        (thread.latestTurn.state !== "interrupted" && thread.latestTurn.state !== "error")
+        command.interruptedTurnId !== undefined &&
+        (thread.latestTurn?.turnId !== command.interruptedTurnId ||
+          (thread.latestTurn.state !== "interrupted" && thread.latestTurn.state !== "error"))
       ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -1847,8 +1661,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.turn-start-requested",
         payload: {
           threadId: command.threadId,
+          turnId: command.turnId ?? TurnId.makeUnsafe(`turn:${command.commandId}`),
           messageId: command.recoveryMessageId,
-          recoveryOfTurnId: command.interruptedTurnId,
+          ...(command.interruptedTurnId !== undefined
+            ? { recoveryOfTurnId: command.interruptedTurnId }
+            : {}),
+          restartRecovery: true,
           connectionId: command.connectionId,
           bindingRevision: command.bindingRevision,
           assistantDeliveryMode: DEFAULT_ASSISTANT_DELIVERY_MODE,
@@ -1866,13 +1684,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      if (threadHasCheckpointRevertInProgress(targetThread)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: checkpointRevertInProgressDetail(command.threadId),
-        });
-      }
       const dispatchMode = command.dispatchMode ?? "queue";
+      const turnId = command.turnId ?? TurnId.makeUnsafe(`turn:${command.commandId}`);
       const modelSelectionChangedEvent: Omit<OrchestrationEvent, "sequence"> | null =
         acceptedConnectionChange === undefined ||
         acceptedConnectionChange.previousModelId === null ||
@@ -2007,7 +1820,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             state: shouldQueue ? "queued" : dispatchMode === "steer" ? "steering" : "starting",
             queued: shouldQueue,
           },
-          turnId: null,
+          turnId,
           streaming: false,
           source: "native",
           createdAt: command.createdAt,
@@ -2016,6 +1829,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
       const turnRequestPayload = {
         threadId: command.threadId,
+        turnId,
         messageId: command.message.messageId,
         ...(command.modelSelection !== undefined ? { modelSelection: command.modelSelection } : {}),
         ...(command.connectionId !== undefined ? { connectionId: command.connectionId } : {}),
@@ -2074,12 +1888,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      if (threadHasCheckpointRevertInProgress(thread)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: checkpointRevertInProgressDetail(command.threadId),
-        });
-      }
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -2291,78 +2099,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.checkpoint.revert": {
-      const thread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      if (threadHasInFlightTurn(thread)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: checkpointRevertActiveTurnDetail(command.threadId),
-        });
-      }
-      if (threadHasCheckpointRevertInProgress(thread)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: checkpointRevertInProgressDetail(command.threadId),
-        });
-      }
-      const startedEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.activity-appended",
-        payload: {
-          threadId: command.threadId,
-          activity: {
-            id: EventId.makeUnsafe(crypto.randomUUID()),
-            tone: "info",
-            kind: CHECKPOINT_REVERT_STARTED_ACTIVITY_KIND,
-            summary: "Checkpoint revert started",
-            payload: {
-              turnCount: command.turnCount,
-              scope: command.scope ?? "thread",
-            },
-            turnId: null,
-            createdAt: command.createdAt,
-          },
-        },
-      };
-      const requestedEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.checkpoint-revert-requested",
-        payload: {
-          threadId: command.threadId,
-          turnCount: command.turnCount,
-          scope: command.scope ?? "thread",
-          createdAt: command.createdAt,
-        },
-      };
-      return [startedEvent, requestedEvent];
-    }
-
     case "thread.conversation.rollback": {
       const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
-      if (threadHasCheckpointRevertInProgress(thread)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: checkpointRevertInProgressDetail(command.threadId),
-        });
-      }
       const rollbackTarget = deriveConversationRollbackTarget(thread.messages, command.messageId);
       if (!rollbackTarget || rollbackTarget.role !== "user") {
         return yield* new OrchestrationCommandInvariantError({
@@ -2399,12 +2141,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      if (threadHasCheckpointRevertInProgress(thread)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: checkpointRevertInProgressDetail(command.threadId),
-        });
-      }
       const editTarget = resolveTailUserMessageEditTarget({
         messages: thread.messages,
         messageId: command.messageId,
@@ -2566,6 +2302,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         threadId: command.threadId,
       });
       const existingMessage = thread.messages.find((message) => message.id === command.messageId);
+      const expectedTextByteLength =
+        command.expectedTextByteLength ?? Buffer.byteLength(existingMessage?.text ?? "", "utf8");
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -2584,6 +2322,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             incomingTurnId: command.turnId,
           }),
           streaming: true,
+          expectedTextByteLength,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -2619,77 +2358,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: command.createdAt,
         },
       };
-    }
-
-    case "thread.turn.diff.complete": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const diffCompletedEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.turn-diff-completed",
-        payload: {
-          threadId: command.threadId,
-          turnId: command.turnId,
-          checkpointTurnCount: command.checkpointTurnCount,
-          checkpointRef: command.checkpointRef,
-          status: command.status,
-          files: command.files,
-          assistantMessageId: command.assistantMessageId ?? null,
-          completedAt: command.completedAt,
-          ...(command.preserveLatestTurn ? { preserveLatestTurn: true } : {}),
-        },
-      };
-      return command.checkpointRevertTurnCount === undefined
-        ? diffCompletedEvent
-        : [
-            diffCompletedEvent,
-            checkpointRevertSucceededEvent({
-              commandId: command.commandId,
-              threadId: command.threadId,
-              turnCount: command.checkpointRevertTurnCount,
-              createdAt: command.createdAt,
-              causationEventId: diffCompletedEvent.eventId,
-            }),
-          ];
-    }
-
-    case "thread.revert.complete": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const revertedEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.reverted",
-        payload: {
-          threadId: command.threadId,
-          turnCount: command.turnCount,
-        },
-      };
-      return [
-        revertedEvent,
-        checkpointRevertSucceededEvent({
-          commandId: command.commandId,
-          threadId: command.threadId,
-          turnCount: command.turnCount,
-          createdAt: command.createdAt,
-          causationEventId: revertedEvent.eventId,
-        }),
-      ];
     }
 
     case "thread.conversation.rollback.complete": {

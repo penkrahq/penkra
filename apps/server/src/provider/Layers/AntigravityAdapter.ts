@@ -1125,7 +1125,6 @@ const makeAntigravityAdapter = Effect.gen(function* () {
       sessionModelSwitch: "restart-session",
       conversationRollback: "unsupported",
       supportsRuntimeModelList: true,
-      supportsLiveTurnDiffPatch: false,
     },
     startSession,
     sendTurn,

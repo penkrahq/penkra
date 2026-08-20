@@ -68,23 +68,7 @@ describe("workspacePathsStore", () => {
     );
   });
 
-  it("keeps studio workspace root while server config is still loading", async () => {
-    installMemoryLocalStorage();
-    vi.resetModules();
-
-    const { useWorkspacePathsStore } = await import("./workspacePathsStore");
-
-    useWorkspacePathsStore
-      .getState()
-      .setStudioWorkspaceRoot("/Users/tester/Documents/Penkra/Studio");
-    useWorkspacePathsStore.getState().setStudioWorkspaceRoot(undefined);
-
-    expect(useWorkspacePathsStore.getState().studioWorkspaceRoot).toBe(
-      "/Users/tester/Documents/Penkra/Studio",
-    );
-  });
-
-  it("updates home, chat, and studio workspace roots together from server paths", async () => {
+  it("updates home and chat workspace roots together from server paths", async () => {
     installMemoryLocalStorage();
     vi.resetModules();
 
@@ -93,19 +77,15 @@ describe("workspacePathsStore", () => {
     useWorkspacePathsStore.getState().setServerWorkspacePaths({
       homeDir: "/Users/tester",
       chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
-      studioWorkspaceRoot: "/Users/tester/Documents/Penkra/Studio",
     });
 
     expect(useWorkspacePathsStore.getState().homeDir).toBe("/Users/tester");
     expect(useWorkspacePathsStore.getState().chatWorkspaceRoot).toBe(
       "/Users/tester/Documents/Penkra",
     );
-    expect(useWorkspacePathsStore.getState().studioWorkspaceRoot).toBe(
-      "/Users/tester/Documents/Penkra/Studio",
-    );
   });
 
-  it("persists the chat workspace root with the home directory but not the studio root", async () => {
+  it("persists the chat workspace root with the home directory", async () => {
     installMemoryLocalStorage();
     vi.resetModules();
 
@@ -113,7 +93,6 @@ describe("workspacePathsStore", () => {
     workspaceModule.useWorkspacePathsStore.getState().setServerWorkspacePaths({
       homeDir: "/Users/tester",
       chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
-      studioWorkspaceRoot: "/Users/tester/Documents/Penkra/Studio",
     });
 
     vi.resetModules();
@@ -123,7 +102,6 @@ describe("workspacePathsStore", () => {
     expect(workspaceModule.useWorkspacePathsStore.getState().chatWorkspaceRoot).toBe(
       "/Users/tester/Documents/Penkra",
     );
-    expect(workspaceModule.useWorkspacePathsStore.getState().studioWorkspaceRoot).toBeNull();
   });
 
   it("migrates cached paths without retaining legacy workspace pages", async () => {

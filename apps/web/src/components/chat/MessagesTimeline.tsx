@@ -11,7 +11,6 @@ import {
   type TurnId,
 } from "@penkra/contracts";
 import { resolveLatestTailUserMessageEditTarget } from "@penkra/shared/conversationEdit";
-import { pluralize } from "@penkra/shared/text";
 import {
   memo,
   useCallback,
@@ -35,25 +34,21 @@ import {
   isFileChangeWorkLogEntry,
   type WorkLogEntry,
 } from "../../session-logic";
-import { type TurnDiffSummary } from "../../types";
 import ChatMarkdown from "../ChatMarkdown";
 import { InlineLinkChip } from "../InlineLinkChip";
 import {
   BotIcon,
-  ChangesIcon,
   type LucideIcon,
   PencilIcon,
   PinIcon,
   RotateCcwIcon,
   SteerIcon,
-  Undo2Icon,
 } from "~/lib/icons";
 import { pinActionLabel } from "~/lib/pin";
 import { Button } from "../ui/button";
 import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLabel";
 import { PenkraThreadCreationCard } from "./PenkraThreadCreationCard";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
-import { DiffStatLabel } from "./DiffStatLabel";
 import { FileEntryIcon } from "./FileEntryIcon";
 import { InlineMentionChip } from "./InlineMentionChip";
 import { InlineSkillChip } from "./InlineSkillChip";
@@ -148,9 +143,6 @@ const MAX_VISIBLE_INLINE_TOOL_ENTRIES = 4;
 interface TimelineVirtualFindEntry extends VirtualFindEntry {
   readonly targetSelector: string;
 }
-// Changed-files list in the per-turn card is capped so large turns stay compact;
-// the rest are revealed via an inline "Show more" row.
-const MAX_VISIBLE_CHANGED_FILES = 5;
 // The composer overlaps the transcript by design, so the list needs extra tail
 // space beyond the overlap to keep final cards from sitting flush against it.
 const BOTTOM_CONTENT_INSET_PX = 64;
@@ -294,7 +286,6 @@ interface MessagesTimelineProps {
   /** Provenance for a conversation created from another Penkra task. */
   crossTaskOrigin?: CrossTaskOrigin | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
-  turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
   nowIso?: string;
   expandedWorkGroups?: Record<string, boolean>;
   onToggleWorkGroup?: (groupId: string) => void;
@@ -302,12 +293,8 @@ interface MessagesTimelineProps {
   onOpenThread?: (threadId: ThreadId) => void;
   /** Recent child-thread tool calls rendered under subagent rows, keyed by child thread id. */
   subagentToolTraceByThreadId?: ReadonlyMap<string, SubagentToolTrace>;
-  revertTurnCountByUserMessageId: Map<MessageId, number>;
-  onRevertUserMessage: (messageId: MessageId) => void;
-  onUndoTurnFiles?: (turnCounts: readonly number[]) => void;
   onEditUserMessage?: (messageId: MessageId, text: string) => boolean | Promise<boolean>;
   activeTurnId?: TurnId | null;
-  isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onIsAtEndChange?: (isAtEnd: boolean) => void;
   onMessagesClickCapture?: ComponentProps<"div">["onClickCapture"];
@@ -348,19 +335,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   enteringUserMessageIds: enteringUserMessageIdsProp,
   crossTaskOrigin: crossTaskOriginProp,
   timelineEntries,
-  turnDiffSummaryByAssistantMessageId,
   nowIso,
   expandedWorkGroups,
   onToggleWorkGroup,
   onOpenAgentActivity,
   onOpenThread,
   subagentToolTraceByThreadId,
-  revertTurnCountByUserMessageId,
-  onRevertUserMessage,
-  onUndoTurnFiles,
   onEditUserMessage,
   activeTurnId,
-  isRevertingCheckpoint,
   onImageExpand,
   onIsAtEndChange,
   onMessagesClickCapture,
@@ -451,13 +433,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       [groupKey]: open,
     }));
   }, []);
-  const [expandedFileChangesByTurnId, setExpandedFileChangesByTurnId] = useState<
-    Record<string, boolean>
-  >({});
-  // Tracks which turns have their changed-files list expanded past MAX_VISIBLE_CHANGED_FILES.
-  const [expandedFileListByTurnId, setExpandedFileListByTurnId] = useState<Record<string, boolean>>(
-    {},
-  );
   const [expandedUserMessagesById, setExpandedUserMessagesById] = useState<Record<string, boolean>>(
     {},
   );
@@ -494,18 +469,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         activeTurnInProgress,
         activeTurnId,
         activeTurnStartedAt,
-        turnDiffSummaryByAssistantMessageId,
-        revertTurnCountByUserMessageId,
       }),
-    [
-      timelineEntries,
-      isWorking,
-      activeTurnInProgress,
-      activeTurnId,
-      activeTurnStartedAt,
-      turnDiffSummaryByAssistantMessageId,
-      revertTurnCountByUserMessageId,
-    ],
+    [timelineEntries, isWorking, activeTurnInProgress, activeTurnId, activeTurnStartedAt],
   );
   const rows = useStableRows(rawRows);
   // The newest work group renders its rows inline while the turn is live; every
@@ -934,18 +899,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     },
     [onIsAtEndChange, onMessagesScroll, resolvedListRef],
   );
-  const toggleFileChangesExpanded = useCallback((turnId: TurnId) => {
-    setExpandedFileChangesByTurnId((current) => ({
-      ...current,
-      [turnId]: !(current[turnId] ?? true),
-    }));
-  }, []);
-  const toggleFileListExpanded = useCallback((turnId: TurnId) => {
-    setExpandedFileListByTurnId((current) => ({
-      ...current,
-      [turnId]: !(current[turnId] ?? false),
-    }));
-  }, []);
   const cancelUserMessageEdit = useCallback(() => {
     setEditingUserMessageId(null);
   }, []);
@@ -1160,7 +1113,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               showUserText &&
               terminalContexts.length === 0 &&
               hasOnlyInlineSkillChips(userMessageText, row.message.mentions ?? []);
-            const canRevertAgentWork = typeof row.revertTurnCount === "number";
             const isEditingThisMessage = editingUserMessageId === row.message.id;
             const isSubmittingThisEdit = submittingEditedUserMessageId === row.message.id;
             const showEditUserMessage =
@@ -1255,7 +1207,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       <UserMessageEditForm
                         key={row.message.id}
                         initialValue={displayedUserMessage.copyText}
-                        disabled={isSubmittingThisEdit || isRevertingCheckpoint}
+                        disabled={isSubmittingThisEdit}
                         chatTypographyStyle={userMessageTypographyStyle}
                         onCancel={cancelUserMessageEdit}
                         onSubmit={(text) => void submitUserMessageEdit(row.message.id, text)}
@@ -1314,7 +1266,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             <MessageActionButton
                               label="Edit message"
                               tooltip="Edit message"
-                              disabled={isRevertingCheckpoint}
                               className={cn(
                                 MESSAGE_HOVER_REVEAL_CLASS_NAME,
                                 "disabled:text-muted-foreground/35",
@@ -1324,20 +1275,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                               <PencilIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
                             </MessageActionButton>
                           )}
-                          {canRevertAgentWork ? (
-                            <MessageActionButton
-                              label="Revert to this message"
-                              tooltip="Revert to this message"
-                              disabled={isRevertingCheckpoint || isWorking}
-                              className={cn(
-                                MESSAGE_HOVER_REVEAL_CLASS_NAME,
-                                "disabled:text-muted-foreground/35",
-                              )}
-                              onClick={() => onRevertUserMessage(row.message.id)}
-                            >
-                              <Undo2Icon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
-                            </MessageActionButton>
-                          ) : null}
                         </div>
                       </div>
                     )}
@@ -1412,22 +1349,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               messageCanPin &&
               Boolean(onTogglePinMessage) &&
               (assistantCopyState.visible || messagePinned);
-            const turnSummary = row.assistantTurnDiffSummary;
-            const fileDiffStatByPath = new Map(
-              (turnSummary?.files ?? []).map((file) => [
-                file.path,
-                {
-                  additions: file.additions ?? 0,
-                  deletions: file.deletions ?? 0,
-                },
-              ]),
-            );
-            const inlineEditedFilesFromTurnSummary =
-              (leadingWorkDisplay.hasGenericFileChangeEntry ||
-                inlineWorkDisplay.hasGenericFileChangeEntry) &&
-              (turnSummary?.files.length ?? 0) > 0
-                ? turnSummary!.files
-                : [];
             // Only the turn's final answer carries a timestamp. Intermediate
             // working preambles (and their inline tool calls) stay timestamp-free
             // so a live turn reads as one block, not a stack of timestamped
@@ -1484,7 +1405,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   chatMetaFontSizePx={appTypographyScale.chatMetaPx}
                   textFontSizePx={normalizedChatFontSizePx}
                   density="compact"
-                  fileDiffStatByPath={fileDiffStatByPath}
                   markdownCwd={markdownCwd}
                   onImageExpand={onImageExpand}
                   {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
@@ -1749,25 +1669,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     </div>
                   ) : null}
                   {renderWorkDisplay(inlineWorkDisplay, "inline")}
-                  {inlineEditedFilesFromTurnSummary.length > 0 && (
-                    <div className="mt-2 space-y-0.5">
-                      {inlineEditedFilesFromTurnSummary.map((file) => (
-                        <div
-                          key={`inline-summary-edit:${row.message.id}:${file.path}`}
-                          className="flex w-full max-w-full items-center gap-2 px-0 py-1.5 text-left"
-                          title={file.path}
-                        >
-                          <EditedFileRowContent
-                            filePath={file.path}
-                            additions={file.additions}
-                            deletions={file.deletions}
-                            fontSizePx={normalizedChatFontSizePx}
-                            compact={false}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
                   {(showPinToggle || assistantCopyState.visible || assistantMeta.length > 0) && (
                     <div
                       className="mt-0.5 flex h-[26px] items-center gap-1 font-system-ui font-normal text-muted-foreground/45"
@@ -1840,187 +1741,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         </div>
                       ))
                     : null}
-                  {(() => {
-                    // Hold the end-of-turn changes card (Undo / Review) until the
-                    // turn settles. While the turn is live the composer's own
-                    // live-changes strip owns this surface; showing the card too
-                    // would duplicate it and pre-empt the strip mid-turn.
-                    if (!turnSummary || row.assistantTurnInProgress) return null;
-                    const checkpointFiles = turnSummary.files;
-                    if (checkpointFiles.length === 0) return null;
-                    const fileChangesExpanded =
-                      expandedFileChangesByTurnId[turnSummary.turnId] ?? true;
-                    const fileListExpanded = expandedFileListByTurnId[turnSummary.turnId] ?? false;
-                    const checkpointTurnCount = turnSummary.checkpointTurnCount;
-                    const checkpointTurnCounts =
-                      turnSummary.checkpointTurnCounts ??
-                      (checkpointTurnCount === undefined ? [] : [checkpointTurnCount]);
-                    const canUndo =
-                      turnSummary.status !== "missing" &&
-                      turnSummary.status !== "error" &&
-                      turnSummary.checkpointRef !== undefined &&
-                      !turnSummary.checkpointRef.startsWith("provider-diff:") &&
-                      checkpointTurnCounts.length > 0 &&
-                      onUndoTurnFiles !== undefined;
-                    const totalAdditions = checkpointFiles.reduce(
-                      (sum, file) => sum + (file.additions ?? 0),
-                      0,
-                    );
-                    const totalDeletions = checkpointFiles.reduce(
-                      (sum, file) => sum + (file.deletions ?? 0),
-                      0,
-                    );
-                    const editedFilesLabel = `Edited ${checkpointFiles.length} ${pluralize(
-                      checkpointFiles.length,
-                      "file",
-                    )}`;
-                    const firstCheckpointFiles = checkpointFiles.slice(
-                      0,
-                      MAX_VISIBLE_CHANGED_FILES,
-                    );
-                    const overflowCheckpointFiles =
-                      checkpointFiles.slice(MAX_VISIBLE_CHANGED_FILES);
-                    const renderCheckpointFileRow = (
-                      file: (typeof checkpointFiles)[number],
-                      withFirstReset: boolean,
-                    ) => {
-                      const additions = file.additions ?? 0;
-                      const deletions = file.deletions ?? 0;
-                      const hasDiffStats = additions + deletions > 0;
-                      const diffStats = hasDiffStats ? (
-                        <span
-                          className="font-system-ui ml-auto shrink-0 tabular-nums"
-                          style={{ fontSize: chatTypographyStyle.fontSize }}
-                        >
-                          <DiffStatLabel additions={additions} deletions={deletions} />
-                        </span>
-                      ) : null;
-                      return (
-                        <div
-                          key={file.path}
-                          className={cn(
-                            "flex w-full items-center gap-2 border-t border-[color:var(--color-border-light)] bg-transparent px-3 py-2.5 text-left dark:bg-transparent",
-                            withFirstReset && "first:border-t-0",
-                          )}
-                        >
-                          <FileEntryIcon
-                            pathValue={file.path}
-                            kind="file"
-                            theme={resolvedTheme}
-                            colorMode="inherit"
-                            className="size-4 shrink-0 text-[var(--color-text-foreground)] opacity-70 dark:opacity-80"
-                          />
-                          <span
-                            className="font-system-ui truncate font-normal text-[var(--color-text-foreground)]"
-                            style={{ fontSize: chatTypographyStyle.fontSize }}
-                          >
-                            {file.path}
-                          </span>
-                          {diffStats}
-                        </div>
-                      );
-                    };
-                    return (
-                      <div className="mt-1 mb-4 overflow-hidden rounded-[0.65rem] border border-[color:var(--color-border-light)] dark:border-[color:color-mix(in_srgb,var(--color-border-light)_55%,transparent)]">
-                        <div
-                          className={cn(
-                            "flex items-center justify-between gap-3 bg-[color:color-mix(in_srgb,var(--app-user-message-background)_40%,transparent)] px-3 py-1.5",
-                            fileChangesExpanded &&
-                              "border-b border-[color:var(--color-border-light)]",
-                          )}
-                        >
-                          <div className="flex min-w-0 items-center gap-2.5">
-                            <ChangesIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
-                            <div className="min-w-0">
-                              <div
-                                className="truncate font-normal text-foreground/92"
-                                style={{ fontSize: chatTypographyStyle.fontSize }}
-                              >
-                                {editedFilesLabel}
-                              </div>
-                              {totalAdditions + totalDeletions > 0 ? (
-                                <div
-                                  className="font-system-ui tabular-nums"
-                                  style={{ fontSize: chatTypographyStyle.fontSize }}
-                                >
-                                  <DiffStatLabel
-                                    additions={totalAdditions}
-                                    deletions={totalDeletions}
-                                  />
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-2">
-                            {canUndo && (
-                              <button
-                                type="button"
-                                className="flex items-center gap-1 text-muted-foreground transition-colors hover:text-foreground"
-                                style={{ fontSize: chatTypographyStyle.fontSize }}
-                                onClick={() => onUndoTurnFiles(checkpointTurnCounts)}
-                              >
-                                Undo
-                                <Undo2Icon className="size-3" />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground/70 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground/80"
-                              aria-expanded={fileChangesExpanded}
-                              aria-label={
-                                fileChangesExpanded
-                                  ? "Collapse changed files list"
-                                  : "Expand changed files list"
-                              }
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                if (!fileChangesExpanded && isTailContentRow) {
-                                  scrollTailExpansionToEnd();
-                                }
-                                toggleFileChangesExpanded(turnSummary.turnId);
-                              }}
-                              data-scroll-anchor-ignore={isTailContentRow ? true : undefined}
-                            >
-                              <DisclosureChevron
-                                open={fileChangesExpanded}
-                                className="dark:text-muted-foreground/50"
-                              />
-                            </button>
-                          </div>
-                        </div>
-                        <DisclosureRegion open={fileChangesExpanded}>
-                          {firstCheckpointFiles.map((file) => renderCheckpointFileRow(file, true))}
-                          {overflowCheckpointFiles.length > 0 ? (
-                            <DisclosureRegion open={fileListExpanded}>
-                              {overflowCheckpointFiles.map((file) =>
-                                renderCheckpointFileRow(file, false),
-                              )}
-                            </DisclosureRegion>
-                          ) : null}
-                          {overflowCheckpointFiles.length > 0 ? (
-                            <button
-                              type="button"
-                              className="flex w-full items-center justify-start gap-1.5 border-t border-[color:var(--color-border-light)] bg-transparent px-3 py-2 font-system-ui font-normal text-muted-foreground transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground"
-                              style={{ fontSize: chatTypographyStyle.fontSize }}
-                              aria-expanded={fileListExpanded}
-                              onClick={() => toggleFileListExpanded(turnSummary.turnId)}
-                            >
-                              <DisclosureChevron open={fileListExpanded} />
-                              <span>
-                                {fileListExpanded
-                                  ? "Show less"
-                                  : `Show ${overflowCheckpointFiles.length} more ${pluralize(
-                                      overflowCheckpointFiles.length,
-                                      "file",
-                                    )}`}
-                              </span>
-                            </button>
-                          ) : null}
-                        </DisclosureRegion>
-                      </div>
-                    );
-                  })()}
                 </div>
               </MessageAssistant>
             );

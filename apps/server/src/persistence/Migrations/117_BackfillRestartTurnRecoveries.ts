@@ -15,12 +15,12 @@ export default Effect.gen(function* () {
     FROM projection_thread_sessions AS sessions
     JOIN projection_turns AS turns
       ON turns.thread_id = sessions.thread_id
-     AND turns.row_id = (
-       SELECT latest.row_id
+     AND turns.rowid = (
+       SELECT latest.rowid
        FROM projection_turns AS latest
        WHERE latest.thread_id = sessions.thread_id
          AND latest.turn_id IS NOT NULL
-       ORDER BY latest.requested_at DESC, latest.row_id DESC
+       ORDER BY latest.requested_at DESC, latest.rowid DESC
        LIMIT 1
      )
     WHERE sessions.status = 'stopped'

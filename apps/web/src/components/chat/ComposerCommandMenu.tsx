@@ -18,7 +18,6 @@ import {
   DeviceLaptopIcon,
   EraserIcon,
   FastModeIcon,
-  GitBranchIcon,
   GitForkIcon,
   InfoIcon,
   type LucideIcon,
@@ -27,7 +26,6 @@ import {
   PluginIcon,
   SkillCubeIcon,
   TerminalIcon,
-  WorktreeIcon,
 } from "~/lib/icons";
 import { formatSkillScope } from "~/lib/providerDiscovery";
 import { cn } from "~/lib/utils";
@@ -111,8 +109,8 @@ function commandMenuTrailingMeta(item: ComposerCommandItem): string | null {
     return `/${item.command}`;
   }
 
-  // Right-align the parent path so many same-named entries (e.g. worktrees) stay
-  // distinguishable without crowding the name column.
+  // Right-align the parent path so many same-named entries stay distinguishable
+  // without crowding the name column.
   if (item.type === "path") {
     return item.description.length > 0 ? item.description : null;
   }
@@ -175,14 +173,14 @@ export type ComposerCommandItem =
   | {
       id: string;
       type: "fork-target";
-      target: "local" | "worktree";
+      target: "local";
       label: string;
       description: string;
     }
   | {
       id: string;
       type: "review-target";
-      target: "changes" | "base-branch";
+      target: "changes";
       label: string;
       description: string;
     }
@@ -473,17 +471,9 @@ function commandMenuItemGlyph(item: ComposerCommandItem, theme: "light" | "dark"
     case "local-root":
       return <DeviceLaptopIcon className={cls} />;
     case "fork-target":
-      return item.target === "local" ? (
-        <DeviceLaptopIcon className={cls} />
-      ) : (
-        <WorktreeIcon className={cls} />
-      );
+      return <DeviceLaptopIcon className={cls} />;
     case "review-target":
-      return item.target === "changes" ? (
-        <ChangesIcon className={cls} />
-      ) : (
-        <GitBranchIcon className={cls} />
-      );
+      return <ChangesIcon className={cls} />;
     case "slash-command":
       return commandMenuSlashGlyph(item.command, TerminalIcon);
     case "provider-native-command":

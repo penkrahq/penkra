@@ -5,7 +5,6 @@
 
 import { type ContainerId, ThreadId } from "@penkra/contracts";
 import { pluralize } from "@penkra/shared/text";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -20,7 +19,6 @@ import {
 import { toastManager } from "../components/ui/toast";
 import { deleteActiveThreadFromClient } from "../lib/activeThreadDelete";
 import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientReconciliation";
-import { gitRemoveWorktreeMutationOptions } from "../lib/gitReactQuery";
 import {
   archiveThreadFromClient,
   isThreadAlreadyUnarchivedError,
@@ -65,7 +63,6 @@ interface DeleteProjectThreadsOptions {
   readonly confirmMessage?: string | null;
   readonly showEmptyToast?: boolean;
   readonly showResultToast?: boolean;
-  readonly worktreeCleanupMode?: "prompt" | "skip";
 }
 
 export function useSidebarThreadActions(input: {
@@ -98,8 +95,6 @@ export function useSidebarThreadActions(input: {
     threadsHydrated,
   } = input;
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearDraftThread);
   const clearProjectDraftThreadById = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadById,
@@ -278,17 +273,12 @@ export function useSidebarThreadActions(input: {
       opts: {
         deletedThreadIds?: ReadonlySet<ThreadId>;
         reconcileDeletedThread?: boolean;
-        worktreeCleanupMode?: "prompt" | "skip";
       } = {},
     ): Promise<void> => {
       await deleteActiveThreadFromClient({
         threadId,
-        ...(opts.deletedThreadIds !== undefined ? { deletedThreadIds: opts.deletedThreadIds } : {}),
         ...(opts.reconcileDeletedThread !== undefined
           ? { reconcileDeletedThread: opts.reconcileDeletedThread }
-          : {}),
-        ...(opts.worktreeCleanupMode !== undefined
-          ? { worktreeCleanupMode: opts.worktreeCleanupMode }
           : {}),
         prepareForDelete: () => ({
           shouldNavigateToFallback: routeThreadId === threadId,
@@ -343,7 +333,6 @@ export function useSidebarThreadActions(input: {
             }
           }
         },
-        removeWorktree: (worktree) => removeWorktreeMutation.mutateAsync(worktree),
       });
     },
     [
@@ -355,7 +344,6 @@ export function useSidebarThreadActions(input: {
       handleNewChat,
       navigate,
       removeThreadFromSplitViews,
-      removeWorktreeMutation,
       routeSplitViewId,
       routeThreadId,
       sidebarThreads,
@@ -621,11 +609,6 @@ export function useSidebarThreadActions(input: {
       }
 
       const deletedIds = new Set<ThreadId>(projectThreads.map((thread) => thread.id));
-      // Built once, outside the loop's `try`: React Compiler cannot lower a conditional spread
-      // inside a try block and would skip this hook entirely.
-      const worktreeCleanupOverride = options?.worktreeCleanupMode
-        ? { worktreeCleanupMode: options.worktreeCleanupMode }
-        : {};
       const successfullyDeletedIds: ThreadId[] = [];
       let deletedCount = 0;
       let failureCount = 0;
@@ -634,7 +617,6 @@ export function useSidebarThreadActions(input: {
           await deleteThread(thread.id, {
             deletedThreadIds: deletedIds,
             reconcileDeletedThread: false,
-            ...worktreeCleanupOverride,
           });
           successfullyDeletedIds.push(thread.id);
           deletedCount += 1;

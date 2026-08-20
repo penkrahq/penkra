@@ -16,6 +16,50 @@ const layer = it.layer(
 );
 
 layer("OrchestrationEventDeliveryRepository", (it) => {
+  it.effect("keeps a flat acknowledged tail and collects every event class alike", () =>
+    Effect.gen(function* () {
+      const repository = yield* OrchestrationEventDeliveryRepository;
+      const sql = yield* SqlClient.SqlClient;
+      yield* DurableProviderCommandDeliveryMigration;
+      const now = "2026-08-19T00:00:00.000Z";
+      yield* sql.unsafe(`
+        WITH RECURSIVE numbers(value) AS (
+          SELECT 1 UNION ALL SELECT value + 1 FROM numbers WHERE value < 10001
+        )
+        INSERT INTO orchestration_events (
+          event_id, aggregate_kind, stream_id, stream_version, event_type,
+          occurred_at, command_id, causation_event_id, correlation_id,
+          actor_kind, payload_json, metadata_json
+        )
+        SELECT 'tail-' || value, 'thread', 'thread-' || value, 0,
+               CASE value % 3
+                 WHEN 0 THEN 'thread.message-sent'
+                 WHEN 1 THEN 'thread.activity-appended'
+                 ELSE 'thread.session-set'
+               END,
+               '${now}', NULL, NULL, NULL, 'server', '{}', '{}'
+        FROM numbers
+      `);
+      yield* sql`
+        UPDATE orchestration_consumer_state
+        SET last_acked_sequence = 10000, updated_at = ${now}
+        WHERE consumer_name = ${PROVIDER_COMMAND_REACTOR_CONSUMER}
+      `;
+
+      assert.isTrue(
+        yield* repository.advanceCursor({
+          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+          eventSequence: 10001,
+          updatedAt: now,
+        }),
+      );
+      const bounds = yield* sql<{ readonly count: number; readonly minimum: number }>`
+        SELECT COUNT(*) AS count, MIN(sequence) AS minimum FROM orchestration_events
+      `;
+      assert.deepStrictEqual(bounds, [{ count: 10000, minimum: 2 }]);
+    }),
+  );
+
   it.effect("claims by reference without copying event payload and completes with its owner", () =>
     Effect.gen(function* () {
       const repository = yield* OrchestrationEventDeliveryRepository;

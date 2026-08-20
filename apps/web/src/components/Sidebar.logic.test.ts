@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  beginInlineFolderCreation,
   buildProjectThreadTree,
   createSidebarThreadHoverAnchorId,
   derivePinnedProjectIdsForSidebar,
@@ -22,7 +23,6 @@ import {
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
   hasUnseenCompletion,
-  partitionSidebarThreadsByProjectIds,
   isLatestPinnedThreadMutation,
   isLoopbackHostname,
   pruneProjectThreadListPagingForCollapsedProjects,
@@ -32,7 +32,6 @@ import {
   resolveSettingsBackTarget,
   resolveProjectStatusIndicator,
   resolveSidebarWorkStatus,
-  resolveThreadHoverCardMetadata,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   shouldShowDebugFeatureFlagsMenu,
@@ -41,7 +40,7 @@ import {
   sortProjectsForSidebar,
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
-import { ContainerId, ThreadId } from "@penkra/contracts";
+import { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
 import {
   DEFAULT_RUNTIME_MODE,
   type Project,
@@ -100,16 +99,29 @@ describe("isProjectsSidebarSurface", () => {
     expect(
       isProjectsSidebarSurface({
         isOnSettings: false,
-        isOnStudio: false,
         isOnWorkspace: false,
       }),
     ).toBe(true);
-    expect(
-      isProjectsSidebarSurface({ isOnSettings: false, isOnStudio: true, isOnWorkspace: false }),
-    ).toBe(false);
-    expect(
-      isProjectsSidebarSurface({ isOnSettings: true, isOnStudio: false, isOnWorkspace: false }),
-    ).toBe(false);
+    expect(isProjectsSidebarSurface({ isOnSettings: true, isOnWorkspace: false })).toBe(false);
+  });
+});
+
+describe("beginInlineFolderCreation", () => {
+  it("selects an inactive Space without navigation before opening its folder editor", () => {
+    const calls: string[] = [];
+    const spaceId = SpaceId.makeUnsafe("work");
+
+    beginInlineFolderCreation({
+      spaceId,
+      selectSpaceForIncomingProject: (selectedSpaceId) => {
+        calls.push(`select:${selectedSpaceId}`);
+      },
+      openInlineFolderCreator: (openedSpaceId) => {
+        calls.push(`open:${openedSpaceId}`);
+      },
+    });
+
+    expect(calls).toEqual(["select:work", "open:work"]);
   });
 });
 
@@ -190,54 +202,6 @@ describe("debug feature flags menu visibility", () => {
         storageValue: null,
       }),
     ).toBe(false);
-  });
-});
-
-describe("resolveThreadHoverCardMetadata", () => {
-  it("includes source project and worktree names for worktree-backed chats", () => {
-    const metadata = resolveThreadHoverCardMetadata({
-      thread: makeSidebarThreadSummary({
-        envMode: "worktree",
-        branch: "codex/penkra-mobile",
-        worktreePath: "/Users/me/.codex/worktrees/1234/Remodex",
-        associatedWorktreePath: "/Users/me/.codex/worktrees/1234/Remodex",
-        associatedWorktreeBranch: "codex/penkra-mobile",
-      }),
-      project: {
-        name: "penkra-mobile",
-        folderName: "Remodex",
-        cwd: "/Users/me/Developer/Remodex",
-      },
-    });
-
-    expect(metadata).toEqual({
-      projectName: "penkra-mobile",
-      projectCwd: "/Users/me/Developer/Remodex",
-      sourceProjectName: "Remodex",
-      branch: "codex/penkra-mobile",
-      worktreeName: "Remodex",
-    });
-  });
-
-  it("keeps local chats compact", () => {
-    const metadata = resolveThreadHoverCardMetadata({
-      thread: makeSidebarThreadSummary({
-        branch: "main",
-      }),
-      project: {
-        name: "penkra",
-        folderName: "penkra",
-        cwd: "/Users/me/Developer/penkra",
-      },
-    });
-
-    expect(metadata).toEqual({
-      projectName: "penkra",
-      projectCwd: "/Users/me/Developer/penkra",
-      sourceProjectName: null,
-      branch: "main",
-      worktreeName: null,
-    });
   });
 });
 
@@ -499,10 +463,7 @@ describe("pin helpers", () => {
       error: null,
       createdAt: "2026-03-09T10:00:00.000Z",
       latestTurn: null,
-      turnDiffSummaries: [],
       activities: [],
-      branch: null,
-      worktreePath: null,
     }) satisfies Thread;
 
   it("lets an optimistic unpin override server and persisted pinned state", () => {
@@ -1448,9 +1409,6 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     createdAt: "2026-03-09T10:00:00.000Z",
     updatedAt: "2026-03-09T10:00:00.000Z",
     latestTurn: null,
-    branch: null,
-    worktreePath: null,
-    turnDiffSummaries: [],
     activities: [],
     ...overrides,
   };
@@ -1467,8 +1425,6 @@ function makeSidebarThreadSummary(
       provider: "codex",
       model: "gpt-5.4",
     },
-    branch: null,
-    worktreePath: null,
     session: null,
     createdAt: "2026-03-09T10:00:00.000Z",
     updatedAt: "2026-03-09T10:00:00.000Z",
@@ -1479,27 +1435,6 @@ function makeSidebarThreadSummary(
     ...overrides,
   };
 }
-
-describe("partitionSidebarThreadsByProjectIds", () => {
-  it("splits Studio threads from the regular Threads surface by project id", () => {
-    const projectThread = makeSidebarThreadSummary({
-      id: ThreadId.makeUnsafe("thread-project"),
-      projectId: ContainerId.makeUnsafe("project-app"),
-    });
-    const studioThread = makeSidebarThreadSummary({
-      id: ThreadId.makeUnsafe("thread-studio"),
-      projectId: ContainerId.makeUnsafe("project-studio"),
-    });
-
-    const partitioned = partitionSidebarThreadsByProjectIds(
-      [projectThread, studioThread],
-      new Set([ContainerId.makeUnsafe("project-studio")]),
-    );
-
-    expect(partitioned.nonStudioThreads.map((thread) => thread.id)).toEqual(["thread-project"]);
-    expect(partitioned.studioThreads.map((thread) => thread.id)).toEqual(["thread-studio"]);
-  });
-});
 
 describe("deriveSidebarProjectData", () => {
   it("keeps a pinned thread in its folder and orders it first", () => {

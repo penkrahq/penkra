@@ -332,8 +332,7 @@ export function summarizePatchTotals(
 
 // Per-file +N/-M parsed from a unified diff/patch, keyed by working-tree-relative
 // path (a/ b/ prefixes stripped via resolveFileDiffPath). Lets transcript
-// "Edited <file>" rows surface diff stats from a tool call's own patch when no
-// turn-diff summary is in scope (e.g. standalone work rows). Empty map when the
+// "Edited <file>" rows surface diff stats from a tool call's own patch. Empty map when the
 // patch is missing or unparsable, so callers can fall back gracefully.
 export function fileDiffStatsByPath(patch: string | undefined): Map<string, FileDiffStat> {
   const stats = new Map<string, FileDiffStat>();

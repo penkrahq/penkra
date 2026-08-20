@@ -101,7 +101,6 @@ describe("deleteActiveThreadFromClient", () => {
         return "prepared";
       },
       onDeleted,
-      removeWorktree: vi.fn(),
     });
 
     expect(harness.events).toEqual([
@@ -125,57 +124,10 @@ describe("deleteActiveThreadFromClient", () => {
       deleteActiveThreadFromClient({
         threadId: THREAD_ID,
         onDeleted,
-        removeWorktree: vi.fn(),
       }),
     ).rejects.toThrow("delete rejected");
 
     expect(harness.reconcile).not.toHaveBeenCalled();
     expect(onDeleted).not.toHaveBeenCalled();
-  });
-
-  it("reports worktree cleanup failure without rolling back the accepted delete", async () => {
-    harness.orphanedWorktreePath = "/repo-worktree";
-    harness.confirm.mockResolvedValue(true);
-    const onDeleted = vi.fn();
-    const removeWorktree = vi.fn().mockRejectedValue(new Error("busy"));
-
-    await deleteActiveThreadFromClient({
-      threadId: THREAD_ID,
-      onDeleted,
-      removeWorktree,
-    });
-
-    expect(onDeleted).toHaveBeenCalledOnce();
-    expect(removeWorktree).toHaveBeenCalledWith({
-      cwd: "/repo",
-      path: "/repo-worktree",
-      force: true,
-    });
-    expect(harness.toast).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "error",
-        title: "Thread deleted, but worktree removal failed",
-        description: "Could not remove /repo-worktree. busy",
-      }),
-    );
-  });
-
-  it("excludes every planned batch deletion and skips worktree prompting when requested", async () => {
-    const otherThreadId = ThreadId.makeUnsafe("thread-delete-other");
-    harness.threads = [THREAD, { id: otherThreadId, projectId: PROJECT_ID, session: null }];
-    harness.orphanedWorktreePath = "/repo-worktree";
-    const removeWorktree = vi.fn();
-
-    await deleteActiveThreadFromClient({
-      threadId: THREAD_ID,
-      deletedThreadIds: new Set([THREAD_ID, otherThreadId]),
-      worktreeCleanupMode: "skip",
-      onDeleted: vi.fn(),
-      removeWorktree,
-    });
-
-    expect(harness.orphanResolver).toHaveBeenCalledWith([THREAD], THREAD_ID);
-    expect(harness.confirm).not.toHaveBeenCalled();
-    expect(removeWorktree).not.toHaveBeenCalled();
   });
 });

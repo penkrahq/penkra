@@ -435,10 +435,7 @@ describe("deriveComposerSubagentStripItems", () => {
         createdAt: "2026-07-14T00:00:01.000Z",
         latestTurn: null,
         parentThreadId,
-        turnDiffSummaries: [],
         activities: [],
-        branch: null,
-        worktreePath: null,
       };
     }
 
@@ -568,10 +565,7 @@ describe("deriveComposerSubagentStripItems", () => {
       createdAt: "2026-07-14T00:00:01.000Z",
       latestTurn: null,
       parentThreadId,
-      turnDiffSummaries: [],
       activities: [],
-      branch: null,
-      worktreePath: null,
     };
     const enriched = enrichSubagentWorkEntries(stripEntries, [subagentThread], parentThreadId);
 

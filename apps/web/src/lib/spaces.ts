@@ -13,12 +13,11 @@ import {
 
 import type { Project } from "~/types";
 import { isHomeChatContainerProject } from "~/lib/chatProjects";
-import { isStudioContainerProject } from "~/lib/studioProjects";
 import type { ServerWorkspacePaths } from "~/lib/serverWorkspacePaths";
 import { newCommandId, newSpaceId } from "~/lib/utils";
 
 /**
- * Spaces organize ordinary projects only: the Chats and Studio containers are reachable
+ * Spaces organize ordinary projects only: managed chat containers are reachable
  * from every Space and so belong to none. This is the membership rule the whole feature
  * turns on — the sidebar list, the tab activity dots, the pickers, and the shortcut
  * targets all have to agree on it, so it lives here rather than being spelled out again
@@ -28,28 +27,25 @@ export function isOrdinarySpaceProject(
   project: Project | null | undefined,
   paths: ServerWorkspacePaths,
 ): project is Project {
-  return (
-    project?.kind === "project" &&
-    !isHomeChatContainerProject(project, paths) &&
-    !isStudioContainerProject(project, paths)
-  );
+  return project?.kind === "project" && !isHomeChatContainerProject(project, paths);
 }
 
 export async function createSpace(input: {
   api: NativeApi;
   name: string;
   icon: SpaceIconName;
-}): Promise<{ spaceId: SpaceId; sequence: number }> {
+}): Promise<{ spaceId: SpaceId; sequence: number; createdAt: string }> {
   const spaceId = newSpaceId();
+  const createdAt = new Date().toISOString();
   const receipt = await input.api.orchestration.dispatchCommand({
     type: "space.create",
     commandId: newCommandId(),
     spaceId,
     name: input.name,
     icon: input.icon,
-    createdAt: new Date().toISOString(),
+    createdAt,
   });
-  return { spaceId, sequence: receipt.sequence };
+  return { spaceId, sequence: receipt.sequence, createdAt };
 }
 
 /**

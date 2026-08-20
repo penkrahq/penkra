@@ -7,73 +7,18 @@ import {
   type StartContainerChatResult,
 } from "./startContainerChat";
 
-const paths = {
-  homeDir: "/Users/tester",
-  chatWorkspaceRoot: "/Users/tester/Documents/Penkra/Chats",
-  studioWorkspaceRoot: "/Users/tester/Documents/Penkra/Studio",
-};
-
 function successfulHandler() {
   return vi.fn(async (): Promise<StartContainerChatResult> => ({ ok: true, threadId: null }));
 }
 
 describe("startFreshChatForActiveSurface", () => {
-  it("keeps the global New chat action in Studio", async () => {
+  it("starts a fresh managed chat", async () => {
     const handleNewChat = successfulHandler();
-    const handleNewStudioChat = successfulHandler();
 
-    await startFreshChatForActiveSurface({
-      activeProject: {
-        kind: "studio",
-        cwd: "/Users/tester/Documents/Penkra/Studio",
-      },
-      isStudioRoute: false,
-      paths,
-      handleNewChat,
-      handleNewStudioChat,
-    });
+    await startFreshChatForActiveSurface({ handleNewChat });
 
-    expect(handleNewStudioChat).toHaveBeenCalledOnce();
-    expect(handleNewStudioChat).toHaveBeenCalledWith({ fresh: true });
-    expect(handleNewChat).not.toHaveBeenCalled();
-  });
-
-  it("keeps the global New chat action on the Studio landing route", async () => {
-    const handleNewChat = successfulHandler();
-    const handleNewStudioChat = successfulHandler();
-
-    await startFreshChatForActiveSurface({
-      activeProject: null,
-      isStudioRoute: true,
-      paths,
-      handleNewChat,
-      handleNewStudioChat,
-    });
-
-    expect(handleNewStudioChat).toHaveBeenCalledOnce();
-    expect(handleNewChat).not.toHaveBeenCalled();
-  });
-
-  it("keeps the global New chat action in Projects for ordinary or missing projects", async () => {
-    for (const activeProject of [
-      { kind: "project" as const, cwd: "/Users/tester/Developer/app" },
-      null,
-    ]) {
-      const handleNewChat = successfulHandler();
-      const handleNewStudioChat = successfulHandler();
-
-      await startFreshChatForActiveSurface({
-        activeProject,
-        isStudioRoute: false,
-        paths,
-        handleNewChat,
-        handleNewStudioChat,
-      });
-
-      expect(handleNewChat).toHaveBeenCalledOnce();
-      expect(handleNewChat).toHaveBeenCalledWith({ fresh: true });
-      expect(handleNewStudioChat).not.toHaveBeenCalled();
-    }
+    expect(handleNewChat).toHaveBeenCalledOnce();
+    expect(handleNewChat).toHaveBeenCalledWith({ fresh: true });
   });
 });
 
@@ -94,28 +39,20 @@ describe("startContainerChat", () => {
 
     expect(handleNewThread).toHaveBeenCalledWith(projectId, {
       fresh: true,
-      envMode: "local",
-      branch: null,
-      worktreePath: null,
     });
   });
 
-  it("clears a stored Studio draft's inherited worktree metadata without overriding its cwd", async () => {
-    const projectId = ContainerId.makeUnsafe("studio-project");
-    const threadId = ThreadId.makeUnsafe("studio-thread");
+  it("starts a stored Folder draft without extra overrides", async () => {
+    const projectId = ContainerId.makeUnsafe("folder-project");
+    const threadId = ThreadId.makeUnsafe("folder-thread");
     const handleNewThread = vi.fn(async () => threadId);
 
     await startContainerChat({
       ensureProjectId: async () => projectId,
       handleNewThread,
-      forceLocalWorkspace: true,
       errorLabel: "failed",
     });
 
-    expect(handleNewThread).toHaveBeenCalledWith(projectId, {
-      envMode: "local",
-      branch: null,
-      worktreePath: null,
-    });
+    expect(handleNewThread).toHaveBeenCalledWith(projectId, undefined);
   });
 });

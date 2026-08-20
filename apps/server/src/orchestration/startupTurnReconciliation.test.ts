@@ -1,4 +1,4 @@
-import { EventId, ThreadId, TurnId } from "@penkra/contracts";
+import { EventId, MessageId, ThreadId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -118,27 +118,6 @@ describe("planRestartTurnReconciliation", () => {
     ]);
   });
 
-  it("marks an unfinished checkpoint revert as failed after restart", () => {
-    const thread = makeThread("stale-checkpoint-revert", {
-      activities: [
-        makeActivity(
-          "checkpoint-revert-started",
-          "checkpoint.revert.started",
-          { turnCount: 1, scope: "thread" },
-          1,
-        ),
-      ],
-    });
-
-    expect(planRestartTurnReconciliation({ threads: [thread], now: NOW })).toEqual([
-      expect.objectContaining({
-        type: "thread.activity.append",
-        threadId: "stale-checkpoint-revert",
-        activity: expect.objectContaining({ kind: "checkpoint.revert.failed" }),
-      }),
-    ]);
-  });
-
   it("cleans stale requests from a terminal error without overwriting the error session", () => {
     const threads = [
       makeThread("errored-with-requests", {
@@ -241,6 +220,74 @@ describe("planRestartTurnReconciliation", () => {
         lastError: null,
         updatedAt: NOW,
       },
+    });
+  });
+
+  it("preserves a completed turn when a stale running session names that same turn", () => {
+    const turnId = TurnId.makeUnsafe("completed-turn");
+    const commands = planRestartTurnReconciliation({
+      threads: [
+        makeThread("completed-with-stale-session", {
+          session: makeSession("completed-with-stale-session", {
+            status: "running",
+            activeTurnId: turnId,
+          }),
+          latestTurn: { turnId, state: "completed" },
+        }),
+      ],
+      now: NOW,
+    });
+
+    expect(commands).toEqual([
+      {
+        type: "thread.session.set",
+        commandId: `restart-reconcile-terminal-turn:completed-with-stale-session:${NOW}`,
+        threadId: "completed-with-stale-session",
+        createdAt: NOW,
+        session: {
+          threadId: "completed-with-stale-session",
+          status: "ready",
+          providerName: "grok",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: NOW,
+        },
+      },
+    ]);
+  });
+
+  it("settles orphaned streaming assistant messages before interrupting their turn", () => {
+    const turnId = TurnId.makeUnsafe("streaming-turn");
+    const commands = planRestartTurnReconciliation({
+      threads: [
+        makeThread("streaming-thread", {
+          session: makeSession("streaming-thread", { activeTurnId: turnId }),
+          latestTurn: { turnId, state: "running" },
+          messages: [
+            {
+              id: MessageId.makeUnsafe("streaming-message"),
+              role: "assistant",
+              streaming: true,
+              turnId,
+            },
+          ],
+        }),
+      ],
+      now: NOW,
+    });
+
+    expect(commands.map((command) => command.type)).toEqual([
+      "thread.message.assistant.complete",
+      "thread.session.set",
+    ]);
+    expect(commands[0]).toEqual({
+      type: "thread.message.assistant.complete",
+      commandId: "restart-reconcile-streaming-message:streaming-thread:streaming-message",
+      threadId: "streaming-thread",
+      messageId: "streaming-message",
+      turnId: "streaming-turn",
+      createdAt: NOW,
     });
   });
 

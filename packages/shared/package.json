@@ -8,17 +8,9 @@
       "types": "./src/model.ts",
       "import": "./src/model.ts"
     },
-    "./git": {
-      "types": "./src/git.ts",
-      "import": "./src/git.ts"
-    },
     "./githubAvatar": {
       "types": "./src/githubAvatar.ts",
       "import": "./src/githubAvatar.ts"
-    },
-    "./githubRepository": {
-      "types": "./src/githubRepository.ts",
-      "import": "./src/githubRepository.ts"
     },
     "./logging": {
       "types": "./src/logging.ts",
@@ -143,10 +135,6 @@
     "./agentMentions": {
       "types": "./src/agentMentions.ts",
       "import": "./src/agentMentions.ts"
-    },
-    "./worktreeEnvironment": {
-      "types": "./src/worktreeEnvironment.ts",
-      "import": "./src/worktreeEnvironment.ts"
     },
     "./path": {
       "types": "./src/path.ts",

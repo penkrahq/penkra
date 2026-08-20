@@ -107,6 +107,7 @@ import {
   type AgentGatewaySessionLease,
 } from "../../agentGateway/sessionLease.ts";
 import { resolveProviderAttachmentPath } from "../providerAttachmentPaths.ts";
+import { providerRuntimeEventIdFromNative } from "../providerRuntimeEventIdentity.ts";
 import { ServerConfig } from "../../config.ts";
 import { buildFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { loadClaudeAgentSdk } from "../claudeAgentSdk.ts";
@@ -1762,6 +1763,18 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     ): Effect.Effect<void> =>
       Queue.offer(runtimeEventQueue, {
         ...event,
+        ...(event.raw !== undefined
+          ? {
+              eventId: EventId.makeUnsafe(
+                `${providerRuntimeEventIdFromNative({
+                  provider: event.provider,
+                  source: event.raw.source,
+                  threadId: event.threadId,
+                  nativeEvent: event.raw,
+                })}:${event.type}:${event.itemId ?? event.requestId ?? "event"}`,
+              ),
+            }
+          : {}),
         ...(context.lifecycleGeneration !== undefined
           ? { lifecycleGeneration: context.lifecycleGeneration }
           : {}),
@@ -2422,6 +2435,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               status: status === "completed" ? "completed" : "failed",
               title: tool.title,
               ...(tool.detail ? { detail: tool.detail } : {}),
+              input: tool.input,
               data: toolLifecycleEventData(tool),
             },
             providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
@@ -2468,28 +2482,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               usage: usageSnapshot,
             },
             providerRefs: nativeProviderRefs(context),
-          });
-        }
-
-        // Feed Claude edits into the same placeholder checkpoint flow used by Codex.
-        if (status === "completed" && turnState.sawFileChange) {
-          const diffStamp = yield* makeEventStamp();
-          yield* offerRuntimeEvent(context, {
-            type: "turn.diff.updated",
-            eventId: diffStamp.eventId,
-            provider: PROVIDER,
-            createdAt: diffStamp.createdAt,
-            threadId: context.session.threadId,
-            turnId: turnState.turnId,
-            payload: {
-              unifiedDiff: "",
-            },
-            providerRefs: nativeProviderRefs(context),
-            raw: {
-              source: "claude.sdk.message",
-              method: "claude/result",
-              payload: result ?? { status },
-            },
           });
         }
 
@@ -2658,6 +2650,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             status: "inProgress",
             title: tool.title,
             ...(tool.detail ? { detail: tool.detail } : {}),
+            input: tool.input,
             data: toolLifecycleEventData(tool),
           },
           providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
@@ -2794,6 +2787,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 status: "inProgress",
                 title: nextTool.title,
                 ...(nextTool.detail ? { detail: nextTool.detail } : {}),
+                input: nextTool.input,
                 data: toolLifecycleEventData(nextTool),
               },
               providerRefs: nativeProviderRefs(context, { providerItemId: nextTool.itemId }),
@@ -2919,6 +2913,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               status: toolResult.isError ? "failed" : "inProgress",
               title: tool.title,
               ...(tool.detail ? { detail: tool.detail } : {}),
+              input: tool.input,
               data: toolData,
             },
             providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
@@ -3030,6 +3025,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               status: itemStatus,
               title: tool.title,
               ...(tool.detail ? { detail: tool.detail } : {}),
+              input: tool.input,
               data: toolData,
             },
             providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
@@ -5898,7 +5894,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         supportsPluginDiscovery: false,
         supportsRuntimeModelList: true,
         supportsTurnSteering: true,
-        supportsLiveTurnDiffPatch: false,
       },
       startSession,
       verifyNativeResume,

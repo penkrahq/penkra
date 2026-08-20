@@ -3,7 +3,7 @@
 // Layer: Route UI logic helpers.
 // Exports: Thread title fallback, working-directory resolution, and split-view decisions.
 
-import type { ContainerId, ThreadEnvironmentMode, ThreadId } from "@penkra/contracts";
+import type { ContainerId, ThreadId } from "@penkra/contracts";
 import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 
 export interface SplitPaneMaximizeDecision {
@@ -32,14 +32,10 @@ export function resolveThreadPickerTitle(title: string | null): string {
 
 export function resolveThreadWorkingDirectory(input: {
   projectCwd?: string | null | undefined;
-  threadEnvMode?: ThreadEnvironmentMode | null | undefined;
-  threadWorktreePath?: string | null | undefined;
   threadWorkingDirectory?: string | null | undefined;
 }): string | null {
   return resolveThreadWorkspaceCwd({
     projectCwd: input.projectCwd,
-    envMode: input.threadEnvMode,
-    worktreePath: input.threadWorktreePath,
     workingDirectory: input.threadWorkingDirectory,
   });
 }

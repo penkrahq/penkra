@@ -113,6 +113,7 @@ import { subscribeToSpaceUiActions } from "../spaceUiEvents";
 import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
 import {
   DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
+  beginInlineFolderCreation,
   buildProjectThreadTree,
   derivePinnedProjectIdsForSidebar,
   deriveSidebarProjectData,
@@ -357,6 +358,18 @@ export default function Sidebar() {
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
+  const persistThreadVisit = useCallback((threadId: ThreadId, lastVisitedAt: string) => {
+    const api = readNativeApi();
+    if (!api) return;
+    void api.orchestration
+      .dispatchCommand({
+        type: "thread.meta.update",
+        commandId: newCommandId(),
+        threadId,
+        lastVisitedAt,
+      })
+      .catch(() => undefined);
+  }, []);
   const toggleProject = useStore((store) => store.toggleProject);
   const setProjectExpanded = useStore((store) => store.setProjectExpanded);
   const removeDeletedProjectFromClientState = useStore(
@@ -378,7 +391,6 @@ export default function Sidebar() {
   );
   const { name: profileName } = useProfileName(defaultProfileName);
   const chatWorkspaceRoot = useWorkspacePathsStore((store) => store.chatWorkspaceRoot);
-  const studioWorkspaceRoot = useWorkspacePathsStore((store) => store.studioWorkspaceRoot);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isOnSettings = useLocation({
@@ -624,7 +636,9 @@ export default function Sidebar() {
         return;
       }
       if (threadStatus.label === "Completed") {
-        markThreadVisited(threadId, thread.latestTurn?.completedAt ?? undefined);
+        const visitedAt = thread.latestTurn?.completedAt ?? new Date().toISOString();
+        markThreadVisited(threadId, visitedAt);
+        persistThreadVisit(threadId, visitedAt);
         return;
       }
       dismissThreadStatus(threadId, threadStatus.dismissalKey);
@@ -632,6 +646,7 @@ export default function Sidebar() {
     [
       dismissThreadStatus,
       markThreadVisited,
+      persistThreadVisit,
       resolveThreadStatusForSidebar,
       sidebarThreadSummaryById,
     ],
@@ -705,10 +720,9 @@ export default function Sidebar() {
         isOrdinarySpaceProject(project, {
           homeDir,
           chatWorkspaceRoot,
-          studioWorkspaceRoot,
         }),
       ),
-    [chatWorkspaceRoot, homeDir, projects, studioWorkspaceRoot],
+    [chatWorkspaceRoot, homeDir, projects],
   );
   const folderNamesBySpaceId = useMemo(() => {
     const namesBySpaceId = new Map<SpaceId, string[]>();
@@ -976,7 +990,6 @@ export default function Sidebar() {
         return;
       }
       const cwd = resolveNewThreadModelPrefetchCwd({
-        draftWorktreePath: draftThread?.worktreePath ?? null,
         draftWorkingDirectory: draftThread?.workingDirectory ?? null,
         projectCwd: project.cwd,
         serverCwd,
@@ -1077,9 +1090,6 @@ export default function Sidebar() {
           title,
           modelSelection,
           runtimeMode: "full-access",
-          envMode: "local",
-          branch: null,
-          worktreePath: null,
           createdAt,
         });
         createdThread = true;
@@ -1222,8 +1232,7 @@ export default function Sidebar() {
       const threadStatus = threadSummary ? resolveThreadStatusForSidebar(threadSummary) : null;
       const threadWorkspacePath = resolveThreadWorkspaceCwd({
         projectCwd: projectCwdById.get(thread.projectId) ?? null,
-        envMode: thread.envMode,
-        worktreePath: thread.worktreePath,
+        workingDirectory: thread.workingDirectory,
       });
       const clicked = await api.contextMenu.show(
         [
@@ -1254,6 +1263,13 @@ export default function Sidebar() {
       if (clicked === "mark-unread") {
         clearDismissedThreadStatus(threadId);
         markThreadUnread(threadId);
+        const completedAt = thread.latestTurn?.completedAt;
+        if (completedAt) {
+          const completedAtMs = Date.parse(completedAt);
+          if (!Number.isNaN(completedAtMs)) {
+            persistThreadVisit(threadId, new Date(completedAtMs - 1).toISOString());
+          }
+        }
         return;
       }
       if (clicked === "clear-notification") {
@@ -1295,6 +1311,7 @@ export default function Sidebar() {
       clearDismissedThreadStatus,
       clearThreadNotification,
       markThreadUnread,
+      persistThreadVisit,
       openThreadInlineRename,
       pinnedThreadIdSet,
       projectCwdById,
@@ -1324,6 +1341,13 @@ export default function Sidebar() {
         for (const id of ids) {
           clearDismissedThreadStatus(id);
           markThreadUnread(id);
+          const completedAt = sidebarThreadSummaryById[id]?.latestTurn?.completedAt;
+          if (completedAt) {
+            const completedAtMs = Date.parse(completedAt);
+            if (!Number.isNaN(completedAtMs)) {
+              persistThreadVisit(id, new Date(completedAtMs - 1).toISOString());
+            }
+          }
         }
         clearSelection();
         return;
@@ -1389,8 +1413,10 @@ export default function Sidebar() {
       clearDismissedThreadStatus,
       deleteThread,
       markThreadUnread,
+      persistThreadVisit,
       removeFromSelection,
       selectedThreadIds,
+      sidebarThreadSummaryById,
     ],
   );
 
@@ -1516,8 +1542,11 @@ export default function Sidebar() {
         { x: event.clientX, y: event.clientY },
       );
       if (clicked === "add-folder") {
-        handleSelectSpace(space.id);
-        openInlineFolderCreator(space.id);
+        beginInlineFolderCreation({
+          spaceId: space.id,
+          selectSpaceForIncomingProject: handleSelectSpaceForIncomingProject,
+          openInlineFolderCreator,
+        });
         return;
       }
       if (clicked === "rename") {
@@ -1537,7 +1566,12 @@ export default function Sidebar() {
         });
       }
     },
-    [collapsedSpaceIds, handleSelectSpace, openInlineFolderCreator, openSpaceEditor],
+    [
+      collapsedSpaceIds,
+      handleSelectSpaceForIncomingProject,
+      openInlineFolderCreator,
+      openSpaceEditor,
+    ],
   );
   const handleCreateProjectSubmit = useCallback(
     async (value: { readonly name: string; readonly spaceId: SpaceId }) => {
@@ -1565,7 +1599,7 @@ export default function Sidebar() {
         if (snapshot) syncServerShellSnapshot(snapshot);
         if (!project) throw new Error("The folder was created but has not synced yet.");
         setProjectExpanded(projectId, true);
-        await handleNewThread(projectId, { fresh: true, envMode: "local" });
+        await handleNewThread(projectId, { fresh: true });
       } catch (error) {
         if (previousSpaceId) handleSelectSpaceForIncomingProject(previousSpaceId);
         throw error;
@@ -1681,7 +1715,6 @@ export default function Sidebar() {
           confirmMessage: null,
           showEmptyToast: false,
           showResultToast: false,
-          worktreeCleanupMode: "skip",
         });
         if (deletionResult === null) {
           return;
@@ -1857,10 +1890,9 @@ export default function Sidebar() {
         isOrdinarySpaceProject(project, {
           homeDir,
           chatWorkspaceRoot,
-          studioWorkspaceRoot,
         }),
       ),
-    [chatWorkspaceRoot, homeDir, sortedProjects, studioWorkspaceRoot],
+    [chatWorkspaceRoot, homeDir, sortedProjects],
   );
   const standardProjectsBase = useMemo(() => allStandardProjectsBase, [allStandardProjectsBase]);
   const pinnedProjectIds = useMemo(
@@ -2467,10 +2499,10 @@ export default function Sidebar() {
     const isActive = visualActiveSidebarThreadId === thread.id;
     const isSelected = selectedThreadIds.has(thread.id);
     const threadStatus = resolveThreadStatusForSidebar(thread);
-    const workStatus: ThreadWorkStatus = resolveSidebarWorkStatus(
-      threadStatus,
-      thread.id === voiceRecordingThreadId,
-    );
+    const workStatus: ThreadWorkStatus =
+      thread.id === voiceRecordingThreadId
+        ? "recording"
+        : (thread.workStatus ?? resolveSidebarWorkStatus(threadStatus, false));
     const harness =
       thread.title.trim().toLowerCase() === "main"
         ? ("github" as const)
@@ -2661,7 +2693,6 @@ export default function Sidebar() {
         if (
           !isProjectsSidebarSurface({
             isOnSettings,
-            isOnStudio: false,
             isOnWorkspace,
           })
         )
@@ -2684,7 +2715,6 @@ export default function Sidebar() {
         if (
           !isProjectsSidebarSurface({
             isOnSettings,
-            isOnStudio: false,
             isOnWorkspace,
           })
         )
@@ -2900,7 +2930,6 @@ export default function Sidebar() {
           isOrdinarySpaceProject(project, {
             homeDir,
             chatWorkspaceRoot,
-            studioWorkspaceRoot,
           })
         ) {
           if (project.spaceId == null) {
@@ -2922,14 +2951,14 @@ export default function Sidebar() {
             folderName: project.folderName,
             localName: project.localName,
             cwd: project.cwd,
-            // Containers (Chats, Studio) are reachable from every Space, so they search as "Global".
+            // Managed chat containers are reachable from every Space, so they search as "Global".
             spaceName,
             createdAt: project.createdAt,
             updatedAt: project.updatedAt,
           },
         ];
       }),
-    [archivedSpaces, chatWorkspaceRoot, homeDir, projects, spaces, studioWorkspaceRoot],
+    [archivedSpaces, chatWorkspaceRoot, homeDir, projects, spaces],
   );
   const searchPaletteActions = useMemo<SidebarSearchAction[]>(
     () => [
@@ -3346,8 +3375,11 @@ export default function Sidebar() {
                           });
                         }}
                         onHeaderAction={() => {
-                          handleSelectSpace(section.space.id);
-                          openInlineFolderCreator(section.space.id);
+                          beginInlineFolderCreation({
+                            spaceId: section.space.id,
+                            selectSpaceForIncomingProject: handleSelectSpaceForIncomingProject,
+                            openInlineFolderCreator,
+                          });
                         }}
                         onHeaderContextMenu={(event: MouseEvent<HTMLButtonElement>) =>
                           void handleSpaceHeaderContextMenu(event, section.space)

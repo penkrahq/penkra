@@ -71,7 +71,7 @@ describe("stagedDraftNavigation", () => {
         }),
     );
     const secondRun = vi.fn(async () => "second");
-    const slotKey = draftNavigationSlotKey("project-studio", "chat");
+    const slotKey = draftNavigationSlotKey("project-folder", "chat");
 
     const first = runDraftNavigationOnce(slotKey, firstRun);
     const second = runDraftNavigationOnce(slotKey, secondRun);

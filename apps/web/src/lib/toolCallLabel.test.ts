@@ -6,6 +6,7 @@ import {
   derivePenkraMcpToolTitle,
   extractWebFetchUrl,
   isInspectCommand,
+  isPenkraExecCommandTool,
   normalizeCompactToolLabel,
   resolveCommandVisualKind,
   sanitizePenkraMcpToolPreview,
@@ -60,6 +61,13 @@ describe("normalizeCompactToolLabel", () => {
 });
 
 describe("derivePenkraMcpToolTitle", () => {
+  it("identifies the Penkra command gateway across provider spellings", () => {
+    expect(isPenkraExecCommandTool({ toolName: "penkra_exec_command" })).toBe(true);
+    expect(isPenkraExecCommandTool({ toolName: "mcp__penkra__penkra_exec_command" })).toBe(true);
+    expect(isPenkraExecCommandTool({ title: "Penkra ran a command" })).toBe(true);
+    expect(isPenkraExecCommandTool({ toolName: "penkra_tabs_current" })).toBe(false);
+  });
+
   it("has intentional running and completed copy for every Penkra gateway action", () => {
     const cases = [
       ["penkra_exec_command", "Penkra is running a command", "Penkra ran a command"],

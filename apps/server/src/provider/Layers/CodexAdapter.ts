@@ -479,6 +479,14 @@ function itemDetail(
   return undefined;
 }
 
+function itemInput(item: Record<string, unknown>): unknown {
+  for (const candidate of [item.input, item.arguments, item.args, item.parameters]) {
+    if (candidate !== undefined && candidate !== null) return candidate;
+  }
+  const command = asString(item.command);
+  return command ? { command } : undefined;
+}
+
 function itemStatus(
   lifecycle: "item.started" | "item.updated" | "item.completed",
   rawStatus: unknown,
@@ -894,6 +902,7 @@ function mapItemLifecycle(
   const detail =
     itemType === "reasoning" ? reasoningSummaryDetail(source) : itemDetail(source, payload ?? {});
   const status = itemStatus(lifecycle, source.status);
+  const input = itemInput(source);
 
   return {
     ...(generatedImageReference
@@ -908,6 +917,7 @@ function mapItemLifecycle(
       itemType: canonicalItemType,
       ...(status ? { status } : {}),
       ...(itemTitle(canonicalItemType) ? { title: itemTitle(canonicalItemType) } : {}),
+      ...(input !== undefined ? { input } : {}),
       ...(generatedImageReference
         ? { detail: generatedImageReference.path }
         : detail
@@ -1224,22 +1234,6 @@ function mapToRuntimeEvents(
             );
             return item ? [item] : [];
           }),
-        },
-      },
-    ];
-  }
-
-  if (event.method === "turn/diff/updated") {
-    return [
-      {
-        ...runtimeEventBase(event, canonicalThreadId),
-        type: "turn.diff.updated",
-        payload: {
-          unifiedDiff:
-            asString(payload?.unifiedDiff) ??
-            asString(payload?.diff) ??
-            asString(payload?.patch) ??
-            "",
         },
       },
     ];
@@ -2304,7 +2298,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         supportsPluginDiscovery: true,
         supportsRuntimeModelList: true,
         supportsTurnSteering: true,
-        supportsLiveTurnDiffPatch: true,
       },
       startSession,
       verifyNativeResume,

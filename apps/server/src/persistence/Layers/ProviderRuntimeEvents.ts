@@ -141,10 +141,22 @@ const make = Effect.gen(function* () {
         Effect.mapError(toPersistenceDecodeError("ProviderRuntimeEvent.append.row")),
       );
       if (row.eventJson !== eventJson) {
-        return yield* new PersistenceDecodeError({
-          operation: "ProviderRuntimeEvent.append",
-          issue: `Provider event '${event.eventId}' was reused with different content.`,
-        });
+        const existingEvent = yield* decodeEvent(row.eventJson).pipe(
+          Effect.mapError(toPersistenceDecodeError("ProviderRuntimeEvent.append.existing")),
+        );
+        const existingAtReplayTime = yield* encodeEvent({
+          ...existingEvent,
+          // Replayable native notifications retain a stable event id, but adapters timestamp the
+          // local observation. A restart may therefore observe the same native event later. The
+          // first durable timestamp remains authoritative; no other content difference is allowed.
+          createdAt: persistedEvent.createdAt,
+        }).pipe(Effect.mapError(toPersistenceDecodeError("ProviderRuntimeEvent.append.replay")));
+        if (existingAtReplayTime !== eventJson) {
+          return yield* new PersistenceDecodeError({
+            operation: "ProviderRuntimeEvent.append",
+            issue: `Provider event '${event.eventId}' was reused with different content.`,
+          });
+        }
       }
       return {
         sequence: row.sequence,

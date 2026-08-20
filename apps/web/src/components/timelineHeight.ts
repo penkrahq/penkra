@@ -3,7 +3,6 @@
 // Layer: Web chat virtualization utility
 // Exports: message/work height estimators used by MessagesTimeline and browser tests
 
-import type { TurnDiffFileChange } from "../types";
 import { DEFAULT_CHAT_FONT_SIZE_PX, normalizeChatFontSizePx } from "../appSettings";
 import { deriveDisplayedUserMessageState } from "../lib/terminalContext";
 import { buildInlineTerminalContextText } from "./chat/userMessageTerminalContexts";
@@ -38,10 +37,6 @@ const MIN_ASSISTANT_CHARS_PER_LINE = 20;
 const ASSISTANT_INLINE_CODE_WIDTH_MULTIPLIER = 1.2;
 const ASSISTANT_INLINE_CODE_WRAP_OVERHEAD_CHARS = 2;
 const INLINE_CODE_SPAN_REGEX = /`([^`\n]+)`/g;
-const TURN_DIFF_SUMMARY_CHROME_HEIGHT_PX = 76;
-const TURN_DIFF_FILE_ROW_HEIGHT_PX = 36;
-const TURN_DIFF_FILE_LIST_TOGGLE_HEIGHT_PX = 34;
-const TURN_DIFF_MAX_VISIBLE_FILES = 5;
 const WORK_GROUP_CHROME_HEIGHT_PX = 24;
 const WORK_GROUP_HEADER_HEIGHT_PX = 20;
 const WORK_ENTRY_ROW_HEIGHT_PX = 30;
@@ -53,10 +48,6 @@ const INLINE_TOOL_PREVIEW_ROW_GAP_PX = 1;
 const INLINE_TOOL_PREVIEW_TOGGLE_MARGIN_TOP_PX = 4;
 const INLINE_TOOL_PREVIEW_TOGGLE_HEIGHT_PX = 18;
 const INLINE_TOOL_PREVIEW_CONTAINER_CHROME_HEIGHT_PX = 0;
-const changedFilesSummaryHeightCache = new WeakMap<
-  ReadonlyArray<TurnDiffFileChange>,
-  { collapsed?: number; expanded?: number }
->();
 
 interface TimelineMessageHeightInput {
   role: "user" | "assistant" | "system";
@@ -64,8 +55,6 @@ interface TimelineMessageHeightInput {
   attachments?: ReadonlyArray<{ id: string; type?: "image" | "file" | "assistant-selection" }>;
   dispatchMode?: "queue" | "steer";
   dispatchOrigin?: "user" | "automation" | "agent";
-  diffSummaryFiles?: ReadonlyArray<TurnDiffFileChange>;
-  diffSummaryFileListExpanded?: boolean;
   inlineToolEntries?: ReadonlyArray<TimelineWorkEntryHeightInput>;
   inlineToolExpanded?: boolean;
 }
@@ -133,40 +122,6 @@ function estimateCharsPerLineForAssistant(
     MIN_ASSISTANT_CHARS_PER_LINE,
     Math.floor(textWidthPx / getChatTranscriptAssistantCharWidthPx(chatFontSizePx)),
   );
-}
-
-export function estimateChangedFilesSummaryHeight(
-  files: ReadonlyArray<TurnDiffFileChange>,
-  fileListExpanded = false,
-): number {
-  if (files.length === 0) return 0;
-
-  const cacheKey = fileListExpanded ? "expanded" : "collapsed";
-  const cachedHeights = changedFilesSummaryHeightCache.get(files);
-  const cachedHeight = cachedHeights?.[cacheKey];
-  if (typeof cachedHeight === "number") {
-    return cachedHeight;
-  }
-
-  // The changed-files card renders a flat list with a five-file collapsed cap.
-  const visibleRowCount = fileListExpanded
-    ? files.length
-    : Math.min(files.length, TURN_DIFF_MAX_VISIBLE_FILES);
-  const toggleHeight =
-    !fileListExpanded && files.length > TURN_DIFF_MAX_VISIBLE_FILES
-      ? TURN_DIFF_FILE_LIST_TOGGLE_HEIGHT_PX
-      : 0;
-
-  const height =
-    TURN_DIFF_SUMMARY_CHROME_HEIGHT_PX +
-    visibleRowCount * TURN_DIFF_FILE_ROW_HEIGHT_PX +
-    toggleHeight;
-  changedFilesSummaryHeightCache.set(files, {
-    ...cachedHeights,
-    [cacheKey]: height,
-  });
-
-  return height;
 }
 
 function estimateTimelineWorkEntryHeight(entry: TimelineWorkEntryHeightInput): number {
@@ -255,10 +210,6 @@ export function estimateTimelineMessageHeight(
       expandAssistantInlineCodeForEstimate(message.text),
       charsPerLine,
     );
-    const changedFilesHeight = estimateChangedFilesSummaryHeight(
-      message.diffSummaryFiles ?? [],
-      message.diffSummaryFileListExpanded ?? false,
-    );
     const inlineToolPreviewHeight = estimateTimelineInlineToolPreviewHeight(
       message.inlineToolEntries ?? [],
       {
@@ -266,12 +217,7 @@ export function estimateTimelineMessageHeight(
         maxVisibleEntries: 4,
       },
     );
-    return (
-      ASSISTANT_BASE_HEIGHT_PX +
-      estimatedLines * lineHeightPx +
-      changedFilesHeight +
-      inlineToolPreviewHeight
-    );
+    return ASSISTANT_BASE_HEIGHT_PX + estimatedLines * lineHeightPx + inlineToolPreviewHeight;
   }
 
   if (message.role === "user") {

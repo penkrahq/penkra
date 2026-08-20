@@ -17,7 +17,6 @@ import {
 } from "react";
 import { type TimestampFormat } from "../../appSettings";
 import { recordChatTranscriptPropChanges } from "../../chatPerformanceDiagnostics";
-import { type TurnDiffSummary } from "../../types";
 import { ArrowDownIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { DISCLOSURE_CONTENT_MOTION_CLASS } from "~/lib/disclosureMotion";
@@ -40,7 +39,6 @@ interface ChatTranscriptPaneProps {
   emptyStateProjectName: string | undefined;
   expandedWorkGroups?: Record<string, boolean>;
   hasMessages: boolean;
-  isRevertingCheckpoint: boolean;
   isWorking: boolean;
   followLiveOutput: boolean;
   listRef: RefObject<TranscriptVirtualListRef | null>;
@@ -66,20 +64,16 @@ interface ChatTranscriptPaneProps {
   onCloseAgentActivityDetail?: () => void;
   onOpenAgentActivity?: ComponentProps<typeof MessagesTimeline>["onOpenAgentActivity"];
   onOpenThread: (threadId: ThreadId) => void;
-  onRevertUserMessage: (messageId: MessageId) => void;
-  onUndoTurnFiles?: ComponentProps<typeof MessagesTimeline>["onUndoTurnFiles"];
   onEditUserMessage?: (messageId: MessageId, text: string) => boolean | Promise<boolean>;
   onScrollToBottom: () => void;
   onToggleWorkGroup?: (groupId: string) => void;
   resolvedTheme: "light" | "dark";
-  revertTurnCountByUserMessageId: Map<MessageId, number>;
   scrollButtonVisible: boolean;
   subagentToolTraceByThreadId?: ComponentProps<
     typeof MessagesTimeline
   >["subagentToolTraceByThreadId"];
   timelineEntries: ComponentProps<typeof MessagesTimeline>["timelineEntries"];
   timestampFormat: TimestampFormat;
-  turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
   workspaceRoot: string | undefined;
 }
 
@@ -95,7 +89,6 @@ function ChatTranscriptPaneImpl({
   emptyStateProjectName,
   expandedWorkGroups,
   hasMessages,
-  isRevertingCheckpoint,
   isWorking,
   followLiveOutput,
   listRef,
@@ -121,18 +114,14 @@ function ChatTranscriptPaneImpl({
   onCloseAgentActivityDetail,
   onOpenAgentActivity,
   onOpenThread,
-  onRevertUserMessage,
-  onUndoTurnFiles,
   onEditUserMessage,
   onScrollToBottom,
   onToggleWorkGroup,
   resolvedTheme,
-  revertTurnCountByUserMessageId,
   scrollButtonVisible,
   subagentToolTraceByThreadId,
   timelineEntries,
   timestampFormat,
-  turnDiffSummaryByAssistantMessageId,
   workspaceRoot,
 }: ChatTranscriptPaneProps) {
   const scrollButtonFrameStyle: CSSProperties | undefined = contentInsetRightPx
@@ -172,14 +161,9 @@ function ChatTranscriptPaneImpl({
             {...(enteringUserMessageIds ? { enteringUserMessageIds } : {})}
             {...(crossTaskOrigin ? { crossTaskOrigin } : {})}
             timelineEntries={timelineEntries}
-            turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
             onOpenThread={onOpenThread}
             {...(subagentToolTraceByThreadId ? { subagentToolTraceByThreadId } : {})}
-            revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-            onRevertUserMessage={onRevertUserMessage}
-            {...(onUndoTurnFiles ? { onUndoTurnFiles } : {})}
             {...(onEditUserMessage ? { onEditUserMessage } : {})}
-            isRevertingCheckpoint={isRevertingCheckpoint}
             onImageExpand={onExpandTimelineImage}
             followLiveOutput={followLiveOutput}
             onIsAtEndChange={onIsAtEndChange}

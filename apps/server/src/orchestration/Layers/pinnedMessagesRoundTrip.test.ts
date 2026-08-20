@@ -1,4 +1,11 @@
-import { CommandId, MessageId, ContainerId, ThreadId, ThreadMarkerId } from "@penkra/contracts";
+import {
+  CommandId,
+  MessageId,
+  ContainerId,
+  SpaceId,
+  ThreadId,
+  ThreadMarkerId,
+} from "@penkra/contracts";
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -28,9 +35,21 @@ async function createSystem() {
   );
   const runtime = ManagedRuntime.make(layer);
   const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+  const spaceId = SpaceId.makeUnsafe("space-pinned-roundtrip");
+  await runtime.runPromise(
+    engine.dispatch({
+      type: "space.create",
+      commandId: CommandId.makeUnsafe("cmd-space-pinned-roundtrip"),
+      spaceId,
+      name: "Test",
+      icon: "home",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    }),
+  );
   const query = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
   return {
     engine,
+    spaceId,
     query,
     run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
     dispose: () => runtime.dispose(),
@@ -50,11 +69,12 @@ describe("pinned messages round-trip", () => {
       await system.run(
         system.engine.dispatch({
           type: "project.create",
-          kind: "studio",
+          kind: "project",
           commandId: CommandId.makeUnsafe("cmd-project-pins"),
           projectId,
+          spaceId: system.spaceId,
           title: "Pins project",
-          workspaceRoot: "/tmp/project-pins",
+          workspaceRoot: null,
           defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
           createdAt,
         }),
@@ -68,8 +88,7 @@ describe("pinned messages round-trip", () => {
           title: "Pins thread",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "approval-required",
-          branch: null,
-          worktreePath: "/tmp/project-pins",
+          workingDirectory: "/tmp/project-pins",
           createdAt,
         }),
       );
@@ -154,11 +173,12 @@ describe("pinned messages round-trip", () => {
       await system.run(
         system.engine.dispatch({
           type: "project.create",
-          kind: "studio",
+          kind: "project",
           commandId: CommandId.makeUnsafe("cmd-project-markers"),
           projectId,
+          spaceId: system.spaceId,
           title: "Markers project",
-          workspaceRoot: "/tmp/project-markers",
+          workspaceRoot: null,
           defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
           createdAt,
         }),
@@ -172,8 +192,7 @@ describe("pinned messages round-trip", () => {
           title: "Markers thread",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "approval-required",
-          branch: null,
-          worktreePath: "/tmp/project-markers",
+          workingDirectory: "/tmp/project-markers",
           createdAt,
         }),
       );

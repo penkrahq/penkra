@@ -1,13 +1,10 @@
 // FILE: startContainerChat.ts
 // Purpose: Shared "ensure the hidden container project, then open a thread inside it" flow
-//          used by both the home-chat and Studio new-chat hooks.
+//          used by the home-chat hook.
 // Layer: Web orchestration helper
 // Exports: Container-chat startup plus segment-aware fresh-chat dispatch.
 
 import type { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
-import type { Project } from "../types";
-import { isStudioContainerProject } from "./studioProjects";
-import type { ServerWorkspacePaths } from "./serverWorkspacePaths";
 import type { NewThreadOptions } from "./threadBootstrap";
 
 export type StartContainerChatResult =
@@ -17,27 +14,17 @@ export type StartContainerChatResult =
 type StartFreshContainerChat = (options: { fresh: true }) => Promise<StartContainerChatResult>;
 
 /**
- * Starts a fresh chat in the surface that owns the active project. Thread routes are shared by
- * Projects and Studio, so callers cannot infer the surface from the URL alone.
+ * Starts a fresh chat in the managed chat container.
  */
 export function startFreshChatForActiveSurface(input: {
-  readonly activeProject: Pick<Project, "cwd" | "kind"> | null;
-  readonly isStudioRoute: boolean;
-  readonly paths: ServerWorkspacePaths;
   readonly handleNewChat: StartFreshContainerChat;
-  readonly handleNewStudioChat: StartFreshContainerChat;
 }): Promise<StartContainerChatResult> {
-  const handler =
-    input.isStudioRoute || isStudioContainerProject(input.activeProject, input.paths)
-      ? input.handleNewStudioChat
-      : input.handleNewChat;
-  return handler({ fresh: true });
+  return input.handleNewChat({ fresh: true });
 }
 
 /**
  * Resolves (creating if needed) the backing container project, then starts a thread inside it.
- * Both home chats and Studio chats share this exact flow; only the container resolver and the
- * user-facing failure label vary.
+ * The container resolver and user-facing failure label are supplied by the caller.
  */
 export async function startContainerChat(input: {
   readonly ensureProjectId: () => Promise<ContainerId | null>;
@@ -47,7 +34,6 @@ export async function startContainerChat(input: {
   ) => Promise<ThreadId | null>;
   readonly fresh?: boolean | undefined;
   readonly spaceId?: SpaceId | null | undefined;
-  readonly forceLocalWorkspace?: boolean | undefined;
   readonly errorLabel: string;
 }): Promise<StartContainerChatResult> {
   try {
@@ -56,13 +42,10 @@ export async function startContainerChat(input: {
       return { ok: false, error: input.errorLabel };
     }
     const threadOptions: NewThreadOptions | undefined =
-      input.fresh === true || input.forceLocalWorkspace === true || input.spaceId !== undefined
+      input.fresh === true || input.spaceId !== undefined
         ? {
             ...(input.fresh === true ? { fresh: true } : {}),
             ...(input.spaceId !== undefined ? { spaceId: input.spaceId } : {}),
-            envMode: "local",
-            branch: null,
-            worktreePath: null,
           }
         : undefined;
     const threadId = await input.handleNewThread(projectId, threadOptions);

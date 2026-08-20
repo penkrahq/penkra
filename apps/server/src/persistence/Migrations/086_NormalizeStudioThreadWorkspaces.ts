@@ -35,18 +35,5 @@ export default Effect.gen(function* () {
         SELECT project_id FROM projection_projects WHERE kind = 'studio' AND deleted_at IS NULL
       )
     `;
-  } else {
-    yield* sql`
-      UPDATE projection_threads
-      SET env_mode = 'local',
-          branch = NULL,
-          associated_worktree_path = NULL,
-          associated_worktree_branch = NULL,
-          associated_worktree_ref = NULL,
-          create_branch_flow_completed = 0
-      WHERE project_id IN (
-        SELECT project_id FROM projection_projects WHERE kind = 'studio' AND deleted_at IS NULL
-      )
-    `;
   }
 });

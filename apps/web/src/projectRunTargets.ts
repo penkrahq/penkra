@@ -41,7 +41,7 @@ export function selectPrimaryProjectRunCommand(input: {
   discoveredTargets?: readonly ProjectDiscoveredScriptTarget[];
 }): ProjectRunCommandTarget | null {
   const savedScript = primaryProjectScript(input.project.scripts);
-  if (savedScript && !savedScript.runOnWorktreeCreate) {
+  if (savedScript) {
     return {
       source: "saved",
       label: savedScript.name,
@@ -85,7 +85,7 @@ export function upsertProjectRunCommandScripts(input: {
     return null;
   }
   const existing = primaryProjectScript(input.scripts);
-  if (existing && !existing.runOnWorktreeCreate) {
+  if (existing) {
     if (existing.command === command) {
       return null;
     }
@@ -102,7 +102,6 @@ export function upsertProjectRunCommandScripts(input: {
     name: DEFAULT_RUN_SCRIPT_NAME,
     command,
     icon: "play",
-    runOnWorktreeCreate: false,
   };
   return [...input.scripts, runScript];
 }

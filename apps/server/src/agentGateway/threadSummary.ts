@@ -54,9 +54,6 @@ export interface AgentThreadListItem {
   readonly status: AgentThreadStatus;
   readonly parentThreadId: string | null;
   readonly creationSource: string | null;
-  readonly envMode: string;
-  readonly branch: string | null;
-  readonly worktreePath: string | null;
   readonly archived: boolean;
   readonly isSelf: boolean;
   readonly updatedAt: string;
@@ -75,9 +72,6 @@ export function summarizeThreadShell(
     status: deriveAgentThreadStatus(thread),
     parentThreadId: thread.parentThreadId ?? null,
     creationSource: thread.creationSource ?? null,
-    envMode: thread.envMode ?? "local",
-    branch: thread.branch,
-    worktreePath: thread.worktreePath,
     archived: (thread.archivedAt ?? null) !== null,
     isSelf: thread.id === callerThreadId,
     updatedAt: thread.updatedAt,
@@ -204,9 +198,6 @@ export interface AgentThreadDetail {
   readonly latestTurnState: string | null;
   readonly parentThreadId: string | null;
   readonly creationSource: string | null;
-  readonly envMode: string;
-  readonly branch: string | null;
-  readonly worktreePath: string | null;
   readonly archived: boolean;
   readonly lastError: string | null;
   readonly createdAt: string;
@@ -240,9 +231,6 @@ export function summarizeThreadDetail(input: {
     latestTurnState: thread.latestTurn?.state ?? null,
     parentThreadId: thread.parentThreadId ?? null,
     creationSource: thread.creationSource ?? null,
-    envMode: thread.envMode ?? "local",
-    branch: thread.branch,
-    worktreePath: thread.worktreePath,
     archived: (thread.archivedAt ?? null) !== null,
     lastError: thread.session?.lastError ?? null,
     createdAt: thread.createdAt,

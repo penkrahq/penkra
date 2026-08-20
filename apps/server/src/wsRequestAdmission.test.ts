@@ -10,7 +10,6 @@ describe("WsRequestAdmission", () => {
     expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot)).toBe(
       "expensive-read",
     );
-    expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.getTurnDiff)).toBe("expensive-read");
     expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.repairState)).toBe("expensive-read");
     expect(classifyWsRequest(WS_METHODS.terminalAckOutput)).toBe("control");
   });
@@ -20,9 +19,9 @@ describe("WsRequestAdmission", () => {
       Effect.gen(function* () {
         const admission = yield* makeWsRequestAdmission;
         const first = yield* admission.acquire(1, ORCHESTRATION_WS_METHODS.getSnapshot);
-        const second = yield* admission.acquire(1, WS_METHODS.statsGetProfileStats);
+        const second = yield* admission.acquire(1, WS_METHODS.projectsSearchEntries);
         const rejected = yield* admission
-          .acquire(1, WS_METHODS.gitReadWorkingTreeDiff)
+          .acquire(1, ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot)
           .pipe(Effect.exit);
 
         expect(rejected._tag).toBe("Failure");
@@ -54,7 +53,7 @@ describe("WsRequestAdmission", () => {
         const clientTwo = yield* admission.acquire(2, ORCHESTRATION_WS_METHODS.getSnapshot);
 
         const failed = yield* admission
-          .guard(1, WS_METHODS.gitStatus, Effect.fail("expected"))
+          .guard(1, WS_METHODS.projectsListDirectories, Effect.fail("expected"))
           .pipe(Effect.exit);
         expect(failed._tag).toBe("Failure");
 

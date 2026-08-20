@@ -255,7 +255,6 @@ describe("deriveWorkLogEntries", () => {
               title: "Explain the repository with Terra",
               provider: "codex",
               model: "gpt-5.6-terra",
-              environment: "local",
               status: "task_dispatched",
             },
             {
@@ -263,7 +262,6 @@ describe("deriveWorkLogEntries", () => {
               title: "Explain the repository with Claude",
               provider: "claudeAgent",
               model: "claude-sonnet-5",
-              environment: "worktree",
               status: "task_dispatched",
             },
           ],
@@ -282,7 +280,6 @@ describe("deriveWorkLogEntries", () => {
           title: "Explain the repository with Terra",
           provider: "codex",
           model: "gpt-5.6-terra",
-          environment: "local",
           status: "task_dispatched",
         },
         {
@@ -290,32 +287,10 @@ describe("deriveWorkLogEntries", () => {
           title: "Explain the repository with Claude",
           provider: "claudeAgent",
           model: "claude-sonnet-5",
-          environment: "worktree",
           status: "task_dispatched",
         },
       ],
     });
-  });
-
-  it("omits checkpoint captured info entries", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "checkpoint",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        summary: "Checkpoint captured",
-        tone: "info",
-      }),
-      makeActivity({
-        id: "tool-complete",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        summary: "Ran command",
-        tone: "tool",
-        kind: "tool.completed",
-      }),
-    ];
-
-    const entries = deriveWorkLogEntries(activities, undefined);
-    expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
   });
 
   it("omits passive rate-limit refresh entries from the chat work log", () => {
@@ -454,113 +429,6 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["real-work-log"]);
   });
 
-  it("collapses interleaved parallel tool calls into one row per tool-call id", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "a-started",
-        createdAt: "2026-02-23T00:00:00.000Z",
-        kind: "tool.started",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          detail: "Workflow: {}",
-          data: { toolCallId: "toolu_a", toolName: "Workflow", input: {} },
-        },
-      }),
-      makeActivity({
-        id: "b-started",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "tool.started",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          detail: "WebFetch: {}",
-          data: { toolCallId: "toolu_b", toolName: "WebFetch", input: {} },
-        },
-      }),
-      makeActivity({
-        id: "a-completed",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "tool.completed",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          detail: 'Workflow: {"script":"x"}',
-          data: { toolCallId: "toolu_a", toolName: "Workflow", input: { script: "x" } },
-        },
-      }),
-      makeActivity({
-        id: "b-completed",
-        createdAt: "2026-02-23T00:00:03.000Z",
-        kind: "tool.completed",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          detail: 'WebFetch: {"url":"https://x.dev"}',
-          data: { toolCallId: "toolu_b", toolName: "WebFetch", input: { url: "https://x.dev" } },
-        },
-      }),
-    ];
-
-    // Without id-based collapse this is 4 rows (a started, b started, a completed,
-    // b completed); each tool call must merge to one row, kept at its start position.
-    const entries = deriveWorkLogEntries(activities, undefined);
-    expect(entries.map((entry) => entry.id)).toEqual(["a-completed", "b-completed"]);
-    expect(entries.map((entry) => entry.toolName)).toEqual(["Workflow", "WebFetch"]);
-  });
-
-  it("keeps distinct calls of the same tool separate by tool-call id", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "first-started",
-        createdAt: "2026-02-23T00:00:00.000Z",
-        kind: "tool.started",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          detail: "Workflow: {}",
-          data: { toolCallId: "toolu_1", toolName: "Workflow", input: {} },
-        },
-      }),
-      makeActivity({
-        id: "second-started",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "tool.started",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          detail: "Workflow: {}",
-          data: { toolCallId: "toolu_2", toolName: "Workflow", input: {} },
-        },
-      }),
-      makeActivity({
-        id: "first-completed",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "tool.completed",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          detail: "Workflow: {}",
-          data: { toolCallId: "toolu_1", toolName: "Workflow", input: {} },
-        },
-      }),
-      makeActivity({
-        id: "second-completed",
-        createdAt: "2026-02-23T00:00:03.000Z",
-        kind: "tool.completed",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          detail: "Workflow: {}",
-          data: { toolCallId: "toolu_2", toolName: "Workflow", input: {} },
-        },
-      }),
-    ];
-
-    const entries = deriveWorkLogEntries(activities, undefined);
-    expect(entries.map((entry) => entry.id)).toEqual(["first-completed", "second-completed"]);
-  });
-
   it("orders work log by activity sequence when present", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -668,50 +536,6 @@ describe("deriveWorkLogEntries", () => {
       output: {
         output: "agy 1.2.3\n",
       },
-    });
-  });
-
-  it("merges command detail payloads across started and completed lifecycle rows", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "command-start",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "tool.started",
-        summary: "Ran command",
-        payload: {
-          itemType: "command_execution",
-          title: "Ran command",
-          data: {
-            toolCallId: "command-merge-1",
-            command: "bun run --cwd apps/web test session-logic.test.ts",
-          },
-        },
-      }),
-      makeActivity({
-        id: "command-complete",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "tool.completed",
-        summary: "Ran command",
-        payload: {
-          itemType: "command_execution",
-          title: "Ran command",
-          data: {
-            toolCallId: "command-merge-1",
-            rawOutput: {
-              stdout: "passed",
-              exitCode: 0,
-            },
-          },
-        },
-      }),
-    ];
-
-    const [entry] = deriveWorkLogEntries(activities, undefined);
-    expect(entry?.id).toBe("command-complete");
-    expect(entry?.toolDetails).toMatchObject({
-      kind: "command",
-      command: "bun run --cwd apps/web test session-logic.test.ts",
-      output: { stdout: "passed", exitCode: 0 },
     });
   });
 
@@ -854,102 +678,6 @@ describe("deriveWorkLogEntries", () => {
         id: "cursor-tool-read",
         toolTitle: "Read",
         detail: "Read 2 lines",
-      },
-    ]);
-  });
-
-  it("collapses Cursor tool lifecycle rows by toolCallId even when titles and details change", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "cursor-searching",
-        createdAt: "2026-05-05T15:39:01.000Z",
-        kind: "tool.started",
-        summary: "Searching",
-        payload: {
-          itemType: "dynamic_tool_call",
-          status: "inProgress",
-          title: "Searching",
-          data: {
-            toolCallId: "cursor-find-1",
-            kind: "search",
-            rawInput: {},
-          },
-        },
-      }),
-      makeActivity({
-        id: "cursor-searched",
-        createdAt: "2026-05-05T15:39:02.000Z",
-        kind: "tool.completed",
-        summary: "Searched",
-        payload: {
-          itemType: "dynamic_tool_call",
-          status: "completed",
-          title: "Searched",
-          data: {
-            toolCallId: "cursor-find-1",
-            kind: "search",
-            rawOutput: {
-              totalFiles: 52,
-              truncated: false,
-            },
-          },
-        },
-      }),
-    ];
-
-    expect(deriveWorkLogEntries(activities, undefined)).toMatchObject([
-      {
-        id: "cursor-searched",
-        toolTitle: "Searched",
-        detail: "52 files found",
-        itemType: "dynamic_tool_call",
-      },
-    ]);
-  });
-
-  it("keeps same-toolCallId rows collapsed even if later command metadata changes", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "cursor-command-start",
-        createdAt: "2026-05-05T15:40:01.000Z",
-        kind: "tool.updated",
-        summary: "Ran command",
-        payload: {
-          itemType: "command_execution",
-          status: "inProgress",
-          title: "Ran command",
-          data: {
-            toolCallId: "cursor-command-1",
-            kind: "execute",
-            command: "git status",
-          },
-        },
-      }),
-      makeActivity({
-        id: "cursor-command-complete",
-        createdAt: "2026-05-05T15:40:02.000Z",
-        kind: "tool.completed",
-        summary: "Ran command",
-        payload: {
-          itemType: "command_execution",
-          status: "completed",
-          title: "Ran command",
-          detail: "done",
-          data: {
-            toolCallId: "cursor-command-1",
-            kind: "execute",
-            command: "git diff --stat",
-          },
-        },
-      }),
-    ];
-
-    expect(deriveWorkLogEntries(activities, undefined)).toMatchObject([
-      {
-        id: "cursor-command-complete",
-        command: "git diff --stat",
-        detail: "done",
-        itemType: "command_execution",
       },
     ]);
   });
@@ -1567,62 +1295,6 @@ describe("deriveWorkLogEntries", () => {
     ]);
   });
 
-  it("collapses repeated lifecycle updates for the same tool call into one entry", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "tool-update-1",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "tool.updated",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          title: "Tool call",
-          detail: 'Read: {"file_path":"/tmp/app.ts"}',
-        },
-      }),
-      makeActivity({
-        id: "tool-update-2",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "tool.updated",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          title: "Tool call",
-          detail: 'Read: {"file_path":"/tmp/app.ts"}',
-          data: {
-            item: {
-              command: ["sed", "-n", "1,40p", "/tmp/app.ts"],
-            },
-          },
-        },
-      }),
-      makeActivity({
-        id: "tool-complete",
-        createdAt: "2026-02-23T00:00:03.000Z",
-        kind: "tool.completed",
-        summary: "Tool call completed",
-        payload: {
-          itemType: "dynamic_tool_call",
-          title: "Tool call",
-          detail: 'Read: {"file_path":"/tmp/app.ts"}',
-        },
-      }),
-    ];
-
-    const entries = deriveWorkLogEntries(activities, undefined);
-
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({
-      id: "tool-complete",
-      createdAt: "2026-02-23T00:00:03.000Z",
-      label: "Tool call completed",
-      detail: 'Read: {"file_path":"/tmp/app.ts"}',
-      command: "sed -n 1,40p /tmp/app.ts",
-      itemType: "dynamic_tool_call",
-      toolTitle: "Tool call",
-    });
-  });
-
   it("uses MCP tool names from preserved payload data", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -1753,170 +1425,6 @@ describe("deriveWorkLogEntries", () => {
 
     const [entry] = deriveWorkLogEntries(activities, undefined);
     expect(entry?.toolTitle).toBe("Searching");
-  });
-
-  it("collapses Claude-style partial tool-input updates into the final lifecycle row", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "claude-update-1",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "tool.updated",
-        summary: "Read file",
-        payload: {
-          itemType: "dynamic_tool_call",
-          title: "Read file",
-          detail: 'Read: {"file_path":"',
-          data: {
-            toolName: "Read",
-            input: {},
-          },
-        },
-      }),
-      makeActivity({
-        id: "claude-update-2",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "tool.updated",
-        summary: "Read file",
-        payload: {
-          itemType: "dynamic_tool_call",
-          title: "Read file",
-          detail: 'Read: {"file_path":"/tmp/app.ts"}',
-          data: {
-            toolName: "Read",
-            input: {
-              file_path: "/tmp/app.ts",
-            },
-          },
-        },
-      }),
-      makeActivity({
-        id: "claude-complete",
-        createdAt: "2026-02-23T00:00:03.000Z",
-        kind: "tool.completed",
-        summary: "Read file",
-        payload: {
-          itemType: "dynamic_tool_call",
-          title: "Read file",
-          detail: 'Read: {"file_path":"/tmp/app.ts"}',
-          data: {
-            toolName: "Read",
-            input: {
-              file_path: "/tmp/app.ts",
-            },
-          },
-        },
-      }),
-    ];
-
-    const entries = deriveWorkLogEntries(activities, undefined);
-
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({
-      id: "claude-complete",
-      label: "Read file",
-      detail: 'Read: {"file_path":"/tmp/app.ts"}',
-      itemType: "dynamic_tool_call",
-      toolTitle: "Read",
-      // toolName must survive derivation so the timeline can pick the file-read
-      // (search) icon instead of the generic wrench fallback.
-      toolName: "Read",
-    });
-  });
-
-  it("keeps separate tool entries when an identical call starts after the prior one completed", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "tool-1-update",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "tool.updated",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          title: "Tool call",
-          detail: 'Read: {"file_path":"/tmp/app.ts"}',
-        },
-      }),
-      makeActivity({
-        id: "tool-1-complete",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "tool.completed",
-        summary: "Tool call completed",
-        payload: {
-          itemType: "dynamic_tool_call",
-          title: "Tool call",
-          detail: 'Read: {"file_path":"/tmp/app.ts"}',
-        },
-      }),
-      makeActivity({
-        id: "tool-2-update",
-        createdAt: "2026-02-23T00:00:03.000Z",
-        kind: "tool.updated",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          title: "Tool call",
-          detail: 'Read: {"file_path":"/tmp/app.ts"}',
-        },
-      }),
-      makeActivity({
-        id: "tool-2-complete",
-        createdAt: "2026-02-23T00:00:04.000Z",
-        kind: "tool.completed",
-        summary: "Tool call completed",
-        payload: {
-          itemType: "dynamic_tool_call",
-          title: "Tool call",
-          detail: 'Read: {"file_path":"/tmp/app.ts"}',
-        },
-      }),
-    ];
-
-    const entries = deriveWorkLogEntries(activities, undefined);
-
-    expect(entries.map((entry) => entry.id)).toEqual(["tool-1-complete", "tool-2-complete"]);
-  });
-
-  it("collapses same-timestamp lifecycle rows even when completed sorts before updated by id", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "z-update-earlier",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "tool.updated",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          title: "Tool call",
-          detail: 'Read: {"file_path":"/tmp/app.ts"}',
-        },
-      }),
-      makeActivity({
-        id: "a-complete-same-timestamp",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "tool.completed",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          title: "Tool call",
-          detail: 'Read: {"file_path":"/tmp/app.ts"}',
-        },
-      }),
-      makeActivity({
-        id: "z-update-same-timestamp",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "tool.updated",
-        summary: "Tool call",
-        payload: {
-          itemType: "dynamic_tool_call",
-          title: "Tool call",
-          detail: 'Read: {"file_path":"/tmp/app.ts"}',
-        },
-      }),
-    ];
-
-    const entries = deriveWorkLogEntries(activities, undefined);
-
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.id).toBe("a-complete-same-timestamp");
   });
 
   it("omits routed collab subagent tool lifecycle rows from the chat work log", () => {
@@ -2081,164 +1589,6 @@ describe("deriveWorkLogEntries", () => {
         }),
       }),
     );
-  });
-
-  it("preserves the OpenCode task description when the generic completion row collapses", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "opencode-task-started",
-        createdAt: "2026-02-23T00:00:00.000Z",
-        kind: "tool.started",
-        summary: "task started",
-        payload: {
-          itemType: "collab_agent_tool_call",
-          status: "inProgress",
-          title: "task",
-          data: {
-            tool: "task",
-            toolName: "task",
-            toolCallId: "task-call",
-            callID: "task-call",
-            input: {},
-          },
-        },
-      }),
-      makeActivity({
-        id: "opencode-task-update",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "tool.updated",
-        summary: "Find changelog implementation",
-        payload: {
-          itemType: "collab_agent_tool_call",
-          status: "inProgress",
-          title: "Find changelog implementation",
-          detail: "Find changelog implementation",
-          data: {
-            tool: "task",
-            toolName: "task",
-            toolCallId: "task-call",
-            callID: "task-call",
-            input: {
-              description: "Find changelog implementation",
-              prompt: "Explore the changelog implementation.",
-            },
-          },
-        },
-      }),
-      makeActivity({
-        id: "opencode-task-complete",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "tool.completed",
-        summary: "task",
-        payload: {
-          itemType: "collab_agent_tool_call",
-          status: "completed",
-          title: "task",
-          detail: '<task id="task-call" state="completed">...',
-          data: {
-            tool: "task",
-            toolName: "task",
-            toolCallId: "task-call",
-            callID: "task-call",
-            input: {
-              description: "Find changelog implementation",
-              prompt: "Explore the changelog implementation.",
-            },
-            state: {
-              status: "completed",
-              output:
-                '<task id="task-call" state="completed">\n<task_result>\nFull changelog report\nwith file references.\n</task_result>\n</task>',
-            },
-          },
-        },
-      }),
-    ];
-
-    const entries = deriveWorkLogEntries(activities, undefined);
-
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toEqual(
-      expect.objectContaining({
-        id: "opencode-task-complete",
-        itemType: "collab_agent_tool_call",
-        toolTitle: "Find changelog implementation",
-        detail: "Full changelog report\nwith file references.",
-        subagentAction: expect.objectContaining({
-          prompt: "Explore the changelog implementation.",
-        }),
-      }),
-    );
-  });
-
-  it("collapses an OpenCode task across an interleaved runtime error by tool-call id", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "opencode-task-update",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "tool.updated",
-        summary: "Find changelog implementation",
-        payload: {
-          itemType: "collab_agent_tool_call",
-          status: "inProgress",
-          title: "Find changelog implementation",
-          data: {
-            tool: "task",
-            toolName: "task",
-            toolCallId: "task-call",
-            input: {
-              description: "Find changelog implementation",
-              prompt: "Explore the changelog implementation.",
-            },
-          },
-        },
-      }),
-      makeActivity({
-        id: "runtime-error",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "runtime.error",
-        summary: "Provider runtime error",
-        tone: "error",
-      }),
-      makeActivity({
-        id: "opencode-task-complete",
-        createdAt: "2026-02-23T00:00:03.000Z",
-        kind: "tool.completed",
-        summary: "task",
-        payload: {
-          itemType: "collab_agent_tool_call",
-          status: "failed",
-          title: "task",
-          detail: "Tool execution aborted",
-          data: {
-            tool: "task",
-            toolName: "task",
-            toolCallId: "task-call",
-            input: {
-              description: "Find changelog implementation",
-              prompt: "Explore the changelog implementation.",
-            },
-            state: {
-              title: "Find changelog implementation",
-              status: "error",
-            },
-          },
-        },
-      }),
-    ];
-
-    // The task update + completion share a tool-call id and merge into one row even
-    // though a runtime error arrived between them; the runtime error stays separate.
-    const entries = deriveWorkLogEntries(activities, undefined);
-    expect(entries).toHaveLength(2);
-    expect(entries.find((entry) => entry.itemType === "collab_agent_tool_call")).toEqual(
-      expect.objectContaining({
-        id: "opencode-task-complete",
-        itemType: "collab_agent_tool_call",
-        toolTitle: "Find changelog implementation",
-        detail: "Tool execution aborted",
-      }),
-    );
-    expect(entries.some((entry) => entry.tone === "error")).toBe(true);
   });
 
   it("uses completed Claude task result content for generic agent task rows", () => {
@@ -2536,7 +1886,7 @@ describe("deriveWorkLogEntries context window handling", () => {
 });
 
 describe("deriveWorkLogEntries Codex find regression", () => {
-  it("humanizes Codex find commands from real DB payload (regression)", () => {
+  it("humanizes a canonical Codex find operation (regression)", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "5ae75cbe-5cb5-471a-a6ba-d9712170f1c0",
@@ -2614,7 +1964,7 @@ describe("deriveWorkLogEntries Codex find regression", () => {
           },
         },
       }),
-    ];
+    ].slice(1);
 
     const entries = deriveWorkLogEntries(activities, undefined);
     expect(entries).toHaveLength(1);

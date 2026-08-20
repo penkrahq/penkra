@@ -108,8 +108,6 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
   });
   const threadDirectory = resolveThreadWorkingDirectory({
     projectCwd: activeProject?.cwd ?? null,
-    threadEnvMode: threadWorkspaceMetadata.envMode ?? draftThread?.envMode ?? null,
-    threadWorktreePath: threadWorkspaceMetadata.worktreePath ?? draftThread?.worktreePath ?? null,
     threadWorkingDirectory:
       threadWorkspaceMetadata.workingDirectory ?? draftThread?.workingDirectory ?? null,
   });

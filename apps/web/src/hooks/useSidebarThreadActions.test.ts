@@ -199,8 +199,6 @@ function makeThread(id: ThreadId, overrides: Partial<SidebarThreadSummary> = {})
     projectId: PROJECT_ID,
     title: String(id),
     modelSelection: { provider: "codex", model: "gpt-5.6" },
-    branch: null,
-    worktreePath: null,
     session: null,
     createdAt: id === THREAD_ID ? "2026-07-20T00:00:00.000Z" : "2026-07-19T00:00:00.000Z",
     latestTurn: null,
@@ -449,14 +447,6 @@ describe("useSidebarThreadActions", () => {
     const result = await render().deleteProjectThreads(PROJECT_ID, { confirmMessage: null });
 
     expect(harness.activeThreadDelete).toHaveBeenCalledTimes(2);
-    const firstInput = harness.activeThreadDelete.mock.calls[0]?.[0] as {
-      deletedThreadIds: ReadonlySet<ThreadId>;
-    };
-    const secondInput = harness.activeThreadDelete.mock.calls[1]?.[0] as {
-      deletedThreadIds: ReadonlySet<ThreadId>;
-    };
-    expect(firstInput.deletedThreadIds).toBe(secondInput.deletedThreadIds);
-    expect([...firstInput.deletedThreadIds]).toEqual([THREAD_ID, thirdId]);
     expect(harness.reconcileDeletedThreads).toHaveBeenCalledWith(
       expect.objectContaining({ threadIds: [thirdId] }),
     );

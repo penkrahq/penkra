@@ -12,35 +12,13 @@ import {
   OrchestrationUnsubscribeShellInput,
   OrchestrationUnsubscribeThreadInput,
   ORCHESTRATION_WS_CHANNELS,
-  OrchestrationGetFullThreadDiffInput,
   OrchestrationGetThreadDetailSnapshotInput,
   OrchestrationGetShellSnapshotInput,
   OrchestrationRepairStateInput,
   ORCHESTRATION_WS_METHODS,
   OrchestrationGetSnapshotInput,
-  OrchestrationGetTurnDiffInput,
   OrchestrationReplayEventsInput,
 } from "./orchestration";
-import {
-  GitCheckoutInput,
-  GitCreateBranchInput,
-  GitCreateDetachedWorktreeInput,
-  GitSwitchThreadEnvironmentInput,
-  GitPreparePullRequestThreadInput,
-  GitCreateWorktreeInput,
-  GitListBranchesInput,
-  GitPullRequestRefInput,
-  GitPullRequestSnapshotInput,
-  GitReadWorkingTreeDiffInput,
-  GitRemoveWorktreeInput,
-  GitRemoveIndexLockInput,
-  GitStageFilesInput,
-  GitStashAndCheckoutInput,
-  GitStashDropInput,
-  GitStashInfoInput,
-  GitStatusInput,
-  GitUnstageFilesInput,
-} from "./git";
 import {
   TerminalAckOutputInput,
   TerminalClearInput,
@@ -65,7 +43,6 @@ import {
   ProjectWriteFileInput,
   ProjectWorkspaceChangeEvent,
 } from "./project";
-import { StudioListThreadOutputsInput } from "./studio";
 import { FilesystemBrowseInput } from "./filesystem";
 import { OpenInEditorInput } from "./editor";
 import {
@@ -81,7 +58,6 @@ import {
   ServerStopLocalServerInput,
   ServerVoiceTranscriptionInput,
 } from "./server";
-import { StatsGetProfileStatsInput, StatsGetProfileTokenStatsInput } from "./stats";
 import {
   ProviderListCommandsInput,
   ProviderGetComposerCapabilitiesInput,
@@ -103,14 +79,6 @@ import {
   TerminateProviderConnectionInput,
   ThreadProviderBindingSnapshotInput,
 } from "./providerConnections";
-import {
-  PullRequestActionInput,
-  PullRequestCommentInput,
-  PullRequestDetailInput,
-  PullRequestReviewRequestCountInput,
-  PullRequestSetPinnedInput,
-  PullRequestsListInput,
-} from "./pullRequests";
 
 // ── WebSocket RPC Method Names ───────────────────────────────────────
 
@@ -129,44 +97,11 @@ export const WS_METHODS = {
   subscribeProjectDevServerEvents: "projects.subscribeDevServerEvents",
   subscribeProjectWorkspaceChanges: "projects.subscribeWorkspaceChanges",
 
-  // Studio methods
-  studioListThreadOutputs: "studio.listThreadOutputs",
-
   // Filesystem browse methods
   filesystemBrowse: "filesystem.browse",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
-
-  // Git methods
-  gitStatus: "git.status",
-  gitReadWorkingTreeDiff: "git.readWorkingTreeDiff",
-  gitWorkingTreeDiffStats: "git.workingTreeDiffStats",
-  gitListBranches: "git.listBranches",
-  gitCreateWorktree: "git.createWorktree",
-  gitCreateDetachedWorktree: "git.createDetachedWorktree",
-  gitRemoveWorktree: "git.removeWorktree",
-  gitCreateBranch: "git.createBranch",
-  gitCheckout: "git.checkout",
-  gitStashAndCheckout: "git.stashAndCheckout",
-  gitStashDrop: "git.stashDrop",
-  gitStashInfo: "git.stashInfo",
-  gitRemoveIndexLock: "git.removeIndexLock",
-  gitStageFiles: "git.stageFiles",
-  gitUnstageFiles: "git.unstageFiles",
-  gitSwitchThreadEnvironment: "git.switchThreadEnvironment",
-  gitResolvePullRequest: "git.resolvePullRequest",
-  gitPullRequestSnapshot: "git.pullRequestSnapshot",
-  gitPreparePullRequestThread: "git.preparePullRequestThread",
-
-  // Global pull request methods
-  pullRequestsList: "pullRequests.list",
-  pullRequestsReviewRequestCount: "pullRequests.reviewRequestCount",
-  pullRequestsDetail: "pullRequests.detail",
-  pullRequestsDiff: "pullRequests.diff",
-  pullRequestsAction: "pullRequests.action",
-  pullRequestsComment: "pullRequests.comment",
-  pullRequestsSetPinned: "pullRequests.setPinned",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -186,13 +121,10 @@ export const WS_METHODS = {
   serverUpdateSpaceNavigationState: "server.updateSpaceNavigationState",
   serverRefreshProviders: "server.refreshProviders",
   serverUpdateProvider: "server.updateProvider",
-  serverListWorktrees: "server.listWorktrees",
   serverListLocalServers: "server.listLocalServers",
   serverStopLocalServer: "server.stopLocalServer",
   serverGetProviderUsageSnapshot: "server.getProviderUsageSnapshot",
   serverListProviderUsage: "server.listProviderUsage",
-  statsGetProfileStats: "stats.getProfileStats",
-  statsGetProfileTokenStats: "stats.getProfileTokenStats",
   serverGetDiagnostics: "server.getDiagnostics",
   serverTranscribeVoice: "server.transcribeVoice",
   serverUpsertKeybinding: "server.upsertKeybinding",
@@ -265,8 +197,6 @@ const WebSocketRequestBody = Schema.Union([
     OrchestrationGetThreadDetailSnapshotInput,
   ),
   tagRequestBody(ORCHESTRATION_WS_METHODS.repairState, OrchestrationRepairStateInput),
-  tagRequestBody(ORCHESTRATION_WS_METHODS.getTurnDiff, OrchestrationGetTurnDiffInput),
-  tagRequestBody(ORCHESTRATION_WS_METHODS.getFullThreadDiff, OrchestrationGetFullThreadDiffInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.replayEvents, OrchestrationReplayEventsInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeShell, OrchestrationSubscribeShellInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.unsubscribeShell, OrchestrationUnsubscribeShellInput),
@@ -291,43 +221,10 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.subscribeProjectWorkspaceChanges, Schema.Struct({})),
 
   // Filesystem browse
-  // Studio
-  tagRequestBody(WS_METHODS.studioListThreadOutputs, StudioListThreadOutputsInput),
-
   tagRequestBody(WS_METHODS.filesystemBrowse, FilesystemBrowseInput),
 
   // Shell methods
   tagRequestBody(WS_METHODS.shellOpenInEditor, OpenInEditorInput),
-
-  // Git methods
-  tagRequestBody(WS_METHODS.gitStatus, GitStatusInput),
-  tagRequestBody(WS_METHODS.gitReadWorkingTreeDiff, GitReadWorkingTreeDiffInput),
-  tagRequestBody(WS_METHODS.gitWorkingTreeDiffStats, GitReadWorkingTreeDiffInput),
-  tagRequestBody(WS_METHODS.gitListBranches, GitListBranchesInput),
-  tagRequestBody(WS_METHODS.gitCreateWorktree, GitCreateWorktreeInput),
-  tagRequestBody(WS_METHODS.gitCreateDetachedWorktree, GitCreateDetachedWorktreeInput),
-  tagRequestBody(WS_METHODS.gitRemoveWorktree, GitRemoveWorktreeInput),
-  tagRequestBody(WS_METHODS.gitCreateBranch, GitCreateBranchInput),
-  tagRequestBody(WS_METHODS.gitCheckout, GitCheckoutInput),
-  tagRequestBody(WS_METHODS.gitStashAndCheckout, GitStashAndCheckoutInput),
-  tagRequestBody(WS_METHODS.gitStashDrop, GitStashDropInput),
-  tagRequestBody(WS_METHODS.gitStashInfo, GitStashInfoInput),
-  tagRequestBody(WS_METHODS.gitRemoveIndexLock, GitRemoveIndexLockInput),
-  tagRequestBody(WS_METHODS.gitStageFiles, GitStageFilesInput),
-  tagRequestBody(WS_METHODS.gitUnstageFiles, GitUnstageFilesInput),
-  tagRequestBody(WS_METHODS.gitSwitchThreadEnvironment, GitSwitchThreadEnvironmentInput),
-  tagRequestBody(WS_METHODS.gitResolvePullRequest, GitPullRequestRefInput),
-  tagRequestBody(WS_METHODS.gitPullRequestSnapshot, GitPullRequestSnapshotInput),
-  tagRequestBody(WS_METHODS.gitPreparePullRequestThread, GitPreparePullRequestThreadInput),
-
-  // Global pull requests
-  tagRequestBody(WS_METHODS.pullRequestsList, PullRequestsListInput),
-  tagRequestBody(WS_METHODS.pullRequestsReviewRequestCount, PullRequestReviewRequestCountInput),
-  tagRequestBody(WS_METHODS.pullRequestsDetail, PullRequestDetailInput),
-  tagRequestBody(WS_METHODS.pullRequestsDiff, PullRequestDetailInput),
-  tagRequestBody(WS_METHODS.pullRequestsAction, PullRequestActionInput),
-  tagRequestBody(WS_METHODS.pullRequestsComment, PullRequestCommentInput),
-  tagRequestBody(WS_METHODS.pullRequestsSetPinned, PullRequestSetPinnedInput),
 
   // Terminal methods
   tagRequestBody(WS_METHODS.terminalOpen, TerminalOpenInput),
@@ -350,13 +247,10 @@ const WebSocketRequestBody = Schema.Union([
   ),
   tagRequestBody(WS_METHODS.serverRefreshProviders, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverUpdateProvider, ServerProviderUpdateInput),
-  tagRequestBody(WS_METHODS.serverListWorktrees, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverListLocalServers, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverStopLocalServer, ServerStopLocalServerInput),
   tagRequestBody(WS_METHODS.serverGetProviderUsageSnapshot, ServerGetProviderUsageSnapshotInput),
   tagRequestBody(WS_METHODS.serverListProviderUsage, ServerListProviderUsageInput),
-  tagRequestBody(WS_METHODS.statsGetProfileStats, StatsGetProfileStatsInput),
-  tagRequestBody(WS_METHODS.statsGetProfileTokenStats, StatsGetProfileTokenStatsInput),
   tagRequestBody(WS_METHODS.serverGetDiagnostics, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverTranscribeVoice, ServerVoiceTranscriptionInput),
   tagRequestBody(WS_METHODS.serverUpsertKeybinding, KeybindingRule),
@@ -406,7 +300,6 @@ export const WsWelcomePayload = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   homeDir: Schema.optional(TrimmedNonEmptyString),
   chatWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
-  studioWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
   projectName: TrimmedNonEmptyString,
   bootstrapProjectId: Schema.optional(ContainerId),
   bootstrapThreadId: Schema.optional(ThreadId),

@@ -6,7 +6,6 @@ import * as Path from "node:path";
 
 import type { DesktopAppRuntime } from "./desktopAppRuntime";
 import { getInstalledAppPackage } from "./appInstallationState";
-import { isRequiredApp } from "./appDistributionPolicy";
 
 export interface DevelopmentAppSideloadResult {
   appId: string;
@@ -36,17 +35,12 @@ export async function bootstrapDevelopmentSideload(
     return result("installed");
   }
   if (existing.source !== "sideload") {
-    if (isRequiredApp(existing.appId)) {
-      await runtime.installations.updateSideloadForSpace({
-        package: { ...verified, source: "sideload" },
-        spaceId,
-      });
-      await ensureDevelopmentSideloadEnabled(runtime, verified.manifest, spaceId);
-      return result("updated");
-    }
-    throw new Error(
-      `${verified.manifest.id} is already installed from the registry; remove it before sideloading.`,
-    );
+    await runtime.installations.updateSideloadForSpace({
+      package: { ...verified, source: "sideload" },
+      spaceId,
+    });
+    await ensureDevelopmentSideloadEnabled(runtime, verified.manifest, spaceId);
+    return result("updated");
   }
   const status = existing.sha256 === verified.sha256 ? "current" : "updated";
   if (status === "updated") {

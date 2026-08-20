@@ -42,13 +42,9 @@ function ToolDetailsTimeline() {
           },
         },
       ]}
-      turnDiffSummaryByAssistantMessageId={new Map()}
       nowIso="2026-03-17T19:12:30.000Z"
       expandedWorkGroups={{}}
       onToggleWorkGroup={() => {}}
-      revertTurnCountByUserMessageId={new Map()}
-      onRevertUserMessage={() => {}}
-      isRevertingCheckpoint={false}
       onImageExpand={() => {}}
       markdownCwd={undefined}
       resolvedTheme="dark"

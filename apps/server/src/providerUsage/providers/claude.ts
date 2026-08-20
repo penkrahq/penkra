@@ -113,22 +113,141 @@ function claudePlanName(creds: ClaudeCreds): string | undefined {
   return name;
 }
 
+const CLAUDE_RESET_MONTH_BY_NAME = new Map(
+  ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map(
+    (month, index) => [month.toLowerCase(), index] as const,
+  ),
+);
+
+function zonedDateTimeMs(input: {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  timeZone: string;
+}): number | undefined {
+  let formatter: Intl.DateTimeFormat;
+  try {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: input.timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    });
+  } catch {
+    return undefined;
+  }
+
+  const desiredAsUtc = Date.UTC(input.year, input.month, input.day, input.hour, input.minute);
+  let candidate = desiredAsUtc;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = Object.fromEntries(
+      formatter
+        .formatToParts(new Date(candidate))
+        .filter((part) => part.type !== "literal")
+        .map((part) => [part.type, Number(part.value)]),
+    );
+    const representedAsUtc = Date.UTC(
+      parts.year ?? 0,
+      (parts.month ?? 1) - 1,
+      parts.day ?? 1,
+      parts.hour ?? 0,
+      parts.minute ?? 0,
+      parts.second ?? 0,
+    );
+    const adjustment = desiredAsUtc - representedAsUtc;
+    candidate += adjustment;
+    if (adjustment === 0) break;
+  }
+  return candidate;
+}
+
+function parseClaudeCliReset(resetText: string | undefined, nowMs: number): string | undefined {
+  if (!resetText) return undefined;
+  const match = resetText.match(
+    /^([A-Za-z]{3})\s+(\d{1,2})\s+at\s+(\d{1,2})(?::(\d{2}))?(am|pm)\s+\(([^)]+)\)$/iu,
+  );
+  if (!match) return undefined;
+  const month = CLAUDE_RESET_MONTH_BY_NAME.get(match[1]?.toLowerCase() ?? "");
+  const day = Number(match[2]);
+  let hour = Number(match[3]);
+  const minute = Number(match[4] ?? "0");
+  const meridiem = match[5]?.toLowerCase();
+  const timeZone = match[6]?.trim();
+  if (
+    month === undefined ||
+    !timeZone ||
+    day < 1 ||
+    day > 31 ||
+    hour < 1 ||
+    hour > 12 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return undefined;
+  }
+  hour = (hour % 12) + (meridiem === "pm" ? 12 : 0);
+
+  let currentYear: number;
+  try {
+    currentYear = Number(
+      new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric" }).format(nowMs),
+    );
+  } catch {
+    return undefined;
+  }
+  let resetMs = zonedDateTimeMs({ year: currentYear, month, day, hour, minute, timeZone });
+  if (resetMs === undefined) return undefined;
+  // Claude omits the year. A date materially behind `now` is the next calendar year;
+  // retain a recently elapsed date so stale CLI output does not turn into a one-year reset.
+  if (resetMs < nowMs - 36 * 60 * 60 * 1000) {
+    resetMs = zonedDateTimeMs({ year: currentYear + 1, month, day, hour, minute, timeZone });
+  }
+  return resetMs === undefined ? undefined : new Date(resetMs).toISOString();
+}
+
 export function parseClaudeCliUsage(input: { text: string; nowMs: number }) {
   const limits: ServerProviderUsageLimit[] = [];
-  const linePattern = /^(.+?):\s*(\d+(?:\.\d+)?)%\s+used(?:\s+·\s+resets\s+.+)?$/gimu;
+  const linePattern = /^(.+?):\s*(\d+(?:\.\d+)?)%\s+used(?:\s+·\s+resets\s+(.+))?$/gimu;
   for (const match of input.text.matchAll(linePattern)) {
     const label = match[1]?.trim().toLowerCase();
     const usedPercent = clampPercent(Number(match[2]));
     if (!label || usedPercent === undefined) continue;
+    const resetsAt = parseClaudeCliReset(match[3]?.trim(), input.nowMs);
 
     if (label === "current session") {
-      limits.push({ window: "5h", usedPercent, windowDurationMins: 300 });
+      limits.push({
+        window: "5h",
+        usedPercent,
+        windowDurationMins: 300,
+        ...(resetsAt ? { resetsAt } : {}),
+      });
     } else if (label.startsWith("current week")) {
-      limits.push({ window: "Weekly", usedPercent, windowDurationMins: 10_080 });
+      limits.push({
+        window: "Weekly",
+        usedPercent,
+        windowDurationMins: 10_080,
+        ...(resetsAt ? { resetsAt } : {}),
+      });
     } else if (label.includes("sonnet")) {
-      limits.push({ window: "Sonnet", usedPercent, windowDurationMins: 10_080 });
+      limits.push({
+        window: "Sonnet",
+        usedPercent,
+        windowDurationMins: 10_080,
+        ...(resetsAt ? { resetsAt } : {}),
+      });
     } else if (label.includes("opus")) {
-      limits.push({ window: "Opus", usedPercent, windowDurationMins: 10_080 });
+      limits.push({
+        window: "Opus",
+        usedPercent,
+        windowDurationMins: 10_080,
+        ...(resetsAt ? { resetsAt } : {}),
+      });
     }
   }
   if (limits.length === 0) return null;

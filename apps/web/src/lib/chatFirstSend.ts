@@ -45,7 +45,6 @@ export function resolveFirstSendTarget(input: {
   createdAt: Date;
   isFirstMessage: boolean;
   isHomeChatContainer: boolean;
-  isStudioContainer: boolean;
   projects: readonly Project[];
   selectedWorkspaceRoot: string | null;
   title: string;
@@ -57,23 +56,13 @@ export function resolveFirstSendTarget(input: {
     createdAt,
     isFirstMessage,
     isHomeChatContainer,
-    isStudioContainer,
     projects,
     selectedWorkspaceRoot,
     title,
     titleSeed,
   } = input;
 
-  if (!isFirstMessage || (!isHomeChatContainer && !isStudioContainer)) {
-    return {
-      kind: "current",
-      target: buildProjectTarget(activeProject),
-    };
-  }
-
-  // Studio chats never leave the Studio container: a picked folder stays attached to the
-  // thread as its workspace root instead of becoming (or joining) a Projects entry.
-  if (isStudioContainer) {
+  if (!isFirstMessage || !isHomeChatContainer) {
     return {
       kind: "current",
       target: buildProjectTarget(activeProject),

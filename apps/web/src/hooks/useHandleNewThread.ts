@@ -71,9 +71,7 @@ export function useHandleNewThread() {
             containerSpaceId: targetProject.spaceId ?? null,
           });
     const shouldInferWorkingDirectory =
-      parentScopedOptions?.workingDirectory === undefined &&
-      parentScopedOptions?.worktreePath === undefined &&
-      targetProject !== undefined;
+      parentScopedOptions?.workingDirectory === undefined && targetProject !== undefined;
     const inferredWorkingDirectory = shouldInferWorkingDirectory
       ? resolveRecentParentWorkingDirectory({
           projectId,
@@ -196,11 +194,7 @@ export function useHandleNewThread() {
           title: "New terminal",
           modelSelection: creationState.modelSelection,
           runtimeMode: creationState.runtimeMode,
-          envMode: creationState.envMode,
-          branch: creationState.branch,
-          worktreePath: creationState.worktreePath,
           workingDirectory: creationState.workingDirectory,
-          lastKnownPr: creationState.lastKnownPr,
           createdAt: new Date().toISOString(),
         },
         api,

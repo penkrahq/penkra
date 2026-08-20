@@ -8,7 +8,6 @@ const meta = {
     durationLabel: "0:08",
     isTranscribing: false,
     onCancel: () => undefined,
-    onSubmit: () => undefined,
     waveformLevels: [0.2, 0.55, 0.35, 0.8, 0.45, 0.65, 0.3],
   },
   decorators: [

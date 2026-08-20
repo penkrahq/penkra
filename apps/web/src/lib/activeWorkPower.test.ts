@@ -13,8 +13,6 @@ function stateWithThread(
     projectId: ContainerId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: { provider: "codex", model: "gpt-5" },
-    branch: null,
-    worktreePath: null,
     session: null,
     createdAt: "2026-08-09T00:00:00.000Z",
     latestTurn: null,

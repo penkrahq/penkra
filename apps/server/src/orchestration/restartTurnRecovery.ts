@@ -54,17 +54,20 @@ export const recoverRestartInterruptedTurns = Effect.gen(function* () {
         ) {
           yield* sql`
             DELETE FROM restart_turn_recoveries
-            WHERE thread_id = ${threadId} AND turn_id = ${interruptedTurnId}
+            WHERE thread_id = ${threadId}
           `;
           return;
         }
 
         const recoveryMessageId = MessageId.makeUnsafe(`restart-recovery:${crypto.randomUUID()}`);
+        const commandId = CommandId.makeUnsafe(`restart-recovery:${crypto.randomUUID()}`);
+        const turnId = TurnId.makeUnsafe(`turn:${commandId}`);
         const createdAt = new Date().toISOString();
         yield* engine.dispatch({
           type: "thread.turn.recover",
-          commandId: CommandId.makeUnsafe(`restart-recovery:${crypto.randomUUID()}`),
+          commandId,
           threadId,
+          turnId,
           recoveryMessageId,
           interruptedTurnId,
           connectionId:

@@ -1,4 +1,4 @@
-import { ApprovalRequestId, CommandId, type OrchestrationEvent } from "@penkra/contracts";
+import { ApprovalRequestId, CommandId, TurnId, type OrchestrationEvent } from "@penkra/contracts";
 import {
   addPinnedMessage,
   removePinnedMessage,
@@ -15,7 +15,11 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
+import {
+  PersistenceSqlError,
+  toPersistenceSqlError,
+  type ProjectionRepositoryError,
+} from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import {
@@ -85,7 +89,6 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadActivities: "projection.thread-activities",
   threadSessions: "projection.thread-sessions",
   threadTurns: "projection.thread-turns",
-  checkpoints: "projection.checkpoints",
   // Preserve the established cursor identity. Migration 062 resets it so the
   // widened projector replays approval and user-input history exactly once.
   pendingInteractions: "projection.pending-approvals",
@@ -151,13 +154,11 @@ const THREAD_MESSAGE_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]
   "thread.turn-steer-queued-requested",
   "thread.turn-start-requested",
   "thread.turn-start-cancelled",
-  "thread.reverted",
   "thread.conversation-rolled-back",
 ]);
 
 const THREAD_ACTIVITY_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "thread.activity-appended",
-  "thread.reverted",
   "thread.conversation-rolled-back",
 ]);
 
@@ -165,8 +166,6 @@ const THREAD_TURN_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "thread.turn-start-requested",
   "thread.turn-start-cancelled",
   "thread.session-set",
-  "thread.turn-diff-completed",
-  "thread.reverted",
   "thread.conversation-rolled-back",
 ]);
 
@@ -220,88 +219,10 @@ const withRebuiltThreadShellSummary = Effect.fn(function* (input: {
   } satisfies ProjectionThread;
 });
 
-function retainProjectionTurnsAfterRevert(
-  turns: ReadonlyArray<ProjectionTurn>,
-  turnCount: number,
-): ReadonlyArray<ProjectionTurn> {
-  return turns.filter(
-    (turn) =>
-      turn.turnId !== null &&
-      turn.checkpointTurnCount !== null &&
-      turn.checkpointTurnCount <= turnCount,
-  );
-}
-
-function retainProjectionMessagesAfterRevert(
-  messages: ReadonlyArray<ProjectionThreadMessage>,
-  turns: ReadonlyArray<ProjectionTurn>,
-  turnCount: number,
-): ReadonlyArray<ProjectionThreadMessage> {
-  const retainedMessageIds = new Set<string>();
-  const retainedTurnIds = new Set<string>();
-  const keptTurns = retainProjectionTurnsAfterRevert(turns, turnCount);
-  for (const turn of keptTurns) {
-    if (turn.turnId !== null) {
-      retainedTurnIds.add(turn.turnId);
-    }
-    if (turn.pendingMessageId !== null) {
-      retainedMessageIds.add(turn.pendingMessageId);
-    }
-    if (turn.assistantMessageId !== null) {
-      retainedMessageIds.add(turn.assistantMessageId);
-    }
-  }
-
-  for (const message of messages) {
-    if (message.role === "system") {
-      retainedMessageIds.add(message.messageId);
-      continue;
-    }
-    if (message.turnId !== null && retainedTurnIds.has(message.turnId)) {
-      retainedMessageIds.add(message.messageId);
-    }
-  }
-
-  for (const role of ["user", "assistant"] as const) {
-    const retainedCount = messages.filter(
-      (message) => message.role === role && retainedMessageIds.has(message.messageId),
-    ).length;
-    const missingCount = Math.max(0, turnCount - retainedCount);
-    if (missingCount > 0) {
-      for (const message of messages
-        .filter(
-          (message) =>
-            message.role === role &&
-            !retainedMessageIds.has(message.messageId) &&
-            (message.turnId === null || retainedTurnIds.has(message.turnId)),
-        )
-        .slice(0, missingCount)) {
-        retainedMessageIds.add(message.messageId);
-      }
-    }
-  }
-
-  return messages.filter((message) => retainedMessageIds.has(message.messageId));
-}
-
-function retainTurnScopedProjectionRowsAfterRevert<
-  Row extends { readonly turnId: ProjectionTurn["turnId"] },
->(
-  rows: ReadonlyArray<Row>,
-  turns: ReadonlyArray<ProjectionTurn>,
-  turnCount: number,
-): ReadonlyArray<Row> {
-  const retainedTurnIds = new Set(
-    retainProjectionTurnsAfterRevert(turns, turnCount).flatMap((turn) =>
-      turn.turnId === null ? [] : [turn.turnId],
-    ),
-  );
-  return rows.filter((row) => row.turnId === null || retainedTurnIds.has(row.turnId));
-}
-
 function rollbackProjectionMessagesFromMessage(
   messages: ReadonlyArray<ProjectionThreadMessage>,
   messageId: string,
+  preserveTarget: boolean,
 ): {
   readonly keptRows: ReadonlyArray<ProjectionThreadMessage>;
   readonly removedTurnIds: ReadonlySet<string>;
@@ -312,8 +233,11 @@ function rollbackProjectionMessagesFromMessage(
     return { keptRows: messages, removedTurnIds: new Set(), changed: false };
   }
   const removedRows = messages.slice(targetIndex);
+  const preservedTarget = preserveTarget
+    ? [{ ...messages[targetIndex]!, turnId: null, delivery: undefined }]
+    : [];
   return {
-    keptRows: messages.slice(0, targetIndex),
+    keptRows: [...messages.slice(0, targetIndex), ...preservedTarget],
     removedTurnIds: new Set(
       removedRows.flatMap((message) => (message.turnId === null ? [] : [message.turnId])),
     ),
@@ -526,10 +450,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           );
           return;
         case "thread.created": {
-          const project = yield* projectionProjectRepository.getById({
-            projectId: event.payload.projectId,
-          });
-          const isStudio = Option.isSome(project) && project.value.kind === "studio";
           yield* projectionThreadRepository.upsert({
             threadId: event.payload.threadId,
             projectId: event.payload.projectId,
@@ -537,22 +457,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
-            envMode: isStudio ? "local" : (event.payload.envMode ?? "local"),
-            branch: isStudio ? null : event.payload.branch,
-            worktreePath: isStudio ? null : event.payload.worktreePath,
-            workingDirectory: isStudio
-              ? (event.payload.workingDirectory ?? event.payload.worktreePath)
-              : (event.payload.workingDirectory ?? event.payload.worktreePath ?? null),
-            associatedWorktreePath: isStudio
-              ? null
-              : (event.payload.associatedWorktreePath ?? null),
-            associatedWorktreeBranch: isStudio
-              ? null
-              : (event.payload.associatedWorktreeBranch ?? null),
-            associatedWorktreeRef: isStudio ? null : (event.payload.associatedWorktreeRef ?? null),
-            createBranchFlowCompleted: isStudio
-              ? false
-              : (event.payload.createBranchFlowCompleted ?? false),
+            workingDirectory: event.payload.workingDirectory ?? null,
             isPinned: event.payload.isPinned ?? false,
             sidebarSortOrder: event.payload.sidebarSortOrder ?? 0,
             parentThreadId: event.payload.parentThreadId ?? null,
@@ -565,12 +470,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             subagentNickname: event.payload.subagentNickname ?? null,
             subagentRole: event.payload.subagentRole ?? null,
             forkSourceThreadId: event.payload.forkSourceThreadId,
-            lastKnownPr: event.payload.lastKnownPr ?? null,
             latestTurnId: null,
             pinnedMessages: null,
             threadMarkers: null,
             notes: null,
             latestUserMessageAt: null,
+            lastVisitedAt: null,
             pendingApprovalCount: 0,
             pendingUserInputCount: 0,
             createdAt: event.payload.createdAt,
@@ -582,22 +487,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         }
 
         case "thread.meta-updated": {
-          const currentThread = yield* projectionThreadRepository.getById({
-            threadId: event.payload.threadId,
-          });
-          const project = Option.isSome(currentThread)
-            ? yield* projectionProjectRepository.getById({
-                projectId: currentThread.value.projectId,
-              })
-            : Option.none();
-          const isStudio = Option.isSome(project) && project.value.kind === "studio";
           return yield* updateThreadProjection(event.payload.threadId, (thread) => {
-            const nextCreateBranchFlowCompleted =
-              event.payload.createBranchFlowCompleted !== undefined
-                ? event.payload.createBranchFlowCompleted
-                : event.payload.branch !== undefined && event.payload.branch !== thread.branch
-                  ? false
-                  : undefined;
             return {
               ...thread,
               ...(event.payload.spaceId !== undefined ? { spaceId: event.payload.spaceId } : {}),
@@ -605,51 +495,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ...(event.payload.modelSelection !== undefined
                 ? { modelSelection: event.payload.modelSelection }
                 : {}),
-              ...(isStudio
-                ? {
-                    envMode: "local" as const,
-                    branch: null,
-                    worktreePath: null,
-                    workingDirectory:
-                      event.payload.workingDirectory !== undefined
-                        ? event.payload.workingDirectory
-                        : event.payload.worktreePath !== undefined
-                          ? event.payload.worktreePath
-                          : (thread.workingDirectory ?? thread.worktreePath),
-                  }
-                : {
-                    ...(event.payload.envMode !== undefined
-                      ? { envMode: event.payload.envMode }
-                      : {}),
-                    ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
-                    ...(event.payload.worktreePath !== undefined
-                      ? { worktreePath: event.payload.worktreePath }
-                      : {}),
-                    ...(event.payload.workingDirectory !== undefined
-                      ? { workingDirectory: event.payload.workingDirectory }
-                      : event.payload.worktreePath !== undefined
-                        ? { workingDirectory: event.payload.worktreePath }
-                        : {}),
-                  }),
-              ...(event.payload.associatedWorktreePath !== undefined
-                ? { associatedWorktreePath: event.payload.associatedWorktreePath }
-                : {}),
-              ...(event.payload.associatedWorktreeBranch !== undefined
-                ? { associatedWorktreeBranch: event.payload.associatedWorktreeBranch }
-                : {}),
-              ...(event.payload.associatedWorktreeRef !== undefined
-                ? { associatedWorktreeRef: event.payload.associatedWorktreeRef }
-                : {}),
-              ...(nextCreateBranchFlowCompleted !== undefined
-                ? { createBranchFlowCompleted: nextCreateBranchFlowCompleted }
-                : {}),
-              ...(isStudio
-                ? {
-                    associatedWorktreePath: null,
-                    associatedWorktreeBranch: null,
-                    associatedWorktreeRef: null,
-                    createBranchFlowCompleted: false,
-                  }
+              ...(event.payload.workingDirectory !== undefined
+                ? { workingDirectory: event.payload.workingDirectory }
                 : {}),
               ...(event.payload.isPinned !== undefined ? { isPinned: event.payload.isPinned } : {}),
               ...(event.payload.sidebarSortOrder !== undefined
@@ -667,9 +514,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ...(event.payload.subagentRole !== undefined
                 ? { subagentRole: event.payload.subagentRole }
                 : {}),
-              ...(event.payload.lastKnownPr !== undefined
-                ? { lastKnownPr: event.payload.lastKnownPr }
-                : {}),
               ...(event.payload.pinnedMessages !== undefined
                 ? { pinnedMessages: event.payload.pinnedMessages }
                 : {}),
@@ -677,6 +521,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                 ? { threadMarkers: event.payload.threadMarkers }
                 : {}),
               ...(event.payload.notes !== undefined ? { notes: event.payload.notes } : {}),
+              ...(event.payload.lastVisitedAt !== undefined
+                ? { lastVisitedAt: event.payload.lastVisitedAt }
+                : {}),
               updatedAt: event.payload.updatedAt,
             };
           });
@@ -845,7 +692,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         }
 
         case "thread.turn-start-cancelled":
-        case "thread.reverted":
         case "thread.conversation-rolled-back": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
@@ -866,8 +712,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           return;
         }
 
-        case "thread.session-set":
-        case "thread.turn-diff-completed": {
+        case "thread.session-set": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
           });
@@ -876,12 +721,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           }
           const nextRow = {
             ...existingRow.value,
-            latestTurnId:
-              event.type === "thread.session-set"
-                ? event.payload.session.activeTurnId
-                : event.payload.preserveLatestTurn
-                  ? existingRow.value.latestTurnId
-                  : event.payload.turnId,
+            latestTurnId: event.payload.session.activeTurnId,
             updatedAt: event.occurredAt,
           } satisfies ProjectionThread;
           yield* projectionThreadRepository.upsert(nextRow);
@@ -947,11 +787,16 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         dispatch_mode = COALESCE(${event.payload.dispatchMode ?? null}, dispatch_mode),
         dispatch_origin = COALESCE(${event.payload.dispatchOrigin ?? null}, dispatch_origin),
         is_streaming = 1,
+        applied_len = applied_len + length(CAST(${event.payload.text} AS BLOB)),
         source = ${event.payload.source},
         sequence = COALESCE(sequence, ${event.sequence}),
         updated_at = ${event.payload.updatedAt}
       WHERE thread_id = ${event.payload.threadId}
         AND message_id = ${event.payload.messageId}
+        AND (
+          ${event.payload.expectedTextByteLength ?? null} IS NULL
+          OR applied_len = ${event.payload.expectedTextByteLength ?? null}
+        )
       RETURNING message_id AS "messageId"
     `.pipe(
       Effect.map((rows) => rows.length > 0),
@@ -976,6 +821,42 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             threadId: event.payload.threadId,
             messageId: event.payload.messageId,
           });
+          if (
+            event.payload.streaming &&
+            event.payload.expectedTextByteLength !== undefined &&
+            Option.isSome(existingMessage)
+          ) {
+            const actualText = Buffer.from(existingMessage.value.text, "utf8");
+            const fragment = Buffer.from(event.payload.text, "utf8");
+            const actualTextByteLength = actualText.byteLength;
+            if (actualTextByteLength !== event.payload.expectedTextByteLength) {
+              if (!existingMessage.value.isStreaming) {
+                // A terminal message row is newer authoritative state than an
+                // earlier streaming fragment replayed after cursor loss. The
+                // later completion may have replaced the accumulator with a
+                // provider snapshot, so byte equality is not required here.
+                return;
+              }
+              const expectedEnd = event.payload.expectedTextByteLength + fragment.byteLength;
+              if (
+                actualTextByteLength >= expectedEnd &&
+                actualText
+                  .subarray(event.payload.expectedTextByteLength, expectedEnd)
+                  .equals(fragment)
+              ) {
+                // Cursor/projection-state loss can replay an event whose exact
+                // fragment is already present in a later durable row. Advancing
+                // the projector cursor is correct; appending it again is not.
+                return;
+              }
+              return yield* new PersistenceSqlError({
+                operation: "ProjectionPipeline.appendStreamingThreadMessageText",
+                detail:
+                  `Assistant fragment offset mismatch for '${event.payload.messageId}': ` +
+                  `expected ${event.payload.expectedTextByteLength} UTF-8 bytes, found ${actualTextByteLength}.`,
+              });
+            }
+          }
           const nextAttachments =
             event.payload.attachments !== undefined
               ? event.payload.attachments
@@ -1075,9 +956,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           return;
         }
 
-        case "thread.reverted":
         case "thread.conversation-rolled-back": {
-          if (event.type === "thread.conversation-rolled-back" && event.payload.numTurns === 0) {
+          if (event.payload.numTurns === 0) {
             return;
           }
           const existingRows = yield* projectionThreadMessageRepository.listByThreadId({
@@ -1086,34 +966,21 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           if (existingRows.length === 0) {
             return;
           }
-          let keptRows: typeof existingRows;
-          if (event.type === "thread.reverted") {
-            keptRows = retainProjectionMessagesAfterRevert(
-              existingRows,
-              yield* projectionTurnRepository.listByThreadId({
-                threadId: event.payload.threadId,
-              }),
-              event.payload.turnCount,
-            );
-            if (keptRows.length === existingRows.length) {
-              return;
-            }
-          } else {
-            const rollback = rollbackProjectionMessagesFromMessage(
-              existingRows,
-              event.payload.messageId,
-            );
-            if (!rollback.changed) {
-              return;
-            }
-            keptRows = rollback.keptRows;
+          const rollback = rollbackProjectionMessagesFromMessage(
+            existingRows,
+            event.payload.messageId,
+            event.payload.skipAttachmentPrune === true,
+          );
+          if (!rollback.changed) {
+            return;
           }
+          const keptRows = rollback.keptRows;
 
           yield* projectionThreadMessageRepository.deleteByThreadId({
             threadId: event.payload.threadId,
           });
           yield* Effect.forEach(keptRows, projectionThreadMessageRepository.upsert);
-          if (event.type === "thread.reverted" || event.payload.skipAttachmentPrune !== true) {
+          if (event.payload.skipAttachmentPrune !== true) {
             attachmentSideEffects.prunedThreadRelativePaths.set(
               event.payload.threadId,
               collectThreadAttachmentRelativePaths(event.payload.threadId, keptRows),
@@ -1133,7 +1000,46 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   ) =>
     Effect.gen(function* () {
       switch (event.type) {
-        case "thread.activity-appended":
+        case "thread.activity-appended": {
+          const activityPayload = event.payload.activity.payload;
+          const operationIdValue =
+            activityPayload !== null &&
+            typeof activityPayload === "object" &&
+            !Array.isArray(activityPayload)
+              ? (activityPayload as Record<string, unknown>).operationId
+              : null;
+          const operationId = typeof operationIdValue === "string" ? operationIdValue : null;
+          if (operationId !== null && event.payload.activity.kind.startsWith("tool.")) {
+            const terminalRows = yield* sql<{ readonly present: number }>`
+              SELECT 1 AS present
+              FROM projection_thread_activities
+              WHERE thread_id = ${event.payload.threadId}
+                AND kind = 'tool.completed'
+                AND operation_id = ${operationId}
+              LIMIT 1
+            `.pipe(
+              Effect.mapError(
+                toPersistenceSqlError("ProjectionPipeline.findTerminalOperationActivity:query"),
+              ),
+            );
+            if (terminalRows.length > 0 && event.payload.activity.kind !== "tool.completed") {
+              // Keep the current high-water event and its receipt. Removing the
+              // newest event would leave projection cursors ahead of the log.
+              // A later event or the offline compactor may collect this replay.
+              return;
+            }
+            yield* sql`
+              DELETE FROM projection_thread_activities
+              WHERE thread_id = ${event.payload.threadId}
+                AND activity_id <> ${event.payload.activity.id}
+                AND kind LIKE 'tool.%'
+                AND operation_id = ${operationId}
+            `.pipe(
+              Effect.mapError(
+                toPersistenceSqlError("ProjectionPipeline.collapseOperationActivities:query"),
+              ),
+            );
+          }
           yield* projectionThreadActivityRepository.upsert({
             activityId: event.payload.activity.id,
             threadId: event.payload.threadId,
@@ -1148,8 +1054,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             createdAt: event.payload.activity.createdAt,
           });
           return;
+        }
 
-        case "thread.reverted":
         case "thread.conversation-rolled-back": {
           const existingRows = yield* projectionThreadActivityRepository.listByThreadId({
             threadId: event.payload.threadId,
@@ -1157,19 +1063,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           if (existingRows.length === 0) {
             return;
           }
-          const keptRows =
-            event.type === "thread.reverted"
-              ? retainTurnScopedProjectionRowsAfterRevert(
-                  existingRows,
-                  yield* projectionTurnRepository.listByThreadId({
-                    threadId: event.payload.threadId,
-                  }),
-                  event.payload.turnCount,
-                )
-              : retainTurnScopedProjectionRowsAfterConversationRollback(
-                  existingRows,
-                  new Set(event.payload.removedTurnIds ?? []),
-                );
+          const keptRows = retainTurnScopedProjectionRowsAfterConversationRollback(
+            existingRows,
+            new Set(event.payload.removedTurnIds ?? []),
+          );
           if (keptRows.length === existingRows.length) {
             return;
           }
@@ -1192,6 +1089,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
     Effect.gen(function* () {
       switch (event.type) {
         case "thread.turn-start-requested": {
+          const penkraTurnId = event.payload.turnId ?? TurnId.makeUnsafe(`turn:${event.commandId}`);
           const [currentSession, thread] = yield* Effect.all([
             projectionThreadSessionRepository.getByThreadId({
               threadId: event.payload.threadId,
@@ -1212,14 +1110,28 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           if (turnStartSession !== null) {
             yield* projectionThreadSessionRepository.upsert(turnStartSession);
           }
+          yield* sql`
+            INSERT INTO restart_turn_recoveries (
+              thread_id, turn_id, message_id, requested_at, updated_at
+            ) VALUES (
+              ${event.payload.threadId}, ${penkraTurnId}, ${event.payload.messageId},
+              ${event.payload.createdAt}, ${event.payload.createdAt}
+            )
+            ON CONFLICT(thread_id) DO UPDATE SET
+              turn_id = excluded.turn_id,
+              message_id = excluded.message_id,
+              requested_at = excluded.requested_at,
+              updated_at = excluded.updated_at
+          `.pipe(
+            Effect.mapError(
+              toPersistenceSqlError("ProjectionPipeline.admitRestartTurnRecovery:query"),
+            ),
+          );
           return;
         }
 
         case "thread.session-set":
           {
-            const previousSession = yield* projectionThreadSessionRepository.getByThreadId({
-              threadId: event.payload.threadId,
-            });
             yield* projectionThreadSessionRepository.upsert({
               threadId: event.payload.threadId,
               status: event.payload.session.status,
@@ -1235,14 +1147,14 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ) {
               yield* sql`
                 INSERT INTO restart_turn_recoveries (
-                  thread_id, turn_id, requested_at, updated_at
+                  thread_id, turn_id, message_id, requested_at, updated_at
                 ) VALUES (
                   ${event.payload.threadId}, ${event.payload.session.activeTurnId},
+                  (SELECT message_id FROM restart_turn_recoveries
+                   WHERE thread_id = ${event.payload.threadId}),
                   ${event.payload.session.updatedAt}, ${event.payload.session.updatedAt}
                 )
                 ON CONFLICT(thread_id) DO UPDATE SET
-                  turn_id = excluded.turn_id,
-                  requested_at = excluded.requested_at,
                   updated_at = excluded.updated_at
               `.pipe(
                 Effect.mapError(
@@ -1250,16 +1162,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                 ),
               );
             } else if (
-              (event.payload.session.status === "ready" ||
-                event.payload.session.status === "error") &&
-              Option.isSome(previousSession) &&
-              previousSession.value.status === "running" &&
-              previousSession.value.activeTurnId !== null
+              event.payload.session.status === "ready" ||
+              event.payload.session.status === "error"
             ) {
               yield* sql`
                 DELETE FROM restart_turn_recoveries
                 WHERE thread_id = ${event.payload.threadId}
-                  AND turn_id = ${previousSession.value.activeTurnId}
               `.pipe(
                 Effect.mapError(
                   toPersistenceSqlError("ProjectionPipeline.deleteRestartTurnRecovery:query"),
@@ -1270,6 +1178,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           return;
 
         case "thread.turn-interrupt-requested":
+        case "thread.turn-start-cancelled":
         case "thread.session-stop-requested":
         case "thread.archived":
         case "thread.deleted":
@@ -1295,8 +1204,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
     Effect.gen(function* () {
       switch (event.type) {
         case "thread.turn-start-requested": {
+          const penkraTurnId = event.payload.turnId ?? TurnId.makeUnsafe(`turn:${event.commandId}`);
           yield* projectionTurnRepository.replacePendingTurnStart({
             threadId: event.payload.threadId,
+            turnId: penkraTurnId,
             messageId: event.payload.messageId,
             requestedAt: event.payload.createdAt,
           });
@@ -1321,13 +1232,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               const openTurns = (yield* projectionTurnRepository.listByThreadId({
                 threadId: event.payload.threadId,
               }))
-                .filter(
-                  (
-                    row,
-                  ): row is ProjectionTurn & {
-                    turnId: Exclude<ProjectionTurn["turnId"], null>;
-                  } => row.turnId !== null && row.completedAt === null,
-                )
+                .filter((row) => row.completedAt === null)
                 .toSorted(
                   (left, right) =>
                     right.requestedAt.localeCompare(left.requestedAt) ||
@@ -1352,30 +1257,50 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             return;
           }
 
-          const existingTurn = yield* projectionTurnRepository.getByTurnId({
+          const existingCanonicalTurn = yield* projectionTurnRepository.getByTurnId({
             threadId: event.payload.threadId,
             turnId,
           });
           const pendingTurnStart = yield* projectionTurnRepository.getPendingTurnStartByThreadId({
             threadId: event.payload.threadId,
           });
-          if (Option.isSome(existingTurn)) {
+          const providerBoundTurn = (yield* projectionTurnRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          })).find((row) => row.providerTurnId === turnId);
+          const existingTurn = Option.isSome(existingCanonicalTurn)
+            ? existingCanonicalTurn.value
+            : (providerBoundTurn ??
+              (Option.isSome(pendingTurnStart)
+                ? {
+                    threadId: pendingTurnStart.value.threadId,
+                    turnId: pendingTurnStart.value.turnId,
+                    providerTurnId: turnId,
+                    pendingMessageId: pendingTurnStart.value.messageId,
+                    assistantMessageId: null,
+                    state: "pending" as const,
+                    requestedAt: pendingTurnStart.value.requestedAt,
+                    startedAt: null,
+                    completedAt: null,
+                  }
+                : undefined));
+          if (existingTurn !== undefined) {
             const nextState =
-              existingTurn.value.state === "completed" ||
-              existingTurn.value.state === "interrupted" ||
-              existingTurn.value.state === "error"
-                ? existingTurn.value.state
+              existingTurn.state === "completed" ||
+              existingTurn.state === "interrupted" ||
+              existingTurn.state === "error"
+                ? existingTurn.state
                 : "running";
             yield* projectionTurnRepository.upsertByTurnId({
-              ...existingTurn.value,
+              ...existingTurn,
+              providerTurnId: existingTurn.providerTurnId ?? turnId,
               state: nextState,
               pendingMessageId:
-                existingTurn.value.pendingMessageId ??
+                existingTurn.pendingMessageId ??
                 (Option.isSome(pendingTurnStart) ? pendingTurnStart.value.messageId : null),
               startedAt:
-                existingTurn.value.startedAt ?? event.payload.session.updatedAt ?? event.occurredAt,
+                existingTurn.startedAt ?? event.payload.session.updatedAt ?? event.occurredAt,
               requestedAt:
-                existingTurn.value.requestedAt ??
+                existingTurn.requestedAt ??
                 (Option.isSome(pendingTurnStart)
                   ? pendingTurnStart.value.requestedAt
                   : event.occurredAt),
@@ -1383,6 +1308,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           } else {
             yield* projectionTurnRepository.upsertByTurnId({
               turnId,
+              providerTurnId: turnId,
               threadId: event.payload.threadId,
               pendingMessageId: Option.isSome(pendingTurnStart)
                 ? pendingTurnStart.value.messageId
@@ -1395,16 +1321,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               // Keep `startedAt` tied to provider runtime start, not the earlier user dispatch.
               startedAt: event.payload.session.updatedAt ?? event.occurredAt,
               completedAt: null,
-              checkpointTurnCount: null,
-              checkpointRef: null,
-              checkpointStatus: null,
-              checkpointFiles: [],
             });
           }
 
-          yield* projectionTurnRepository.deletePendingTurnStartByThreadId({
-            threadId: event.payload.threadId,
-          });
           return;
         }
 
@@ -1412,33 +1331,35 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           if (event.payload.turnId === null || event.payload.role !== "assistant") {
             return;
           }
-          const existingTurn = yield* projectionTurnRepository.getByTurnId({
+          const existingCanonicalTurn = yield* projectionTurnRepository.getByTurnId({
             threadId: event.payload.threadId,
             turnId: event.payload.turnId,
           });
-          if (Option.isSome(existingTurn)) {
+          const existingTurn = Option.isSome(existingCanonicalTurn)
+            ? existingCanonicalTurn.value
+            : (yield* projectionTurnRepository.listByThreadId({
+                threadId: event.payload.threadId,
+              })).find((row) => row.providerTurnId === event.payload.turnId);
+          if (existingTurn !== undefined) {
             const existingIsTerminal =
-              existingTurn.value.state === "completed" ||
-              existingTurn.value.state === "error" ||
-              existingTurn.value.state === "interrupted";
+              existingTurn.state === "completed" ||
+              existingTurn.state === "error" ||
+              existingTurn.state === "interrupted";
             yield* projectionTurnRepository.upsertByTurnId({
-              ...existingTurn.value,
+              ...existingTurn,
               assistantMessageId: event.payload.messageId,
               state:
-                event.payload.streaming && !existingIsTerminal
-                  ? "running"
-                  : existingTurn.value.state,
+                event.payload.streaming && !existingIsTerminal ? "running" : existingTurn.state,
               completedAt:
-                event.payload.streaming && !existingIsTerminal
-                  ? null
-                  : existingTurn.value.completedAt,
-              startedAt: existingTurn.value.startedAt ?? event.payload.createdAt,
-              requestedAt: existingTurn.value.requestedAt ?? event.payload.createdAt,
+                event.payload.streaming && !existingIsTerminal ? null : existingTurn.completedAt,
+              startedAt: existingTurn.startedAt ?? event.payload.createdAt,
+              requestedAt: existingTurn.requestedAt ?? event.payload.createdAt,
             });
             return;
           }
           yield* projectionTurnRepository.upsertByTurnId({
             turnId: event.payload.turnId,
+            providerTurnId: event.payload.turnId,
             threadId: event.payload.threadId,
             pendingMessageId: null,
             assistantMessageId: event.payload.messageId,
@@ -1446,10 +1367,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             requestedAt: event.payload.createdAt,
             startedAt: event.payload.createdAt,
             completedAt: null,
-            checkpointTurnCount: null,
-            checkpointRef: null,
-            checkpointStatus: null,
-            checkpointFiles: [],
           });
           return;
         }
@@ -1472,105 +1389,21 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           return;
         }
 
-        case "thread.turn-diff-completed": {
-          const existingTurn = yield* projectionTurnRepository.getByTurnId({
-            threadId: event.payload.threadId,
-            turnId: event.payload.turnId,
-          });
-          const isProviderDiffPlaceholder =
-            event.payload.status === "missing" &&
-            event.payload.checkpointRef.startsWith("provider-diff:");
-          const nextState = isProviderDiffPlaceholder
-            ? Option.match(existingTurn, {
-                onNone: () => "running" as const,
-                onSome: (turn) => turn.state,
-              })
-            : event.payload.status === "error"
-              ? "error"
-              : "completed";
-          yield* projectionTurnRepository.clearCheckpointTurnConflict({
-            threadId: event.payload.threadId,
-            turnId: event.payload.turnId,
-            checkpointTurnCount: event.payload.checkpointTurnCount,
-          });
-
-          if (Option.isSome(existingTurn)) {
-            yield* projectionTurnRepository.upsertByTurnId({
-              ...existingTurn.value,
-              // Preserve the persisted assistantMessageId when the event payload
-              // is null. Placeholder turn-diff events can fire before the
-              // assistant message is finalized; they must not erase a real id
-              // recorded earlier by thread.message-sent.
-              assistantMessageId:
-                event.payload.assistantMessageId ?? existingTurn.value.assistantMessageId,
-              state: nextState,
-              checkpointTurnCount: event.payload.checkpointTurnCount,
-              checkpointRef: event.payload.checkpointRef,
-              checkpointStatus: event.payload.status,
-              checkpointFiles: event.payload.files,
-              startedAt: existingTurn.value.startedAt ?? event.payload.completedAt,
-              requestedAt: existingTurn.value.requestedAt ?? event.payload.completedAt,
-              completedAt: isProviderDiffPlaceholder
-                ? existingTurn.value.completedAt
-                : event.payload.completedAt,
-            });
-            return;
-          }
-          yield* projectionTurnRepository.upsertByTurnId({
-            turnId: event.payload.turnId,
-            threadId: event.payload.threadId,
-            pendingMessageId: null,
-            assistantMessageId: event.payload.assistantMessageId,
-            state: nextState,
-            requestedAt: event.payload.completedAt,
-            startedAt: event.payload.completedAt,
-            completedAt: isProviderDiffPlaceholder ? null : event.payload.completedAt,
-            checkpointTurnCount: event.payload.checkpointTurnCount,
-            checkpointRef: event.payload.checkpointRef,
-            checkpointStatus: event.payload.status,
-            checkpointFiles: event.payload.files,
-          });
-          return;
-        }
-
-        case "thread.reverted":
         case "thread.conversation-rolled-back": {
           const existingTurns = yield* projectionTurnRepository.listByThreadId({
             threadId: event.payload.threadId,
           });
-          const keptTurns =
-            event.type === "thread.reverted"
-              ? retainProjectionTurnsAfterRevert(existingTurns, event.payload.turnCount)
-              : retainTurnScopedProjectionRowsAfterConversationRollback(
-                  existingTurns,
-                  new Set(event.payload.removedTurnIds ?? []),
-                );
-          if (
-            event.type === "thread.conversation-rolled-back" &&
-            keptTurns.length === existingTurns.length
-          ) {
+          const keptTurns = retainTurnScopedProjectionRowsAfterConversationRollback(
+            existingTurns,
+            new Set(event.payload.removedTurnIds ?? []),
+          );
+          if (keptTurns.length === existingTurns.length) {
             return;
           }
           yield* projectionTurnRepository.deleteByThreadId({
             threadId: event.payload.threadId,
           });
-          yield* Effect.forEach(keptTurns, (turn) =>
-            turn.turnId === null
-              ? event.type === "thread.reverted" ||
-                turn.pendingMessageId === null ||
-                turn.state !== "pending" ||
-                turn.checkpointTurnCount !== null
-                ? Effect.void
-                : projectionTurnRepository.replacePendingTurnStart({
-                    threadId: turn.threadId,
-                    messageId: turn.pendingMessageId,
-                    requestedAt: turn.requestedAt,
-                  })
-              : projectionTurnRepository.upsertByTurnId({
-                  ...turn,
-                  turnId: turn.turnId,
-                }),
-          );
+          yield* Effect.forEach(keptTurns, (turn) => projectionTurnRepository.upsertByTurnId(turn));
           return;
         }
 
@@ -1578,8 +1411,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           return;
       }
     });
-
-  const applyCheckpointsProjection: ProjectorDefinition["apply"] = () => Effect.void;
 
   const updatePendingInteractionShellCount = Effect.fn(function* (input: {
     readonly threadId: ProjectionThread["threadId"];
@@ -1838,12 +1669,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       phase: "hot",
       shouldApply: shouldApplyThreadTurnsProjection,
       apply: applyThreadTurnsProjection,
-    },
-    {
-      name: ORCHESTRATION_PROJECTOR_NAMES.checkpoints,
-      phase: "hot",
-      shouldApply: () => false,
-      apply: applyCheckpointsProjection,
     },
     {
       name: ORCHESTRATION_PROJECTOR_NAMES.pendingInteractions,

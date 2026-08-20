@@ -2,7 +2,6 @@
 import "../index.css";
 
 import {
-  CheckpointRef,
   EventId,
   MessageId,
   ORCHESTRATION_WS_METHODS,
@@ -42,7 +41,6 @@ import {
 import { isMacPlatform } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { resetHomeChatProjectPrewarmStateForTests } from "../lib/chatProjects";
-import { resetStudioProjectPrewarmStateForTests } from "../lib/studioProjects";
 import { getRouter } from "../router";
 import { useSplitViewStore } from "../splitViewStore";
 import { useSpacesUiStore } from "../spacesUiStore";
@@ -60,6 +58,7 @@ import { useTerminalStateStore } from "../terminalStateStore";
 import { resetRetainedThreadDetailSubscriptionsForTests } from "../threadDetailSubscriptionRetention";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { resetWsNativeApiForTest } from "../wsNativeApi";
+import { useVoiceSessionCoordinatorStore } from "../voiceSessionCoordinator";
 // Pre-transform the compiler-heavy component outside the first case's timeout.
 // The router's auto-split route otherwise requests this module on first mount.
 import "./ChatView";
@@ -75,8 +74,6 @@ const OTHER_PROJECT_ID = "project-2" as ContainerId;
 const TEST_SPACE_ID = SpaceId.makeUnsafe("space-browser-test");
 const TEST_CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-codex-browser");
 const HOME_PROJECT_ID = "project-home" as ContainerId;
-const STUDIO_PROJECT_ID = "project-studio" as ContainerId;
-const STUDIO_DRAFT_THREAD_ID = "thread-studio-draft" as ThreadId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
@@ -355,16 +352,12 @@ function createSnapshotForTargetUser(options: {
           model: "gpt-5",
         },
         runtimeMode: "full-access",
-        envMode: "local",
-        branch: "main",
-        worktreePath: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
         deletedAt: null,
         messages,
         activities: [],
-        checkpoints: [],
         session: {
           threadId: THREAD_ID,
           status: options.sessionStatus ?? "ready",
@@ -509,16 +502,12 @@ function addThreadToSnapshot(
           model: "gpt-5",
         },
         runtimeMode: "full-access",
-        envMode: "local",
-        branch: "main",
-        worktreePath: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
         deletedAt: null,
         messages: [],
         activities: [],
-        checkpoints: [],
         session: {
           threadId,
           status: "ready",
@@ -576,7 +565,6 @@ function withOpenProjectPickerFixtures(snapshot: OrchestrationReadModel): Orches
             workingDirectory: "/repo/other",
             messages: [],
             activities: [],
-            checkpoints: [],
             session: sourceThread.session
               ? { ...sourceThread.session, threadId: OTHER_THREAD_ID }
               : null,
@@ -616,29 +604,6 @@ function withActiveHomeChatThread(snapshot: OrchestrationReadModel): Orchestrati
     threads: snapshotWithHomeProject.threads.map((thread) =>
       thread.id === THREAD_ID ? { ...thread, projectId: HOME_PROJECT_ID } : thread,
     ),
-  };
-}
-
-function withStudioProject(snapshot: OrchestrationReadModel): OrchestrationReadModel {
-  return {
-    ...snapshot,
-    projects: [
-      ...snapshot.projects,
-      {
-        id: STUDIO_PROJECT_ID,
-        kind: "studio",
-        title: "Studio",
-        workspaceRoot: "/Users/tester/Documents/Penkra/Studio",
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5",
-        },
-        scripts: [],
-        createdAt: NOW_ISO,
-        updatedAt: NOW_ISO,
-        deletedAt: null,
-      },
-    ],
   };
 }
 
@@ -1024,10 +989,7 @@ function recordProjectCreateCommand(command: unknown): boolean {
             "spaceId" in command && typeof command.spaceId === "string"
               ? SpaceId.makeUnsafe(command.spaceId)
               : TEST_SPACE_ID,
-          kind:
-            "kind" in command && (command.kind === "chat" || command.kind === "studio")
-              ? command.kind
-              : "project",
+          kind: "kind" in command && command.kind === "chat" ? command.kind : "project",
           title: String(command.title),
           workspaceRoot: command.workspaceRoot === null ? null : String(command.workspaceRoot),
           defaultModelSelection:
@@ -1275,62 +1237,6 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   if (tag === WS_METHODS.projectsListDevServers) {
     return { servers: [] };
   }
-  if (tag === WS_METHODS.gitListBranches) {
-    const cwd = typeof body.cwd === "string" ? body.cwd : null;
-    const branchName = cwd ? (fixture.gitBranchByCwd[cwd] ?? "main") : "main";
-    return {
-      isRepo: true,
-      hasOriginRemote: true,
-      branches: [
-        {
-          name: branchName,
-          current: true,
-          isDefault: true,
-          worktreePath: null,
-        },
-      ],
-    };
-  }
-  if (tag === WS_METHODS.gitStatus) {
-    const cwd = typeof body.cwd === "string" ? body.cwd : null;
-    const branchName = cwd ? (fixture.gitBranchByCwd[cwd] ?? "main") : "main";
-    return {
-      branch: branchName,
-      hasWorkingTreeChanges: false,
-      workingTree: {
-        files: [],
-        insertions: 0,
-        deletions: 0,
-      },
-      hasUpstream: true,
-      aheadCount: 0,
-      behindCount: 0,
-      pr: null,
-    };
-  }
-  if (tag === WS_METHODS.gitCreateWorktree) {
-    const requestedBranch =
-      typeof body.newBranch === "string"
-        ? body.newBranch
-        : typeof body.branch === "string"
-          ? body.branch
-          : "main";
-    return {
-      worktree: {
-        path: `/repo/.codex/worktrees/project/${requestedBranch.replaceAll("/", "-")}`,
-        branch: requestedBranch,
-      },
-    };
-  }
-  if (tag === WS_METHODS.gitCreateDetachedWorktree) {
-    return {
-      worktree: {
-        path: "/repo/.codex/worktrees/generated/penkra",
-        ref: "0123456789abcdef0123456789abcdef01234567",
-        branch: null,
-      },
-    };
-  }
   if (tag === WS_METHODS.projectsSearchEntries) {
     return {
       entries: [],
@@ -1367,21 +1273,6 @@ function installDeterministicSendNativeApi(): () => void {
     configurable: true,
     value: {
       ...wsNativeApi,
-      git: {
-        ...wsNativeApi.git,
-        createDetachedWorktree: async (
-          input: Parameters<typeof wsNativeApi.git.createDetachedWorktree>[0],
-        ) => {
-          const request: WsRequestEnvelope["body"] = {
-            _tag: WS_METHODS.gitCreateDetachedWorktree,
-            ...input,
-          };
-          wsRequests.push(request);
-          return resolveWsRpc(request) as Awaited<
-            ReturnType<typeof wsNativeApi.git.createDetachedWorktree>
-          >;
-        },
-      },
       terminal: {
         ...wsNativeApi.terminal,
         open: async (input: Parameters<typeof wsNativeApi.terminal.open>[0]) => {
@@ -2054,7 +1945,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     await resetWsNativeApiForTest();
     resetRetainedThreadDetailSubscriptionsForTests();
     await resetHomeChatProjectPrewarmStateForTests();
-    await resetStudioProjectPrewarmStateForTests();
     await setViewport(DEFAULT_VIEWPORT);
     attachmentResponseDelayMs = 0;
     attachmentUploadSequence = 0;
@@ -2081,13 +1971,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     useWorkspacePathsStore.setState({
       homeDir: null,
       chatWorkspaceRoot: null,
-      studioWorkspaceRoot: null,
     });
   });
 
   afterEach(async () => {
     await resetHomeChatProjectPrewarmStateForTests();
-    await resetStudioProjectPrewarmStateForTests();
     resetRetainedThreadDetailSubscriptionsForTests();
     document.body.innerHTML = "";
   });
@@ -2246,7 +2134,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
             name: "Dev",
             command: "bun run dev",
             icon: "play",
-            runOnWorktreeCreate: false,
           },
         ],
       );
@@ -2973,9 +2860,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
-          branch: null,
-          worktreePath: null,
-          envMode: "local",
         },
       },
       projectDraftThreadIdByProjectId: {
@@ -3013,9 +2897,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
-          branch: null,
-          worktreePath: null,
-          envMode: "local",
         },
       },
       projectDraftThreadIdByProjectId: {
@@ -3031,7 +2912,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           name: "Lint",
           command: "bun run lint",
           icon: "lint",
-          runOnWorktreeCreate: false,
         },
       ]),
       configureFixture: (nextFixture) => {
@@ -3599,6 +3479,49 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(getComputedStyle(stopButton).cursor).toBe("pointer");
       expect(voiceButton.disabled).toBe(false);
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the voice-note send button at the trailing edge while recording a running turn", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-recording-running-turn" as MessageId,
+        targetText: "recording during a running turn",
+        sessionStatus: "running",
+      }),
+    });
+
+    try {
+      useVoiceSessionCoordinatorStore.setState({
+        capture: {
+          origin: {
+            threadId: THREAD_ID,
+            providerThreadId: null,
+            cwd: "/tmp/penkra-browser-test",
+          },
+          phase: "recording",
+          startedAtMs: performance.now(),
+          durationMs: 4_000,
+          waveformLevels: [0.2, 0.6, 0.4],
+        },
+      });
+
+      const sendVoiceButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Send voice note"]'),
+        "Unable to find the send voice note button.",
+      );
+      const actions = sendVoiceButton.closest<HTMLElement>("[data-pencil-component='JwTiI']");
+
+      expect(actions).not.toBeNull();
+      expect(document.querySelector('button[aria-label="Stop generation"]')).toBeNull();
+      expect(sendVoiceButton.dataset.pencilComponent).toBe("eFqUm");
+      expect(
+        actions!.getBoundingClientRect().right - sendVoiceButton.getBoundingClientRect().right,
+      ).toBeCloseTo(0, 0);
+    } finally {
+      useVoiceSessionCoordinatorStore.setState({ capture: null });
       await mounted.cleanup();
     }
   });
@@ -4413,7 +4336,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         connectionId: TEST_CONNECTION_ID,
         runtimeMode: "full-access",
-        envMode: "local",
       });
       useComposerDraftStore.getState().enqueueQueuedTurn(THREAD_ID, {
         id: "queued-turn-2",
@@ -4438,7 +4360,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         connectionId: TEST_CONNECTION_ID,
         runtimeMode: "full-access",
-        envMode: "local",
       });
 
       await vi.waitFor(
@@ -4555,7 +4476,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         connectionId: TEST_CONNECTION_ID,
         runtimeMode: "full-access",
-        envMode: "local",
       });
 
       await vi.waitFor(
@@ -4635,7 +4555,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         connectionId: TEST_CONNECTION_ID,
         runtimeMode: "full-access",
-        envMode: "local",
       });
 
       await vi.waitFor(
@@ -4859,11 +4778,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const { path: newThreadPath, threadId: newThreadId } =
         await createProjectThreadWithShortcut(mounted);
 
-      useComposerDraftStore.getState().setDraftThreadContext(newThreadId, {
-        envMode: "worktree",
-        branch: "feature/keep-out",
-        worktreePath: "/repo/project/.worktrees/feature-keep-out",
-      });
+      useComposerDraftStore.getState().setDraftThreadContext(newThreadId, {});
       useComposerDraftStore.getState().setProjectDraftThreadId(OTHER_PROJECT_ID, OTHER_THREAD_ID);
       useComposerDraftStore.getState().setPrompt(OTHER_THREAD_ID, "replace this other draft");
 
@@ -4876,102 +4791,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect.element(page.getByText(/Folders on this/)).not.toBeInTheDocument();
 
       expect(mounted.router.state.location.pathname).toBe(newThreadPath);
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("coalesces repeated Studio new-chat clicks and stays in Studio after navigation settles", async () => {
-    useComposerDraftStore.setState({
-      draftThreadsByThreadId: {
-        [STUDIO_DRAFT_THREAD_ID]: {
-          projectId: STUDIO_PROJECT_ID,
-          createdAt: NOW_ISO,
-          runtimeMode: "full-access",
-          entryPoint: "chat",
-          branch: null,
-          worktreePath: null,
-          envMode: "local",
-        },
-      },
-      projectDraftThreadIdByProjectId: {
-        [STUDIO_PROJECT_ID]: STUDIO_DRAFT_THREAD_ID,
-      },
-    });
-
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      // Keep one non-Studio server thread in the snapshot. This matches the real failure: Studio
-      // has no persisted chats, while the global missing-thread recovery sees known threads and
-      // immediately redirects a transiently-cleared Studio draft to the home index.
-      snapshot: withStudioProject(
-        withHomeChatProject(
-          createSnapshotForTargetUser({
-            targetMessageId: "msg-user-studio-draft-regression" as MessageId,
-            targetText: "projects-side thread",
-          }),
-        ),
-      ),
-      initialEntry: `/${STUDIO_DRAFT_THREAD_ID}`,
-      configureFixture: (nextFixture) => {
-        nextFixture.welcome = {
-          ...nextFixture.welcome,
-          homeDir: "/Users/tester",
-          chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
-          studioWorkspaceRoot: "/Users/tester/Documents/Penkra/Studio",
-        };
-      },
-    });
-
-    try {
-      await waitForServerConfigToApply();
-      dispatchConfiguredShortcut(window, { key: "n", altKey: true });
-      dispatchConfiguredShortcut(window, { key: "n", altKey: true });
-
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "A fresh Studio chat should navigate to a new draft UUID.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
-
-      await vi.waitFor(
-        () => {
-          expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
-            projectId: STUDIO_PROJECT_ID,
-            entryPoint: "chat",
-            envMode: "local",
-            branch: null,
-            worktreePath: null,
-            workingDirectory: null,
-          });
-          expect(
-            useComposerDraftStore.getState().projectDraftThreadIdByProjectId[HOME_PROJECT_ID],
-          ).toBeUndefined();
-          expect(mounted.router.state.location.pathname).toBe(newThreadPath);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      // A superseded navigation resolves the older navigate() promise before the newer route has
-      // committed. Give route effects enough time to expose a late Home redirect, then assert the
-      // stable final state and cleanup of the displaced Studio draft.
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
-      await vi.waitFor(
-        () => {
-          const state = useComposerDraftStore.getState();
-          const studioDraftIds = Object.entries(state.draftThreadsByThreadId)
-            .filter(([, draft]) => draft.projectId === STUDIO_PROJECT_ID)
-            .map(([threadId]) => threadId);
-          expect(mounted.router.state.status).toBe("idle");
-          expect(mounted.router.state.location.pathname).toBe(newThreadPath);
-          expect(state.getDraftThread(STUDIO_DRAFT_THREAD_ID)).toBeNull();
-          expect(studioDraftIds).toEqual([newThreadId]);
-          expect(state.projectDraftThreadIdByProjectId[STUDIO_PROJECT_ID]).toBe(newThreadId);
-          expect(state.projectDraftThreadIdByProjectId[HOME_PROJECT_ID]).toBeUndefined();
-        },
-        { timeout: 8_000, interval: 16 },
-      );
     } finally {
       await mounted.cleanup();
     }
@@ -5016,9 +4835,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
             `Project reset did not complete. Picker content: ${pickerText}`,
           ).toMatchObject({
             projectId: PROJECT_ID,
-            envMode: "local",
-            branch: "main",
-            worktreePath: null,
             workingDirectory: null,
           });
         },
@@ -5038,9 +4854,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
-          branch: null,
-          worktreePath: null,
-          envMode: "local",
         },
       },
       projectDraftThreadIdByProjectId: {
@@ -5048,13 +4861,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
       },
     });
 
-    const recentHomeSnapshot = withStudioProject(
-      withHomeChatProject(
-        createSnapshotForTargetUser({
-          targetMessageId: "msg-user-home-recent-folder" as MessageId,
-          targetText: "recent home folder",
-        }),
-      ),
+    const recentHomeSnapshot = withHomeChatProject(
+      createSnapshotForTargetUser({
+        targetMessageId: "msg-user-home-recent-folder" as MessageId,
+        targetText: "recent home folder",
+      }),
     );
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -5109,9 +4920,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         () => {
           expect(useComposerDraftStore.getState().getDraftThread(THREAD_ID)).toMatchObject({
             projectId: HOME_PROJECT_ID,
-            envMode: "local",
-            branch: null,
-            worktreePath: null,
             workingDirectory: "/repo/project",
           });
         },
@@ -5215,9 +5023,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         () => {
           expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
             projectId: PROJECT_ID,
-            envMode: "local",
-            branch: "main",
-            worktreePath: null,
             workingDirectory: "/repo/new-project",
           });
         },

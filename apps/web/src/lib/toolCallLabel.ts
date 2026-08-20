@@ -1,7 +1,7 @@
 // FILE: toolCallLabel.ts
 // Purpose: Normalizes generic tool-call titles and humanizes command executions for timeline rows.
 // Layer: UI utility
-// Exports: deriveReadableToolTitle, deriveReadableCommandDisplay, command icon classifiers, deriveInlineCommandCall, normalizeCompactToolLabel, isGenericToolTitle, extractWebFetchUrl
+// Exports: deriveReadableToolTitle, deriveReadableCommandDisplay, Penkra command detection, command icon classifiers, deriveInlineCommandCall, normalizeCompactToolLabel, isGenericToolTitle, extractWebFetchUrl
 // Depends on: @penkra/contracts tool lifecycle item types
 
 import type { ToolLifecycleItemType } from "@penkra/contracts";
@@ -330,6 +330,13 @@ export interface PenkraMcpToolTitleInput {
   readonly title?: string | null | undefined;
   readonly fallbackLabel?: string | null | undefined;
   readonly status?: PenkraMcpToolStatus | undefined;
+}
+
+export function isPenkraExecCommandTool(input: PenkraMcpToolTitleInput): boolean {
+  return (
+    resolvePenkraMcpToolPresentation([input.toolName, input.title, input.fallbackLabel]) ===
+    PENKRA_MCP_TOOL_PRESENTATIONS.penkra_exec_command
+  );
 }
 
 // Every provider exposes Penkra's MCP tools differently: MCP, dynamic, and even

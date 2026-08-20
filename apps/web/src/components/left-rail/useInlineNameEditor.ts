@@ -1,6 +1,11 @@
 import { normalizeEntityName } from "@penkra/shared/entityNames";
 import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 
+export function inlineNameEditorErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "Unable to save this name.";
+  return message.replace(/^Orchestration command invariant failed \([^)]*\):\s*/u, "");
+}
+
 export function useInlineNameEditor(input: {
   cancelWhenEmpty?: boolean;
   defaultValue: string;
@@ -56,7 +61,7 @@ export function useInlineNameEditor(input: {
     try {
       await input.onSubmit(trimmedValue);
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "Unable to save this name.");
+      setSubmitError(inlineNameEditorErrorMessage(error));
       submittingRef.current = false;
       setSubmitting(false);
     }

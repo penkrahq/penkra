@@ -26,7 +26,6 @@ function makeReadModelThread(
     session: null,
     messages: [],
     activities: [],
-    checkpoints: [],
     ...overrides,
   } as OrchestrationReadModel["threads"][number];
 }

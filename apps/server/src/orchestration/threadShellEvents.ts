@@ -31,11 +31,9 @@ const THREAD_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
 const OTHER_THREAD_SHELL_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "thread.approval-response-requested",
   "thread.user-input-response-requested",
-  "thread.reverted",
   "thread.conversation-rolled-back",
   "thread.turn-start-cancelled",
   "thread.session-set",
-  "thread.turn-diff-completed",
 ]);
 
 export function shouldApplyThreadsProjection(event: OrchestrationEvent): boolean {
@@ -48,11 +46,9 @@ export function shouldRefreshThreadShellSummary(event: OrchestrationEvent): bool
       return event.payload.role === "user";
     case "thread.approval-response-requested":
     case "thread.user-input-response-requested":
-    case "thread.reverted":
     case "thread.conversation-rolled-back":
     case "thread.turn-start-cancelled":
     case "thread.session-set":
-    case "thread.turn-diff-completed":
       return true;
     case "thread.activity-appended":
       return THREAD_SHELL_SUMMARY_ACTIVITY_KINDS.has(event.payload.activity.kind);

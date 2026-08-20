@@ -18,8 +18,6 @@ import {
 } from "../../chatPerformanceDiagnostics";
 
 const EMPTY_WORK_GROUPS: Record<string, boolean> = {};
-const EMPTY_TURN_DIFFS = new Map();
-const EMPTY_REVERT_COUNTS = new Map();
 const NOOP = () => {};
 const TIMELINE_ENTRIES = Array.from({ length: 300 }, (_, index) => ({
   id: `assistant-message-entry-${index}`,
@@ -107,7 +105,6 @@ function TranscriptPerfHarness(props: { onTranscriptRender: () => void }) {
             emptyStateProjectName={undefined}
             expandedWorkGroups={EMPTY_WORK_GROUPS}
             hasMessages
-            isRevertingCheckpoint={false}
             isWorking={false}
             followLiveOutput={false}
             listRef={listRef}
@@ -125,15 +122,12 @@ function TranscriptPerfHarness(props: { onTranscriptRender: () => void }) {
             onMessagesWheel={onMessagesWheel}
             onIsAtEndChange={NOOP}
             onOpenThread={NOOP}
-            onRevertUserMessage={NOOP}
             onScrollToBottom={NOOP}
             onToggleWorkGroup={NOOP}
             resolvedTheme="dark"
-            revertTurnCountByUserMessageId={EMPTY_REVERT_COUNTS}
             scrollButtonVisible={false}
             timelineEntries={TIMELINE_ENTRIES}
             timestampFormat="locale"
-            turnDiffSummaryByAssistantMessageId={EMPTY_TURN_DIFFS}
             workspaceRoot={undefined}
           />
         </ChatPerformanceBoundary>
@@ -197,7 +191,6 @@ describe("ChatTranscriptPane", () => {
         chatFontSizePx={15}
         emptyStateProjectName={undefined}
         hasMessages
-        isRevertingCheckpoint={false}
         isWorking={false}
         followLiveOutput={false}
         listRef={{ current: null }}
@@ -215,10 +208,8 @@ describe("ChatTranscriptPane", () => {
         onMessagesWheel={NOOP}
         onIsAtEndChange={NOOP}
         onOpenThread={NOOP}
-        onRevertUserMessage={NOOP}
         onScrollToBottom={NOOP}
         resolvedTheme="dark"
-        revertTurnCountByUserMessageId={EMPTY_REVERT_COUNTS}
         scrollButtonVisible={false}
         timelineEntries={[
           {
@@ -235,7 +226,6 @@ describe("ChatTranscriptPane", () => {
           },
         ]}
         timestampFormat="locale"
-        turnDiffSummaryByAssistantMessageId={EMPTY_TURN_DIFFS}
         workspaceRoot={undefined}
       />,
       { container: host },

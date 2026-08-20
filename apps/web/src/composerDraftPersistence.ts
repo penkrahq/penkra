@@ -4,7 +4,6 @@
 
 import {
   ModelSelection,
-  OrchestrationThreadPullRequest,
   ContainerId,
   ProviderConnectionId,
   ProviderKind,
@@ -38,7 +37,6 @@ import {
   type ComposerDraftStoreState,
   type ComposerPromptHistorySavedDraft,
   type ComposerThreadDraftState,
-  type DraftThreadEnvMode,
   type QueuedComposerTurn,
 } from "./composerDraftDomain";
 import {
@@ -60,7 +58,6 @@ import {
 } from "./lib/terminalContext";
 import { DEFAULT_RUNTIME_MODE } from "./types";
 
-const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 const DraftThreadEntryPointSchema = Schema.Literals(["chat", "terminal"]);
 
 const PersistedTerminalContextDraft = Schema.Struct({
@@ -131,6 +128,8 @@ const PersistedQueuedComposerChatTurn = Schema.Struct({
   createdAt: Schema.String,
   serverAcceptedAt: Schema.optionalKey(Schema.String),
   serverMessageId: Schema.optionalKey(MessageId),
+  dispatchAttempt: Schema.optionalKey(Schema.Number),
+  dispatchBindingRevision: Schema.optionalKey(Schema.Number),
   previewText: Schema.String,
   prompt: Schema.String,
   images: Schema.Array(PersistedComposerImageAttachment),
@@ -148,7 +147,6 @@ const PersistedQueuedComposerChatTurn = Schema.Struct({
   connectionId: Schema.NullOr(ProviderConnectionId),
   providerOptionsForDispatch: Schema.optionalKey(ProviderStartOptions),
   runtimeMode: RuntimeMode,
-  envMode: DraftThreadEnvModeSchema,
 });
 
 type PersistedQueuedComposerChatTurn = typeof PersistedQueuedComposerChatTurn.Type;
@@ -249,11 +247,7 @@ const PersistedDraftThreadState = Schema.Struct({
   createdAt: Schema.String,
   runtimeMode: RuntimeMode,
   entryPoint: DraftThreadEntryPointSchema.pipe(Schema.withDecodingDefault(() => "chat")),
-  branch: Schema.NullOr(Schema.String),
-  worktreePath: Schema.NullOr(Schema.String),
   workingDirectory: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  lastKnownPr: Schema.optionalKey(Schema.NullOr(OrchestrationThreadPullRequest)),
-  envMode: DraftThreadEnvModeSchema,
   promotedTo: Schema.optionalKey(ThreadId),
 });
 
@@ -532,6 +526,18 @@ function normalizePersistedQueuedTurns(
       const serverMessageId = Schema.is(MessageId)(candidate.serverMessageId)
         ? candidate.serverMessageId
         : undefined;
+      const dispatchAttempt =
+        typeof candidate.dispatchAttempt === "number" &&
+        Number.isSafeInteger(candidate.dispatchAttempt) &&
+        candidate.dispatchAttempt >= 0
+          ? candidate.dispatchAttempt
+          : undefined;
+      const dispatchBindingRevision =
+        typeof candidate.dispatchBindingRevision === "number" &&
+        Number.isSafeInteger(candidate.dispatchBindingRevision) &&
+        candidate.dispatchBindingRevision >= 0
+          ? candidate.dispatchBindingRevision
+          : undefined;
       const prompt = typeof candidate.prompt === "string" ? candidate.prompt : "";
       const images = Array.isArray(candidate.images)
         ? candidate.images.flatMap((image) => {
@@ -569,19 +575,14 @@ function normalizePersistedQueuedTurns(
       const mentions = Array.isArray(candidate.mentions)
         ? candidate.mentions.filter(Schema.is(ProviderMentionReference))
         : [];
-      const envMode =
-        candidate.envMode === "local" || candidate.envMode === "worktree"
-          ? candidate.envMode
-          : null;
-      if (envMode === null) {
-        continue;
-      }
       normalizedTurns.push({
         id,
         kind: "chat",
         createdAt,
         ...(serverAcceptedAt ? { serverAcceptedAt } : {}),
         ...(serverMessageId ? { serverMessageId } : {}),
+        ...(dispatchAttempt === undefined ? {} : { dispatchAttempt }),
+        ...(dispatchBindingRevision === undefined ? {} : { dispatchBindingRevision }),
         previewText,
         prompt,
         images,
@@ -598,23 +599,12 @@ function normalizePersistedQueuedTurns(
         connectionId,
         ...(providerOptionsForDispatch ? { providerOptionsForDispatch } : {}),
         runtimeMode,
-        envMode,
       });
       seenIds.add(id);
       continue;
     }
   }
   return normalizedTurns.length > 0 ? normalizedTurns : undefined;
-}
-
-function normalizeDraftThreadEnvMode(
-  value: unknown,
-  fallbackWorktreePath: string | null,
-): DraftThreadEnvMode {
-  if (value === "local" || value === "worktree") {
-    return value;
-  }
-  return fallbackWorktreePath ? "worktree" : "local";
 }
 
 function normalizePersistedDraftThreads(
@@ -638,23 +628,7 @@ function normalizePersistedDraftThreads(
       const candidateDraftThread = rawDraftThread as Record<string, unknown>;
       const projectId = candidateDraftThread.projectId;
       const createdAt = candidateDraftThread.createdAt;
-      const branch = candidateDraftThread.branch;
-      const worktreePath = candidateDraftThread.worktreePath;
       const workingDirectory = candidateDraftThread.workingDirectory;
-      let lastKnownPr: OrchestrationThreadPullRequest | null = null;
-      if (
-        candidateDraftThread.lastKnownPr &&
-        typeof candidateDraftThread.lastKnownPr === "object"
-      ) {
-        try {
-          lastKnownPr = Schema.decodeUnknownSync(OrchestrationThreadPullRequest)(
-            candidateDraftThread.lastKnownPr,
-          );
-        } catch {
-          lastKnownPr = null;
-        }
-      }
-      const normalizedWorktreePath = typeof worktreePath === "string" ? worktreePath : null;
       const promotedTo =
         typeof candidateDraftThread.promotedTo === "string" &&
         candidateDraftThread.promotedTo.length > 0
@@ -679,11 +653,7 @@ function normalizePersistedDraftThreads(
             ? candidateDraftThread.runtimeMode
             : DEFAULT_RUNTIME_MODE,
         entryPoint: normalizeDraftThreadEntryPoint(candidateDraftThread.entryPoint),
-        branch: typeof branch === "string" ? branch : null,
-        worktreePath: normalizedWorktreePath,
         workingDirectory: typeof workingDirectory === "string" ? workingDirectory : null,
-        ...(lastKnownPr ? { lastKnownPr } : {}),
-        envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
         ...(promotedTo ? { promotedTo } : {}),
       };
     }
@@ -713,10 +683,7 @@ function normalizePersistedDraftThreads(
             createdAt: new Date().toISOString(),
             runtimeMode: DEFAULT_RUNTIME_MODE,
             entryPoint,
-            branch: null,
-            worktreePath: null,
             workingDirectory: null,
-            envMode: "local",
           };
         } else if (draftThreadsByThreadId[threadId as ThreadId]?.projectId !== projectId) {
           draftThreadsByThreadId[threadId as ThreadId] = {
@@ -933,6 +900,12 @@ export function partializeComposerDraftStoreState(
           createdAt: queuedTurn.createdAt,
           ...(queuedTurn.serverAcceptedAt ? { serverAcceptedAt: queuedTurn.serverAcceptedAt } : {}),
           ...(queuedTurn.serverMessageId ? { serverMessageId: queuedTurn.serverMessageId } : {}),
+          ...(queuedTurn.dispatchAttempt === undefined
+            ? {}
+            : { dispatchAttempt: queuedTurn.dispatchAttempt }),
+          ...(queuedTurn.dispatchBindingRevision === undefined
+            ? {}
+            : { dispatchBindingRevision: queuedTurn.dispatchBindingRevision }),
           previewText: queuedTurn.previewText,
           prompt: queuedTurn.prompt,
           images,
@@ -990,7 +963,6 @@ export function partializeComposerDraftStoreState(
             ? { providerOptionsForDispatch: queuedTurn.providerOptionsForDispatch }
             : {}),
           runtimeMode: queuedTurn.runtimeMode,
-          envMode: queuedTurn.envMode,
         });
       }
     }

@@ -47,7 +47,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
-import { TextGenerationError } from "../../git/Errors.ts";
+import { TextGenerationError } from "../../textGeneration/Errors.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -69,10 +69,11 @@ import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
-import { GitCore, type GitCoreShape } from "../../git/Services/GitCore.ts";
-import { TextGeneration, type TextGenerationShape } from "../../git/Services/TextGeneration.ts";
+import {
+  TextGeneration,
+  type TextGenerationShape,
+} from "../../textGeneration/Services/TextGeneration.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
-import { TurnCheckpointCoordinatorLive } from "./TurnCheckpointCoordinator.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import {
@@ -86,18 +87,9 @@ import {
 import { OrchestrationCommandInvariantError, type OrchestrationDispatchError } from "../Errors.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderThreadSwitchCoordinator } from "../Services/ProviderThreadSwitchCoordinator.ts";
-import {
-  StudioOutputReactor,
-  type StudioOutputReactorShape,
-} from "../Services/StudioOutputReactor.ts";
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { resolveProviderAttachmentPath } from "../../provider/providerAttachmentPaths.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { checkpointRefForThreadTurn } from "../../checkpointing/Utils.ts";
-import {
-  CheckpointStore,
-  type CheckpointStoreShape,
-} from "../../checkpointing/Services/CheckpointStore.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
@@ -184,8 +176,6 @@ describe("ProviderCommandReactor", () => {
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session" | "restart-session";
     readonly conversationRollback?: "native" | "unsupported";
-    readonly checkpointStore?: Partial<CheckpointStoreShape>;
-    readonly studioOutputReactor?: Partial<StudioOutputReactorShape>;
     readonly forkThreadResult?: ProviderForkThreadResult | null;
     readonly startReactor?: boolean;
     readonly interruptTurn?: ProviderServiceShape["interruptTurn"];
@@ -324,24 +314,6 @@ describe("ProviderCommandReactor", () => {
     const rollbackConversation = vi.fn<ProviderServiceShape["rollbackConversation"]>(
       () => Effect.void,
     );
-    const restoreCheckpoint = vi.fn<CheckpointStoreShape["restoreCheckpoint"]>(() =>
-      Effect.succeed(true),
-    );
-    const isGitRepository = vi.fn<CheckpointStoreShape["isGitRepository"]>(() =>
-      Effect.succeed(false),
-    );
-    const captureCheckpoint = vi.fn<CheckpointStoreShape["captureCheckpoint"]>(() => Effect.void);
-    const checkpointStore: CheckpointStoreShape = {
-      isGitRepository,
-      captureCheckpoint,
-      copyCheckpointRef: () => Effect.succeed(true),
-      hasCheckpointRef: () => Effect.succeed(false),
-      restoreCheckpoint,
-      reverseCheckpointDiff: () => Effect.succeed(true),
-      diffCheckpoints: () => Effect.succeed(""),
-      deleteCheckpointRefs: () => Effect.void,
-      ...input?.checkpointStore,
-    };
     const defaultStopSession = (input: unknown) =>
       Effect.sync(() => {
         const threadId =
@@ -407,7 +379,6 @@ describe("ProviderCommandReactor", () => {
       }),
     );
     const publishBranch = vi.fn(() => Effect.void);
-    const withMutation: GitCoreShape["withMutation"] = (_cwd, effect) => effect;
     const generateThreadTitle = vi.fn<TextGenerationShape["generateThreadTitle"]>(() =>
       Effect.fail(
         new TextGenerationError({
@@ -416,19 +387,6 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
     );
-    const captureStudioOutputBaseline = vi.fn<
-      StudioOutputReactorShape["captureBaselineBeforeTurn"]
-    >(input?.studioOutputReactor?.captureBaselineBeforeTurn ?? (() => Effect.void));
-    const cancelPendingStudioOutputBaseline = vi.fn<
-      StudioOutputReactorShape["cancelPendingTurnBaseline"]
-    >(input?.studioOutputReactor?.cancelPendingTurnBaseline ?? (() => Effect.void));
-    const studioOutputReactor: StudioOutputReactorShape = {
-      captureBaselineBeforeTurn: captureStudioOutputBaseline,
-      cancelPendingTurnBaseline: cancelPendingStudioOutputBaseline,
-      start: input?.studioOutputReactor?.start ?? Effect.void,
-      drain: input?.studioOutputReactor?.drain ?? Effect.void,
-    };
-
     const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
     const service: ProviderServiceShape = {
       startSession: startSession as ProviderServiceShape["startSession"],
@@ -550,17 +508,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(managedBindingLayer),
       Layer.provideMerge(switchCoordinatorLayer),
       Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
-      Layer.provideMerge(TurnCheckpointCoordinatorLive),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
-      Layer.provideMerge(Layer.succeed(StudioOutputReactor, studioOutputReactor)),
-      Layer.provideMerge(Layer.succeed(CheckpointStore, checkpointStore)),
-      Layer.provideMerge(
-        Layer.succeed(GitCore, {
-          renameBranch,
-          publishBranch,
-          withMutation,
-        } as unknown as GitCoreShape),
-      ),
       Layer.provideMerge(
         Layer.succeed(TextGeneration, {
           generateThreadTitle,
@@ -649,8 +597,7 @@ describe("ProviderCommandReactor", () => {
         title: "Thread",
         modelSelection: modelSelection,
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: "/tmp/provider-project",
+        workingDirectory: "/tmp/provider-project",
         createdAt: now,
       }),
     );
@@ -671,17 +618,12 @@ describe("ProviderCommandReactor", () => {
       respondToRequest,
       respondToUserInput,
       rollbackConversation,
-      isGitRepository,
-      captureCheckpoint,
-      restoreCheckpoint,
       stopSession,
       stopRuntimeSession,
       clearSessionResumeCursor,
       renameBranch,
       publishBranch,
       generateThreadTitle,
-      captureStudioOutputBaseline,
-      cancelPendingStudioOutputBaseline,
       stateDir,
       stageAttachment: async (
         attachment: {
@@ -1243,8 +1185,6 @@ describe("ProviderCommandReactor", () => {
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt: now,
       }),
     );
@@ -2087,9 +2027,6 @@ describe("ProviderCommandReactor", () => {
           model: "claude-sonnet-4-6",
         },
         runtimeMode: "approval-required",
-        envMode: "local",
-        branch: null,
-        worktreePath: null,
         importedMessages: [],
         createdAt: now,
       }),
@@ -2618,7 +2555,7 @@ describe("ProviderCommandReactor", () => {
         commandId: CommandId.makeUnsafe("cmd-image-edit-assistant-complete"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         messageId: asMessageId("assistant-image-edit"),
-        turnId: asTurnId("turn-image-edit"),
+        turnId: asTurnId("turn:cmd-original-image-edit"),
         createdAt: now,
       }),
     );
@@ -2642,54 +2579,6 @@ describe("ProviderCommandReactor", () => {
     expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
       input: "edited image prompt",
       attachments: [imageAttachment],
-    });
-  });
-
-  it("restores the previous filesystem checkpoint before resending a completed edit", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-    harness.isGitRepository.mockImplementationOnce(() => Effect.succeed(true));
-
-    await seedRollbackTarget(harness, {
-      messageId: asMessageId("user-message-checkpoint-edit"),
-      turnId: asTurnId("turn-checkpoint-edit"),
-      createdAt: now,
-    });
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.diff.complete",
-        commandId: CommandId.makeUnsafe("cmd-checkpoint-edit-complete"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        turnId: asTurnId("turn-checkpoint-edit"),
-        completedAt: now,
-        checkpointRef: checkpointRefForThreadTurn(ThreadId.makeUnsafe("thread-1"), 1),
-        status: "ready",
-        files: [],
-        assistantMessageId: asMessageId("assistant-user-message-checkpoint-edit"),
-        checkpointTurnCount: 1,
-        createdAt: now,
-      }),
-    );
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.message.edit-and-resend",
-        connectionId: TEST_CONNECTION_ID,
-        bindingRevision: 0,
-        commandId: CommandId.makeUnsafe("cmd-edit-checkpoint-resend"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        messageId: asMessageId("user-message-checkpoint-edit"),
-        text: "edited checkpoint prompt",
-        runtimeMode: "approval-required",
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    expect(harness.restoreCheckpoint).toHaveBeenCalledWith({
-      cwd: "/tmp/provider-project",
-      checkpointRef: checkpointRefForThreadTurn(ThreadId.makeUnsafe("thread-1"), 0),
-      fallbackToHead: true,
     });
   });
 
@@ -2903,7 +2792,6 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
     expect(harness.startSession.mock.calls[0]?.[0]).toEqual(ThreadId.makeUnsafe("thread-1"));
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      cwd: "/tmp/provider-project",
       modelSelection: {
         provider: "codex",
         model: "gpt-5-codex",
@@ -2930,8 +2818,6 @@ describe("ProviderCommandReactor", () => {
         modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-5" },
         runtimeMode: "approval-required",
         parentThreadId: ThreadId.makeUnsafe("thread-1"),
-        branch: null,
-        worktreePath: null,
         createdAt: now,
       }),
     );
@@ -3253,94 +3139,6 @@ describe("ProviderCommandReactor", () => {
     expect(failureActivity?.payload).toMatchObject({
       detail: expect.stringContaining("task background exploded"),
     });
-  });
-
-  it("waits for the message-start checkpoint before sending the provider turn", async () => {
-    let releaseCapture: (() => void) | undefined;
-    const captureGate = new Promise<void>((resolve) => {
-      releaseCapture = resolve;
-    });
-    const captureCheckpoint = vi.fn<CheckpointStoreShape["captureCheckpoint"]>(() =>
-      Effect.promise(() => captureGate),
-    );
-    const harness = await createHarness({
-      checkpointStore: {
-        isGitRepository: vi.fn<CheckpointStoreShape["isGitRepository"]>(() => Effect.succeed(true)),
-        captureCheckpoint,
-      },
-    });
-    const now = new Date().toISOString();
-
-    const dispatch = Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        connectionId: TEST_CONNECTION_ID,
-        bindingRevision: 0,
-        commandId: CommandId.makeUnsafe("cmd-turn-start-slow-checkpoint"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        message: {
-          messageId: asMessageId("user-message-slow-checkpoint"),
-          role: "user",
-          text: "hello despite slow git",
-          attachments: [],
-        },
-        runtimeMode: "approval-required",
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(() => captureCheckpoint.mock.calls.length === 1);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    expect(harness.sendTurn.mock.calls.length).toBe(0);
-
-    releaseCapture?.();
-    await dispatch;
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    expect(captureCheckpoint.mock.calls.length).toBe(1);
-    expect(captureCheckpoint.mock.calls[0]?.[0]).toMatchObject({
-      cwd: "/tmp/provider-project",
-    });
-    expect(captureCheckpoint.mock.calls[0]?.[0].checkpointRef).toContain("/message-start/");
-  });
-
-  it("waits for the Studio output baseline before sending the provider turn", async () => {
-    let releaseCapture: (() => void) | undefined;
-    const captureGate = new Promise<void>((resolve) => {
-      releaseCapture = resolve;
-    });
-    const captureBaselineBeforeTurn = vi.fn<StudioOutputReactorShape["captureBaselineBeforeTurn"]>(
-      () => Effect.promise(() => captureGate),
-    );
-    const harness = await createHarness({
-      studioOutputReactor: { captureBaselineBeforeTurn },
-    });
-    const now = new Date().toISOString();
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        connectionId: TEST_CONNECTION_ID,
-        bindingRevision: 0,
-        commandId: CommandId.makeUnsafe("cmd-turn-start-slow-studio-baseline"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        message: {
-          messageId: asMessageId("user-message-slow-studio-baseline"),
-          role: "user",
-          text: "create an output immediately",
-          attachments: [],
-        },
-        runtimeMode: "approval-required",
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(() => captureBaselineBeforeTurn.mock.calls.length === 1);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    expect(harness.sendTurn).not.toHaveBeenCalled();
-
-    releaseCapture?.();
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    expect(captureBaselineBeforeTurn).toHaveBeenCalledWith(ThreadId.makeUnsafe("thread-1"));
   });
 
   it("publishes a starting session status before the provider session is ready", async () => {
@@ -3721,9 +3519,6 @@ describe("ProviderCommandReactor", () => {
     expect(
       thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed"),
     ).toBe(true);
-    expect(harness.cancelPendingStudioOutputBaseline).toHaveBeenCalledWith(
-      ThreadId.makeUnsafe("thread-1"),
-    );
     await waitFor(async () => {
       const delivery = await Effect.runPromise(
         harness.deliveryRepository.firstBlockingDeliveryForThread({
@@ -3860,8 +3655,6 @@ describe("ProviderCommandReactor", () => {
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt: now,
       }),
     );
@@ -4668,8 +4461,7 @@ describe("ProviderCommandReactor", () => {
       text: "promote me on the next settle",
     });
 
-    // A checkpoint revert in flight blocks promotion and is deliberately not
-    // retried — it clears through its own completion path. The failed drain
+    // A transient command invariant blocks promotion. The failed drain
     // must still release its per-thread in-flight guard, or every later
     // terminal event for the thread would be ignored for the process lifetime.
     let refusals = 0;
@@ -4681,7 +4473,7 @@ describe("ProviderCommandReactor", () => {
       return Effect.fail(
         new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: "Thread has a checkpoint revert in progress.",
+          detail: "Thread promotion is temporarily unavailable.",
         }),
       );
     });
@@ -5122,8 +4914,6 @@ describe("ProviderCommandReactor", () => {
         title: "Child",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt: now,
       }),
     );
@@ -5194,8 +4984,6 @@ describe("ProviderCommandReactor", () => {
         title: "Queued child",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt: now,
       }),
     );
@@ -5285,8 +5073,6 @@ describe("ProviderCommandReactor", () => {
           title: childId,
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "approval-required",
-          branch: null,
-          worktreePath: null,
           createdAt: now,
         }),
       );
@@ -5369,8 +5155,6 @@ describe("ProviderCommandReactor", () => {
         title: "Queued child",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt: now,
       }),
     );
@@ -5754,8 +5538,8 @@ describe("ProviderCommandReactor", () => {
     const now = new Date().toISOString();
 
     // Projection lags: it still says running, but the provider runtime has no
-    // live turn. The steer must not ride the native codex steer path (which
-    // would skip the turn-start checkpoint) — it dispatches as a normal turn.
+    // live turn. The steer must not ride the native codex steer path; it
+    // dispatches as a normal turn.
     harness.setRuntimeSessionTurnState({ threadId: "thread-1", status: "ready" });
     await Effect.runPromise(
       harness.engine.dispatch({
@@ -7137,8 +6921,6 @@ describe("ProviderCommandReactor", () => {
         },
         runtimeMode: "approval-required",
         parentThreadId: ThreadId.makeUnsafe("thread-1"),
-        branch: null,
-        worktreePath: null,
         createdAt: now,
       }),
     );
@@ -7213,8 +6995,6 @@ describe("ProviderCommandReactor", () => {
         },
         runtimeMode: "approval-required",
         parentThreadId: ThreadId.makeUnsafe("thread-1"),
-        branch: null,
-        worktreePath: null,
         createdAt: now,
       }),
     );
@@ -7269,8 +7049,6 @@ describe("ProviderCommandReactor", () => {
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt: now,
       }),
     );
@@ -7347,8 +7125,6 @@ describe("ProviderCommandReactor", () => {
         title: "Synthetic child",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt: now,
       }),
     );
@@ -8206,8 +7982,6 @@ describe("ProviderCommandReactor", () => {
         },
         runtimeMode: "approval-required",
         parentThreadId: ThreadId.makeUnsafe("thread-1"),
-        branch: null,
-        worktreePath: null,
         createdAt: now,
       }),
     );

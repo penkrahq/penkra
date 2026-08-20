@@ -103,9 +103,28 @@ describe("parseClaudeCliUsage", () => {
 
     expect(snapshot?.source).toBe("claude-cli-usage");
     expect(snapshot?.limits).toEqual([
-      { window: "5h", usedPercent: 6, windowDurationMins: 300 },
-      { window: "Weekly", usedPercent: 4, windowDurationMins: 10_080 },
+      {
+        window: "5h",
+        usedPercent: 6,
+        windowDurationMins: 300,
+        resetsAt: "2026-08-19T02:40:00.000Z",
+      },
+      {
+        window: "Weekly",
+        usedPercent: 4,
+        windowDurationMins: 10_080,
+        resetsAt: "2026-08-25T02:00:00.000Z",
+      },
     ]);
+  });
+
+  it("infers the next year for a yearless reset across New Year's", () => {
+    const snapshot = parseClaudeCliUsage({
+      nowMs: Date.parse("2026-12-31T23:00:00.000Z"),
+      text: "Current session: 6% used · resets Jan 1 at 1am (America/Denver)",
+    });
+
+    expect(snapshot?.limits[0]?.resetsAt).toBe("2027-01-01T08:00:00.000Z");
   });
 });
 

@@ -1,4 +1,4 @@
-import { Option, Schema, SchemaIssue, Struct } from "effect";
+import { Option, Schema, SchemaIssue } from "effect";
 import {
   AntigravityModelOptions,
   ClaudeModelOptions,
@@ -13,7 +13,6 @@ import { ProviderMentionReference, ProviderSkillReference } from "./providerDisc
 import { ContainerKind } from "./project";
 import {
   ApprovalRequestId,
-  CheckpointRef,
   CommandId,
   EventId,
   IsoDateTime,
@@ -37,8 +36,6 @@ export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
   importThread: "orchestration.importThread",
   repairState: "orchestration.repairState",
-  getTurnDiff: "orchestration.getTurnDiff",
-  getFullThreadDiff: "orchestration.getFullThreadDiff",
   replayEvents: "orchestration.replayEvents",
   listProviderDeliveryBlockers: "orchestration.listProviderDeliveryBlockers",
   reconcileProviderDelivery: "orchestration.reconcileProviderDelivery",
@@ -290,9 +287,6 @@ export const ProviderUserInputAnswer = Schema.NullOr(
 export type ProviderUserInputAnswer = typeof ProviderUserInputAnswer.Type;
 export const ProviderUserInputAnswers = Schema.Record(Schema.String, ProviderUserInputAnswer);
 export type ProviderUserInputAnswers = typeof ProviderUserInputAnswers.Type;
-export const ThreadEnvironmentMode = Schema.Literals(["local", "worktree"]);
-export type ThreadEnvironmentMode = typeof ThreadEnvironmentMode.Type;
-
 export const OrchestrationMessageSource = Schema.Literals(["native", "fork-import"]);
 export type OrchestrationMessageSource = typeof OrchestrationMessageSource.Type;
 
@@ -308,7 +302,6 @@ export const ORCHESTRATION_THREAD_HYDRATION_LIMITS = {
   messages: 2_000,
   summaryActivities: 500,
   detailActivities: 2_000,
-  checkpoints: 500,
 } as const;
 export const MAX_PINNED_PROJECTS = 3;
 const CHAT_ATTACHMENT_ID_MAX_CHARS = 128;
@@ -406,7 +399,6 @@ export const ProjectScript = Schema.Struct({
   name: TrimmedNonEmptyString,
   command: TrimmedNonEmptyString,
   icon: ProjectScriptIcon,
-  runOnWorktreeCreate: Schema.Boolean,
 });
 export type ProjectScript = typeof ProjectScript.Type;
 
@@ -542,28 +534,6 @@ export const OrchestrationSession = Schema.Struct({
 });
 export type OrchestrationSession = typeof OrchestrationSession.Type;
 
-export const OrchestrationCheckpointFile = Schema.Struct({
-  path: TrimmedNonEmptyString,
-  kind: TrimmedNonEmptyString,
-  additions: NonNegativeInt,
-  deletions: NonNegativeInt,
-});
-export type OrchestrationCheckpointFile = typeof OrchestrationCheckpointFile.Type;
-
-export const OrchestrationCheckpointStatus = Schema.Literals(["ready", "missing", "error"]);
-export type OrchestrationCheckpointStatus = typeof OrchestrationCheckpointStatus.Type;
-
-export const OrchestrationCheckpointSummary = Schema.Struct({
-  turnId: TurnId,
-  checkpointTurnCount: NonNegativeInt,
-  checkpointRef: CheckpointRef,
-  status: OrchestrationCheckpointStatus,
-  files: Schema.Array(OrchestrationCheckpointFile),
-  assistantMessageId: Schema.NullOr(MessageId),
-  completedAt: IsoDateTime,
-});
-export type OrchestrationCheckpointSummary = typeof OrchestrationCheckpointSummary.Type;
-
 export const OrchestrationThreadActivityTone = Schema.Literals([
   "info",
   "tool",
@@ -601,23 +571,6 @@ export const OrchestrationLatestTurn = Schema.Struct({
   assistantMessageId: Schema.NullOr(MessageId),
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
-
-export const OrchestrationThreadPullRequest = Schema.Struct({
-  number: PositiveInt,
-  title: TrimmedNonEmptyString,
-  url: Schema.String,
-  baseBranch: TrimmedNonEmptyString,
-  headBranch: TrimmedNonEmptyString,
-  state: Schema.Literals(["open", "closed", "merged"]),
-  // Optional so `last_known_pr_json` rows persisted before these fields existed still
-  // decode. Literals stay inline: importing git.ts here would create an import cycle.
-  isDraft: Schema.optional(Schema.Boolean),
-  mergeability: Schema.optional(Schema.Literals(["mergeable", "conflicting", "unknown"])),
-  additions: Schema.optional(Schema.NullOr(NonNegativeInt)),
-  deletions: Schema.optional(Schema.NullOr(NonNegativeInt)),
-  changedFiles: Schema.optional(Schema.NullOr(NonNegativeInt)),
-});
-export type OrchestrationThreadPullRequest = typeof OrchestrationThreadPullRequest.Type;
 
 /**
  * A message the user pinned to the chat's sidebar checklist. `label` is an
@@ -714,23 +667,8 @@ export const OrchestrationThread = Schema.Struct({
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
-  envMode: Schema.optional(ThreadEnvironmentMode).pipe(Schema.withDecodingDefault(() => "local")),
-  branch: Schema.NullOr(TrimmedNonEmptyString),
-  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
     Schema.withDecodingDefault(() => null),
-  ),
-  associatedWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  associatedWorktreeBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  associatedWorktreeRef: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  createBranchFlowCompleted: Schema.optional(Schema.Boolean).pipe(
-    Schema.withDecodingDefault(() => false),
   ),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
@@ -761,16 +699,17 @@ export const OrchestrationThread = Schema.Struct({
   forkSourceThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
-  lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   pendingTurnStartMessageId: Schema.optional(Schema.NullOr(MessageId)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
   latestUserMessageAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  lastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   hasPendingApprovals: Schema.optional(Schema.Boolean),
   hasPendingUserInput: Schema.optional(Schema.Boolean),
+  workStatus: Schema.optional(Schema.Literals(["idle", "running", "done", "attention"])),
+  lastMessagePreview: Schema.optional(Schema.NullOr(Schema.String)),
+  lastActivityAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
@@ -786,7 +725,6 @@ export const OrchestrationThread = Schema.Struct({
   ),
   activities: Schema.Array(OrchestrationThreadActivity),
   pendingInteractions: Schema.optional(Schema.Array(OrchestrationPendingInteraction)),
-  checkpoints: Schema.Array(OrchestrationCheckpointSummary),
   session: Schema.NullOr(OrchestrationSession),
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
@@ -799,23 +737,8 @@ export const OrchestrationThreadShell = Schema.Struct({
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
-  envMode: Schema.optional(ThreadEnvironmentMode).pipe(Schema.withDecodingDefault(() => "local")),
-  branch: Schema.NullOr(TrimmedNonEmptyString),
-  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
     Schema.withDecodingDefault(() => null),
-  ),
-  associatedWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  associatedWorktreeBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  associatedWorktreeRef: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  createBranchFlowCompleted: Schema.optional(Schema.Boolean).pipe(
-    Schema.withDecodingDefault(() => false),
   ),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
@@ -846,13 +769,14 @@ export const OrchestrationThreadShell = Schema.Struct({
   forkSourceThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
-  lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   latestUserMessageAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  lastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   hasPendingApprovals: Schema.optional(Schema.Boolean),
   hasPendingUserInput: Schema.optional(Schema.Boolean),
+  workStatus: Schema.optional(Schema.Literals(["idle", "running", "done", "attention"])),
+  lastMessagePreview: Schema.optional(Schema.NullOr(Schema.String)),
+  lastActivityAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
@@ -1037,7 +961,7 @@ export const ProjectCreateCommand = Schema.Struct({
   ),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
-  /** Required for ordinary folders and absent for managed chat/Studio containers. */
+  /** Required for ordinary folders and absent for managed chat containers. */
   spaceId: Schema.optional(Schema.NullOr(SpaceId)),
   createdAt: IsoDateTime,
 });
@@ -1075,16 +999,7 @@ const ThreadCreateCommand = Schema.Struct({
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
-  envMode: Schema.optional(ThreadEnvironmentMode).pipe(Schema.withDecodingDefault(() => "local")),
-  branch: Schema.NullOr(TrimmedNonEmptyString),
-  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  associatedWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  associatedWorktreeBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  associatedWorktreeRef: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  createBranchFlowCompleted: Schema.optional(Schema.Boolean).pipe(
-    Schema.withDecodingDefault(() => false),
-  ),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
     Schema.withDecodingDefault(() => null),
@@ -1101,9 +1016,6 @@ const ThreadCreateCommand = Schema.Struct({
     Schema.withDecodingDefault(() => null),
   ),
   subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
   createdAt: IsoDateTime,
@@ -1128,16 +1040,7 @@ const ThreadForkCreateCommand = Schema.Struct({
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
-  envMode: Schema.optional(ThreadEnvironmentMode).pipe(Schema.withDecodingDefault(() => "local")),
-  branch: Schema.NullOr(TrimmedNonEmptyString),
-  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  associatedWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  associatedWorktreeBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  associatedWorktreeRef: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  createBranchFlowCompleted: Schema.optional(Schema.Boolean).pipe(
-    Schema.withDecodingDefault(() => false),
-  ),
   importedMessages: Schema.Array(ThreadImportedMessage),
   createdAt: IsoDateTime,
 });
@@ -1167,23 +1070,16 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   spaceId: Schema.optional(SpaceId),
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
-  envMode: Schema.optional(ThreadEnvironmentMode),
-  branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  associatedWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  associatedWorktreeBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  associatedWorktreeRef: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  createBranchFlowCompleted: Schema.optional(Schema.Boolean),
   isPinned: Schema.optional(Schema.Boolean),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   subagentAgentId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   subagentNickname: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)),
   pinnedMessages: Schema.optional(ThreadPinnedMessages),
   threadMarkers: Schema.optional(ThreadMarkers),
   notes: Schema.optional(ThreadNotes),
+  lastVisitedAt: Schema.optional(IsoDateTime),
 });
 
 const ThreadPinnedMessageAddCommand = Schema.Struct({
@@ -1266,6 +1162,8 @@ export const ThreadTurnStartCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.start"),
   commandId: CommandId,
   threadId: ThreadId,
+  /** Penkra-owned identity. The engine derives it from commandId when omitted by trusted callers. */
+  turnId: Schema.optional(TurnId),
   message: Schema.Struct({
     messageId: MessageId,
     role: Schema.Literal("user"),
@@ -1360,6 +1258,8 @@ const ThreadDispatchQueuedTurnCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.dispatch-queued"),
   commandId: CommandId,
   threadId: ThreadId,
+  /** Canonical identity minted when the queued turn was originally admitted. */
+  turnId: Schema.optional(TurnId),
   messageId: MessageId,
   modelSelection: Schema.optional(ModelSelection),
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
@@ -1379,8 +1279,10 @@ const ThreadTurnRecoverCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.recover"),
   commandId: CommandId,
   threadId: ThreadId,
+  /** Identity of the new continuation turn, distinct from interruptedTurnId. */
+  turnId: Schema.optional(TurnId),
   recoveryMessageId: MessageId,
-  interruptedTurnId: TurnId,
+  interruptedTurnId: Schema.optional(TurnId),
   connectionId: Schema.NullOr(ProviderConnectionId),
   bindingRevision: NonNegativeInt,
   createdAt: IsoDateTime,
@@ -1403,15 +1305,6 @@ const ThreadUserInputRespondCommand = Schema.Struct({
   requestId: ApprovalRequestId,
   lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
   answers: ProviderUserInputAnswers,
-  createdAt: IsoDateTime,
-});
-
-const ThreadCheckpointRevertCommand = Schema.Struct({
-  type: Schema.Literal("thread.checkpoint.revert"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  turnCount: NonNegativeInt,
-  scope: Schema.optional(Schema.Literals(["thread", "files"])),
   createdAt: IsoDateTime,
 });
 
@@ -1489,7 +1382,6 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadTaskBackgroundCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
-  ThreadCheckpointRevertCommand,
   ThreadMessageEditAndResendCommand,
   ThreadActivityAppendCommand,
   ThreadSessionStopCommand,
@@ -1532,7 +1424,6 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadTaskBackgroundCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
-  ThreadCheckpointRevertCommand,
   ThreadMessageEditAndResendCommand,
   ThreadActivityAppendCommand,
   ThreadSessionStopCommand,
@@ -1563,6 +1454,8 @@ const ThreadMessageAssistantDeltaCommand = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   delta: Schema.String,
+  /** Optional caller assertion; the server derives it when omitted. */
+  expectedTextByteLength: Schema.optional(NonNegativeInt),
   turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
@@ -1573,30 +1466,6 @@ const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   turnId: Schema.optional(TurnId),
-  createdAt: IsoDateTime,
-});
-
-const ThreadTurnDiffCompleteCommand = Schema.Struct({
-  type: Schema.Literal("thread.turn.diff.complete"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  turnId: TurnId,
-  completedAt: IsoDateTime,
-  checkpointRef: CheckpointRef,
-  status: OrchestrationCheckpointStatus,
-  files: Schema.Array(OrchestrationCheckpointFile),
-  assistantMessageId: Schema.optional(MessageId),
-  checkpointTurnCount: NonNegativeInt,
-  preserveLatestTurn: Schema.optional(Schema.Boolean),
-  checkpointRevertTurnCount: Schema.optional(NonNegativeInt),
-  createdAt: IsoDateTime,
-});
-
-const ThreadRevertCompleteCommand = Schema.Struct({
-  type: Schema.Literal("thread.revert.complete"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  turnCount: NonNegativeInt,
   createdAt: IsoDateTime,
 });
 
@@ -1633,9 +1502,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadMessagesImportCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
-  ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
-  ThreadRevertCompleteCommand,
   ThreadConversationRollbackCommand,
   ThreadConversationRollbackCompleteCommand,
   ThreadTurnStartCancelCompleteCommand,
@@ -1689,14 +1556,11 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.task-background-requested",
   "thread.approval-response-requested",
   "thread.user-input-response-requested",
-  "thread.checkpoint-revert-requested",
-  "thread.reverted",
   "thread.conversation-rollback-requested",
   "thread.conversation-rolled-back",
   "thread.message-edit-resend-requested",
   "thread.session-stop-requested",
   "thread.session-set",
-  "thread.turn-diff-completed",
   "thread.activity-appended",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
@@ -1804,23 +1668,8 @@ export const ThreadCreatedPayload = Schema.Struct({
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
-  envMode: Schema.optional(ThreadEnvironmentMode).pipe(Schema.withDecodingDefault(() => "local")),
-  branch: Schema.NullOr(TrimmedNonEmptyString),
-  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
     Schema.withDecodingDefault(() => null),
-  ),
-  associatedWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  associatedWorktreeBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  associatedWorktreeRef: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  createBranchFlowCompleted: Schema.optional(Schema.Boolean).pipe(
-    Schema.withDecodingDefault(() => false),
   ),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
@@ -1841,9 +1690,6 @@ export const ThreadCreatedPayload = Schema.Struct({
     Schema.withDecodingDefault(() => null),
   ),
   forkSourceThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
   createdAt: IsoDateTime,
@@ -1875,24 +1721,17 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   spaceId: Schema.optional(SpaceId),
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
-  envMode: Schema.optional(ThreadEnvironmentMode),
-  branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  associatedWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  associatedWorktreeBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  associatedWorktreeRef: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  createBranchFlowCompleted: Schema.optional(Schema.Boolean),
   isPinned: Schema.optional(Schema.Boolean),
   sidebarSortOrder: Schema.optional(NonNegativeInt),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   subagentAgentId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   subagentNickname: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)),
   pinnedMessages: Schema.optional(ThreadPinnedMessages),
   threadMarkers: Schema.optional(ThreadMarkers),
   notes: Schema.optional(ThreadNotes),
+  lastVisitedAt: Schema.optional(IsoDateTime),
   updatedAt: IsoDateTime,
 });
 
@@ -1967,6 +1806,8 @@ export const ThreadMessageSentPayload = Schema.Struct({
   delivery: Schema.optional(MessageDeliveryAdmission),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
+  /** UTF-8 bytes expected to exist before appending a streaming fragment. */
+  expectedTextByteLength: Schema.optional(NonNegativeInt),
   source: OrchestrationMessageSource.pipe(Schema.withDecodingDefault(() => "native")),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -1981,9 +1822,13 @@ export const ThreadMessageDeliverySetPayload = Schema.Struct({
 
 export const ThreadTurnStartRequestedPayload = Schema.Struct({
   threadId: ThreadId,
+  /** Optional only when decoding historical events; current writers always populate it. */
+  turnId: Schema.optional(TurnId),
   messageId: MessageId,
   /** Server-only continuation source. No user-visible message exists for this id. */
   recoveryOfTurnId: Schema.optional(TurnId),
+  /** Invisible restart continuation, including admission before a provider turn id exists. */
+  restartRecovery: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   modelSelection: Schema.optional(ModelSelection),
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   bindingRevision: Schema.optional(NonNegativeInt),
@@ -2045,20 +1890,6 @@ const ThreadUserInputResponseRequestedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-export const ThreadCheckpointRevertRequestedPayload = Schema.Struct({
-  threadId: ThreadId,
-  turnCount: NonNegativeInt,
-  scope: Schema.optional(Schema.Literals(["thread", "files"])).pipe(
-    Schema.withDecodingDefault(() => "thread"),
-  ),
-  createdAt: IsoDateTime,
-});
-
-export const ThreadRevertedPayload = Schema.Struct({
-  threadId: ThreadId,
-  turnCount: NonNegativeInt,
-});
-
 export const ThreadConversationRollbackRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
@@ -2097,18 +1928,6 @@ export const ThreadSessionStopRequestedPayload = Schema.Struct({
 export const ThreadSessionSetPayload = Schema.Struct({
   threadId: ThreadId,
   session: OrchestrationSession,
-});
-
-export const ThreadTurnDiffCompletedPayload = Schema.Struct({
-  threadId: ThreadId,
-  turnId: TurnId,
-  checkpointTurnCount: NonNegativeInt,
-  checkpointRef: CheckpointRef,
-  status: OrchestrationCheckpointStatus,
-  files: Schema.Array(OrchestrationCheckpointFile),
-  assistantMessageId: Schema.NullOr(MessageId),
-  completedAt: IsoDateTime,
-  preserveLatestTurn: Schema.optional(Schema.Boolean),
 });
 
 export const ThreadActivityAppendedPayload = Schema.Struct({
@@ -2320,16 +2139,6 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("thread.checkpoint-revert-requested"),
-    payload: ThreadCheckpointRevertRequestedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.reverted"),
-    payload: ThreadRevertedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
     type: Schema.Literal("thread.conversation-rollback-requested"),
     payload: ThreadConversationRollbackRequestedPayload,
   }),
@@ -2352,11 +2161,6 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.session-set"),
     payload: ThreadSessionSetPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.turn-diff-completed"),
-    payload: ThreadTurnDiffCompletedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
@@ -2387,28 +2191,6 @@ export type OrchestrationThreadStreamItem = typeof OrchestrationThreadStreamItem
 export const OrchestrationCommandReceiptStatus = Schema.Literals(["accepted", "rejected"]);
 export type OrchestrationCommandReceiptStatus = typeof OrchestrationCommandReceiptStatus.Type;
 
-export const TurnCountRange = Schema.Struct({
-  fromTurnCount: NonNegativeInt,
-  toTurnCount: NonNegativeInt,
-}).check(
-  Schema.makeFilter(
-    (input) =>
-      input.fromTurnCount <= input.toTurnCount ||
-      new SchemaIssue.InvalidValue(Option.some(input.fromTurnCount), {
-        message: "fromTurnCount must be less than or equal to toTurnCount",
-      }),
-    { identifier: "OrchestrationTurnDiffRange" },
-  ),
-);
-
-export const ThreadTurnDiff = TurnCountRange.mapFields(
-  Struct.assign({
-    threadId: ThreadId,
-    diff: Schema.String,
-  }),
-  { unsafePreserveChecks: true },
-);
-
 export const ProviderSessionRuntimeStatus = Schema.Literals([
   "starting",
   "running",
@@ -2424,18 +2206,6 @@ const ProjectionThreadTurnStatus = Schema.Literals([
   "error",
 ]);
 export type ProjectionThreadTurnStatus = typeof ProjectionThreadTurnStatus.Type;
-
-const ProjectionCheckpointRow = Schema.Struct({
-  threadId: ThreadId,
-  turnId: TurnId,
-  checkpointTurnCount: NonNegativeInt,
-  checkpointRef: CheckpointRef,
-  status: OrchestrationCheckpointStatus,
-  files: Schema.Array(OrchestrationCheckpointFile),
-  assistantMessageId: Schema.NullOr(MessageId),
-  completedAt: IsoDateTime,
-});
-export type ProjectionCheckpointRow = typeof ProjectionCheckpointRow.Type;
 
 export const DispatchResult = Schema.Struct({
   sequence: NonNegativeInt,
@@ -2456,28 +2226,6 @@ export const OrchestrationRepairStateInput = Schema.Struct({});
 export type OrchestrationRepairStateInput = typeof OrchestrationRepairStateInput.Type;
 const OrchestrationRepairStateResult = OrchestrationReadModel;
 export type OrchestrationRepairStateResult = typeof OrchestrationRepairStateResult.Type;
-
-export const OrchestrationGetTurnDiffInput = TurnCountRange.mapFields(
-  Struct.assign({
-    threadId: ThreadId,
-    ignoreWhitespace: Schema.optional(Schema.Boolean),
-  }),
-  { unsafePreserveChecks: true },
-);
-export type OrchestrationGetTurnDiffInput = typeof OrchestrationGetTurnDiffInput.Type;
-
-export const OrchestrationGetTurnDiffResult = ThreadTurnDiff;
-export type OrchestrationGetTurnDiffResult = typeof OrchestrationGetTurnDiffResult.Type;
-
-export const OrchestrationGetFullThreadDiffInput = Schema.Struct({
-  threadId: ThreadId,
-  toTurnCount: NonNegativeInt,
-  ignoreWhitespace: Schema.optional(Schema.Boolean),
-});
-export type OrchestrationGetFullThreadDiffInput = typeof OrchestrationGetFullThreadDiffInput.Type;
-
-export const OrchestrationGetFullThreadDiffResult = ThreadTurnDiff;
-export type OrchestrationGetFullThreadDiffResult = typeof OrchestrationGetFullThreadDiffResult.Type;
 
 export const OrchestrationReplayEventsInput = Schema.Struct({
   fromSequenceExclusive: NonNegativeInt,
@@ -2607,14 +2355,6 @@ export const OrchestrationRpcSchemas = {
   importThread: {
     input: OrchestrationImportThreadInput,
     output: OrchestrationImportThreadResult,
-  },
-  getTurnDiff: {
-    input: OrchestrationGetTurnDiffInput,
-    output: OrchestrationGetTurnDiffResult,
-  },
-  getFullThreadDiff: {
-    input: OrchestrationGetFullThreadDiffInput,
-    output: OrchestrationGetFullThreadDiffResult,
   },
   replayEvents: {
     input: OrchestrationReplayEventsInput,

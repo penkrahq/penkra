@@ -520,21 +520,19 @@ describe("AppInstallationService", () => {
     });
   });
 
-  it("replaces the required registry Apps package only through the sideload update path", async () => {
+  it("replaces a registry package with a newer sideload through the runtime-safe path", async () => {
     const test = fixture();
-    const registryApps = verifiedPackage();
-    registryApps.manifest.id = "com.penkra.apps";
-    registryApps.manifest.slug = "apps";
-    registryApps.manifest.name = "Apps";
-    await test.service.install(registryApps, "personal");
+    const registryApp = verifiedPackage();
+    await test.service.install(registryApp, "personal");
     await test.service.setEnabled({
-      appId: "com.penkra.apps",
+      appId: "com.acme.figma",
       spaceId: "personal",
       enabled: true,
     });
     const sideloadApps = {
-      ...registryApps,
+      ...registryApp,
       source: "sideload" as const,
+      manifest: { ...registryApp.manifest, version: "1.1.0" },
       sha256: "b".repeat(64),
     };
 
@@ -544,15 +542,32 @@ describe("AppInstallationService", () => {
     });
 
     expect(test.lifecycle.disable).toHaveBeenCalledWith(
-      "com.penkra.apps",
+      "com.acme.figma",
       "personal",
       "app-updated",
     );
-    expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.penkra.apps", "personal");
-    expect(test.state().packagesByInstallationKey["personal\0com.penkra.apps"]).toMatchObject({
+    expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
+    expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]).toMatchObject({
       source: "sideload",
+      version: "1.1.0",
       sha256: "b".repeat(64),
     });
+  });
+
+  it("rejects a sideload that is not newer than the registry installation", async () => {
+    const test = fixture();
+    const registryApp = verifiedPackage();
+    await test.service.install(registryApp, "personal");
+    const sideload = {
+      ...registryApp,
+      source: "sideload" as const,
+      sha256: "b".repeat(64),
+    };
+
+    await expect(
+      test.service.updateSideloadForSpace({ package: sideload, spaceId: "personal" }),
+    ).rejects.toThrow("Sideload version 1.0.0 must be newer than installed registry version 1.0.0");
+    expect(test.lifecycle.disable).not.toHaveBeenCalled();
   });
 
   it("restores the prior package and runtime when updated activation fails", async () => {

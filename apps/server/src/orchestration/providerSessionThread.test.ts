@@ -1,14 +1,12 @@
 import type { OrchestrationThread, ThreadId } from "@penkra/contracts";
-import { Deferred, Effect, Fiber, Option } from "effect";
+import { Effect, Option } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { TurnCheckpointCoordinatorLive } from "./Layers/TurnCheckpointCoordinator.ts";
 import type { ProjectionSnapshotQueryShape } from "./Services/ProjectionSnapshotQuery.ts";
-import { TurnCheckpointCoordinator } from "./Services/TurnCheckpointCoordinator.ts";
 import { resolveProviderSessionThread } from "./providerSessionThread.ts";
 
 describe("resolveProviderSessionThread", () => {
-  it("propagates lookup failure, then recovers onto the parent lease key", async () => {
+  it("propagates lookup failure, then resolves the parent provider thread", async () => {
     const parentId = "thread-parent" as ThreadId;
     const childId = "subagent:thread-parent:child" as ThreadId;
     const parent = { id: parentId, parentThreadId: null } as OrchestrationThread;
@@ -31,46 +29,10 @@ describe("resolveProviderSessionThread", () => {
       ),
     ).resolves.toMatchObject({ message: "transient projection failure" });
 
-    let childMutationStarted = false;
-    await Effect.runPromise(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const coordinator = yield* TurnCheckpointCoordinator;
-          const parentLeaseAcquired = yield* Deferred.make<void>();
-          const releaseParentLease = yield* Deferred.make<void>();
-          const holder = yield* Effect.forkScoped(
-            coordinator.withThreadLease(
-              parentId,
-              Deferred.succeed(parentLeaseAcquired, undefined).pipe(
-                Effect.andThen(Deferred.await(releaseParentLease)),
-              ),
-            ),
-          );
-          yield* Deferred.await(parentLeaseAcquired);
-
-          const contender = yield* Effect.forkScoped(
-            resolveProviderSessionThread(projectionSnapshotQuery, childId).pipe(
-              Effect.flatMap((providerThread) =>
-                coordinator.withThreadLease(
-                  providerThread?.id ?? childId,
-                  Effect.sync(() => {
-                    childMutationStarted = true;
-                  }),
-                ),
-              ),
-            ),
-          );
-          yield* Effect.sleep("10 millis");
-          expect(childMutationStarted).toBe(false);
-
-          yield* Deferred.succeed(releaseParentLease, undefined);
-          yield* Fiber.join(contender);
-          yield* Fiber.join(holder);
-        }),
-      ).pipe(Effect.provide(TurnCheckpointCoordinatorLive)),
+    const resolved = await Effect.runPromise(
+      resolveProviderSessionThread(projectionSnapshotQuery, childId),
     );
-
-    expect(childMutationStarted).toBe(true);
+    expect(resolved?.id).toBe(parentId);
     expect(getThreadDetailById).toHaveBeenCalledWith(parentId);
   });
 });

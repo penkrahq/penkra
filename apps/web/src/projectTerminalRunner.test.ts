@@ -29,7 +29,6 @@ describe("runProjectCommandInTerminal", () => {
       project: { cwd: "/repo" },
       cwd: "/repo/apps/web",
       command: "pnpm run dev",
-      worktreePath: "/repo-worktree",
       env: { EXTRA: "1" },
     });
 
@@ -39,7 +38,6 @@ describe("runProjectCommandInTerminal", () => {
       cwd: "/repo/apps/web",
       env: {
         PENKRA_PROJECT_ROOT: "/repo",
-        PENKRA_WORKTREE_PATH: "/repo-worktree",
         EXTRA: "1",
       },
       cols: 120,

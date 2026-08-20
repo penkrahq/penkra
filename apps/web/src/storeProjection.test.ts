@@ -43,25 +43,6 @@ import { DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 import { resolveSidebarWorkStatus, resolveThreadStatusPill } from "./components/Sidebar.logic";
 
 describe("store projection", () => {
-  it("preserves a semantic branch when a temp worktree branch arrives from the read model", () => {
-    const initialThread = makeThread({
-      branch: "feature/semantic-branch",
-      updatedAt: "2026-02-27T00:00:00.000Z",
-    });
-
-    const next = syncServerReadModel(
-      makeState(initialThread),
-      makeReadModel(
-        makeReadModelThread({
-          branch: "penkra/abc123ef",
-          updatedAt: "2026-02-27T00:05:00.000Z",
-        }),
-      ),
-    );
-
-    expect(threadsOf(next)[0]?.branch).toBe("feature/semantic-branch");
-  });
-
   it("preserves message mention references from read-model snapshots", () => {
     const next = syncServerReadModel(
       makeState(makeThread()),
@@ -88,37 +69,6 @@ describe("store projection", () => {
     expect(threadsOf(next)[0]?.messages[0]?.mentions).toEqual([
       { name: "linear", path: "plugin://linear@openai-curated" },
     ]);
-  });
-
-  it("resets createBranchFlowCompleted when the branch context changes", () => {
-    const next = syncServerReadModel(
-      makeState(
-        makeThread({
-          envMode: "worktree",
-          branch: "feature/old-name",
-          worktreePath: "/tmp/project/.worktrees/old-name",
-          associatedWorktreePath: "/tmp/project/.worktrees/old-name",
-          associatedWorktreeBranch: "feature/old-name",
-          associatedWorktreeRef: "feature/old-name",
-          createBranchFlowCompleted: true,
-        }),
-      ),
-      makeReadModel(
-        makeReadModelThread({
-          envMode: "worktree",
-          branch: "feature/new-name",
-          worktreePath: "/tmp/project/.worktrees/new-name",
-          associatedWorktreePath: "/tmp/project/.worktrees/new-name",
-          associatedWorktreeBranch: "feature/new-name",
-          associatedWorktreeRef: "feature/new-name",
-          createBranchFlowCompleted: false,
-          updatedAt: "2026-02-27T00:05:00.000Z",
-        }),
-      ),
-    );
-
-    expect(threadsOf(next)[0]?.branch).toBe("feature/new-name");
-    expect(threadsOf(next)[0]?.createBranchFlowCompleted).toBe(false);
   });
 
   it("stores server-provided sidebar metadata on hydrated threads", () => {
@@ -193,9 +143,6 @@ describe("store projection", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        envMode: "local",
-        branch: null,
-        worktreePath: null,
         forkSourceThreadId: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
@@ -436,70 +383,6 @@ describe("store projection", () => {
     expect(next.sidebarThreadSummaryById["thread-project-1"]).toBeUndefined();
   });
 
-  it("does not let a stale shell upsert clear optimistic createBranchFlowCompleted", () => {
-    const threadId = ThreadId.makeUnsafe("thread-1");
-    const initialState = syncServerReadModel(
-      makeState(
-        makeThread({
-          envMode: "worktree",
-          branch: "feature/semantic-branch",
-          worktreePath: "/tmp/project/.worktrees/semantic-branch",
-          associatedWorktreePath: "/tmp/project/.worktrees/semantic-branch",
-          associatedWorktreeBranch: "feature/semantic-branch",
-          associatedWorktreeRef: "feature/semantic-branch",
-          createBranchFlowCompleted: true,
-        }),
-      ),
-      makeReadModel(
-        makeReadModelThread({
-          envMode: "worktree",
-          branch: "feature/semantic-branch",
-          worktreePath: "/tmp/project/.worktrees/semantic-branch",
-          associatedWorktreePath: "/tmp/project/.worktrees/semantic-branch",
-          associatedWorktreeBranch: "feature/semantic-branch",
-          associatedWorktreeRef: "feature/semantic-branch",
-          createBranchFlowCompleted: true,
-          updatedAt: "2026-02-27T00:00:00.000Z",
-        }),
-      ),
-    );
-
-    const next = applyShellEvent(initialState, {
-      kind: "thread-upserted",
-      sequence: 2,
-      thread: {
-        id: threadId,
-        projectId: ContainerId.makeUnsafe("project-1"),
-        title: "Thread",
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
-        },
-        runtimeMode: DEFAULT_RUNTIME_MODE,
-        envMode: "worktree",
-        branch: "feature/semantic-branch",
-        worktreePath: "/tmp/project/.worktrees/semantic-branch",
-        associatedWorktreePath: "/tmp/project/.worktrees/semantic-branch",
-        associatedWorktreeBranch: "feature/semantic-branch",
-        associatedWorktreeRef: "feature/semantic-branch",
-        createBranchFlowCompleted: false,
-        parentThreadId: null,
-        subagentAgentId: null,
-        subagentNickname: null,
-        subagentRole: null,
-        forkSourceThreadId: null,
-        lastKnownPr: null,
-        latestTurn: null,
-        createdAt: "2026-02-27T00:00:00.000Z",
-        updatedAt: "2026-02-27T00:05:00.000Z",
-        archivedAt: null,
-        session: null,
-      },
-    });
-
-    expect(next.threadShellById?.[threadId]?.createBranchFlowCompleted).toBe(true);
-  });
-
   it("preserves pinnedMessages and notes through the normalized read-model projection", () => {
     // Regression: the normalized ThreadShell projection used to omit pinnedMessages/notes, so a
     // read-model sync would reconstruct the thread without them — pins clicked in the sidebar
@@ -579,19 +462,11 @@ describe("store projection", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        envMode: "local",
-        branch: null,
-        worktreePath: null,
-        associatedWorktreePath: null,
-        associatedWorktreeBranch: null,
-        associatedWorktreeRef: null,
-        createBranchFlowCompleted: false,
         parentThreadId: null,
         subagentAgentId: null,
         subagentNickname: null,
         subagentRole: null,
         forkSourceThreadId: null,
-        lastKnownPr: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:05:00.000Z",
@@ -1623,33 +1498,6 @@ describe("store projection", () => {
     });
   });
 
-  it("keeps createBranchFlowCompleted sticky during stale hot-path detail syncs", () => {
-    const threadId = ThreadId.makeUnsafe("thread-hot-path-branch-flow");
-    const liveState = makeState(
-      makeThread({
-        id: threadId,
-        branch: "penkra/tmp-working",
-        worktreePath: "/tmp/worktrees/thread-hot-path-branch-flow",
-        createBranchFlowCompleted: true,
-      }),
-    );
-
-    const next = syncServerThreadDetailHotPath(
-      liveState,
-      makeReadModelThread({
-        id: threadId,
-        branch: "penkra/tmp-working",
-        worktreePath: "/tmp/worktrees/thread-hot-path-branch-flow",
-        createBranchFlowCompleted: false,
-      }),
-    );
-
-    expect(
-      threadsOf(next).find((thread) => thread.id === threadId)?.createBranchFlowCompleted,
-    ).toBe(true);
-    expect(next.threadShellById?.[threadId]?.createBranchFlowCompleted).toBe(true);
-  });
-
   it("dedupes read-model activity snapshots without losing rich command payloads", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const richActivity = makeActivity({
@@ -1900,9 +1748,6 @@ describe("store projection", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        envMode: "local",
-        branch: null,
-        worktreePath: null,
         forkSourceThreadId: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
@@ -1946,9 +1791,6 @@ describe("store projection", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        envMode: "local",
-        branch: null,
-        worktreePath: null,
         forkSourceThreadId: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
@@ -2082,9 +1924,6 @@ describe("deletion tombstone retirement", () => {
         title,
         modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        envMode: "local",
-        branch: null,
-        worktreePath: null,
         forkSourceThreadId: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
@@ -2286,9 +2125,6 @@ describe("deletion tombstone retirement", () => {
       title: "Base",
       modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
       runtimeMode: DEFAULT_RUNTIME_MODE,
-      envMode: "local",
-      branch: null,
-      worktreePath: null,
       forkSourceThreadId: null,
       latestTurn: null,
       createdAt: "2026-02-27T00:00:00.000Z",
@@ -2392,19 +2228,11 @@ describe("deletion tombstone retirement", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        envMode: "local",
-        branch: null,
-        worktreePath: null,
-        associatedWorktreePath: null,
-        associatedWorktreeBranch: null,
-        associatedWorktreeRef: null,
-        createBranchFlowCompleted: false,
         parentThreadId: null,
         subagentAgentId: null,
         subagentNickname: null,
         subagentRole: null,
         forkSourceThreadId: null,
-        lastKnownPr: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:05:00.000Z",

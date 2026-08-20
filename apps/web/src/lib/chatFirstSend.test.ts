@@ -32,7 +32,6 @@ describe("resolveFirstSendTarget", () => {
       createdAt: new Date(2026, 5, 11, 23, 30, 43),
       isFirstMessage: true,
       isHomeChatContainer: true,
-      isStudioContainer: false,
       projects: [makeProject()],
       selectedWorkspaceRoot: null,
       title: "Yes it takes",
@@ -57,7 +56,6 @@ describe("resolveFirstSendTarget", () => {
       createdAt: new Date(2026, 5, 11, 23, 30, 43),
       isFirstMessage: true,
       isHomeChatContainer: true,
-      isStudioContainer: false,
       projects: [makeProject()],
       selectedWorkspaceRoot: "/Users/tester/Developer/app",
       title: "Use app",
@@ -83,7 +81,6 @@ describe("resolveFirstSendTarget", () => {
       createdAt: new Date(2026, 5, 11, 23, 30, 43),
       isFirstMessage: false,
       isHomeChatContainer: false,
-      isStudioContainer: false,
       projects: [activeProject],
       selectedWorkspaceRoot: null,
       title: "Follow up",
@@ -99,13 +96,13 @@ describe("resolveFirstSendTarget", () => {
     });
   });
 
-  it("keeps a plain Studio first send in the Studio container", () => {
+  it("keeps a plain Folder first send in the Folder container", () => {
     const activeProject = makeProject({
-      id: "project-studio" as ContainerId,
-      kind: "studio",
-      name: "Studio",
-      remoteName: "Studio",
-      cwd: "/Users/tester/Documents/Penkra/Studio",
+      id: "project-folder" as ContainerId,
+      kind: "project",
+      name: "Folder",
+      remoteName: "Folder",
+      cwd: "/Users/tester/Documents/Penkra/Folder",
     });
     const result = resolveFirstSendTarget({
       activeProject,
@@ -113,7 +110,6 @@ describe("resolveFirstSendTarget", () => {
       createdAt: new Date(2026, 5, 11, 23, 30, 43),
       isFirstMessage: true,
       isHomeChatContainer: false,
-      isStudioContainer: true,
       projects: [activeProject],
       selectedWorkspaceRoot: null,
       title: "Write content",
@@ -123,20 +119,20 @@ describe("resolveFirstSendTarget", () => {
     expect(result).toMatchObject({
       kind: "current",
       target: {
-        targetProjectId: "project-studio",
-        targetProjectKind: "studio",
-        targetProjectCwd: "/Users/tester/Documents/Penkra/Studio",
+        targetProjectId: "project-folder",
+        targetProjectKind: "project",
+        targetProjectCwd: "/Users/tester/Documents/Penkra/Folder",
       },
     });
   });
 
-  it("keeps a Studio folder pick in the Studio container", () => {
+  it("keeps a Folder folder pick in the Folder container", () => {
     const activeProject = makeProject({
-      id: "project-studio" as ContainerId,
-      kind: "studio",
-      name: "Studio",
-      remoteName: "Studio",
-      cwd: "/Users/tester/Documents/Penkra/Studio",
+      id: "project-folder" as ContainerId,
+      kind: "project",
+      name: "Folder",
+      remoteName: "Folder",
+      cwd: "/Users/tester/Documents/Penkra/Folder",
     });
     const result = resolveFirstSendTarget({
       activeProject,
@@ -144,7 +140,6 @@ describe("resolveFirstSendTarget", () => {
       createdAt: new Date(2026, 5, 11, 23, 30, 43),
       isFirstMessage: true,
       isHomeChatContainer: false,
-      isStudioContainer: true,
       projects: [activeProject],
       selectedWorkspaceRoot: "/Users/tester/Developer/app",
       title: "Use app",
@@ -154,9 +149,9 @@ describe("resolveFirstSendTarget", () => {
     expect(result).toMatchObject({
       kind: "current",
       target: {
-        targetProjectId: "project-studio",
-        targetProjectKind: "studio",
-        targetProjectCwd: "/Users/tester/Documents/Penkra/Studio",
+        targetProjectId: "project-folder",
+        targetProjectKind: "project",
+        targetProjectCwd: "/Users/tester/Documents/Penkra/Folder",
       },
     });
   });

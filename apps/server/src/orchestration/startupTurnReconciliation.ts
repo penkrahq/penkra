@@ -30,10 +30,12 @@
  */
 import type {
   OrchestrationCommand,
+  OrchestrationMessage,
   OrchestrationThreadActivity,
   OrchestrationSession,
   RuntimeMode,
   ThreadId,
+  TurnId,
 } from "@penkra/contracts";
 import { CommandId, EventId } from "@penkra/contracts";
 import {
@@ -43,11 +45,7 @@ import {
 } from "@penkra/shared/threadSummary";
 import { Effect, Option } from "effect";
 
-import {
-  CHECKPOINT_REVERT_FAILED_ACTIVITY_KIND,
-  threadHasCheckpointRevertInProgress,
-  threadHasInFlightTurn,
-} from "./commandInvariants.ts";
+import { threadHasInFlightTurn } from "./commandInvariants.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
 
@@ -60,17 +58,48 @@ type ThreadActivityAppendCommand = Extract<
   OrchestrationCommand,
   { readonly type: "thread.activity.append" }
 >;
-type RestartReconciliationCommand = ThreadSessionSetCommand | ThreadActivityAppendCommand;
+type ThreadMessageAssistantCompleteCommand = Extract<
+  OrchestrationCommand,
+  { readonly type: "thread.message.assistant.complete" }
+>;
+type RestartReconciliationCommand =
+  | ThreadSessionSetCommand
+  | ThreadActivityAppendCommand
+  | ThreadMessageAssistantCompleteCommand;
 
 /** Minimal persisted thread shape the planner inspects (a superset is fine). */
 export interface ReconcilableThread {
   readonly id: ThreadId;
   readonly runtimeMode: RuntimeMode;
   readonly session: OrchestrationSession | null;
-  readonly latestTurn: { readonly state: "running" | "interrupted" | "completed" | "error" } | null;
+  readonly latestTurn: {
+    readonly turnId?: TurnId;
+    readonly state: "running" | "interrupted" | "completed" | "error";
+  } | null;
   readonly activities?: ReadonlyArray<
     Pick<OrchestrationThreadActivity, "createdAt" | "id" | "kind" | "payload" | "sequence">
   >;
+  readonly messages?: ReadonlyArray<
+    Pick<OrchestrationMessage, "id" | "role" | "streaming" | "turnId">
+  >;
+}
+
+function planStreamingMessageSettlementCommands(input: {
+  readonly thread: ReconcilableThread;
+  readonly now: string;
+}): ReadonlyArray<ThreadMessageAssistantCompleteCommand> {
+  return (input.thread.messages ?? [])
+    .filter((message) => message.role === "assistant" && message.streaming)
+    .map((message) => ({
+      type: "thread.message.assistant.complete",
+      commandId: CommandId.makeUnsafe(
+        `restart-reconcile-streaming-message:${input.thread.id}:${message.id}`,
+      ),
+      threadId: input.thread.id,
+      messageId: message.id,
+      ...(message.turnId !== null ? { turnId: message.turnId } : {}),
+      createdAt: input.now,
+    }));
 }
 
 /**
@@ -125,31 +154,6 @@ function planStalePendingRequestCommands(input: {
   return commands;
 }
 
-function planStaleCheckpointRevertCommand(input: {
-  readonly thread: ReconcilableThread;
-  readonly now: string;
-}): ThreadActivityAppendCommand | null {
-  if (!threadHasCheckpointRevertInProgress({ activities: input.thread.activities ?? [] })) {
-    return null;
-  }
-  const commandKey = `restart-reconcile-checkpoint-revert:${input.thread.id}:${input.now}`;
-  return {
-    type: "thread.activity.append",
-    commandId: CommandId.makeUnsafe(commandKey),
-    threadId: input.thread.id,
-    activity: {
-      id: EventId.makeUnsafe(commandKey),
-      tone: "error",
-      kind: CHECKPOINT_REVERT_FAILED_ACTIVITY_KIND,
-      summary: "Checkpoint revert failed",
-      payload: { detail: "Checkpoint revert was interrupted by a server restart." },
-      turnId: null,
-      createdAt: input.now,
-    },
-    createdAt: input.now,
-  };
-}
-
 function buildStalePendingRequestCommand(input: {
   readonly threadId: ThreadId;
   readonly now: string;
@@ -202,14 +206,42 @@ export function planRestartTurnReconciliation(input: {
 }): ReadonlyArray<RestartReconciliationCommand> {
   const commands: RestartReconciliationCommand[] = [];
   for (const thread of input.threads) {
-    const hasInFlightTurn = threadHasInFlightTurn(thread);
+    const activeTurnAlreadyTerminal =
+      thread.session?.activeTurnId !== null &&
+      thread.session?.activeTurnId !== undefined &&
+      thread.latestTurn?.turnId === thread.session.activeTurnId &&
+      (thread.latestTurn.state === "completed" || thread.latestTurn.state === "error");
+    const hasInFlightTurn = !activeTurnAlreadyTerminal && threadHasInFlightTurn(thread);
+    if (hasInFlightTurn || activeTurnAlreadyTerminal || hasDanglingActiveTurn(thread)) {
+      commands.push(...planStreamingMessageSettlementCommands({ thread, now: input.now }));
+    }
     commands.push(...planStalePendingRequestCommands({ thread, now: input.now }));
-    const staleCheckpointRevertCommand = planStaleCheckpointRevertCommand({
-      thread,
-      now: input.now,
-    });
-    if (staleCheckpointRevertCommand !== null) {
-      commands.push(staleCheckpointRevertCommand);
+    if (activeTurnAlreadyTerminal) {
+      // A late/replayed running session event must not turn a durably terminal
+      // turn back into interrupted work. The turn identity is the causal guard:
+      // a new turn may legitimately start while the previous latest turn is
+      // terminal, so terminal state only wins when both rows name the same turn.
+      commands.push({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe(
+          `restart-reconcile-terminal-turn:${thread.id}:${input.now}`,
+        ),
+        threadId: thread.id,
+        session: {
+          threadId: thread.id,
+          status: thread.latestTurn?.state === "error" ? "error" : "ready",
+          providerName: thread.session?.providerName ?? null,
+          runtimeMode: thread.session?.runtimeMode ?? thread.runtimeMode,
+          activeTurnId: null,
+          lastError:
+            thread.latestTurn?.state === "error"
+              ? (thread.session?.lastError ?? "Turn failed")
+              : null,
+          updatedAt: input.now,
+        },
+        createdAt: input.now,
+      });
+      continue;
     }
     if (!hasInFlightTurn) {
       if (!hasDanglingActiveTurn(thread)) {
@@ -284,7 +316,6 @@ export const reconcileRestartStuckTurns: Effect.Effect<
   const threadsNeedingRestartCleanup = readModel.threads.filter(
     (thread) =>
       needsRestartReconciliation(thread) ||
-      threadHasCheckpointRevertInProgress(thread) ||
       thread.hasPendingApprovals ||
       thread.hasPendingUserInput,
   );

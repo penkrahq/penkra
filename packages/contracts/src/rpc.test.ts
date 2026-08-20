@@ -4,7 +4,6 @@ import {
   WsBootstrapRpcGroup,
   WsFeatureRpcGroup,
   WsProjectsDiscoverScriptsRpc,
-  WsPullRequestsReviewRequestCountRpc,
   WsRpcError,
   WsRpcGroup,
 } from "./rpc";
@@ -33,9 +32,5 @@ describe("WS RPC contracts", () => {
 
   it("exports the project script discovery RPC", () => {
     expect(WsProjectsDiscoverScriptsRpc).toBeDefined();
-  });
-
-  it("exports the count-only pull request review RPC", () => {
-    expect(WsPullRequestsReviewRequestCountRpc).toBeDefined();
   });
 });

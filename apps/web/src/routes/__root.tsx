@@ -37,9 +37,7 @@ import { WhatsNewPopoutCard } from "../whatsNew/WhatsNewPopoutCard";
 import { shouldRenderTerminalWorkspace } from "../components/ChatView.logic";
 import { Button, dialogActionButtonClassName } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
-import { useGitProgressToastPreview } from "../components/useGitProgressToastPreview";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
-import { useFeatureFlags } from "../featureFlags";
 import { useFocusedChatContext } from "../focusedChatContext";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
 import type { FeedbackThreadContext } from "../feedback";
@@ -94,7 +92,6 @@ import { usePreloadRouteChunks } from "../hooks/usePreloadRouteChunks";
 import { useSyncDesktopTopBarTrafficLightGutterZoom } from "../hooks/useDesktopTopBarGutter";
 import { useTheme } from "../hooks/useTheme";
 import { useNativeFontSmoothing } from "../hooks/useNativeFontSmoothing";
-import { invalidateGitQueries, invalidateGitQueriesForCwds } from "../lib/gitReactQuery";
 import { hasLiveThreadsWithMissingProjects } from "../lib/desktopProjectRecovery";
 import { useChatRouteSearch } from "../hooks/useChatRouteSearch";
 import { resolveSplitViewThreadIds, selectSplitView, useSplitViewStore } from "../splitViewStore";
@@ -107,12 +104,6 @@ import {
   providerUpdateNotificationKey,
   withProviderUpdateTimeout,
 } from "../providerUpdates";
-import {
-  getGitInvalidationThreadIdForEvent,
-  getStudioOutputInvalidationThreadIdForEvent,
-  resolveGitInvalidationCwdForThreadId,
-  shouldInvalidateGitQueriesForEvent,
-} from "./-rootEventInvalidation";
 
 const SHELL_SNAPSHOT_BOOTSTRAP_FALLBACK_DELAY_MS = 1_500;
 const THREAD_DETAIL_CATCHUP_INTERVAL_MS = 1_500;
@@ -237,7 +228,6 @@ function RootRouteView() {
             <AnchoredToastProvider>
               <DesktopActiveWorkPowerSync />
               <DesktopComposerStageBridge />
-              <GitProgressToastPreviewDev />
               <EventRouter />
               <GlobalShortcutsDialog />
               <GlobalFeedbackDialog />
@@ -302,13 +292,6 @@ function TransportCompatibilityView({ issue }: { issue: WsCompatibilityError }) 
       </section>
     </div>
   );
-}
-
-function GitProgressToastPreviewDev() {
-  const featureFlags = useFeatureFlags();
-  const enabled = import.meta.env.DEV && featureFlags["pin-git-progress-toast-preview"];
-  useGitProgressToastPreview(enabled);
-  return null;
 }
 
 // Extracted to module scope so its run-always cleanup can stay a try/finally: the
@@ -657,7 +640,6 @@ function GlobalFeedbackDialog() {
     provider: activeThread?.modelSelection.provider ?? null,
     model: activeThread?.modelSelection.model ?? null,
     projectKind: activeProject?.kind ?? null,
-    environmentMode: activeThread?.envMode ?? null,
     runtimeMode: activeThread?.runtimeMode ?? null,
     sessionStatus: activeThread?.session?.status ?? null,
     latestTurnState: activeThread?.latestTurn?.state ?? null,
@@ -880,8 +862,6 @@ function isThreadDetailEventForThread(event: OrchestrationEvent, threadId: Threa
   return (
     event.type === "thread.message-sent" ||
     event.type === "thread.activity-appended" ||
-    event.type === "thread.turn-diff-completed" ||
-    event.type === "thread.reverted" ||
     event.type === "thread.conversation-rolled-back" ||
     event.type === "thread.session-set" ||
     event.type === "thread.meta-updated" ||
@@ -1011,9 +991,6 @@ function EventRouter() {
     const api = readNativeApi();
     if (!api) return;
     let disposed = false;
-    let needsBroadGitInvalidation = false;
-    let pendingGitInvalidationThreadIds = new Set<ThreadId>();
-    let pendingStudioOutputInvalidationThreadIds = new Set<ThreadId>();
     let pendingDomainEvents: OrchestrationEvent[] = [];
     const immediatelyFlushedAssistantMessageIds = new Set<string>();
     let providerDiscoveryInvalidationFingerprint: string | null = null;
@@ -1264,54 +1241,10 @@ function EventRouter() {
         applyOrchestrationEventsHotPath(coalesceOrchestrationUiEvents(pendingDomainEvents));
         pendingDomainEvents = [];
       }
-      if (pendingStudioOutputInvalidationThreadIds.size > 0) {
-        // File-change activities cover non-Git Studio chats; finalized checkpoints cover Git.
-        for (const threadId of pendingStudioOutputInvalidationThreadIds) {
-          void queryClient.invalidateQueries({
-            queryKey: serverQueryKeys.studioThreadOutputs(threadId),
-          });
-        }
-        pendingStudioOutputInvalidationThreadIds = new Set();
-      }
-      if (needsBroadGitInvalidation) {
-        needsBroadGitInvalidation = false;
-        pendingGitInvalidationThreadIds = new Set();
-        void invalidateGitQueries(queryClient);
-      } else if (pendingGitInvalidationThreadIds.size > 0) {
-        const currentState = useStore.getState();
-        const scopedCwds = new Set<string>();
-        let hasUnresolvedThread = false;
-        for (const threadId of pendingGitInvalidationThreadIds) {
-          const cwd = resolveGitInvalidationCwdForThreadId(currentState, threadId);
-          if (cwd) {
-            scopedCwds.add(cwd);
-          } else {
-            hasUnresolvedThread = true;
-          }
-        }
-        pendingGitInvalidationThreadIds = new Set();
-        if (hasUnresolvedThread || scopedCwds.size === 0) {
-          void invalidateGitQueries(queryClient);
-        } else {
-          void invalidateGitQueriesForCwds(queryClient, scopedCwds);
-        }
-      }
     };
 
     const queueDomainEvent = (event: OrchestrationEvent) => {
       pendingDomainEvents.push(event);
-      const studioOutputThreadId = getStudioOutputInvalidationThreadIdForEvent(event);
-      if (studioOutputThreadId) {
-        pendingStudioOutputInvalidationThreadIds.add(studioOutputThreadId);
-      }
-      if (shouldInvalidateGitQueriesForEvent(event)) {
-        const threadId = getGitInvalidationThreadIdForEvent(event);
-        if (threadId) {
-          pendingGitInvalidationThreadIds.add(threadId);
-        } else {
-          needsBroadGitInvalidation = true;
-        }
-      }
       if (shouldFlushDomainEventImmediately(event, immediatelyFlushedAssistantMessageIds)) {
         domainEventFlushThrottler.cancel();
         flushPendingDomainEvents();
@@ -1394,14 +1327,6 @@ function EventRouter() {
         if (snapshot.snapshotSequence < currentSequence) {
           return;
         }
-        const currentThread = getThreadFromState(useStore.getState(), threadId);
-        const projectionRepairsTerminalFence = threadProjectionTerminalFencePending.has(threadId);
-        const projectionSettlesCurrentTurn =
-          currentThread?.latestTurn?.state === "running" &&
-          snapshot.thread.latestTurn !== null &&
-          snapshot.thread.latestTurn.turnId === currentThread.latestTurn.turnId &&
-          snapshot.thread.latestTurn.state !== "running" &&
-          snapshot.thread.latestTurn.completedAt !== null;
         threadSnapshotSequenceById.set(
           threadId,
           Math.max(currentSequence, snapshot.snapshotSequence),
@@ -1413,13 +1338,6 @@ function EventRouter() {
         reconcilePromotedDraftFromThreadDetail(snapshot.thread);
         flushThreadBuffer(threadId, snapshot.snapshotSequence);
         projectionConfirmed = true;
-        if (projectionSettlesCurrentTurn || projectionRepairsTerminalFence) {
-          // Mirror terminal-event invalidation when recovery came from the
-          // projection rather than the live stream.
-          pendingGitInvalidationThreadIds.add(threadId);
-          pendingStudioOutputInvalidationThreadIds.add(threadId);
-          domainEventFlushThrottler.maybeExecute();
-        }
       } finally {
         if (threadProjectionReconcileInFlight.get(threadId) === subscriptionGeneration) {
           threadProjectionReconcileInFlight.delete(threadId);
@@ -1635,15 +1553,11 @@ function EventRouter() {
     const unsubWorkspaceChange = api.projects.onWorkspaceChange((event) => {
       if (event.lostSync) {
         void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
-        void invalidateGitQueries(queryClient);
         return;
       }
       const cwds = new Set([event.cwd]);
       if (event.filesChanged) {
         void invalidateProjectFileQueriesForCwds(queryClient, cwds);
-      }
-      if (event.gitChanged) {
-        void invalidateGitQueriesForCwds(queryClient, cwds);
       }
     });
     // The channel's initial snapshot may have arrived before this listener was
@@ -1663,7 +1577,6 @@ function EventRouter() {
         setServerWorkspacePaths({
           homeDir: payload.homeDir,
           chatWorkspaceRoot: payload.chatWorkspaceRoot,
-          studioWorkspaceRoot: payload.studioWorkspaceRoot,
         });
         await ensureScopedSubscriptions();
         if (disposed) {
@@ -1830,9 +1743,6 @@ function EventRouter() {
       disposed = true;
       window.clearTimeout(shellBootstrapFallbackTimer);
       window.clearInterval(threadDetailCatchupInterval);
-      needsBroadGitInvalidation = false;
-      pendingGitInvalidationThreadIds = new Set();
-      pendingStudioOutputInvalidationThreadIds = new Set();
       threadProjectionReconcileInFlight.clear();
       threadProjectionTerminalFencePending.clear();
       threadSubscriptionGenerationById.clear();
@@ -1909,20 +1819,21 @@ function DesktopProjectBootstrap() {
 
     attemptedRecoveryRef.current = true;
 
-    // Shell subscriptions should normally hydrate the sidebar. If project rows
-    // are missing while live threads exist, repair before accepting the snapshot.
+    // Shell subscriptions should normally hydrate the sidebar. If shell rows
+    // look incomplete, refresh from the authoritative full snapshot once.
+    // Never infer corruption from an empty read or trigger repair implicitly.
     void api.orchestration
       .getShellSnapshot()
       .then((snapshot) => {
-        const needsRepair =
+        const needsFullRefresh =
           (snapshot.projects.length === 0 && snapshot.threads.length === 0) ||
           hasLiveThreadsWithMissingProjects(snapshot);
-        if (!needsRepair) {
+        if (!needsFullRefresh) {
           useStore.getState().syncServerShellSnapshot(snapshot);
           return;
         }
-        return api.orchestration.repairState().then((repairedSnapshot) => {
-          syncServerReadModel(repairedSnapshot);
+        return api.orchestration.getSnapshot().then((fullSnapshot) => {
+          syncServerReadModel(fullSnapshot);
         });
       })
       .catch(() => {

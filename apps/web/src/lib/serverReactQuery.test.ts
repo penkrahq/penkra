@@ -30,8 +30,6 @@ function makeServerConfig(providers: readonly ServerProviderStatus[]): ServerCon
     cwd: "G:\\penkra",
     homeDir: "C:\\Users\\tester",
     chatWorkspaceRoot: "C:\\Users\\tester\\Documents\\Penkra",
-    studioWorkspaceRoot: "C:\\Users\\tester\\Documents\\Penkra\\Studio",
-    worktreesDir: "C:\\PenkraDev\\worktrees",
     keybindingsConfigPath: "C:\\PenkraDev\\keybindings.json",
     keybindings: [],
     issues: [],

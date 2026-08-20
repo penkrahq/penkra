@@ -7,7 +7,6 @@ import {
   type AgentGatewayOperationRepositoryShape,
   type ReserveAgentGatewayOperationResult,
 } from "../Services/AgentGatewayOperationRepository.ts";
-import { recordCreatedWorktreeInPlan } from "../operationPlan.ts";
 
 interface OperationRow {
   readonly operationId: string;
@@ -125,49 +124,6 @@ export const makeAgentGatewayOperationRepository = Effect.gen(function* () {
       Effect.mapError(mapSqlError("markDispatching")),
     );
 
-  const recordWorktreeCreated: AgentGatewayOperationRepositoryShape["recordWorktreeCreated"] = (
-    input,
-  ) =>
-    sql
-      .withTransaction(
-        Effect.gen(function* () {
-          const rows = yield* sql<{
-            readonly planJson: string;
-            readonly status: AgentGatewayOperationRecord["status"];
-          }>`
-            SELECT plan_json AS "planJson", status
-            FROM agent_gateway_operations
-            WHERE operation_id = ${input.operationId}
-            LIMIT 1
-          `;
-          const operation = rows[0];
-          if (!operation || operation.status !== "dispatching") return false;
-          const planJson = recordCreatedWorktreeInPlan({
-            planJson: operation.planJson,
-            operationId: input.operationId,
-            index: input.index,
-            workspaceRoot: input.workspaceRoot,
-            path: input.path,
-            branch: input.branch,
-            token: input.token,
-            gitDir: input.gitDir,
-            head: input.head,
-            ...(input.stateHash ? { stateHash: input.stateHash } : {}),
-            recordedAt: input.now,
-          });
-          const updated = yield* sql<{ readonly operationId: string }>`
-            UPDATE agent_gateway_operations
-            SET plan_json = ${planJson}, updated_at = ${input.now}
-            WHERE operation_id = ${input.operationId}
-              AND status = 'dispatching'
-              AND plan_json = ${operation.planJson}
-            RETURNING operation_id AS "operationId"
-          `;
-          return updated.length > 0;
-        }),
-      )
-      .pipe(Effect.mapError(mapSqlError("recordWorktreeCreated")));
-
   const complete: AgentGatewayOperationRepositoryShape["complete"] = (input) =>
     sql
       .withTransaction(
@@ -281,7 +237,6 @@ export const makeAgentGatewayOperationRepository = Effect.gen(function* () {
   return {
     reserve,
     markDispatching,
-    recordWorktreeCreated,
     markCompensating,
     recordCompensationFailure,
     complete,

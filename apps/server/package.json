@@ -1,6 +1,6 @@
 {
   "name": "@penkra/cli",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -23,9 +23,8 @@
     "start": "node dist/index.mjs",
     "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
-    "test": "bun run test:isolated && bun run test:serial",
-    "test:isolated": "vitest run src/git/Layers/GitCore.test.ts src/git/Layers/GitManager.test.ts src/orchestration/Layers/CheckpointReactor.test.ts --maxWorkers=3 --fileParallelism --silent=passed-only",
-    "test:serial": "vitest run --maxWorkers=1 --no-file-parallelism --exclude src/git/Layers/GitCore.test.ts --exclude src/git/Layers/GitManager.test.ts --exclude src/orchestration/Layers/CheckpointReactor.test.ts --silent=passed-only"
+    "test": "bun run test:serial",
+    "test:serial": "vitest run --maxWorkers=1 --no-file-parallelism --silent=passed-only"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.2.1",

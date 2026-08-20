@@ -3,7 +3,7 @@
 // Layer: Settings panel
 
 import {
-  DEFAULT_GIT_TEXT_GENERATION_MODEL,
+  DEFAULT_TEXT_GENERATION_MODEL,
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
 } from "@penkra/contracts";
@@ -106,13 +106,13 @@ export function ModelsSettingsPanel({
     textGenerationProvider,
   } = settings;
   const currentThreadTitleProvider = textGenerationProvider ?? "codex";
-  const currentThreadTitleModel = textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
+  const currentThreadTitleModel = textGenerationModel ?? DEFAULT_TEXT_GENERATION_MODEL;
   const threadTitleModelHintByProvider = useMemo<Partial<Record<ProviderKind, string | null>>>(
     () => ({ [currentThreadTitleProvider]: currentThreadTitleModel }),
     [currentThreadTitleModel, currentThreadTitleProvider],
   );
   const providerModelDiscoveryCwd = resolveProviderDiscoveryCwd({
-    activeThreadWorktreePath: null,
+    activeThreadWorkingDirectory: null,
     activeProjectCwd: null,
     serverCwd: serverConfigQuery.data?.cwd ?? null,
   });

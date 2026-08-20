@@ -26,7 +26,6 @@ export async function runProjectCommandInTerminal(input: {
   project: { cwd: string };
   cwd: string;
   command: string;
-  worktreePath?: string | null;
   env?: Record<string, string>;
 }): Promise<{
   snapshot: TerminalSessionSnapshot;
@@ -36,7 +35,6 @@ export async function runProjectCommandInTerminal(input: {
     project: {
       cwd: input.project.cwd,
     },
-    worktreePath: input.worktreePath ?? null,
     ...(input.env ? { extraEnv: input.env } : {}),
   });
   const terminalCommandIdentity = deriveTerminalCommandIdentity(input.command);

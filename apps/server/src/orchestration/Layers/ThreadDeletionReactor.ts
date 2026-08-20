@@ -2,7 +2,7 @@ import { ThreadId, type OrchestrationEvent } from "@penkra/contracts";
 import { makeDrainableWorker, startDrainableWorkerProducers } from "@penkra/shared/DrainableWorker";
 import { Cause, Effect, Layer, Option, Stream } from "effect";
 
-import { ProfileStatsArchive } from "../../profileStatsArchive";
+import { ThreadPurge } from "../../threadPurge";
 import { ProviderService } from "../../provider/Services/ProviderService";
 import { ProviderNativeStateDeletionCoordinator } from "../../provider/Services/ProviderNativeStateDeletionCoordinator";
 import { TerminalManager } from "../../terminal/Services/Manager";
@@ -86,7 +86,7 @@ export const cleanupSucceededUnlessInterrupted = <R, E>({
 
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
-  const profileStatsArchive = yield* ProfileStatsArchive;
+  const threadPurge = yield* ThreadPurge;
   const providerService = yield* ProviderService;
   const providerNativeStateDeletionCoordinator = yield* ProviderNativeStateDeletionCoordinator;
   const terminalManager = yield* TerminalManager;
@@ -122,7 +122,7 @@ const make = Effect.gen(function* () {
       Effect.as(true),
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) {
-          return Effect.failCause(cause);
+          return Effect.interrupt;
         }
         if (Cause.pretty(cause).includes(MISSING_PROVIDER_BINDING_DETAIL)) {
           return stopProviderSessionWithoutBinding(threadId, cause);
@@ -156,7 +156,7 @@ const make = Effect.gen(function* () {
     threadId: ThreadDeletedEvent["payload"]["threadId"],
   ) {
     for (let attempt = 0; attempt < PURGE_FENCE_RETRY_ATTEMPTS; attempt += 1) {
-      const fenced = yield* profileStatsArchive.hasThreadPurgeFence({ threadId });
+      const fenced = yield* threadPurge.hasPurgeFence(threadId);
       if (!fenced) return true;
       yield* Effect.sleep(PURGE_FENCE_RETRY_DELAY_MS);
     }
@@ -166,20 +166,15 @@ const make = Effect.gen(function* () {
     return false;
   });
 
-  // Retention deletes only hide the thread (its rows keep feeding profile
-  // stats directly). Explicit deletes snapshot the stat aggregates and then
-  // hard-delete the thread's rows so disk space is actually reclaimed.
+  // Retention deletes only hide the thread. Explicit deletes hard-delete the
+  // thread's rows after every recovery consumer has crossed the purge fence.
   const purgeThreadData = (event: ThreadDeletedEvent) => {
     if (event.commandId?.startsWith(THREAD_RETENTION_COMMAND_ID_PREFIX)) {
       return Effect.void;
     }
     return waitForThreadPurgeFence(event.payload.threadId).pipe(
       Effect.flatMap((canPurge) =>
-        canPurge
-          ? profileStatsArchive.purgeThreadWithStatsSnapshot({
-              threadId: event.payload.threadId,
-            })
-          : Effect.succeed(false),
+        canPurge ? threadPurge.purge(event.payload.threadId) : Effect.succeed(false),
       ),
       Effect.flatMap((purged) =>
         purged ? refreshCommandReadModelAfterPurge(event.payload.threadId) : Effect.void,
@@ -187,7 +182,7 @@ const make = Effect.gen(function* () {
       Effect.catch((error) =>
         // A failed purge leaves the thread soft-deleted; the startup sweep
         // retries it on the next boot.
-        Effect.logWarning("thread deletion cleanup skipped stats archive purge", {
+        Effect.logWarning("thread deletion cleanup skipped hard purge", {
           threadId: event.payload.threadId,
           error: error instanceof Error ? error.message : String(error),
         }),
@@ -240,7 +235,7 @@ const make = Effect.gen(function* () {
     const { threadId } = event.payload;
     const cleanupSucceeded = yield* cleanupThreadBeforePurge(threadId);
     if (!cleanupSucceeded) {
-      yield* Effect.logWarning("thread deletion cleanup deferred stats archive purge", {
+      yield* Effect.logWarning("thread deletion cleanup deferred hard purge", {
         threadId,
       });
       return;
@@ -249,10 +244,14 @@ const make = Effect.gen(function* () {
     yield* providerNativeStateDeletionCoordinator.recover;
   });
 
-  const processThreadLifecycleEvent = (event: ThreadLifecycleCleanupEvent) =>
+  const processThreadLifecycleEvent = (
+    event: ThreadLifecycleCleanupEvent,
+  ): Effect.Effect<void, unknown> =>
     event.type === "thread.deleted" ? processThreadDeleted(event) : cleanupArchivedThread(event);
 
-  const processThreadLifecycleEventSafely = (event: ThreadLifecycleCleanupEvent) =>
+  const processThreadLifecycleEventSafely = (
+    event: ThreadLifecycleCleanupEvent,
+  ): Effect.Effect<void> =>
     processThreadLifecycleEvent(event).pipe(
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) {
@@ -264,6 +263,7 @@ const make = Effect.gen(function* () {
           cause: Cause.pretty(cause),
         });
       }),
+      Effect.catch(() => Effect.void),
     );
 
   const worker = yield* makeDrainableWorker(processThreadLifecycleEventSafely, {
@@ -285,7 +285,7 @@ const make = Effect.gen(function* () {
         yield* Effect.forkScoped(
           Effect.sleep(PURGE_STARTUP_SWEEP_DELAY_MS).pipe(
             Effect.flatMap(() =>
-              profileStatsArchive.purgeSoftDeletedManualThreads({
+              threadPurge.purgeSoftDeletedManualThreads({
                 beforePurge: (threadId) =>
                   cleanupThreadBeforePurge(ThreadId.makeUnsafe(threadId)).pipe(
                     Effect.flatMap((cleaned) =>
@@ -301,7 +301,7 @@ const make = Effect.gen(function* () {
             ),
             Effect.flatMap((purgedCount) =>
               purgedCount > 0
-                ? Effect.logInfo("purged soft-deleted threads after stats archive snapshot", {
+                ? Effect.logInfo("purged soft-deleted threads", {
                     purgedCount,
                   })
                 : Effect.void,

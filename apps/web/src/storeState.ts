@@ -37,8 +37,6 @@ export interface AppState {
   messageByThreadId?: Record<ThreadId, Record<MessageId, ChatMessage>>;
   activityIdsByThreadId?: Record<ThreadId, string[]>;
   activityByThreadId?: Record<ThreadId, Record<string, Thread["activities"][number]>>;
-  turnDiffIdsByThreadId?: Record<ThreadId, TurnId[]>;
-  turnDiffSummaryByThreadId?: Record<ThreadId, Record<TurnId, Thread["turnDiffSummaries"][number]>>;
   threadDetailSyncById?: Record<ThreadId, ThreadDetailSyncState>;
   /**
    * Deletion tombstones, keyed by id, valued by the snapshot sequence at (or after) which the
@@ -65,12 +63,6 @@ export const EMPTY_ACTIVITY_BY_THREAD: Record<
   ThreadId,
   Record<string, Thread["activities"][number]>
 > = {};
-export const EMPTY_TURN_DIFF_IDS_BY_THREAD: Record<ThreadId, TurnId[]> = {};
-export const EMPTY_TURN_DIFF_BY_THREAD: Record<
-  ThreadId,
-  Record<TurnId, Thread["turnDiffSummaries"][number]>
-> = {};
-
 export const initialState: AppState = {
   shellSnapshotSequence: 0,
   spaces: [],
@@ -86,8 +78,6 @@ export const initialState: AppState = {
   messageByThreadId: {},
   activityIdsByThreadId: {},
   activityByThreadId: {},
-  turnDiffIdsByThreadId: {},
-  turnDiffSummaryByThreadId: {},
   threadDetailSyncById: {},
   deletedProjectIdsById: {},
   deletedThreadIdsById: {},

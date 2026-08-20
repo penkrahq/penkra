@@ -14,7 +14,6 @@ import {
   ThreadId,
   type TurnId,
 } from "@penkra/contracts";
-import { resolveThreadBranchRegressionGuard } from "@penkra/shared/git";
 import { normalizeModelSlug } from "@penkra/shared/model";
 import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
 
@@ -95,43 +94,6 @@ export function threadSessionsEqual(
   );
 }
 
-export function resolveCreateBranchFlowCompletedMerge(input: {
-  currentBranch: string | null;
-  nextBranch: string | null;
-  currentWorktreePath: string | null;
-  nextWorktreePath: string | null;
-  currentAssociatedWorktreePath: string | null | undefined;
-  nextAssociatedWorktreePath: string | null | undefined;
-  currentAssociatedWorktreeBranch: string | null | undefined;
-  nextAssociatedWorktreeBranch: string | null | undefined;
-  currentAssociatedWorktreeRef: string | null | undefined;
-  nextAssociatedWorktreeRef: string | null | undefined;
-  currentCreateBranchFlowCompleted: boolean | undefined;
-  nextCreateBranchFlowCompleted: boolean | undefined;
-}): boolean {
-  const contextChanged =
-    input.currentBranch !== input.nextBranch ||
-    input.currentWorktreePath !== input.nextWorktreePath ||
-    (input.currentAssociatedWorktreePath ?? null) !== (input.nextAssociatedWorktreePath ?? null) ||
-    (input.currentAssociatedWorktreeBranch ?? null) !==
-      (input.nextAssociatedWorktreeBranch ?? null) ||
-    (input.currentAssociatedWorktreeRef ?? null) !== (input.nextAssociatedWorktreeRef ?? null);
-
-  if (contextChanged) {
-    return input.nextCreateBranchFlowCompleted ?? false;
-  }
-
-  if (input.nextCreateBranchFlowCompleted === undefined) {
-    return input.currentCreateBranchFlowCompleted ?? false;
-  }
-
-  if ((input.currentCreateBranchFlowCompleted ?? false) && !input.nextCreateBranchFlowCompleted) {
-    return true;
-  }
-
-  return input.nextCreateBranchFlowCompleted;
-}
-
 export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadShell): boolean {
   return (
     left !== undefined &&
@@ -148,14 +110,7 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     (left.archivedAt ?? null) === (right.archivedAt ?? null) &&
     left.updatedAt === right.updatedAt &&
     (left.isPinned ?? false) === (right.isPinned ?? false) &&
-    left.envMode === right.envMode &&
-    left.branch === right.branch &&
-    left.worktreePath === right.worktreePath &&
     (left.workingDirectory ?? null) === (right.workingDirectory ?? null) &&
-    (left.associatedWorktreePath ?? null) === (right.associatedWorktreePath ?? null) &&
-    (left.associatedWorktreeBranch ?? null) === (right.associatedWorktreeBranch ?? null) &&
-    (left.associatedWorktreeRef ?? null) === (right.associatedWorktreeRef ?? null) &&
-    (left.createBranchFlowCompleted ?? false) === (right.createBranchFlowCompleted ?? false) &&
     (left.parentThreadId ?? null) === (right.parentThreadId ?? null) &&
     (left.creationSource ?? null) === (right.creationSource ?? null) &&
     (left.sourceThreadId ?? null) === (right.sourceThreadId ?? null) &&
@@ -163,7 +118,6 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     (left.subagentNickname ?? null) === (right.subagentNickname ?? null) &&
     (left.subagentRole ?? null) === (right.subagentRole ?? null) &&
     (left.forkSourceThreadId ?? null) === (right.forkSourceThreadId ?? null) &&
-    deepEqualJson(left.lastKnownPr ?? null, right.lastKnownPr ?? null) &&
     deepEqualJson(left.pinnedMessages ?? null, right.pinnedMessages ?? null) &&
     deepEqualJson(left.threadMarkers ?? null, right.threadMarkers ?? null) &&
     (left.notes ?? "") === (right.notes ?? "") &&
@@ -610,7 +564,7 @@ function shouldRetainLiveAssistantMessageForHotPath(
  * A locally dispatched user message has no server twin until the dispatch is
  * projected, so a snapshot generated before that projection legitimately lacks
  * it. Retaining it for a short window keeps what the user just sent on screen,
- * while still letting a deliberate server-side removal (checkpoint rewind) win
+ * while still letting a deliberate server-side removal win
  * once the window closes.
  */
 function shouldRetainLiveUserMessageForHotPath(
@@ -995,79 +949,6 @@ export function mergeReadModelThreadDetailWithLiveHotPath(
     latestTurn,
     activities,
   };
-}
-
-export function normalizeTurnDiffFiles(
-  incoming: ReadonlyArray<Thread["turnDiffSummaries"][number]["files"][number]>,
-  previous: Thread["turnDiffSummaries"][number]["files"] | undefined,
-): Thread["turnDiffSummaries"][number]["files"] {
-  const mergedIncoming = mergeTurnDiffFilesByPath(incoming);
-  const nextFiles = mergedIncoming.map((file, index) => {
-    const existing = previous?.[index];
-    if (
-      existing &&
-      existing.path === file.path &&
-      existing.kind === file.kind &&
-      existing.additions === file.additions &&
-      existing.deletions === file.deletions
-    ) {
-      return existing;
-    }
-    return file;
-  });
-  return arraysShallowEqual(previous, nextFiles) ? previous : nextFiles;
-}
-
-function mergeTurnDiffFilesByPath(
-  files: ReadonlyArray<Thread["turnDiffSummaries"][number]["files"][number]>,
-): Thread["turnDiffSummaries"][number]["files"] {
-  const filesByPath = new Map<string, Thread["turnDiffSummaries"][number]["files"][number]>();
-  for (const file of files) {
-    const existing = filesByPath.get(file.path);
-    if (!existing) {
-      filesByPath.set(file.path, file);
-      continue;
-    }
-    filesByPath.set(file.path, {
-      path: file.path,
-      kind: existing.kind,
-      additions: (existing.additions ?? 0) + (file.additions ?? 0),
-      deletions: (existing.deletions ?? 0) + (file.deletions ?? 0),
-    });
-  }
-  return Array.from(filesByPath.values());
-}
-
-function normalizeTurnDiffSummaries(
-  incoming: ReadModelThread["checkpoints"],
-  previous: Thread["turnDiffSummaries"] | undefined,
-): Thread["turnDiffSummaries"] {
-  const previousByTurnId = new Map(previous?.map((summary) => [summary.turnId, summary] as const));
-  const nextSummaries = incoming.map((checkpoint) => {
-    const existing = previousByTurnId.get(checkpoint.turnId);
-    const files = normalizeTurnDiffFiles(checkpoint.files, existing?.files);
-    if (
-      existing &&
-      existing.completedAt === checkpoint.completedAt &&
-      existing.status === checkpoint.status &&
-      existing.assistantMessageId === (checkpoint.assistantMessageId ?? undefined) &&
-      existing.checkpointTurnCount === checkpoint.checkpointTurnCount &&
-      existing.checkpointRef === checkpoint.checkpointRef &&
-      existing.files === files
-    ) {
-      return existing;
-    }
-    return {
-      turnId: checkpoint.turnId,
-      completedAt: checkpoint.completedAt,
-      status: checkpoint.status,
-      assistantMessageId: checkpoint.assistantMessageId ?? undefined,
-      checkpointTurnCount: checkpoint.checkpointTurnCount,
-      checkpointRef: checkpoint.checkpointRef,
-      files,
-    };
-  });
-  return arraysShallowEqual(previous, nextSummaries) ? previous : nextSummaries;
 }
 
 export function normalizeActivities(
@@ -1527,12 +1408,6 @@ export function normalizeThreadFromReadModel(
   const queuedMessageIds = arraysShallowEqual(previous?.queuedMessageIds, incomingQueuedMessageIds)
     ? (previous?.queuedMessageIds ?? [])
     : [...incomingQueuedMessageIds];
-  const lastKnownPr =
-    previous?.lastKnownPr &&
-    incoming.lastKnownPr &&
-    deepEqualJson(previous.lastKnownPr, incoming.lastKnownPr)
-      ? previous.lastKnownPr
-      : (incoming.lastKnownPr ?? null);
   const pinnedMessages =
     previous?.pinnedMessages &&
     deepEqualJson(previous.pinnedMessages, incoming.pinnedMessages ?? null)
@@ -1543,10 +1418,6 @@ export function normalizeThreadFromReadModel(
       ? previous.threadMarkers
       : (incoming.threadMarkers as Thread["threadMarkers"]);
   const notes = incoming.notes;
-  const turnDiffSummaries = normalizeTurnDiffSummaries(
-    incoming.checkpoints,
-    previous?.turnDiffSummaries,
-  );
   const activities = normalizeActivities(incoming.activities, previous?.activities);
   const incomingPendingInteractions = Object.hasOwn(incoming, "pendingInteractions")
     ? (incoming.pendingInteractions ?? [])
@@ -1559,7 +1430,7 @@ export function normalizeThreadFromReadModel(
         ? undefined
         : [...incomingPendingInteractions];
   const error = normalizeThreadErrorMessage(incoming.session?.lastError);
-  const lastVisitedAt = previous?.lastVisitedAt ?? incoming.updatedAt;
+  const lastVisitedAt = incoming.lastVisitedAt ?? previous?.lastVisitedAt ?? incoming.updatedAt;
   const resolvedLatestUserMessageAt =
     Object.hasOwn(incoming, "latestUserMessageAt") && incoming.latestUserMessageAt !== undefined
       ? (incoming.latestUserMessageAt ?? null)
@@ -1568,29 +1439,7 @@ export function normalizeThreadFromReadModel(
     typeof incoming.hasPendingApprovals === "boolean" ? incoming.hasPendingApprovals : undefined;
   const resolvedHasPendingUserInput =
     typeof incoming.hasPendingUserInput === "boolean" ? incoming.hasPendingUserInput : undefined;
-  const nextWorktreePath = incoming.worktreePath;
   const nextWorkingDirectory = incoming.workingDirectory ?? null;
-  const nextAssociatedWorktreePath = incoming.associatedWorktreePath ?? null;
-  const nextAssociatedWorktreeBranch = incoming.associatedWorktreeBranch ?? null;
-  const nextAssociatedWorktreeRef = incoming.associatedWorktreeRef ?? null;
-  const resolvedBranch = resolveThreadBranchRegressionGuard({
-    currentBranch: previous?.branch ?? null,
-    nextBranch: incoming.branch,
-  });
-  const resolvedCreateBranchFlowCompleted = resolveCreateBranchFlowCompletedMerge({
-    currentBranch: previous?.branch ?? null,
-    nextBranch: resolvedBranch,
-    currentWorktreePath: previous?.worktreePath ?? null,
-    nextWorktreePath,
-    currentAssociatedWorktreePath: previous?.associatedWorktreePath,
-    nextAssociatedWorktreePath,
-    currentAssociatedWorktreeBranch: previous?.associatedWorktreeBranch,
-    nextAssociatedWorktreeBranch,
-    currentAssociatedWorktreeRef: previous?.associatedWorktreeRef,
-    nextAssociatedWorktreeRef,
-    currentCreateBranchFlowCompleted: previous?.createBranchFlowCompleted,
-    nextCreateBranchFlowCompleted: incoming.createBranchFlowCompleted,
-  });
   const pendingTurnStartMessageId = incoming.pendingTurnStartMessageId ?? null;
 
   if (
@@ -1618,23 +1467,14 @@ export function normalizeThreadFromReadModel(
     (previous.subagentAgentId ?? null) === (incoming.subagentAgentId ?? null) &&
     (previous.subagentNickname ?? null) === (incoming.subagentNickname ?? null) &&
     (previous.subagentRole ?? null) === (incoming.subagentRole ?? null) &&
-    previous.envMode === (incoming.envMode ?? "local") &&
-    previous.branch === resolvedBranch &&
-    previous.worktreePath === nextWorktreePath &&
     (previous.workingDirectory ?? null) === nextWorkingDirectory &&
-    (previous.associatedWorktreePath ?? null) === nextAssociatedWorktreePath &&
-    (previous.associatedWorktreeBranch ?? null) === nextAssociatedWorktreeBranch &&
-    (previous.associatedWorktreeRef ?? null) === nextAssociatedWorktreeRef &&
-    (previous.createBranchFlowCompleted ?? false) === resolvedCreateBranchFlowCompleted &&
     previous.latestUserMessageAt === resolvedLatestUserMessageAt &&
     previous.hasPendingApprovals === resolvedHasPendingApprovals &&
     previous.hasPendingUserInput === resolvedHasPendingUserInput &&
     (previous.forkSourceThreadId ?? null) === (incoming.forkSourceThreadId ?? null) &&
-    deepEqualJson(previous.lastKnownPr ?? null, lastKnownPr) &&
     previous.pinnedMessages === pinnedMessages &&
     previous.threadMarkers === threadMarkers &&
     previous.notes === notes &&
-    previous.turnDiffSummaries === turnDiffSummaries &&
     previous.activities === activities &&
     previous.pendingInteractions === pendingInteractions
   ) {
@@ -1667,16 +1507,8 @@ export function normalizeThreadFromReadModel(
     subagentAgentId: incoming.subagentAgentId ?? null,
     subagentNickname: incoming.subagentNickname ?? null,
     subagentRole: incoming.subagentRole ?? null,
-    envMode: incoming.envMode ?? "local",
-    branch: resolvedBranch,
-    worktreePath: nextWorktreePath,
     workingDirectory: nextWorkingDirectory,
-    associatedWorktreePath: nextAssociatedWorktreePath,
-    associatedWorktreeBranch: nextAssociatedWorktreeBranch,
-    associatedWorktreeRef: nextAssociatedWorktreeRef,
-    createBranchFlowCompleted: resolvedCreateBranchFlowCompleted,
     forkSourceThreadId: incoming.forkSourceThreadId ?? null,
-    lastKnownPr,
     ...(pinnedMessages !== undefined ? { pinnedMessages } : {}),
     ...(threadMarkers !== undefined ? { threadMarkers } : {}),
     ...(notes !== undefined ? { notes } : {}),
@@ -1689,7 +1521,6 @@ export function normalizeThreadFromReadModel(
     ...(resolvedHasPendingUserInput !== undefined
       ? { hasPendingUserInput: resolvedHasPendingUserInput }
       : {}),
-    turnDiffSummaries,
     activities,
     ...(pendingInteractions !== undefined ? { pendingInteractions } : {}),
   };
@@ -1705,37 +1536,9 @@ export function normalizeThreadShellSnapshot(
 } {
   const modelSelection = normalizeModelSelection(incoming.modelSelection, previous?.modelSelection);
   const { session, latestTurn } = normalizeThreadLifecycle(incoming, previous);
-  const lastKnownPr =
-    previous?.lastKnownPr &&
-    incoming.lastKnownPr &&
-    deepEqualJson(previous.lastKnownPr, incoming.lastKnownPr)
-      ? previous.lastKnownPr
-      : (incoming.lastKnownPr ?? null);
   const error = normalizeThreadErrorMessage(incoming.session?.lastError);
-  const lastVisitedAt = previous?.lastVisitedAt ?? incoming.updatedAt;
-  const nextWorktreePath = incoming.worktreePath;
+  const lastVisitedAt = incoming.lastVisitedAt ?? previous?.lastVisitedAt ?? incoming.updatedAt;
   const nextWorkingDirectory = incoming.workingDirectory ?? null;
-  const nextAssociatedWorktreePath = incoming.associatedWorktreePath ?? null;
-  const nextAssociatedWorktreeBranch = incoming.associatedWorktreeBranch ?? null;
-  const nextAssociatedWorktreeRef = incoming.associatedWorktreeRef ?? null;
-  const resolvedBranch = resolveThreadBranchRegressionGuard({
-    currentBranch: previous?.branch ?? null,
-    nextBranch: incoming.branch,
-  });
-  const resolvedCreateBranchFlowCompleted = resolveCreateBranchFlowCompletedMerge({
-    currentBranch: previous?.branch ?? null,
-    nextBranch: resolvedBranch,
-    currentWorktreePath: previous?.worktreePath ?? null,
-    nextWorktreePath,
-    currentAssociatedWorktreePath: previous?.associatedWorktreePath,
-    nextAssociatedWorktreePath,
-    currentAssociatedWorktreeBranch: previous?.associatedWorktreeBranch,
-    nextAssociatedWorktreeBranch,
-    currentAssociatedWorktreeRef: previous?.associatedWorktreeRef,
-    nextAssociatedWorktreeRef,
-    currentCreateBranchFlowCompleted: previous?.createBranchFlowCompleted,
-    nextCreateBranchFlowCompleted: incoming.createBranchFlowCompleted,
-  });
   const shell: ThreadShell = {
     id: incoming.id,
     codexThreadId: previous?.codexThreadId ?? null,
@@ -1750,14 +1553,7 @@ export function normalizeThreadShellSnapshot(
     archivedAt: incoming.archivedAt ?? null,
     updatedAt: incoming.updatedAt,
     isPinned: incoming.isPinned ?? false,
-    envMode: incoming.envMode ?? "local",
-    branch: resolvedBranch,
-    worktreePath: nextWorktreePath,
     workingDirectory: nextWorkingDirectory,
-    associatedWorktreePath: nextAssociatedWorktreePath,
-    associatedWorktreeBranch: nextAssociatedWorktreeBranch,
-    associatedWorktreeRef: nextAssociatedWorktreeRef,
-    createBranchFlowCompleted: resolvedCreateBranchFlowCompleted,
     parentThreadId: incoming.parentThreadId ?? null,
     creationSource: incoming.creationSource ?? null,
     sourceThreadId: incoming.sourceThreadId ?? null,
@@ -1765,7 +1561,6 @@ export function normalizeThreadShellSnapshot(
     subagentNickname: incoming.subagentNickname ?? null,
     subagentRole: incoming.subagentRole ?? null,
     forkSourceThreadId: incoming.forkSourceThreadId ?? null,
-    lastKnownPr,
     // The sidebar shell snapshot/event does not carry thread annotations, so keep the values
     // resolved from the thread-detail path instead of clobbering them with `undefined`.
     ...(previous?.pinnedMessages !== undefined ? { pinnedMessages: previous.pinnedMessages } : {}),

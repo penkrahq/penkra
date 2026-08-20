@@ -54,7 +54,6 @@ export type {
   ComposerImageAttachment,
   ComposerPromptHistorySavedDraft,
   ComposerThreadDraftState,
-  DraftThreadEnvMode,
   DraftThreadState,
   QueuedComposerChatTurn,
   QueuedComposerTurn,

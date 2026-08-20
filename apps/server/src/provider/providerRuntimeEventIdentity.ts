@@ -1,4 +1,43 @@
+import { createHash } from "node:crypto";
+
 import { EventId, type ProviderRuntimeEvent } from "@penkra/contracts";
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * Derive a replay-stable canonical id from one provider-native notification.
+ * The provider/source/thread namespace prevents unrelated adapters or sessions
+ * from colliding when their native payloads happen to be byte-identical.
+ */
+export function providerRuntimeEventIdFromNative(input: {
+  readonly provider: string;
+  readonly source: string;
+  readonly threadId: string;
+  readonly nativeEvent: unknown;
+}): EventId {
+  const digest = createHash("sha256")
+    .update(
+      canonicalJson({
+        provider: input.provider,
+        source: input.source,
+        threadId: input.threadId,
+        nativeEvent: input.nativeEvent,
+      }),
+    )
+    .digest("hex");
+  return EventId.makeUnsafe(`native:${input.provider}:${digest}`);
+}
 
 /**
  * One provider-native notification may expand into multiple canonical events.

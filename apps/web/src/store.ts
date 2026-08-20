@@ -12,10 +12,8 @@ import {
   type ThreadId,
 } from "@penkra/contracts";
 import { Debouncer } from "@tanstack/react-pacer";
-import { resolveThreadBranchRegressionGuard } from "@penkra/shared/git";
 import { create } from "zustand";
 
-import { resolveCreateBranchFlowCompletedMerge } from "./storeNormalization";
 import {
   applySpaceOrder,
   applyShellEvent,
@@ -196,65 +194,15 @@ export function setThreadWorkspace(
   patch: ThreadWorkspacePatch,
 ): AppState {
   return applyThreadUpdate(state, threadId, (t) => {
-    const nextEnvMode = patch.envMode !== undefined ? patch.envMode : t.envMode;
-    const nextBranch = resolveThreadBranchRegressionGuard({
-      currentBranch: t.branch,
-      nextBranch: patch.branch !== undefined ? patch.branch : t.branch,
-    });
-    const nextWorktreePath = patch.worktreePath !== undefined ? patch.worktreePath : t.worktreePath;
     const nextWorkingDirectory =
       patch.workingDirectory !== undefined ? patch.workingDirectory : (t.workingDirectory ?? null);
-    const nextAssociatedWorktreePath =
-      patch.associatedWorktreePath !== undefined
-        ? patch.associatedWorktreePath
-        : (t.associatedWorktreePath ?? null);
-    const nextAssociatedWorktreeBranch =
-      patch.associatedWorktreeBranch !== undefined
-        ? patch.associatedWorktreeBranch
-        : (t.associatedWorktreeBranch ?? null);
-    const nextAssociatedWorktreeRef =
-      patch.associatedWorktreeRef !== undefined
-        ? patch.associatedWorktreeRef
-        : (t.associatedWorktreeRef ?? null);
-    const nextCreateBranchFlowCompleted = resolveCreateBranchFlowCompletedMerge({
-      currentBranch: t.branch,
-      nextBranch,
-      currentWorktreePath: t.worktreePath,
-      nextWorktreePath,
-      currentAssociatedWorktreePath: t.associatedWorktreePath,
-      nextAssociatedWorktreePath,
-      currentAssociatedWorktreeBranch: t.associatedWorktreeBranch,
-      nextAssociatedWorktreeBranch,
-      currentAssociatedWorktreeRef: t.associatedWorktreeRef,
-      nextAssociatedWorktreeRef,
-      currentCreateBranchFlowCompleted: t.createBranchFlowCompleted,
-      nextCreateBranchFlowCompleted: patch.createBranchFlowCompleted,
-    });
-    if (
-      t.envMode === nextEnvMode &&
-      t.branch === nextBranch &&
-      t.worktreePath === nextWorktreePath &&
-      (t.workingDirectory ?? null) === nextWorkingDirectory &&
-      (t.associatedWorktreePath ?? null) === nextAssociatedWorktreePath &&
-      (t.associatedWorktreeBranch ?? null) === nextAssociatedWorktreeBranch &&
-      (t.associatedWorktreeRef ?? null) === nextAssociatedWorktreeRef &&
-      (t.createBranchFlowCompleted ?? false) === nextCreateBranchFlowCompleted
-    ) {
+    if ((t.workingDirectory ?? null) === nextWorkingDirectory) {
       return t;
     }
-    const cwdChanged =
-      t.worktreePath !== nextWorktreePath || (t.workingDirectory ?? null) !== nextWorkingDirectory;
     return {
       ...t,
-      envMode: nextEnvMode,
-      branch: nextBranch,
-      worktreePath: nextWorktreePath,
       workingDirectory: nextWorkingDirectory,
-      associatedWorktreePath: nextAssociatedWorktreePath,
-      associatedWorktreeBranch: nextAssociatedWorktreeBranch,
-      associatedWorktreeRef: nextAssociatedWorktreeRef,
-      createBranchFlowCompleted: nextCreateBranchFlowCompleted,
-      ...(cwdChanged ? { session: null } : {}),
+      session: null,
     };
   });
 }

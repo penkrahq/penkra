@@ -45,9 +45,6 @@ function makeThread(overrides: Partial<Thread>): Thread {
       assistantMessageId: null,
     },
     lastVisitedAt: "2026-04-05T10:00:00.000Z",
-    branch: null,
-    worktreePath: null,
-    turnDiffSummaries: [],
     activities: [],
     ...overrides,
   };

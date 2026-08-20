@@ -391,9 +391,6 @@ export function createWsNativeApi(): NativeApi {
     filesystem: {
       browse: (input) => transport.request(WS_METHODS.filesystemBrowse, input),
     },
-    studio: {
-      listThreadOutputs: (input) => transport.request(WS_METHODS.studioListThreadOutputs, input),
-    },
     shell: {
       openInEditor: (cwd, editor) =>
         transport.request(WS_METHODS.shellOpenInEditor, { cwd, editor }),
@@ -417,41 +414,6 @@ export function createWsNativeApi(): NativeApi {
         }
         // No-op in browser - this is a desktop-only feature
       },
-    },
-    git: {
-      status: (input) => transport.request(WS_METHODS.gitStatus, input),
-      readWorkingTreeDiff: (input) => transport.request(WS_METHODS.gitReadWorkingTreeDiff, input),
-      workingTreeDiffStats: (input) => transport.request(WS_METHODS.gitWorkingTreeDiffStats, input),
-      listBranches: (input) => transport.request(WS_METHODS.gitListBranches, input),
-      createWorktree: (input) => transport.request(WS_METHODS.gitCreateWorktree, input),
-      createDetachedWorktree: (input) =>
-        transport.request(WS_METHODS.gitCreateDetachedWorktree, input),
-      removeWorktree: (input) => transport.request(WS_METHODS.gitRemoveWorktree, input),
-      createBranch: (input) => transport.request(WS_METHODS.gitCreateBranch, input),
-      checkout: (input) => transport.request(WS_METHODS.gitCheckout, input),
-      stashAndCheckout: (input) => transport.request(WS_METHODS.gitStashAndCheckout, input),
-      stashDrop: (input) => transport.request(WS_METHODS.gitStashDrop, input),
-      stashInfo: (input) => transport.request(WS_METHODS.gitStashInfo, input),
-      removeIndexLock: (input) => transport.request(WS_METHODS.gitRemoveIndexLock, input),
-      stageFiles: (input) => transport.request(WS_METHODS.gitStageFiles, input),
-      unstageFiles: (input) => transport.request(WS_METHODS.gitUnstageFiles, input),
-      switchThreadEnvironment: (input) =>
-        transport.request(WS_METHODS.gitSwitchThreadEnvironment, input),
-      resolvePullRequest: (input) => transport.request(WS_METHODS.gitResolvePullRequest, input),
-      pullRequestSnapshot: (input) => transport.request(WS_METHODS.gitPullRequestSnapshot, input),
-      preparePullRequestThread: (input) =>
-        transport.request(WS_METHODS.gitPreparePullRequestThread, input),
-    },
-    pullRequests: {
-      list: (input) => transport.request(WS_METHODS.pullRequestsList, input),
-      reviewRequestCount: (input) =>
-        transport.request(WS_METHODS.pullRequestsReviewRequestCount, input),
-      detail: (input) => transport.request(WS_METHODS.pullRequestsDetail, input),
-      diff: (input) => transport.request(WS_METHODS.pullRequestsDiff, input),
-      action: (input) =>
-        transport.request(WS_METHODS.pullRequestsAction, input, { timeoutMs: null }),
-      comment: (input) => transport.request(WS_METHODS.pullRequestsComment, input),
-      setPinned: (input) => transport.request(WS_METHODS.pullRequestsSetPinned, input),
     },
     contextMenu: {
       show: async <T extends string>(
@@ -519,7 +481,6 @@ export function createWsNativeApi(): NativeApi {
       // withProviderUpdateTimeout, which owns the client-side watchdog.
       updateProvider: (input) =>
         transport.request(WS_METHODS.serverUpdateProvider, input, { timeoutMs: null }),
-      listWorktrees: () => transport.request(WS_METHODS.serverListWorktrees),
       listLocalServers: () => transport.request(WS_METHODS.serverListLocalServers),
       stopLocalServer: (input) => transport.request(WS_METHODS.serverStopLocalServer, input),
       getProviderUsageSnapshot: (input) =>
@@ -528,11 +489,6 @@ export function createWsNativeApi(): NativeApi {
       getDiagnostics: () => transport.request(WS_METHODS.serverGetDiagnostics),
       transcribeVoice: requestVoiceTranscriptionUpload,
       upsertKeybinding: (input) => transport.request(WS_METHODS.serverUpsertKeybinding, input),
-    },
-    stats: {
-      getProfileStats: (input) => transport.request(WS_METHODS.statsGetProfileStats, input),
-      getProfileTokenStats: (input) =>
-        transport.request(WS_METHODS.statsGetProfileTokenStats, input),
     },
     provider: {
       getComposerCapabilities: (input) =>
@@ -584,9 +540,6 @@ export function createWsNativeApi(): NativeApi {
       },
       importThread: (input) => transport.request(ORCHESTRATION_WS_METHODS.importThread, input),
       repairState: () => transport.request(ORCHESTRATION_WS_METHODS.repairState),
-      getTurnDiff: (input) => transport.request(ORCHESTRATION_WS_METHODS.getTurnDiff, input),
-      getFullThreadDiff: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.getFullThreadDiff, input),
       replayEvents: (fromSequenceExclusive) =>
         transport.request(ORCHESTRATION_WS_METHODS.replayEvents, {
           fromSequenceExclusive,

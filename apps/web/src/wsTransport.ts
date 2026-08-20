@@ -751,6 +751,12 @@ export class WsTransport {
   }
 
   private async getClient(): Promise<RpcClientInstance> {
+    // Reconnect retires the current runtime before the replacement session is
+    // ready. Requests arriving in that window must join the replacement instead
+    // of receiving the resolved clientPromise for the disposed runtime.
+    if (this.reconnectPromise) {
+      return this.reconnectPromise;
+    }
     try {
       return await this.clientPromise;
     } catch (error) {

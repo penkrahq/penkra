@@ -70,7 +70,7 @@ export function useSidebarProjectRunController(input: {
     const byCwd = new Map<string, { cwd: string; enabled: boolean }>();
     for (const project of runnableProjects) {
       if (!project.cwd) continue;
-      const enabled = !project.scripts.some((script) => !script.runOnWorktreeCreate);
+      const enabled = project.scripts.length === 0;
       const existing = byCwd.get(project.cwd);
       if (!existing) {
         byCwd.set(project.cwd, { cwd: project.cwd, enabled });
@@ -164,7 +164,6 @@ export function useSidebarProjectRunController(input: {
       const command = commandOverride?.trim() || runCommand.command;
       const env = projectScriptRuntimeEnv({
         project: { cwd: project.cwd },
-        worktreePath: null,
       });
 
       storeUpsertProjectRun({

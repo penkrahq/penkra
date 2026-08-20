@@ -4,7 +4,6 @@
 
 import {
   type ModelSelection,
-  type OrchestrationThreadPullRequest,
   type ContainerId,
   type ProviderConnectionId,
   type ProviderKind,
@@ -16,7 +15,6 @@ import {
   type SpaceId,
   type ThreadId,
 } from "@penkra/contracts";
-import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
 
 import { normalizeAssistantSelectionAttachment } from "./lib/assistantSelections";
@@ -42,7 +40,6 @@ import {
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "penkra:composer-drafts:v1";
 export const COMPOSER_DRAFT_STORAGE_VERSION = 6;
-export type DraftThreadEnvMode = "local" | "worktree";
 const TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX = "::terminal";
 
 export const PersistedComposerImageAttachment = Schema.Struct({
@@ -90,6 +87,10 @@ export interface QueuedComposerChatTurn {
   createdAt: string;
   serverAcceptedAt?: string;
   serverMessageId?: import("@penkra/contracts").MessageId;
+  /** Durable semantic-attempt identity for crash-safe command retries. */
+  dispatchAttempt?: number;
+  /** Exact binding revision captured for the current semantic attempt. */
+  dispatchBindingRevision?: number;
   previewText: string;
   prompt: string;
   images: ComposerImageAttachment[];
@@ -107,7 +108,6 @@ export interface QueuedComposerChatTurn {
   connectionId: ProviderConnectionId | null;
   providerOptionsForDispatch?: ProviderStartOptions | undefined;
   runtimeMode: RuntimeMode;
-  envMode: DraftThreadEnvMode;
 }
 export type QueuedComposerTurn = QueuedComposerChatTurn;
 
@@ -142,25 +142,14 @@ export interface DraftThreadState {
   createdAt: string;
   runtimeMode: RuntimeMode;
   entryPoint: ThreadPrimarySurface;
-  branch: string | null;
-  worktreePath: string | null;
   workingDirectory?: string | null;
-  lastKnownPr?: OrchestrationThreadPullRequest | null;
-  envMode: DraftThreadEnvMode;
   promotedTo?: ThreadId;
 }
 
 interface DraftThreadMutationOptions {
   spaceId?: SpaceId | null;
-  branch?: string | null;
-  worktreePath?: string | null;
   workingDirectory?: string | null;
-  lastKnownPr?: OrchestrationThreadPullRequest | null;
   createdAt?: string;
-  // Explicitly `| undefined`: callers forward a `ThreadWorkspacePatch`, whose `envMode` is
-  // optional in the same way, and under `exactOptionalPropertyTypes` a bare `?:` would reject
-  // that spread even though the value sets are identical ("local" | "worktree").
-  envMode?: DraftThreadEnvMode | undefined;
   runtimeMode?: RuntimeMode;
   entryPoint?: ThreadPrimarySurface;
 }
@@ -200,10 +189,7 @@ export interface ComposerDraftStoreState {
       projectId: ContainerId;
       spaceId?: SpaceId | null;
       createdAt?: string;
-      branch?: string | null;
-      worktreePath?: string | null;
       workingDirectory?: string | null;
-      envMode?: DraftThreadEnvMode;
       runtimeMode?: RuntimeMode;
       entryPoint?: ThreadPrimarySurface;
     },
@@ -270,6 +256,13 @@ export interface ComposerDraftStoreState {
     queuedTurnId: string,
     acceptedAt: string,
   ) => void;
+  setQueuedTurnDispatchAdmission: (
+    threadId: ThreadId,
+    queuedTurnId: string,
+    attempt: number,
+    bindingRevision: number,
+  ) => void;
+  advanceQueuedTurnDispatchAttempt: (threadId: ThreadId, queuedTurnId: string) => void;
   removeQueuedTurn: (threadId: ThreadId, queuedTurnId: string) => void;
   setQueuePaused: (threadId: ThreadId, paused: boolean) => void;
   addImage: (threadId: ThreadId, image: ComposerImageAttachment) => void;
@@ -353,10 +346,6 @@ export function buildDraftThreadState(input: {
   createdAtMode: DraftThreadCreatedAtMode;
 }): DraftThreadState {
   const { existingThread, options } = input;
-  const nextWorktreePath =
-    options?.worktreePath === undefined
-      ? (existingThread?.worktreePath ?? null)
-      : (options.worktreePath ?? null);
   const nextEntryPoint = normalizeDraftThreadEntryPoint(
     options?.entryPoint,
     existingThread?.entryPoint ?? "chat",
@@ -376,19 +365,10 @@ export function buildDraftThreadState(input: {
     }),
     runtimeMode: options?.runtimeMode ?? existingThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
     entryPoint: nextEntryPoint,
-    branch:
-      options?.branch === undefined ? (existingThread?.branch ?? null) : (options.branch ?? null),
-    worktreePath: nextWorktreePath,
     workingDirectory:
       options?.workingDirectory === undefined
         ? (existingThread?.workingDirectory ?? null)
         : (options.workingDirectory ?? null),
-    lastKnownPr:
-      options?.lastKnownPr === undefined
-        ? (existingThread?.lastKnownPr ?? null)
-        : (options.lastKnownPr ?? null),
-    envMode:
-      options?.envMode ?? (nextWorktreePath ? "worktree" : (existingThread?.envMode ?? "local")),
     ...(nextPromotedTo ? { promotedTo: nextPromotedTo } : {}),
   };
 }
@@ -407,11 +387,7 @@ export function draftThreadStatesEqual(
     left.createdAt === right.createdAt &&
     left.runtimeMode === right.runtimeMode &&
     left.entryPoint === right.entryPoint &&
-    left.branch === right.branch &&
-    left.worktreePath === right.worktreePath &&
     (left.workingDirectory ?? null) === (right.workingDirectory ?? null) &&
-    Equal.equals(left.lastKnownPr ?? null, right.lastKnownPr ?? null) &&
-    left.envMode === right.envMode &&
     left.promotedTo === right.promotedTo
   );
 }

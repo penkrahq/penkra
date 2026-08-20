@@ -48,9 +48,6 @@ function makeThread(threadId: ThreadId, overrides: Partial<Thread> = {}): Thread
       assistantMessageId: null,
     },
     lastVisitedAt: "2026-04-07T10:01:00.000Z",
-    branch: null,
-    worktreePath: null,
-    turnDiffSummaries: [],
     activities: [],
     ...overrides,
   };
@@ -62,9 +59,6 @@ function makeDraftThread(overrides: Partial<DraftThreadState> = {}): DraftThread
     createdAt: "2026-04-07T10:00:00.000Z",
     runtimeMode: "full-access",
     entryPoint: "chat",
-    branch: null,
-    worktreePath: null,
-    envMode: "local",
     ...overrides,
   };
 }
@@ -162,12 +156,12 @@ describe("resolveFocusedChatContext", () => {
       threads: [makeThread(THREAD_A)],
       projects: [makeProject()],
       draftThreadsByThreadId: {
-        [draftThreadId]: makeDraftThread({ branch: "feature/split" }),
+        [draftThreadId]: makeDraftThread({}),
       },
     });
 
     expect(context.focusedThreadId).toBe(draftThreadId);
-    expect(context.activeDraftThread?.branch).toBe("feature/split");
+    expect(context.activeDraftThread).toBeDefined();
     expect(context.activeProjectId).toBe(PROJECT_ID);
   });
 });

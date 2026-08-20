@@ -1,4 +1,4 @@
-import { CheckpointRef, EventId, ThreadId, TurnId, type ModelSlug } from "@penkra/contracts";
+import { ThreadId, type ModelSlug } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,7 +7,6 @@ import {
   buildTranscriptAutoFollowSignal,
   createLocalDispatchSnapshot,
   derivePromptHistoryFromMessages,
-  hasFileUndoSettled,
   isComposerCursorOnFirstLine,
   isComposerCursorOnLastLine,
   type LocalDispatchSnapshot,
@@ -19,10 +18,8 @@ import {
   hasServerAcknowledgedLocalDispatch,
   isVoiceAuthExpiredMessage,
   resolveActiveThreadTitle,
-  resolveActiveTurnLiveDiffState,
   resolveCommittedProviderModel,
   resolveCycledModelSlug,
-  resolveGitRepoUiState,
   resolveProjectScriptTerminalTarget,
   resolveRuntimeModeAfterApprovalDecision,
   resolveThreadDetailHydration,
@@ -69,120 +66,6 @@ describe("transcript auto-follow signal", () => {
         tailKey: "assistant-3:assistant:settled:120",
       }),
     ).not.toBe(streaming);
-  });
-});
-
-describe("file undo completion", () => {
-  const pending = {
-    threadId: ThreadId.makeUnsafe("thread-file-undo"),
-    turnCounts: [2],
-    existingFailureActivityIds: [],
-  };
-  const summary = {
-    turnId: TurnId.makeUnsafe("turn-2"),
-    checkpointTurnCount: 2,
-    checkpointTurnCounts: [2],
-    checkpointRef: CheckpointRef.makeUnsafe("refs/penkra/checkpoints/thread-file-undo/turn/2"),
-    status: "ready" as const,
-    completedAt: "2026-07-12T17:59:00.000Z",
-    files: [{ path: "src/file.ts", additions: 1, deletions: 0 }],
-  };
-
-  it("stays pending after command acceptance until the projected file diff settles", () => {
-    const baseThread = {
-      id: pending.threadId,
-      turnDiffSummaries: [summary],
-      activities: [],
-    };
-
-    expect(hasFileUndoSettled({ pending, thread: baseThread })).toBe(false);
-    expect(
-      hasFileUndoSettled({
-        pending,
-        thread: {
-          ...baseThread,
-          turnDiffSummaries: [{ ...summary, files: [] }],
-        },
-      }),
-    ).toBe(true);
-  });
-
-  it("stays pending until every merged turn in the card has been reverted", () => {
-    const olderSummary = {
-      ...summary,
-      turnId: TurnId.makeUnsafe("turn-1"),
-      checkpointTurnCount: 1,
-      checkpointTurnCounts: [1],
-      files: [],
-    };
-    const multiTurnPending = { ...pending, turnCounts: [2, 1] };
-
-    expect(
-      hasFileUndoSettled({
-        pending: multiTurnPending,
-        thread: {
-          id: pending.threadId,
-          turnDiffSummaries: [olderSummary, summary],
-          activities: [],
-        },
-      }),
-    ).toBe(false);
-    expect(
-      hasFileUndoSettled({
-        pending: multiTurnPending,
-        thread: {
-          id: pending.threadId,
-          turnDiffSummaries: [olderSummary, { ...summary, files: [] }],
-          activities: [],
-        },
-      }),
-    ).toBe(true);
-  });
-
-  it("settles when the matching revert failure is projected", () => {
-    expect(
-      hasFileUndoSettled({
-        pending,
-        thread: {
-          id: pending.threadId,
-          turnDiffSummaries: [summary],
-          activities: [
-            {
-              id: EventId.makeUnsafe("activity-file-undo-failed"),
-              tone: "error",
-              kind: "checkpoint.revert.failed",
-              summary: "Checkpoint revert failed",
-              payload: { turnCount: 2, detail: "reset failed" },
-              turnId: null,
-              createdAt: "2026-07-12T18:00:01.000Z",
-            },
-          ],
-        },
-      }),
-    ).toBe(true);
-  });
-
-  it("ignores a matching failure activity that predates this undo request", () => {
-    expect(
-      hasFileUndoSettled({
-        pending: { ...pending, existingFailureActivityIds: ["activity-file-undo-failed"] },
-        thread: {
-          id: pending.threadId,
-          turnDiffSummaries: [summary],
-          activities: [
-            {
-              id: EventId.makeUnsafe("activity-file-undo-failed"),
-              tone: "error",
-              kind: "checkpoint.revert.failed",
-              summary: "Checkpoint revert failed",
-              payload: { turnCount: 2, detail: "old failure" },
-              turnId: null,
-              createdAt: "2026-07-12T17:00:00.000Z",
-            },
-          ],
-        },
-      }),
-    ).toBe(false);
   });
 });
 
@@ -714,38 +597,6 @@ describe("voice helpers", () => {
   });
 });
 
-describe("git repository UI state", () => {
-  it("waits for positive repository detection in Studio", () => {
-    expect(
-      resolveGitRepoUiState({
-        isStudioContainer: true,
-        queriedIsRepo: undefined,
-      }),
-    ).toBe(false);
-    expect(
-      resolveGitRepoUiState({
-        isStudioContainer: true,
-        queriedIsRepo: true,
-      }),
-    ).toBe(true);
-    expect(
-      resolveGitRepoUiState({
-        isStudioContainer: true,
-        queriedIsRepo: false,
-      }),
-    ).toBe(false);
-  });
-
-  it("keeps normal project Git UI stable while discovery is pending", () => {
-    expect(
-      resolveGitRepoUiState({
-        isStudioContainer: false,
-        queriedIsRepo: undefined,
-      }),
-    ).toBe(true);
-  });
-});
-
 describe("resolveCycledModelSlug", () => {
   const options = [{ slug: "a" }, { slug: "b" }, { slug: "c" }, { slug: "d" }];
 
@@ -824,136 +675,6 @@ describe("resolveCycledModelSlug", () => {
         direction: "next",
       }),
     ).toBe("a");
-  });
-});
-
-describe("resolveActiveTurnLiveDiffState", () => {
-  it("uses only the diff summary for the active turn", () => {
-    const activeTurnId = TurnId.makeUnsafe("turn-active");
-
-    expect(
-      resolveActiveTurnLiveDiffState({
-        latestTurnId: activeTurnId,
-        turnDiffSummaries: [
-          {
-            turnId: TurnId.makeUnsafe("turn-previous"),
-            completedAt: "2026-06-13T10:00:00.000Z",
-            files: [{ path: "old.ts", additions: 100, deletions: 50 }],
-          },
-          {
-            turnId: activeTurnId,
-            completedAt: "2026-06-13T10:01:00.000Z",
-            files: [
-              { path: "src/a.ts", additions: 2, deletions: 1 },
-              { path: "src/b.ts", additions: 3, deletions: 0 },
-            ],
-          },
-        ],
-      }),
-    ).toEqual({
-      turnId: activeTurnId,
-      fileCount: 2,
-      additions: 5,
-      deletions: 1,
-      hasChanges: true,
-    });
-  });
-
-  it("returns zero totals before the active turn has a diff summary or file-edit work", () => {
-    expect(
-      resolveActiveTurnLiveDiffState({
-        latestTurnId: TurnId.makeUnsafe("turn-active"),
-        turnDiffSummaries: [
-          {
-            turnId: TurnId.makeUnsafe("turn-previous"),
-            completedAt: "2026-06-13T10:00:00.000Z",
-            files: [{ path: "old.ts", additions: 100, deletions: 50 }],
-          },
-        ],
-      }),
-    ).toEqual({
-      turnId: null,
-      fileCount: 0,
-      additions: 0,
-      deletions: 0,
-      hasChanges: false,
-    });
-  });
-
-  it("treats an empty active turn diff summary as authoritative over tool-log file hints", () => {
-    const activeTurnId = TurnId.makeUnsafe("turn-active");
-
-    expect(
-      resolveActiveTurnLiveDiffState({
-        latestTurnId: activeTurnId,
-        turnDiffSummaries: [
-          {
-            turnId: activeTurnId,
-            completedAt: "2026-06-13T10:01:00.000Z",
-            files: [],
-          },
-        ],
-        workLogEntries: [
-          {
-            turnId: activeTurnId,
-            itemType: "file_change",
-            changedFiles: ["src/a.ts"],
-          },
-        ],
-      }),
-    ).toEqual({
-      turnId: null,
-      fileCount: 0,
-      additions: 0,
-      deletions: 0,
-      hasChanges: false,
-    });
-  });
-
-  it("falls back to in-turn file-edit work before the diff summary lands", () => {
-    const activeTurnId = TurnId.makeUnsafe("turn-active");
-
-    expect(
-      resolveActiveTurnLiveDiffState({
-        latestTurnId: activeTurnId,
-        turnDiffSummaries: [],
-        workLogEntries: [
-          // Other turn / non-edit work is ignored.
-          { turnId: TurnId.makeUnsafe("turn-previous"), itemType: "file_change" },
-          { turnId: activeTurnId, requestKind: "command" },
-          {
-            turnId: activeTurnId,
-            itemType: "file_change",
-            changedFiles: ["src/a.ts", "src/b.ts"],
-          },
-          { turnId: activeTurnId, itemType: "file_change", changedFiles: ["src/a.ts"] },
-        ],
-      }),
-    ).toEqual({
-      turnId: null,
-      fileCount: 2,
-      additions: 0,
-      deletions: 0,
-      hasChanges: true,
-    });
-  });
-
-  it("surfaces a stat-less strip when file-edit work has no changed paths yet", () => {
-    const activeTurnId = TurnId.makeUnsafe("turn-active");
-
-    expect(
-      resolveActiveTurnLiveDiffState({
-        latestTurnId: activeTurnId,
-        turnDiffSummaries: [],
-        workLogEntries: [{ turnId: activeTurnId, itemType: "file_change" }],
-      }),
-    ).toEqual({
-      turnId: null,
-      fileCount: null,
-      additions: 0,
-      deletions: 0,
-      hasChanges: true,
-    });
   });
 });
 

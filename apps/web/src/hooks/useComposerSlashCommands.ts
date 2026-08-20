@@ -8,7 +8,6 @@ import {
   type RuntimeMode,
   type ThreadId,
 } from "@penkra/contracts";
-import { deriveAssociatedWorktreeMetadata } from "@penkra/shared/threadWorkspace";
 import { useCallback, useState } from "react";
 import { newCommandId, newMessageId, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
@@ -23,13 +22,11 @@ import {
   parseComposerSlashInvocationForCommands,
   parseFastSlashCommandAction,
   parseForkSlashCommandArgs,
-  type ForkSlashCommandTarget,
 } from "../composerSlashCommands";
 import { buildThreadImportedMessages } from "../lib/threadImport";
 import { toastManager } from "../components/ui/toast";
 import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu";
 import { buildNextProviderOptions } from "../providerModelOptions";
-import { resolveForkThreadEnvironment } from "../lib/threadEnvironment";
 import { type SplitViewId } from "../splitViewStore";
 import { downloadUrlAsBlob } from "../lib/browserDownload";
 import { resolveWsHttpUrl } from "../lib/wsHttpUrl";
@@ -50,7 +47,6 @@ function wasPromptReplacementApplied(result: number | false): boolean {
 export function useComposerSlashCommands(input: {
   activeProject: Project | undefined;
   activeThread: Thread | undefined;
-  activeRootBranch: string | null;
   isServerThread: boolean;
   supportsFastSlashCommand: boolean;
   canOfferCompactCommand: boolean;
@@ -63,7 +59,6 @@ export function useComposerSlashCommands(input: {
   currentProviderModelOptions: ProviderModelOptions[ProviderKind] | undefined;
   selectedModelSelection: ModelSelection;
   selectedConnectionId: ProviderConnectionId | null | undefined;
-  environmentMode: string | null;
   runtimeMode: RuntimeMode;
   threadId: ThreadId;
   syncServerShellSnapshot: (snapshot: OrchestrationShellSnapshot) => void;
@@ -99,7 +94,6 @@ export function useComposerSlashCommands(input: {
   const {
     activeProject,
     activeThread,
-    activeRootBranch,
     isServerThread,
     supportsFastSlashCommand,
     canOfferCompactCommand,
@@ -112,7 +106,6 @@ export function useComposerSlashCommands(input: {
     currentProviderModelOptions,
     selectedModelSelection,
     selectedConnectionId,
-    environmentMode,
     runtimeMode,
     threadId,
     syncServerShellSnapshot,
@@ -234,184 +227,129 @@ export function useComposerSlashCommands(input: {
     [fastModeEnabled, supportsFastSlashCommand, setFastModeFromSlashCommand],
   );
 
-  const createForkThreadFromSlashCommand = useCallback(
-    async (inputOptions?: { target?: ForkSlashCommandTarget }) => {
-      const api = readNativeApi();
-      if (!api || !activeProject || !activeThread || !isServerThread) {
-        toastManager.add({
-          type: "warning",
-          title: "Fork is unavailable",
-          description: "Only existing server-backed threads can be forked right now.",
-        });
-        return true;
-      }
-
-      const importedMessages = buildThreadImportedMessages(activeThread);
-
-      const nextThreadId = newThreadId();
-      const createdAt = new Date().toISOString();
-      // Fork first, then let the normal first-send worktree bootstrap create the cwd if needed.
-      const resolvedTarget = resolveForkThreadEnvironment({
-        target: inputOptions?.target ?? "local",
-        activeRootBranch,
-        sourceThread: activeThread,
+  const createForkThreadFromSlashCommand = useCallback(async () => {
+    const api = readNativeApi();
+    if (!api || !activeProject || !activeThread || !isServerThread) {
+      toastManager.add({
+        type: "warning",
+        title: "Fork is unavailable",
+        description: "Only existing server-backed threads can be forked right now.",
       });
+      return true;
+    }
 
+    const importedMessages = buildThreadImportedMessages(activeThread);
+
+    const nextThreadId = newThreadId();
+    const createdAt = new Date().toISOString();
+    await api.orchestration.dispatchCommand({
+      type: "thread.fork.create",
+      commandId: newCommandId(),
+      threadId: nextThreadId,
+      sourceThreadId: activeThread.id,
+      projectId: activeProject.id,
+      title: activeThread.title,
+      modelSelection: selectedModelSelection,
+      runtimeMode,
+      workingDirectory: activeThread.workingDirectory ?? null,
+      importedMessages: [...importedMessages],
+      createdAt,
+    });
+    const snapshot = await api.orchestration.getShellSnapshot();
+    syncServerShellSnapshot(snapshot);
+    await navigateToThread(nextThreadId);
+    return true;
+  }, [
+    activeProject,
+    activeThread,
+    isServerThread,
+    navigateToThread,
+    runtimeMode,
+    selectedConnectionId,
+    selectedModelSelection,
+    syncServerShellSnapshot,
+  ]);
+
+  const runCodexReviewStart = useCallback(async () => {
+    const api = readNativeApi();
+    if (!api || !activeThread || !activeProject) {
+      toastManager.add({
+        type: "warning",
+        title: "Review is unavailable",
+        description: "Open a folder thread before starting a native review.",
+      });
+      return false;
+    }
+
+    const messageText = "Review current changes";
+
+    const nextThreadId = newThreadId();
+    const createdAt = new Date().toISOString();
+    const nextThreadTitle = `${activeThread.title} Review`;
+    const nextWorkingDirectory = activeThread.workingDirectory ?? null;
+    const reviewTarget = { type: "uncommittedChanges" } as const;
+
+    try {
+      if (selectedConnectionId === undefined) {
+        throw new Error("Choose a Connection before starting a review.");
+      }
       await api.orchestration.dispatchCommand({
-        type: "thread.fork.create",
+        type: "thread.create",
         commandId: newCommandId(),
         threadId: nextThreadId,
-        sourceThreadId: activeThread.id,
         projectId: activeProject.id,
-        title: activeThread.title,
+        title: nextThreadTitle,
         modelSelection: selectedModelSelection,
         runtimeMode,
-        envMode: resolvedTarget.envMode,
-        branch: resolvedTarget.branch,
-        worktreePath: resolvedTarget.worktreePath,
-        workingDirectory: activeThread.workingDirectory ?? null,
-        associatedWorktreePath: resolvedTarget.associatedWorktreePath,
-        associatedWorktreeBranch: resolvedTarget.associatedWorktreeBranch,
-        associatedWorktreeRef: resolvedTarget.associatedWorktreeRef,
-        importedMessages: [...importedMessages],
+        workingDirectory: nextWorkingDirectory,
+        createdAt,
+      });
+      await api.orchestration.dispatchCommand({
+        type: "thread.turn.start",
+        commandId: newCommandId(),
+        threadId: nextThreadId,
+        message: {
+          messageId: newMessageId(),
+          role: "user",
+          text: messageText,
+          attachments: [],
+        },
+        modelSelection: selectedModelSelection,
+        connectionId: selectedConnectionId,
+        bindingRevision: 0,
+        reviewTarget,
+        dispatchMode: "queue",
+        runtimeMode,
         createdAt,
       });
       const snapshot = await api.orchestration.getShellSnapshot();
       syncServerShellSnapshot(snapshot);
       await navigateToThread(nextThreadId);
       return true;
-    },
-    [
-      activeProject,
-      activeRootBranch,
-      activeThread,
-      isServerThread,
-      navigateToThread,
-      runtimeMode,
-      selectedConnectionId,
-      selectedModelSelection,
-      syncServerShellSnapshot,
-    ],
-  );
-
-  const runCodexReviewStart = useCallback(
-    async (target: "changes" | "base-branch") => {
-      const api = readNativeApi();
-      if (!api || !activeThread || !activeProject) {
-        toastManager.add({
-          type: "warning",
-          title: "Review is unavailable",
-          description: "Open a folder thread before starting a native review.",
-        });
-        return false;
-      }
-
-      if (target === "base-branch" && !activeRootBranch) {
-        toastManager.add({
-          type: "warning",
-          title: "Base branch unavailable",
-          description: "Select or detect a base branch before starting this review.",
-        });
-        return false;
-      }
-
-      const messageText =
-        target === "base-branch" && activeRootBranch
-          ? `Review against base branch ${activeRootBranch}`
-          : "Review current changes";
-
-      const nextThreadId = newThreadId();
-      const createdAt = new Date().toISOString();
-      const nextThreadTitle =
-        target === "base-branch" ? `${activeThread.title} Review` : `${activeThread.title} Review`;
-      const associatedWorktree = deriveAssociatedWorktreeMetadata({
-        branch: activeThread.branch,
-        worktreePath: activeThread.worktreePath,
-        associatedWorktreePath: activeThread.associatedWorktreePath ?? null,
-        associatedWorktreeBranch: activeThread.associatedWorktreeBranch ?? null,
-        associatedWorktreeRef: activeThread.associatedWorktreeRef ?? null,
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Could not start review",
+        description:
+          error instanceof Error ? error.message : "An error occurred while starting review.",
       });
-
-      // Hoisted out of the `try` below: React Compiler cannot lower `??`/`?:` inside a try block and
-      // would skip this whole hook, so the composer would lose its memoization on every keystroke.
-      const nextEnvMode =
-        activeThread.envMode ?? (activeThread.worktreePath ? "worktree" : "local");
-      const nextWorkingDirectory = activeThread.workingDirectory ?? null;
-      const nextLastKnownPr = activeThread.lastKnownPr ?? null;
-      const reviewTarget =
-        target === "base-branch"
-          ? ({ type: "baseBranch", branch: activeRootBranch! } as const)
-          : ({ type: "uncommittedChanges" } as const);
-
-      try {
-        if (selectedConnectionId === undefined) {
-          throw new Error("Choose a Connection before starting a review.");
-        }
-        await api.orchestration.dispatchCommand({
-          type: "thread.create",
-          commandId: newCommandId(),
-          threadId: nextThreadId,
-          projectId: activeProject.id,
-          title: nextThreadTitle,
-          modelSelection: selectedModelSelection,
-          runtimeMode,
-          envMode: nextEnvMode,
-          branch: activeThread.branch,
-          worktreePath: activeThread.worktreePath,
-          workingDirectory: nextWorkingDirectory,
-          lastKnownPr: nextLastKnownPr,
-          ...associatedWorktree,
-          createdAt,
-        });
-        await api.orchestration.dispatchCommand({
-          type: "thread.turn.start",
-          commandId: newCommandId(),
-          threadId: nextThreadId,
-          message: {
-            messageId: newMessageId(),
-            role: "user",
-            text: messageText,
-            attachments: [],
-          },
-          modelSelection: selectedModelSelection,
-          connectionId: selectedConnectionId,
-          bindingRevision: 0,
-          reviewTarget,
-          dispatchMode: "queue",
-          runtimeMode,
-          createdAt,
-        });
-        const snapshot = await api.orchestration.getShellSnapshot();
-        syncServerShellSnapshot(snapshot);
-        await navigateToThread(nextThreadId);
-        return true;
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Could not start review",
-          description:
-            error instanceof Error ? error.message : "An error occurred while starting review.",
-        });
-        return false;
-      }
-    },
-    [
-      activeProject,
-      activeRootBranch,
-      activeThread,
-      navigateToThread,
-      runtimeMode,
-      selectedModelSelection,
-      syncServerShellSnapshot,
-    ],
-  );
+      return false;
+    }
+  }, [
+    activeProject,
+    activeThread,
+    navigateToThread,
+    runtimeMode,
+    selectedModelSelection,
+    syncServerShellSnapshot,
+  ]);
 
   const handleReviewTargetSelection = useCallback(
-    async (target: "changes" | "base-branch") => {
+    async (_target: "changes") => {
       if (selectedProvider === "codex") {
-        await runCodexReviewStart(target);
+        await runCodexReviewStart();
       } else {
-        const replacement = buildSlashReviewComposerPrompt(target === "base-branch" ? "base" : "");
+        const replacement = buildSlashReviewComposerPrompt("");
         editorActions.setComposerPromptValue(replacement);
       }
       editorActions.scheduleComposerFocus();
@@ -420,9 +358,9 @@ export function useComposerSlashCommands(input: {
   );
 
   const handleForkTargetSelection = useCallback(
-    async (target: ForkSlashCommandTarget) => {
+    async (_target: "local") => {
       try {
-        await createForkThreadFromSlashCommand({ target });
+        await createForkThreadFromSlashCommand();
       } catch (error) {
         toastManager.add({
           type: "error",
@@ -515,7 +453,6 @@ export function useComposerSlashCommands(input: {
       provider: selectedProvider,
       model: selectedModelSelection.model,
       projectKind: activeProject?.kind ?? null,
-      environmentMode,
       runtimeMode,
       sessionStatus: activeThread?.session?.status ?? null,
       latestTurnState: activeThread?.latestTurn?.state ?? null,
@@ -528,7 +465,6 @@ export function useComposerSlashCommands(input: {
   }, [
     activeProject?.kind,
     activeThread,
-    environmentMode,
     openGlobalFeedbackDialog,
     runtimeMode,
     selectedModelSelection.model,
@@ -589,18 +525,16 @@ export function useComposerSlashCommands(input: {
             openReviewTargetPicker();
             return true;
           }
-          const target =
-            normalizedArgs === "base" || normalizedArgs.startsWith("base ") ? "base-branch" : null;
-          if (!target) {
+          if (normalizedArgs.length > 0) {
             toastManager.add({
               type: "warning",
               title: "Invalid /review command",
-              description: "Use /review and then choose a review target.",
+              description: "Use /review to review current changes.",
             });
             return true;
           }
           editorActions.clearComposerSlashDraft();
-          await runCodexReviewStart(target);
+          await runCodexReviewStart();
           return true;
         }
         if (supportsTextNativeReviewCommand && slashInvocation.args.length === 0) {
@@ -625,7 +559,7 @@ export function useComposerSlashCommands(input: {
           toastManager.add({
             type: "warning",
             title: "Invalid /fork command",
-            description: "Use /fork and then choose Local or New Worktree.",
+            description: "Use /fork or /fork local.",
           });
           return true;
         }
@@ -635,9 +569,7 @@ export function useComposerSlashCommands(input: {
             openForkTargetPicker();
             return true;
           }
-          await createForkThreadFromSlashCommand({
-            target,
-          });
+          await createForkThreadFromSlashCommand();
           editorActions.clearComposerSlashDraft();
         } catch (error) {
           toastManager.add({

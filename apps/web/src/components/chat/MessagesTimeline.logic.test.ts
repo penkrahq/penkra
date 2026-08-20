@@ -1,7 +1,6 @@
-import { CheckpointRef, MessageId, TurnId } from "@penkra/contracts";
+import { MessageId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import {
-  buildTurnDiffSummaryByAssistantMessageId,
   capOpenWorkEntryRenderChunks,
   chunkCollapsedTurnItems,
   chunkWorkEntries,
@@ -19,23 +18,6 @@ import {
   type StableMessagesTimelineRowsState,
 } from "./MessagesTimeline.logic";
 import type { TimelineEntry, WorkLogEntry } from "../../session-logic";
-import type { TurnDiffSummary } from "../../types";
-
-function makeSummary(
-  overrides: Omit<Partial<TurnDiffSummary>, "turnId"> & { turnId: string },
-): TurnDiffSummary {
-  const { turnId, ...rest } = overrides;
-  return {
-    turnId: TurnId.makeUnsafe(turnId),
-    status: "ready",
-    completedAt: "2026-01-01T00:00:10Z",
-    files: [{ path: "src/app.ts", kind: "modified", additions: 1, deletions: 0 }],
-    checkpointRef: CheckpointRef.makeUnsafe(`checkpoint-${turnId}`),
-    checkpointTurnCount: 1,
-    assistantMessageId: null,
-    ...rest,
-  } as TurnDiffSummary;
-}
 
 describe("computeMessageDurationStart", () => {
   it("returns message createdAt when there is no preceding user message", () => {
@@ -402,265 +384,6 @@ describe("deriveTerminalAssistantMessageIds", () => {
   });
 });
 
-describe("buildTurnDiffSummaryByAssistantMessageId", () => {
-  it("attaches each summary to the terminal assistant message of its response segment", () => {
-    const result = buildTurnDiffSummaryByAssistantMessageId({
-      turnDiffSummaries: [makeSummary({ turnId: "turn-1" }), makeSummary({ turnId: "turn-2" })],
-      messages: [
-        { id: MessageId.makeUnsafe("u-1"), role: "user", turnId: null },
-        {
-          id: MessageId.makeUnsafe("a-turn-1"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-1"),
-        },
-        {
-          id: MessageId.makeUnsafe("a-turn-2"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-2"),
-        },
-      ],
-    });
-
-    expect(result.get(MessageId.makeUnsafe("a-turn-2"))?.turnId).toBe(TurnId.makeUnsafe("turn-2"));
-    expect(result.has(MessageId.makeUnsafe("a-turn-1"))).toBe(false);
-    expect(result.size).toBe(1);
-  });
-
-  it("moves an earlier mini-turn diff to a later final answer in the same response segment", () => {
-    const result = buildTurnDiffSummaryByAssistantMessageId({
-      turnDiffSummaries: [makeSummary({ turnId: "turn-files" })],
-      messages: [
-        { id: MessageId.makeUnsafe("u-1"), role: "user", turnId: null },
-        {
-          id: MessageId.makeUnsafe("a-files"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-files"),
-        },
-        {
-          id: MessageId.makeUnsafe("a-final"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-final"),
-        },
-      ],
-    });
-
-    expect(result.get(MessageId.makeUnsafe("a-final"))?.turnId).toBe(
-      TurnId.makeUnsafe("turn-files"),
-    );
-    expect(result.has(MessageId.makeUnsafe("a-files"))).toBe(false);
-  });
-
-  it("keeps files from multiple mini-turn summaries on the final answer", () => {
-    const result = buildTurnDiffSummaryByAssistantMessageId({
-      turnDiffSummaries: [
-        makeSummary({
-          turnId: "turn-files",
-          checkpointTurnCount: 1,
-          files: [{ path: "a.ts", additions: 1, deletions: 0 }],
-        }),
-        makeSummary({
-          turnId: "turn-final",
-          checkpointTurnCount: 2,
-          files: [{ path: "b.ts", additions: 0, deletions: 1 }],
-        }),
-      ],
-      messages: [
-        { id: MessageId.makeUnsafe("u-1"), role: "user", turnId: null },
-        {
-          id: MessageId.makeUnsafe("a-files"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-files"),
-        },
-        {
-          id: MessageId.makeUnsafe("a-final"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-final"),
-        },
-      ],
-    });
-
-    expect(result.get(MessageId.makeUnsafe("a-final"))?.files.map((file) => file.path)).toEqual([
-      "a.ts",
-      "b.ts",
-    ]);
-    expect(result.get(MessageId.makeUnsafe("a-final"))?.checkpointTurnCounts).toEqual([1, 2]);
-  });
-
-  it("preserves Undo metadata when an empty placeholder follows file changes", () => {
-    const result = buildTurnDiffSummaryByAssistantMessageId({
-      turnDiffSummaries: [
-        makeSummary({ turnId: "turn-files", checkpointTurnCount: 1 }),
-        makeSummary({
-          turnId: "turn-empty-placeholder",
-          status: "missing",
-          checkpointRef: CheckpointRef.makeUnsafe("provider-diff:event-empty"),
-          files: [],
-        }),
-      ],
-      messages: [
-        { id: MessageId.makeUnsafe("u-1"), role: "user", turnId: null },
-        {
-          id: MessageId.makeUnsafe("a-files"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-files"),
-        },
-        {
-          id: MessageId.makeUnsafe("a-empty-placeholder"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-empty-placeholder"),
-        },
-      ],
-    });
-
-    const summary = result.get(MessageId.makeUnsafe("a-empty-placeholder"));
-    expect(summary?.checkpointTurnCounts).toEqual([1]);
-    expect(summary?.status).toBe("ready");
-    expect(summary?.checkpointRef).toBe(CheckpointRef.makeUnsafe("checkpoint-turn-files"));
-  });
-
-  it("excludes no-change and placeholder mini-turns from merged Undo targets", () => {
-    const result = buildTurnDiffSummaryByAssistantMessageId({
-      turnDiffSummaries: [
-        makeSummary({ turnId: "turn-files", checkpointTurnCount: 1 }),
-        makeSummary({ turnId: "turn-no-files", checkpointTurnCount: 2, files: [] }),
-        makeSummary({
-          turnId: "turn-placeholder",
-          checkpointTurnCount: 3,
-          checkpointRef: CheckpointRef.makeUnsafe("provider-diff:event-3"),
-        }),
-        makeSummary({
-          turnId: "turn-missing",
-          checkpointTurnCount: 4,
-          status: "missing",
-          checkpointRef: CheckpointRef.makeUnsafe("checkpoint-turn-missing"),
-        }),
-      ],
-      messages: [
-        { id: MessageId.makeUnsafe("u-1"), role: "user", turnId: null },
-        {
-          id: MessageId.makeUnsafe("a-files"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-files"),
-        },
-        {
-          id: MessageId.makeUnsafe("a-no-files"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-no-files"),
-        },
-        {
-          id: MessageId.makeUnsafe("a-placeholder"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-placeholder"),
-        },
-        {
-          id: MessageId.makeUnsafe("a-missing"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-missing"),
-        },
-      ],
-    });
-
-    expect(result.has(MessageId.makeUnsafe("a-placeholder"))).toBe(false);
-    expect(result.get(MessageId.makeUnsafe("a-missing"))?.checkpointTurnCounts).toEqual([]);
-  });
-
-  it("keeps separate cards for response segments split by user messages", () => {
-    const result = buildTurnDiffSummaryByAssistantMessageId({
-      turnDiffSummaries: [makeSummary({ turnId: "turn-1" }), makeSummary({ turnId: "turn-2" })],
-      messages: [
-        { id: MessageId.makeUnsafe("u-1"), role: "user", turnId: null },
-        {
-          id: MessageId.makeUnsafe("a-turn-1"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-1"),
-        },
-        { id: MessageId.makeUnsafe("u-2"), role: "user", turnId: null },
-        {
-          id: MessageId.makeUnsafe("a-turn-2"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-2"),
-        },
-      ],
-    });
-
-    expect(result.get(MessageId.makeUnsafe("a-turn-1"))?.turnId).toBe(TurnId.makeUnsafe("turn-1"));
-    expect(result.get(MessageId.makeUnsafe("a-turn-2"))?.turnId).toBe(TurnId.makeUnsafe("turn-2"));
-    expect(result.size).toBe(2);
-  });
-
-  it("does not leak a summary to an unrelated message even when ids look similar", () => {
-    // Regression for the "Files changed on wrong thread" bug: before the fix,
-    // the server synthesized `assistant:<turnId>` ids that could collide with
-    // the real message id of a different turn. Anchoring by the matching turn's
-    // response segment prevents the card from attaching to unrelated rows.
-    const result = buildTurnDiffSummaryByAssistantMessageId({
-      turnDiffSummaries: [makeSummary({ turnId: "turn-files-changed" })],
-      messages: [
-        {
-          id: MessageId.makeUnsafe("a-unrelated"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-no-changes"),
-        },
-      ],
-    });
-
-    expect(result.size).toBe(0);
-  });
-
-  it("ignores summaries for turns that have no rendered assistant message yet", () => {
-    const result = buildTurnDiffSummaryByAssistantMessageId({
-      turnDiffSummaries: [makeSummary({ turnId: "turn-1" })],
-      messages: [],
-    });
-
-    expect(result.size).toBe(0);
-  });
-
-  it("attaches the summary to the LAST assistant message of a turn when multiple exist", () => {
-    const result = buildTurnDiffSummaryByAssistantMessageId({
-      turnDiffSummaries: [makeSummary({ turnId: "turn-1" })],
-      messages: [
-        {
-          id: MessageId.makeUnsafe("a-turn-1-first"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-1"),
-        },
-        {
-          id: MessageId.makeUnsafe("a-turn-1-last"),
-          role: "assistant",
-          turnId: TurnId.makeUnsafe("turn-1"),
-        },
-      ],
-    });
-
-    expect(result.get(MessageId.makeUnsafe("a-turn-1-last"))?.turnId).toBe(
-      TurnId.makeUnsafe("turn-1"),
-    );
-    expect(result.has(MessageId.makeUnsafe("a-turn-1-first"))).toBe(false);
-    expect(result.size).toBe(1);
-  });
-
-  it("returns an empty map when there are no summaries", () => {
-    const result = buildTurnDiffSummaryByAssistantMessageId({
-      turnDiffSummaries: [],
-      messages: [
-        { id: MessageId.makeUnsafe("a-1"), role: "assistant", turnId: TurnId.makeUnsafe("turn-1") },
-      ],
-    });
-
-    expect(result.size).toBe(0);
-  });
-
-  it("ignores assistant messages without a turnId", () => {
-    const result = buildTurnDiffSummaryByAssistantMessageId({
-      turnDiffSummaries: [makeSummary({ turnId: "turn-1" })],
-      messages: [{ id: MessageId.makeUnsafe("a-nullturn"), role: "assistant", turnId: null }],
-    });
-
-    expect(result.size).toBe(0);
-  });
-});
-
 describe("resolveAssistantMessageCopyState", () => {
   it("shows copy only for non-empty settled assistant text", () => {
     expect(
@@ -774,8 +497,6 @@ describe("deriveMessagesTimelineRows", () => {
   const baseInput = {
     isWorking: false,
     activeTurnStartedAt: null as string | null,
-    turnDiffSummaryByAssistantMessageId: new Map(),
-    revertTurnCountByUserMessageId: new Map(),
   };
 
   const userEntry = (id: string, createdAt: string): TimelineEntry => ({
@@ -1154,7 +875,6 @@ describe("deriveMessagesTimelineRows", () => {
               title: "First",
               provider: "codex",
               model: "gpt-5.6-terra",
-              environment: "local",
               status: "task_dispatched",
             },
             {
@@ -1162,7 +882,6 @@ describe("deriveMessagesTimelineRows", () => {
               title: "Second",
               provider: "claudeAgent",
               model: "claude-sonnet-5",
-              environment: "local",
               status: "task_dispatched",
             },
           ],

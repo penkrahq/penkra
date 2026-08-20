@@ -12,7 +12,6 @@ import {
   WsBootstrapRpcGroup,
   WsFeatureRpcGroup,
   WsRpcError,
-  PullRequestsUnavailableError,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type ProjectDevServerEvent,
@@ -40,32 +39,13 @@ import {
   type ServerAuthShape,
 } from "./auth/Services/ServerAuth";
 import { SessionCredentialService } from "./auth/Services/SessionCredentialService";
-import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
-import { resolveThreadWorkspaceCwd } from "./checkpointing/Utils";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { getSpaceNavigationState, updateSpaceNavigationState } from "./spaceNavigationState";
 import { realpathNearestExisting } from "./realpathNearestExisting";
-import { listStudioThreadOutputs } from "./studioOutputs";
-import {
-  ensureStudioWorkspaceInstructionsFiles,
-  STUDIO_WORKSPACE_SUBDIRECTORIES,
-} from "./studioWorkspaceScaffold";
 import { DevServerManager, findProjectDevServerForLocalServer } from "./devServerManager";
-import { GitCore } from "./git/Services/GitCore";
-import { GitManager } from "./git/Services/GitManager";
-import { GitHubCliError } from "./git/Errors";
-import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster";
-import {
-  beginGitEnvironmentSwitch,
-  completeGitEnvironmentSwitch,
-  discardPendingGitEnvironmentSwitch,
-  gitEnvironmentSwitchMetadataCommand,
-  recordGitEnvironmentSwitchResult,
-} from "./gitEnvironmentSwitchOperations";
 import { Keybindings } from "./keybindings";
 import { createLocalPreviewGrant } from "./localImageFiles";
 import { listLocalServers, stopLocalServer } from "./localServerMonitor";
-import { listManagedWorktrees, pruneProjectedArchivedManagedWorktrees } from "./managedWorktrees";
 import {
   attachmentPrincipalForSession,
   CurrentManagedAttachmentPrincipal,
@@ -94,7 +74,6 @@ import { ProviderInstallationRepository } from "./persistence/Services/ProviderI
 import { ThreadProviderBindingRepository } from "./persistence/Services/ThreadProviderBindings";
 import { listProviderUsage } from "./providerUsage";
 import { getProviderUsageSnapshot } from "./providerUsageSnapshot";
-import { ProfileStatsQuery } from "./profileStats";
 import { redactSensitiveProcessArgs } from "./processArgumentRedaction";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
@@ -127,7 +106,7 @@ import {
 } from "./trustedOrigins";
 import { bufferLiveUiStream, type LiveUiStreamDropReport } from "./wsStreamBackpressure";
 import { makeCursorSafeSnapshotLiveStream } from "./wsSnapshotLiveStream";
-import { PullRequestService } from "./pullRequests/Services/PullRequestService";
+import { bindingRevisionErrorCode } from "./wsRpcErrorMapping";
 
 const MAX_DIAGNOSTIC_CHILD_PROCESSES = 80;
 const MAX_DIAGNOSTIC_ARGS_CHARS = 500;
@@ -160,7 +139,6 @@ const wsRequestAdmissionMiddlewareLayer = Layer.effect(
 );
 
 // Relative subdirectories scaffolded under a freshly created chat container workspace root.
-// The Studio layout lives in studioWorkspaceScaffold.ts alongside its instruction files.
 const CHAT_WORKSPACE_SUBDIRECTORIES = ["work", "outputs"] as const;
 
 interface ProcessTableRow {
@@ -236,12 +214,14 @@ function readDescendantProcesses(rootPid: number): Promise<ProcessTableRow[]> {
 }
 
 function toWsRpcError(cause: unknown, fallbackMessage: string) {
+  const code = bindingRevisionErrorCode(cause);
   return Schema.is(WsRpcError)(cause)
     ? cause
     : new WsRpcError({
         message:
           cause instanceof Error && cause.message.length > 0 ? cause.message : fallbackMessage,
         cause,
+        ...(code === undefined ? {} : { code, retryable: false }),
       });
 }
 
@@ -278,8 +258,6 @@ function isThreadDetailEventFor(threadId: ThreadId, event: OrchestrationEvent): 
     event.aggregateId === threadId &&
     (event.type === "thread.message-sent" ||
       event.type === "thread.activity-appended" ||
-      event.type === "thread.turn-diff-completed" ||
-      event.type === "thread.reverted" ||
       event.type === "thread.conversation-rolled-back" ||
       event.type === "thread.session-set" ||
       event.type === "thread.meta-updated" ||
@@ -299,21 +277,15 @@ function isThreadDetailEventFor(threadId: ThreadId, event: OrchestrationEvent): 
 const makeWsRpcHandlersLayer = () =>
   AdmittedWsFeatureRpcGroup.toLayer(
     Effect.gen(function* () {
-      const checkpointDiffQuery = yield* CheckpointDiffQuery;
       const config = yield* ServerConfig;
       const devServerManager = yield* DevServerManager;
       const fileSystem = yield* FileSystem.FileSystem;
-      const git = yield* GitCore;
-      const gitManager = yield* GitManager;
-      const gitStatusBroadcaster = yield* GitStatusBroadcaster;
       const keybindings = yield* Keybindings;
       const open = yield* Open;
       const orchestrationEngine = yield* OrchestrationEngineService;
       const providerCommandReactor = yield* ProviderCommandReactor;
       const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
       const path = yield* Path.Path;
-      const pullRequests = yield* PullRequestService;
-      const profileStatsQuery = yield* ProfileStatsQuery;
       const projectionReadModelQuery = yield* ProjectionSnapshotQuery;
       const providerAdapterRegistry = yield* ProviderAdapterRegistry;
       const providerDiscoveryService = yield* ProviderDiscoveryService;
@@ -417,24 +389,6 @@ const makeWsRpcHandlersLayer = () =>
             ),
           );
 
-      const isGlobalGitHubCliError = (error: unknown): error is GitHubCliError =>
-        error instanceof GitHubCliError &&
-        (error.reason === "not-installed" || error.reason === "not-authenticated");
-
-      const toPullRequestsRpcError = (cause: unknown, fallbackMessage: string) => {
-        if (isGlobalGitHubCliError(cause)) {
-          return new PullRequestsUnavailableError({
-            reason: cause.reason === "not-installed" ? "gh-not-installed" : "gh-not-authenticated",
-            message: cause.detail,
-          });
-        }
-        return toWsRpcError(cause, fallbackMessage);
-      };
-
-      const pullRequestsEffect = <A, E, R>(
-        effect: Effect.Effect<A, E, R>,
-        fallbackMessage: string,
-      ) => effect.pipe(Effect.mapError((cause) => toPullRequestsRpcError(cause, fallbackMessage)));
       const canonicalizeProjectWorkspaceRoot = Effect.fnUntraced(function* (
         workspaceRoot: string,
         options: { readonly createIfMissing?: boolean } = {},
@@ -484,10 +438,7 @@ const makeWsRpcHandlersLayer = () =>
           Effect.provideService(Path.Path, path),
         );
       });
-      // One mkdir loop shared by every container kind; the relative directory set is the
-      // only thing that varies (general chats scaffold work/outputs, Studio mirrors the
-      // Claude Outbox layout). Keeping a single implementation keeps error handling and
-      // idempotency identical across kinds.
+      // Shared idempotent scaffolding for managed chat workspace subdirectories.
       const prepareWorkspaceSubdirectories = Effect.fnUntraced(function* (
         workspaceRoot: string,
         relativeDirnames: readonly string[],
@@ -507,33 +458,13 @@ const makeWsRpcHandlersLayer = () =>
       });
       const prepareChatWorkspaceRoot = (workspaceRoot: string) =>
         prepareWorkspaceSubdirectories(workspaceRoot, CHAT_WORKSPACE_SUBDIRECTORIES);
-      // Instruction files are best-effort: they steer agents toward the Outbox layout but
-      // must never fail (or retry-loop) the container create that scaffolds the folders.
-      const prepareStudioWorkspaceRoot = (workspaceRoot: string) =>
-        prepareWorkspaceSubdirectories(workspaceRoot, STUDIO_WORKSPACE_SUBDIRECTORIES).pipe(
-          Effect.andThen(
-            ensureStudioWorkspaceInstructionsFiles(workspaceRoot).pipe(
-              Effect.catch((cause) =>
-                Effect.logWarning("failed to write studio workspace instructions", {
-                  workspaceRoot,
-                  cause,
-                }),
-              ),
-              Effect.provideService(FileSystem.FileSystem, fileSystem),
-              Effect.provideService(Path.Path, path),
-            ),
-          ),
-        );
-
       const normalizeDispatchCommand = makeDispatchCommandNormalizer<WsRpcError>({
         attachmentsDir: config.attachmentsDir,
         chatWorkspaceRoot: config.chatWorkspaceRoot,
-        studioWorkspaceRoot: config.studioWorkspaceRoot,
         fileSystem,
         path,
         canonicalizeProjectWorkspaceRoot,
         prepareChatWorkspaceRoot,
-        prepareStudioWorkspaceRoot,
       });
 
       const importThread = makeImportThreadHandler({
@@ -550,26 +481,14 @@ const makeWsRpcHandlersLayer = () =>
         Effect.gen(function* () {
           const attachmentPrincipal = yield* CurrentManagedAttachmentPrincipal;
           if (command.type === "thread.turn.start") {
-            const context = yield* projectionReadModelQuery.getThreadCheckpointContext(
-              command.threadId,
-            );
-            const cwd = Option.flatMap(context, (value) =>
+            const thread = yield* projectionReadModelQuery.getThreadShellById(command.threadId);
+            const project = yield* Option.match(thread, {
+              onNone: () => Effect.succeed(Option.none()),
+              onSome: (value) => projectionReadModelQuery.getProjectShellById(value.projectId),
+            });
+            const cwd = Option.flatMap(thread, (value) =>
               Option.fromNullishOr(
-                resolveThreadWorkspaceCwd({
-                  thread: {
-                    projectId: value.projectId,
-                    envMode: value.envMode,
-                    worktreePath: value.worktreePath,
-                    workingDirectory: value.workingDirectory,
-                  },
-                  projects: [
-                    {
-                      id: value.projectId,
-                      kind: value.projectKind,
-                      workspaceRoot: value.workspaceRoot,
-                    },
-                  ],
-                }),
+                value.workingDirectory ?? Option.getOrNull(project)?.workspaceRoot,
               ),
             );
             return yield* runtimeStartup.enqueueCommand(
@@ -650,8 +569,6 @@ const makeWsRpcHandlersLayer = () =>
           cwd: config.cwd,
           homeDir: config.homeDir,
           chatWorkspaceRoot: config.chatWorkspaceRoot,
-          studioWorkspaceRoot: config.studioWorkspaceRoot,
-          worktreesDir: config.worktreesDir,
           keybindingsConfigPath: config.keybindingsConfigPath,
           keybindings: keybindingsConfig.keybindings,
           issues: keybindingsConfig.issues,
@@ -660,40 +577,6 @@ const makeWsRpcHandlersLayer = () =>
         };
       });
 
-      const refreshGitStatusAfter = <A, E, R>(cwd: string, effect: Effect.Effect<A, E, R>) =>
-        effect.pipe(
-          Effect.tap(() =>
-            gitStatusBroadcaster.refreshStatus(cwd).pipe(Effect.catchCause(() => Effect.void)),
-          ),
-        );
-
-      const pruneManagedWorktrees = pruneProjectedArchivedManagedWorktrees({
-        homeDir: config.homeDir,
-        worktreesDir: config.worktreesDir,
-        snapshotQuery: projectionReadModelQuery,
-        git,
-      }).pipe(
-        // A retention failure must not present as an empty inventory: fall back
-        // to a plain scan so listing callers still see the real worktrees.
-        Effect.catchCause((cause) =>
-          Effect.logWarning("managed worktree retention failed", {
-            cause: String(cause),
-          }).pipe(
-            Effect.andThen(
-              listManagedWorktrees({
-                worktreesDir: config.worktreesDir,
-                git,
-              }).pipe(
-                Effect.catchCause((listCause) =>
-                  Effect.logWarning("managed worktree inventory scan failed", {
-                    cause: String(listCause),
-                  }).pipe(Effect.as([])),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
       const getOrchestrationHighWaterSequence = orchestrationEngine.getEventHighWaterSequence.pipe(
         Effect.mapError((cause) =>
           toWsRpcError(cause, "Failed to capture orchestration high-water sequence"),
@@ -870,9 +753,6 @@ const makeWsRpcHandlersLayer = () =>
               if (prepareWorkspaceRoot) {
                 yield* prepareWorkspaceRoot;
               }
-              if (normalizedCommand.type === "thread.archive") {
-                yield* Effect.forkDetach(pruneManagedWorktrees);
-              }
               return result;
             }),
             "Failed to dispatch orchestration command",
@@ -898,13 +778,6 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [ORCHESTRATION_WS_METHODS.repairState]: () =>
           rpcEffect(orchestrationEngine.repairState(), "Failed to repair orchestration state"),
-        [ORCHESTRATION_WS_METHODS.getTurnDiff]: (input) =>
-          rpcEffect(checkpointDiffQuery.getTurnDiff(input), "Failed to load turn diff"),
-        [ORCHESTRATION_WS_METHODS.getFullThreadDiff]: (input) =>
-          rpcEffect(
-            checkpointDiffQuery.getFullThreadDiff(input),
-            "Failed to load full thread diff",
-          ),
         [ORCHESTRATION_WS_METHODS.replayEvents]: (input) =>
           rpcEffect(
             Stream.runCollect(
@@ -1138,214 +1011,10 @@ const makeWsRpcHandlersLayer = () =>
               label: "projects.workspace-changes",
             }),
           ),
-        [WS_METHODS.studioListThreadOutputs]: (input) =>
-          rpcEffect(
-            Effect.gen(function* () {
-              // Self-heal the Studio folder tree: an accepted create whose deferred scaffold
-              // failed (crash, transient FS error) must not leave Studio without its Outbox
-              // forever. mkdir -p is idempotent and cheap. Failures degrade to the empty-list
-              // behavior when Studio outputs are requested.
-              yield* prepareStudioWorkspaceRoot(config.studioWorkspaceRoot).pipe(
-                Effect.catch(() => Effect.void),
-              );
-              // Checkpoints cover Git workspaces; file-change activities preserve the same
-              // attribution in the default non-Git Studio root. Unknown/non-Studio ids stay empty.
-              const context = yield* projectionReadModelQuery.getThreadCheckpointContext(
-                input.threadId,
-                { includeFileChangeActivityPayloads: true },
-              );
-              if (Option.isNone(context) || context.value.projectKind !== "studio") {
-                return { entries: [] };
-              }
-              const workspaceCwd = resolveThreadWorkspaceCwd({
-                thread: {
-                  projectId: context.value.projectId,
-                  envMode: context.value.envMode,
-                  worktreePath: context.value.worktreePath,
-                  workingDirectory: context.value.workingDirectory,
-                },
-                projects: [
-                  {
-                    id: context.value.projectId,
-                    kind: context.value.projectKind,
-                    workspaceRoot: context.value.workspaceRoot,
-                  },
-                ],
-              });
-              if (!workspaceCwd) {
-                return { entries: [] };
-              }
-              return yield* listStudioThreadOutputs({
-                workspaceRoot: workspaceCwd,
-                checkpoints: context.value.checkpoints,
-                ...(context.value.fileChangeActivityPayloads
-                  ? {
-                      fileChangeActivityPayloads: context.value.fileChangeActivityPayloads,
-                    }
-                  : {}),
-              });
-            }),
-            "Failed to list studio thread outputs",
-          ),
         [WS_METHODS.filesystemBrowse]: (input) =>
           rpcEffect(workspaceEntries.browse(input), "Failed to browse filesystem"),
         [WS_METHODS.shellOpenInEditor]: (input) =>
           rpcEffect(open.openInEditor(input), "Failed to open editor"),
-
-        [WS_METHODS.gitStatus]: (input) =>
-          rpcEffect(gitStatusBroadcaster.getStatus(input), "Failed to read git status"),
-        [WS_METHODS.gitReadWorkingTreeDiff]: (input) =>
-          rpcEffect(gitManager.readWorkingTreeDiff(input), "Failed to read working tree diff"),
-        [WS_METHODS.gitWorkingTreeDiffStats]: (input) =>
-          rpcEffect(
-            gitManager.readWorkingTreeDiffStats(input),
-            "Failed to read working tree diff stats",
-          ),
-        [WS_METHODS.gitResolvePullRequest]: (input) =>
-          rpcEffect(gitManager.resolvePullRequest(input), "Failed to resolve pull request"),
-        [WS_METHODS.gitPullRequestSnapshot]: (input) =>
-          rpcEffect(
-            gitManager.pullRequestSnapshot(input),
-            "Failed to load pull request checks and comments",
-          ),
-        [WS_METHODS.gitPreparePullRequestThread]: (input) =>
-          rpcEffect(
-            refreshGitStatusAfter(input.cwd, gitManager.preparePullRequestThread(input)),
-            "Failed to prepare pull request thread",
-          ),
-        [WS_METHODS.pullRequestsList]: (input) =>
-          pullRequestsEffect(pullRequests.list(input), "Failed to list pull requests"),
-        [WS_METHODS.pullRequestsReviewRequestCount]: (input) =>
-          pullRequestsEffect(
-            pullRequests.reviewRequestCount(input),
-            "Failed to count pull request review requests",
-          ),
-        [WS_METHODS.pullRequestsDetail]: (input) =>
-          pullRequestsEffect(pullRequests.detail(input), "Failed to load pull request"),
-        [WS_METHODS.pullRequestsDiff]: (input) =>
-          pullRequestsEffect(pullRequests.diff(input), "Failed to load pull request diff"),
-        [WS_METHODS.pullRequestsAction]: (input) =>
-          pullRequestsEffect(pullRequests.action(input), "Pull request action failed"),
-        [WS_METHODS.pullRequestsComment]: (input) =>
-          pullRequestsEffect(pullRequests.comment(input), "Could not post the comment"),
-        [WS_METHODS.pullRequestsSetPinned]: (input) =>
-          rpcEffect(pullRequests.setPinned(input), "Failed to update pull request pin"),
-        [WS_METHODS.gitListBranches]: (input) =>
-          rpcEffect(git.listBranches(input), "Failed to list branches"),
-        [WS_METHODS.gitCreateWorktree]: (input) =>
-          rpcEffect(
-            refreshGitStatusAfter(
-              input.cwd,
-              git.withMutation(input.cwd, git.createWorktree(input)),
-            ),
-            "Failed to create worktree",
-          ),
-        [WS_METHODS.gitCreateDetachedWorktree]: (input) =>
-          rpcEffect(
-            refreshGitStatusAfter(
-              input.cwd,
-              git.withMutation(input.cwd, git.createDetachedWorktree(input)),
-            ),
-            "Failed to create detached worktree",
-          ),
-        [WS_METHODS.gitRemoveWorktree]: (input) =>
-          rpcEffect(
-            refreshGitStatusAfter(
-              input.cwd,
-              git.withMutation(input.cwd, git.removeWorktree(input)),
-            ),
-            "Failed to remove worktree",
-          ),
-        [WS_METHODS.gitCreateBranch]: (input) =>
-          rpcEffect(
-            refreshGitStatusAfter(input.cwd, git.withMutation(input.cwd, git.createBranch(input))),
-            "Failed to create branch",
-          ),
-        [WS_METHODS.gitCheckout]: (input) =>
-          rpcEffect(
-            refreshGitStatusAfter(
-              input.cwd,
-              git.withMutation(input.cwd, Effect.scoped(git.checkoutBranch(input))),
-            ),
-            "Failed to checkout branch",
-          ),
-        [WS_METHODS.gitStashAndCheckout]: (input) =>
-          rpcEffect(
-            refreshGitStatusAfter(
-              input.cwd,
-              git.withMutation(input.cwd, Effect.scoped(git.stashAndCheckout(input))),
-            ),
-            "Failed to stash and checkout",
-          ),
-        [WS_METHODS.gitStashDrop]: (input) =>
-          rpcEffect(
-            refreshGitStatusAfter(input.cwd, git.withMutation(input.cwd, git.stashDrop(input))),
-            "Failed to drop stash",
-          ),
-        [WS_METHODS.gitStashInfo]: (input) =>
-          rpcEffect(git.stashInfo(input), "Failed to read stash"),
-        [WS_METHODS.gitRemoveIndexLock]: (input) =>
-          rpcEffect(
-            git.withMutation(input.cwd, git.removeIndexLock(input)),
-            "Failed to remove Git index lock",
-          ),
-        [WS_METHODS.gitStageFiles]: (input) =>
-          rpcEffect(
-            refreshGitStatusAfter(
-              input.cwd,
-              git.withMutation(input.cwd, git.stageFiles(input.cwd, input.paths)),
-            ).pipe(Effect.as({ ok: true })),
-            "Failed to stage files",
-          ),
-        [WS_METHODS.gitUnstageFiles]: (input) =>
-          rpcEffect(
-            refreshGitStatusAfter(
-              input.cwd,
-              git.withMutation(input.cwd, git.unstageFiles(input.cwd, input.paths)),
-            ).pipe(Effect.as({ ok: true })),
-            "Failed to unstage files",
-          ),
-        [WS_METHODS.gitSwitchThreadEnvironment]: (input) =>
-          rpcEffect(
-            Effect.gen(function* () {
-              const { commandId, threadId, ...gitInput } = input;
-              const operation = yield* beginGitEnvironmentSwitch(input);
-              if (operation.phase === "pending" || operation.phase === "uncertain") {
-                return yield* new WsRpcError({
-                  message:
-                    operation.phase === "pending"
-                      ? "This Git environment switch is already running."
-                      : "This Git environment switch was interrupted before its filesystem result became durable; inspect the repository before retrying.",
-                });
-              }
-              if (operation.phase === "completed") return operation.result;
-
-              const result =
-                operation.phase === "git_applied"
-                  ? operation.result
-                  : yield* refreshGitStatusAfter(
-                      input.cwd,
-                      gitManager.switchThreadEnvironment(gitInput).pipe(
-                        Effect.catch((error) =>
-                          discardPendingGitEnvironmentSwitch(commandId).pipe(
-                            Effect.catch(() => Effect.void),
-                            Effect.andThen(Effect.fail(error)),
-                          ),
-                        ),
-                      ),
-                    ).pipe(
-                      Effect.tap((gitResult) =>
-                        recordGitEnvironmentSwitchResult(commandId, gitResult),
-                      ),
-                    );
-              yield* dispatchOrchestrationCommand(
-                gitEnvironmentSwitchMetadataCommand({ commandId, threadId }, result),
-              );
-              yield* completeGitEnvironmentSwitch(commandId);
-              return result;
-            }),
-            "Failed to hand off thread",
-          ),
 
         [WS_METHODS.terminalOpen]: (input) =>
           rpcEffect(
@@ -1559,11 +1228,6 @@ const makeWsRpcHandlersLayer = () =>
             }),
             "Failed to set the Space Connection",
           ),
-        [WS_METHODS.serverListWorktrees]: () =>
-          rpcEffect(
-            pruneManagedWorktrees.pipe(Effect.map((worktrees) => ({ worktrees }))),
-            "Failed to list managed worktrees",
-          ),
         [WS_METHODS.serverListLocalServers]: () =>
           rpcEffect(
             Effect.promise(() => listLocalServers()),
@@ -1571,13 +1235,6 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [WS_METHODS.serverStopLocalServer]: (input) =>
           rpcEffect(stopLocalServerAndTrackedProjectRun(input), "Failed to stop local server"),
-        [WS_METHODS.statsGetProfileStats]: (input) =>
-          rpcEffect(profileStatsQuery.getProfileStats(input), "Failed to load profile stats"),
-        [WS_METHODS.statsGetProfileTokenStats]: (input) =>
-          rpcEffect(
-            profileStatsQuery.getProfileTokenStats(input),
-            "Failed to load profile token stats",
-          ),
         [WS_METHODS.serverGetProviderUsageSnapshot]: (input) =>
           rpcEffect(getProviderUsageSnapshot(input), "Failed to load provider usage"),
         [WS_METHODS.serverListProviderUsage]: (input) =>

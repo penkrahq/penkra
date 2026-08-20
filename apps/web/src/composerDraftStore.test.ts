@@ -135,8 +135,6 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(store.getDraftThread(threadId)).toBeNull();
 
     store.setProjectDraftThreadId(projectId, threadId, {
-      branch: "feature/test",
-      worktreePath: "/tmp/worktree-test",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     expect(useComposerDraftStore.getState().getDraftThreadByProjectId(projectId)).toEqual({
@@ -144,25 +142,17 @@ describe("composerDraftStore project draft thread mapping", () => {
       projectId,
       spaceId: null,
       entryPoint: "chat",
-      branch: "feature/test",
-      worktreePath: "/tmp/worktree-test",
       workingDirectory: null,
-      envMode: "worktree",
       runtimeMode: "full-access",
       createdAt: "2026-01-01T00:00:00.000Z",
-      lastKnownPr: null,
     });
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toEqual({
       projectId,
       spaceId: null,
       entryPoint: "chat",
-      branch: "feature/test",
-      worktreePath: "/tmp/worktree-test",
       workingDirectory: null,
-      envMode: "worktree",
       runtimeMode: "full-access",
       createdAt: "2026-01-01T00:00:00.000Z",
-      lastKnownPr: null,
     });
   });
 
@@ -183,14 +173,12 @@ describe("composerDraftStore project draft thread mapping", () => {
     store.registerDraftThread(threadId, {
       projectId,
       entryPoint: "terminal",
-      envMode: "local",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
 
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({
       projectId,
       entryPoint: "terminal",
-      envMode: "local",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     expect(useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, "terminal")).toBe(
@@ -384,40 +372,22 @@ describe("composerDraftStore project draft thread mapping", () => {
 
   it("updates branch context on an existing draft thread", () => {
     const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(projectId, threadId, {
-      branch: "main",
-      worktreePath: null,
-    });
-    store.setDraftThreadContext(threadId, {
-      branch: "feature/next",
-      worktreePath: "/tmp/feature-next",
-    });
+    store.setProjectDraftThreadId(projectId, threadId, {});
+    store.setDraftThreadContext(threadId, {});
     expect(useComposerDraftStore.getState().getDraftThreadByProjectId(projectId)?.threadId).toBe(
       threadId,
     );
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({
       projectId,
-      branch: "feature/next",
-      worktreePath: "/tmp/feature-next",
-      envMode: "worktree",
     });
   });
 
   it("moves an empty draft to another project while preserving composer content", () => {
     const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(projectId, threadId, {
-      branch: "feature/old",
-      worktreePath: "/tmp/old-worktree",
-      envMode: "worktree",
-    });
+    store.setProjectDraftThreadId(projectId, threadId, {});
     store.setPrompt(threadId, "keep this draft");
 
-    store.moveDraftThreadToProject(threadId, otherProjectId, {
-      branch: null,
-      worktreePath: null,
-      envMode: "local",
-      lastKnownPr: null,
-    });
+    store.moveDraftThreadToProject(threadId, otherProjectId, {});
 
     expect(useComposerDraftStore.getState().getDraftThreadByProjectId(projectId)).toBeNull();
     expect(
@@ -425,9 +395,6 @@ describe("composerDraftStore project draft thread mapping", () => {
     ).toMatchObject({
       threadId,
       projectId: otherProjectId,
-      branch: null,
-      worktreePath: null,
-      envMode: "local",
     });
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.prompt).toBe(
       "keep this draft",
@@ -436,11 +403,7 @@ describe("composerDraftStore project draft thread mapping", () => {
 
   it("clears the replaced target draft when moving a draft to another project", () => {
     const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(projectId, threadId, {
-      branch: "feature/old",
-      worktreePath: "/tmp/old-worktree",
-      envMode: "worktree",
-    });
+    store.setProjectDraftThreadId(projectId, threadId, {});
     store.setPrompt(threadId, "move this draft");
     store.setProjectDraftThreadId(otherProjectId, otherThreadId);
     store.setPrompt(otherThreadId, "replace this draft");
@@ -452,12 +415,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       ),
     );
 
-    store.moveDraftThreadToProject(threadId, otherProjectId, {
-      branch: null,
-      worktreePath: null,
-      envMode: "local",
-      lastKnownPr: null,
-    });
+    store.moveDraftThreadToProject(threadId, otherProjectId, {});
 
     expect(useComposerDraftStore.getState().getDraftThreadByProjectId(projectId)).toBeNull();
     expect(
@@ -465,9 +423,6 @@ describe("composerDraftStore project draft thread mapping", () => {
     ).toMatchObject({
       threadId,
       projectId: otherProjectId,
-      branch: null,
-      worktreePath: null,
-      envMode: "local",
     });
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.prompt).toBe(
       "move this draft",
@@ -475,55 +430,6 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().getDraftThread(otherThreadId)).toBeNull();
     expect(useComposerDraftStore.getState().draftsByThreadId[otherThreadId]).toBeUndefined();
     expect(revokeSpy).toHaveBeenCalledWith("blob:queued-target-replaced");
-  });
-
-  it("preserves existing branch and worktree when setProjectDraftThreadId receives undefined", () => {
-    const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(projectId, threadId, {
-      branch: "main",
-      worktreePath: "/tmp/main-worktree",
-    });
-    const runtimeUndefinedOptions = {
-      branch: undefined,
-      worktreePath: undefined,
-    } as unknown as {
-      branch?: string | null;
-      worktreePath?: string | null;
-    };
-    store.setProjectDraftThreadId(projectId, threadId, runtimeUndefinedOptions);
-
-    expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({
-      projectId,
-      branch: "main",
-      worktreePath: "/tmp/main-worktree",
-      envMode: "worktree",
-    });
-  });
-
-  it("preserves worktree env mode without a worktree path", () => {
-    const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(projectId, threadId, {
-      branch: "feature/base",
-      worktreePath: null,
-      envMode: "worktree",
-    });
-    const runtimeUndefinedOptions = {
-      branch: undefined,
-      worktreePath: undefined,
-      envMode: undefined,
-    } as unknown as {
-      branch?: string | null;
-      worktreePath?: string | null;
-      envMode?: "local" | "worktree";
-    };
-    store.setProjectDraftThreadId(projectId, threadId, runtimeUndefinedOptions);
-
-    expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({
-      projectId,
-      branch: "feature/base",
-      worktreePath: null,
-      envMode: "worktree",
-    });
   });
 });
 

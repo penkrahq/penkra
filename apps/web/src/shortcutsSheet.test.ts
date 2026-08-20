@@ -13,7 +13,6 @@ const PROJECT_SCRIPTS: ProjectScript[] = [
     name: "Lint",
     command: "bun lint",
     icon: "lint",
-    runOnWorktreeCreate: false,
   },
 ];
 

@@ -51,10 +51,7 @@ function childThread(id: string, activities: OrchestrationThreadActivity[]): Thr
     createdAt: "2026-07-14T00:00:01.000Z",
     latestTurn: null,
     parentThreadId: ThreadId.makeUnsafe("thread-main"),
-    turnDiffSummaries: [],
     activities,
-    branch: null,
-    worktreePath: null,
   };
 }
 

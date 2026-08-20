@@ -68,12 +68,6 @@ export const PenkraCreateThreadSpec = Schema.Struct({
   title: Schema.optional(Schema.String.check(Schema.isNonEmpty())),
   target: ModelSelection,
   projectId: Schema.optional(ContainerId),
-  environment: Schema.optional(Schema.Literals(["local", "worktree"])),
-  baseRef: Schema.optional(Schema.String.check(Schema.isNonEmpty())),
-  // Legacy inputs remain decodable for replay/backward compatibility, but the
-  // MCP catalog no longer advertises branch-backed worktree creation.
-  baseBranch: Schema.optional(Schema.String.check(Schema.isNonEmpty())),
-  branchName: Schema.optional(Schema.String.check(Schema.isNonEmpty())),
   runtimeMode: Schema.optional(Schema.Literals(["approval-required", "full-access"])),
 });
 export type PenkraCreateThreadSpec = typeof PenkraCreateThreadSpec.Type;
@@ -148,9 +142,6 @@ export const PenkraCreatedThreadResult = Schema.Struct({
   provider: ProviderKind,
   model: Schema.String,
   runtimeMode: Schema.Literals(["approval-required", "full-access"]),
-  environment: Schema.Literals(["local", "worktree"]),
-  branch: Schema.NullOr(Schema.String),
-  worktreePath: Schema.NullOr(Schema.String),
   status: Schema.Literal("task_dispatched"),
 });
 export type PenkraCreatedThreadResult = typeof PenkraCreatedThreadResult.Type;

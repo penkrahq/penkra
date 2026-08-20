@@ -229,18 +229,13 @@ export const createComposerDraftStoreState =
         if (state.draftThreadsByThreadId[threadId]) {
           return state;
         }
-        const worktreePath = options.worktreePath ?? null;
         const nextDraftThread: DraftThreadState = {
           projectId: options.projectId,
           spaceId: options.spaceId ?? null,
           createdAt: options.createdAt ?? new Date().toISOString(),
           runtimeMode: options.runtimeMode ?? DEFAULT_RUNTIME_MODE,
           entryPoint: options.entryPoint ?? "chat",
-          branch: options.branch ?? null,
-          worktreePath,
           workingDirectory: options.workingDirectory ?? null,
-          lastKnownPr: null,
-          envMode: options.envMode ?? (worktreePath ? "worktree" : "local"),
         };
         return {
           draftThreadsByThreadId: {
@@ -1084,6 +1079,77 @@ export const createComposerDraftStoreState =
         }
         const queuedTurns = [...current.queuedTurns];
         queuedTurns[queuedTurnIndex] = { ...queuedTurn, serverAcceptedAt: acceptedAt };
+        return {
+          draftsByThreadId: {
+            ...state.draftsByThreadId,
+            [threadId]: { ...current, queuedTurns },
+          },
+        };
+      });
+    },
+    setQueuedTurnDispatchAdmission: (threadId, queuedTurnId, attempt, bindingRevision) => {
+      if (
+        threadId.length === 0 ||
+        queuedTurnId.length === 0 ||
+        !Number.isSafeInteger(attempt) ||
+        attempt < 0 ||
+        !Number.isSafeInteger(bindingRevision) ||
+        bindingRevision < 0
+      ) {
+        return;
+      }
+      set((state) => {
+        const current = state.draftsByThreadId[threadId];
+        const queuedTurnIndex = current?.queuedTurns.findIndex(
+          (entry) => entry.id === queuedTurnId,
+        );
+        if (!current || queuedTurnIndex === undefined || queuedTurnIndex < 0) {
+          return state;
+        }
+        const queuedTurn = current.queuedTurns[queuedTurnIndex]!;
+        if (
+          queuedTurn.kind !== "chat" ||
+          (queuedTurn.dispatchAttempt === attempt &&
+            queuedTurn.dispatchBindingRevision === bindingRevision)
+        ) {
+          return state;
+        }
+        const queuedTurns = [...current.queuedTurns];
+        queuedTurns[queuedTurnIndex] = {
+          ...queuedTurn,
+          dispatchAttempt: attempt,
+          dispatchBindingRevision: bindingRevision,
+        };
+        return {
+          draftsByThreadId: {
+            ...state.draftsByThreadId,
+            [threadId]: { ...current, queuedTurns },
+          },
+        };
+      });
+    },
+    advanceQueuedTurnDispatchAttempt: (threadId, queuedTurnId) => {
+      if (threadId.length === 0 || queuedTurnId.length === 0) {
+        return;
+      }
+      set((state) => {
+        const current = state.draftsByThreadId[threadId];
+        const queuedTurnIndex = current?.queuedTurns.findIndex(
+          (entry) => entry.id === queuedTurnId,
+        );
+        if (!current || queuedTurnIndex === undefined || queuedTurnIndex < 0) {
+          return state;
+        }
+        const queuedTurn = current.queuedTurns[queuedTurnIndex]!;
+        if (queuedTurn.kind !== "chat") {
+          return state;
+        }
+        const queuedTurns = [...current.queuedTurns];
+        const { dispatchBindingRevision: _discardedRevision, ...retained } = queuedTurn;
+        queuedTurns[queuedTurnIndex] = {
+          ...retained,
+          dispatchAttempt: (queuedTurn.dispatchAttempt ?? 0) + 1,
+        };
         return {
           draftsByThreadId: {
             ...state.draftsByThreadId,

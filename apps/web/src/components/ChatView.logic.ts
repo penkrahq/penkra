@@ -8,7 +8,6 @@ import {
   type ServerProviderAuthStatus,
   type ThreadId as ThreadIdType,
 } from "@penkra/contracts";
-import { buildPenkraBranchName } from "@penkra/shared/git";
 import { isGenericChatThreadTitle } from "@penkra/shared/chatThreads";
 import { isGenericTerminalThreadTitle } from "@penkra/shared/terminalThreads";
 import {
@@ -16,7 +15,6 @@ import {
   type SessionPhase,
   type Thread,
   type ThreadPrimarySurface,
-  type TurnDiffSummary,
 } from "../types";
 import { type DraftThreadState } from "../composerDraftStore";
 import { Schema } from "effect";
@@ -32,11 +30,7 @@ import {
   normalizeSubagentStatusKind,
   resolveSubagentPresentationForThread,
 } from "../lib/subagentPresentation";
-import {
-  hasLiveTurnTailWork,
-  isProviderFileEditWorkLogEntry,
-  type WorkLogEntry,
-} from "../session-logic";
+import { hasLiveTurnTailWork, type WorkLogEntry } from "../session-logic";
 import { localSubagentThreadId } from "./ChatView.selectors";
 import type { ProviderModelOption } from "../providerModelOptions";
 
@@ -46,51 +40,6 @@ export const PROMPT_HISTORY_MAX_ENTRIES = 100;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ContainerId, Schema.String);
 export const DismissedProviderHealthBannersSchema = Schema.Array(Schema.String);
-
-export interface PendingFileUndo {
-  readonly threadId: ThreadIdType;
-  // A changes card can merge several turns; one Undo reverts all of them, so the
-  // request only settles once every targeted turn has settled (or one failed).
-  readonly turnCounts: readonly number[];
-  readonly existingFailureActivityIds: readonly string[];
-}
-
-export function hasFileUndoSettled(input: {
-  readonly pending: PendingFileUndo;
-  readonly thread: Pick<Thread, "id" | "turnDiffSummaries" | "activities"> | null;
-}): boolean {
-  if (!input.thread || input.thread.id !== input.pending.threadId) {
-    return false;
-  }
-
-  const targetTurnCounts = new Set(input.pending.turnCounts);
-  const targetSummaries = input.thread.turnDiffSummaries.filter(
-    (summary) =>
-      summary.checkpointTurnCount !== undefined &&
-      targetTurnCounts.has(summary.checkpointTurnCount),
-  );
-  if (
-    targetSummaries.length > 0 &&
-    targetSummaries.every((summary) => summary.files.length === 0)
-  ) {
-    return true;
-  }
-
-  const existingFailureActivityIdSet = new Set(input.pending.existingFailureActivityIds);
-  return input.thread.activities.some((activity) => {
-    if (
-      activity.kind !== "checkpoint.revert.failed" ||
-      existingFailureActivityIdSet.has(activity.id) ||
-      typeof activity.payload !== "object" ||
-      activity.payload === null ||
-      !("turnCount" in activity.payload) ||
-      typeof activity.payload.turnCount !== "number"
-    ) {
-      return false;
-    }
-    return targetTurnCounts.has(activity.payload.turnCount);
-  });
-}
 
 const ALWAYS_ALLOW_RUNTIME_MODE: RuntimeMode = "full-access";
 
@@ -387,92 +336,6 @@ export function resolveCycledModelSlug(input: {
   return ordered[nextIndex] ?? null;
 }
 
-// Normal project toolbars stay stable while repository discovery is pending. Studio folders are
-// casual context, however, so they must opt into Git UI only after a positive repository result.
-export function resolveGitRepoUiState(input: {
-  isStudioContainer: boolean;
-  queriedIsRepo: boolean | undefined;
-}): boolean {
-  return input.queriedIsRepo ?? !input.isStudioContainer;
-}
-
-// The composer live strip prefers the turn's computed diff (the
-// `thread.turn-diff-completed` event) so it can show real per-file +/- stats.
-// Before that lands, it falls back to mid-turn file-edit work-log activity so
-// the strip can appear while the turn is running, but without a reviewable
-// turn id. Once a turn diff exists, its empty file list is authoritative and
-// must not be overwritten by tool metadata.
-export function resolveActiveTurnLiveDiffState(input: {
-  latestTurnId: TurnDiffSummary["turnId"] | null | undefined;
-  turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
-  workLogEntries?: ReadonlyArray<
-    Pick<WorkLogEntry, "changedFiles" | "itemType" | "requestKind" | "turnId">
-  >;
-}): {
-  turnId: TurnDiffSummary["turnId"] | null;
-  fileCount: number | null;
-  additions: number;
-  deletions: number;
-  hasChanges: boolean;
-} {
-  const summary = input.latestTurnId
-    ? (input.turnDiffSummaries.find((entry) => entry.turnId === input.latestTurnId) ?? null)
-    : null;
-  const files = summary?.files ?? [];
-  if (summary && files.length > 0) {
-    return {
-      turnId: summary.turnId,
-      fileCount: files.length,
-      additions: files.reduce((total, file) => total + (file.additions ?? 0), 0),
-      deletions: files.reduce((total, file) => total + (file.deletions ?? 0), 0),
-      hasChanges: true,
-    };
-  }
-  if (summary) {
-    return {
-      turnId: null,
-      fileCount: 0,
-      additions: 0,
-      deletions: 0,
-      hasChanges: false,
-    };
-  }
-
-  // No diff totals yet: keep the strip visible from in-turn file-edit work so it
-  // does not vanish between the first edit and the turn-diff-completed event.
-  const workLogFilePaths = new Set<string>();
-  let hasFileEditWork = false;
-  if (input.latestTurnId) {
-    for (const entry of input.workLogEntries ?? []) {
-      if (entry.turnId !== input.latestTurnId || !isProviderFileEditWorkLogEntry(entry)) {
-        continue;
-      }
-      hasFileEditWork = true;
-      for (const filePath of entry.changedFiles ?? []) {
-        workLogFilePaths.add(filePath);
-      }
-    }
-  }
-
-  if (hasFileEditWork && input.latestTurnId) {
-    return {
-      turnId: null,
-      fileCount: workLogFilePaths.size > 0 ? workLogFilePaths.size : null,
-      additions: 0,
-      deletions: 0,
-      hasChanges: true,
-    };
-  }
-
-  return {
-    turnId: null,
-    fileCount: 0,
-    additions: 0,
-    deletions: 0,
-    hasChanges: false,
-  };
-}
-
 export type ThreadDetailHydration = "ready" | "loading" | "failed";
 
 /**
@@ -512,12 +375,7 @@ export function buildLocalDraftThread(
     createdAt: draftThread.createdAt,
     latestTurn: null,
     lastVisitedAt: draftThread.createdAt,
-    envMode: draftThread.envMode,
-    branch: draftThread.branch,
-    worktreePath: draftThread.worktreePath,
     workingDirectory: draftThread.workingDirectory ?? null,
-    lastKnownPr: draftThread.lastKnownPr ?? null,
-    turnDiffSummaries: [],
     activities: [],
   };
 }
@@ -779,13 +637,6 @@ export function shouldStartActiveTurnLayoutGrace(options: {
     !options.currentTurnLayoutLive &&
     options.latestTurnStartedAt !== null
   );
-}
-
-export function buildSuggestedWorktreeName(input: {
-  associatedWorktreeBranch?: string | null;
-  title?: string | null;
-}): string {
-  return buildPenkraBranchName(input.associatedWorktreeBranch ?? input.title);
 }
 
 export function deriveComposerSendState(options: {

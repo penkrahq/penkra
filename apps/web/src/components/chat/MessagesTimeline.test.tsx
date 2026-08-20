@@ -3,7 +3,7 @@
 // Layer: Web chat component tests
 // Depends on: renderToStaticMarkup and a mocked transcript virtualizer.
 
-import { CheckpointRef, MessageId, ThreadId, TurnId } from "@penkra/contracts";
+import { MessageId, ThreadId, TurnId } from "@penkra/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { formatShortTimestamp } from "../../timestampFormat";
@@ -43,13 +43,9 @@ function makeTimelineBaseProps() {
     isWorking: false,
     activeTurnInProgress: false,
     activeTurnStartedAt: null,
-    turnDiffSummaryByAssistantMessageId: new Map(),
     nowIso: "2026-03-17T19:12:30.000Z",
     expandedWorkGroups: {},
     onToggleWorkGroup: () => {},
-    revertTurnCountByUserMessageId: new Map(),
-    onRevertUserMessage: () => {},
-    isRevertingCheckpoint: false,
     onImageExpand: () => {},
     markdownCwd: undefined,
     resolvedTheme: "dark" as const,
@@ -159,13 +155,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -202,13 +194,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -243,13 +231,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map([[MessageId.makeUnsafe("message-1"), 1]])}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -307,14 +291,10 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:14:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
         onOpenThread={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -358,14 +338,10 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:14:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
         onOpenThread={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -487,16 +463,10 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={
-          new Map([[MessageId.makeUnsafe("message-editable-user"), 0]])
-        }
-        onRevertUserMessage={() => {}}
         onEditUserMessage={() => true}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -507,65 +477,7 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain('aria-label="Copy message"');
     expect(markup).toContain('aria-label="Edit message"');
-    expect(markup).toContain('aria-label="Revert to this message"');
     expect(markup).toContain("size-[13px]");
-  });
-
-  it("keeps edit available and hides undo before a revert checkpoint exists", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        hasMessages
-        isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
-        timelineEntries={[
-          {
-            id: "entry-user-no-checkpoint",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:28.000Z",
-            message: {
-              id: MessageId.makeUnsafe("message-user-no-checkpoint"),
-              role: "user",
-              text: "still waiting on undo",
-              createdAt: "2026-03-17T19:12:28.000Z",
-              streaming: false,
-            },
-          },
-          {
-            id: "entry-assistant-no-checkpoint",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:29.000Z",
-            message: {
-              id: MessageId.makeUnsafe("message-assistant-no-checkpoint"),
-              role: "assistant",
-              text: "",
-              turnId: TurnId.makeUnsafe("turn-user-no-checkpoint"),
-              createdAt: "2026-03-17T19:12:29.000Z",
-              streaming: false,
-            },
-          },
-        ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
-        nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        onEditUserMessage={() => true}
-        isRevertingCheckpoint={false}
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        resolvedTheme="light"
-        timestampFormat="locale"
-        workspaceRoot={undefined}
-      />,
-    );
-
-    expect(markup).toContain('aria-label="Edit message"');
-    expect(markup).not.toContain('aria-label="Revert to this message"');
-    expect(markup).not.toContain('title="Edit message"');
-    expect(markup).not.toContain('title="Revert to this message"');
   });
 
   it("keeps edit available while an assistant turn is running", async () => {
@@ -591,16 +503,10 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:32.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={
-          new Map([[MessageId.makeUnsafe("message-user-running"), 1]])
-        }
-        onRevertUserMessage={() => {}}
         onEditUserMessage={() => true}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -613,7 +519,6 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('aria-label="Edit message"');
     expect(editButtonMarkup).not.toContain('disabled=""');
     expect(markup).not.toContain('title="Edit message"');
-    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Revert to this message"/);
   });
 
   it("renders a steering chip above steered user messages", async () => {
@@ -639,13 +544,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -681,13 +582,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -738,13 +635,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -779,13 +672,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -824,13 +713,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -880,13 +765,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -930,13 +811,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -972,13 +849,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1014,13 +887,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1058,13 +927,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1098,13 +963,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1152,13 +1013,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1210,13 +1067,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:31.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1319,13 +1172,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1380,13 +1229,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-05-09T16:31:25.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1431,13 +1276,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-05-09T16:31:25.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1540,13 +1381,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1633,12 +1470,8 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1717,12 +1550,8 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1779,13 +1608,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:31.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1882,13 +1707,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{ "entry-inline-tools-expanded": true }}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1899,95 +1720,6 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("Tool 5");
     expect(markup).toContain("Show less");
-  });
-
-  it("renders inline file-change tool calls as edited rows with diff stats", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
-    const assistantMessageId = MessageId.makeUnsafe("message-assistant-inline-edit");
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        hasMessages
-        isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
-        timelineEntries={[
-          {
-            id: "entry-inline-file-change",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:28.000Z",
-            entry: {
-              id: "work-inline-file-change",
-              createdAt: "2026-03-17T19:12:28.000Z",
-              label: "File Change",
-              tone: "tool",
-              requestKind: "file-change",
-              changedFiles: ["apps/web/src/components/chat/MessagesTimeline.test.tsx"],
-              toolDetails: {
-                kind: "file-change",
-                title: "Edited",
-                diff: [
-                  "diff --git a/apps/web/src/components/chat/MessagesTimeline.test.tsx b/apps/web/src/components/chat/MessagesTimeline.test.tsx",
-                  "-old",
-                  "+new",
-                ].join("\n"),
-                files: ["apps/web/src/components/chat/MessagesTimeline.test.tsx"],
-              },
-            },
-          },
-          {
-            id: "entry-assistant-inline-edit",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:29.000Z",
-            message: {
-              id: assistantMessageId,
-              role: "assistant",
-              text: "done",
-              createdAt: "2026-03-17T19:12:29.000Z",
-              completedAt: "2026-03-17T19:12:30.000Z",
-              streaming: false,
-            },
-          },
-        ]}
-        turnDiffSummaryByAssistantMessageId={
-          new Map([
-            [
-              assistantMessageId,
-              {
-                turnId: TurnId.makeUnsafe("turn-inline-edit-1"),
-                completedAt: "2026-03-17T19:12:30.000Z",
-                assistantMessageId,
-                files: [
-                  {
-                    path: "apps/web/src/components/chat/MessagesTimeline.test.tsx",
-                    additions: 1,
-                    deletions: 1,
-                  },
-                ],
-              },
-            ],
-          ])
-        }
-        nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        resolvedTheme="dark"
-        timestampFormat="locale"
-        workspaceRoot={undefined}
-      />,
-    );
-
-    expect(markup).toContain("Edited");
-    expect(markup).toContain("MessagesTimeline.test.tsx");
-    expect(markup).toContain("+1");
-    expect(markup).toContain("-1");
-    expect(markup).not.toContain(
-      "File Change - apps/web/src/components/chat/MessagesTimeline.test.tsx",
-    );
   });
 
   it("marks visible file-change rows with captured details as clickable", async () => {
@@ -2019,13 +1751,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2066,13 +1794,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2131,13 +1855,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2182,13 +1902,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2234,13 +1950,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-05-09T10:07:00.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2280,13 +1992,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2324,13 +2032,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2368,13 +2072,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2413,13 +2113,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2456,13 +2152,9 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2560,6 +2252,66 @@ describe("MessagesTimeline", () => {
     );
     expect(failedMarkup).toContain("Penkra couldn&#x27;t create threads");
     expect(failedMarkup).toContain("Claude rejected reasoningEffort");
+  });
+
+  it("shows the actual command for the Penkra command gateway", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...makeTimelineBaseProps()}
+        timelineEntries={[
+          {
+            id: "entry-penkra-app-command",
+            kind: "work",
+            createdAt: "2026-08-19T19:12:28.000Z",
+            entry: {
+              id: "work-penkra-app-command",
+              createdAt: "2026-08-19T19:12:28.000Z",
+              label: "MCP tool call",
+              tone: "tool",
+              itemType: "dynamic_tool_call",
+              toolTitle: "Penkra ran a command",
+              toolName: "penkra_exec_command",
+              command: "canvas documents mutate --document-id doc-1",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("canvas documents mutate --document-id doc-1");
+    expect(markup).not.toContain("Penkra ran a command");
+  });
+
+  it("overlays an error badge when the Penkra command gateway fails", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...makeTimelineBaseProps()}
+        timelineEntries={[
+          {
+            id: "entry-failed-penkra-command",
+            kind: "work",
+            createdAt: "2026-08-19T19:12:28.000Z",
+            entry: {
+              id: "work-failed-penkra-command",
+              createdAt: "2026-08-19T19:12:28.000Z",
+              label: "MCP tool call",
+              tone: "error",
+              itemType: "dynamic_tool_call",
+              toolTitle: "Penkra couldn't run a command",
+              toolName: "penkra_exec_command",
+              toolStatus: "failed",
+              command: "canvas documents mutate --document-id doc-1",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('data-command-error-badge="true"');
+    expect(markup).toContain("canvas documents mutate --document-id doc-1");
+    expect(markup).not.toContain("Penkra couldn&#x27;t run a command");
   });
 
   it("hides raw `ToolName: {json}` argument details behind the humanized heading", async () => {
@@ -2748,245 +2500,5 @@ describe("MessagesTimeline", () => {
     expect(markup.indexOf("Both threads are running.")).toBeLessThan(
       markup.indexOf('data-penkra-thread-creation-card="true"'),
     );
-  });
-
-  it("anchors the changed-files summary at the end of a collapsed file-change turn", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
-    const assistantMessageId = MessageId.makeUnsafe("message-assistant-inline-multi-edit");
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        hasMessages
-        isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
-        timelineEntries={[
-          {
-            id: "entry-inline-multi-file-change",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:28.000Z",
-            entry: {
-              id: "work-inline-multi-file-change",
-              createdAt: "2026-03-17T19:12:28.000Z",
-              label: "File Change",
-              tone: "tool",
-              requestKind: "file-change",
-              changedFiles: [
-                "apps/web/src/components/chat/MessagesTimeline.test.tsx",
-                "apps/web/src/components/chat/MessagesTimeline.tsx",
-              ],
-            },
-          },
-          {
-            id: "entry-assistant-inline-multi-edit",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:29.000Z",
-            message: {
-              id: assistantMessageId,
-              role: "assistant",
-              text: "done",
-              createdAt: "2026-03-17T19:12:29.000Z",
-              completedAt: "2026-03-17T19:12:30.000Z",
-              streaming: false,
-            },
-          },
-        ]}
-        turnDiffSummaryByAssistantMessageId={
-          new Map([
-            [
-              assistantMessageId,
-              {
-                turnId: TurnId.makeUnsafe("turn-inline-multi-edit-1"),
-                completedAt: "2026-03-17T19:12:30.000Z",
-                assistantMessageId,
-                files: [
-                  {
-                    path: "apps/web/src/components/chat/MessagesTimeline.test.tsx",
-                    additions: 1,
-                    deletions: 1,
-                  },
-                  {
-                    path: "apps/web/src/components/chat/MessagesTimeline.tsx",
-                    additions: 2,
-                    deletions: 0,
-                  },
-                ],
-              },
-            ],
-          ])
-        }
-        nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        resolvedTheme="dark"
-        timestampFormat="locale"
-        workspaceRoot={undefined}
-      />,
-    );
-
-    // The tool work collapses, but the changed-files summary stays anchored at
-    // the end of the turn with every file from the turn diff.
-    expect(markup).toContain("Worked for");
-    expect(markup).toContain("Edited 2 files");
-    expect(markup).toContain("apps/web/src/components/chat/MessagesTimeline.test.tsx");
-    expect(markup).toContain("apps/web/src/components/chat/MessagesTimeline.tsx");
-    expect(markup).toContain("+1");
-    expect(markup).toContain("-1");
-    expect(markup).toContain("+2");
-    expect(markup).not.toContain(">apps/web/src/components/chat<");
-  });
-
-  it("renders inline edited rows from the turn summary when the file-change tool call has no filenames", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
-    const assistantMessageId = MessageId.makeUnsafe("message-assistant-inline-summary-fallback");
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        hasMessages
-        isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
-        timelineEntries={[
-          {
-            id: "entry-inline-summary-fallback",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:28.000Z",
-            entry: {
-              id: "work-inline-summary-fallback",
-              createdAt: "2026-03-17T19:12:28.000Z",
-              label: "File Change",
-              tone: "tool",
-              requestKind: "file-change",
-            },
-          },
-          {
-            id: "entry-assistant-inline-summary-fallback",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:29.000Z",
-            message: {
-              id: assistantMessageId,
-              role: "assistant",
-              text: "done",
-              createdAt: "2026-03-17T19:12:29.000Z",
-              completedAt: "2026-03-17T19:12:30.000Z",
-              streaming: false,
-            },
-          },
-        ]}
-        turnDiffSummaryByAssistantMessageId={
-          new Map([
-            [
-              assistantMessageId,
-              {
-                turnId: TurnId.makeUnsafe("turn-inline-summary-fallback-1"),
-                completedAt: "2026-03-17T19:12:30.000Z",
-                assistantMessageId,
-                files: [
-                  {
-                    path: "apps/web/src/components/chat/ProviderHealth.ts",
-                    additions: 63,
-                    deletions: 4,
-                  },
-                  {
-                    path: "apps/web/src/components/ChatView.tsx",
-                    additions: 41,
-                    deletions: 5,
-                  },
-                ],
-              },
-            ],
-          ])
-        }
-        nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        resolvedTheme="dark"
-        timestampFormat="locale"
-        workspaceRoot={undefined}
-      />,
-    );
-
-    expect(markup).toContain("Edited");
-    expect(markup).toContain("ProviderHealth.ts");
-    expect(markup).toContain("ChatView.tsx");
-    expect(markup).toContain("+63");
-    expect(markup).toContain("-4");
-    expect(markup).toContain("+41");
-    expect(markup).toContain("-5");
-    expect(markup).not.toContain(">File Change<");
-  });
-
-  it("renders a collapsible changed files header with ui-font filenames", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
-    const assistantMessageId = MessageId.makeUnsafe("message-assistant-diff");
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        hasMessages
-        isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
-        timelineEntries={[
-          {
-            id: "entry-assistant-diff",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:29.000Z",
-            message: {
-              id: assistantMessageId,
-              role: "assistant",
-              text: "done",
-              createdAt: "2026-03-17T19:12:29.000Z",
-              completedAt: "2026-03-17T19:12:30.000Z",
-              streaming: false,
-            },
-          },
-        ]}
-        turnDiffSummaryByAssistantMessageId={
-          new Map([
-            [
-              assistantMessageId,
-              {
-                turnId: TurnId.makeUnsafe("turn-diff-1"),
-                checkpointTurnCount: 1,
-                checkpointTurnCounts: [1],
-                checkpointRef: CheckpointRef.makeUnsafe("refs/penkra/checkpoints/thread/turn/1"),
-                status: "ready",
-                completedAt: "2026-03-17T19:12:30.000Z",
-                assistantMessageId,
-                files: [
-                  { path: "apps/web/src/components/Sidebar.tsx", additions: 6, deletions: 5 },
-                ],
-              },
-            ],
-          ])
-        }
-        nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        onUndoTurnFiles={() => {}}
-        isRevertingCheckpoint={false}
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        resolvedTheme="dark"
-        timestampFormat="locale"
-        workspaceRoot={undefined}
-      />,
-    );
-
-    expect(markup).toContain("Edited 1 file");
-    expect(markup).toContain("Undo");
-    expect(markup).not.toContain("Review");
-    expect(markup).toContain('aria-expanded="true"');
-    expect(markup).toContain("font-system-ui truncate font-normal");
-    expect(markup).toContain("apps/web/src/components/Sidebar.tsx");
   });
 });

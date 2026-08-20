@@ -127,6 +127,26 @@ import Migration0118 from "./Migrations/118_CanonicalProviderConnectionIdentitie
 import Migration0119 from "./Migrations/119_ProviderCredentialProfileGenerations.ts";
 import Migration0120 from "./Migrations/120_DefaultSpaceFolders.ts";
 import Migration0121 from "./Migrations/121_FolderIcons.ts";
+import Migration0122 from "./Migrations/122_DropUnusedCommandReceiptIndexes.ts";
+import Migration0123 from "./Migrations/123_CanonicalMessageOffsets.ts";
+import Migration0124 from "./Migrations/124_CanonicalOperations.ts";
+import Migration0125 from "./Migrations/125_CanonicalNotices.ts";
+import Migration0126 from "./Migrations/126_ConnectionUsageFacts.ts";
+import Migration0127 from "./Migrations/127_RestartTurnAdmissions.ts";
+import Migration0128 from "./Migrations/128_CanonicalStateRevisions.ts";
+import Migration0129 from "./Migrations/129_ReclassifyStudioFolders.ts";
+import Migration0130 from "./Migrations/130_ThreadVisitAcknowledgements.ts";
+import Migration0131 from "./Migrations/131_ActivityOperationIdentity.ts";
+import Migration0132 from "./Migrations/132_HotReadQueryIndexes.ts";
+import Migration0133 from "./Migrations/133_ReclassifiedFolderSpaces.ts";
+import Migration0134 from "./Migrations/134_RemoveUnusedMessageRevision.ts";
+import Migration0135 from "./Migrations/135_RemoveUnusedCanonicalStateRevisions.ts";
+import Migration0136 from "./Migrations/136_RemoveProfileStats.ts";
+import Migration0137 from "./Migrations/137_RemoveCheckpointing.ts";
+import Migration0138 from "./Migrations/138_CanonicalActivityReadModel.ts";
+import Migration0139 from "./Migrations/139_RemoveGitThreadMetadata.ts";
+import Migration0140 from "./Migrations/140_RemoveRedundantOperationDetail.ts";
+import Migration0141 from "./Migrations/141_ThreadSidebarRollups.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -253,6 +273,26 @@ export const migrationEntries = [
   [119, "ProviderCredentialProfileGenerations", Migration0119],
   [120, "DefaultSpaceFolders", Migration0120],
   [121, "FolderIcons", Migration0121],
+  [122, "DropUnusedCommandReceiptIndexes", Migration0122],
+  [123, "CanonicalMessageOffsets", Migration0123],
+  [124, "CanonicalOperations", Migration0124],
+  [125, "CanonicalNotices", Migration0125],
+  [126, "ConnectionUsageFacts", Migration0126],
+  [127, "RestartTurnAdmissions", Migration0127],
+  [128, "CanonicalStateRevisions", Migration0128],
+  [129, "ReclassifyStudioFolders", Migration0129],
+  [130, "ThreadVisitAcknowledgements", Migration0130],
+  [131, "ActivityOperationIdentity", Migration0131],
+  [132, "HotReadQueryIndexes", Migration0132],
+  [133, "ReclassifiedFolderSpaces", Migration0133],
+  [134, "RemoveUnusedMessageRevision", Migration0134],
+  [135, "RemoveUnusedCanonicalStateRevisions", Migration0135],
+  [136, "RemoveProfileStats", Migration0136],
+  [137, "RemoveCheckpointing", Migration0137],
+  [138, "CanonicalActivityReadModel", Migration0138],
+  [139, "RemoveGitThreadMetadata", Migration0139],
+  [140, "RemoveRedundantOperationDetail", Migration0140],
+  [141, "ThreadSidebarRollups", Migration0141],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

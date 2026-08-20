@@ -2,23 +2,11 @@
 // Purpose: Keep ChatView's thread-scoped selectors off the component hot path and out of the render file.
 // Exports: lineage/work-log selector factories used by ChatView.
 
-import {
-  type MessageId,
-  ThreadId,
-  type ThreadId as ThreadIdType,
-  type TurnId,
-} from "@penkra/contracts";
+import { type MessageId, ThreadId, type ThreadId as ThreadIdType } from "@penkra/contracts";
 
 import type { AppState } from "../storeState";
 import { collectByIds, getThreadFromState } from "../threadDerivation";
-import type {
-  ChatMessage,
-  Thread,
-  ThreadSession,
-  ThreadShell,
-  ThreadTurnState,
-  TurnDiffSummary,
-} from "../types";
+import type { ChatMessage, Thread, ThreadSession, ThreadShell, ThreadTurnState } from "../types";
 import type { WorkLogEntry } from "../session-logic";
 
 const EMPTY_LINEAGE_ACTIVITIES: Thread["activities"] = [];
@@ -31,8 +19,6 @@ type ThreadSliceRefs = {
   messages: Record<MessageId, ChatMessage> | undefined;
   activityIds: readonly string[] | undefined;
   activities: Record<string, Thread["activities"][number]> | undefined;
-  turnDiffIds: readonly TurnId[] | undefined;
-  turnDiffs: Record<TurnId, TurnDiffSummary> | undefined;
 };
 
 type ThreadLineageSliceRefs = {
@@ -57,8 +43,6 @@ function collectThreadSliceRefs(state: AppState, threadId: ThreadIdType): Thread
     messages: state.messageByThreadId?.[threadId],
     activityIds: state.activityIdsByThreadId?.[threadId],
     activities: state.activityByThreadId?.[threadId],
-    turnDiffIds: state.turnDiffIdsByThreadId?.[threadId],
-    turnDiffs: state.turnDiffSummaryByThreadId?.[threadId],
   };
 }
 
@@ -82,9 +66,7 @@ function threadSliceRefsEqual(left: ThreadSliceRefs | undefined, right: ThreadSl
     left.messageIds === right.messageIds &&
     left.messages === right.messages &&
     left.activityIds === right.activityIds &&
-    left.activities === right.activities &&
-    left.turnDiffIds === right.turnDiffIds &&
-    left.turnDiffs === right.turnDiffs
+    left.activities === right.activities
   );
 }
 

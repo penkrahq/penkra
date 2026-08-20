@@ -26,6 +26,7 @@ Every supported desktop flavor exposes the public App-author commands through
 ```text
 penkra app test <directory>
 penkra app package <directory> --output <path>
+penkra app sideload <directory>
 penkra app status [--app-id <app-id>]
 penkra app publish <directory> [--visibility public|private]
 penkra app access <invite|list|revoke> ...
@@ -49,10 +50,11 @@ declared size and digest, runs the package validators, and signs the resulting r
 with the registry key. App publication does not introduce a second identity provider or a
 developer-held signing credential.
 
-`penkra app sideload <directory>` is an additional internal contributor command exposed only by the development
-desktop flavor. It installs an unpacked directory into the caller Thread's Space, watches successful
-rebuilds, atomically swaps valid packages, restores App tabs, and preserves the last working package
-after an invalid rebuild. It is not part of the public App-author contract.
+`penkra app sideload <directory>` is a public App-author command in every desktop flavor. It installs
+an unpacked directory into the caller Thread's Space, watches successful rebuilds, atomically swaps
+valid packages, restores App tabs, and preserves the last working package after an invalid rebuild.
+A registry installation may transition to a sideload only when the sideload version is newer; an
+existing sideload may rebuild at the same version.
 
 ## Numbered development launchers
 
@@ -115,15 +117,14 @@ does not cover the Browser guest.
 ## Contributor verification
 
 Use normal source tests while implementing the platform. Use registered `penkra app test` for the
-isolated packaged runtime and the internal `sideload` command for live rebuild behavior. Complete the
-fresh numbered-desktop manual QA required by `AGENTS.md` before declaring affected product flows
-finished.
+isolated packaged runtime and `penkra app sideload` for live rebuild behavior. Complete the fresh
+numbered-desktop manual QA required by `AGENTS.md` before declaring affected product flows finished.
 
 Keep evidence layers distinct:
 
 - framework tests validate App or platform logic;
 - `penkra app test` validates the immutable packaged runtime;
-- sideload QA validates internal live-rebuild behavior;
+- sideload QA validates live-rebuild behavior in the target Space;
 - production registry status validates production publication;
 - installed desktop QA validates a specific desktop artifact on a specific operating system.
 

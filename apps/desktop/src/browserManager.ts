@@ -50,6 +50,9 @@ const BROWSER_INACTIVE_TAB_SUSPEND_DELAY_PRESSURED_MS = 400;
 const BROWSER_MAX_WARM_INACTIVE_RUNTIMES_PER_THREAD = 1;
 const BROWSER_THREAD_SUSPEND_DELAY_MS = 30_000;
 const BROWSER_ERROR_ABORTED = -3;
+const BROWSER_FAVICON_MAX_BYTES = 1024 * 1024;
+const BROWSER_FAVICON_MAX_DATA_URL_CHARACTERS =
+  Math.ceil((BROWSER_FAVICON_MAX_BYTES * 4) / 3) + 128;
 
 type BrowserStateListener = (state: ThreadBrowserState) => void;
 type BrowserCopyLinkListener = (event: BrowserCopyLinkEvent) => void;
@@ -108,6 +111,16 @@ interface BrowserPerformanceSnapshot {
 export interface DesktopBrowserManagerOptions {
   beforeInputEvent?: (event: Electron.Event, input: Electron.Input) => boolean;
   getWindowZoomFactor?: () => number;
+  reportLoadFailure?: (failure: BrowserLoadFailure) => void;
+}
+
+export interface BrowserLoadFailure {
+  source: "did-fail-load" | "load-url";
+  threadId: ThreadId;
+  tabId: string;
+  url: string;
+  errorCode?: number;
+  errorDescription?: string;
 }
 
 export interface BrowserHostedPanelBoundsInput {
@@ -838,6 +851,7 @@ export class DesktopBrowserManager {
     tab.title = defaultTitleForUrl(nextUrl);
     tab.lastCommittedUrl = null;
     tab.lastError = null;
+    tab.faviconUrl = null;
     syncThreadLastError(state);
     this.markThreadStateChanged(input.threadId);
 
@@ -870,7 +884,25 @@ export class DesktopBrowserManager {
     const runtime = this.runtimes.get(buildRuntimeKey(input.threadId, tab.id));
     if (runtime) {
       runtime.webContents.reload();
-    } else if (this.activeThreadId === input.threadId) {
+    } else {
+      // A failed renderer-owned page publishes no hosted surface, which detaches its WebView.
+      // Clear the error first so the Browser App republishes the surface and React can recreate
+      // the WebView. Without this state transition, Reload is a permanent no-op after failures.
+      let didChange = setIfChanged(tab.lastError, null, (value) => {
+        tab.lastError = value;
+      });
+      didChange =
+        setIfChanged(tab.isLoading, true, (value) => {
+          tab.isLoading = value;
+        }) || didChange;
+      syncThreadLastError(state);
+      if (didChange) {
+        this.markThreadStateChanged(input.threadId);
+        this.emitState(input.threadId);
+      }
+    }
+
+    if (!runtime && this.activeThreadId === input.threadId) {
       this.resumeThread(input.threadId);
       void this.loadTab(input.threadId, tab.id, { force: true });
     }
@@ -1634,13 +1666,39 @@ export class DesktopBrowserManager {
       webContents.removeListener("page-title-updated", pageTitleUpdated);
     });
 
+    let faviconRequestVersion = 0;
+    const publishFaviconUrls = (faviconUrls: string[]) => {
+      const requestVersion = ++faviconRequestVersion;
+      void this.resolveFaviconDataUrl(webContents, faviconUrls).then((faviconDataUrl) => {
+        if (requestVersion !== faviconRequestVersion || !faviconDataUrl) {
+          return;
+        }
+        this.queueRuntimeStateSync(threadId, tabId, [faviconDataUrl]);
+      });
+    };
     const pageFaviconUpdated = (_event: Electron.Event, faviconUrls: string[]) => {
-      this.queueRuntimeStateSync(threadId, tabId, faviconUrls);
+      publishFaviconUrls(faviconUrls);
     };
     webContents.on("page-favicon-updated", pageFaviconUpdated);
     runtime.listenerDisposers.push(() => {
+      faviconRequestVersion += 1;
       webContents.removeListener("page-favicon-updated", pageFaviconUpdated);
     });
+    const documentFaviconRequestVersion = ++faviconRequestVersion;
+    void webContents
+      .executeJavaScript(
+        "Array.from(document.querySelectorAll('link[rel~=icon]'), (link) => link.href)",
+        true,
+      )
+      .then((value: unknown) => {
+        if (documentFaviconRequestVersion !== faviconRequestVersion || !Array.isArray(value)) {
+          return;
+        }
+        publishFaviconUrls(value.filter((url): url is string => typeof url === "string"));
+      })
+      .catch(() => {
+        // A newly created or cross-navigation document may not be ready yet; the page event wins.
+      });
 
     const didStartLoading = () => {
       this.queueRuntimeStateSync(threadId, tabId);
@@ -1677,7 +1735,7 @@ export class DesktopBrowserManager {
     const didFailLoad = (
       _event: Electron.Event,
       errorCode: number,
-      _errorDescription: string,
+      errorDescription: string,
       validatedURL: string,
       isMainFrame: boolean,
     ) => {
@@ -1695,6 +1753,14 @@ export class DesktopBrowserManager {
       tab.title = defaultTitleForUrl(tab.url);
       tab.isLoading = false;
       tab.lastError = mapBrowserLoadError(errorCode);
+      this.reportLoadFailure({
+        source: "did-fail-load",
+        threadId,
+        tabId,
+        url: validatedURL || tab.url,
+        errorCode,
+        errorDescription,
+      });
       syncThreadLastError(state);
       this.markThreadStateChanged(threadId);
       this.emitState(threadId);
@@ -1770,10 +1836,68 @@ export class DesktopBrowserManager {
 
       tab.isLoading = false;
       tab.lastError = "Couldn't open this page.";
+      this.reportLoadFailure({
+        source: "load-url",
+        threadId,
+        tabId,
+        url: nextUrl,
+        errorDescription: error instanceof Error ? error.message : String(error),
+      });
       syncThreadLastError(state);
       this.markThreadStateChanged(threadId);
       this.emitState(threadId);
     }
+  }
+
+  private reportLoadFailure(failure: BrowserLoadFailure): void {
+    if (this.options.reportLoadFailure) {
+      this.options.reportLoadFailure(failure);
+      return;
+    }
+    console.error("[browser] Page load failed", failure);
+  }
+
+  private async resolveFaviconDataUrl(
+    webContents: WebContents,
+    faviconUrls: readonly string[],
+  ): Promise<string | null> {
+    for (const faviconUrl of faviconUrls) {
+      if (
+        /^data:image\//i.test(faviconUrl) &&
+        faviconUrl.length <= BROWSER_FAVICON_MAX_DATA_URL_CHARACTERS
+      ) {
+        return faviconUrl;
+      }
+
+      let parsed: URL;
+      try {
+        parsed = new URL(faviconUrl);
+      } catch {
+        continue;
+      }
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        continue;
+      }
+
+      try {
+        const response = await webContents.session.fetch(parsed.href);
+        if (!response.ok) continue;
+        const declaredLength = Number(response.headers.get("content-length"));
+        if (Number.isFinite(declaredLength) && declaredLength > BROWSER_FAVICON_MAX_BYTES) {
+          continue;
+        }
+        const bytes = Buffer.from(await response.arrayBuffer());
+        if (bytes.byteLength === 0 || bytes.byteLength > BROWSER_FAVICON_MAX_BYTES) {
+          continue;
+        }
+        const image = nativeImage.createFromBuffer(bytes);
+        if (image.isEmpty()) continue;
+        return image.toDataURL();
+      } catch {
+        // Favicons are optional. Try the next candidate without failing the page.
+      }
+    }
+    return null;
   }
 
   private syncRuntimeState(threadId: ThreadId, tabId: string, faviconUrls?: string[]): void {

@@ -5,6 +5,7 @@ import { bootstrapDevelopmentSideload } from "./developmentAppSideload";
 const verified = {
   manifest: {
     id: "com.example.canvas",
+    version: "2.0.0",
     permissions: [{ name: "account-data", required: true }],
   },
   source: "sideload" as const,
@@ -145,7 +146,8 @@ describe("development App sideload bootstrap", () => {
     });
   });
 
-  it("does not override a registry installation", async () => {
+  it("routes a registry installation through the guarded sideload update", async () => {
+    const updateSideloadForSpace = vi.fn(async () => undefined);
     await expect(
       bootstrapDevelopmentSideload(
         {
@@ -155,24 +157,37 @@ describe("development App sideload bootstrap", () => {
               packagesByInstallationKey: {
                 "personal\0com.example.canvas": {
                   source: "registry",
+                  version: "1.0.0",
                   sha256: "b".repeat(64),
                 },
               },
+              spaceStateByKey: {
+                "personal\0com.example.canvas": { enabled: true, permissions: {} },
+              },
             }),
+            updateSideloadForSpace,
+            setPermission: vi.fn(async () => undefined),
+            setEnabled: vi.fn(async () => undefined),
           },
         } as never,
         "/work/canvas",
         "personal",
       ),
-    ).rejects.toThrow("already installed from the registry");
+    ).resolves.toMatchObject({ status: "updated" });
+    expect(updateSideloadForSpace).toHaveBeenCalledWith({
+      package: verified,
+      spaceId: "personal",
+    });
   });
 
-  it("atomically replaces the required registry Apps package for development", async () => {
+  it("propagates a rejected registry-to-sideload transition", async () => {
     const apps = {
       ...verified,
       manifest: { ...verified.manifest, id: "com.penkra.apps", permissions: [] },
     };
-    const updateSideloadForSpace = vi.fn(async () => undefined);
+    const updateSideloadForSpace = vi.fn(async () => {
+      throw new Error("sideload version must be newer");
+    });
 
     await expect(
       bootstrapDevelopmentSideload(
@@ -184,6 +199,7 @@ describe("development App sideload bootstrap", () => {
                 "personal\0com.penkra.apps": {
                   appId: "com.penkra.apps",
                   source: "registry",
+                  version: "2.0.0",
                   sha256: "b".repeat(64),
                 },
               },
@@ -199,15 +215,6 @@ describe("development App sideload bootstrap", () => {
         "/work/apps",
         "personal",
       ),
-    ).resolves.toEqual({
-      appId: "com.penkra.apps",
-      sourcePath: "/work/apps",
-      spaceId: "personal",
-      status: "updated",
-    });
-    expect(updateSideloadForSpace).toHaveBeenCalledWith({
-      package: apps,
-      spaceId: "personal",
-    });
+    ).rejects.toThrow("sideload version must be newer");
   });
 });

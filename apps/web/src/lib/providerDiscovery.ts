@@ -3,7 +3,7 @@
 // Layer: Web lib
 // Exports: cwd resolution, search normalization, and provider skill/plugin display helpers.
 
-import { resolveThreadBranchSourceCwd } from "@penkra/shared/threadEnvironment";
+import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 import type {
   ProviderNativeCommandDescriptor,
   ProviderPluginDescriptor,
@@ -12,15 +12,13 @@ import type {
 
 // Prefer the most specific workspace context so discovery reflects the active thread first.
 export function resolveProviderDiscoveryCwd(options: {
-  activeThreadWorktreePath: string | null;
   activeThreadWorkingDirectory?: string | null;
   activeProjectCwd: string | null;
   serverCwd: string | null;
 }): string | null {
   return (
-    resolveThreadBranchSourceCwd({
+    resolveThreadWorkspaceCwd({
       projectCwd: options.activeProjectCwd,
-      worktreePath: options.activeThreadWorktreePath,
       workingDirectory: options.activeThreadWorkingDirectory,
     }) ?? options.serverCwd
   );

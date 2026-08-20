@@ -7,7 +7,6 @@ import {
   type OrchestrationPendingInteraction,
   type ThreadId,
 } from "@penkra/contracts";
-import { resolveThreadBranchRegressionGuard } from "@penkra/shared/git";
 import {
   addPinnedMessage,
   removePinnedMessage,
@@ -33,9 +32,7 @@ import {
   normalizeModelSelection,
   normalizeThreadErrorMessage,
   normalizeThreadSession,
-  normalizeTurnDiffFiles,
   providerReferenceArraysEqual,
-  resolveCreateBranchFlowCompletedMerge,
   withOrchestrationEventSequence,
 } from "./storeNormalization";
 import {
@@ -230,57 +227,6 @@ function reconcilePendingInteractionsFromActivity(
   return next;
 }
 
-function normalizeSingleTurnDiffSummary(
-  incoming: Thread["turnDiffSummaries"][number],
-  previous: Thread["turnDiffSummaries"][number] | undefined,
-): Thread["turnDiffSummaries"][number] {
-  const files = normalizeTurnDiffFiles(incoming.files, previous?.files);
-  if (
-    previous &&
-    previous.turnId === incoming.turnId &&
-    previous.completedAt === incoming.completedAt &&
-    previous.status === incoming.status &&
-    previous.assistantMessageId === incoming.assistantMessageId &&
-    previous.checkpointTurnCount === incoming.checkpointTurnCount &&
-    previous.checkpointRef === incoming.checkpointRef &&
-    previous.files === files
-  ) {
-    return previous;
-  }
-  return {
-    ...incoming,
-    files,
-  };
-}
-
-function sortTurnDiffSummaries(
-  summaries: ReadonlyArray<Thread["turnDiffSummaries"][number]>,
-): Thread["turnDiffSummaries"] {
-  return [...summaries].toSorted(
-    (left, right) =>
-      (left.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER) -
-        (right.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER) ||
-      left.completedAt.localeCompare(right.completedAt) ||
-      left.turnId.localeCompare(right.turnId),
-  );
-}
-
-function checkpointStatusToLatestTurnState(
-  status: Thread["turnDiffSummaries"][number]["status"],
-): NonNullable<Thread["latestTurn"]>["state"] {
-  if (status === "error") {
-    return "error";
-  }
-  if (status === "missing") {
-    return "interrupted";
-  }
-  return "completed";
-}
-
-function isProviderDiffPlaceholderRef(checkpointRef: string | null | undefined): boolean {
-  return checkpointRef?.startsWith("provider-diff:") === true;
-}
-
 function buildLatestTurn(params: {
   previous: Thread["latestTurn"];
   turnId: NonNullable<Thread["latestTurn"]>["turnId"];
@@ -327,8 +273,8 @@ function reconcileLatestTurnFromSession(
   }
 
   // Mirror of the server projector's settlement rule: once the session leaves
-  // "running", no later event is guaranteed to close the turn (checkpoint diff
-  // events only enrich it), so a still-running latestTurn settles here. A retained
+  // "running", no later event is guaranteed to close the turn, so a still-running
+  // latestTurn settles here. A retained
   // activeTurnId blocks settlement (except on error): stop-requested flows emit
   // "interrupted" while keeping the turn active until the provider's terminal
   // event decides the real outcome.
@@ -360,105 +306,6 @@ function reconcileLatestTurnFromSession(
   return thread.latestTurn;
 }
 
-function rebindTurnDiffSummariesForAssistantMessage(
-  turnDiffSummaries: ReadonlyArray<Thread["turnDiffSummaries"][number]>,
-  turnId: Thread["turnDiffSummaries"][number]["turnId"],
-  assistantMessageId: NonNullable<Thread["latestTurn"]>["assistantMessageId"],
-): Thread["turnDiffSummaries"] {
-  let changed = false;
-  const nextSummaries = turnDiffSummaries.map((summary) => {
-    if (summary.turnId !== turnId || summary.assistantMessageId === assistantMessageId) {
-      return summary;
-    }
-    changed = true;
-    return {
-      ...summary,
-      assistantMessageId: assistantMessageId ?? undefined,
-    };
-  });
-  return changed ? nextSummaries : [...turnDiffSummaries];
-}
-
-function retainThreadMessagesAfterRevert(
-  messages: ReadonlyArray<ChatMessage>,
-  retainedTurnIds: ReadonlySet<string>,
-  turnCount: number,
-): ChatMessage[] {
-  const retainedMessageIds = new Set<string>();
-  for (const message of messages) {
-    if (message.role === "system") {
-      retainedMessageIds.add(message.id);
-      continue;
-    }
-    if (
-      message.turnId !== undefined &&
-      message.turnId !== null &&
-      retainedTurnIds.has(message.turnId)
-    ) {
-      retainedMessageIds.add(message.id);
-    }
-  }
-
-  const retainedUserCount = messages.filter(
-    (message) => message.role === "user" && retainedMessageIds.has(message.id),
-  ).length;
-  const missingUserCount = Math.max(0, turnCount - retainedUserCount);
-  if (missingUserCount > 0) {
-    const fallbackUserMessages = messages
-      .filter(
-        (message) =>
-          message.role === "user" &&
-          !retainedMessageIds.has(message.id) &&
-          (message.turnId === undefined ||
-            message.turnId === null ||
-            retainedTurnIds.has(message.turnId)),
-      )
-      .toSorted(
-        (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-      )
-      .slice(0, missingUserCount);
-    for (const message of fallbackUserMessages) {
-      retainedMessageIds.add(message.id);
-    }
-  }
-
-  const retainedAssistantCount = messages.filter(
-    (message) => message.role === "assistant" && retainedMessageIds.has(message.id),
-  ).length;
-  const missingAssistantCount = Math.max(0, turnCount - retainedAssistantCount);
-  if (missingAssistantCount > 0) {
-    const fallbackAssistantMessages = messages
-      .filter(
-        (message) =>
-          message.role === "assistant" &&
-          !retainedMessageIds.has(message.id) &&
-          (message.turnId === undefined ||
-            message.turnId === null ||
-            retainedTurnIds.has(message.turnId)),
-      )
-      .toSorted(
-        (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-      )
-      .slice(0, missingAssistantCount);
-    for (const message of fallbackAssistantMessages) {
-      retainedMessageIds.add(message.id);
-    }
-  }
-
-  return messages.filter((message) => retainedMessageIds.has(message.id));
-}
-
-function retainThreadActivitiesAfterRevert(
-  activities: ReadonlyArray<Thread["activities"][number]>,
-  retainedTurnIds: ReadonlySet<string>,
-): Thread["activities"] {
-  return activities.filter(
-    (activity) => activity.turnId === null || retainedTurnIds.has(activity.turnId),
-  );
-}
-
 function rollbackThreadMessagesFromMessage(
   messages: ReadonlyArray<ChatMessage>,
   messageId: string,
@@ -479,79 +326,6 @@ function rollbackThreadMessagesFromMessage(
         message.turnId === undefined || message.turnId === null ? [] : [message.turnId],
       ),
     ),
-  };
-}
-
-function applyTurnDiffSummaryToThread(
-  thread: Thread,
-  summary: Thread["turnDiffSummaries"][number],
-): Thread {
-  const previousSummary = thread.turnDiffSummaries.find(
-    (existingSummary) => existingSummary.turnId === summary.turnId,
-  );
-  const nextSummary = normalizeSingleTurnDiffSummary(summary, previousSummary);
-  if (previousSummary && previousSummary.status !== "missing" && nextSummary.status === "missing") {
-    return thread;
-  }
-  const turnDiffSummaries = previousSummary
-    ? thread.turnDiffSummaries.map((existingSummary) =>
-        existingSummary.turnId === nextSummary.turnId ? nextSummary : existingSummary,
-      )
-    : sortTurnDiffSummaries([...thread.turnDiffSummaries, nextSummary]);
-
-  // Mirror of the server projector's placeholder guard: a provider-diff
-  // placeholder only carries live diff totals and must never change the turn
-  // lifecycle — neither close a running turn nor flip an already-settled one
-  // to "interrupted" when it loses the race against session settlement.
-  const isSameTurnPlaceholder =
-    isProviderDiffPlaceholderRef(nextSummary.checkpointRef) &&
-    nextSummary.status === "missing" &&
-    thread.latestTurn?.turnId === nextSummary.turnId;
-  const latestTurn =
-    thread.latestTurn === null || thread.latestTurn.turnId === nextSummary.turnId
-      ? isSameTurnPlaceholder
-        ? thread.latestTurn
-        : buildLatestTurn({
-            previous: thread.latestTurn,
-            turnId: nextSummary.turnId,
-            state: checkpointStatusToLatestTurnState(nextSummary.status),
-            requestedAt: thread.latestTurn?.requestedAt ?? nextSummary.completedAt,
-            startedAt: thread.latestTurn?.startedAt ?? nextSummary.completedAt,
-            completedAt: nextSummary.completedAt,
-            // Prefer the incoming assistantMessageId when present; otherwise keep
-            // the previous one from the same turn. Turn-diff events may arrive
-            // before the message has been finalized and carry a null id — they
-            // must not erase a real id already recorded by thread.message-sent.
-            assistantMessageId:
-              nextSummary.assistantMessageId ??
-              (thread.latestTurn?.turnId === nextSummary.turnId
-                ? thread.latestTurn.assistantMessageId
-                : null) ??
-              null,
-          })
-      : thread.latestTurn;
-
-  if (
-    previousSummary === nextSummary &&
-    turnDiffSummaries === thread.turnDiffSummaries &&
-    latestTurn === thread.latestTurn &&
-    (thread.updatedAt ?? thread.createdAt) >= nextSummary.completedAt
-  ) {
-    return thread;
-  }
-
-  return {
-    ...thread,
-    turnDiffSummaries:
-      arraysShallowEqual(thread.turnDiffSummaries, turnDiffSummaries) &&
-      thread.turnDiffSummaries.length === turnDiffSummaries.length
-        ? thread.turnDiffSummaries
-        : turnDiffSummaries,
-    latestTurn,
-    updatedAt:
-      (thread.updatedAt ?? thread.createdAt) > nextSummary.completedAt
-        ? thread.updatedAt
-        : nextSummary.completedAt,
   };
 }
 
@@ -676,15 +450,6 @@ function applyThreadMessageSentEvent(thread: Thread, event: ThreadMessageSentEve
     messages = [...thread.messages, incomingMessage].slice(-MAX_THREAD_MESSAGES);
   }
 
-  const turnDiffSummaries =
-    payload.role === "assistant" && payload.turnId !== null
-      ? rebindTurnDiffSummariesForAssistantMessage(
-          thread.turnDiffSummaries,
-          payload.turnId,
-          payload.messageId,
-        )
-      : thread.turnDiffSummaries;
-
   let latestTurn = thread.latestTurn;
   if (
     payload.role === "assistant" &&
@@ -713,7 +478,6 @@ function applyThreadMessageSentEvent(thread: Thread, event: ThreadMessageSentEve
     thread.updatedAt && thread.updatedAt > payload.updatedAt ? thread.updatedAt : payload.updatedAt;
   if (
     messages === thread.messages &&
-    turnDiffSummaries === thread.turnDiffSummaries &&
     latestTurn === thread.latestTurn &&
     updatedAt === thread.updatedAt
   ) {
@@ -723,7 +487,6 @@ function applyThreadMessageSentEvent(thread: Thread, event: ThreadMessageSentEve
   return {
     ...thread,
     messages,
-    turnDiffSummaries,
     latestTurn,
     updatedAt,
   };
@@ -844,67 +607,21 @@ function applyOrchestrationEvent(
             event.payload.modelSelection !== undefined
               ? normalizeModelSelection(event.payload.modelSelection, thread.modelSelection)
               : thread.modelSelection;
-          const nextBranch =
-            event.payload.branch !== undefined
-              ? resolveThreadBranchRegressionGuard({
-                  currentBranch: thread.branch,
-                  nextBranch: event.payload.branch,
-                })
-              : thread.branch;
-          const nextWorktreePath =
-            event.payload.worktreePath !== undefined
-              ? event.payload.worktreePath
-              : thread.worktreePath;
           const nextWorkingDirectory =
             event.payload.workingDirectory !== undefined
               ? event.payload.workingDirectory
               : (thread.workingDirectory ?? null);
-          const nextAssociatedWorktreePath =
-            event.payload.associatedWorktreePath !== undefined
-              ? event.payload.associatedWorktreePath
-              : (thread.associatedWorktreePath ?? null);
-          const nextAssociatedWorktreeBranch =
-            event.payload.associatedWorktreeBranch !== undefined
-              ? event.payload.associatedWorktreeBranch
-              : (thread.associatedWorktreeBranch ?? null);
-          const nextAssociatedWorktreeRef =
-            event.payload.associatedWorktreeRef !== undefined
-              ? event.payload.associatedWorktreeRef
-              : (thread.associatedWorktreeRef ?? null);
-          const nextCreateBranchFlowCompleted = resolveCreateBranchFlowCompletedMerge({
-            currentBranch: thread.branch,
-            nextBranch,
-            currentWorktreePath: thread.worktreePath,
-            nextWorktreePath,
-            currentAssociatedWorktreePath: thread.associatedWorktreePath,
-            nextAssociatedWorktreePath,
-            currentAssociatedWorktreeBranch: thread.associatedWorktreeBranch,
-            nextAssociatedWorktreeBranch,
-            currentAssociatedWorktreeRef: thread.associatedWorktreeRef,
-            nextAssociatedWorktreeRef,
-            currentCreateBranchFlowCompleted: thread.createBranchFlowCompleted,
-            nextCreateBranchFlowCompleted: event.payload.createBranchFlowCompleted,
-          });
           const nextUpdatedAt =
             (thread.updatedAt ?? thread.createdAt) > event.payload.updatedAt
               ? thread.updatedAt
               : event.payload.updatedAt;
-          const cwdChanged =
-            thread.worktreePath !== nextWorktreePath ||
-            (thread.workingDirectory ?? null) !== nextWorkingDirectory;
+          const cwdChanged = (thread.workingDirectory ?? null) !== nextWorkingDirectory;
 
           if (
             (event.payload.spaceId === undefined || event.payload.spaceId === thread.spaceId) &&
             (event.payload.title === undefined || event.payload.title === thread.title) &&
             modelSelection === thread.modelSelection &&
-            (event.payload.envMode === undefined || event.payload.envMode === thread.envMode) &&
-            nextBranch === thread.branch &&
-            nextWorktreePath === thread.worktreePath &&
             nextWorkingDirectory === (thread.workingDirectory ?? null) &&
-            nextAssociatedWorktreePath === (thread.associatedWorktreePath ?? null) &&
-            nextAssociatedWorktreeBranch === (thread.associatedWorktreeBranch ?? null) &&
-            nextAssociatedWorktreeRef === (thread.associatedWorktreeRef ?? null) &&
-            nextCreateBranchFlowCompleted === (thread.createBranchFlowCompleted ?? false) &&
             (event.payload.isPinned === undefined ||
               event.payload.isPinned === (thread.isPinned ?? false)) &&
             (event.payload.parentThreadId === undefined ||
@@ -915,8 +632,6 @@ function applyOrchestrationEvent(
               (event.payload.subagentNickname ?? null) === (thread.subagentNickname ?? null)) &&
             (event.payload.subagentRole === undefined ||
               (event.payload.subagentRole ?? null) === (thread.subagentRole ?? null)) &&
-            (event.payload.lastKnownPr === undefined ||
-              deepEqualJson(event.payload.lastKnownPr ?? null, thread.lastKnownPr ?? null)) &&
             (event.payload.pinnedMessages === undefined ||
               deepEqualJson(event.payload.pinnedMessages, thread.pinnedMessages ?? null)) &&
             (event.payload.threadMarkers === undefined ||
@@ -932,14 +647,7 @@ function applyOrchestrationEvent(
             ...(event.payload.spaceId !== undefined ? { spaceId: event.payload.spaceId } : {}),
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
             modelSelection,
-            ...(event.payload.envMode !== undefined ? { envMode: event.payload.envMode } : {}),
-            branch: nextBranch,
-            worktreePath: nextWorktreePath,
             workingDirectory: nextWorkingDirectory,
-            associatedWorktreePath: nextAssociatedWorktreePath,
-            associatedWorktreeBranch: nextAssociatedWorktreeBranch,
-            associatedWorktreeRef: nextAssociatedWorktreeRef,
-            createBranchFlowCompleted: nextCreateBranchFlowCompleted,
             ...(event.payload.isPinned !== undefined ? { isPinned: event.payload.isPinned } : {}),
             ...(event.payload.parentThreadId !== undefined
               ? { parentThreadId: event.payload.parentThreadId }
@@ -952,9 +660,6 @@ function applyOrchestrationEvent(
               : {}),
             ...(event.payload.subagentRole !== undefined
               ? { subagentRole: event.payload.subagentRole }
-              : {}),
-            ...(event.payload.lastKnownPr !== undefined
-              ? { lastKnownPr: event.payload.lastKnownPr }
               : {}),
             ...(event.payload.pinnedMessages !== undefined
               ? {
@@ -1462,84 +1167,6 @@ function applyOrchestrationEvent(
         },
       );
 
-    case "thread.turn-diff-completed":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) =>
-          applyTurnDiffSummaryToThread(thread, {
-            turnId: event.payload.turnId,
-            completedAt: event.payload.completedAt,
-            status: event.payload.status,
-            files: event.payload.files.map((file) => ({
-              path: file.path,
-              ...(file.kind !== undefined ? { kind: file.kind } : {}),
-              ...(file.additions !== undefined ? { additions: file.additions } : {}),
-              ...(file.deletions !== undefined ? { deletions: file.deletions } : {}),
-            })),
-            checkpointRef: event.payload.checkpointRef,
-            assistantMessageId: event.payload.assistantMessageId ?? undefined,
-            checkpointTurnCount: event.payload.checkpointTurnCount,
-          }),
-        {
-          ...options,
-          updateSidebarSummary: true,
-        },
-      );
-
-    case "thread.reverted":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => {
-          const turnDiffSummaries = thread.turnDiffSummaries
-            .filter(
-              (entry) =>
-                entry.checkpointTurnCount !== undefined &&
-                entry.checkpointTurnCount <= event.payload.turnCount,
-            )
-            .toSorted(
-              (left, right) =>
-                (left.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER) -
-                (right.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER),
-            );
-          const retainedTurnIds = new Set(turnDiffSummaries.map((entry) => entry.turnId));
-          const messages = retainThreadMessagesAfterRevert(
-            thread.messages,
-            retainedTurnIds,
-            event.payload.turnCount,
-          ).slice(-MAX_THREAD_MESSAGES);
-          const activities = retainThreadActivitiesAfterRevert(thread.activities, retainedTurnIds);
-          const latestCheckpoint = turnDiffSummaries.at(-1) ?? null;
-
-          return {
-            ...thread,
-            turnDiffSummaries,
-            messages,
-            activities,
-            latestTurn:
-              latestCheckpoint === null
-                ? null
-                : {
-                    turnId: latestCheckpoint.turnId,
-                    state: checkpointStatusToLatestTurnState(latestCheckpoint.status),
-                    requestedAt: latestCheckpoint.completedAt,
-                    startedAt: latestCheckpoint.completedAt,
-                    completedAt: latestCheckpoint.completedAt,
-                    assistantMessageId: latestCheckpoint.assistantMessageId ?? null,
-                  },
-            updatedAt:
-              (thread.updatedAt ?? thread.createdAt) > event.occurredAt
-                ? thread.updatedAt
-                : event.occurredAt,
-          };
-        },
-        {
-          ...options,
-          updateSidebarSummary: true,
-        },
-      );
-
     case "thread.turn-start-cancelled":
       return applyThreadUpdate(
         state,
@@ -1593,34 +1220,15 @@ function applyOrchestrationEvent(
             return thread;
           }
 
-          const turnDiffSummaries = thread.turnDiffSummaries
-            .filter((entry) => !removedTurnIds.has(entry.turnId))
-            .toSorted(
-              (left, right) =>
-                (left.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER) -
-                (right.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER),
-            );
           const activities = thread.activities.filter(
             (activity) => activity.turnId === null || !removedTurnIds.has(activity.turnId),
           );
-          const latestCheckpoint = turnDiffSummaries.at(-1) ?? null;
 
           return {
             ...thread,
-            turnDiffSummaries,
             messages: rollback.messages.slice(-MAX_THREAD_MESSAGES),
             activities,
-            latestTurn:
-              latestCheckpoint === null
-                ? null
-                : {
-                    turnId: latestCheckpoint.turnId,
-                    state: checkpointStatusToLatestTurnState(latestCheckpoint.status),
-                    requestedAt: latestCheckpoint.completedAt,
-                    startedAt: latestCheckpoint.completedAt,
-                    completedAt: latestCheckpoint.completedAt,
-                    assistantMessageId: latestCheckpoint.assistantMessageId ?? null,
-                  },
+            latestTurn: null,
             updatedAt:
               (thread.updatedAt ?? thread.createdAt) > event.occurredAt
                 ? thread.updatedAt

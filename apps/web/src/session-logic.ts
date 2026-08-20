@@ -8,7 +8,7 @@ import { PROVIDER_DESCRIPTORS } from "@penkra/shared/providerMetadata";
 
 import { orderedActivities } from "./workLog";
 
-import type { ChatMessage, SessionPhase, Thread, ThreadSession, TurnDiffSummary } from "./types";
+import type { ChatMessage, SessionPhase, Thread, ThreadSession } from "./types";
 
 export {
   derivePendingApprovals,
@@ -383,19 +383,6 @@ export function hasLiveTurnTailWork(input: {
   }
 
   return false;
-}
-
-export function inferCheckpointTurnCountByTurnId(
-  summaries: TurnDiffSummary[],
-): Record<TurnId, number> {
-  const sorted = [...summaries].toSorted((a, b) => a.completedAt.localeCompare(b.completedAt));
-  const result: Record<TurnId, number> = {};
-  for (let index = 0; index < sorted.length; index += 1) {
-    const summary = sorted[index];
-    if (!summary) continue;
-    result[summary.turnId] = index + 1;
-  }
-  return result;
 }
 
 export function derivePhase(session: ThreadSession | null): SessionPhase {

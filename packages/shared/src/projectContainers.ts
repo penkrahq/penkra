@@ -1,6 +1,6 @@
 // FILE: projectContainers.ts
 // Purpose: Classify system-managed project containers versus ordinary projects. Managed
-//          chat and Studio containers carry their own kind, but the legacy Home chat
+//          chat containers carry their own kind, but the legacy Home chat
 //          container kept `kind: "project"` and is recognized by its row shape: the
 //          canonical "Home" title plus the reserved chat/home workspace root.
 // Layer: Shared domain helper
@@ -70,7 +70,7 @@ export interface OrdinaryProjectRowInput extends LegacyHomeChatContainerRowInput
 
 /**
  * Ordinary projects are the user-visible ones: everything that is neither a managed
- * chat/Studio container (their kind says so) nor the legacy Home chat container.
+ * chat container (its kind says so) nor the legacy Home chat container.
  */
 export function isOrdinaryProjectRow(input: OrdinaryProjectRowInput): boolean {
   return (input.projectKind ?? "project") === "project" && !isLegacyHomeChatContainerRow(input);

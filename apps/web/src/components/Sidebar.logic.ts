@@ -6,9 +6,9 @@ import {
   MAX_PINNED_PROJECTS,
   type KeybindingCommand,
   type ContainerId,
+  type SpaceId,
   type ThreadId,
 } from "@penkra/contracts";
-import { resolveThreadEnvironmentMode } from "@penkra/shared/threadEnvironment";
 import { isWorkspaceRootWithin } from "@penkra/shared/threadWorkspace";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "../appSettings";
 import { resolveRestorableThreadRoute, type LastThreadRoute } from "../chatRouteRestore";
@@ -22,12 +22,11 @@ import {
   SIDEBAR_THREAD_ROW_BASE_CLASS_NAME,
 } from "../sidebarRowStyles";
 import { canSessionAnswerPendingRequests, isSessionRunningTurn } from "../session-logic";
-import { formatWorktreePathForDisplay } from "../worktreeCleanup";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
 export const DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY = "penkra:show-debug-feature-flags-menu";
-export type SidebarView = "threads" | "studio" | "workspace";
+export type SidebarView = "threads" | "workspace";
 
 export function resolveProjectHeaderState(input: {
   readonly projectId: string;
@@ -41,10 +40,23 @@ export function resolveProjectHeaderState(input: {
 
 export function isProjectsSidebarSurface(input: {
   readonly isOnSettings: boolean;
-  readonly isOnStudio: boolean;
   readonly isOnWorkspace: boolean;
 }): boolean {
-  return !input.isOnSettings && !input.isOnStudio && !input.isOnWorkspace;
+  return !input.isOnSettings && !input.isOnWorkspace;
+}
+
+/**
+ * Opens folder creation without running the Space's normal restore navigation.
+ * Empty inactive Spaces otherwise route Home and remount the sidebar before the
+ * inline editor can remain open.
+ */
+export function beginInlineFolderCreation(input: {
+  readonly spaceId: SpaceId;
+  readonly selectSpaceForIncomingProject: (spaceId: SpaceId) => void;
+  readonly openInlineFolderCreator: (spaceId: SpaceId) => void;
+}): void {
+  input.selectSpaceForIncomingProject(input.spaceId);
+  input.openInlineFolderCreator(input.spaceId);
 }
 
 type SidebarProject = {
@@ -66,61 +78,6 @@ type SidebarThreadSortInput = {
   hasPendingUserInput?: boolean | undefined;
   session?: Thread["session"] | undefined;
 };
-
-function nonEmptyDisplayValue(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : null;
-}
-
-function differentDisplayValue(
-  value: string | null | undefined,
-  existing: string | null,
-): string | null {
-  const normalized = nonEmptyDisplayValue(value);
-  if (!normalized) {
-    return null;
-  }
-  return existing !== null && normalized === existing ? null : normalized;
-}
-
-export type SidebarThreadHoverMetadata = {
-  projectName: string | null;
-  projectCwd: string | null;
-  sourceProjectName: string | null;
-  branch: string | null;
-  worktreeName: string | null;
-};
-
-export function resolveThreadHoverCardMetadata(input: {
-  thread: Pick<
-    SidebarThreadSummary,
-    "envMode" | "branch" | "worktreePath" | "associatedWorktreePath" | "associatedWorktreeBranch"
-  >;
-  project: Pick<Project, "name" | "folderName" | "cwd"> | null;
-}): SidebarThreadHoverMetadata {
-  const projectName =
-    nonEmptyDisplayValue(input.project?.name) ?? nonEmptyDisplayValue(input.project?.folderName);
-  const activeWorktreePath = nonEmptyDisplayValue(input.thread.worktreePath);
-  const isWorktree =
-    resolveThreadEnvironmentMode({
-      envMode: input.thread.envMode,
-      worktreePath: activeWorktreePath,
-    }) === "worktree";
-  const associatedWorktreePath = nonEmptyDisplayValue(input.thread.associatedWorktreePath);
-  const worktreePath = isWorktree ? (associatedWorktreePath ?? activeWorktreePath) : null;
-
-  return {
-    projectName,
-    projectCwd: input.project?.cwd ?? null,
-    sourceProjectName: isWorktree
-      ? differentDisplayValue(input.project?.folderName, projectName)
-      : null,
-    branch:
-      nonEmptyDisplayValue(input.thread.associatedWorktreeBranch) ??
-      nonEmptyDisplayValue(input.thread.branch),
-    worktreeName: worktreePath ? formatWorktreePathForDisplay(worktreePath) : null,
-  };
-}
 
 export function isLoopbackHostname(hostname: string): boolean {
   const normalizedHostname = hostname.trim().toLowerCase().replace(/\.$/, "");
@@ -1190,27 +1147,6 @@ export function groupSidebarThreadsByProjectId(
     }
   }
   return byProjectId;
-}
-
-export function partitionSidebarThreadsByProjectIds<
-  T extends Pick<SidebarThreadSummary, "projectId">,
->(
-  threads: readonly T[],
-  studioProjectIds: ReadonlySet<ContainerId>,
-): {
-  readonly studioThreads: T[];
-  readonly nonStudioThreads: T[];
-} {
-  const studioThreads: T[] = [];
-  const nonStudioThreads: T[] = [];
-  for (const thread of threads) {
-    if (studioProjectIds.has(thread.projectId)) {
-      studioThreads.push(thread);
-    } else {
-      nonStudioThreads.push(thread);
-    }
-  }
-  return { studioThreads, nonStudioThreads };
 }
 
 // Centralizes the expensive per-project row derivation so Sidebar.tsx can mostly orchestrate UI state.

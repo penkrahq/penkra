@@ -170,7 +170,6 @@ const ProviderRuntimeEventType = Schema.Literals([
   "turn.completed",
   "turn.aborted",
   "turn.tasks.updated",
-  "turn.diff.updated",
   "turn.steered",
   "item.started",
   "item.updated",
@@ -220,7 +219,6 @@ const TurnStartedType = Schema.Literal("turn.started");
 const TurnCompletedType = Schema.Literal("turn.completed");
 const TurnAbortedType = Schema.Literal("turn.aborted");
 const TurnTasksUpdatedType = Schema.Literal("turn.tasks.updated");
-const TurnDiffUpdatedType = Schema.Literal("turn.diff.updated");
 const TurnSteeredType = Schema.Literal("turn.steered");
 const ItemStartedType = Schema.Literal("item.started");
 const ItemUpdatedType = Schema.Literal("item.updated");
@@ -394,16 +392,13 @@ const TurnTasksUpdatedPayload = Schema.Struct({
 });
 export type TurnTasksUpdatedPayload = typeof TurnTasksUpdatedPayload.Type;
 
-const TurnDiffUpdatedPayload = Schema.Struct({
-  unifiedDiff: Schema.String,
-});
-export type TurnDiffUpdatedPayload = typeof TurnDiffUpdatedPayload.Type;
-
 export const ItemLifecyclePayload = Schema.Struct({
   itemType: CanonicalItemType,
   status: Schema.optional(RuntimeItemStatus),
   title: Schema.optional(TrimmedNonEmptyStringSchema),
   detail: Schema.optional(TrimmedNonEmptyStringSchema),
+  /** Provider-normalized tool input. Lifecycle envelopes belong in `data`, not here. */
+  input: Schema.optional(Schema.Unknown),
   data: Schema.optional(Schema.Unknown),
 });
 export type ItemLifecyclePayload = typeof ItemLifecyclePayload.Type;
@@ -836,13 +831,6 @@ const ProviderRuntimeTurnTasksUpdatedEvent = Schema.Struct({
 });
 export type ProviderRuntimeTurnTasksUpdatedEvent = typeof ProviderRuntimeTurnTasksUpdatedEvent.Type;
 
-const ProviderRuntimeTurnDiffUpdatedEvent = Schema.Struct({
-  ...ProviderRuntimeEventBase.fields,
-  type: TurnDiffUpdatedType,
-  payload: TurnDiffUpdatedPayload,
-});
-export type ProviderRuntimeTurnDiffUpdatedEvent = typeof ProviderRuntimeTurnDiffUpdatedEvent.Type;
-
 const ProviderRuntimeTurnSteeredEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: TurnSteeredType,
@@ -1069,7 +1057,6 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeTurnCompletedEvent,
   ProviderRuntimeTurnAbortedEvent,
   ProviderRuntimeTurnTasksUpdatedEvent,
-  ProviderRuntimeTurnDiffUpdatedEvent,
   ProviderRuntimeTurnSteeredEvent,
   ProviderRuntimeItemStartedEvent,
   ProviderRuntimeItemUpdatedEvent,

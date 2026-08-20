@@ -26,7 +26,7 @@ import {
   migrationEntries,
 } from "./Migrations.ts";
 
-export const MIGRATION_BACKUP_RETENTION = 5;
+export const MIGRATION_BACKUP_RETENTION = 1;
 export const FAILED_MIGRATION_BUNDLE_RETENTION = 3;
 
 const STALE_RECOVERY_ARTIFACT_AGE_MS = 24 * 60 * 60 * 1_000;
@@ -773,6 +773,9 @@ export const runWithPreMigrationBackup = <A, E, R>(
     if (backup) {
       yield* removeRecoveryMarker(dbPath);
     }
+    // Run on every successful startup, including one with no schema changes,
+    // so a reduced retention policy reclaims older snapshots immediately.
+    yield* pruneMigrationBackups(dbPath);
     return result;
   });
 

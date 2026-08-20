@@ -7,12 +7,21 @@ import { ThreadId } from "@penkra/contracts";
 
 import { resolveAssistantDeliveryMode, useAppSettings } from "../appSettings";
 import { useComposerDraftStore } from "../composerDraftStore";
-import { dispatchQueuedComposerTurn } from "../lib/queuedComposerTurnDispatch";
+import {
+  dispatchQueuedComposerTurn,
+  isQueuedComposerBindingRevisionError,
+} from "../lib/queuedComposerTurnDispatch";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
 import { getThreadFromState } from "../threadDerivation";
 
 const RETRY_DELAY_MS = 2_000;
+const MAX_RETRY_DELAY_MS = 30_000;
+
+export function queuedComposerTurnRetryDelayMs(previousAttempts: number): number {
+  const attempt = Math.max(0, Math.floor(previousAttempts));
+  return Math.min(RETRY_DELAY_MS * 2 ** attempt, MAX_RETRY_DELAY_MS);
+}
 
 export function QueuedComposerTurnDispatcher() {
   const { settings } = useAppSettings();
@@ -21,8 +30,9 @@ export function QueuedComposerTurnDispatcher() {
   useEffect(() => {
     let disposed = false;
     let scheduled = false;
-    let retryTimer: number | null = null;
     const inFlightThreadIds = new Set<string>();
+    const retryAttemptsByThreadId = new Map<string, number>();
+    const retryTimersByThreadId = new Map<string, number>();
 
     const schedule = () => {
       if (disposed || scheduled) return;
@@ -33,12 +43,15 @@ export function QueuedComposerTurnDispatcher() {
       });
     };
 
-    const scheduleRetry = () => {
-      if (disposed || retryTimer !== null) return;
-      retryTimer = window.setTimeout(() => {
-        retryTimer = null;
+    const scheduleRetry = (threadId: string) => {
+      if (disposed || retryTimersByThreadId.has(threadId)) return;
+      const previousAttempts = retryAttemptsByThreadId.get(threadId) ?? 0;
+      retryAttemptsByThreadId.set(threadId, previousAttempts + 1);
+      const retryTimer = window.setTimeout(() => {
+        retryTimersByThreadId.delete(threadId);
         schedule();
-      }, RETRY_DELAY_MS);
+      }, queuedComposerTurnRetryDelayMs(previousAttempts));
+      retryTimersByThreadId.set(threadId, retryTimer);
     };
 
     const drain = () => {
@@ -51,7 +64,14 @@ export function QueuedComposerTurnDispatcher() {
         const queuedTurn = draft.queuedTurns.find(
           (candidate) => candidate.serverAcceptedAt === undefined,
         );
-        if (!queuedTurn || draft.queuePaused || inFlightThreadIds.has(rawThreadId)) continue;
+        if (
+          !queuedTurn ||
+          draft.queuePaused ||
+          inFlightThreadIds.has(rawThreadId) ||
+          retryTimersByThreadId.has(rawThreadId)
+        ) {
+          continue;
+        }
         const thread = getThreadFromState(appState, threadId);
         if (!thread) continue;
         if (thread.hasPendingApprovals || thread.hasPendingUserInput) {
@@ -64,24 +84,36 @@ export function QueuedComposerTurnDispatcher() {
           threadId: thread.id,
           queuedTurn,
           assistantDeliveryMode,
+          persistDispatchAdmission: (attempt, bindingRevision) =>
+            useComposerDraftStore
+              .getState()
+              .setQueuedTurnDispatchAdmission(thread.id, queuedTurn.id, attempt, bindingRevision),
         })
           .then(() => {
             useComposerDraftStore
               .getState()
               .markQueuedTurnServerAccepted(thread.id, queuedTurn.id, new Date().toISOString());
             useStore.getState().setError(thread.id, null);
+            retryAttemptsByThreadId.delete(rawThreadId);
           })
           .catch((error: unknown) => {
+            if (isQueuedComposerBindingRevisionError(error)) {
+              useComposerDraftStore
+                .getState()
+                .advanceQueuedTurnDispatchAttempt(thread.id, queuedTurn.id);
+            }
             useStore
               .getState()
               .setError(
                 thread.id,
                 error instanceof Error ? error.message : "Failed to send queued message.",
               );
-            scheduleRetry();
+            scheduleRetry(rawThreadId);
           })
           .finally(() => {
             inFlightThreadIds.delete(rawThreadId);
+            // Failed turns remain blocked by their retry timer. Successful turns
+            // drain immediately so the next accepted item can start.
             schedule();
           });
       }
@@ -94,7 +126,11 @@ export function QueuedComposerTurnDispatcher() {
       disposed = true;
       unsubscribeDrafts();
       unsubscribeThreads();
-      if (retryTimer !== null) window.clearTimeout(retryTimer);
+      for (const retryTimer of retryTimersByThreadId.values()) {
+        window.clearTimeout(retryTimer);
+      }
+      retryTimersByThreadId.clear();
+      retryAttemptsByThreadId.clear();
     };
   }, [assistantDeliveryMode]);
 

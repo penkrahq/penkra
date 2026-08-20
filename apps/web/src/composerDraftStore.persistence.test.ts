@@ -531,6 +531,8 @@ describe("composerDraftStore queued follow-ups", () => {
       ...makeQueuedChatTurn("queued-accepted"),
       serverAcceptedAt,
       serverMessageId,
+      dispatchAttempt: 3,
+      dispatchBindingRevision: 8,
     });
 
     const persistedState = partializeComposerDraftStoreState(useComposerDraftStore.getState());
@@ -550,7 +552,30 @@ describe("composerDraftStore queued follow-ups", () => {
       id: "queued-accepted",
       serverAcceptedAt,
       serverMessageId,
+      dispatchAttempt: 3,
+      dispatchBindingRevision: 8,
     });
+  });
+
+  it("persists exact queue admission identity and advances only after a revision rejection", () => {
+    const store = useComposerDraftStore.getState();
+    store.enqueueQueuedTurn(threadId, makeQueuedChatTurn("queued-admission"));
+
+    store.setQueuedTurnDispatchAdmission(threadId, "queued-admission", 0, 4);
+    expect(
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.queuedTurns[0],
+    ).toMatchObject({
+      dispatchAttempt: 0,
+      dispatchBindingRevision: 4,
+    });
+
+    store.advanceQueuedTurnDispatchAttempt(threadId, "queued-admission");
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.queuedTurns[0]).toEqual(
+      expect.objectContaining({ dispatchAttempt: 1 }),
+    );
+    expect(
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.queuedTurns[0],
+    ).not.toHaveProperty("dispatchBindingRevision");
   });
 
   it("revokes queued chat image blob URLs when a queued turn is removed", () => {

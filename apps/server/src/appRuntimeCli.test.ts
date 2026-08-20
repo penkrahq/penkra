@@ -107,13 +107,13 @@ describe("penkra_exec_command discovery", () => {
     });
   });
 
-  it("discovers and scopes every App developer command in development", async () => {
+  it("discovers and scopes every App developer command", async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     const bridge = async (method: string, params: unknown) => {
       calls.push({ method, params });
       return method === "catalog.list" ? catalog : { status: "installed" };
     };
-    const env = { PENKRA_DESKTOP_FLAVOR: "development" };
+    const env = {};
 
     await expect(
       executePenkraExecCommand("penkra --help", context, env, bridge),
@@ -141,10 +141,11 @@ describe("penkra_exec_command discovery", () => {
     });
   });
 
-  it("exposes public App-author commands in ordinary Penkra but keeps sideload internal", async () => {
-    const bridge = async (method: string) => {
-      expect(method).toBe("catalog.list");
-      return catalog;
+  it("exposes sideload in ordinary Penkra", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const bridge = async (method: string, params: unknown) => {
+      calls.push({ method, params });
+      return method === "catalog.list" ? catalog : { status: "installed" };
     };
 
     await expect(
@@ -152,17 +153,22 @@ describe("penkra_exec_command discovery", () => {
     ).resolves.toMatchObject({
       commands: expect.arrayContaining([
         "penkra app test <directory>",
+        "penkra app sideload <directory>",
         "penkra app publish <directory> [--visibility public|private]",
       ]),
     });
     await expect(
-      executePenkraExecCommand("penkra --help", context, {}, bridge),
-    ).resolves.toMatchObject({
-      commands: expect.not.arrayContaining(["penkra app sideload <directory>"]),
+      executePenkraExecCommand(
+        "penkra app sideload ./dist",
+        { ...context, workingDirectory: "/workspace" },
+        {},
+        bridge,
+      ),
+    ).resolves.toEqual({ status: "installed" });
+    expect(calls.at(-1)).toEqual({
+      method: "developer.sideload",
+      params: { sourcePath: "/workspace/dist", spaceId: "personal" },
     });
-    await expect(
-      executePenkraExecCommand("penkra app sideload ./dist", context, {}, bridge),
-    ).rejects.toThrow("internal Penkra development command");
   });
 
   it("routes test, package, status, publish, and access without consulting PATH", async () => {

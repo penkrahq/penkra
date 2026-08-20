@@ -28,7 +28,7 @@ interface ProjectLookupInput {
 }
 
 // Defaults to the original "project" kind so existing callers keep their current behavior;
-// other providers (e.g. the Studio hidden container) can opt into their own kind set.
+// other managed-container providers can opt into their own kind set.
 function isRecoverableProjectKind(
   kind: string | undefined,
   recoverableKinds: ReadonlySet<string> = DEFAULT_RECOVERABLE_PROJECT_KINDS,
@@ -94,7 +94,7 @@ export async function waitForSnapshotMatch<TSnapshot, TMatch>(input: {
   return { match: null, snapshot: latestSnapshot };
 }
 
-// Shared machinery behind the hidden-container candidate helpers used by Studio and home-chat
+// Shared machinery behind hidden-container candidate helpers used by home-chat
 // project recovery: normalizes the cwd/workspaceRoot field naming difference between local store
 // projects and shell-snapshot rows, and finds a candidate by id via a caller-supplied predicate.
 export interface ContainerCandidateFields {

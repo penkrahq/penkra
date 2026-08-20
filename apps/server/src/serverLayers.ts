@@ -4,22 +4,15 @@ import { Layer } from "effect";
 import { AgentGatewayLive } from "./agentGateway/Layers/AgentGateway";
 import { AgentGatewayOperationRepositoryLive } from "./agentGateway/Layers/AgentGatewayOperationRepository";
 import { AgentGatewayCredentialsWithSecretsLive } from "./agentGateway/Layers/AgentGatewayCredentials";
-import { CheckpointDiffQueryLive } from "./checkpointing/Layers/CheckpointDiffQuery";
-import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore";
-import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
-import { StudioOutputReactorLive } from "./orchestration/Layers/StudioOutputReactor";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
-import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor";
-import { TurnCheckpointCoordinatorLive } from "./orchestration/Layers/TurnCheckpointCoordinator";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer";
 
 import { DevServerManagerLive } from "./devServerManager";
 import { KeybindingsLive } from "./keybindings";
-import { GitCoreLive } from "./git/Layers/GitCore";
-import { GitLayerLive, TextGenerationLayerLive } from "./git/runtimeLayer";
+import { TextGenerationLayerLive } from "./textGeneration/runtimeLayer";
 import { TerminalLayerLive } from "./terminal/runtimeLayer";
 import { AuthControlPlaneLive } from "./auth/Layers/AuthControlPlane";
 import { BootstrapCredentialServiceLive } from "./auth/Layers/BootstrapCredentialService";
@@ -27,15 +20,13 @@ import { ServerAuthLive } from "./auth/Layers/ServerAuth";
 import { ServerAuthPolicyLive } from "./auth/Layers/ServerAuthPolicy";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore";
 import { SessionCredentialServiceLive } from "./auth/Layers/SessionCredentialService";
-import { ProfileStatsQueryLive } from "./profileStats";
-import { ProfileStatsArchiveLive } from "./profileStatsArchive";
+import { ThreadPurgeLive } from "./threadPurge";
 import { ServerLifecycleEventsLive } from "./serverLifecycleEvents";
 import { ServerRuntimeStartupLive } from "./serverRuntimeStartup";
 import { ServerSettingsLive } from "./serverSettings";
 import { WorkspaceLayerLive } from "./workspace/runtimeLayer";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
-import { ProjectPullRequestPinsLive } from "./persistence/Layers/ProjectPullRequestPins";
 import { ProjectionTurnRepositoryLive } from "./persistence/Layers/ProjectionTurns";
 import { OrchestrationEventDeliveryRepositoryLive } from "./persistence/Layers/OrchestrationEventDeliveries";
 import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/ProviderRuntimeEvents";
@@ -58,7 +49,6 @@ import { ProviderNativeStateDeletionCoordinatorLive } from "./provider/Layers/Pr
 import { ProviderThreadSwitchCoordinatorLive } from "./orchestration/Layers/ProviderThreadSwitchCoordinator";
 import { ThreadDiagnosticsQueryLive } from "./diagnostics/Layers/ThreadDiagnosticsQuery";
 import { ManagedAttachmentCleanupLive } from "./managedAttachmentCleanup";
-import { PullRequestServiceLive } from "./pullRequests/Layers/PullRequestService";
 import { ProviderHealthLive } from "./provider/Layers/ProviderHealth";
 import { makeServerProviderLayer } from "./provider/runtimeLayer";
 import { WorkspaceWatcherLive } from "./workspaceWatcher";
@@ -73,7 +63,6 @@ export function makeServerRuntimeServicesLayer(
   const agentGatewayCredentialsLayer =
     options.agentGatewayCredentialsLayer ?? AgentGatewayCredentialsWithSecretsLive;
   const providerHealthLayer = ProviderHealthLive.pipe(Layer.provideMerge(ServerSettingsLive));
-  const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(GitCoreLive));
   const providerConnectionPersistenceLayer = Layer.mergeAll(
     ProviderConnectionRepositoryLive,
     ProviderConnectionOperationRepositoryLive,
@@ -107,25 +96,11 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(providerLaunchResolverLayer),
   );
 
-  const checkpointDiffQueryLayer = CheckpointDiffQueryLive.pipe(
-    Layer.provideMerge(OrchestrationLayerLive),
-    Layer.provideMerge(checkpointStoreLayer),
-  );
-
-  const runtimeServicesLayer = Layer.mergeAll(
-    OrchestrationLayerLive,
-    checkpointStoreLayer,
-    checkpointDiffQueryLayer,
-    RuntimeReceiptBusLive,
-    TurnCheckpointCoordinatorLive,
-  );
+  const runtimeServicesLayer = Layer.mergeAll(OrchestrationLayerLive);
   const managedAttachmentCleanupLayer = ManagedAttachmentCleanupLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
   );
   const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(
-    Layer.provideMerge(runtimeServicesLayer),
-  );
-  const studioOutputReactorLayer = StudioOutputReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
   );
   const providerNativeContinuationVerifierLayer = ProviderNativeContinuationVerifierLive.pipe(
@@ -149,8 +124,6 @@ export function makeServerRuntimeServicesLayer(
   const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
-    Layer.provideMerge(studioOutputReactorLayer),
-    Layer.provideMerge(GitCoreLive),
     Layer.provideMerge(TextGenerationLayerLive),
     Layer.provideMerge(ServerSettingsLive),
     Layer.provideMerge(providerConnectionPersistenceLayer),
@@ -158,20 +131,12 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(providerTurnSelectionResolverLayer),
     Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
   );
-  const checkpointReactorLayer = CheckpointReactorLive.pipe(
-    Layer.provideMerge(runtimeServicesLayer),
-  );
-  const profileStatsArchiveLayer = ProfileStatsArchiveLive.pipe(
-    Layer.provideMerge(checkpointStoreLayer),
-  );
   const orchestrationReactorLayer = OrchestrationReactorLive.pipe(
     Layer.provideMerge(runtimeIngestionLayer),
     Layer.provideMerge(providerCommandReactorLayer),
-    Layer.provideMerge(checkpointReactorLayer),
-    Layer.provideMerge(studioOutputReactorLayer),
   );
   const threadDeletionReactorLayer = ThreadDeletionReactorLive.pipe(
-    Layer.provideMerge(profileStatsArchiveLayer),
+    Layer.provideMerge(ThreadPurgeLive),
     Layer.provideMerge(OrchestrationLayerLive),
     Layer.provideMerge(TerminalLayerLive),
     Layer.provideMerge(providerNativeStateDeletionCoordinatorLayer),
@@ -199,16 +164,10 @@ export function makeServerRuntimeServicesLayer(
     authControlPlaneLayer,
     serverAuthLayer,
   );
-  const pullRequestServiceLayer = PullRequestServiceLive.pipe(
-    Layer.provideMerge(GitLayerLive),
-    Layer.provideMerge(ProjectPullRequestPinsLive),
-    Layer.provideMerge(OrchestrationLayerLive),
-  );
   const workspaceWatcherLayer = WorkspaceWatcherLive.pipe(Layer.provideMerge(runtimeServicesLayer));
   const agentGatewayLayer = AgentGatewayLive.pipe(
     Layer.provideMerge(agentGatewayCredentialsLayer),
     Layer.provideMerge(runtimeServicesLayer),
-    Layer.provideMerge(GitCoreLive),
     Layer.provideMerge(ProjectionTurnRepositoryLive),
     Layer.provideMerge(AgentGatewayOperationRepositoryLive),
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
@@ -238,19 +197,15 @@ export function makeServerRuntimeServicesLayer(
     providerNativeContinuationVerifierLayer,
     providerThreadSwitchCoordinatorLayer,
     providerHealthLayer,
-    ProjectPullRequestPinsLive,
-    pullRequestServiceLayer,
     orchestrationReactorLayer,
     providerCommandReactorLayer,
     threadDeletionReactorLayer,
     devServerManagerLayer,
-    GitLayerLive,
     TextGenerationLayerLive,
     TerminalLayerLive,
     KeybindingsLive,
     ServerSettingsLive,
     ServerEnvironmentLive,
-    ProfileStatsQueryLive,
     authServicesLayer,
     ServerLifecycleEventsLive,
     ServerRuntimeStartupLive,

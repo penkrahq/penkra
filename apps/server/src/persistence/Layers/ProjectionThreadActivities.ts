@@ -35,6 +35,7 @@ const makeProjectionThreadActivityRepository = Effect.gen(function* () {
               kind,
               summary,
               payload_json,
+              operation_id,
               sequence,
               created_at
             )
@@ -46,6 +47,15 @@ const makeProjectionThreadActivityRepository = Effect.gen(function* () {
               ${row.kind},
               ${row.summary},
               ${JSON.stringify(row.payload)},
+              ${
+                row.payload !== null &&
+                typeof row.payload === "object" &&
+                !Array.isArray(row.payload) &&
+                typeof (row.payload as Record<string, unknown>).operationId === "string" &&
+                (row.payload as Record<string, unknown>).operationId !== ""
+                  ? (row.payload as Record<string, unknown>).operationId
+                  : null
+              },
               ${row.sequence ?? null},
               ${row.createdAt}
             )
@@ -57,6 +67,7 @@ const makeProjectionThreadActivityRepository = Effect.gen(function* () {
               kind = excluded.kind,
               summary = excluded.summary,
               payload_json = excluded.payload_json,
+              operation_id = excluded.operation_id,
               sequence = excluded.sequence,
               created_at = excluded.created_at
           `,

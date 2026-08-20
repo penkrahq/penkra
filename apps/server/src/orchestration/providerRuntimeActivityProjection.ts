@@ -297,6 +297,7 @@ function buildToolProgressActivityPayload(
   event: Extract<ProviderRuntimeEvent, { type: "tool.progress" }>,
 ): ActivityPayload {
   return toActivityPayload({
+    ...(event.payload.toolUseId ? { operationId: event.payload.toolUseId } : {}),
     itemType: "mcp_tool_call" as const,
     title: "MCP tool call",
     ...(event.payload.summary ? { detail: truncateDetail(event.payload.summary) } : {}),
@@ -922,6 +923,7 @@ export function projectProviderRuntimeActivities(
               ? `${itemTitle ?? "Tool"} started`
               : (itemTitle ?? (event.type === "item.completed" ? "Tool" : "Tool updated")),
           payload: toActivityPayload({
+            operationId: event.itemId,
             itemType: event.payload.itemType,
             ...(event.payload.status ? { status: event.payload.status } : {}),
             ...(itemTitle ? { title: itemTitle } : {}),

@@ -28,6 +28,7 @@ import type {
 } from "@opencode-ai/sdk/v2";
 
 import { resolveProviderAttachmentPath } from "../providerAttachmentPaths.ts";
+import { providerRuntimeEventIdFromNative } from "../providerRuntimeEventIdentity.ts";
 import { ServerConfig } from "../../config.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import {
@@ -277,7 +278,15 @@ function buildProviderEventBase(input: {
   "eventId" | "provider" | "threadId" | "createdAt" | "turnId" | "itemId" | "requestId" | "raw"
 > {
   return {
-    eventId: EventId.makeUnsafe(randomUUID()),
+    eventId:
+      input.raw === undefined
+        ? EventId.makeUnsafe(randomUUID())
+        : providerRuntimeEventIdFromNative({
+            provider: input.provider,
+            source: input.runtimeEventSource,
+            threadId: input.threadId,
+            nativeEvent: input.raw,
+          }),
     provider: input.provider,
     threadId: input.threadId,
     createdAt: input.createdAt ?? nowIso(),
@@ -1200,6 +1209,13 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
       const emit = (context: OpenCodeSessionContext, event: ProviderRuntimeEvent) =>
         Queue.offer(runtimeEvents, {
           ...event,
+          // One native notification may fan out (for example a final text
+          // snapshot can emit both its missing delta and item completion).
+          // Namespace the stable native id by canonical lifecycle type so both
+          // records survive while an identical replay remains idempotent.
+          eventId: event.eventId.startsWith("native:")
+            ? EventId.makeUnsafe(`${event.eventId}:${event.type}`)
+            : event.eventId,
           ...(context.lifecycleGeneration !== undefined
             ? { lifecycleGeneration: context.lifecycleGeneration }
             : {}),
@@ -2303,6 +2319,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                     : { status: "inProgress" as const }),
                 ...(title ? { title } : {}),
                 ...(detail ? { detail } : {}),
+                ...("input" in part.state ? { input: part.state.input } : {}),
                 data: {
                   tool: part.tool,
                   toolName: part.tool,

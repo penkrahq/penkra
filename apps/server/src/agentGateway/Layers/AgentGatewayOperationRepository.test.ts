@@ -99,68 +99,6 @@ layer("AgentGatewayOperationRepository", (it) => {
     }),
   );
 
-  it.effect("records worktree ownership only after a dispatching operation created it", () =>
-    Effect.gen(function* () {
-      const repository = yield* AgentGatewayOperationRepository;
-      const scoped = {
-        ...base,
-        callerTurnId: "turn-worktree",
-        operationId: "operation-worktree",
-        requestedCount: 1,
-        planJson: JSON.stringify([
-          {
-            workspaceRoot: "/repo",
-            environment: "worktree",
-            newBranch: "agent/owned",
-            plannedWorktreePath: "/worktrees/owned",
-            ownershipPreflightPassed: true,
-            ids: { threadId: "child-owned", compensateCommandId: "delete-child-owned" },
-          },
-        ]),
-      };
-      yield* repository.reserve(scoped);
-      assert.isFalse(
-        yield* repository.recordWorktreeCreated({
-          operationId: scoped.operationId,
-          index: 0,
-          workspaceRoot: "/repo",
-          path: "/worktrees/owned",
-          branch: "agent/owned",
-          token: "owner-token",
-          gitDir: "/repo/.git/worktrees/owned",
-          head: "0123456789abcdef",
-          now: scoped.now,
-        }),
-      );
-      yield* repository.markDispatching({ operationId: scoped.operationId, now: scoped.now });
-      assert.isTrue(
-        yield* repository.recordWorktreeCreated({
-          operationId: scoped.operationId,
-          index: 0,
-          workspaceRoot: "/repo",
-          path: "/worktrees/owned",
-          branch: "agent/owned",
-          token: "owner-token",
-          gitDir: "/repo/.git/worktrees/owned",
-          head: "0123456789abcdef",
-          now: "2026-07-16T00:00:01.000Z",
-        }),
-      );
-      expect(
-        JSON.parse((yield* repository.getById(scoped.operationId))!.planJson)[0],
-      ).toMatchObject({
-        worktreeOwnership: {
-          operationId: scoped.operationId,
-          path: "/worktrees/owned",
-          branch: "agent/owned",
-          token: "owner-token",
-          gitDir: "/repo/.git/worktrees/owned",
-          head: "0123456789abcdef",
-        },
-      });
-    }),
-  );
-
   it.effect("deletes a caller-purged live operation as soon as it terminalizes", () =>
     Effect.gen(function* () {
       const repository = yield* AgentGatewayOperationRepository;

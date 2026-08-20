@@ -7,7 +7,6 @@
  * @module ProjectionSnapshotQuery
  */
 import type {
-  OrchestrationCheckpointSummary,
   OrchestrationProject,
   OrchestrationProjectShell,
   OrchestrationSpaceShell,
@@ -16,12 +15,9 @@ import type {
   OrchestrationThreadDetailSnapshot,
   OrchestrationThread,
   OrchestrationThreadShell,
-  CheckpointRef,
   ContainerId,
-  ContainerKind,
   SpaceId,
   ThreadId,
-  ThreadEnvironmentMode,
   TurnId,
 } from "@penkra/contracts";
 import { ServiceMap } from "effect";
@@ -38,54 +34,9 @@ export interface ProjectionSnapshotSequence {
   readonly snapshotSequence: number;
 }
 
-export interface ProjectionThreadCheckpointContext {
-  readonly threadId: ThreadId;
-  readonly projectId: ContainerId;
-  readonly projectKind: ContainerKind;
-  readonly workspaceRoot: string | null;
-  readonly envMode: ThreadEnvironmentMode;
-  readonly worktreePath: string | null;
-  readonly workingDirectory: string | null;
-  readonly checkpoints: ReadonlyArray<OrchestrationCheckpointSummary>;
-  /** Completed file-change payloads, newest first, when explicitly requested by the caller. */
-  readonly fileChangeActivityPayloads?: ReadonlyArray<unknown>;
-}
-
-export interface ProjectionThreadCheckpointContextOptions {
-  /** Include the narrow activity payload set used to attribute files in non-Git workspaces. */
-  readonly includeFileChangeActivityPayloads?: boolean;
-}
-
 export interface ProjectionGeneratedImageActivityRecord {
   readonly kind: string;
   readonly payload: unknown;
-}
-
-export interface ProjectionFullThreadDiffContext {
-  readonly threadId: ThreadId;
-  readonly projectId: ContainerId;
-  readonly projectKind: ContainerKind;
-  readonly workspaceRoot: string | null;
-  readonly envMode: ThreadEnvironmentMode;
-  readonly worktreePath: string | null;
-  readonly workingDirectory: string | null;
-  readonly latestCheckpointTurnCount: number;
-  readonly baselineCheckpointRef: CheckpointRef | null;
-  readonly toCheckpointRef: CheckpointRef | null;
-}
-
-/**
- * Narrow projection row backing managed-worktree retention.
- *
- * Soft-deleted threads are intentionally included: thread retention soft-deletes
- * and never purges, yet the worktree those threads own still sits on disk and must
- * stay eligible for snapshot + reclaim.
- */
-export interface ProjectionManagedWorktreeThread {
-  readonly id: ThreadId;
-  readonly archivedAt: string | null;
-  readonly worktreePath: string | null;
-  readonly associatedWorktreePath: string | null;
 }
 
 /**
@@ -94,7 +45,7 @@ export interface ProjectionManagedWorktreeThread {
 export interface ProjectionSnapshotQueryShape {
   /**
    * Read the lightweight command snapshot used to bootstrap the in-memory
-   * orchestration engine without hydrating message/activity/checkpoint bodies.
+   * orchestration engine without hydrating message/activity bodies.
    */
   readonly getCommandReadModel: () => Effect.Effect<
     OrchestrationReadModel,
@@ -131,16 +82,6 @@ export interface ProjectionSnapshotQueryShape {
     readonly updatedBefore: string;
     readonly limit: number;
   }) => Effect.Effect<ReadonlyArray<ThreadId>, ProjectionRepositoryError>;
-
-  /**
-   * Read only the columns managed-worktree retention needs, for every thread that
-   * records a worktree path. Avoids hydrating the full read model on a background
-   * prune, while still exposing soft-deleted threads so their worktrees are reclaimed.
-   */
-  readonly listManagedWorktreeThreads: () => Effect.Effect<
-    ReadonlyArray<ProjectionManagedWorktreeThread>,
-    ProjectionRepositoryError
-  >;
 
   /**
    * Read the latest orchestration shell snapshot.
@@ -180,14 +121,6 @@ export interface ProjectionSnapshotQueryShape {
   ) => Effect.Effect<Option.Option<ThreadId>, ProjectionRepositoryError>;
 
   /**
-   * Read the checkpoint context needed to resolve a single thread diff.
-   */
-  readonly getThreadCheckpointContext: (
-    threadId: ThreadId,
-    options?: ProjectionThreadCheckpointContextOptions,
-  ) => Effect.Effect<Option.Option<ProjectionThreadCheckpointContext>, ProjectionRepositoryError>;
-
-  /**
    * Read the durable generated-image records for one turn. This narrow query is
    * intentionally independent of the bounded thread-detail activity window so
    * long turns and server restarts can still materialize transcript references.
@@ -199,14 +132,6 @@ export interface ProjectionSnapshotQueryShape {
     ReadonlyArray<ProjectionGeneratedImageActivityRecord>,
     ProjectionRepositoryError
   >;
-
-  /**
-   * Read the narrow context needed to diff a whole thread through one checkpoint.
-   */
-  readonly getFullThreadDiffContext: (
-    threadId: ThreadId,
-    toTurnCount: number,
-  ) => Effect.Effect<Option.Option<ProjectionFullThreadDiffContext>, ProjectionRepositoryError>;
 
   /**
    * Read a single active thread shell row by id.

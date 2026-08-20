@@ -16,6 +16,7 @@ import { MessageAssistant } from "./message-assistant/MessageAssistant";
 import { MessageUser } from "./message-user/MessageUser";
 import { ThreadScreen3Rails } from "./thread-screen-3-rails/ThreadScreen3Rails";
 import { TopBarThread } from "./top-bar-thread/TopBarThread";
+import { VoiceRecorderShared } from "./voice-recorder-shared/VoiceRecorderShared";
 
 describe("Pencil middle panel", () => {
   afterEach(() => {
@@ -224,6 +225,37 @@ describe("Pencil middle panel", () => {
 
     expect(recorderRect.left - attachRect.right).toBe(4);
     expect(actionsRect.right - recorderRect.right).toBeCloseTo(0, 0);
+  });
+
+  it("keeps the voice-note send action at the toolbar's trailing edge", async () => {
+    await render(
+      <div className="w-[618px]">
+        <ComposerActions
+          applicationLeading={<div className="h-[26px] w-[26px]" />}
+          applicationTrailing={
+            <>
+              <VoiceRecorderShared
+                durationLabel="0:04"
+                isTranscribing={false}
+                waveformLevels={[0.2, 0.6, 0.4]}
+                onCancel={vi.fn()}
+              />
+              <ButtonSend type="button" aria-label="Send voice note" />
+            </>
+          }
+          applicationTrailingExpands
+        />
+      </div>,
+    );
+
+    const actions = document.querySelector<HTMLElement>("[data-pencil-component='JwTiI']")!;
+    const sendVoiceButton = page.getByRole("button", { name: "Send voice note" }).element();
+
+    expect(document.querySelector('button[aria-label="Stop generation"]')).toBeNull();
+    expect(sendVoiceButton.dataset.pencilComponent).toBe("eFqUm");
+    expect(
+      actions.getBoundingClientRect().right - sendVoiceButton.getBoundingClientRect().right,
+    ).toBeCloseTo(0, 0);
   });
 
   it("matches every approved responsive rail width without shrinking the screen", async () => {

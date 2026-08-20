@@ -9,6 +9,7 @@ import {
   type AppRuntimeFrameMessage,
   type AppRuntimeHostMessage,
 } from "@penkra/contracts";
+import { deriveChromeUserAgent } from "@penkra/shared/browserSession";
 import type { AppBrowserSessionState } from "@penkra/sdk";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -32,6 +33,14 @@ export function AppDockPane(props: {
   const browserPage = useMemo(
     () => browserState?.pages.find((page) => page.id === browserState.activePageId) ?? null,
     [browserState],
+  );
+  const browserUserAgent = useMemo(
+    () =>
+      deriveChromeUserAgent(
+        typeof navigator === "undefined" ? "Mozilla/5.0" : navigator.userAgent,
+        ["Penkra"],
+      ),
+    [],
   );
 
   useEffect(() => {
@@ -152,16 +161,19 @@ export function AppDockPane(props: {
   useEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
     const webview = browserWebviewRef.current;
-    if (!bridge || !webview || !browserPage || !browserSurface) return;
+    const pageId = browserPage?.id;
+    if (!bridge || !webview || !pageId || !browserSurface) return;
     let attachedWebContentsId: number | null = null;
     const attach = () => {
+      if (typeof webview.getWebContentsId !== "function") return;
       const webContentsId = webview.getWebContentsId();
       if (!Number.isInteger(webContentsId) || webContentsId <= 0) return;
+      if (attachedWebContentsId === webContentsId) return;
       attachedWebContentsId = webContentsId;
       void bridge.browserWebviewAttach({
         tabId: props.tabId,
         rendererId: props.rendererId,
-        pageId: browserPage.id,
+        pageId,
         webContentsId,
       });
     };
@@ -172,12 +184,12 @@ export function AppDockPane(props: {
         void bridge.browserWebviewDetach({
           tabId: props.tabId,
           rendererId: props.rendererId,
-          pageId: browserPage.id,
+          pageId,
           webContentsId: attachedWebContentsId,
         });
       }
     };
-  }, [browserPage, browserSurface, props.rendererId, props.tabId]);
+  }, [browserPage?.id, browserSurface?.partition, props.rendererId, props.tabId]);
 
   return (
     <div className="relative h-full min-h-0 w-full overflow-hidden">
@@ -199,6 +211,7 @@ export function AppDockPane(props: {
           className="absolute z-10 flex bg-background"
           partition={browserSurface.partition}
           src={browserPage.url}
+          useragent={browserUserAgent}
           style={{
             top: browserSurface.insets.top,
             right: browserSurface.insets.right,

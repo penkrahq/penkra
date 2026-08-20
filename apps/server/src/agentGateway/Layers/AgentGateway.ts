@@ -7,7 +7,7 @@
  * any agent running in a Penkra thread can use Penkra's registered commands.
  *
  * All tools delegate to existing services (OrchestrationEngine dispatch,
- * ProjectionSnapshotQuery reads and GitCore); no orchestration
+ * ProjectionSnapshotQuery reads); no orchestration
  * state lives here.
  *
  * @module agentGateway/Layers/AgentGateway
@@ -25,7 +25,6 @@ import {
 } from "@penkra/contracts";
 import { Effect, Layer, Option } from "effect";
 
-import { GitCore } from "../../git/Services/GitCore.ts";
 import { ServerConfig } from "../../config.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -72,7 +71,6 @@ import { recoverInterruptedAgentGatewayOperations } from "../startupRecovery.ts"
 import { makeCreateThreadsHandler } from "../creationCoordinator.ts";
 import { makeThreadReadTools } from "../threadReadTools.ts";
 import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
-import { pruneProjectedArchivedManagedWorktrees } from "../../managedWorktrees.ts";
 import { executePenkraExecCommand } from "../../appRuntimeCli.ts";
 import { requireThreadSpaceId } from "../threadSpaceContext.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
@@ -94,7 +92,6 @@ export const makeAgentGateway = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerTurnSelectionResolver = yield* ProviderTurnSelectionResolver;
   const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
-  const git = yield* GitCore;
   const providerDiscovery = yield* ProviderDiscoveryService;
   const providerHealth = yield* ProviderHealth;
   const serverSettings = yield* ServerSettingsService;
@@ -137,7 +134,6 @@ export const makeAgentGateway = Effect.gen(function* () {
     operationRepository,
     snapshotQuery,
     orchestrationEngine,
-    git,
   });
 
   const requireThreadShell = (threadId: string) =>
@@ -154,13 +150,12 @@ export const makeAgentGateway = Effect.gen(function* () {
   // Privilege boundary shared by every tool that makes another thread execute
   // work or mutates another thread's state: a caller must not drive a thread
   // that runs with more privileges than the user granted the caller itself —
-  // otherwise an approval-required or worktree-isolated agent escalates by proxy.
+  // otherwise an approval-required agent escalates by proxy.
   const assertCallerMayDriveThread = (
-    caller: { readonly runtimeMode: string; readonly envMode?: string | null | undefined },
+    caller: { readonly runtimeMode: string },
     target: {
       readonly id: string;
       readonly runtimeMode: string;
-      readonly envMode?: string | null | undefined;
     },
   ) =>
     Effect.gen(function* () {
@@ -168,13 +163,6 @@ export const makeAgentGateway = Effect.gen(function* () {
         return yield* Effect.fail(
           new ToolInputError(
             `Thread "${target.id}" runs in "full-access" mode but your thread is "approval-required"; you cannot drive higher-privileged threads. Ask the user to do this or to elevate your thread.`,
-          ),
-        );
-      }
-      if (caller.envMode === "worktree" && (target.envMode ?? "local") === "local") {
-        return yield* Effect.fail(
-          new ToolInputError(
-            `Thread "${target.id}" runs on the shared local checkout but your thread is isolated in a worktree; you cannot drive local-checkout threads. Ask the user to do this from a local thread.`,
           ),
         );
       }
@@ -205,7 +193,6 @@ export const makeAgentGateway = Effect.gen(function* () {
   const runCreateThreads = yield* makeCreateThreadsHandler({
     snapshotQuery,
     orchestrationEngine,
-    git,
     providerDiscovery,
     providerTurnSelectionResolver,
     providerThreadSwitchCoordinator,
@@ -221,7 +208,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_create_threads",
       description:
-        "Create an exact batch of 1–20 standalone Penkra threads. Worktree threads use a detached HEAD at baseRef (or the selected checkout's HEAD) and copy local checkout changes plus .worktreeinclude files when the ref is that checkout's HEAD. Validation/preflight failures create nothing and may be corrected with the same requestId; durable retries replay the exact operation.",
+        "Create an exact batch of 1–20 standalone Penkra threads. Validation or preflight failures create nothing and may be corrected with the same requestId; durable retries replay the exact operation.",
       inputSchema: {
         type: "object",
         properties: {
@@ -243,12 +230,6 @@ export const makeAgentGateway = Effect.gen(function* () {
                   ...MODEL_SELECTION_INPUT_SCHEMA,
                 },
                 projectId: { type: "string" },
-                environment: { type: "string", enum: ["local", "worktree"] },
-                baseRef: {
-                  type: "string",
-                  description:
-                    "Local Git revision, #PR, or GitHub pull-request URL for a detached worktree. Defaults to the selected checkout's HEAD.",
-                },
                 runtimeMode: {
                   type: "string",
                   enum: ["approval-required", "full-access"],
@@ -286,7 +267,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_create_thread",
       description:
-        "Create exactly one standalone Penkra thread. Worktree threads start at a detached HEAD. For two or more threads use one penkra_create_threads call instead.",
+        "Create exactly one standalone Penkra thread. For two or more threads use one penkra_create_threads call instead.",
       inputSchema: {
         type: "object",
         properties: {
@@ -303,12 +284,6 @@ export const makeAgentGateway = Effect.gen(function* () {
             description: AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION,
           },
           projectId: { type: "string" },
-          environment: { type: "string", enum: ["local", "worktree"] },
-          baseRef: {
-            type: "string",
-            description:
-              "Local Git revision, #PR, or GitHub pull-request URL for a detached worktree. Defaults to the selected checkout's HEAD.",
-          },
           runtimeMode: { type: "string", enum: ["approval-required", "full-access"] },
         },
         required: ["requestId", "prompt"],
@@ -338,15 +313,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           prompt: readStringArg(args, "prompt", { required: true })!,
           target,
         };
-        for (const key of [
-          "title",
-          "projectId",
-          "environment",
-          "baseRef",
-          "baseBranch",
-          "branchName",
-          "runtimeMode",
-        ]) {
+        for (const key of ["title", "projectId", "runtimeMode"]) {
           const value = args[key];
           if (value !== undefined) spec[key] = value;
         }
@@ -416,7 +383,7 @@ export const makeAgentGateway = Effect.gen(function* () {
         // already downgrades steers whose turn is not actually live.
         const dispatchMode: TurnDispatchMode = modeArg;
         const suffix = randomUUID();
-        const cwd = target.workingDirectory ?? target.worktreePath;
+        const cwd = target.workingDirectory;
         yield* providerThreadSwitchCoordinator
           .dispatchTurnStart({
             command: {
@@ -548,22 +515,6 @@ export const makeAgentGateway = Effect.gen(function* () {
             threadId: target.id,
           })
           .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
-        if (archived) {
-          yield* Effect.forkDetach(
-            pruneProjectedArchivedManagedWorktrees({
-              homeDir: serverConfig.homeDir,
-              worktreesDir: serverConfig.worktreesDir,
-              snapshotQuery,
-              git,
-            }).pipe(
-              Effect.catchCause((cause) =>
-                Effect.logWarning("agent gateway managed worktree retention failed", {
-                  cause: String(cause),
-                }),
-              ),
-            ),
-          );
-        }
         return mcpToolResultJson({ threadId: target.id, archived });
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };

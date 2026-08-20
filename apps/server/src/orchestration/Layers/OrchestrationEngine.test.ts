@@ -1,8 +1,8 @@
 import {
-  CheckpointRef,
   CommandId,
   MessageId,
   ContainerId,
+  SpaceId,
   ThreadId,
   TurnId,
   type OrchestrationCommand,
@@ -23,7 +23,10 @@ import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedA
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
-import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import {
+  OrchestrationEngineService,
+  type OrchestrationEngineShape,
+} from "../Services/OrchestrationEngine.ts";
 import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
@@ -78,11 +81,22 @@ const makeThreadEventReadMethods = (
     ),
 });
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
-const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsafe(value);
 
 const TestServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "penkra-orchestration-engine-test-",
 });
+
+const TEST_SPACE_ID = SpaceId.makeUnsafe("space-orchestration-engine-test");
+
+const createTestSpace = (engine: OrchestrationEngineShape) =>
+  engine.dispatch({
+    type: "space.create",
+    commandId: CommandId.makeUnsafe("cmd-space-orchestration-engine-test"),
+    spaceId: TEST_SPACE_ID,
+    name: "Test",
+    icon: "home",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  });
 
 async function createOrchestrationSystem() {
   const ServerConfigLayer = TestServerConfigLayer;
@@ -97,6 +111,7 @@ async function createOrchestrationSystem() {
   );
   const runtime = ManagedRuntime.make(orchestrationLayer);
   const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+  await runtime.runPromise(createTestSpace(engine));
   const managedAttachmentRepository = await runtime.runPromise(
     Effect.service(ManagedAttachmentRepository),
   );
@@ -121,11 +136,12 @@ describe("OrchestrationEngine", () => {
     await system.run(
       system.engine.dispatch({
         type: "project.create",
-        kind: "studio",
+        kind: "project",
         commandId: CommandId.makeUnsafe("cmd-engine-quiesce-project"),
         projectId: asProjectId("project-engine-quiesce"),
+        spaceId: TEST_SPACE_ID,
         title: "Engine quiesce",
-        workspaceRoot: "/tmp/engine-quiesce",
+        workspaceRoot: null,
         defaultModelSelection: null,
         createdAt,
       }),
@@ -142,8 +158,6 @@ describe("OrchestrationEngine", () => {
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt,
       }),
     );
@@ -222,11 +236,12 @@ describe("OrchestrationEngine", () => {
     const system = await createOrchestrationSystem();
     const command = {
       type: "project.create" as const,
-      kind: "chat" as const,
+      kind: "project" as const,
       commandId: CommandId.makeUnsafe("cmd-fingerprint-retry"),
       projectId: asProjectId("project-fingerprint-retry"),
+      spaceId: TEST_SPACE_ID,
       title: "Fingerprint project",
-      workspaceRoot: "/tmp/project-fingerprint-retry",
+      workspaceRoot: null,
       defaultModelSelection: null,
       createdAt: "2026-07-14T00:00:00.000Z",
     };
@@ -260,11 +275,12 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
-        kind: "studio",
+        kind: "project",
         commandId: CommandId.makeUnsafe("cmd-project-1-create"),
         projectId: asProjectId("project-1"),
+        spaceId: TEST_SPACE_ID,
         title: "Project 1",
-        workspaceRoot: "/tmp/project-1",
+        workspaceRoot: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -284,8 +300,6 @@ describe("OrchestrationEngine", () => {
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt,
       }),
     );
@@ -316,11 +330,12 @@ describe("OrchestrationEngine", () => {
     const { engine } = system;
     const command = {
       type: "project.create" as const,
-      kind: "chat" as const,
+      kind: "project" as const,
       commandId: CommandId.makeUnsafe("cmd-project-command-identity"),
       projectId: asProjectId("project-command-identity"),
+      spaceId: TEST_SPACE_ID,
       title: "Original identity",
-      workspaceRoot: "/tmp/project-command-identity",
+      workspaceRoot: null,
       defaultModelSelection: null,
       createdAt: now(),
     };
@@ -334,7 +349,7 @@ describe("OrchestrationEngine", () => {
     const events = await system.run(
       Stream.runCollect(engine.readEvents(0)).pipe(Effect.map((chunk) => Array.from(chunk))),
     );
-    expect(events).toHaveLength(1);
+    expect(events).toHaveLength(2);
     expect((await system.run(engine.getReadModel())).projects[0]?.title).toBe("Original identity");
     await system.dispose();
   });
@@ -351,11 +366,12 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
-        kind: "studio",
+        kind: "project",
         commandId: CommandId.makeUnsafe("cmd-managed-attachment-project"),
         projectId: asProjectId("project-managed-attachment"),
+        spaceId: TEST_SPACE_ID,
         title: "Managed attachment project",
-        workspaceRoot: "/tmp/project-managed-attachment",
+        workspaceRoot: null,
         defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
         createdAt,
       }),
@@ -369,8 +385,6 @@ describe("OrchestrationEngine", () => {
         title: "Managed attachment thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt,
       }),
     );
@@ -480,11 +494,12 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
-        kind: "studio",
+        kind: "project",
         commandId: CommandId.makeUnsafe("cmd-project-replay-create"),
         projectId: asProjectId("project-replay"),
+        spaceId: TEST_SPACE_ID,
         title: "Replay Project",
-        workspaceRoot: "/tmp/project-replay",
+        workspaceRoot: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -504,8 +519,6 @@ describe("OrchestrationEngine", () => {
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt,
       }),
     );
@@ -523,6 +536,7 @@ describe("OrchestrationEngine", () => {
       ),
     );
     expect(events.map((event) => event.type)).toEqual([
+      "space.created",
       "project.created",
       "thread.created",
       "thread.deleted",
@@ -538,11 +552,12 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
-        kind: "studio",
+        kind: "project",
         commandId: CommandId.makeUnsafe("cmd-project-stream-create"),
         projectId: asProjectId("project-stream"),
+        spaceId: TEST_SPACE_ID,
         title: "Stream Project",
-        workspaceRoot: "/tmp/project-stream",
+        workspaceRoot: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -572,8 +587,6 @@ describe("OrchestrationEngine", () => {
             model: "gpt-5-codex",
           },
           runtimeMode: "approval-required",
-          branch: null,
-          worktreePath: null,
           createdAt,
         });
         yield* engine.dispatch({
@@ -588,75 +601,6 @@ describe("OrchestrationEngine", () => {
     );
 
     expect(eventTypes).toEqual(["thread.created", "thread.meta-updated"]);
-    await system.dispose();
-  });
-
-  it("stores completed checkpoint summaries even when no files changed", async () => {
-    const system = await createOrchestrationSystem();
-    const { engine } = system;
-    const createdAt = now();
-
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        kind: "studio",
-        commandId: CommandId.makeUnsafe("cmd-project-turn-diff-create"),
-        projectId: asProjectId("project-turn-diff"),
-        title: "Turn Diff Project",
-        workspaceRoot: "/tmp/project-turn-diff",
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        createdAt,
-      }),
-    );
-    await system.run(
-      engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-turn-diff-create"),
-        threadId: ThreadId.makeUnsafe("thread-turn-diff"),
-        projectId: asProjectId("project-turn-diff"),
-        title: "Turn diff thread",
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
-        createdAt,
-      }),
-    );
-    await system.run(
-      engine.dispatch({
-        type: "thread.turn.diff.complete",
-        commandId: CommandId.makeUnsafe("cmd-turn-diff-complete"),
-        threadId: ThreadId.makeUnsafe("thread-turn-diff"),
-        turnId: asTurnId("turn-1"),
-        completedAt: createdAt,
-        checkpointRef: asCheckpointRef("refs/penkra/checkpoints/thread-turn-diff/turn/1"),
-        status: "ready",
-        files: [],
-        checkpointTurnCount: 1,
-        createdAt,
-      }),
-    );
-
-    const thread = (await system.run(engine.getReadModel())).threads.find(
-      (entry) => entry.id === "thread-turn-diff",
-    );
-    expect(thread?.checkpoints).toEqual([
-      {
-        turnId: asTurnId("turn-1"),
-        checkpointTurnCount: 1,
-        checkpointRef: asCheckpointRef("refs/penkra/checkpoints/thread-turn-diff/turn/1"),
-        status: "ready",
-        files: [],
-        assistantMessageId: null,
-        completedAt: createdAt,
-      },
-    ]);
     await system.dispose();
   });
 
@@ -712,16 +656,18 @@ describe("OrchestrationEngine", () => {
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    await runtime.runPromise(createTestSpace(engine));
     const createdAt = now();
 
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
-        kind: "studio",
+        kind: "project",
         commandId: CommandId.makeUnsafe("cmd-project-flaky-create"),
         projectId: asProjectId("project-flaky"),
+        spaceId: TEST_SPACE_ID,
         title: "Flaky Project",
-        workspaceRoot: "/tmp/project-flaky",
+        workspaceRoot: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -743,8 +689,6 @@ describe("OrchestrationEngine", () => {
             model: "gpt-5-codex",
           },
           runtimeMode: "approval-required",
-          branch: null,
-          worktreePath: null,
           createdAt,
         }),
       ),
@@ -762,14 +706,12 @@ describe("OrchestrationEngine", () => {
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt,
       }),
     );
 
-    expect(result.sequence).toBe(2);
-    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(2);
+    expect(result.sequence).toBe(3);
+    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(3);
     await runtime.dispose();
   });
 
@@ -810,16 +752,18 @@ describe("OrchestrationEngine", () => {
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    await runtime.runPromise(createTestSpace(engine));
     const createdAt = now();
 
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
-        kind: "studio",
+        kind: "project",
         commandId: CommandId.makeUnsafe("cmd-project-atomic-create"),
         projectId: asProjectId("project-atomic"),
+        spaceId: TEST_SPACE_ID,
         title: "Atomic Project",
-        workspaceRoot: "/tmp/project-atomic",
+        workspaceRoot: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -839,8 +783,6 @@ describe("OrchestrationEngine", () => {
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt,
       }),
     );
@@ -869,13 +811,14 @@ describe("OrchestrationEngine", () => {
       ),
     );
     expect(eventsAfterFailure.map((event) => event.type)).toEqual([
+      "space.created",
       "project.created",
       "thread.created",
     ]);
-    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(2);
+    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(0);
 
     const retryResult = await runtime.runPromise(engine.dispatch(turnStartCommand));
-    expect(retryResult.sequence).toBe(4);
+    expect(retryResult.sequence).toBe(5);
 
     const eventsAfterRetry = await runtime.runPromise(
       Stream.runCollect(engine.readEvents(0)).pipe(
@@ -883,6 +826,7 @@ describe("OrchestrationEngine", () => {
       ),
     );
     expect(eventsAfterRetry.map((event) => event.type)).toEqual([
+      "space.created",
       "project.created",
       "thread.created",
       "thread.message-sent",
@@ -955,17 +899,19 @@ describe("OrchestrationEngine", () => {
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    await runtime.runPromise(createTestSpace(engine));
     const createdAt = now();
 
     await expect(
       runtime.runPromise(
         engine.dispatch({
           type: "project.create",
-          kind: "chat",
+          kind: "project",
           commandId: CommandId.makeUnsafe("cmd-project-defect-1"),
           projectId: asProjectId("project-defect-1"),
+          spaceId: TEST_SPACE_ID,
           title: "Defective Project",
-          workspaceRoot: "/tmp/project-defect-1",
+          workspaceRoot: null,
           defaultModelSelection: {
             provider: "codex",
             model: "gpt-5-codex",
@@ -979,11 +925,12 @@ describe("OrchestrationEngine", () => {
       runtime.runPromise(
         engine.dispatch({
           type: "project.create",
-          kind: "chat",
+          kind: "project",
           commandId: CommandId.makeUnsafe("cmd-project-defect-2"),
           projectId: asProjectId("project-defect-2"),
+          spaceId: TEST_SPACE_ID,
           title: "Recovered Project",
-          workspaceRoot: "/tmp/project-defect-2",
+          workspaceRoot: null,
           defaultModelSelection: {
             provider: "codex",
             model: "gpt-5-codex",
@@ -1003,10 +950,13 @@ describe("OrchestrationEngine", () => {
       ),
     );
     expect(eventsAfterRecovery.map((event) => event.commandId)).toEqual([
+      CommandId.makeUnsafe("cmd-space-orchestration-engine-test"),
       CommandId.makeUnsafe("cmd-project-defect-1"),
       CommandId.makeUnsafe("cmd-project-defect-2"),
     ]);
-    expect(eventsAfterRecovery.every((event) => event.type === "project.created")).toBe(true);
+    expect(eventsAfterRecovery.slice(1).every((event) => event.type === "project.created")).toBe(
+      true,
+    );
 
     await runtime.dispose();
   });
@@ -1076,16 +1026,18 @@ describe("OrchestrationEngine", () => {
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    await runtime.runPromise(createTestSpace(engine));
     const createdAt = now();
 
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
-        kind: "studio",
+        kind: "project",
         commandId: CommandId.makeUnsafe("cmd-project-sync-create"),
         projectId: asProjectId("project-sync"),
+        spaceId: TEST_SPACE_ID,
         title: "Sync Project",
-        workspaceRoot: "/tmp/project-sync",
+        workspaceRoot: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -1105,8 +1057,6 @@ describe("OrchestrationEngine", () => {
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt,
       }),
     );
@@ -1122,12 +1072,13 @@ describe("OrchestrationEngine", () => {
       ),
     ).rejects.toThrow("failed unexpectedly");
 
-    const readModelAfterFailure = await runtime.runPromise(engine.getReadModel());
-    const updatedThread = readModelAfterFailure.threads.find(
-      (thread) => thread.id === "thread-sync",
+    const eventsAfterFailure = await runtime.runPromise(
+      Stream.runCollect(engine.readEvents(0)).pipe(
+        Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)),
+      ),
     );
-    expect(readModelAfterFailure.snapshotSequence).toBe(3);
-    expect(updatedThread?.title).toBe("sync-after-failed-projection");
+    expect(eventsAfterFailure.at(-1)?.type).toBe("thread.meta-updated");
+    expect(eventsAfterFailure.at(-1)?.sequence).toBe(4);
 
     await runtime.dispose();
   });
@@ -1210,16 +1161,18 @@ describe("OrchestrationEngine", () => {
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    await runtime.runPromise(createTestSpace(engine));
     const createdAt = now();
 
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
-        kind: "studio",
+        kind: "project",
         commandId: CommandId.makeUnsafe("cmd-project-deferred-recovery"),
         projectId: asProjectId("project-deferred-recovery"),
+        spaceId: TEST_SPACE_ID,
         title: "Deferred Recovery Project",
-        workspaceRoot: "/tmp/project-deferred-recovery",
+        workspaceRoot: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -1239,8 +1192,6 @@ describe("OrchestrationEngine", () => {
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt,
       }),
     );
@@ -1263,7 +1214,7 @@ describe("OrchestrationEngine", () => {
 
     await recoveryBootstrap;
 
-    expect(result.sequence).toBe(4);
+    expect(result.sequence).toBe(5);
     expect(deferredCalls).toBeGreaterThanOrEqual(1);
     expect(bootstrapCalls).toBe(4);
     await vi.waitFor(async () => {
@@ -1300,16 +1251,18 @@ describe("OrchestrationEngine", () => {
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    await runtime.runPromise(createTestSpace(engine));
     const createdAt = now();
 
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
-        kind: "chat",
+        kind: "project",
         commandId: CommandId.makeUnsafe("cmd-project-repair-fence"),
         projectId: asProjectId("project-repair-fence"),
+        spaceId: TEST_SPACE_ID,
         title: "Repair Fence Project",
-        workspaceRoot: "/tmp/project-repair-fence",
+        workspaceRoot: null,
         defaultModelSelection: null,
         createdAt,
       }),
@@ -1317,47 +1270,11 @@ describe("OrchestrationEngine", () => {
     const beforeRepair = await runtime.runPromise(engine.getReadModel());
 
     await expect(runtime.runPromise(engine.repairState())).rejects.toThrow(
-      "did not reach captured event fence 1",
+      "did not reach captured event fence 2",
     );
     await expect(runtime.runPromise(engine.getReadModel())).resolves.toEqual(beforeRepair);
 
     await runtime.dispose();
-  });
-
-  it("rejects duplicate Studio workspace containers", async () => {
-    const system = await createOrchestrationSystem();
-    const { engine } = system;
-    const createdAt = now();
-
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-studio-project-create"),
-        projectId: asProjectId("project-studio"),
-        kind: "studio",
-        title: "Studio",
-        workspaceRoot: "/tmp/penkra-studio",
-        defaultModelSelection: null,
-        createdAt,
-      }),
-    );
-
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.create",
-          commandId: CommandId.makeUnsafe("cmd-studio-project-duplicate-create"),
-          projectId: asProjectId("project-studio-duplicate"),
-          kind: "studio",
-          title: "Studio",
-          workspaceRoot: "/tmp/penkra-studio",
-          defaultModelSelection: null,
-          createdAt,
-        }),
-      ),
-    ).rejects.toThrow("already uses workspace root");
-
-    await system.dispose();
   });
 
   it("rejects physical roots on ordinary folders", async () => {
@@ -1371,6 +1288,7 @@ describe("OrchestrationEngine", () => {
           type: "project.create",
           commandId: CommandId.makeUnsafe("cmd-folder-with-root"),
           projectId: asProjectId("folder-with-root"),
+          spaceId: TEST_SPACE_ID,
           kind: "project",
           title: "Folder",
           workspaceRoot: "/tmp/folder-root",
@@ -1383,50 +1301,6 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
-  it("rejects moving a Studio container onto another Studio workspace root", async () => {
-    const system = await createOrchestrationSystem();
-    const { engine } = system;
-    const createdAt = now();
-
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-studio-source-create"),
-        projectId: asProjectId("project-studio-source"),
-        kind: "studio",
-        title: "Studio",
-        workspaceRoot: "/tmp/penkra-studio-source",
-        defaultModelSelection: null,
-        createdAt,
-      }),
-    );
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-studio-target-create"),
-        projectId: asProjectId("project-studio-target"),
-        kind: "studio",
-        title: "Studio",
-        workspaceRoot: "/tmp/penkra-studio-target",
-        defaultModelSelection: null,
-        createdAt,
-      }),
-    );
-
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.meta.update",
-          commandId: CommandId.makeUnsafe("cmd-studio-target-root-update"),
-          projectId: asProjectId("project-studio-target"),
-          workspaceRoot: "/tmp/penkra-studio-source",
-        }),
-      ),
-    ).rejects.toThrow("already uses workspace root");
-
-    await system.dispose();
-  });
-
   it("rejects duplicate thread creation", async () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;
@@ -1435,11 +1309,12 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
-        kind: "studio",
+        kind: "project",
         commandId: CommandId.makeUnsafe("cmd-project-duplicate-create"),
         projectId: asProjectId("project-duplicate"),
+        spaceId: TEST_SPACE_ID,
         title: "Duplicate Project",
-        workspaceRoot: "/tmp/project-duplicate",
+        workspaceRoot: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -1460,8 +1335,6 @@ describe("OrchestrationEngine", () => {
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt,
       }),
     );
@@ -1479,8 +1352,6 @@ describe("OrchestrationEngine", () => {
             model: "gpt-5-codex",
           },
           runtimeMode: "approval-required",
-          branch: null,
-          worktreePath: null,
           createdAt,
         }),
       ),
@@ -1500,11 +1371,12 @@ describe("OrchestrationEngine", () => {
         Effect.result(
           system.engine.dispatch({
             type: "project.create",
-            kind: "chat",
+            kind: "project",
             commandId: poisonedCommandId,
             projectId: asProjectId("project-engine-poison"),
+            spaceId: TEST_SPACE_ID,
             title: "Poisoned",
-            workspaceRoot: "/tmp/engine-poison",
+            workspaceRoot: null,
             defaultModelSelection: null,
             createdAt,
           }),
@@ -1525,11 +1397,12 @@ describe("OrchestrationEngine", () => {
         system.run(
           system.engine.dispatch({
             type: "project.create",
-            kind: "chat",
+            kind: "project",
             commandId: CommandId.makeUnsafe("cmd-engine-poison-next"),
             projectId: asProjectId("project-engine-poison-next"),
+            spaceId: TEST_SPACE_ID,
             title: "After poison",
-            workspaceRoot: "/tmp/engine-poison-next",
+            workspaceRoot: null,
             defaultModelSelection: null,
             createdAt,
           }),

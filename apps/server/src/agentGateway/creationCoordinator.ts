@@ -1,7 +1,3 @@
-import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
 import {
   CommandId,
   EventId,
@@ -16,18 +12,15 @@ import {
   type PenkraCreateThreadsResult,
 } from "@penkra/contracts";
 import { buildPromptThreadTitleFallback } from "@penkra/shared/chatThreads";
-import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@penkra/shared/githubRepository";
 import { Cause, Effect, Option, Semaphore } from "effect";
 
 import type { ServerConfigShape } from "../config.ts";
-import type { GitCoreShape } from "../git/Services/GitCore.ts";
 import type { OrchestrationEngineShape } from "../orchestration/Services/OrchestrationEngine.ts";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
 import type { ProviderTurnSelectionResolverShape } from "../provider/Services/ProviderTurnSelectionResolver.ts";
 import type { ProviderThreadSwitchCoordinatorShape } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import type { ManagedAttachmentPrincipal } from "../managedAttachmentPrincipal.ts";
-import { runWorktreeSetupScript } from "../worktreeSetup.ts";
 import type {
   AgentGatewayOperationRecord,
   AgentGatewayOperationRepositoryShape,
@@ -49,35 +42,9 @@ import { GatewayToolError, gatewayToolErrorResult } from "./toolRuntime.ts";
 
 const CREATION_REPLAY_WAIT_MS = 60_000;
 
-interface PullRequestSelector {
-  readonly number: number;
-  readonly repositoryNameWithOwner?: string;
-}
-
-function parsePullRequestSelector(ref: string): PullRequestSelector | null {
-  const trimmed = ref.trim();
-  const shorthandMatch = /^#(\d+)$/u.exec(trimmed);
-  const urlMatch = /^https?:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/(\d+)(?:[/?#].*)?$/iu.exec(
-    trimmed,
-  );
-  const rawNumber = shorthandMatch?.[1] ?? urlMatch?.[1];
-  if (!rawNumber) return null;
-  const value = Number(rawNumber);
-  if (!Number.isSafeInteger(value) || value <= 0) return null;
-  const repositoryNameWithOwner = urlMatch
-    ? parseGitHubRepositoryNameWithOwnerFromPullRequestUrl(trimmed)
-    : null;
-  if (urlMatch && !repositoryNameWithOwner) return null;
-  return {
-    number: value,
-    ...(repositoryNameWithOwner ? { repositoryNameWithOwner } : {}),
-  };
-}
-
 interface CreationCoordinatorDependencies {
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
   readonly orchestrationEngine: OrchestrationEngineShape;
-  readonly git: GitCoreShape;
   readonly providerDiscovery: ProviderDiscoveryServiceShape;
   readonly providerTurnSelectionResolver: ProviderTurnSelectionResolverShape;
   readonly providerThreadSwitchCoordinator: ProviderThreadSwitchCoordinatorShape;
@@ -125,7 +92,6 @@ interface CreationOperationStore {
     Error
   >;
   readonly markDispatching: AgentGatewayOperationRepositoryShape["markDispatching"];
-  readonly recordWorktreeCreated: AgentGatewayOperationRepositoryShape["recordWorktreeCreated"];
   readonly markCompensating: AgentGatewayOperationRepositoryShape["markCompensating"];
   readonly recordCompensationFailure: AgentGatewayOperationRepositoryShape["recordCompensationFailure"];
   readonly complete: AgentGatewayOperationRepositoryShape["complete"];
@@ -146,7 +112,7 @@ interface CreationOperationStore {
 /**
  * Build the durable, exactly-once thread-creation coordinator.
  *
- * The coordinator owns its per-caller-turn locks and all git/orchestration
+ * The coordinator owns its per-caller-turn locks and all orchestration
  * compensation state. Keeping that state beside the saga prevents the MCP
  * transport and unrelated tools from becoming accidental recovery owners.
  */
@@ -156,7 +122,6 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
   const {
     snapshotQuery,
     orchestrationEngine,
-    git,
     providerDiscovery,
     providerTurnSelectionResolver,
     providerThreadSwitchCoordinator,
@@ -335,7 +300,6 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
             operationKind: "create_threads",
           }),
         markDispatching: operationRepository.markDispatching,
-        recordWorktreeCreated: operationRepository.recordWorktreeCreated,
         markCompensating: operationRepository.markCompensating,
         recordCompensationFailure: operationRepository.recordCompensationFailure,
         complete: operationRepository.complete,
@@ -392,15 +356,6 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
           context.assertAuthority,
         );
       }
-      const deprecatedBranchName = input.threads.find((spec) => spec.branchName !== undefined);
-      if (deprecatedBranchName) {
-        return yield* Effect.fail(
-          new ToolInputError(
-            '"branchName" is no longer supported for managed worktrees. Penkra creates a detached HEAD; create a branch inside the new thread when the work is ready.',
-          ),
-        );
-      }
-      const callerIsolatedInWorktree = caller?.envMode === "worktree";
       const providerAvailabilities = yield* loadProviderAvailabilities;
 
       const prepared = yield* Effect.forEach(input.threads, (spec, index) =>
@@ -424,7 +379,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
           }
           const workspaceRoot =
             (caller.projectId === projectId
-              ? (caller.workingDirectory ?? caller.worktreePath ?? project.workspaceRoot)
+              ? (caller.workingDirectory ?? project.workspaceRoot)
               : project.workspaceRoot) ?? process.cwd();
           const target = yield* resolveAgentGatewayTarget({
             target: spec.target,
@@ -437,14 +392,6 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
           const connectionId = yield* providerTurnSelectionResolver
             .resolveNewThreadConnection({ spaceId: callerSpaceId, modelSelection: target })
             .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
-          const environment = spec.environment ?? (callerIsolatedInWorktree ? "worktree" : "local");
-          if (environment === "local" && callerIsolatedInWorktree) {
-            return yield* Effect.fail(
-              new ToolInputError(
-                'Your thread runs in an isolated worktree, so created threads cannot use environment "local".',
-              ),
-            );
-          }
           if (spec.runtimeMode === "full-access" && caller.runtimeMode !== "full-access") {
             return yield* Effect.fail(
               new ToolInputError(
@@ -454,81 +401,6 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
           }
           const runtimeMode = spec.runtimeMode ?? caller.runtimeMode;
           const title = spec.title ?? buildPromptThreadTitleFallback(spec.prompt);
-          let worktreeRef: string | null = null;
-          let copyChangesFrom: string | null = null;
-          let plannedWorktreePath: string | null = null;
-          if (environment === "worktree") {
-            if (spec.baseRef && spec.baseBranch && spec.baseRef !== spec.baseBranch) {
-              return yield* Effect.fail(
-                new ToolInputError("baseRef and its deprecated baseBranch alias must match."),
-              );
-            }
-            const requestedRef = spec.baseRef ?? spec.baseBranch ?? "HEAD";
-            // Named refs are shared across linked worktrees, while HEAD is checkout-local.
-            // Always resolve same-project requests from the caller's selected checkout so
-            // an explicit baseRef:"HEAD" cannot silently jump back to the primary checkout.
-            const sourceCwd =
-              caller?.projectId === projectId
-                ? (caller.worktreePath ?? workspaceRoot)
-                : workspaceRoot;
-            const pullRequest = parsePullRequestSelector(requestedRef);
-            worktreeRef = yield* (
-              pullRequest === null
-                ? git.execute({
-                    operation: "AgentGateway.resolveWorktreeRef",
-                    cwd: sourceCwd,
-                    args: ["rev-parse", "--verify", "--end-of-options", `${requestedRef}^{commit}`],
-                    timeoutMs: 5_000,
-                  })
-                : git.withMutation(
-                    workspaceRoot,
-                    git
-                      .fetchPullRequestCommit({
-                        cwd: workspaceRoot,
-                        prNumber: pullRequest.number,
-                        ...(pullRequest.repositoryNameWithOwner
-                          ? { expectedRepositoryNameWithOwner: pullRequest.repositoryNameWithOwner }
-                          : {}),
-                      })
-                      .pipe(Effect.map((ref) => ({ code: 0, stdout: ref, stderr: "" }))),
-                  )
-            ).pipe(
-              Effect.map((result) => result.stdout.trim()),
-              Effect.filterOrFail(
-                (ref) => ref.length > 0,
-                () => new Error("git returned an empty commit id"),
-              ),
-              Effect.mapError(
-                (error) =>
-                  new ToolInputError(
-                    `Git revision "${requestedRef}" is unavailable. Pass a local ref/commit, #PR, or GitHub pull-request URL. ${errorText(error)}`,
-                  ),
-              ),
-            );
-            const sourceHead = yield* git
-              .execute({
-                operation: "AgentGateway.resolveWorktreeCopySource",
-                cwd: sourceCwd,
-                args: ["rev-parse", "--verify", "HEAD^{commit}"],
-                timeoutMs: 5_000,
-              })
-              .pipe(
-                Effect.map((result) => result.stdout.trim()),
-                Effect.mapError((error) => new ToolInputError(errorText(error))),
-              );
-            copyChangesFrom = sourceHead === worktreeRef ? sourceCwd : null;
-            plannedWorktreePath = join(
-              serverConfig.worktreesDir,
-              stableGatewayDigest({ operationId, index }, 12),
-            );
-            if (existsSync(plannedWorktreePath)) {
-              return yield* Effect.fail(
-                new ToolInputError(
-                  `Worktree path "${plannedWorktreePath}" already exists. Penkra will not reuse or remove a pre-existing path.`,
-                ),
-              );
-            }
-          }
           return {
             index,
             spec,
@@ -537,46 +409,16 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
             target,
             connectionId,
             spaceId: project.kind === "chat" ? callerSpaceId : null,
-            environment,
             runtimeMode,
             title,
-            projectScripts: project.scripts,
-            worktreeRef,
-            copyChangesFrom,
-            newBranch: null,
-            plannedWorktreePath,
-            ownershipPreflightPassed: true,
             ids: makeAgentCreationIds(operationId, index),
           };
         }),
       );
 
-      const plannedWorktrees = prepared
-        .map((entry) => entry.plannedWorktreePath)
-        .filter((path): path is string => path !== null);
-      if (new Set(plannedWorktrees).size !== plannedWorktrees.length) {
-        return yield* Effect.fail(
-          new ToolInputError(
-            "The creation plan resolves multiple entries to the same generated worktree path.",
-          ),
-        );
-      }
-
       yield* context.assertAuthority();
 
       const createdThreads: Array<(typeof prepared)[number]> = [];
-      const createdWorktrees: Array<{
-        readonly cwd: string;
-        readonly path: string;
-        readonly branch: string | null;
-        proof: {
-          readonly token: string;
-          readonly gitDir: string;
-          readonly branch: string | null;
-          readonly head: string;
-          readonly stateHash?: string;
-        } | null;
-      }> = [];
 
       const compensateClaimedOperation = (cause: Cause.Cause<unknown>) =>
         Effect.gen(function* () {
@@ -594,7 +436,6 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
           );
           const compensationErrors: string[] = [];
           let compensatedThreadCount = 0;
-          let compensatedWorktreeCount = 0;
           yield* Effect.forEach(
             [...createdThreads].reverse(),
             (entry) =>
@@ -618,82 +459,6 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                 ),
             { discard: true },
           );
-          yield* Effect.forEach(
-            [...createdWorktrees].reverse(),
-            (worktree) =>
-              git
-                .withMutation(
-                  worktree.cwd,
-                  worktree.proof === null
-                    ? git
-                        .removeWorktree({
-                          cwd: worktree.cwd,
-                          path: worktree.path,
-                          // Ownership was never recorded for this path: creation failed
-                          // right after the worktree appeared, or the interruptible setup
-                          // script failed or was interrupted. Copied baseline changes and
-                          // partial setup output make a non-forced removal fail by
-                          // construction.
-                          force: true,
-                        })
-                        .pipe(
-                          Effect.flatMap(() =>
-                            worktree.branch === null
-                              ? Effect.void
-                              : git.deleteBranch({
-                                  cwd: worktree.cwd,
-                                  branch: worktree.branch,
-                                  force: false,
-                                }),
-                          ),
-                        )
-                    : git
-                        .verifyWorktreeOwnership({
-                          path: worktree.path,
-                          proof: worktree.proof,
-                        })
-                        .pipe(
-                          Effect.flatMap((verification) =>
-                            verification.verified
-                              ? Effect.void
-                              : Effect.fail(
-                                  new Error(
-                                    `Refusing live compensation: ${verification.reason ?? "ownership verification failed"}.`,
-                                  ),
-                                ),
-                          ),
-                          Effect.flatMap(() =>
-                            git.removeWorktree({
-                              cwd: worktree.cwd,
-                              path: worktree.path,
-                              force: true,
-                            }),
-                          ),
-                          Effect.flatMap(() =>
-                            worktree.branch === null
-                              ? Effect.void
-                              : git.deleteBranchIfUnchanged({
-                                  cwd: worktree.cwd,
-                                  branch: worktree.branch,
-                                  expectedHead: worktree.proof!.head,
-                                }),
-                          ),
-                        ),
-                )
-                .pipe(
-                  Effect.tap(() =>
-                    Effect.sync(() => {
-                      compensatedWorktreeCount += 1;
-                    }),
-                  ),
-                  Effect.catch((error) =>
-                    Effect.sync(() =>
-                      compensationErrors.push(`worktree ${worktree.path}: ${errorText(error)}`),
-                    ),
-                  ),
-                ),
-            { discard: true },
-          );
           // Do not make a task terminal before cleanup has been attempted. The
           // durable capacity view treats planned/created tasks and non-terminal
           // failed compensation as active, so projector lag and restart cannot
@@ -711,7 +476,6 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
             message: failureMessage,
             createdThreadCount: createdThreads.length,
             compensatedThreadCount,
-            compensatedWorktreeCount,
             compensationErrors,
           };
           if (compensationErrors.length > 0) {
@@ -799,12 +563,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                   index: entry.index,
                   projectId: entry.projectId,
                   workspaceRoot: entry.workspaceRoot,
-                  environment: entry.environment,
                   runtimeMode: entry.runtimeMode,
-                  worktreeRef: entry.worktreeRef,
-                  newBranch: entry.newBranch,
-                  plannedWorktreePath: entry.plannedWorktreePath,
-                  ownershipPreflightPassed: entry.ownershipPreflightPassed,
                   ids: entry.ids,
                 })),
               ),
@@ -904,73 +663,6 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
               (entry) =>
                 Effect.gen(function* () {
                   yield* context.assertAuthority();
-                  let branch: string | null = null;
-                  let worktreePath: string | null = null;
-                  let associatedWorktreeRef: string | null = null;
-                  if (entry.environment === "worktree") {
-                    const { created, trackedWorktree } = yield* Effect.uninterruptible(
-                      Effect.gen(function* () {
-                        const created = yield* git.createDetachedWorktree({
-                          cwd: entry.workspaceRoot,
-                          ref: entry.worktreeRef!,
-                          path: entry.plannedWorktreePath,
-                          ...(entry.copyChangesFrom
-                            ? { copyChangesFrom: entry.copyChangesFrom }
-                            : {}),
-                        });
-                        const trackedWorktree = {
-                          cwd: entry.workspaceRoot,
-                          path: created.worktree.path,
-                          branch: created.worktree.branch,
-                          proof: null as (typeof createdWorktrees)[number]["proof"],
-                        };
-                        createdWorktrees.push(trackedWorktree);
-                        return { created, trackedWorktree };
-                      }),
-                    );
-                    // The setup script can run for minutes, so it must stay
-                    // interruptible: the abort signal kills the child process and
-                    // the tracked, still-ownerless worktree is compensated away.
-                    yield* Effect.tryPromise({
-                      try: (signal) =>
-                        runWorktreeSetupScript(entry.projectScripts, trackedWorktree.path, signal),
-                      catch: (cause) =>
-                        new Error(`Worktree setup script failed: ${errorText(cause)}`),
-                    });
-                    yield* Effect.uninterruptible(
-                      Effect.gen(function* () {
-                        const proof = yield* git.recordWorktreeOwnership({
-                          path: trackedWorktree.path,
-                          branch: trackedWorktree.branch,
-                          token: randomUUID(),
-                        });
-                        trackedWorktree.proof = proof;
-                        const ownershipRecorded = yield* operationStore.recordWorktreeCreated({
-                          operationId,
-                          index: entry.index,
-                          workspaceRoot: entry.workspaceRoot,
-                          path: trackedWorktree.path,
-                          branch: trackedWorktree.branch,
-                          token: proof.token,
-                          gitDir: proof.gitDir,
-                          head: proof.head,
-                          ...(proof.stateHash ? { stateHash: proof.stateHash } : {}),
-                          now: gatewayIsoNow(),
-                        });
-                        if (!ownershipRecorded) {
-                          return yield* Effect.fail(
-                            new Error(
-                              `Could not persist ownership for created worktree ${trackedWorktree.path}; compensating it before dispatch.`,
-                            ),
-                          );
-                        }
-                      }),
-                    );
-                    branch = created.worktree.branch;
-                    worktreePath = created.worktree.path;
-                    associatedWorktreeRef = created.worktree.ref;
-                  }
-
                   yield* context.assertAuthority();
                   yield* orchestrationEngine
                     .dispatch({
@@ -982,21 +674,11 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                       title: entry.title,
                       modelSelection: entry.target,
                       runtimeMode: entry.runtimeMode,
-                      envMode: entry.environment,
-                      branch,
-                      worktreePath,
                       creationSource: "penkra_mcp",
                       sourceThreadId: ThreadId.makeUnsafe(context.callerThreadId),
                       sourceTurnId: TurnId.makeUnsafe(callerTurnId),
                       gatewayOperationId: operationId,
                       gatewayOperationIndex: entry.index,
-                      ...(worktreePath !== null
-                        ? {
-                            associatedWorktreePath: worktreePath,
-                            associatedWorktreeBranch: branch,
-                            associatedWorktreeRef,
-                          }
-                        : {}),
                       createdAt: gatewayIsoNow(),
                     })
                     .pipe(
@@ -1025,7 +707,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                       createdAt: gatewayIsoNow(),
                     },
                     attachmentPrincipal: context.attachmentPrincipal,
-                    cwd: worktreePath ?? entry.workspaceRoot,
+                    cwd: entry.workspaceRoot,
                   });
                   // The dispatch can outlive the caller turn. Recheck after it returns so
                   // a child started in that final race window is compensated as part of
@@ -1043,9 +725,6 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                     provider: entry.target.provider,
                     model: entry.target.model,
                     runtimeMode: entry.runtimeMode,
-                    environment: entry.environment,
-                    branch,
-                    worktreePath,
                     status: "task_dispatched" as const,
                   };
                 }),

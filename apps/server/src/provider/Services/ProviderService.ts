@@ -1,5 +1,5 @@
 /**
- * ProviderService - Service interface for provider sessions, turns, and checkpoints.
+ * ProviderService - Service interface for provider sessions and turns.
  *
  * Acts as the cross-provider facade used by transports (WebSocket/RPC). It
  * resolves provider adapters through `ProviderAdapterRegistry`, routes
@@ -7,7 +7,7 @@
  * provider event stream to callers.
  *
  * Uses Effect `ServiceMap.Service` for dependency injection and returns typed
- * domain errors for validation, session, codex, and checkpoint workflows.
+ * domain errors for validation, session, and provider workflows.
  *
  * @module ProviderService
  */

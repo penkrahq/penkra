@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Option, Schema, SchemaTransformation } from "effect";
 import {
   type AssistantDeliveryMode,
-  DEFAULT_GIT_TEXT_GENERATION_MODEL,
+  DEFAULT_TEXT_GENERATION_MODEL,
   DEFAULT_SERVER_SETTINGS,
   DEFAULT_SERVER_SETTINGS_VIEW,
   TrimmedNonEmptyString,
@@ -246,8 +246,8 @@ export function isGitTextGenerationSettingsDirty(
 ): boolean {
   return (
     (settings.textGenerationProvider ?? "codex") !== (defaults.textGenerationProvider ?? "codex") ||
-    (settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL) !==
-      (defaults.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL)
+    (settings.textGenerationModel ?? DEFAULT_TEXT_GENERATION_MODEL) !==
+      (defaults.textGenerationModel ?? DEFAULT_TEXT_GENERATION_MODEL)
   );
 }
 
@@ -560,7 +560,7 @@ function appSettingsPatchToServerSettingsPatch(patch: Partial<AppSettings>): Ser
     serverPatch.providerUpdateMode = patch.providerUpdateMode;
   }
   if (hasOwn(patch, "textGenerationModel") || hasOwn(patch, "textGenerationProvider")) {
-    const model = patch.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
+    const model = patch.textGenerationModel ?? DEFAULT_TEXT_GENERATION_MODEL;
     serverPatch.textGenerationModelSelection = {
       provider: resolveTextGenerationProvider({
         ...(patch.textGenerationProvider !== undefined

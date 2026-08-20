@@ -16,7 +16,6 @@ describe("selectPrimaryProjectRunCommand", () => {
             name: "Serve",
             command: "pnpm serve",
             icon: "play",
-            runOnWorktreeCreate: false,
           },
         ],
       },
@@ -107,7 +106,6 @@ describe("upsertProjectRunCommandScripts", () => {
         name: "Dev",
         command: "bun dev",
         icon: "play" as const,
-        runOnWorktreeCreate: false,
       },
     ];
 
@@ -115,13 +113,12 @@ describe("upsertProjectRunCommandScripts", () => {
     expect(upsertProjectRunCommandScripts({ scripts, command: "bun dev" })).toBeNull();
   });
 
-  it("updates the regular primary script without changing its siblings", () => {
+  it("updates the primary script without changing its siblings", () => {
     const setup = {
       id: "setup",
       name: "Setup",
       command: "bun install",
       icon: "play" as const,
-      runOnWorktreeCreate: true,
     };
     const scripts = [
       setup,
@@ -130,36 +127,27 @@ describe("upsertProjectRunCommandScripts", () => {
         name: "Dev",
         command: "bun dev",
         icon: "play" as const,
-        runOnWorktreeCreate: false,
       },
     ];
 
     const result = upsertProjectRunCommandScripts({ scripts, command: "bun dev:new" });
 
-    expect(result).toEqual([setup, { ...scripts[1], command: "bun dev:new" }]);
-    expect(result?.[0]).toBe(setup);
+    expect(result).toEqual([{ ...setup, command: "bun dev:new" }, scripts[1]]);
+    expect(result?.[1]).toBe(scripts[1]);
   });
 
-  it("appends a uniquely identified regular dev script when only setup scripts exist", () => {
+  it("updates the existing primary script", () => {
     const scripts = [
       {
         id: "dev",
         name: "Setup",
         command: "bun install",
         icon: "play" as const,
-        runOnWorktreeCreate: true,
       },
     ];
 
     expect(upsertProjectRunCommandScripts({ scripts, command: "bun dev" })).toEqual([
-      scripts[0],
-      {
-        id: "dev-2",
-        name: "dev",
-        command: "bun dev",
-        icon: "play",
-        runOnWorktreeCreate: false,
-      },
+      { ...scripts[0], command: "bun dev" },
     ]);
   });
 });

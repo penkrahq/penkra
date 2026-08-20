@@ -31,30 +31,26 @@ describe("projectScripts helpers", () => {
         name: "Setup",
         command: "bun install",
         icon: "configure" as const,
-        runOnWorktreeCreate: true,
       },
       {
         id: "test",
         name: "Test",
         command: "bun test",
         icon: "test" as const,
-        runOnWorktreeCreate: false,
       },
     ];
 
-    expect(primaryProjectScript(scripts)?.id).toBe("test");
-    expect(setupProjectScript(scripts)?.id).toBe("setup");
+    expect(primaryProjectScript(scripts)?.id).toBe("setup");
+    expect(setupProjectScript(scripts)).toBeNull();
   });
 
   it("builds default runtime env for scripts", () => {
     const env = projectScriptRuntimeEnv({
       project: { cwd: "/repo" },
-      worktreePath: "/repo/worktree-a",
     });
 
     expect(env).toMatchObject({
       PENKRA_PROJECT_ROOT: "/repo",
-      PENKRA_WORKTREE_PATH: "/repo/worktree-a",
     });
   });
 
@@ -72,17 +68,15 @@ describe("projectScripts helpers", () => {
     expect(env.PENKRA_WORKTREE_PATH).toBeUndefined();
   });
 
-  it("prefers the worktree path for script cwd resolution", () => {
+  it("uses the project path for script cwd resolution", () => {
     expect(
       projectScriptCwd({
         project: { cwd: "/repo" },
-        worktreePath: "/repo/worktree-a",
       }),
-    ).toBe("/repo/worktree-a");
+    ).toBe("/repo");
     expect(
       projectScriptCwd({
         project: { cwd: "/repo" },
-        worktreePath: null,
       }),
     ).toBe("/repo");
   });

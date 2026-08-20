@@ -14,53 +14,6 @@ import type {
 } from "./auth";
 import type { ProviderConnectionId } from "./baseSchemas";
 import type {
-  GitCheckoutInput,
-  GitCreateBranchInput,
-  GitCreateDetachedWorktreeInput,
-  GitCreateDetachedWorktreeResult,
-  GitSwitchThreadEnvironmentInput,
-  GitSwitchThreadEnvironmentResult,
-  GitPreparePullRequestThreadInput,
-  GitPreparePullRequestThreadResult,
-  GitPullRequestRefInput,
-  GitPullRequestSnapshotInput,
-  GitPullRequestSnapshotResult,
-  GitCreateWorktreeInput,
-  GitCreateWorktreeResult,
-  GitListBranchesInput,
-  GitListBranchesResult,
-  GitReadWorkingTreeDiffInput,
-  GitReadWorkingTreeDiffResult,
-  GitWorkingTreeDiffStatsResult,
-  GitRemoveIndexLockInput,
-  GitRemoveWorktreeInput,
-  GitResolvePullRequestResult,
-  GitStageFilesInput,
-  GitStageFilesResult,
-  GitStashAndCheckoutInput,
-  GitStashDropInput,
-  GitStashInfoInput,
-  GitStashInfoResult,
-  GitStatusInput,
-  GitStatusResult,
-  GitUnstageFilesInput,
-  GitUnstageFilesResult,
-} from "./git";
-import type {
-  PullRequestActionInput,
-  PullRequestActionResult,
-  PullRequestCommentInput,
-  PullRequestDetail,
-  PullRequestDetailInput,
-  PullRequestDiffResult,
-  PullRequestReviewRequestCountInput,
-  PullRequestReviewRequestCountResult,
-  PullRequestSetPinnedInput,
-  PullRequestSetPinnedResult,
-  PullRequestsListInput,
-  PullRequestsListResult,
-} from "./pullRequests";
-import type {
   ProjectCreateLocalFilePreviewGrantInput,
   ProjectCreateLocalFilePreviewGrantResult,
   ProjectDevServerEvent,
@@ -84,7 +37,6 @@ import type {
   ProjectWriteFileResult,
 } from "./project";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
-import type { StudioListThreadOutputsInput, StudioListThreadOutputsResult } from "./studio";
 import type {
   ServerConfig,
   ServerDiagnosticsResult,
@@ -95,7 +47,6 @@ import type {
   ServerListProviderUsageResult,
   ServerGetSettingsResult,
   ServerListLocalServersResult,
-  ServerListWorktreesResult,
   ServerProviderUpdateInput,
   ServerProviderUpdateResult,
   ServerRefreshProvidersResult,
@@ -123,8 +74,6 @@ import type {
 } from "./terminal";
 import type {
   ClientOrchestrationCommand,
-  OrchestrationGetFullThreadDiffInput,
-  OrchestrationGetFullThreadDiffResult,
   OrchestrationGetThreadDetailSnapshotInput,
   OrchestrationGetThreadDetailSnapshotResult,
   OrchestrationImportThreadInput,
@@ -133,8 +82,6 @@ import type {
   OrchestrationListProviderDeliveryBlockersResult,
   OrchestrationReconcileProviderDeliveryInput,
   OrchestrationReconcileProviderDeliveryResult,
-  OrchestrationGetTurnDiffInput,
-  OrchestrationGetTurnDiffResult,
   OrchestrationEvent,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
@@ -178,12 +125,6 @@ import type {
   ThreadProviderBindingSnapshot,
   ThreadProviderBindingSnapshotInput,
 } from "./providerConnections";
-import type {
-  StatsGetProfileStatsInput,
-  StatsGetProfileStatsResult,
-  StatsGetProfileTokenStatsInput,
-  StatsGetProfileTokenStatsResult,
-} from "./stats";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -1055,60 +996,10 @@ export interface NativeApi {
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
   };
-  studio: {
-    listThreadOutputs: (
-      input: StudioListThreadOutputsInput,
-    ) => Promise<StudioListThreadOutputsResult>;
-  };
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;
     openExternal: (url: string) => Promise<void>;
     showInFolder: (path: string) => Promise<void>;
-  };
-  git: {
-    // Existing branch/worktree API
-    listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
-    createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResult>;
-    createDetachedWorktree: (
-      input: GitCreateDetachedWorktreeInput,
-    ) => Promise<GitCreateDetachedWorktreeResult>;
-    removeWorktree: (input: GitRemoveWorktreeInput) => Promise<void>;
-    createBranch: (input: GitCreateBranchInput) => Promise<void>;
-    checkout: (input: GitCheckoutInput) => Promise<void>;
-    stashAndCheckout: (input: GitStashAndCheckoutInput) => Promise<void>;
-    stashDrop: (input: GitStashDropInput) => Promise<void>;
-    stashInfo: (input: GitStashInfoInput) => Promise<GitStashInfoResult>;
-    removeIndexLock: (input: GitRemoveIndexLockInput) => Promise<void>;
-    stageFiles: (input: GitStageFilesInput) => Promise<GitStageFilesResult>;
-    unstageFiles: (input: GitUnstageFilesInput) => Promise<GitUnstageFilesResult>;
-    switchThreadEnvironment: (
-      input: GitSwitchThreadEnvironmentInput,
-    ) => Promise<GitSwitchThreadEnvironmentResult>;
-    resolvePullRequest: (input: GitPullRequestRefInput) => Promise<GitResolvePullRequestResult>;
-    pullRequestSnapshot: (
-      input: GitPullRequestSnapshotInput,
-    ) => Promise<GitPullRequestSnapshotResult>;
-    preparePullRequestThread: (
-      input: GitPreparePullRequestThreadInput,
-    ) => Promise<GitPreparePullRequestThreadResult>;
-    status: (input: GitStatusInput) => Promise<GitStatusResult>;
-    readWorkingTreeDiff: (
-      input: GitReadWorkingTreeDiffInput,
-    ) => Promise<GitReadWorkingTreeDiffResult>;
-    workingTreeDiffStats: (
-      input: GitReadWorkingTreeDiffInput,
-    ) => Promise<GitWorkingTreeDiffStatsResult>;
-  };
-  pullRequests: {
-    list: (input: PullRequestsListInput) => Promise<PullRequestsListResult>;
-    reviewRequestCount: (
-      input: PullRequestReviewRequestCountInput,
-    ) => Promise<PullRequestReviewRequestCountResult>;
-    detail: (input: PullRequestDetailInput) => Promise<PullRequestDetail>;
-    diff: (input: PullRequestDetailInput) => Promise<PullRequestDiffResult>;
-    action: (input: PullRequestActionInput) => Promise<PullRequestActionResult>;
-    comment: (input: PullRequestCommentInput) => Promise<PullRequestActionResult>;
-    setPinned: (input: PullRequestSetPinnedInput) => Promise<PullRequestSetPinnedResult>;
   };
   contextMenu: {
     show: <T extends string>(
@@ -1140,7 +1031,6 @@ export interface NativeApi {
     logoutAuthSession: () => Promise<AuthLogoutResult>;
     refreshProviders: () => Promise<ServerRefreshProvidersResult>;
     updateProvider: (input: ServerProviderUpdateInput) => Promise<ServerProviderUpdateResult>;
-    listWorktrees: () => Promise<ServerListWorktreesResult>;
     listLocalServers: () => Promise<ServerListLocalServersResult>;
     stopLocalServer: (input: ServerStopLocalServerInput) => Promise<ServerStopLocalServerResult>;
     getProviderUsageSnapshot: (
@@ -1154,12 +1044,6 @@ export interface NativeApi {
       input: ServerVoiceTranscriptionInput,
     ) => Promise<ServerVoiceTranscriptionResult>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
-  };
-  stats: {
-    getProfileStats: (input: StatsGetProfileStatsInput) => Promise<StatsGetProfileStatsResult>;
-    getProfileTokenStats: (
-      input: StatsGetProfileTokenStatsInput,
-    ) => Promise<StatsGetProfileTokenStatsResult>;
   };
   provider: {
     getComposerCapabilities: (
@@ -1208,10 +1092,6 @@ export interface NativeApi {
       input: OrchestrationImportThreadInput,
     ) => Promise<OrchestrationImportThreadResult>;
     repairState: () => Promise<OrchestrationReadModel>;
-    getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;
-    getFullThreadDiff: (
-      input: OrchestrationGetFullThreadDiffInput,
-    ) => Promise<OrchestrationGetFullThreadDiffResult>;
     replayEvents: (fromSequenceExclusive: number) => Promise<OrchestrationEvent[]>;
     listProviderDeliveryBlockers: (
       input?: OrchestrationListProviderDeliveryBlockersInput,

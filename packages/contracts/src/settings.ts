@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { TrimmedString } from "./baseSchemas";
-import { DEFAULT_GIT_TEXT_GENERATION_MODEL } from "./model";
+import { DEFAULT_TEXT_GENERATION_MODEL } from "./model";
 import { ModelSelection, ProviderKind } from "./orchestration";
 
 const StringSetting = TrimmedString.check(Schema.isMaxLength(4096));
@@ -96,7 +96,7 @@ export const ServerSettings = Schema.Struct({
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(() => ({
       provider: "codex" as const,
-      model: DEFAULT_GIT_TEXT_GENERATION_MODEL,
+      model: DEFAULT_TEXT_GENERATION_MODEL,
     })),
   ),
   providers: Schema.Struct({

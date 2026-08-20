@@ -17,6 +17,7 @@ export default Effect.gen(function* () {
   const hasProposedPlansTable = yield* tableExists(sql, "projection_thread_proposed_plans");
   const hasRetiredGitTable = yield* tableExists(sql, "git_handoff_operations");
   const hasGitEnvironmentTable = yield* tableExists(sql, "git_thread_environment_operations");
+  const hasCheckpointDiffBlobs = yield* tableExists(sql, "checkpoint_diff_blobs");
 
   yield* sql`
     CREATE TEMP TABLE removed_legacy_thread_ids (
@@ -68,7 +69,9 @@ export default Effect.gen(function* () {
   yield* sql`DELETE FROM projection_thread_activities WHERE thread_id IN removed_legacy_thread_ids`;
   yield* sql`DELETE FROM projection_turns WHERE thread_id IN removed_legacy_thread_ids`;
   yield* sql`DELETE FROM projection_thread_sessions WHERE thread_id IN removed_legacy_thread_ids`;
-  yield* sql`DELETE FROM checkpoint_diff_blobs WHERE thread_id IN removed_legacy_thread_ids`;
+  if (hasCheckpointDiffBlobs) {
+    yield* sql`DELETE FROM checkpoint_diff_blobs WHERE thread_id IN removed_legacy_thread_ids`;
+  }
   yield* sql`DELETE FROM provider_session_runtime WHERE thread_id IN removed_legacy_thread_ids`;
   yield* sql`DELETE FROM orchestration_event_deliveries WHERE thread_id IN removed_legacy_thread_ids`;
   yield* sql`DELETE FROM queued_turn_promotions WHERE thread_id IN removed_legacy_thread_ids`;

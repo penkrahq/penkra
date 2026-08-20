@@ -381,17 +381,24 @@ Prefer a declared semantic operation for domain work. Use observation for visibl
 accessibility, manual QA, and tasks with no suitable operation. Apps cannot call this observer
 through `@penkra/sdk` or inspect one another.
 
-## Test and package
+## Sideload, test, and package
 
-Pass either command as one registered `penkra_exec_command` invocation:
+Pass each command as one registered `penkra_exec_command` invocation:
 
 ```text
+penkra app sideload ./dist
 penkra app test ./dist
 penkra app package ./dist --output ./artifacts/my-app.penkra
 ```
 
 Relative paths resolve from the caller Thread's working directory. `package` requires an explicit
 output path and rejects output inside the packaged directory.
+
+`sideload` validates and installs the unpacked App into the caller Thread's current Space, enables
+its required permissions, restores its open tabs after valid rebuilds, and watches the directory
+for further changes. An existing sideload may rebuild without changing its version. When the same
+App is installed from the registry, the sideload version must be newer; otherwise uninstall the
+registry App before sideloading. Invalid rebuilds leave the last working package active.
 
 `test` asks the installed Penkra desktop to relaunch its own App runtime in a hidden, disposable
 profile and Space. It ingests the App through the immutable package path, starts its controller and
@@ -444,10 +451,11 @@ authenticated downloads.
 
 ## Distribution boundaries
 
-Use ordinary framework tests while developing, then use `penkra app test` for the real packaged-App
-runtime. A published version is immutable: changed bytes require a new semantic version. Installing,
-opening, observing, invoking, packaging, testing, publishing, and updating are separate operations;
-evidence for one is not evidence for another.
+Use ordinary framework tests while developing, `penkra app sideload` for interactive work in the
+current Space, and `penkra app test` for the isolated packaged-App runtime. A published version is
+immutable: changed bytes require a new semantic version. Installing, sideloading, opening,
+observing, invoking, packaging, testing, publishing, and updating are separate operations; evidence
+for one is not evidence for another.
 
 The Penkra desktop and registry service are versioned and operated independently from your App.
 Your manifest's `compatibility.penkra` range is the explicit

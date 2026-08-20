@@ -3,7 +3,7 @@
 // Layer: Web chat presentation component
 // Exports: TimelineWorkEntryRow, EditedFileRowContent, prefersCompactWorkEntryRow
 
-import { ThreadId, type TurnId } from "@penkra/contracts";
+import { ThreadId } from "@penkra/contracts";
 import {
   createElement,
   memo,
@@ -17,6 +17,8 @@ import {
 } from "react";
 
 import { basenameOfPath } from "~/file-icons";
+import { useAppInstallationSnapshot } from "~/appInstallationStore";
+import { resolveInstalledAppCommandPresentation } from "~/lib/appCommandPresentation";
 import { DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
 import {
   ArrowUpCircleIcon,
@@ -70,9 +72,11 @@ import {
 } from "../../lib/toolArgumentSummary";
 import {
   deriveReadableCommandDisplay,
+  deriveInlineCommandCall,
   derivePenkraMcpToolTitle,
   extractWebFetchUrl,
   normalizeToolTextForComparison,
+  isPenkraExecCommandTool,
   resolveCommandVisualKind,
   sanitizePenkraMcpToolPreview,
   type PenkraMcpToolStatus,
@@ -159,6 +163,17 @@ function workEntryPreview(workEntry: TimelineWorkEntry): string | null {
     workEntry.requestKind === "file-read" ||
     workEntry.requestKind === "file-change" ||
     workEntry.itemType === "file_change";
+
+  if (
+    isPenkraExecCommandTool({
+      toolName: workEntry.toolName,
+      title: workEntry.toolTitle,
+      fallbackLabel: workEntry.label,
+    }) &&
+    (workEntry.command || workEntry.rawCommand)
+  ) {
+    return null;
+  }
 
   if (workEntry.itemType === "command_execution" || workEntry.command || workEntry.rawCommand) {
     const command = workEntry.command ?? workEntry.rawCommand;
@@ -286,6 +301,53 @@ export function renderWorkEntryIcon(Icon: LucideIcon, className: string): ReactE
   return createElement(Icon, { className });
 }
 
+export function WorkEntryLeftIcon(props: { workEntry: TimelineWorkEntry; className: string }) {
+  const snapshot = useAppInstallationSnapshot();
+  const command = props.workEntry.command ?? props.workEntry.rawCommand;
+  const isPenkraCommand =
+    command !== undefined &&
+    isPenkraExecCommandTool({
+      toolName: props.workEntry.toolName,
+      title: props.workEntry.toolTitle,
+      fallbackLabel: props.workEntry.label,
+    });
+  const appCommand =
+    command && isPenkraCommand ? resolveInstalledAppCommandPresentation(command, snapshot) : null;
+  const icon = appCommand?.app.iconDataUrl ? (
+    <img
+      alt=""
+      className={cn("rounded-[3px] object-cover", props.className)}
+      data-app-command-icon={appCommand.slug}
+      src={appCommand.app.iconDataUrl}
+    />
+  ) : (
+    renderWorkEntryIcon(workEntryLeftIcon(props.workEntry), props.className)
+  );
+  if (isPenkraCommand && toolWorkEntryStatus(props.workEntry) === "failed") {
+    return (
+      <span className={cn("relative inline-flex shrink-0", props.className)}>
+        {appCommand?.app.iconDataUrl ? (
+          <img
+            alt=""
+            className="size-full rounded-[3px] object-cover"
+            data-app-command-icon={appCommand.slug}
+            src={appCommand.app.iconDataUrl}
+          />
+        ) : (
+          renderWorkEntryIcon(workEntryLeftIcon(props.workEntry), "size-full")
+        )}
+        <CircleAlertIcon
+          aria-hidden="true"
+          className="absolute -right-1 -bottom-1 size-2.5 rounded-full bg-background text-destructive"
+          data-command-error-badge="true"
+          strokeWidth={2.5}
+        />
+      </span>
+    );
+  }
+  return icon;
+}
+
 // The leading glyph for a tool row: provider-brand marks (GitHub, Penkra, MCP)
 // win over the kind-derived entry icon. Shared with the collapsed tool-group
 // summary row, which borrows its first entry's icon.
@@ -356,6 +418,17 @@ function capitalizePhrase(value: string): string {
 }
 
 function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
+  const command = workEntry.command ?? workEntry.rawCommand;
+  if (
+    command &&
+    isPenkraExecCommandTool({
+      toolName: workEntry.toolName,
+      title: workEntry.toolTitle,
+      fallbackLabel: workEntry.label,
+    })
+  ) {
+    return deriveInlineCommandCall(command);
+  }
   const penkraTitle = derivePenkraMcpToolTitle({
     toolName: workEntry.toolName,
     title: workEntry.toolTitle,
@@ -540,7 +613,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   const isPenkraToolRow = !isGitHubToolRow && isPenkraToolCall(workEntry);
   const isMcpToolRow =
     workEntry.itemType === "mcp_tool_call" && !isGitHubToolRow && !isPenkraToolRow;
-  const LeftIcon = workEntryLeftIcon(workEntry);
   const leftIconKind = webFetchUrl
     ? "web-fetch"
     : isGitHubToolRow || EntryIcon === GitHubIcon
@@ -591,9 +663,8 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   // File references use the Thread's App-handler bridge. Explorer or another
   // configured handler owns the visual surface; chat never mounts a file viewer.
   const opener = useThreadResourceOpener();
-  // Per-file +N/-M parsed from this tool call's own patch, used as a fallback when
-  // the turn-diff summary isn't in scope (e.g. standalone work rows) so every
-  // "Edited <file>" row can still show diff stats.
+  // Per-file +N/-M parsed from this tool call's own patch so every
+  // "Edited <file>" row can show diff stats.
   const toolDiffStatsByPath = useMemo(
     () =>
       isFileChangeWorkEntry(workEntry)
@@ -651,9 +722,8 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
       {showEditedRows ? (
         <div className="space-y-0.5">
           {changedFiles.map((changedFilePath) => {
-            // Prefer the turn-diff summary's per-file stat; fall back to the stat
-            // parsed from this tool call's own patch so the +N/-M shows even when
-            // no summary is in scope (standalone work rows) or it lacks the file.
+            // Prefer a caller-provided per-file stat; fall back to the stat
+            // parsed from this tool call's own patch.
             const summaryStat = fileDiffStatByPath?.get(changedFilePath);
             const changedFileStat =
               summaryStat && summaryStat.additions + summaryStat.deletions > 0
@@ -910,7 +980,10 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                   {webFetchUrl ? (
                     <LinkChipIcon url={webFetchUrl} className={compact ? "size-3.5" : "size-4"} />
                   ) : (
-                    renderWorkEntryIcon(LeftIcon, compact ? "size-3.5" : "size-4")
+                    <WorkEntryLeftIcon
+                      workEntry={workEntry}
+                      className={compact ? "size-3.5" : "size-4"}
+                    />
                   )}
                 </span>
               ) : null}

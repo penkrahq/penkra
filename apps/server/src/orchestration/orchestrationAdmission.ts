@@ -56,8 +56,6 @@ export function usesReservedCommandAdmission(type: OrchestrationCommand["type"])
     case "thread.turn.dispatch-queued":
     case "thread.session.set":
     case "thread.message.assistant.complete":
-    case "thread.turn.diff.complete":
-    case "thread.revert.complete":
     case "thread.conversation.rollback.complete":
       return true;
     default:
@@ -77,7 +75,6 @@ export function orchestrationCommandLane(
     // so a burst of turn starts cannot delay a stop.
     case "thread.create":
     case "thread.turn.start":
-    case "thread.checkpoint.revert":
     case "thread.conversation.rollback":
     case "thread.message.edit-and-resend":
       return "user";

@@ -1,7 +1,6 @@
 import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@penkra/contracts";
 import {
   ORCHESTRATION_THREAD_HYDRATION_LIMITS,
-  OrchestrationCheckpointSummary,
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
@@ -49,9 +48,7 @@ import {
   ThreadConversationRolledBackPayload,
   ThreadRuntimeModeSetPayload,
   ThreadUnarchivedPayload,
-  ThreadRevertedPayload,
   ThreadSessionSetPayload,
-  ThreadTurnDiffCompletedPayload,
   ThreadTurnStartRequestedPayload,
   ThreadTurnStartCancelledPayload,
 } from "./Schemas.ts";
@@ -62,17 +59,6 @@ import { deriveTurnStartModelSelection, deriveTurnStartSession } from "./turnSta
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.messages;
 const MAX_THREAD_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.summaryActivities;
-const MAX_THREAD_CHECKPOINTS = ORCHESTRATION_THREAD_HYDRATION_LIMITS.checkpoints;
-
-function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error") {
-  if (status === "error") return "error" as const;
-  if (status === "missing") return "interrupted" as const;
-  return "completed" as const;
-}
-
-function isProviderDiffPlaceholderRef(checkpointRef: string | null | undefined): boolean {
-  return checkpointRef?.startsWith("provider-diff:") === true;
-}
 
 function isTerminalLatestTurn(
   latestTurn: OrchestrationThread["latestTurn"] | null | undefined,
@@ -85,8 +71,7 @@ function isTerminalLatestTurn(
 
 // Turn lifecycle must settle with the session: once a session leaves "running",
 // no provider event will ever mark the turn complete on its own, so a running
-// latestTurn is settled here. Checkpoint diff events (thread.turn-diff-completed)
-// only enrich the terminal state afterwards — they are not the lifecycle authority.
+// latestTurn is settled here.
 // A retained activeTurnId blocks settlement (except on error): stop-requested flows
 // deliberately emit "interrupted" while keeping the turn active until the provider's
 // terminal event decides the real outcome, and a premature settle here could never
@@ -122,7 +107,15 @@ function updateThread(
   if (index === -1) {
     return nextThreads;
   }
-  nextThreads[index] = { ...nextThreads[index]!, ...patch };
+  const updated = { ...nextThreads[index]!, ...patch };
+  nextThreads[index] =
+    updated.session?.status === "starting" && updated.pendingTurnStartMessageId == null
+      ? {
+          ...updated,
+          pendingTurnStartMessageId:
+            updated.messages.findLast((message) => message.role === "user")?.id ?? null,
+        }
+      : updated;
   return nextThreads;
 }
 
@@ -153,73 +146,10 @@ function decodeForEvent<A>(
   });
 }
 
-function retainThreadMessagesAfterRevert(
-  messages: ReadonlyArray<OrchestrationMessage>,
-  retainedTurnIds: ReadonlySet<string>,
-  turnCount: number,
-): ReadonlyArray<OrchestrationMessage> {
-  const retainedMessageIds = new Set<string>();
-  for (const message of messages) {
-    if (message.role === "system") {
-      retainedMessageIds.add(message.id);
-      continue;
-    }
-    if (message.turnId !== null && retainedTurnIds.has(message.turnId)) {
-      retainedMessageIds.add(message.id);
-    }
-  }
-
-  const retainedUserCount = messages.filter(
-    (message) => message.role === "user" && retainedMessageIds.has(message.id),
-  ).length;
-  const missingUserCount = Math.max(0, turnCount - retainedUserCount);
-  if (missingUserCount > 0) {
-    const fallbackUserMessages = messages
-      .filter(
-        (message) =>
-          message.role === "user" &&
-          !retainedMessageIds.has(message.id) &&
-          (message.turnId === null || retainedTurnIds.has(message.turnId)),
-      )
-      .slice(0, missingUserCount);
-    for (const message of fallbackUserMessages) {
-      retainedMessageIds.add(message.id);
-    }
-  }
-
-  const retainedAssistantCount = messages.filter(
-    (message) => message.role === "assistant" && retainedMessageIds.has(message.id),
-  ).length;
-  const missingAssistantCount = Math.max(0, turnCount - retainedAssistantCount);
-  if (missingAssistantCount > 0) {
-    const fallbackAssistantMessages = messages
-      .filter(
-        (message) =>
-          message.role === "assistant" &&
-          !retainedMessageIds.has(message.id) &&
-          (message.turnId === null || retainedTurnIds.has(message.turnId)),
-      )
-      .slice(0, missingAssistantCount);
-    for (const message of fallbackAssistantMessages) {
-      retainedMessageIds.add(message.id);
-    }
-  }
-
-  return messages.filter((message) => retainedMessageIds.has(message.id));
-}
-
-function retainThreadActivitiesAfterRevert(
-  activities: ReadonlyArray<OrchestrationThread["activities"][number]>,
-  retainedTurnIds: ReadonlySet<string>,
-): ReadonlyArray<OrchestrationThread["activities"][number]> {
-  return activities.filter(
-    (activity) => activity.turnId === null || retainedTurnIds.has(activity.turnId),
-  );
-}
-
 function rollbackThreadMessagesFromMessage(
   messages: ReadonlyArray<OrchestrationMessage>,
   messageId: string,
+  preserveTarget: boolean,
 ): {
   readonly messages: ReadonlyArray<OrchestrationMessage>;
   readonly removedTurnIds: ReadonlySet<string>;
@@ -230,8 +160,11 @@ function rollbackThreadMessagesFromMessage(
   }
 
   const removedMessages = messages.slice(targetIndex);
+  const preservedTarget = preserveTarget
+    ? [{ ...messages[targetIndex]!, turnId: null, delivery: undefined }]
+    : [];
   return {
-    messages: messages.slice(0, targetIndex),
+    messages: [...messages.slice(0, targetIndex), ...preservedTarget],
     removedTurnIds: new Set(
       removedMessages.flatMap((message) => (message.turnId === null ? [] : [message.turnId])),
     ),
@@ -538,8 +471,6 @@ export function projectEvent(
           event.type,
           "payload",
         );
-        const isStudio =
-          nextBase.projects.find((project) => project.id === payload.projectId)?.kind === "studio";
         const thread: OrchestrationThread = yield* decodeForEvent(
           OrchestrationThread,
           {
@@ -550,16 +481,7 @@ export function projectEvent(
             title: payload.title,
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
-            envMode: isStudio ? "local" : payload.envMode,
-            branch: isStudio ? null : payload.branch,
-            worktreePath: isStudio ? null : payload.worktreePath,
-            workingDirectory: isStudio
-              ? (payload.workingDirectory ?? payload.worktreePath)
-              : (payload.workingDirectory ?? payload.worktreePath),
-            associatedWorktreePath: isStudio ? null : payload.associatedWorktreePath,
-            associatedWorktreeBranch: isStudio ? null : payload.associatedWorktreeBranch,
-            associatedWorktreeRef: isStudio ? null : payload.associatedWorktreeRef,
-            createBranchFlowCompleted: isStudio ? false : payload.createBranchFlowCompleted,
+            workingDirectory: payload.workingDirectory,
             isPinned: payload.isPinned,
             parentThreadId: payload.parentThreadId,
             creationSource: payload.creationSource ?? null,
@@ -571,7 +493,6 @@ export function projectEvent(
             subagentNickname: payload.subagentNickname,
             subagentRole: payload.subagentRole,
             forkSourceThreadId: payload.forkSourceThreadId,
-            lastKnownPr: payload.lastKnownPr ?? null,
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -579,7 +500,6 @@ export function projectEvent(
             deletedAt: null,
             messages: [],
             activities: [],
-            checkpoints: [],
             session: null,
           },
           event.type,
@@ -636,19 +556,6 @@ export function projectEvent(
     case "thread.meta-updated":
       return decodeForEvent(ThreadMetaUpdatedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
-          const existingThread =
-            nextBase.threads.find((thread) => thread.id === payload.threadId) ?? null;
-          const isStudio =
-            nextBase.projects.find((project) => project.id === existingThread?.projectId)?.kind ===
-            "studio";
-          const nextCreateBranchFlowCompleted =
-            payload.createBranchFlowCompleted !== undefined
-              ? payload.createBranchFlowCompleted
-              : payload.branch !== undefined &&
-                  existingThread !== null &&
-                  payload.branch !== existingThread.branch
-                ? false
-                : undefined;
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
@@ -657,51 +564,8 @@ export function projectEvent(
               ...(payload.modelSelection !== undefined
                 ? { modelSelection: payload.modelSelection }
                 : {}),
-              ...(isStudio
-                ? {
-                    envMode: "local" as const,
-                    branch: null,
-                    worktreePath: null,
-                    workingDirectory:
-                      payload.workingDirectory !== undefined
-                        ? payload.workingDirectory
-                        : payload.worktreePath !== undefined
-                          ? payload.worktreePath
-                          : (existingThread?.workingDirectory ??
-                            existingThread?.worktreePath ??
-                            null),
-                  }
-                : {
-                    ...(payload.envMode !== undefined ? { envMode: payload.envMode } : {}),
-                    ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
-                    ...(payload.worktreePath !== undefined
-                      ? { worktreePath: payload.worktreePath }
-                      : {}),
-                    ...(payload.workingDirectory !== undefined
-                      ? { workingDirectory: payload.workingDirectory }
-                      : payload.worktreePath !== undefined
-                        ? { workingDirectory: payload.worktreePath }
-                        : {}),
-                  }),
-              ...(payload.associatedWorktreePath !== undefined
-                ? { associatedWorktreePath: payload.associatedWorktreePath }
-                : {}),
-              ...(payload.associatedWorktreeBranch !== undefined
-                ? { associatedWorktreeBranch: payload.associatedWorktreeBranch }
-                : {}),
-              ...(payload.associatedWorktreeRef !== undefined
-                ? { associatedWorktreeRef: payload.associatedWorktreeRef }
-                : {}),
-              ...(nextCreateBranchFlowCompleted !== undefined
-                ? { createBranchFlowCompleted: nextCreateBranchFlowCompleted }
-                : {}),
-              ...(isStudio
-                ? {
-                    associatedWorktreePath: null,
-                    associatedWorktreeBranch: null,
-                    associatedWorktreeRef: null,
-                    createBranchFlowCompleted: false,
-                  }
+              ...(payload.workingDirectory !== undefined
+                ? { workingDirectory: payload.workingDirectory }
                 : {}),
               ...(payload.isPinned !== undefined ? { isPinned: payload.isPinned } : {}),
               ...(payload.sidebarSortOrder !== undefined
@@ -717,7 +581,6 @@ export function projectEvent(
                 ? { subagentNickname: payload.subagentNickname }
                 : {}),
               ...(payload.subagentRole !== undefined ? { subagentRole: payload.subagentRole } : {}),
-              ...(payload.lastKnownPr !== undefined ? { lastKnownPr: payload.lastKnownPr } : {}),
               ...(payload.pinnedMessages !== undefined
                 ? { pinnedMessages: payload.pinnedMessages }
                 : {}),
@@ -725,6 +588,9 @@ export function projectEvent(
                 ? { threadMarkers: payload.threadMarkers }
                 : {}),
               ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
+              ...(payload.lastVisitedAt !== undefined
+                ? { lastVisitedAt: payload.lastVisitedAt }
+                : {}),
               updatedAt: payload.updatedAt,
             }),
           };
@@ -1069,6 +935,9 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             messages: cappedMessages,
+            ...(payload.role === "user" && payload.delivery?.state === "starting"
+              ? { pendingTurnStartMessageId: payload.messageId }
+              : {}),
             updatedAt: event.occurredAt,
           }),
         };
@@ -1132,7 +1001,13 @@ export function projectEvent(
           threads: updateThread(nextBase.threads, payload.threadId, {
             session,
             pendingTurnStartMessageId:
-              session.status === "starting" ? thread.pendingTurnStartMessageId : null,
+              session.status === "starting"
+                ? (thread.pendingTurnStartMessageId ??
+                  thread.messages.findLast(
+                    (message) => message.role === "user" && message.delivery?.state === "starting",
+                  )?.id ??
+                  null)
+                : null,
             latestTurn:
               session.status === "running" && session.activeTurnId !== null
                 ? thread.latestTurn?.turnId === session.activeTurnId &&
@@ -1160,148 +1035,6 @@ export function projectEvent(
           }),
         };
       });
-
-    case "thread.turn-diff-completed":
-      return Effect.gen(function* () {
-        const payload = yield* decodeForEvent(
-          ThreadTurnDiffCompletedPayload,
-          event.payload,
-          event.type,
-          "payload",
-        );
-        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
-        if (!thread) {
-          return nextBase;
-        }
-
-        const checkpoint = yield* decodeForEvent(
-          OrchestrationCheckpointSummary,
-          {
-            turnId: payload.turnId,
-            checkpointTurnCount: payload.checkpointTurnCount,
-            checkpointRef: payload.checkpointRef,
-            status: payload.status,
-            files: payload.files,
-            assistantMessageId: payload.assistantMessageId,
-            completedAt: payload.completedAt,
-          },
-          event.type,
-          "checkpoint",
-        );
-
-        // Do not let a placeholder (status "missing") overwrite a checkpoint
-        // that has already been captured with a real git ref (status "ready").
-        // ProviderRuntimeIngestion may fire multiple turn.diff.updated events
-        // per turn; without this guard later placeholders would clobber the
-        // real capture dispatched by CheckpointReactor.
-        const existing = thread.checkpoints.find((entry) => entry.turnId === checkpoint.turnId);
-        if (existing && existing.status !== "missing" && checkpoint.status === "missing") {
-          return nextBase;
-        }
-
-        const checkpoints = [
-          ...thread.checkpoints.filter((entry) => entry.turnId !== checkpoint.turnId),
-          checkpoint,
-        ]
-          .toSorted((left, right) => left.checkpointTurnCount - right.checkpointTurnCount)
-          .slice(-MAX_THREAD_CHECKPOINTS);
-
-        // Preserve the previous latestTurn assistantMessageId when the
-        // incoming payload has none. Turn-diff placeholders can fire before
-        // the assistant message is finalized — they must not erase a real id
-        // that thread.message-sent has already recorded.
-        const preservedAssistantMessageId =
-          payload.assistantMessageId ??
-          (thread.latestTurn?.turnId === payload.turnId
-            ? thread.latestTurn.assistantMessageId
-            : null);
-        const previousLatestCheckpointTurnCount = thread.checkpoints.find(
-          (entry) => entry.turnId === thread.latestTurn?.turnId,
-        )?.checkpointTurnCount;
-        const preservesNewerLatestTurn =
-          payload.preserveLatestTurn === true ||
-          (previousLatestCheckpointTurnCount !== undefined &&
-            previousLatestCheckpointTurnCount > payload.checkpointTurnCount);
-        const latestTurn = preservesNewerLatestTurn
-          ? thread.latestTurn
-          : // A provider-diff placeholder only carries live diff totals; it must never
-            // change the turn lifecycle — neither close a running turn nor flip an
-            // already-settled one to "interrupted" when it loses the race against
-            // session settlement.
-            isProviderDiffPlaceholderRef(payload.checkpointRef) &&
-              payload.status === "missing" &&
-              thread.latestTurn?.turnId === payload.turnId
-            ? thread.latestTurn
-            : {
-                turnId: payload.turnId,
-                state: checkpointStatusToLatestTurnState(payload.status),
-                requestedAt:
-                  thread.latestTurn?.turnId === payload.turnId
-                    ? thread.latestTurn.requestedAt
-                    : payload.completedAt,
-                startedAt:
-                  thread.latestTurn?.turnId === payload.turnId
-                    ? (thread.latestTurn.startedAt ?? payload.completedAt)
-                    : payload.completedAt,
-                completedAt: payload.completedAt,
-                assistantMessageId: preservedAssistantMessageId,
-              };
-
-        return {
-          ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
-            checkpoints,
-            latestTurn,
-            updatedAt: event.occurredAt,
-          }),
-        };
-      });
-
-    case "thread.reverted":
-      return decodeForEvent(ThreadRevertedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => {
-          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
-          if (!thread) {
-            return nextBase;
-          }
-
-          const checkpoints = thread.checkpoints
-            .filter((entry) => entry.checkpointTurnCount <= payload.turnCount)
-            .toSorted((left, right) => left.checkpointTurnCount - right.checkpointTurnCount)
-            .slice(-MAX_THREAD_CHECKPOINTS);
-          const retainedTurnIds = new Set(checkpoints.map((checkpoint) => checkpoint.turnId));
-          const messages = retainThreadMessagesAfterRevert(
-            thread.messages,
-            retainedTurnIds,
-            payload.turnCount,
-          ).slice(-MAX_THREAD_MESSAGES);
-          const activities = retainThreadActivitiesAfterRevert(thread.activities, retainedTurnIds);
-
-          const latestCheckpoint = checkpoints.at(-1) ?? null;
-          const latestTurn =
-            latestCheckpoint === null
-              ? null
-              : {
-                  turnId: latestCheckpoint.turnId,
-                  state: checkpointStatusToLatestTurnState(latestCheckpoint.status),
-                  requestedAt: latestCheckpoint.completedAt,
-                  startedAt: latestCheckpoint.completedAt,
-                  completedAt: latestCheckpoint.completedAt,
-                  assistantMessageId: latestCheckpoint.assistantMessageId,
-                };
-
-          return {
-            ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
-              checkpoints,
-              messages,
-              activities,
-              latestTurn,
-              updatedAt: event.occurredAt,
-            }),
-          };
-        }),
-      );
 
     case "thread.turn-start-cancelled":
       return decodeForEvent(
@@ -1346,37 +1079,25 @@ export function projectEvent(
             return nextBase;
           }
 
-          const rollback = rollbackThreadMessagesFromMessage(thread.messages, payload.messageId);
+          const rollback = rollbackThreadMessagesFromMessage(
+            thread.messages,
+            payload.messageId,
+            payload.skipAttachmentPrune === true,
+          );
           if (rollback.messages === thread.messages) {
             return nextBase;
           }
 
-          const checkpoints = thread.checkpoints
-            .filter((checkpoint) => !rollback.removedTurnIds.has(checkpoint.turnId))
-            .toSorted((left, right) => left.checkpointTurnCount - right.checkpointTurnCount)
-            .slice(-MAX_THREAD_CHECKPOINTS);
           const activities = thread.activities.filter(
             (activity) => activity.turnId === null || !rollback.removedTurnIds.has(activity.turnId),
           );
-          const latestCheckpoint = checkpoints.at(-1) ?? null;
 
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
-              checkpoints,
               messages: rollback.messages.slice(-MAX_THREAD_MESSAGES),
               activities,
-              latestTurn:
-                latestCheckpoint === null
-                  ? null
-                  : {
-                      turnId: latestCheckpoint.turnId,
-                      state: checkpointStatusToLatestTurnState(latestCheckpoint.status),
-                      requestedAt: latestCheckpoint.completedAt,
-                      startedAt: latestCheckpoint.completedAt,
-                      completedAt: latestCheckpoint.completedAt,
-                      assistantMessageId: latestCheckpoint.assistantMessageId,
-                    },
+              latestTurn: null,
               updatedAt: event.occurredAt,
             }),
           };

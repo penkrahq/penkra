@@ -45,6 +45,11 @@ layer("ProviderRuntimeEventRepository", (it) => {
       const second = yield* repository.append(runtimeEvent("runtime-event-2", " world"));
 
       assert.strictEqual(duplicate.sequence, first.sequence);
+      const replayedLater = yield* repository.append({
+        ...runtimeEvent("runtime-event-1", "hello"),
+        createdAt: "2026-07-14T00:00:30.000Z",
+      });
+      assert.strictEqual(replayedLater.sequence, first.sequence);
       assert.isAbove(second.sequence, first.sequence);
       assert.strictEqual(yield* repository.getHighWaterSequence, second.sequence);
 
@@ -157,10 +162,10 @@ layer("ProviderRuntimeEventRepository", (it) => {
       );
       yield* sql`
         INSERT INTO projection_turns (
-          thread_id, turn_id, state, requested_at, checkpoint_files_json
+          thread_id, turn_id, state, requested_at
         ) VALUES (
           ${event.threadId}, ${event.turnId}, 'running',
-          ${event.createdAt}, '[]'
+          ${event.createdAt}
         )
       `;
 

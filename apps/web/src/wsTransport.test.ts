@@ -646,6 +646,30 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("joins an active reconnect instead of returning the retired client", async () => {
+    const transport = new WsTransport();
+    const retiredClient = { id: "retired" };
+    const replacementClient = { id: "replacement" };
+    let resolveReconnect!: (client: typeof replacementClient) => void;
+    const reconnectPromise = new Promise<typeof replacementClient>((resolve) => {
+      resolveReconnect = resolve;
+    });
+    const internals = transport as unknown as {
+      getClient: () => Promise<typeof retiredClient | typeof replacementClient>;
+      clientPromise: Promise<typeof retiredClient>;
+      reconnectPromise: Promise<typeof replacementClient> | null;
+    };
+    internals.clientPromise = Promise.resolve(retiredClient);
+    internals.reconnectPromise = reconnectPromise;
+
+    const clientPromise = internals.getClient();
+    resolveReconnect(replacementClient);
+
+    await expect(clientPromise).resolves.toBe(replacementClient);
+    internals.reconnectPromise = null;
+    await transport.dispose();
+  });
+
   it("does not retry an explicit orchestration rejection", async () => {
     const transport = new WsTransport();
     const method = ORCHESTRATION_WS_METHODS.dispatchCommand;

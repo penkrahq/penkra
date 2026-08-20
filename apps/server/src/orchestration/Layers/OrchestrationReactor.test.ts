@@ -1,10 +1,8 @@
 import { Effect, Exit, Layer, ManagedRuntime, Scope } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
-import { StudioOutputReactor } from "../Services/StudioOutputReactor.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
 import { makeOrchestrationReactor } from "./OrchestrationReactor.ts";
 
@@ -52,30 +50,6 @@ describe("OrchestrationReactor", () => {
             reconcileDelivery: () => Effect.succeed(null),
           }),
         ),
-        Layer.provideMerge(
-          Layer.succeed(CheckpointReactor, {
-            start: Effect.acquireRelease(
-              Effect.sync(() => {
-                started.push("checkpoint-reactor");
-              }),
-              () => Effect.sync(() => stopped.push("checkpoint-reactor")),
-            ),
-            drain: Effect.void,
-          }),
-        ),
-        Layer.provideMerge(
-          Layer.succeed(StudioOutputReactor, {
-            captureBaselineBeforeTurn: () => Effect.void,
-            cancelPendingTurnBaseline: () => Effect.void,
-            start: Effect.acquireRelease(
-              Effect.sync(() => {
-                started.push("studio-output-reactor");
-              }),
-              () => Effect.sync(() => stopped.push("studio-output-reactor")),
-            ),
-            drain: Effect.void,
-          }),
-        ),
       ),
     );
 
@@ -84,20 +58,10 @@ describe("OrchestrationReactor", () => {
     await Effect.runPromise(reactor.start.pipe(Scope.provide(scope)));
     await Effect.runPromise(reactor.reconcileSettledOpenTurns);
 
-    expect(started).toEqual([
-      "studio-output-reactor",
-      "checkpoint-reactor",
-      "provider-runtime-ingestion",
-      "provider-command-reactor",
-    ]);
+    expect(started).toEqual(["provider-runtime-ingestion", "provider-command-reactor"]);
     expect(reconciledOpenTurns).toBe(1);
 
     await Effect.runPromise(Scope.close(scope, Exit.void));
-    expect(stopped).toEqual([
-      "provider-command-reactor",
-      "provider-runtime-ingestion",
-      "checkpoint-reactor",
-      "studio-output-reactor",
-    ]);
+    expect(stopped).toEqual(["provider-command-reactor", "provider-runtime-ingestion"]);
   });
 });

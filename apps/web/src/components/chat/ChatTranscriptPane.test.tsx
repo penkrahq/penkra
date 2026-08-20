@@ -17,7 +17,6 @@ function renderTranscriptPaneMarkup(
       chatFontSizePx={14}
       emptyStateProjectName={undefined}
       hasMessages
-      isRevertingCheckpoint={false}
       isWorking={false}
       followLiveOutput={false}
       listRef={createRef<TranscriptVirtualListRef | null>()}
@@ -35,14 +34,11 @@ function renderTranscriptPaneMarkup(
       onMessagesTouchStart={() => {}}
       onMessagesWheel={() => {}}
       onOpenThread={(_threadId: ThreadId) => {}}
-      onRevertUserMessage={(_messageId: MessageId) => {}}
       onScrollToBottom={() => {}}
       resolvedTheme="light"
-      revertTurnCountByUserMessageId={new Map()}
       scrollButtonVisible
       timelineEntries={[]}
       timestampFormat="locale"
-      turnDiffSummaryByAssistantMessageId={new Map()}
       workspaceRoot={undefined}
       {...props}
     />,

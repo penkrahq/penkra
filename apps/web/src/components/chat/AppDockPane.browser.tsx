@@ -8,6 +8,7 @@ import { render } from "vitest-browser-react";
 import { AppDockPane } from "./AppDockPane";
 
 const originalDesktopBridge = Object.getOwnPropertyDescriptor(window, "desktopBridge");
+const originalNavigatorUserAgent = Object.getOwnPropertyDescriptor(window.navigator, "userAgent");
 const FRAME_DOCUMENT = `data:text/html,${encodeURIComponent(`
   <!doctype html><body>Runtime v2 App<script>
     addEventListener("message", (event) => {
@@ -25,6 +26,11 @@ afterEach(() => {
   document.body.innerHTML = "";
   if (originalDesktopBridge) Object.defineProperty(window, "desktopBridge", originalDesktopBridge);
   else Reflect.deleteProperty(window, "desktopBridge");
+  if (originalNavigatorUserAgent) {
+    Object.defineProperty(window.navigator, "userAgent", originalNavigatorUserAgent);
+  } else {
+    Reflect.deleteProperty(window.navigator, "userAgent");
+  }
 });
 
 function installBridge() {
@@ -158,6 +164,13 @@ describe("AppDockPane Runtime v2 frame", () => {
   });
 
   it("renders hosted Browser content as a DOM webview and binds its page identity", async () => {
+    Object.defineProperty(window.navigator, "userAgent", {
+      configurable: true,
+      value:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Penkra/0.11.3 Chrome/144.0.7559.236 Electron/40.10.6 " +
+        "Safari/537.36",
+    });
     const bridge = installBridge();
     await render(
       <div className="h-80 w-[640px]">
@@ -213,12 +226,31 @@ describe("AppDockPane Runtime v2 frame", () => {
     );
     expect(webview.getAttribute("partition")).toBe("persist:app-space-browser");
     expect(webview.getAttribute("src")).toBe("https://example.com");
+    expect(webview.getAttribute("useragent")).not.toMatch(/Electron|Penkra/iu);
+    expect(webview.getAttribute("useragent")).toContain("Chrome/144.0.7559.236");
     expect(webview.style.top).toBe("44px");
     expect(webview.style.right).toBe("8px");
     expect(webview.style.bottom).toBe("16px");
     expect(webview.style.left).toBe("8px");
     expect(webview.style.width).toBe("");
     expect(webview.style.height).toBe("");
+
+    bridge.emitHostMessage({
+      tabId: "browser-tab",
+      rendererId: -1,
+      delivery: {
+        kind: "event",
+        name: "browser.state",
+        payload: {
+          sessionId: "browser-tab",
+          activePageId: "page-1",
+          pages: [{ id: "page-1", url: "https://example.com/next", title: "Next" }],
+        },
+      },
+    });
+    await vi.waitFor(() => expect(webview.getAttribute("src")).toBe("https://example.com/next"));
+    expect(bridge.browserWebviewAttach).toHaveBeenCalledOnce();
+    expect(bridge.browserWebviewDetach).not.toHaveBeenCalled();
   });
 
   it("keeps both Browser surface edges locked during rapid host-only resizing", async () => {

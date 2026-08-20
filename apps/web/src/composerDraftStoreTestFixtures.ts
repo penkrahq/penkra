@@ -115,7 +115,6 @@ export function makeQueuedChatTurn(
     },
     connectionId: ProviderConnectionId.makeUnsafe("connection-test"),
     runtimeMode: "full-access",
-    envMode: "local",
   };
 }
 

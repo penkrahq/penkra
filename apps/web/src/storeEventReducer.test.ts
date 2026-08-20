@@ -3,7 +3,6 @@
 
 import {
   ApprovalRequestId,
-  CheckpointRef,
   CommandId,
   EventId,
   MessageId,
@@ -448,7 +447,6 @@ describe("store event reducer", () => {
               name: "Lint",
               command: "bun lint",
               icon: "lint",
-              runOnWorktreeCreate: false,
             },
           ],
           updatedAt: "2026-02-27T00:05:00.000Z",
@@ -472,7 +470,6 @@ describe("store event reducer", () => {
           name: "Lint",
           command: "bun lint",
           icon: "lint",
-          runOnWorktreeCreate: false,
         },
       ],
     });
@@ -693,16 +690,10 @@ describe("store event reducer", () => {
     ]);
   });
 
-  it("applies thread.meta-updated branch metadata immediately during live updates", () => {
+  it("applies thread metadata immediately during live updates", () => {
     const initialState = makeState(
       makeThread({
         title: "Old title",
-        envMode: "worktree",
-        branch: "penkra/tmp-working",
-        worktreePath: "/tmp/project/.worktrees/tmp-working",
-        associatedWorktreePath: "/tmp/project/.worktrees/tmp-working",
-        associatedWorktreeBranch: "penkra/tmp-working",
-        associatedWorktreeRef: "penkra/tmp-working",
         session: {
           provider: "codex",
           status: "ready",
@@ -717,49 +708,14 @@ describe("store event reducer", () => {
       makeDomainEvent("thread.meta-updated", {
         threadId: ThreadId.makeUnsafe("thread-1"),
         title: "New title",
-        branch: "penkra/app-startup-crash",
-        worktreePath: "/tmp/project/.worktrees/app-startup-crash",
-        associatedWorktreePath: "/tmp/project/.worktrees/app-startup-crash",
-        associatedWorktreeBranch: "penkra/app-startup-crash",
-        associatedWorktreeRef: "penkra/app-startup-crash",
         updatedAt: "2026-02-27T00:01:00.000Z",
       }),
     ]);
 
     expect(threadsOf(next)[0]).toMatchObject({
       title: "New title",
-      branch: "penkra/app-startup-crash",
-      worktreePath: "/tmp/project/.worktrees/app-startup-crash",
-      associatedWorktreePath: "/tmp/project/.worktrees/app-startup-crash",
-      associatedWorktreeBranch: "penkra/app-startup-crash",
-      associatedWorktreeRef: "penkra/app-startup-crash",
-      session: null,
       updatedAt: "2026-02-27T00:01:00.000Z",
     });
-  });
-
-  it("keeps createBranchFlowCompleted sticky for stale thread.meta-updated payloads", () => {
-    const initialState = makeState(
-      makeThread({
-        envMode: "worktree",
-        branch: "feature/semantic-branch",
-        worktreePath: "/tmp/project/.worktrees/semantic-branch",
-        associatedWorktreePath: "/tmp/project/.worktrees/semantic-branch",
-        associatedWorktreeBranch: "feature/semantic-branch",
-        associatedWorktreeRef: "feature/semantic-branch",
-        createBranchFlowCompleted: true,
-      }),
-    );
-
-    const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent("thread.meta-updated", {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        createBranchFlowCompleted: false,
-        updatedAt: "2026-02-27T00:01:00.000Z",
-      }),
-    ]);
-
-    expect(threadsOf(next)[0]?.createBranchFlowCompleted).toBe(true);
   });
 
   it("surfaces pinnedMessages and notes from a live thread.meta-updated event", () => {
@@ -921,284 +877,6 @@ describe("store event reducer", () => {
     expect(threadsOf(next)[0]?.updatedAt).toBe("2026-02-27T00:03:20.000Z");
   });
 
-  it("updates turn diffs and latest turn immediately from live events", () => {
-    const initialState = makeState(
-      makeThread({
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "running",
-          requestedAt: "2026-02-27T00:01:00.000Z",
-          startedAt: "2026-02-27T00:01:05.000Z",
-          completedAt: null,
-          assistantMessageId: null,
-        },
-      }),
-    );
-
-    const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent("thread.turn-diff-completed", {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        turnId: TurnId.makeUnsafe("turn-1"),
-        completedAt: "2026-02-27T00:02:00.000Z",
-        status: "ready",
-        files: [{ path: "src/app.ts", kind: "modified", additions: 1, deletions: 0 }],
-        checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
-        assistantMessageId: MessageId.makeUnsafe("assistant-message"),
-        checkpointTurnCount: 1,
-      }),
-    ]);
-
-    expect(threadsOf(next)[0]?.turnDiffSummaries).toHaveLength(1);
-    expect(threadsOf(next)[0]?.latestTurn).toMatchObject({
-      turnId: TurnId.makeUnsafe("turn-1"),
-      state: "completed",
-      completedAt: "2026-02-27T00:02:00.000Z",
-      assistantMessageId: MessageId.makeUnsafe("assistant-message"),
-    });
-  });
-
-  it("preserves the previously-recorded assistantMessageId when a turn-diff event arrives with a null id", () => {
-    const existingAssistantMessageId = MessageId.makeUnsafe("assistant-real");
-    const initialState = makeState(
-      makeThread({
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "running",
-          requestedAt: "2026-02-27T00:01:00.000Z",
-          startedAt: "2026-02-27T00:01:05.000Z",
-          completedAt: null,
-          assistantMessageId: existingAssistantMessageId,
-        },
-      }),
-    );
-
-    const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent("thread.turn-diff-completed", {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        turnId: TurnId.makeUnsafe("turn-1"),
-        completedAt: "2026-02-27T00:02:00.000Z",
-        status: "ready",
-        files: [{ path: "src/app.ts", kind: "modified", additions: 1, deletions: 0 }],
-        checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
-        assistantMessageId: null,
-        checkpointTurnCount: 1,
-      }),
-    ]);
-
-    expect(threadsOf(next)[0]?.latestTurn?.assistantMessageId).toBe(existingAssistantMessageId);
-  });
-
-  it("keeps an active turn running when an interim provider diff placeholder arrives", () => {
-    const initialState = makeState(
-      makeThread({
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "running",
-          requestedAt: "2026-02-27T00:01:00.000Z",
-          startedAt: "2026-02-27T00:01:05.000Z",
-          completedAt: null,
-          assistantMessageId: null,
-        },
-      }),
-    );
-
-    const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent("thread.turn-diff-completed", {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        turnId: TurnId.makeUnsafe("turn-1"),
-        completedAt: "2026-02-27T00:02:00.000Z",
-        status: "missing",
-        files: [],
-        checkpointRef: CheckpointRef.makeUnsafe("provider-diff:event-1"),
-        assistantMessageId: null,
-        checkpointTurnCount: 1,
-      }),
-    ]);
-
-    expect(threadsOf(next)[0]?.turnDiffSummaries).toHaveLength(1);
-    expect(threadsOf(next)[0]?.latestTurn).toMatchObject({
-      turnId: TurnId.makeUnsafe("turn-1"),
-      state: "running",
-      completedAt: null,
-    });
-  });
-
-  it("keeps a settled turn intact when a late provider diff placeholder arrives", () => {
-    const initialState = makeState(
-      makeThread({
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "completed",
-          requestedAt: "2026-02-27T00:01:00.000Z",
-          startedAt: "2026-02-27T00:01:05.000Z",
-          completedAt: "2026-02-27T00:01:30.000Z",
-          assistantMessageId: null,
-        },
-      }),
-    );
-
-    const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent("thread.turn-diff-completed", {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        turnId: TurnId.makeUnsafe("turn-1"),
-        completedAt: "2026-02-27T00:01:31.000Z",
-        status: "missing",
-        files: [],
-        checkpointRef: CheckpointRef.makeUnsafe("provider-diff:event-late"),
-        assistantMessageId: null,
-        checkpointTurnCount: 1,
-      }),
-    ]);
-
-    expect(threadsOf(next)[0]?.latestTurn).toMatchObject({
-      turnId: TurnId.makeUnsafe("turn-1"),
-      state: "completed",
-      completedAt: "2026-02-27T00:01:30.000Z",
-    });
-  });
-
-  it("does not leak the previous turn's assistantMessageId into a null-id summary for a different turn", () => {
-    const existingAssistantMessageId = MessageId.makeUnsafe("assistant-turn-1");
-    const initialState = makeState(
-      makeThread({
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "completed",
-          requestedAt: "2026-02-27T00:01:00.000Z",
-          startedAt: "2026-02-27T00:01:05.000Z",
-          completedAt: "2026-02-27T00:01:30.000Z",
-          assistantMessageId: existingAssistantMessageId,
-        },
-      }),
-    );
-
-    const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent("thread.turn-diff-completed", {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        turnId: TurnId.makeUnsafe("turn-2"),
-        completedAt: "2026-02-27T00:02:00.000Z",
-        status: "ready",
-        files: [{ path: "src/other.ts", kind: "modified", additions: 1, deletions: 0 }],
-        checkpointRef: CheckpointRef.makeUnsafe("checkpoint-2"),
-        assistantMessageId: null,
-        checkpointTurnCount: 2,
-      }),
-    ]);
-
-    // latestTurn is only replaced when turnIds match, so turn-1 stays intact
-    // and its real assistantMessageId is preserved (no bleed-through from the
-    // turn-2 null payload).
-    expect(threadsOf(next)[0]?.latestTurn?.turnId).toBe(TurnId.makeUnsafe("turn-1"));
-    expect(threadsOf(next)[0]?.latestTurn?.assistantMessageId).toBe(existingAssistantMessageId);
-
-    const turn2Summary = threadsOf(next)[0]?.turnDiffSummaries.find(
-      (entry) => entry.turnId === TurnId.makeUnsafe("turn-2"),
-    );
-    expect(turn2Summary?.assistantMessageId ?? null).toBeNull();
-  });
-
-  it("deduplicates duplicate checkpoint file paths in live turn diff events", () => {
-    const initialState = makeState(makeThread());
-
-    const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent("thread.turn-diff-completed", {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        turnId: TurnId.makeUnsafe("turn-1"),
-        completedAt: "2026-02-27T00:02:00.000Z",
-        status: "ready",
-        files: [
-          { path: "CLAUDE.md", kind: "modified", additions: 1, deletions: 0 },
-          { path: "CLAUDE.md", kind: "modified", additions: 0, deletions: 2 },
-        ],
-        checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
-        assistantMessageId: MessageId.makeUnsafe("assistant-message"),
-        checkpointTurnCount: 1,
-      }),
-    ]);
-
-    expect(threadsOf(next)[0]?.turnDiffSummaries[0]?.files).toEqual([
-      { path: "CLAUDE.md", kind: "modified", additions: 1, deletions: 2 },
-    ]);
-  });
-
-  it("cleans thread state on revert", () => {
-    const initialState = makeState(
-      makeThread({
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-2"),
-          state: "completed",
-          requestedAt: "2026-02-27T00:01:00.000Z",
-          startedAt: "2026-02-27T00:01:05.000Z",
-          completedAt: "2026-02-27T00:03:00.000Z",
-          assistantMessageId: MessageId.makeUnsafe("assistant-2"),
-        },
-        messages: [
-          {
-            id: MessageId.makeUnsafe("user-1"),
-            role: "user",
-            text: "one",
-            turnId: TurnId.makeUnsafe("turn-1"),
-            createdAt: "2026-02-27T00:00:00.000Z",
-            streaming: false,
-          },
-          {
-            id: MessageId.makeUnsafe("assistant-1"),
-            role: "assistant",
-            text: "reply",
-            turnId: TurnId.makeUnsafe("turn-1"),
-            createdAt: "2026-02-27T00:00:10.000Z",
-            completedAt: "2026-02-27T00:00:10.000Z",
-            streaming: false,
-          },
-          {
-            id: MessageId.makeUnsafe("user-2"),
-            role: "user",
-            text: "two",
-            turnId: TurnId.makeUnsafe("turn-2"),
-            createdAt: "2026-02-27T00:01:00.000Z",
-            streaming: false,
-          },
-        ],
-        activities: [
-          makeActivity({ id: "activity-1", turnId: "turn-1" }),
-          makeActivity({ id: "activity-2", turnId: "turn-2" }),
-        ],
-        turnDiffSummaries: [
-          {
-            turnId: TurnId.makeUnsafe("turn-1"),
-            completedAt: "2026-02-27T00:00:15.000Z",
-            status: "ready",
-            files: [],
-            checkpointTurnCount: 1,
-          },
-          {
-            turnId: TurnId.makeUnsafe("turn-2"),
-            completedAt: "2026-02-27T00:03:00.000Z",
-            status: "ready",
-            files: [],
-            checkpointTurnCount: 2,
-          },
-        ],
-      }),
-    );
-
-    const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent("thread.reverted", {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        turnCount: 1,
-      }),
-    ]);
-
-    expect(threadsOf(next)[0]?.messages.map((message) => message.id)).toEqual([
-      MessageId.makeUnsafe("user-1"),
-      MessageId.makeUnsafe("assistant-1"),
-    ]);
-    expect(threadsOf(next)[0]?.activities.map((activity) => activity.id)).toEqual([
-      EventId.makeUnsafe("activity-1"),
-    ]);
-    expect(threadsOf(next)[0]?.latestTurn?.turnId).toBe(TurnId.makeUnsafe("turn-1"));
-  });
-
   it("rolls back conversation state from an edited user message", () => {
     const initialState = makeState(
       makeThread({
@@ -1245,22 +923,6 @@ describe("store event reducer", () => {
           },
         ],
         activities: [makeActivity({ id: "activity-2", turnId: "turn-2" })],
-        turnDiffSummaries: [
-          {
-            turnId: TurnId.makeUnsafe("turn-1"),
-            completedAt: "2026-02-27T00:00:15.000Z",
-            status: "ready",
-            files: [],
-            checkpointTurnCount: 1,
-          },
-          {
-            turnId: TurnId.makeUnsafe("turn-2"),
-            completedAt: "2026-02-27T00:03:00.000Z",
-            status: "ready",
-            files: [],
-            checkpointTurnCount: 2,
-          },
-        ],
       }),
     );
 
@@ -1277,11 +939,8 @@ describe("store event reducer", () => {
       MessageId.makeUnsafe("user-1"),
       MessageId.makeUnsafe("assistant-1"),
     ]);
-    expect(threadsOf(next)[0]?.turnDiffSummaries.map((summary) => summary.turnId)).toEqual([
-      TurnId.makeUnsafe("turn-1"),
-    ]);
     expect(threadsOf(next)[0]?.activities).toEqual([]);
-    expect(threadsOf(next)[0]?.latestTurn?.turnId).toBe(TurnId.makeUnsafe("turn-1"));
+    expect(threadsOf(next)[0]?.latestTurn).toBeNull();
   });
 
   it("reconciles snapshot state even when thread updatedAt matches a prior live event", () => {
@@ -1898,9 +1557,6 @@ describe("store event reducer", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        envMode: "local",
-        branch: null,
-        worktreePath: null,
         forkSourceThreadId: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",

@@ -1,19 +1,7 @@
 // FILE: threadWorkspace.ts
-// Purpose: Share worktree and workspace-root helpers used across web and server flows.
+// Purpose: Share workspace-root helpers used across web and server flows.
 // Layer: Shared util
-// Exports: associated worktree helpers plus workspace-root comparison helpers
-
-export interface AssociatedWorktreeMetadata {
-  associatedWorktreePath: string | null;
-  associatedWorktreeBranch: string | null;
-  associatedWorktreeRef: string | null;
-}
-
-export interface AssociatedWorktreeMetadataPatch {
-  associatedWorktreePath?: string | null;
-  associatedWorktreeBranch?: string | null;
-  associatedWorktreeRef?: string | null;
-}
+// Exports: workspace-root comparison helpers
 
 export interface NormalizeWorkspaceRootForComparisonOptions {
   readonly platform?: string;
@@ -109,70 +97,4 @@ export function isScratchWorkspacePath(filePath: string): boolean {
   const normalized = filePath.trim().replace(/\\/g, "/");
   const isAbsolute = normalized.startsWith("/") || /^[a-z]:\//i.test(normalized);
   return isAbsolute && normalized.includes(`/${SCRATCH_WORKSPACES_DIRNAME}/`);
-}
-
-export function deriveAssociatedWorktreeMetadata(input: {
-  branch?: string | null;
-  worktreePath?: string | null;
-  // Checked with `!== undefined` below to distinguish "derive from worktreePath"
-  // (undefined) from "explicitly none" (null). The thread schema marks these
-  // Schema.optional, so the param type must admit an explicit undefined under
-  // exactOptionalPropertyTypes.
-  associatedWorktreePath?: string | null | undefined;
-  associatedWorktreeBranch?: string | null | undefined;
-  associatedWorktreeRef?: string | null | undefined;
-}): AssociatedWorktreeMetadata {
-  return {
-    associatedWorktreePath:
-      input.associatedWorktreePath !== undefined
-        ? input.associatedWorktreePath
-        : (input.worktreePath ?? null),
-    associatedWorktreeBranch:
-      input.associatedWorktreeBranch !== undefined
-        ? input.associatedWorktreeBranch
-        : input.worktreePath
-          ? (input.branch ?? null)
-          : null,
-    associatedWorktreeRef:
-      input.associatedWorktreeRef !== undefined
-        ? input.associatedWorktreeRef
-        : input.associatedWorktreeBranch !== undefined
-          ? input.associatedWorktreeBranch
-          : input.worktreePath
-            ? (input.branch ?? null)
-            : null,
-  };
-}
-
-export function deriveAssociatedWorktreeMetadataPatch(input: {
-  branch?: string | null;
-  worktreePath?: string | null;
-  // Same undefined-aware semantics as deriveAssociatedWorktreeMetadata above.
-  associatedWorktreePath?: string | null | undefined;
-  associatedWorktreeBranch?: string | null | undefined;
-  associatedWorktreeRef?: string | null | undefined;
-}): AssociatedWorktreeMetadataPatch {
-  const patch: AssociatedWorktreeMetadataPatch = {};
-
-  if (input.associatedWorktreePath !== undefined) {
-    patch.associatedWorktreePath = input.associatedWorktreePath;
-  } else if (input.worktreePath !== undefined && input.worktreePath !== null) {
-    patch.associatedWorktreePath = input.worktreePath;
-  }
-
-  if (input.associatedWorktreeBranch !== undefined) {
-    patch.associatedWorktreeBranch = input.associatedWorktreeBranch;
-  } else if (input.worktreePath !== undefined && input.worktreePath !== null) {
-    patch.associatedWorktreeBranch = input.branch ?? null;
-  }
-
-  if (input.associatedWorktreeRef !== undefined) {
-    patch.associatedWorktreeRef = input.associatedWorktreeRef;
-  } else if (input.associatedWorktreeBranch !== undefined) {
-    patch.associatedWorktreeRef = input.associatedWorktreeBranch;
-  } else if (input.worktreePath !== undefined && input.worktreePath !== null) {
-    patch.associatedWorktreeRef = input.branch ?? null;
-  }
-
-  return patch;
 }

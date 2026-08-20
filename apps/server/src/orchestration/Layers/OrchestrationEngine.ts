@@ -1259,10 +1259,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     eventPubSub,
   ).pipe(Effect.map((subscription) => Stream.fromEffectRepeat(PubSub.take(subscription))));
 
-  // Compatibility bridge for older tests and out-of-tree callers. Production
-  // code should use ProjectionSnapshotQuery directly instead of depending on
-  // the command engine to own a hydrated read model.
-  const getReadModel = () => Effect.sync(() => commandReadModel);
+  // Compatibility bridge for older tests and out-of-tree callers. Rehydrate
+  // from the authoritative snapshot so canonical operations/notices are
+  // visible even though they intentionally do not emit orchestration events.
+  const getReadModel = () => projectionSnapshotQuery.getSnapshot().pipe(Effect.orDie);
   const refreshCommandReadModel: OrchestrationEngineShape["refreshCommandReadModel"] = () =>
     maintenanceLock.withPermits(1)(refreshCommandReadModelFromProjectionState);
 
@@ -1512,7 +1512,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     dispatch,
     repairState,
     // Each access creates a fresh PubSub subscription so that multiple
-    // consumers (Effect RPC, ProviderRuntimeIngestion, CheckpointReactor, etc.)
+    // consumers (Effect RPC, ProviderRuntimeIngestion, etc.)
     // each independently receive all domain events.
     get streamDomainEvents(): OrchestrationEngineShape["streamDomainEvents"] {
       return Stream.unwrap(subscribeDomainEvents);

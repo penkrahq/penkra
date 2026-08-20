@@ -16,7 +16,7 @@ const PROJECT_DIRECTORY_LIST_MAX_DEPTH = 32;
 const PROJECT_SCRIPT_DISCOVERY_MAX_DEPTH = 3;
 const ProjectEntryKind = Schema.Literals(["file", "directory"]);
 
-export const ContainerKind = Schema.Literals(["project", "chat", "studio"]);
+export const ContainerKind = Schema.Literals(["project", "chat"]);
 export type ContainerKind = typeof ContainerKind.Type;
 
 export const ProjectSearchEntriesInput = Schema.Struct({

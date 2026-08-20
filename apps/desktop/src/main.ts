@@ -7149,22 +7149,20 @@ async function bootstrap(): Promise<void> {
       `[penkra-app] Install receipt reconciliation failed: ${formatErrorMessage(error)}`,
     );
   });
-  developmentSideloadRegistry = isDevelopment
-    ? new DevelopmentAppSideloadRegistry({
-        runtime: desktopAppRuntime,
-        onApplied: async (result) => {
-          console.info(
-            `[penkra-app] Development sideload ${result.status} after local rebuild in Space ${result.spaceId}: ${result.sourcePath}`,
-          );
-          await notifyOpenAppsInstallationState();
-        },
-        onError: (error, context) => {
-          console.warn(
-            `[penkra-app] Development sideload rebuild was not applied for ${context.appId} in Space ${context.spaceId}; the working package remains active: ${formatErrorMessage(error)}`,
-          );
-        },
-      })
-    : null;
+  developmentSideloadRegistry = new DevelopmentAppSideloadRegistry({
+    runtime: desktopAppRuntime,
+    onApplied: async (result) => {
+      console.info(
+        `[penkra-app] Local sideload ${result.status} after rebuild in Space ${result.spaceId}: ${result.sourcePath}`,
+      );
+      await notifyOpenAppsInstallationState();
+    },
+    onError: (error, context) => {
+      console.warn(
+        `[penkra-app] Local sideload rebuild was not applied for ${context.appId} in Space ${context.spaceId}; the working package remains active: ${formatErrorMessage(error)}`,
+      );
+    },
+  });
   try {
     await bootstrapConfiguredAppsForSpaces();
   } catch (error) {
@@ -7252,17 +7250,15 @@ async function bootstrap(): Promise<void> {
     registry: appRegistryClient,
     open: openPenkraResource,
     sideload: async ({ sourcePath, spaceId }) => {
-      if (!isDevelopment || !developmentSideloadRegistry) {
-        throw new Error("App sideloading is available only in Penkra development.");
-      }
+      if (!developmentSideloadRegistry) throw new Error("App sideloading is unavailable.");
       const targetSpaceId =
         spaceId ?? spacesMenuState.activeSpaceId ?? spacesMenuState.spaces[0]?.id ?? null;
       if (!targetSpaceId || !spacesMenuState.spaces.some((space) => space.id === targetSpaceId)) {
-        throw new Error("The requested development Space is unavailable.");
+        throw new Error("The requested Space is unavailable.");
       }
       const result = await developmentSideloadRegistry.register(sourcePath, targetSpaceId);
       console.info(
-        `[penkra-app] Development sideload ${result.status} in Space ${result.spaceId}: ${result.sourcePath}`,
+        `[penkra-app] Local sideload ${result.status} in Space ${result.spaceId}: ${result.sourcePath}`,
       );
       await notifyOpenAppsInstallationState();
       return result;

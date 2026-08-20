@@ -6,7 +6,6 @@ import type {
   OrchestrationSpace,
   OrchestrationSession,
   OrchestrationThread,
-  OrchestrationThreadActivity,
   ContainerKind,
   ContainerId,
   SpaceId,
@@ -49,45 +48,6 @@ export function threadHasInFlightTurn(thread: {
     session?.status === "running" ||
     thread.latestTurn?.state === "running"
   );
-}
-
-export function checkpointRevertActiveTurnDetail(threadId: ThreadId): string {
-  return `Thread '${threadId}' has an active turn. Interrupt the current turn before reverting checkpoints.`;
-}
-
-export const CHECKPOINT_REVERT_STARTED_ACTIVITY_KIND = "checkpoint.revert.started";
-export const CHECKPOINT_REVERT_SUCCEEDED_ACTIVITY_KIND = "checkpoint.revert.succeeded";
-export const CHECKPOINT_REVERT_FAILED_ACTIVITY_KIND = "checkpoint.revert.failed";
-
-const CHECKPOINT_REVERT_LIFECYCLE_ACTIVITY_KINDS = new Set([
-  CHECKPOINT_REVERT_STARTED_ACTIVITY_KIND,
-  CHECKPOINT_REVERT_SUCCEEDED_ACTIVITY_KIND,
-  CHECKPOINT_REVERT_FAILED_ACTIVITY_KIND,
-]);
-
-export function threadHasCheckpointRevertInProgress(thread: {
-  readonly activities: ReadonlyArray<
-    Pick<OrchestrationThreadActivity, "createdAt" | "id" | "kind" | "sequence">
-  >;
-}): boolean {
-  const latestLifecycleActivity = thread.activities
-    .filter((activity) => CHECKPOINT_REVERT_LIFECYCLE_ACTIVITY_KINDS.has(activity.kind))
-    .toSorted(
-      (left, right) =>
-        (right.sequence ?? -1) - (left.sequence ?? -1) ||
-        right.createdAt.localeCompare(left.createdAt) ||
-        right.id.localeCompare(left.id),
-    )
-    .at(0);
-  return latestLifecycleActivity?.kind === CHECKPOINT_REVERT_STARTED_ACTIVITY_KIND;
-}
-
-export function checkpointRevertInProgressDetail(threadId: ThreadId): string {
-  return `Thread '${threadId}' has a checkpoint revert in progress. Wait for it to finish before starting a turn.`;
-}
-
-export function checkpointRevertDeleteInProgressDetail(threadId: ThreadId): string {
-  return `Thread '${threadId}' has a checkpoint revert in progress. Wait for it to finish before deleting the thread.`;
 }
 
 export function findThreadById(
@@ -212,8 +172,8 @@ export interface SpaceAssignmentWorkspacePaths {
 }
 
 /**
- * Server half of the web's `isOrdinarySpaceProject` membership rule. Managed chat and
- * Studio containers are excluded by kind alone, but legacy Home chat containers kept
+ * Server half of the web's `isOrdinarySpaceProject` membership rule. Managed chat
+ * containers are excluded by kind alone, but legacy Home chat containers kept
  * `kind: "project"` — they are recognizable by the reserved home/chat workspace root plus
  * their canonical "Home" title. Those containers are reachable from every Space, so they
  * must never belong to one. The decider rejects renaming this legacy row so the signal cannot
@@ -237,7 +197,7 @@ export function isLegacyHomeChatContainerRow(input: {
 
 /**
  * Server half of the web's project partitioning: ordinary projects are the user-visible
- * ones. Managed chat and Studio containers are excluded by kind alone; the legacy Home
+ * ones. Managed chat containers are excluded by kind alone; the legacy Home
  * chat container kept `kind: "project"` and is recognized by its row shape instead.
  */
 export function isOrdinaryProjectRow(input: {

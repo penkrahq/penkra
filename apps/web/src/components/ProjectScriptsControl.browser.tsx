@@ -73,7 +73,6 @@ describe("ProjectScriptsControl", () => {
       name: "Setup",
       command: "bun install",
       icon: "configure",
-      runOnWorktreeCreate: true,
     };
     await using control = await mountProjectScriptsControl({
       scripts: [setupScript],
@@ -84,7 +83,7 @@ describe("ProjectScriptsControl", () => {
     expect(control.onRunScript).toHaveBeenCalledWith(setupScript);
 
     await page.getByLabelText("Script actions").click();
-    await expect.poll(() => document.body.textContent).toContain("Setup (setup)");
+    await expect.element(page.getByRole("menuitem", { name: /Setup/u })).toBeVisible();
     await expect.poll(() => document.body.textContent).toContain("Add action");
   });
 
@@ -94,7 +93,6 @@ describe("ProjectScriptsControl", () => {
       name: "Setup",
       command: "bun install",
       icon: "configure",
-      runOnWorktreeCreate: true,
     };
     await using _ = await mountProjectScriptsControl({
       scripts: [setupScript],

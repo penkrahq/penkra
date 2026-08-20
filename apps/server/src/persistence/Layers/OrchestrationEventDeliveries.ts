@@ -11,6 +11,11 @@ import {
   type OrchestrationEventDeliveryRepositoryShape,
 } from "../Services/OrchestrationEventDeliveries.ts";
 
+// The event log is a delivery/recovery tail, not a second source of Thread
+// history. Canonical projections remain authoritative while this many of the
+// newest acknowledged events stay available for diagnostics and live replay.
+export const ORCHESTRATION_EVENT_TAIL_ROWS = 10_000;
+
 const deliveryColumns = (sql: SqlClient.SqlClient) => sql`
   consumer_name AS "consumerName",
   event_sequence AS "eventSequence",
@@ -49,6 +54,56 @@ const makeRepository = Effect.gen(function* () {
       WHERE consumer_name = ${consumerName}
         AND event_sequence = ${eventSequence}
     `;
+
+  const collectAcknowledgedTail = Effect.gen(function* () {
+    const bounds = yield* sql<{
+      readonly safeSequence: number | null;
+      readonly highWaterSequence: number | null;
+    }>`
+      SELECT
+        (SELECT MIN(last_acked_sequence) FROM orchestration_consumer_state) AS "safeSequence",
+        (SELECT MAX(sequence) FROM orchestration_events) AS "highWaterSequence"
+    `;
+    const safeSequence = Number(bounds[0]?.safeSequence ?? 0);
+    const highWaterSequence = Number(bounds[0]?.highWaterSequence ?? 0);
+    const cutoff = Math.min(safeSequence, highWaterSequence - ORCHESTRATION_EVENT_TAIL_ROWS);
+    if (cutoff <= 0) return 0;
+
+    yield* sql`
+      DELETE FROM orchestration_event_deliveries
+      WHERE event_sequence <= ${cutoff} AND state = 'succeeded'
+    `;
+    yield* sql`
+      DELETE FROM orchestration_command_receipts
+      WHERE command_id LIKE 'provider:%' AND result_sequence <= ${cutoff}
+    `;
+    const queuedPromotionTable = yield* sql<{ readonly present: number }>`
+      SELECT 1 AS present FROM sqlite_master
+      WHERE type = 'table' AND name = 'queued_turn_promotions'
+    `;
+    const deleted =
+      queuedPromotionTable.length > 0
+        ? yield* sql<{ readonly sequence: number }>`
+            DELETE FROM orchestration_events
+            WHERE sequence <= ${cutoff}
+              AND NOT EXISTS (
+                SELECT 1 FROM queued_turn_promotions AS promotion
+                WHERE promotion.queued_event_sequence = orchestration_events.sequence
+              )
+            RETURNING sequence
+          `
+        : yield* sql<{ readonly sequence: number }>`
+            DELETE FROM orchestration_events
+            WHERE sequence <= ${cutoff}
+            RETURNING sequence
+          `;
+    if (deleted.length > 0) {
+      yield* Effect.logDebug("collected acknowledged orchestration event tail").pipe(
+        Effect.annotateLogs({ collectedEventCount: deleted.length, cutoff, highWaterSequence }),
+      );
+    }
+    return deleted.length;
+  });
 
   const getConsumerState: OrchestrationEventDeliveryRepositoryShape["getConsumerState"] = (
     consumerName,
@@ -179,6 +234,7 @@ const makeRepository = Effect.gen(function* () {
           WHERE consumer_name = ${input.consumerName}
           RETURNING consumer_name AS "consumerName"
         `;
+          if (advanced.length === 1) yield* collectAcknowledgedTail;
           return advanced.length === 1;
         }),
       )
@@ -221,6 +277,7 @@ const makeRepository = Effect.gen(function* () {
                 updated_at = ${input.completedAt}
             WHERE consumer_name = ${input.consumerName}
           `;
+            yield* collectAcknowledgedTail;
           }
           return true;
         }),

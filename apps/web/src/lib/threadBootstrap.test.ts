@@ -39,9 +39,6 @@ function makeDraftThread(partial?: Partial<DraftThreadState>): DraftThreadState 
     createdAt: "2026-04-05T10:00:00.000Z",
     runtimeMode: "approval-required",
     entryPoint: "terminal",
-    branch: "feature/terminal-bootstrap",
-    worktreePath: "/repo/.worktrees/terminal-bootstrap",
-    envMode: "worktree",
     ...partial,
   };
 }
@@ -86,10 +83,10 @@ describe("threadBootstrap", () => {
     const personalId = SpaceId.makeUnsafe("personal");
     expect(
       scopeNewThreadOptionsToParentSpace(
-        { envMode: "local", spaceId: SpaceId.makeUnsafe("stale-space") },
+        { spaceId: SpaceId.makeUnsafe("stale-space") },
         personalId,
       ),
-    ).toEqual({ envMode: "local", spaceId: personalId });
+    ).toEqual({ spaceId: personalId });
   });
 
   it("preserves the selected Space for the shared chat container", () => {
@@ -97,11 +94,11 @@ describe("threadBootstrap", () => {
     const workId = SpaceId.makeUnsafe("work");
     expect(
       scopeNewThreadOptionsToContainer({
-        options: { envMode: "local", spaceId: workId },
+        options: { spaceId: workId },
         containerKind: "chat",
         containerSpaceId: personalId,
       }),
-    ).toEqual({ envMode: "local", spaceId: workId });
+    ).toEqual({ spaceId: workId });
   });
 
   it("uses the virtual Folder's owning Space through container scoping", () => {
@@ -109,11 +106,11 @@ describe("threadBootstrap", () => {
     const workId = SpaceId.makeUnsafe("work");
     expect(
       scopeNewThreadOptionsToContainer({
-        options: { envMode: "local", spaceId: workId },
+        options: { spaceId: workId },
         containerKind: "project",
         containerSpaceId: personalId,
       }),
-    ).toEqual({ envMode: "local", spaceId: personalId });
+    ).toEqual({ spaceId: personalId });
   });
 
   it("inherits the newest physical folder used directly in the same Space", () => {
@@ -167,30 +164,17 @@ describe("threadBootstrap", () => {
   });
   it("detects when a draft context override is present", () => {
     expect(hasDraftContextOverrides()).toBe(false);
-    expect(hasDraftContextOverrides({ branch: "feature/new-branch" })).toBe(true);
+    expect(hasDraftContextOverrides({ workingDirectory: "/repo/feature" })).toBe(true);
   });
 
   it("builds a draft patch only when overrides are provided", () => {
     expect(buildDraftThreadContextPatch("terminal")).toBeNull();
-    expect(
-      buildDraftThreadContextPatch("terminal", {
-        branch: "feature/new-branch",
-        worktreePath: "/repo/.worktrees/new-branch",
-      }),
-    ).toEqual({
-      branch: "feature/new-branch",
-      worktreePath: "/repo/.worktrees/new-branch",
-      entryPoint: "terminal",
-    });
-    expect(
-      buildDraftThreadContextPatch("terminal", {
-        envMode: "local",
-      }),
-    ).toEqual({
-      envMode: "local",
-      worktreePath: null,
-      entryPoint: "terminal",
-    });
+    expect(buildDraftThreadContextPatch("terminal", { workingDirectory: "/repo/feature" })).toEqual(
+      {
+        entryPoint: "terminal",
+        workingDirectory: "/repo/feature",
+      },
+    );
   });
 
   it("recognizes when the active route draft can be reused", () => {
@@ -216,7 +200,7 @@ describe("threadBootstrap", () => {
     expect(
       resolveThreadBootstrapPlan({
         storedDraftThread: { threadId: ThreadId.makeUnsafe("stored-thread"), ...makeDraftThread() },
-        latestActiveDraftThread: makeDraftThread({ branch: "feature/route-draft" }),
+        latestActiveDraftThread: makeDraftThread({}),
         entryPoint: "terminal",
         projectId: PROJECT_ID,
         routeThreadId: THREAD_ID,
@@ -256,75 +240,43 @@ describe("threadBootstrap", () => {
       projectId: PROJECT_ID,
       modelSelection: modelSelection("codex", "gpt-5"),
       runtimeMode: "full-access",
-      envMode: undefined,
-      lastKnownPr: null,
     });
     expect(createActiveDraftThreadSnapshot(makeDraftThread(), PROJECT_ID)).toEqual({
       ...makeDraftThread(),
       workingDirectory: null,
-      lastKnownPr: null,
     });
   });
 
   it("lets an active draft override inherited branch and worktree context", () => {
     expect(
       resolveInheritedThreadContext({
-        activeThread: {
-          branch: "feature/server-thread",
-          worktreePath: "/repo/.worktrees/server-thread",
-          envMode: "worktree",
-        },
-        activeDraftThread: makeDraftThread({
-          branch: "feature/draft-thread",
-          worktreePath: "/repo/.worktrees/draft-thread",
-          envMode: "worktree",
-        }),
+        activeThread: {},
+        activeDraftThread: makeDraftThread({}),
       }),
     ).toEqual({
-      branch: "feature/draft-thread",
-      worktreePath: "/repo/.worktrees/draft-thread",
       workingDirectory: null,
-      envMode: "worktree",
     });
   });
 
   it("lets a local active draft clear active thread branch and worktree context", () => {
     expect(
       resolveInheritedThreadContext({
-        activeThread: {
-          branch: "feature/server-thread",
-          worktreePath: "/repo/.worktrees/server-thread",
-          envMode: "worktree",
-        },
-        activeDraftThread: makeDraftThread({
-          branch: null,
-          worktreePath: null,
-          envMode: "local",
-        }),
+        activeThread: {},
+        activeDraftThread: makeDraftThread({}),
       }),
     ).toEqual({
-      branch: null,
-      worktreePath: null,
       workingDirectory: null,
-      envMode: "local",
     });
   });
 
   it("derives inherited environment mode from the active thread when no draft exists", () => {
     expect(
       resolveInheritedThreadContext({
-        activeThread: {
-          branch: "feature/server-thread",
-          worktreePath: "/repo/.worktrees/server-thread",
-          envMode: undefined,
-        },
+        activeThread: {},
         activeDraftThread: null,
       }),
     ).toEqual({
-      branch: "feature/server-thread",
-      worktreePath: "/repo/.worktrees/server-thread",
       workingDirectory: null,
-      envMode: "worktree",
     });
   });
 
@@ -333,19 +285,12 @@ describe("threadBootstrap", () => {
       createFreshDraftThreadSeed({
         createdAt: "2026-04-05T10:00:00.000Z",
         entryPoint: "terminal",
-        options: {
-          branch: "feature/new-terminal",
-          worktreePath: "/repo/.worktrees/new-terminal",
-          envMode: "worktree",
-        },
+        options: {},
       }),
     ).toEqual({
       createdAt: "2026-04-05T10:00:00.000Z",
       spaceId: null,
-      branch: "feature/new-terminal",
-      worktreePath: "/repo/.worktrees/new-terminal",
       workingDirectory: null,
-      envMode: "worktree",
       runtimeMode: "full-access",
       entryPoint: "terminal",
     });
@@ -372,11 +317,7 @@ describe("threadBootstrap", () => {
         effort: "max",
       }),
       runtimeMode: "approval-required",
-      envMode: "worktree",
-      branch: "feature/terminal-bootstrap",
-      worktreePath: "/repo/.worktrees/terminal-bootstrap",
       workingDirectory: null,
-      lastKnownPr: null,
     });
   });
 
@@ -388,20 +329,13 @@ describe("threadBootstrap", () => {
           projectId: PROJECT_ID,
           modelSelection: modelSelection("codex", "gpt-5"),
           runtimeMode: "full-access",
-          envMode: "worktree",
         },
         draftComposerState: makeComposerDraftState(),
         draftThread: makeDraftThread(),
-        options: {
-          envMode: "local",
-        },
+        options: {},
         projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
         projectId: PROJECT_ID,
       }),
-    ).toMatchObject({
-      envMode: "local",
-      worktreePath: null,
-      branch: "feature/terminal-bootstrap",
-    });
+    ).toMatchObject({});
   });
 });

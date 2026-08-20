@@ -40,7 +40,11 @@ export type ResolvedProviderTurnSelection = typeof ResolvedProviderTurnSelection
 
 export class ProviderTurnSelectionResolutionError extends Data.TaggedError(
   "ProviderTurnSelectionResolutionError",
-)<{ readonly detail: string; readonly cause?: unknown }> {
+)<{
+  readonly detail: string;
+  readonly reason?: "binding-revision-required" | "binding-revision-stale";
+  readonly cause?: unknown;
+}> {
   override get message(): string {
     return this.detail;
   }

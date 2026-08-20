@@ -104,9 +104,6 @@ function createSnapshot(overrides?: Partial<OrchestrationReadModel["threads"][nu
           model: "gpt-5",
         },
         runtimeMode: "full-access",
-        envMode: "local",
-        branch: "main",
-        worktreePath: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -124,7 +121,6 @@ function createSnapshot(overrides?: Partial<OrchestrationReadModel["threads"][nu
           },
         ],
         activities: [],
-        checkpoints: [],
         session: {
           threadId: THREAD_ID,
           status: "ready",
@@ -196,24 +192,6 @@ function resolveWsRpc(tag: string, body?: unknown): unknown {
   }
   if (tag === WS_METHODS.projectsListDevServers) {
     return { servers: [] };
-  }
-  if (tag === WS_METHODS.gitListBranches) {
-    return {
-      isRepo: true,
-      hasOriginRemote: true,
-      branches: [{ name: "main", current: true, isDefault: true, worktreePath: null }],
-    };
-  }
-  if (tag === WS_METHODS.gitStatus) {
-    return {
-      branch: "main",
-      hasWorkingTreeChanges: false,
-      workingTree: { files: [], insertions: 0, deletions: 0 },
-      hasUpstream: true,
-      aheadCount: 0,
-      behindCount: 0,
-      pr: null,
-    };
   }
   if (tag === WS_METHODS.projectsSearchEntries) {
     return { entries: [], truncated: false };
@@ -444,7 +422,6 @@ describe("EventRouter scoped orchestration sync", () => {
     useWorkspacePathsStore.setState({
       homeDir: null,
       chatWorkspaceRoot: null,
-      studioWorkspaceRoot: null,
     });
     subscribeShellRequestCount = 0;
     subscribeThreadRequestCountById.clear();
@@ -1345,9 +1322,6 @@ describe("EventRouter scoped orchestration sync", () => {
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
-          branch: null,
-          worktreePath: null,
-          envMode: "local",
         },
       },
       projectDraftThreadIdByProjectId: {
@@ -1383,7 +1357,6 @@ describe("EventRouter scoped orchestration sync", () => {
             title: "Buffered recovery thread",
             messages: [],
             activities: [],
-            checkpoints: [],
             latestTurn: null,
             updatedAt: "2026-03-04T12:00:08.000Z",
           } satisfies OrchestrationReadModel["threads"][number],
@@ -1436,9 +1409,6 @@ describe("EventRouter scoped orchestration sync", () => {
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
-          branch: null,
-          worktreePath: null,
-          envMode: "local",
         },
       },
       projectDraftThreadIdByProjectId: {
@@ -1473,7 +1443,6 @@ describe("EventRouter scoped orchestration sync", () => {
             title: "Promoted thread",
             messages: [],
             activities: [],
-            checkpoints: [],
             latestTurn: null,
             updatedAt: "2026-03-04T12:00:08.000Z",
           } satisfies OrchestrationReadModel["threads"][number],

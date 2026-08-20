@@ -19,25 +19,17 @@ import {
   ManagedRuntime,
   Option,
   Path,
-  Ref,
   Schedule,
   Schema,
   Scope,
   Stream,
 } from "effect";
 
-import { CheckpointStoreLive } from "../src/checkpointing/Layers/CheckpointStore.ts";
-import { CheckpointStore } from "../src/checkpointing/Services/CheckpointStore.ts";
-import { GitCoreLive } from "../src/git/Layers/GitCore.ts";
-import { GitCore, type GitCoreShape } from "../src/git/Services/GitCore.ts";
-import { TextGeneration, type TextGenerationShape } from "../src/git/Services/TextGeneration.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../src/persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../src/persistence/Layers/OrchestrationEventStore.ts";
-import { ProjectionCheckpointRepositoryLive } from "../src/persistence/Layers/ProjectionCheckpoints.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../src/persistence/Layers/ProjectionPendingInteractions.ts";
 import { ProviderSessionRuntimeRepositoryLive } from "../src/persistence/Layers/ProviderSessionRuntime.ts";
 import { makeSqlitePersistenceLive } from "../src/persistence/Layers/Sqlite.ts";
-import { ProjectionCheckpointRepository } from "../src/persistence/Services/ProjectionCheckpoints.ts";
 import { ProjectionPendingInteractionRepository } from "../src/persistence/Services/ProjectionPendingInteractions.ts";
 import { ThreadProviderBindingRepository } from "../src/persistence/Services/ThreadProviderBindings.ts";
 import { ProviderUnsupportedError } from "../src/provider/Errors.ts";
@@ -51,16 +43,13 @@ import { ProviderLaunchResolver } from "../src/provider/Services/ProviderLaunchR
 import { ProviderTurnSelectionResolver } from "../src/provider/Services/ProviderTurnSelectionResolver.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
 import { ServerSettingsService } from "../src/serverSettings.ts";
-import { CheckpointReactorLive } from "../src/orchestration/Layers/CheckpointReactor.ts";
-import { StudioOutputReactorLive } from "../src/orchestration/Layers/StudioOutputReactor.ts";
+import { TextGeneration } from "../src/textGeneration/Services/TextGeneration.ts";
 import { OrchestrationEngineLive } from "../src/orchestration/Layers/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "../src/orchestration/Layers/ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "../src/orchestration/Layers/ProjectionSnapshotQuery.ts";
-import { RuntimeReceiptBusLive } from "../src/orchestration/Layers/RuntimeReceiptBus.ts";
 import { OrchestrationReactorLive } from "../src/orchestration/Layers/OrchestrationReactor.ts";
 import { makeProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
-import { TurnCheckpointCoordinatorLive } from "../src/orchestration/Layers/TurnCheckpointCoordinator.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -71,10 +60,6 @@ import {
   ProviderThreadSwitchCoordinatorError,
 } from "../src/orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { ProjectionSnapshotQuery } from "../src/orchestration/Services/ProjectionSnapshotQuery.ts";
-import {
-  RuntimeReceiptBus,
-  type OrchestrationRuntimeReceipt,
-} from "../src/orchestration/Services/RuntimeReceiptBus.ts";
 
 import {
   makeTestProviderAdapterHarness,
@@ -107,19 +92,6 @@ const initializeGitWorkspace = Effect.fn(function* (cwd: string) {
   runGit(cwd, ["add", "."]);
   runGit(cwd, ["commit", "-m", "Initial"]);
 });
-
-export function gitRefExists(cwd: string, ref: string): boolean {
-  try {
-    runGit(cwd, ["show-ref", "--verify", "--quiet", ref]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function gitShowFileAtRef(cwd: string, ref: string, filePath: string): string {
-  return runGit(cwd, ["show", `${ref}:${filePath}`]);
-}
 
 class WaitForTimeoutError extends Schema.TaggedErrorClass<WaitForTimeoutError>()(
   "WaitForTimeoutError",
@@ -187,8 +159,6 @@ export interface OrchestrationIntegrationHarness {
   readonly engine: OrchestrationEngineShape;
   readonly snapshotQuery: ProjectionSnapshotQuery["Service"];
   readonly providerService: ProviderService["Service"];
-  readonly checkpointStore: CheckpointStore["Service"];
-  readonly checkpointRepository: ProjectionCheckpointRepository["Service"];
   readonly waitForThread: (
     threadId: string,
     predicate: (thread: OrchestrationThread) => boolean,
@@ -217,16 +187,6 @@ export interface OrchestrationIntegrationHarness {
     },
     never
   >;
-  readonly waitForReceipt: {
-    (
-      predicate: (receipt: OrchestrationRuntimeReceipt) => boolean,
-      timeoutMs?: number,
-    ): Effect.Effect<OrchestrationRuntimeReceipt, never>;
-    <Receipt extends OrchestrationRuntimeReceipt>(
-      predicate: (receipt: OrchestrationRuntimeReceipt) => receipt is Receipt,
-      timeoutMs?: number,
-    ): Effect.Effect<Receipt, never>;
-  };
   readonly dispose: Effect.Effect<void, never>;
 }
 
@@ -309,29 +269,13 @@ export const makeOrchestrationIntegrationHarness = (
           Layer.provide(AnalyticsService.layerTest),
         );
 
-    const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(GitCoreLive));
     const runtimeServicesLayer = Layer.mergeAll(
       orchestrationLayer,
       OrchestrationProjectionSnapshotQueryLive,
-      ProjectionCheckpointRepositoryLive,
       ProjectionPendingInteractionRepositoryLive,
-      checkpointStoreLayer,
       providerLayer,
-      RuntimeReceiptBusLive,
-      TurnCheckpointCoordinatorLive,
     );
     const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(
-      Layer.provideMerge(runtimeServicesLayer),
-    );
-    const gitCoreLayer = Layer.succeed(GitCore, {
-      renameBranch: (input: Parameters<GitCoreShape["renameBranch"]>[0]) =>
-        Effect.succeed({ branch: input.newBranch }),
-      publishBranch: () => Effect.void,
-    } as unknown as GitCoreShape);
-    const textGenerationLayer = Layer.succeed(TextGeneration, {
-      generateThreadTitle: () => Effect.succeed({ title: "Integration Thread" }),
-    } satisfies TextGenerationShape);
-    const studioOutputReactorLayer = StudioOutputReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
     );
     const providerLaunchResolverLayer = Layer.succeed(ProviderLaunchResolver, {
@@ -414,23 +358,20 @@ export const makeOrchestrationIntegrationHarness = (
     ).pipe(Layer.provideMerge(runtimeServicesLayer));
     const providerCommandReactorLayer = makeProviderCommandReactorLive().pipe(
       Layer.provideMerge(runtimeServicesLayer),
-      Layer.provideMerge(studioOutputReactorLayer),
-      Layer.provideMerge(gitCoreLayer),
-      Layer.provideMerge(textGenerationLayer),
       Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(
+        Layer.succeed(TextGeneration, {
+          generateThreadTitle: () => Effect.succeed({ title: "Chat" }),
+        }),
+      ),
       Layer.provideMerge(threadProviderBindingLayer),
       Layer.provideMerge(providerLaunchResolverLayer),
       Layer.provideMerge(providerTurnSelectionResolverLayer),
       Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
     );
-    const checkpointReactorLayer = CheckpointReactorLive.pipe(
-      Layer.provideMerge(runtimeServicesLayer),
-    );
     const orchestrationReactorLayer = OrchestrationReactorLive.pipe(
       Layer.provideMerge(runtimeIngestionLayer),
       Layer.provideMerge(providerCommandReactorLayer),
-      Layer.provideMerge(checkpointReactorLayer),
-      Layer.provideMerge(studioOutputReactorLayer),
     );
     const layer = orchestrationReactorLayer.pipe(
       Layer.provide(persistenceLayer),
@@ -451,29 +392,15 @@ export const makeOrchestrationIntegrationHarness = (
     const providerService = yield* tryRuntimePromise("load ProviderService service", () =>
       runtime.runPromise(Effect.service(ProviderService)),
     ).pipe(Effect.orDie);
-    const checkpointStore = yield* tryRuntimePromise("load CheckpointStore service", () =>
-      runtime.runPromise(Effect.service(CheckpointStore)),
-    ).pipe(Effect.orDie);
-    const checkpointRepository = yield* tryRuntimePromise(
-      "load ProjectionCheckpointRepository service",
-      () => runtime.runPromise(Effect.service(ProjectionCheckpointRepository)),
-    ).pipe(Effect.orDie);
     const pendingInteractionRepository = yield* tryRuntimePromise(
       "load ProjectionPendingInteractionRepository service",
       () => runtime.runPromise(Effect.service(ProjectionPendingInteractionRepository)),
-    ).pipe(Effect.orDie);
-    const runtimeReceiptBus = yield* tryRuntimePromise("load RuntimeReceiptBus service", () =>
-      runtime.runPromise(Effect.service(RuntimeReceiptBus)),
     ).pipe(Effect.orDie);
 
     const scope = yield* Scope.make("sequential");
     yield* tryRuntimePromise("start OrchestrationReactor", () =>
       runtime.runPromise(reactor.start.pipe(Scope.provide(scope))),
     ).pipe(Effect.orDie);
-    const receiptHistory = yield* Ref.make<ReadonlyArray<OrchestrationRuntimeReceipt>>([]);
-    yield* Stream.runForEach(runtimeReceiptBus.stream, (receipt) =>
-      Ref.update(receiptHistory, (history) => [...history, receipt]).pipe(Effect.asVoid),
-    ).pipe(Effect.forkIn(scope));
     yield* Effect.sleep(10);
 
     const waitForThread: OrchestrationIntegrationHarness["waitForThread"] = (
@@ -553,30 +480,6 @@ export const makeOrchestrationIntegrationHarness = (
         never
       >;
 
-    function waitForReceipt(
-      predicate: (receipt: OrchestrationRuntimeReceipt) => boolean,
-      timeoutMs?: number,
-    ): Effect.Effect<OrchestrationRuntimeReceipt, never>;
-    function waitForReceipt<Receipt extends OrchestrationRuntimeReceipt>(
-      predicate: (receipt: OrchestrationRuntimeReceipt) => receipt is Receipt,
-      timeoutMs?: number,
-    ): Effect.Effect<Receipt, never>;
-    function waitForReceipt(
-      predicate: (receipt: OrchestrationRuntimeReceipt) => boolean,
-      timeoutMs?: number,
-    ) {
-      const readMatchingReceipt = Ref.get(receiptHistory).pipe(
-        Effect.map((history) => history.find(predicate)),
-      );
-
-      return waitFor(
-        readMatchingReceipt,
-        (receipt): receipt is OrchestrationRuntimeReceipt => receipt !== undefined,
-        "runtime receipt",
-        timeoutMs,
-      );
-    }
-
     let disposed = false;
     const dispose = Effect.gen(function* () {
       if (disposed) {
@@ -610,12 +513,9 @@ export const makeOrchestrationIntegrationHarness = (
       engine,
       snapshotQuery,
       providerService,
-      checkpointStore,
-      checkpointRepository,
       waitForThread,
       waitForDomainEvent,
       waitForPendingApproval,
-      waitForReceipt,
       dispose,
     } satisfies OrchestrationIntegrationHarness;
   });

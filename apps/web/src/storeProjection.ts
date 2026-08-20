@@ -9,7 +9,6 @@ import {
   type OrchestrationShellStreamEvent,
   type OrchestrationSpaceShell,
   type ThreadId,
-  type TurnId,
 } from "@penkra/contracts";
 import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
 
@@ -43,8 +42,6 @@ import {
   EMPTY_THREAD_SESSION_BY_ID,
   EMPTY_THREAD_SHELL_BY_ID,
   EMPTY_THREAD_TURN_STATE_BY_ID,
-  EMPTY_TURN_DIFF_BY_THREAD,
-  EMPTY_TURN_DIFF_IDS_BY_THREAD,
   type AppState,
   type ThreadDetailSyncState,
 } from "./storeState";
@@ -77,14 +74,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     archivedAt: thread.archivedAt ?? null,
     updatedAt: thread.updatedAt,
     isPinned: thread.isPinned ?? false,
-    envMode: thread.envMode,
-    branch: thread.branch,
-    worktreePath: thread.worktreePath,
     workingDirectory: thread.workingDirectory ?? null,
-    associatedWorktreePath: thread.associatedWorktreePath ?? null,
-    associatedWorktreeBranch: thread.associatedWorktreeBranch ?? null,
-    associatedWorktreeRef: thread.associatedWorktreeRef ?? null,
-    createBranchFlowCompleted: thread.createBranchFlowCompleted ?? false,
     parentThreadId: thread.parentThreadId ?? null,
     creationSource: thread.creationSource ?? null,
     sourceThreadId: thread.sourceThreadId ?? null,
@@ -92,7 +82,6 @@ function toThreadShell(thread: Thread): ThreadShell {
     subagentNickname: thread.subagentNickname ?? null,
     subagentRole: thread.subagentRole ?? null,
     forkSourceThreadId: thread.forkSourceThreadId ?? null,
-    lastKnownPr: thread.lastKnownPr ?? null,
     ...(thread.pinnedMessages !== undefined ? { pinnedMessages: thread.pinnedMessages } : {}),
     ...(thread.threadMarkers !== undefined ? { threadMarkers: thread.threadMarkers } : {}),
     ...(thread.notes !== undefined ? { notes: thread.notes } : {}),
@@ -105,6 +94,11 @@ function toThreadShell(thread: Thread): ThreadShell {
     ...(thread.hasPendingUserInput !== undefined
       ? { hasPendingUserInput: thread.hasPendingUserInput }
       : {}),
+    ...(thread.workStatus !== undefined ? { workStatus: thread.workStatus } : {}),
+    ...(thread.lastMessagePreview !== undefined
+      ? { lastMessagePreview: thread.lastMessagePreview }
+      : {}),
+    ...(thread.lastActivityAt !== undefined ? { lastActivityAt: thread.lastActivityAt } : {}),
     ...(thread.pendingInteractions !== undefined
       ? { pendingInteractions: thread.pendingInteractions }
       : {}),
@@ -194,7 +188,6 @@ function buildNormalizedSlice<TId extends string, TValue>(
 
 const messageId = (message: ChatMessage): MessageId => message.id;
 const activityId = (activity: Thread["activities"][number]): string => activity.id;
-const turnDiffId = (summary: Thread["turnDiffSummaries"][number]): TurnId => summary.turnId;
 
 export function upsertProject(
   state: AppState,
@@ -319,13 +312,7 @@ function sidebarThreadSummariesEqual(
     (left.sidebarSortOrder ?? 0) === (right.sidebarSortOrder ?? 0) &&
     left.title === right.title &&
     left.modelSelection === right.modelSelection &&
-    left.envMode === right.envMode &&
-    left.branch === right.branch &&
-    left.worktreePath === right.worktreePath &&
     (left.workingDirectory ?? null) === (right.workingDirectory ?? null) &&
-    (left.associatedWorktreePath ?? null) === (right.associatedWorktreePath ?? null) &&
-    (left.associatedWorktreeBranch ?? null) === (right.associatedWorktreeBranch ?? null) &&
-    (left.associatedWorktreeRef ?? null) === (right.associatedWorktreeRef ?? null) &&
     left.session === right.session &&
     left.createdAt === right.createdAt &&
     (left.archivedAt ?? null) === (right.archivedAt ?? null) &&
@@ -340,8 +327,10 @@ function sidebarThreadSummariesEqual(
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
-    (left.forkSourceThreadId ?? null) === (right.forkSourceThreadId ?? null) &&
-    deepEqualJson(left.lastKnownPr ?? null, right.lastKnownPr ?? null)
+    left.workStatus === right.workStatus &&
+    left.lastMessagePreview === right.lastMessagePreview &&
+    left.lastActivityAt === right.lastActivityAt &&
+    (left.forkSourceThreadId ?? null) === (right.forkSourceThreadId ?? null)
   );
 }
 
@@ -357,13 +346,7 @@ function buildSidebarThreadSummary(
     sidebarSortOrder: thread.sidebarSortOrder ?? 0,
     title: thread.title,
     modelSelection: thread.modelSelection,
-    envMode: thread.envMode,
-    branch: thread.branch,
-    worktreePath: thread.worktreePath,
     workingDirectory: thread.workingDirectory ?? null,
-    associatedWorktreePath: thread.associatedWorktreePath ?? null,
-    associatedWorktreeBranch: thread.associatedWorktreeBranch ?? null,
-    associatedWorktreeRef: thread.associatedWorktreeRef ?? null,
     session: thread.session,
     createdAt: thread.createdAt,
     archivedAt: thread.archivedAt ?? null,
@@ -378,8 +361,10 @@ function buildSidebarThreadSummary(
     latestUserMessageAt: metadata.latestUserMessageAt,
     hasPendingApprovals: metadata.hasPendingApprovals,
     hasPendingUserInput: metadata.hasPendingUserInput,
+    workStatus: thread.workStatus ?? "idle",
+    lastMessagePreview: thread.lastMessagePreview ?? null,
+    lastActivityAt: thread.lastActivityAt ?? null,
     forkSourceThreadId: thread.forkSourceThreadId ?? null,
-    lastKnownPr: thread.lastKnownPr ?? null,
   };
   if (previous && sidebarThreadSummariesEqual(previous, nextSummary)) {
     return previous;
@@ -746,36 +731,6 @@ function writeThreadState(state: AppState, nextThread: Thread, previousThread?: 
     }
   }
 
-  if (previousThread?.turnDiffSummaries !== nextThread.turnDiffSummaries) {
-    const previousIds = nextState.turnDiffIdsByThreadId?.[nextThread.id];
-    const previousById = nextState.turnDiffSummaryByThreadId?.[nextThread.id];
-    const slice = buildNormalizedSlice(
-      nextThread.turnDiffSummaries,
-      turnDiffId,
-      previousThread?.turnDiffSummaries,
-      previousIds,
-      previousById,
-    );
-    if (slice.ids !== previousIds) {
-      nextState = {
-        ...nextState,
-        turnDiffIdsByThreadId: {
-          ...(nextState.turnDiffIdsByThreadId ?? EMPTY_TURN_DIFF_IDS_BY_THREAD),
-          [nextThread.id]: slice.ids,
-        },
-      };
-    }
-    if (slice.byId !== previousById) {
-      nextState = {
-        ...nextState,
-        turnDiffSummaryByThreadId: {
-          ...(nextState.turnDiffSummaryByThreadId ?? EMPTY_TURN_DIFF_BY_THREAD),
-          [nextThread.id]: slice.byId,
-        },
-      };
-    }
-  }
-
   return nextState;
 }
 
@@ -794,10 +749,6 @@ function removeThreadState(state: AppState, threadId: ThreadId): AppState {
     state.activityIdsByThreadId ?? EMPTY_ACTIVITY_IDS_BY_THREAD;
   const { [threadId]: _removedActivities, ...activityByThreadId } =
     state.activityByThreadId ?? EMPTY_ACTIVITY_BY_THREAD;
-  const { [threadId]: _removedDiffIds, ...turnDiffIdsByThreadId } =
-    state.turnDiffIdsByThreadId ?? EMPTY_TURN_DIFF_IDS_BY_THREAD;
-  const { [threadId]: _removedDiffs, ...turnDiffSummaryByThreadId } =
-    state.turnDiffSummaryByThreadId ?? EMPTY_TURN_DIFF_BY_THREAD;
   const { [threadId]: _removedSummary, ...sidebarThreadSummaryById } =
     state.sidebarThreadSummaryById;
   const nextThreadIds = (state.threadIds ?? EMPTY_THREAD_IDS).filter((id) => id !== threadId);
@@ -820,8 +771,6 @@ function removeThreadState(state: AppState, threadId: ThreadId): AppState {
       messageByThreadId,
       activityIdsByThreadId,
       activityByThreadId,
-      turnDiffIdsByThreadId,
-      turnDiffSummaryByThreadId,
       sidebarThreadSummaryById,
     },
     threadId,
@@ -834,8 +783,6 @@ export function evictThreadDetailFromClientState(state: AppState, threadId: Thre
     state.messageByThreadId,
     state.activityIdsByThreadId,
     state.activityByThreadId,
-    state.turnDiffIdsByThreadId,
-    state.turnDiffSummaryByThreadId,
   ];
   const hasNormalizedDetail = detailRecords.some(
     (record) => record !== undefined && Object.hasOwn(record, threadId),
@@ -853,10 +800,6 @@ export function evictThreadDetailFromClientState(state: AppState, threadId: Thre
     state.activityIdsByThreadId ?? EMPTY_ACTIVITY_IDS_BY_THREAD;
   const { [threadId]: _removedActivities, ...activityByThreadId } =
     state.activityByThreadId ?? EMPTY_ACTIVITY_BY_THREAD;
-  const { [threadId]: _removedDiffIds, ...turnDiffIdsByThreadId } =
-    state.turnDiffIdsByThreadId ?? EMPTY_TURN_DIFF_IDS_BY_THREAD;
-  const { [threadId]: _removedDiffs, ...turnDiffSummaryByThreadId } =
-    state.turnDiffSummaryByThreadId ?? EMPTY_TURN_DIFF_BY_THREAD;
 
   return clearThreadDetailSyncState(
     {
@@ -865,8 +808,6 @@ export function evictThreadDetailFromClientState(state: AppState, threadId: Thre
       messageByThreadId,
       activityIdsByThreadId,
       activityByThreadId,
-      turnDiffIdsByThreadId,
-      turnDiffSummaryByThreadId,
     },
     threadId,
   );
@@ -1177,11 +1118,6 @@ export function syncServerShellSnapshot(
     messageByThreadId: retainThreadScopedRecord(state.messageByThreadId, nextThreadIds),
     activityIdsByThreadId: retainThreadScopedRecord(state.activityIdsByThreadId, nextThreadIds),
     activityByThreadId: retainThreadScopedRecord(state.activityByThreadId, nextThreadIds),
-    turnDiffIdsByThreadId: retainThreadScopedRecord(state.turnDiffIdsByThreadId, nextThreadIds),
-    turnDiffSummaryByThreadId: retainThreadScopedRecord(
-      state.turnDiffSummaryByThreadId,
-      nextThreadIds,
-    ),
     threadDetailSyncById: retainThreadScopedRecord(state.threadDetailSyncById, nextThreadIds),
   };
 
@@ -1376,11 +1312,6 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     messageByThreadId: retainThreadScopedRecord(state.messageByThreadId, nextThreadIds),
     activityIdsByThreadId: retainThreadScopedRecord(state.activityIdsByThreadId, nextThreadIds),
     activityByThreadId: retainThreadScopedRecord(state.activityByThreadId, nextThreadIds),
-    turnDiffIdsByThreadId: retainThreadScopedRecord(state.turnDiffIdsByThreadId, nextThreadIds),
-    turnDiffSummaryByThreadId: retainThreadScopedRecord(
-      state.turnDiffSummaryByThreadId,
-      nextThreadIds,
-    ),
     threadDetailSyncById: retainThreadScopedRecord(state.threadDetailSyncById, nextThreadIds),
   };
   for (const thread of nextThreads) {
@@ -1419,8 +1350,6 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     normalizedState.messageByThreadId === state.messageByThreadId &&
     normalizedState.activityIdsByThreadId === state.activityIdsByThreadId &&
     normalizedState.activityByThreadId === state.activityByThreadId &&
-    normalizedState.turnDiffIdsByThreadId === state.turnDiffIdsByThreadId &&
-    normalizedState.turnDiffSummaryByThreadId === state.turnDiffSummaryByThreadId &&
     normalizedState.threadDetailSyncById === state.threadDetailSyncById &&
     state.threadsHydrated
   ) {

@@ -85,8 +85,8 @@ describe("composerSlashCommands", () => {
       invalid: false,
     });
     expect(parseForkSlashCommandArgs("  worktree  ")).toEqual({
-      target: "worktree",
-      invalid: false,
+      target: null,
+      invalid: true,
     });
     expect(parseForkSlashCommandArgs("follow up on the bug")).toEqual({
       target: null,
@@ -145,8 +145,7 @@ describe("composerSlashCommands", () => {
   it("builds slash-command canned prompts", () => {
     expect(buildSubagentsPrompt("")).toContain("Run subagents");
     expect(buildSubagentsPrompt("Already there")).toContain("Already there\n\nRun subagents");
-    expect(buildReviewPrompt({ target: "changes" })).toContain("uncommitted changes");
-    expect(buildReviewPrompt({ target: "base-branch" })).toContain("base branch");
+    expect(buildReviewPrompt()).toContain("Review");
   });
 
   it("filters app slash commands when a provider exposes the same command natively", () => {

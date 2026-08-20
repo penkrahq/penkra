@@ -21,6 +21,7 @@ import {
   TurnId,
 } from "@penkra/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
@@ -47,6 +48,7 @@ import {
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../../config.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
@@ -100,10 +102,9 @@ function createProviderServiceHarness() {
     respondToUserInput: () => unsupported(),
     stopSession: () => unsupported(),
     listSessions: () => Effect.succeed([...runtimeSessions]),
-    getCapabilities: (provider) =>
+    getCapabilities: () =>
       Effect.succeed({
         sessionModelSwitch: "in-session",
-        supportsLiveTurnDiffPatch: provider === "codex",
       }),
     rollbackConversation: () => unsupported(),
     compactThread: () => unsupported(),
@@ -188,11 +189,17 @@ type ProviderRuntimeTestReadModel = OrchestrationReadModel;
 type ProviderRuntimeTestThread = ProviderRuntimeTestReadModel["threads"][number];
 type ProviderRuntimeTestMessage = ProviderRuntimeTestThread["messages"][number];
 type ProviderRuntimeTestActivity = ProviderRuntimeTestThread["activities"][number];
-type ProviderRuntimeTestCheckpoint = ProviderRuntimeTestThread["checkpoints"][number];
+const hasOperationId = (activity: ProviderRuntimeTestActivity, operationId: string): boolean =>
+  activity.payload !== null &&
+  typeof activity.payload === "object" &&
+  (activity.payload as Record<string, unknown>).operationId === operationId;
 
 describe("ProviderRuntimeIngestion", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
-    OrchestrationEngineService | ProviderRuntimeIngestionService | ProviderRuntimeEventRepository,
+    | OrchestrationEngineService
+    | ProviderRuntimeIngestionService
+    | ProviderRuntimeEventRepository
+    | SqlClient.SqlClient,
     unknown
   > | null = null;
   let scope: Scope.Closeable | null = null;
@@ -246,6 +253,7 @@ describe("ProviderRuntimeIngestion", () => {
     const runtimeEventRepository = await runtime.runPromise(
       Effect.service(ProviderRuntimeEventRepository),
     );
+    const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
     scope = await Effect.runPromise(Scope.make("sequential"));
     let ingestionStarted = false;
     const startIngestion = async () => {
@@ -297,8 +305,7 @@ describe("ProviderRuntimeIngestion", () => {
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: workspaceRoot,
+        workingDirectory: workspaceRoot,
         createdAt,
       }),
     );
@@ -335,6 +342,7 @@ describe("ProviderRuntimeIngestion", () => {
       drain,
       startIngestion,
       runtimeEventRepository,
+      sql,
     };
   }
 
@@ -392,6 +400,30 @@ describe("ProviderRuntimeIngestion", () => {
     expect(
       await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(event.threadId)),
     ).toBe(persisted.sequence);
+  });
+
+  it("stores replayed runtime warnings once as thread-scoped canonical notices", async () => {
+    const harness = await createHarness();
+    const event = {
+      type: "runtime.warning" as const,
+      eventId: asEventId("evt-canonical-notice"),
+      provider: "codex" as const,
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      payload: { message: "Context is nearly full", detail: { percent: 90 } },
+    };
+    harness.emit(event);
+    harness.emit(event);
+    await harness.drain();
+
+    const rows = await Effect.runPromise(
+      harness.sql<{ readonly count: number; readonly summary: string }>`
+        SELECT COUNT(*) AS count, summary
+        FROM notices
+        WHERE notice_id = 'evt-canonical-notice'
+      `,
+    );
+    expect(rows).toEqual([{ count: 1, summary: "Runtime warning" }]);
   });
 
   it("REL-01C gate: rebuilds accepted buffered output before a terminal event", async () => {
@@ -752,8 +784,6 @@ describe("ProviderRuntimeIngestion", () => {
         title: "Accepted Rebuild Healthy Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt,
       }),
     );
@@ -860,8 +890,6 @@ describe("ProviderRuntimeIngestion", () => {
         title: "Independent Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt,
       }),
     );
@@ -1411,37 +1439,6 @@ describe("ProviderRuntimeIngestion", () => {
       (message) => message.id === "assistant:answer-image",
     );
     expect(assistantMessage?.streaming).toBe(false);
-  });
-
-  it("prefers a persisted Studio copy over its provider-home image source", () => {
-    expect(
-      collectPersistedGeneratedImagePaths([
-        {
-          kind: "studio.outputs.captured",
-          payload: {
-            itemType: "studio_outputs",
-            data: {
-              files: [{ path: "Outbox/Images/generated.png" }],
-              generatedImage: {
-                sourcePath: "/codex/generated.png",
-                fullPath: "/studio/Outbox/Images/generated.png",
-              },
-            },
-          },
-        },
-        {
-          kind: "tool.completed",
-          payload: {
-            itemType: "image_generation",
-            status: "completed",
-            data: {
-              kind: "codex.generated_image",
-              path: "/codex/generated.png",
-            },
-          },
-        },
-      ]),
-    ).toEqual(["/studio/Outbox/Images/generated.png"]);
   });
 
   it("recovers generated-image references from persisted turn activities", async () => {
@@ -2619,14 +2616,14 @@ describe("ProviderRuntimeIngestion", () => {
       },
     } as ProviderRuntimeEvent);
 
-    const thread = await waitForThread(harness.engine, (candidate) =>
-      candidate.activities.some(
-        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-mcp-progress",
-      ),
-    );
+    await harness.drain();
+    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
+      (candidate) => candidate.id === asThreadId("thread-1"),
+    )!;
 
     const activity = thread.activities.find(
-      (candidate: ProviderRuntimeTestActivity) => candidate.id === "evt-mcp-progress",
+      (candidate: ProviderRuntimeTestActivity) =>
+        (candidate.payload as { operationId?: string } | undefined)?.operationId === "tool-1",
     );
     expect(activity).toMatchObject({
       kind: "tool.updated",
@@ -2644,6 +2641,121 @@ describe("ProviderRuntimeIngestion", () => {
         },
       },
     });
+  });
+
+  it("materializes one canonical operation and never regresses terminal state", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const base = {
+      provider: "codex" as const,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-operation"),
+      itemId: asItemId("call-operation"),
+      createdAt: now,
+    };
+
+    harness.emit({
+      ...base,
+      type: "item.started",
+      eventId: asEventId("evt-operation-started"),
+      payload: {
+        itemType: "dynamic_tool_call",
+        status: "inProgress",
+        title: "Search files",
+        data: { providerEnvelope: true },
+      },
+    });
+    harness.emit({
+      ...base,
+      type: "item.updated",
+      eventId: asEventId("evt-operation-streamed-input"),
+      payload: {
+        itemType: "dynamic_tool_call",
+        status: "inProgress",
+        title: "Search files",
+        input: { query: "TODO.md", path: "apps" },
+      },
+    });
+    harness.emit({
+      ...base,
+      type: "item.completed",
+      eventId: asEventId("evt-operation-completed"),
+      payload: {
+        itemType: "dynamic_tool_call",
+        status: "completed",
+        title: "Search files",
+        detail: "3 matches",
+        input: { query: "TODO.md", path: "apps" },
+      },
+    });
+    harness.emit({
+      ...base,
+      type: "item.updated",
+      eventId: asEventId("evt-operation-late-update"),
+      payload: {
+        itemType: "dynamic_tool_call",
+        status: "inProgress",
+        title: "Search files",
+        detail: "late progress",
+        input: { query: "TOD" },
+      },
+    });
+    await harness.drain();
+
+    const rows = await Effect.runPromise(
+      harness.sql<{
+        readonly count: number;
+        readonly operationId: string;
+        readonly status: string;
+        readonly inputJson: string | null;
+        readonly activityJson: string;
+      }>`
+        SELECT COUNT(*) AS count, operation_id AS "operationId", status,
+               input_json AS "inputJson", activity_json AS "activityJson"
+        FROM operations
+        WHERE provider = 'codex'
+          AND thread_id = 'thread-1'
+          AND turn_id = 'turn-operation'
+          AND provider_operation_id = 'call-operation'
+      `,
+    );
+    expect(rows[0]?.count).toBe(1);
+    expect(rows[0]?.operationId).toMatch(/^operation:/u);
+    expect(rows[0]?.status).toBe("completed");
+    expect(JSON.parse(rows[0]?.inputJson ?? "null")).toEqual({ query: "TODO.md", path: "apps" });
+    expect(JSON.parse(rows[0]?.activityJson ?? "{}")).toMatchObject({
+      payload: { detail: "3 matches" },
+    });
+    const activityRows = await Effect.runPromise(
+      harness.sql<{ readonly kind: string; readonly count: number }>`
+        SELECT kind, COUNT(*) AS count
+        FROM thread_activities_read
+        WHERE thread_id = 'thread-1'
+          AND json_extract(payload_json, '$.operationId') = 'call-operation'
+      `,
+    );
+    expect(activityRows).toEqual([{ kind: "tool.completed", count: 1 }]);
+    const legacyLifecycleRows = await Effect.runPromise(
+      harness.sql<{ readonly count: number }>`
+        SELECT COUNT(*) AS count
+        FROM projection_thread_activities
+        WHERE thread_id = 'thread-1'
+          AND json_extract(payload_json, '$.operationId') = 'call-operation'
+      `,
+    );
+    expect(legacyLifecycleRows[0]?.count).toBe(0);
+    const lifecycleEvents = await Effect.runPromise(
+      harness.sql<{ readonly count: number }>`
+        SELECT COUNT(*) AS count
+        FROM orchestration_events
+        WHERE stream_id = 'thread-1'
+          AND event_type = 'thread.activity-appended'
+          AND json_extract(payload_json, '$.activity.payload.operationId') = 'call-operation'
+      `,
+    );
+    // Tool lifecycle no longer amplifies into orchestration events. The durable runtime journal
+    // retains its bounded replay tail while the canonical activity remains singular and terminal.
+    expect(lifecycleEvents[0]?.count).toBe(0);
   });
 
   it("uses assistant item completion detail when no assistant deltas were streamed", async () => {
@@ -3159,8 +3271,6 @@ describe("ProviderRuntimeIngestion", () => {
         title: "Buffered Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
         createdAt: now,
       }),
     );
@@ -4654,9 +4764,11 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const thread = await waitForThread(harness.engine, (entry) =>
-      entry.activities.some((activity) => activity.id === "evt-command-completed"),
+      entry.activities.some((activity) => hasOperationId(activity, "item-command-output")),
     );
-    const activity = thread.activities.find((entry) => entry.id === "evt-command-completed");
+    const activity = thread.activities.find((entry) =>
+      hasOperationId(entry, "item-command-output"),
+    );
     const payload =
       activity?.payload && typeof activity.payload === "object"
         ? (activity.payload as Record<string, unknown>)
@@ -4714,9 +4826,11 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const thread = await waitForThread(harness.engine, (entry) =>
-      entry.activities.some((activity) => activity.id === "evt-empty-stream-completed"),
+      entry.activities.some((activity) => hasOperationId(activity, "item-empty-stream-output")),
     );
-    const activity = thread.activities.find((entry) => entry.id === "evt-empty-stream-completed");
+    const activity = thread.activities.find((entry) =>
+      hasOperationId(entry, "item-empty-stream-output"),
+    );
     const payload =
       activity?.payload && typeof activity.payload === "object"
         ? (activity.payload as Record<string, unknown>)
@@ -4998,277 +5112,6 @@ describe("ProviderRuntimeIngestion", () => {
         (activity: ProviderRuntimeTestActivity) => activity.kind === "tool.started",
       ),
     ).toBe(true);
-  });
-
-  it("consumes P1 runtime events into thread metadata, diff checkpoints, and activities", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-
-    harness.emit({
-      type: "thread.metadata.updated",
-      eventId: asEventId("evt-thread-metadata-updated"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      payload: {
-        name: "Renamed by provider",
-        metadata: { source: "provider" },
-      },
-    });
-
-    harness.emit({
-      type: "turn.tasks.updated",
-      eventId: asEventId("evt-turn-tasks-updated"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-p1"),
-      payload: {
-        explanation: "Working through the tasks",
-        tasks: [
-          { task: "Inspect files", status: "completed" },
-          { task: "Apply patch", status: "inProgress" },
-        ],
-      },
-    });
-
-    harness.emit({
-      type: "item.updated",
-      eventId: asEventId("evt-item-updated"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-p1"),
-      itemId: asItemId("item-p1-tool"),
-      payload: {
-        itemType: "command_execution",
-        status: "inProgress",
-        title: "Run tests",
-        detail: "bun test",
-        data: { pid: 123 },
-      },
-    });
-
-    harness.emit({
-      type: "runtime.warning",
-      eventId: asEventId("evt-runtime-warning"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-p1"),
-      payload: {
-        message: "Provider got slow",
-        detail: { latencyMs: 1500 },
-      },
-    });
-
-    harness.emit({
-      type: "turn.diff.updated",
-      eventId: asEventId("evt-turn-diff-updated"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-p1"),
-      itemId: asItemId("item-p1-assistant"),
-      payload: {
-        unifiedDiff: [
-          "diff --git a/file.txt b/file.txt",
-          "index 1111111..2222222 100644",
-          "--- a/file.txt",
-          "+++ b/file.txt",
-          "@@ -1 +1,2 @@",
-          "-hello",
-          "+hello updated",
-          "+again",
-          "",
-        ].join("\n"),
-      },
-    });
-
-    const thread = await waitForThread(
-      harness.engine,
-      (entry) =>
-        entry.title === "Renamed by provider" &&
-        entry.activities.some(
-          (activity: ProviderRuntimeTestActivity) => activity.kind === "turn.tasks.updated",
-        ) &&
-        entry.activities.some(
-          (activity: ProviderRuntimeTestActivity) => activity.kind === "tool.updated",
-        ) &&
-        entry.activities.some(
-          (activity: ProviderRuntimeTestActivity) => activity.kind === "runtime.warning",
-        ) &&
-        entry.checkpoints.some(
-          (checkpoint: ProviderRuntimeTestCheckpoint) => checkpoint.turnId === "turn-p1",
-        ),
-    );
-
-    expect(thread.title).toBe("Renamed by provider");
-
-    const taskActivity = thread.activities.find(
-      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-turn-tasks-updated",
-    );
-    const taskPayload =
-      taskActivity?.payload && typeof taskActivity.payload === "object"
-        ? (taskActivity.payload as Record<string, unknown>)
-        : undefined;
-    expect(taskActivity?.kind).toBe("turn.tasks.updated");
-    expect(Array.isArray(taskPayload?.tasks)).toBe(true);
-
-    const toolUpdate = thread.activities.find(
-      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-item-updated",
-    );
-    const toolUpdatePayload =
-      toolUpdate?.payload && typeof toolUpdate.payload === "object"
-        ? (toolUpdate.payload as Record<string, unknown>)
-        : undefined;
-    expect(toolUpdate?.kind).toBe("tool.updated");
-    expect(toolUpdatePayload?.itemType).toBe("command_execution");
-    expect(toolUpdatePayload?.status).toBe("inProgress");
-
-    const warning = thread.activities.find(
-      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-runtime-warning",
-    );
-    const warningPayload =
-      warning?.payload && typeof warning.payload === "object"
-        ? (warning.payload as Record<string, unknown>)
-        : undefined;
-    expect(warning?.kind).toBe("runtime.warning");
-    expect(warningPayload?.message).toBe("Provider got slow");
-
-    const checkpoint = thread.checkpoints.find(
-      (entry: ProviderRuntimeTestCheckpoint) => entry.turnId === "turn-p1",
-    );
-    expect(checkpoint?.status).toBe("missing");
-    expect(checkpoint?.assistantMessageId).toBeNull();
-    expect(checkpoint?.checkpointRef).toBe("provider-diff:evt-turn-diff-updated");
-    expect(checkpoint?.files).toEqual([
-      { path: "file.txt", kind: "modified", additions: 2, deletions: 1 },
-    ]);
-  });
-
-  it("updates live provider diff placeholders for the same turn", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-
-    harness.emit({
-      type: "turn.diff.updated",
-      eventId: asEventId("evt-turn-diff-first"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-live"),
-      payload: {
-        unifiedDiff: [
-          "diff --git a/file.txt b/file.txt",
-          "index 1111111..2222222 100644",
-          "--- a/file.txt",
-          "+++ b/file.txt",
-          "@@ -1 +1 @@",
-          "-old",
-          "+new",
-          "",
-        ].join("\n"),
-      },
-    });
-
-    await waitForThread(harness.engine, (entry) =>
-      entry.checkpoints.some(
-        (checkpoint: ProviderRuntimeTestCheckpoint) =>
-          checkpoint.turnId === "turn-live" && checkpoint.files.length === 1,
-      ),
-    );
-
-    harness.emit({
-      type: "turn.diff.updated",
-      eventId: asEventId("evt-turn-diff-second"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-live"),
-      payload: {
-        unifiedDiff: [
-          "diff --git a/file.txt b/file.txt",
-          "index 1111111..2222222 100644",
-          "--- a/file.txt",
-          "+++ b/file.txt",
-          "@@ -1 +1,2 @@",
-          "-old",
-          "+new",
-          "+second",
-          "diff --git a/src/next.ts b/src/next.ts",
-          "new file mode 100644",
-          "index 0000000..3333333",
-          "--- /dev/null",
-          "+++ b/src/next.ts",
-          "@@ -0,0 +1 @@",
-          "+export const next = true;",
-          "",
-        ].join("\n"),
-      },
-    });
-
-    const thread = await waitForThread(harness.engine, (entry) =>
-      entry.checkpoints.some(
-        (checkpoint: ProviderRuntimeTestCheckpoint) =>
-          checkpoint.turnId === "turn-live" && checkpoint.files.length === 2,
-      ),
-    );
-
-    const checkpoints = thread.checkpoints.filter(
-      (checkpoint: ProviderRuntimeTestCheckpoint) => checkpoint.turnId === "turn-live",
-    );
-    expect(checkpoints).toHaveLength(1);
-    expect(checkpoints[0]).toMatchObject({
-      checkpointTurnCount: 1,
-      checkpointRef: "provider-diff:evt-turn-diff-first",
-      status: "missing",
-      files: [
-        { path: "file.txt", kind: "modified", additions: 2, deletions: 1 },
-        { path: "src/next.ts", kind: "modified", additions: 1, deletions: 0 },
-      ],
-    });
-  });
-
-  it("does not parse live diff files for providers without patch capability", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-
-    harness.emit({
-      type: "turn.diff.updated",
-      eventId: asEventId("evt-claude-diff-placeholder"),
-      provider: "claudeAgent",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-claude"),
-      payload: {
-        unifiedDiff: [
-          "diff --git a/file.txt b/file.txt",
-          "index 1111111..2222222 100644",
-          "--- a/file.txt",
-          "+++ b/file.txt",
-          "@@ -1 +1 @@",
-          "-old",
-          "+new",
-          "",
-        ].join("\n"),
-      },
-    });
-
-    const thread = await waitForThread(harness.engine, (entry) =>
-      entry.checkpoints.some(
-        (checkpoint: ProviderRuntimeTestCheckpoint) => checkpoint.turnId === "turn-claude",
-      ),
-    );
-
-    const checkpoint = thread.checkpoints.find(
-      (entry: ProviderRuntimeTestCheckpoint) => entry.turnId === "turn-claude",
-    );
-    expect(checkpoint).toMatchObject({
-      checkpointRef: "provider-diff:evt-claude-diff-placeholder",
-      status: "missing",
-      files: [],
-    });
   });
 
   it("projects context window updates into normalized thread activities", async () => {
@@ -5941,7 +5784,7 @@ describe("ProviderRuntimeIngestion", () => {
     const parentThread = await waitForThread(harness.engine, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) =>
-          activity.id === "evt-collab-updated" && activity.kind === "tool.updated",
+          hasOperationId(activity, "item-collab") && activity.kind === "tool.updated",
       ),
     );
     expect(
@@ -5994,7 +5837,7 @@ describe("ProviderRuntimeIngestion", () => {
         entry.subagentNickname === "Noether" &&
         entry.activities.some(
           (activity: ProviderRuntimeTestActivity) =>
-            activity.id === "evt-collab-child-thread-event" && activity.kind === "tool.updated",
+            hasOperationId(activity, "item-collab-child") && activity.kind === "tool.updated",
         ),
       2000,
       asThreadId("subagent:thread-1:child-provider-same-event"),
@@ -6112,7 +5955,6 @@ describe("ProviderRuntimeIngestion", () => {
       messages: parentBefore?.messages,
       latestTurn: parentBefore?.latestTurn,
       activities: parentBefore?.activities,
-      checkpoints: parentBefore?.checkpoints,
       pendingInteractions: parentBefore?.pendingInteractions,
       session: parentBefore?.session,
       hasPendingApprovals: parentBefore?.hasPendingApprovals,
@@ -6273,29 +6115,6 @@ describe("ProviderRuntimeIngestion", () => {
         },
       },
     });
-    harness.emit({
-      type: "turn.diff.updated",
-      eventId: asEventId("evt-unmapped-child-diff"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: childTurnId,
-      itemId: asItemId("item-unmapped-child-message"),
-      providerRefs,
-      payload: {
-        unifiedDiff: [
-          "diff --git a/child-only.txt b/child-only.txt",
-          "index 1111111..2222222 100644",
-          "--- a/child-only.txt",
-          "+++ b/child-only.txt",
-          "@@ -1 +1 @@",
-          "-parent-safe",
-          "+child-only",
-          "",
-        ].join("\n"),
-      },
-    });
-
     const childThread = await waitForThread(
       harness.engine,
       (thread) =>
@@ -6305,19 +6124,15 @@ describe("ProviderRuntimeIngestion", () => {
             message.text === "Child-only answer" &&
             message.streaming === false,
         ) &&
-        thread.latestTurn?.turnId === childTurnId &&
         [
           "evt-unmapped-child-approval-requested",
           "evt-unmapped-child-approval-resolved",
           "evt-unmapped-child-user-input-requested",
           "evt-unmapped-child-user-input-resolved",
           "evt-unmapped-child-tasks",
-          "evt-unmapped-child-file-change",
         ].every((eventId) => thread.activities.some((activity) => activity.id === eventId)) &&
-        thread.checkpoints.some(
-          (checkpoint) =>
-            checkpoint.turnId === childTurnId &&
-            checkpoint.files.some((file) => file.path === "child-only.txt"),
+        thread.activities.some((activity) =>
+          hasOperationId(activity, "item-unmapped-child-file-change"),
         ),
       2000,
       childThreadId,
@@ -6333,7 +6148,6 @@ describe("ProviderRuntimeIngestion", () => {
       messages: parentAfter?.messages,
       latestTurn: parentAfter?.latestTurn,
       activities: parentAfter?.activities,
-      checkpoints: parentAfter?.checkpoints,
       pendingInteractions: parentAfter?.pendingInteractions,
       session: parentAfter?.session,
       hasPendingApprovals: parentAfter?.hasPendingApprovals,

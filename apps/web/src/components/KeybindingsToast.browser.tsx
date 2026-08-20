@@ -80,9 +80,6 @@ function createMinimalSnapshot(): OrchestrationReadModel {
           model: "gpt-5",
         },
         runtimeMode: "full-access",
-        envMode: "local",
-        branch: "main",
-        worktreePath: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -100,7 +97,6 @@ function createMinimalSnapshot(): OrchestrationReadModel {
           },
         ],
         activities: [],
-        checkpoints: [],
         session: {
           threadId: THREAD_ID,
           status: "ready",
@@ -151,24 +147,6 @@ function resolveWsRpc(tag: string): unknown {
   }
   if (tag === WS_METHODS.projectsListDevServers) {
     return { servers: [] };
-  }
-  if (tag === WS_METHODS.gitListBranches) {
-    return {
-      isRepo: true,
-      hasOriginRemote: true,
-      branches: [{ name: "main", current: true, isDefault: true, worktreePath: null }],
-    };
-  }
-  if (tag === WS_METHODS.gitStatus) {
-    return {
-      branch: "main",
-      hasWorkingTreeChanges: false,
-      workingTree: { files: [], insertions: 0, deletions: 0 },
-      hasUpstream: true,
-      aheadCount: 0,
-      behindCount: 0,
-      pr: null,
-    };
   }
   if (tag === WS_METHODS.projectsSearchEntries) {
     return { entries: [], truncated: false };
@@ -351,8 +329,6 @@ describe("Keybindings update toast", () => {
       messageByThreadId: {},
       activityIdsByThreadId: {},
       activityByThreadId: {},
-      turnDiffIdsByThreadId: {},
-      turnDiffSummaryByThreadId: {},
       sidebarThreadSummaryById: {},
       threadsHydrated: false,
     });

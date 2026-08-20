@@ -1,7 +1,5 @@
 import { Schema } from "effect";
 
-import type { CheckpointServiceError } from "../checkpointing/Errors.ts";
-
 /**
  * ProviderAdapterValidationError - Invalid adapter API input.
  */
@@ -159,5 +157,4 @@ export type ProviderServiceError =
   | ProviderUnsupportedError
   | ProviderSessionNotFoundError
   | ProviderSessionDirectoryPersistenceError
-  | ProviderAdapterError
-  | CheckpointServiceError;
+  | ProviderAdapterError;

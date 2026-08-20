@@ -1,6 +1,5 @@
 import {
   ApprovalRequestId,
-  CheckpointRef,
   CommandId,
   EventId,
   MessageId,
@@ -23,7 +22,6 @@ const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsafe(value);
 
 const projectionSnapshotLayer = it.layer(
   OrchestrationProjectionSnapshotQueryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
@@ -110,7 +108,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'Project 1',
           '/tmp/project-1',
           '{"provider":"codex","model":"gpt-5-codex"}',
-          '[{"id":"script-1","name":"Build","command":"bun run build","icon":"build","runOnWorktreeCreate":false}]',
+          '[{"id":"script-1","name":"Build","command":"bun run build","icon":"build"}]',
           '2026-02-24T00:00:00.000Z',
           '2026-02-24T00:00:01.000Z',
           NULL
@@ -123,7 +121,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           project_id,
           title,
           model_selection_json,
-          branch,
           working_directory,
           latest_turn_id,
           created_at,
@@ -135,7 +132,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'project-1',
           'Thread 1',
           '{"provider":"codex","model":"gpt-5-codex"}',
-          NULL,
           NULL,
           'turn-1',
           '2026-02-24T00:00:02.000Z',
@@ -255,11 +251,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           state,
           requested_at,
           started_at,
-          completed_at,
-          checkpoint_turn_count,
-          checkpoint_ref,
-          checkpoint_status,
-          checkpoint_files_json
+          completed_at
         )
         VALUES
           (
@@ -270,11 +262,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'completed',
             '2026-02-24T00:00:08.000Z',
             '2026-02-24T00:00:08.000Z',
-            '2026-02-24T00:00:08.000Z',
-            1,
-            'checkpoint-1',
-            'ready',
-            '[{"path":"README.md","kind":"modified","additions":2,"deletions":1}]'
+            '2026-02-24T00:00:08.000Z'
           ),
           (
             'thread-1',
@@ -284,11 +272,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'running',
             '2026-02-24T00:00:07.500Z',
             '2026-02-24T00:00:07.500Z',
-            NULL,
-            2,
-            'provider-diff:placeholder',
-            'missing',
-            '[]'
+            NULL
           )
       `;
 
@@ -330,7 +314,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               name: "Build",
               command: "bun run build",
               icon: "build",
-              runOnWorktreeCreate: false,
             },
           ],
           iconDataUrl: null,
@@ -352,14 +335,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             model: "gpt-5-codex",
           },
           runtimeMode: "full-access",
-          envMode: "local",
-          branch: null,
-          worktreePath: null,
           workingDirectory: null,
-          associatedWorktreePath: null,
-          associatedWorktreeBranch: null,
-          associatedWorktreeRef: null,
-          createBranchFlowCompleted: false,
           isPinned: false,
           sidebarSortOrder: 0,
           parentThreadId: null,
@@ -372,10 +348,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           subagentNickname: null,
           subagentRole: null,
           forkSourceThreadId: null,
-          lastKnownPr: null,
           latestUserMessageAt: "2026-02-24T00:00:03.500Z",
           hasPendingApprovals: true,
           hasPendingUserInput: true,
+          workStatus: "running",
+          lastMessagePreview: "hello from projection",
+          lastActivityAt: "2026-02-24T00:00:06.750Z",
           latestTurn: {
             turnId: asTurnId("turn-1"),
             state: "completed",
@@ -452,17 +430,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             },
           ],
           pendingInteractions: [],
-          checkpoints: [
-            {
-              turnId: asTurnId("turn-1"),
-              checkpointTurnCount: 1,
-              checkpointRef: asCheckpointRef("checkpoint-1"),
-              status: "ready",
-              files: [{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }],
-              assistantMessageId: asMessageId("message-1"),
-              completedAt: "2026-02-24T00:00:08.000Z",
-            },
-          ],
           session: {
             threadId: ThreadId.makeUnsafe("thread-1"),
             status: "running",
@@ -514,7 +481,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           project_id,
           title,
           model_selection_json,
-          branch,
           working_directory,
           latest_turn_id,
           created_at,
@@ -526,7 +492,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'project-activity-cap',
           'Thread Activity Cap',
           '{"provider":"codex","model":"gpt-5-codex"}',
-          NULL,
           NULL,
           NULL,
           '2026-02-24T00:00:00.000Z',
@@ -714,11 +679,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, working_directory,
+          thread_id, project_id, title, model_selection_json, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES (
           'thread-turn-window', 'project-turn-window', 'Turn Window',
-          '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL, NULL,
+          '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
           '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:00.000Z', NULL
         )
       `;
@@ -817,11 +782,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, working_directory,
+          thread_id, project_id, title, model_selection_json, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES (
           'thread-oversized-turn', 'project-oversized-turn', 'Oversized Turn',
-          '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL, NULL,
+          '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
           '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:00.000Z', NULL
         )
       `;
@@ -916,7 +881,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           project_id,
           title,
           model_selection_json,
-          branch,
           working_directory,
           latest_turn_id,
           created_at,
@@ -928,7 +892,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'project-export-message-cap',
           'Thread Export Message Cap',
           '{"provider":"codex","model":"gpt-5-codex"}',
-          NULL,
           NULL,
           NULL,
           '2026-02-24T00:00:00.000Z',
@@ -1002,12 +965,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, working_directory,
+          thread_id, project_id, title, model_selection_json, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES (
           'thread-causal-message-snapshot', 'project-causal-message-snapshot',
           'Causal Message Snapshot', '{"provider":"codex","model":"gpt-5-codex"}',
-          NULL, NULL, NULL,
+          NULL, NULL,
           '2026-07-14T12:00:00.000Z', '2026-07-14T12:00:00.000Z', NULL
         )
       `;
@@ -1121,7 +1084,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           project_id,
           title,
           model_selection_json,
-          branch,
           working_directory,
           runtime_mode,
           latest_turn_id,
@@ -1134,7 +1096,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'project-imported-shape',
           'Imported Shape Thread',
           '{"provider":"codex","model":"gpt-5.5","options":[{"id":"reasoningEffort","value":"medium"}]}',
-          NULL,
           NULL,
           'full-access',
           NULL,
@@ -1295,73 +1256,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
-  it.effect("decodes persisted lastKnownPr JSON in read and shell snapshots", () =>
-    Effect.gen(function* () {
-      const snapshotQuery = yield* ProjectionSnapshotQuery;
-      const sql = yield* SqlClient.SqlClient;
-
-      yield* sql`DELETE FROM projection_projects`;
-      yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_state`;
-
-      yield* sql`
-        INSERT INTO projection_projects (
-          project_id,
-          kind,
-          title,
-          workspace_root,
-          default_model_selection_json,
-          scripts_json,
-          created_at,
-          updated_at,
-          deleted_at
-        )
-        VALUES (
-          'project-pr',
-          'project',
-          'PR Project',
-          '/tmp/pr-project',
-          '{"provider":"codex","model":"gpt-5-codex"}',
-          '[]',
-          '2026-02-25T00:00:00.000Z',
-          '2026-02-25T00:00:01.000Z',
-          NULL
-        )
-      `;
-
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id,
-          project_id,
-          title,
-          model_selection_json,
-          last_known_pr_json,
-          created_at,
-          updated_at,
-          deleted_at
-        )
-        VALUES (
-          'thread-pr',
-          'project-pr',
-          'Thread with PR',
-          '{"provider":"codex","model":"gpt-5-codex"}',
-          '{"number":1,"title":"Add placeholder temp files","url":"https://github.com/Emanuele-web04/openclap/pull/1","baseBranch":"main","headBranch":"penkra/greeting-1","state":"open"}',
-          '2026-02-25T00:00:02.000Z',
-          '2026-02-25T00:00:03.000Z',
-          NULL
-        )
-      `;
-
-      const snapshot = yield* snapshotQuery.getSnapshot();
-      assert.equal(snapshot.threads[0]?.lastKnownPr?.number, 1);
-      assert.equal(snapshot.threads[0]?.lastKnownPr?.state, "open");
-
-      const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
-      assert.equal(shellSnapshot.threads[0]?.lastKnownPr?.number, 1);
-      assert.equal(shellSnapshot.threads[0]?.lastKnownPr?.headBranch, "penkra/greeting-1");
-    }),
-  );
-
   it.effect("reads aggregate counts and cheap lookups without hydrating the full snapshot", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -1411,8 +1305,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           model_selection_json,
           runtime_mode,
-          env_mode,
-          branch,
           working_directory,
           latest_turn_id,
           created_at,
@@ -1427,8 +1319,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'First Thread',
             '{"provider":"codex","model":"gpt-5-codex"}',
             'full-access',
-            'local',
-            NULL,
             NULL,
             NULL,
             '2026-03-01T00:00:05.000Z',
@@ -1442,8 +1332,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'Second Thread',
             '{"provider":"codex","model":"gpt-5-codex"}',
             'full-access',
-            'local',
-            NULL,
             NULL,
             NULL,
             '2026-03-01T00:00:07.000Z',
@@ -1457,8 +1345,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'Deleted Thread',
             '{"provider":"codex","model":"gpt-5-codex"}',
             'full-access',
-            'local',
-            NULL,
             NULL,
             NULL,
             '2026-03-01T00:00:09.000Z',
@@ -1536,8 +1422,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           model_selection_json,
           runtime_mode,
-          env_mode,
-          branch,
           working_directory,
           latest_turn_id,
           latest_user_message_at,
@@ -1554,8 +1438,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'Shell Thread',
           '{"provider":"codex","model":"gpt-5-codex"}',
           'full-access',
-          'local',
-          NULL,
           NULL,
           'turn-shell',
           '2026-03-03T00:00:02.500Z',
@@ -1602,11 +1484,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           state,
           requested_at,
           started_at,
-          completed_at,
-          checkpoint_turn_count,
-          checkpoint_ref,
-          checkpoint_status,
-          checkpoint_files_json
+          completed_at
         )
         VALUES (
           'thread-shell',
@@ -1616,11 +1494,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'completed',
           '2026-03-03T00:00:05.000Z',
           '2026-03-03T00:00:05.000Z',
-          '2026-03-03T00:00:05.000Z',
-          NULL,
-          NULL,
-          NULL,
-          '[]'
+          '2026-03-03T00:00:05.000Z'
         )
       `;
 
@@ -1653,14 +1527,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             model: "gpt-5-codex",
           },
           runtimeMode: "full-access",
-          envMode: "local",
-          branch: null,
-          worktreePath: null,
           workingDirectory: null,
-          associatedWorktreePath: null,
-          associatedWorktreeBranch: null,
-          associatedWorktreeRef: null,
-          createBranchFlowCompleted: false,
           isPinned: false,
           sidebarSortOrder: 0,
           parentThreadId: null,
@@ -1673,7 +1540,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           subagentNickname: null,
           subagentRole: null,
           forkSourceThreadId: null,
-          lastKnownPr: null,
           latestTurn: {
             turnId: asTurnId("turn-shell"),
             state: "completed",
@@ -1685,6 +1551,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           latestUserMessageAt: "2026-03-03T00:00:02.500Z",
           hasPendingApprovals: true,
           hasPendingUserInput: true,
+          workStatus: "attention",
+          lastMessagePreview: null,
+          lastActivityAt: null,
           createdAt: "2026-03-03T00:00:02.000Z",
           updatedAt: "2026-03-03T00:00:03.000Z",
           archivedAt: null,
@@ -1710,457 +1579,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
-  it.effect("reads single-thread checkpoint context without hydrating unrelated threads", () =>
-    Effect.gen(function* () {
-      const snapshotQuery = yield* ProjectionSnapshotQuery;
-      const sql = yield* SqlClient.SqlClient;
-
-      yield* sql`DELETE FROM projection_projects`;
-      yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_turns`;
-      yield* sql`DELETE FROM projection_thread_activities`;
-
-      yield* sql`
-        INSERT INTO projection_projects (
-          project_id,
-          title,
-          workspace_root,
-          default_model_selection_json,
-          scripts_json,
-          created_at,
-          updated_at,
-          deleted_at
-        )
-        VALUES (
-          'project-context',
-          'Context Project',
-          '/tmp/context-workspace',
-          NULL,
-          '[]',
-          '2026-03-02T00:00:00.000Z',
-          '2026-03-02T00:00:01.000Z',
-          NULL
-        )
-      `;
-
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id,
-          project_id,
-          title,
-          model_selection_json,
-          runtime_mode,
-          env_mode,
-          branch,
-          working_directory,
-          latest_turn_id,
-          created_at,
-          updated_at,
-          archived_at,
-          deleted_at
-        )
-        VALUES (
-          'thread-context',
-          'project-context',
-          'Context Thread',
-          '{"provider":"codex","model":"gpt-5-codex"}',
-          'full-access',
-          'worktree',
-          'feature/perf',
-          '/tmp/context-worktree',
-          NULL,
-          '2026-03-02T00:00:02.000Z',
-          '2026-03-02T00:00:03.000Z',
-          NULL,
-          NULL
-        )
-      `;
-
-      yield* sql`
-        INSERT INTO projection_turns (
-          thread_id,
-          turn_id,
-          pending_message_id,
-          assistant_message_id,
-          state,
-          requested_at,
-          started_at,
-          completed_at,
-          checkpoint_turn_count,
-          checkpoint_ref,
-          checkpoint_status,
-          checkpoint_files_json
-        )
-        VALUES
-          (
-            'thread-context',
-            'turn-1',
-            NULL,
-            NULL,
-            'completed',
-            '2026-03-02T00:00:04.000Z',
-            '2026-03-02T00:00:04.000Z',
-            '2026-03-02T00:00:04.000Z',
-            1,
-            'checkpoint-a',
-            'ready',
-            '[]'
-          ),
-          (
-            'thread-context',
-            'turn-placeholder',
-            NULL,
-            NULL,
-            'running',
-            '2026-03-02T00:00:04.500Z',
-            '2026-03-02T00:00:04.500Z',
-            NULL,
-            3,
-            'provider-diff:placeholder',
-            'missing',
-            '[]'
-          ),
-          (
-            'thread-context',
-            'turn-2',
-            NULL,
-            NULL,
-            'completed',
-            '2026-03-02T00:00:05.000Z',
-            '2026-03-02T00:00:05.000Z',
-            '2026-03-02T00:00:05.000Z',
-            2,
-            'checkpoint-b',
-            'ready',
-            '[]'
-          )
-      `;
-
-      yield* sql`
-        INSERT INTO projection_thread_activities (
-          activity_id,
-          thread_id,
-          turn_id,
-          tone,
-          kind,
-          summary,
-          payload_json,
-          created_at,
-          sequence
-        )
-        VALUES
-          (
-            'activity-file-change',
-            'thread-context',
-            'turn-2',
-            'tool',
-            'tool.completed',
-            'File change',
-            '{"itemType":"file_change","status":"completed","data":{"path":"Outbox/Content/post.md"}}',
-            '2026-03-02T00:00:05.100Z',
-            1
-          ),
-          (
-            'activity-command',
-            'thread-context',
-            'turn-2',
-            'tool',
-            'tool.completed',
-            'Command',
-            '{"itemType":"command_execution","status":"completed","data":{"path":"Outbox/ignored.md"}}',
-            '2026-03-02T00:00:05.200Z',
-            2
-          ),
-          (
-            'activity-studio-outputs',
-            'thread-context',
-            'turn-2',
-            'info',
-            'studio.outputs.captured',
-            'Studio outputs captured',
-            '{"itemType":"studio_outputs","data":{"files":[{"path":"output/pdf/report.pdf"}]}}',
-            '2026-03-02T00:00:05.300Z',
-            3
-          ),
-          (
-            'activity-generated-image-copy',
-            'thread-context',
-            'turn-2',
-            'info',
-            'studio.outputs.captured',
-            'Studio outputs captured',
-            '{"itemType":"studio_outputs","data":{"files":[{"path":"Outbox/Images/generated.png"}],"generatedImage":{"sourcePath":"/codex/generated.png","fullPath":"/tmp/context-workspace/Outbox/Images/generated.png"}}}',
-            '2026-03-02T00:00:05.400Z',
-            4
-          ),
-          (
-            'activity-generated-image-tool',
-            'thread-context',
-            'turn-2',
-            'tool',
-            'tool.completed',
-            'Generated image',
-            '{"itemType":"image_generation","status":"completed","data":{"kind":"codex.generated_image","path":"/codex/generated.png"}}',
-            '2026-03-02T00:00:05.500Z',
-            5
-          )
-      `;
-
-      const context = yield* snapshotQuery.getThreadCheckpointContext(
-        ThreadId.makeUnsafe("thread-context"),
-      );
-      assert.equal(context._tag, "Some");
-      if (context._tag === "Some") {
-        assert.deepEqual(context.value, {
-          threadId: ThreadId.makeUnsafe("thread-context"),
-          projectId: asProjectId("project-context"),
-          projectKind: "project",
-          workspaceRoot: "/tmp/context-workspace",
-          envMode: "worktree",
-          worktreePath: "/tmp/context-worktree",
-          workingDirectory: "/tmp/context-worktree",
-          checkpoints: [
-            {
-              turnId: asTurnId("turn-1"),
-              checkpointTurnCount: 1,
-              checkpointRef: asCheckpointRef("checkpoint-a"),
-              status: "ready",
-              files: [],
-              assistantMessageId: null,
-              completedAt: "2026-03-02T00:00:04.000Z",
-            },
-            {
-              turnId: asTurnId("turn-2"),
-              checkpointTurnCount: 2,
-              checkpointRef: asCheckpointRef("checkpoint-b"),
-              status: "ready",
-              files: [],
-              assistantMessageId: null,
-              completedAt: "2026-03-02T00:00:05.000Z",
-            },
-          ],
-        });
-      }
-
-      const outputContext = yield* snapshotQuery.getThreadCheckpointContext(
-        ThreadId.makeUnsafe("thread-context"),
-        { includeFileChangeActivityPayloads: true },
-      );
-      assert.equal(outputContext._tag, "Some");
-      if (outputContext._tag === "Some") {
-        assert.deepEqual(outputContext.value.fileChangeActivityPayloads, [
-          {
-            itemType: "studio_outputs",
-            data: {
-              files: [{ path: "Outbox/Images/generated.png" }],
-              generatedImage: {
-                sourcePath: "/codex/generated.png",
-                fullPath: "/tmp/context-workspace/Outbox/Images/generated.png",
-              },
-            },
-          },
-          {
-            itemType: "studio_outputs",
-            data: { files: [{ path: "output/pdf/report.pdf" }] },
-          },
-          {
-            itemType: "file_change",
-            status: "completed",
-            data: { path: "Outbox/Content/post.md" },
-          },
-        ]);
-      }
-
-      const generatedImageActivities = yield* snapshotQuery.listGeneratedImageActivitiesByTurn(
-        ThreadId.makeUnsafe("thread-context"),
-        TurnId.makeUnsafe("turn-2"),
-      );
-      assert.deepEqual(generatedImageActivities, [
-        {
-          kind: "studio.outputs.captured",
-          payload: {
-            itemType: "studio_outputs",
-            data: {
-              files: [{ path: "Outbox/Images/generated.png" }],
-              generatedImage: {
-                sourcePath: "/codex/generated.png",
-                fullPath: "/tmp/context-workspace/Outbox/Images/generated.png",
-              },
-            },
-          },
-        },
-        {
-          kind: "tool.completed",
-          payload: {
-            itemType: "image_generation",
-            status: "completed",
-            data: { kind: "codex.generated_image", path: "/codex/generated.png" },
-          },
-        },
-      ]);
-
-      const fullThreadDiffContext = yield* snapshotQuery.getFullThreadDiffContext(
-        ThreadId.makeUnsafe("thread-context"),
-        2,
-      );
-      assert.equal(fullThreadDiffContext._tag, "Some");
-      if (fullThreadDiffContext._tag === "Some") {
-        assert.deepEqual(fullThreadDiffContext.value, {
-          threadId: ThreadId.makeUnsafe("thread-context"),
-          projectId: asProjectId("project-context"),
-          projectKind: "project",
-          workspaceRoot: "/tmp/context-workspace",
-          envMode: "worktree",
-          worktreePath: "/tmp/context-worktree",
-          workingDirectory: "/tmp/context-worktree",
-          latestCheckpointTurnCount: 2,
-          baselineCheckpointRef: asCheckpointRef("checkpoint-a"),
-          toCheckpointRef: asCheckpointRef("checkpoint-b"),
-        });
-      }
-    }),
-  );
-
-  it.effect("reads checkpoint context for a folderless project", () =>
-    Effect.gen(function* () {
-      const snapshotQuery = yield* ProjectionSnapshotQuery;
-      const sql = yield* SqlClient.SqlClient;
-
-      yield* sql`DELETE FROM projection_projects`;
-      yield* sql`DELETE FROM projection_threads`;
-
-      yield* sql`
-        INSERT INTO projection_projects (
-          project_id,
-          title,
-          workspace_root,
-          default_model_selection_json,
-          scripts_json,
-          created_at,
-          updated_at,
-          deleted_at
-        )
-        VALUES (
-          'project-folderless',
-          'Folderless Project',
-          NULL,
-          NULL,
-          '[]',
-          '2026-03-04T00:00:00.000Z',
-          '2026-03-04T00:00:01.000Z',
-          NULL
-        )
-      `;
-
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id,
-          project_id,
-          title,
-          model_selection_json,
-          runtime_mode,
-          env_mode,
-          branch,
-          working_directory,
-          latest_turn_id,
-          created_at,
-          updated_at,
-          archived_at,
-          deleted_at
-        )
-        VALUES (
-          'thread-folderless',
-          'project-folderless',
-          'Folderless Thread',
-          '{"provider":"codex","model":"gpt-5-codex"}',
-          'full-access',
-          'local',
-          NULL,
-          '/tmp/selected-folder',
-          NULL,
-          '2026-03-04T00:00:02.000Z',
-          '2026-03-04T00:00:03.000Z',
-          NULL,
-          NULL
-        )
-      `;
-
-      const context = yield* snapshotQuery.getThreadCheckpointContext(
-        ThreadId.makeUnsafe("thread-folderless"),
-      );
-
-      assert.equal(context._tag, "Some");
-      if (context._tag === "Some") {
-        assert.equal(context.value.workspaceRoot, null);
-        assert.equal(context.value.workingDirectory, "/tmp/selected-folder");
-      }
-    }),
-  );
-
-  it.effect("keeps the latest checkpoint-revert lifecycle row in the command model", () =>
-    Effect.gen(function* () {
-      const snapshotQuery = yield* ProjectionSnapshotQuery;
-      const sql = yield* SqlClient.SqlClient;
-
-      yield* sql`DELETE FROM projection_thread_activities`;
-      yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_projects`;
-      yield* sql`
-        INSERT INTO projection_projects (
-          project_id, title, workspace_root, default_model_selection_json,
-          scripts_json, created_at, updated_at, deleted_at
-        ) VALUES (
-          'project-revert-lifecycle', 'Revert lifecycle', '/tmp/revert-lifecycle',
-          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
-          '2026-07-21T00:00:00.000Z', '2026-07-21T00:00:00.000Z', NULL
-        )
-      `;
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, working_directory,
-          latest_turn_id, created_at, updated_at, deleted_at
-        ) VALUES (
-          'thread-revert-lifecycle', 'project-revert-lifecycle', 'Revert lifecycle',
-          '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL, NULL,
-          '2026-07-21T00:00:00.000Z', '2026-07-21T00:00:00.000Z', NULL
-        )
-      `;
-      yield* sql`
-        INSERT INTO projection_thread_activities (
-          activity_id, thread_id, turn_id, tone, kind, summary,
-          payload_json, sequence, created_at
-        ) VALUES (
-          'revert-started', 'thread-revert-lifecycle', NULL, 'info',
-          'checkpoint.revert.started', 'Checkpoint revert started', '{}', 10,
-          '2026-07-21T00:00:01.000Z'
-        )
-      `;
-
-      const startedModel = yield* snapshotQuery.getCommandReadModel();
-      assert.deepEqual(
-        startedModel.threads[0]?.activities.map((activity) => activity.kind),
-        ["checkpoint.revert.started"],
-      );
-
-      yield* sql`
-        INSERT INTO projection_thread_activities (
-          activity_id, thread_id, turn_id, tone, kind, summary,
-          payload_json, sequence, created_at
-        ) VALUES (
-          'revert-succeeded', 'thread-revert-lifecycle', NULL, 'info',
-          'checkpoint.revert.succeeded', 'Checkpoint revert completed', '{}', 11,
-          '2026-07-21T00:00:02.000Z'
-        )
-      `;
-
-      const completedModel = yield* snapshotQuery.getCommandReadModel();
-      assert.deepEqual(
-        completedModel.threads[0]?.activities.map((activity) => activity.kind),
-        ["checkpoint.revert.succeeded"],
-      );
-    }),
-  );
-
   it.effect("lists only stale active thread ids for reconciliation, oldest first", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -2182,49 +1600,48 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, working_directory,
+          thread_id, project_id, title, model_selection_json, working_directory,
           latest_turn_id, created_at, updated_at, archived_at, deleted_at
         ) VALUES
           (
             'thread-stale-running', 'project-runtime-candidates', 'Stale',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL, NULL,
+            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
             '2026-07-23T00:00:00.000Z', '2026-07-23T00:00:00.000Z', NULL, NULL
           ),
           (
             'thread-fresh-running', 'project-runtime-candidates', 'Fresh',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL, NULL,
+            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
             '2026-07-23T00:00:00.000Z', '2026-07-23T09:59:00.000Z', NULL, NULL
           ),
           (
             'thread-settled', 'project-runtime-candidates', 'Settled',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL, NULL,
+            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
             '2026-07-23T00:00:00.000Z', '2026-07-23T00:00:00.000Z', NULL, NULL
           ),
           (
             'thread-archived-running', 'project-runtime-candidates', 'Archived',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL, NULL,
+            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
             '2026-07-23T00:00:00.000Z', '2026-07-23T00:00:00.000Z',
             '2026-07-23T08:00:00.000Z', NULL
           ),
           (
             'thread-unbound-oldest', 'project-runtime-candidates', 'Unbound',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL, NULL,
+            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
             '2026-07-22T00:00:00.000Z', '2026-07-22T00:00:00.000Z', NULL, NULL
           ),
           (
             'thread-queued-oldest', 'project-runtime-candidates', 'Queued',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL, 'turn-queued',
+            '{"provider":"codex","model":"gpt-5-codex"}', NULL, 'turn-queued',
             '2026-07-21T00:00:00.000Z', '2026-07-21T00:00:00.000Z', NULL, NULL
           )
       `;
       yield* sql`
         INSERT INTO projection_turns (
           thread_id, turn_id, pending_message_id, assistant_message_id, state, requested_at,
-          started_at, completed_at, checkpoint_turn_count, checkpoint_ref,
-          checkpoint_status, checkpoint_files_json
+          started_at, completed_at
         ) VALUES (
           'thread-queued-oldest', 'turn-queued', NULL, NULL, 'pending', '2026-07-21T00:00:00.000Z',
-          NULL, NULL, 0, NULL, 'missing', '[]'
+          NULL, NULL
         )
       `;
       yield* sql`
@@ -2333,17 +1750,17 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, working_directory,
+          thread_id, project_id, title, model_selection_json, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES
           (
             'thread-live', 'project-soft-delete', 'Live',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL, NULL,
+            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
             '2026-07-24T00:00:01.000Z', '2026-07-24T00:00:01.000Z', NULL
           ),
           (
             'thread-soft-deleted', 'project-soft-delete', 'Retention deleted',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL, NULL,
+            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
             '2026-07-24T00:00:02.000Z', '2026-07-24T00:00:09.000Z',
             '2026-07-24T00:00:09.000Z'
           )
@@ -2394,120 +1811,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.isDefined(deleted);
       assert.deepEqual(deleted?.messages, []);
       assert.deepEqual(deleted?.activities, []);
-    }),
-  );
-
-  it.effect("keeps soft-deleted thread activities visible to the command read model", () =>
-    Effect.gen(function* () {
-      const snapshotQuery = yield* ProjectionSnapshotQuery;
-      const sql = yield* SqlClient.SqlClient;
-
-      yield* sql`DELETE FROM projection_thread_activities`;
-      yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_projects`;
-      yield* sql`
-        INSERT INTO projection_projects (
-          project_id, title, workspace_root, default_model_selection_json,
-          scripts_json, created_at, updated_at, deleted_at
-        ) VALUES (
-          'project-deleted-command', 'Deleted command', '/tmp/deleted-command',
-          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
-          '2026-07-24T00:00:00.000Z', '2026-07-24T00:00:00.000Z', NULL
-        )
-      `;
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, working_directory,
-          latest_turn_id, created_at, updated_at, deleted_at
-        ) VALUES (
-          'thread-deleted-command', 'project-deleted-command', 'Deleted command',
-          '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL, NULL,
-          '2026-07-24T00:00:01.000Z', '2026-07-24T00:00:09.000Z',
-          '2026-07-24T00:00:09.000Z'
-        )
-      `;
-      yield* sql`
-        INSERT INTO projection_thread_activities (
-          activity_id, thread_id, turn_id, tone, kind, summary,
-          payload_json, sequence, created_at
-        ) VALUES (
-          'revert-started-deleted', 'thread-deleted-command', NULL, 'info',
-          'checkpoint.revert.started', 'Checkpoint revert started', '{}', 10,
-          '2026-07-24T00:00:02.000Z'
-        )
-      `;
-
-      // Decider idempotency depends on deleted threads keeping their lifecycle rows.
-      const commandModel = yield* snapshotQuery.getCommandReadModel();
-      const thread = commandModel.threads.find(
-        (candidate) => candidate.id === asThreadId("thread-deleted-command"),
-      );
-      assert.deepEqual(
-        thread?.activities.map((activity) => activity.kind),
-        ["checkpoint.revert.started"],
-      );
-    }),
-  );
-
-  it.effect("lists managed worktree threads including soft-deleted owners", () =>
-    Effect.gen(function* () {
-      const snapshotQuery = yield* ProjectionSnapshotQuery;
-      const sql = yield* SqlClient.SqlClient;
-
-      yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_projects`;
-      yield* sql`
-        INSERT INTO projection_projects (
-          project_id, title, workspace_root, default_model_selection_json,
-          scripts_json, created_at, updated_at, deleted_at
-        ) VALUES (
-          'project-worktrees', 'Worktrees', '/tmp/worktrees',
-          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
-          '2026-07-24T00:00:00.000Z', '2026-07-24T00:00:00.000Z', NULL
-        )
-      `;
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, env_mode, working_directory,
-          associated_worktree_path, latest_turn_id, created_at, updated_at,
-          archived_at, deleted_at
-        ) VALUES
-          (
-            'thread-worktree-active', 'project-worktrees', 'Active',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, 'worktree', '/tmp/wt/active',
-            NULL, NULL, '2026-07-24T00:00:01.000Z', '2026-07-24T00:00:01.000Z',
-            NULL, NULL
-          ),
-          (
-            'thread-worktree-deleted', 'project-worktrees', 'Retention deleted',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, 'worktree', '/tmp/wt/deleted',
-            '/tmp/wt/deleted-assoc', NULL, '2026-07-24T00:00:02.000Z',
-            '2026-07-24T00:00:09.000Z', '2026-07-24T00:00:08.000Z',
-            '2026-07-24T00:00:09.000Z'
-          ),
-          (
-            'thread-no-worktree', 'project-worktrees', 'No worktree',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, 'local', NULL,
-            NULL, NULL, '2026-07-24T00:00:03.000Z', '2026-07-24T00:00:03.000Z',
-            NULL, NULL
-          )
-      `;
-
-      const threads = yield* snapshotQuery.listManagedWorktreeThreads();
-      assert.deepEqual(threads, [
-        {
-          id: asThreadId("thread-worktree-active"),
-          archivedAt: null,
-          worktreePath: "/tmp/wt/active",
-          associatedWorktreePath: null,
-        },
-        {
-          id: asThreadId("thread-worktree-deleted"),
-          archivedAt: "2026-07-24T00:00:08.000Z",
-          worktreePath: "/tmp/wt/deleted",
-          associatedWorktreePath: "/tmp/wt/deleted-assoc",
-        },
-      ]);
     }),
   );
 });

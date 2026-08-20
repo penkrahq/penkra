@@ -14,10 +14,8 @@ import {
 interface WorkspacePathsStoreState {
   homeDir: string | null;
   chatWorkspaceRoot: string | null;
-  studioWorkspaceRoot: string | null;
   setHomeDir: (homeDir: string | null | undefined) => void;
   setChatWorkspaceRoot: (chatWorkspaceRoot: string | null | undefined) => void;
-  setStudioWorkspaceRoot: (studioWorkspaceRoot: string | null | undefined) => void;
   setServerWorkspacePaths: (paths: ServerWorkspacePaths) => void;
 }
 
@@ -43,7 +41,6 @@ export const useWorkspacePathsStore = create<WorkspacePathsStoreState>()(
     (set) => ({
       homeDir: null,
       chatWorkspaceRoot: null,
-      studioWorkspaceRoot: null,
       setHomeDir: (homeDir) =>
         set((state) => {
           // `undefined` means server config has not arrived yet; keep the last known value.
@@ -64,17 +61,6 @@ export const useWorkspacePathsStore = create<WorkspacePathsStoreState>()(
             ? state
             : { chatWorkspaceRoot: normalizedChatWorkspaceRoot };
         }),
-      setStudioWorkspaceRoot: (studioWorkspaceRoot) =>
-        set((state) => {
-          // `undefined` means server config has not arrived yet; keep the last known value.
-          if (studioWorkspaceRoot === undefined) {
-            return state;
-          }
-          const normalizedStudioWorkspaceRoot = studioWorkspaceRoot?.trim() ?? null;
-          return state.studioWorkspaceRoot === normalizedStudioWorkspaceRoot
-            ? state
-            : { studioWorkspaceRoot: normalizedStudioWorkspaceRoot };
-        }),
       setServerWorkspacePaths: (paths) =>
         set((state) => {
           const normalizedPaths = normalizeServerWorkspacePaths(paths);
@@ -87,12 +73,6 @@ export const useWorkspacePathsStore = create<WorkspacePathsStoreState>()(
             state.chatWorkspaceRoot !== normalizedPaths.chatWorkspaceRoot
           ) {
             next.chatWorkspaceRoot = normalizedPaths.chatWorkspaceRoot;
-          }
-          if (
-            paths.studioWorkspaceRoot !== undefined &&
-            state.studioWorkspaceRoot !== normalizedPaths.studioWorkspaceRoot
-          ) {
-            next.studioWorkspaceRoot = normalizedPaths.studioWorkspaceRoot;
           }
           return Object.keys(next).length > 0 ? next : state;
         }),

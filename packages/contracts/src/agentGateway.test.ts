@@ -44,12 +44,13 @@ describe("agent gateway contracts", () => {
     assert.throws(() => decodeCreate({ requestId: "x".repeat(257), threads: [thread] }));
   });
 
-  it("accepts an exact Git base ref for detached worktree creation", () => {
-    const decoded = decodeCreate({
-      requestId: "detached-ref",
-      threads: [{ ...thread, environment: "worktree", baseRef: "0123456789abcdef" }],
-    });
-    assert.equal(decoded.threads[0]?.baseRef, "0123456789abcdef");
+  it("rejects removed Git environment creation fields", () => {
+    assert.throws(() =>
+      decodeCreate({
+        requestId: "removed-git-fields",
+        threads: [{ ...thread, environment: "worktree", baseRef: "0123456789abcdef" }],
+      }),
+    );
   });
 
   it("decodes provider-specific model options without folding them into the slug", () => {
@@ -146,9 +147,6 @@ describe("agent gateway contracts", () => {
             provider: "codex",
             model: "gpt-5.6-terra",
             runtimeMode: "approval-required",
-            environment: "local",
-            branch: null,
-            worktreePath: null,
             status: "task_dispatched",
           },
         ],

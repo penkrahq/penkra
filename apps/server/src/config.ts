@@ -75,7 +75,6 @@ export interface ServerDerivedPaths {
   readonly dbPath: string;
   readonly settingsPath: string;
   readonly keybindingsConfigPath: string;
-  readonly worktreesDir: string;
   readonly attachmentsDir: string;
   readonly logsDir: string;
   readonly serverLogPath: string;
@@ -97,7 +96,6 @@ export interface ServerConfigShape extends ServerDerivedPaths {
   readonly cwd: string;
   readonly homeDir: string;
   readonly chatWorkspaceRoot: string;
-  readonly studioWorkspaceRoot: string;
   readonly baseDir: string;
   readonly staticDir: string | undefined;
   readonly devUrl: URL | undefined;
@@ -154,7 +152,6 @@ export const deriveServerPaths = Effect.fn(function* (
     dbPath,
     settingsPath: join(stateDir, "settings.json"),
     keybindingsConfigPath: join(stateDir, "keybindings.json"),
-    worktreesDir: join(baseDir, "worktrees"),
     attachmentsDir,
     logsDir,
     serverLogPath: join(logsDir, "server.log"),
@@ -179,32 +176,21 @@ export function resolveDefaultChatWorkspaceRoot(input: {
     : pathApi.join(homeDir, "Documents", "Penkra");
 }
 
-export function resolveDefaultStudioWorkspaceRoot(input: {
-  readonly homeDir: string;
-  readonly platform?: NodeJS.Platform;
-}): string {
-  const pathApi = (input.platform ?? process.platform) === "win32" ? pathWin32 : pathPosix;
-  return pathApi.join(resolveDefaultChatWorkspaceRoot(input), "Studio");
-}
-
 export interface ResolvedWorkspaceRoots {
   readonly homeDir: string;
   readonly chatWorkspaceRoot: string;
-  readonly studioWorkspaceRoot: string;
 }
 
 /**
- * resolveCanonicalWorkspaceRoots - Derives homeDir/chatWorkspaceRoot/studioWorkspaceRoot
+ * resolveCanonicalWorkspaceRoots - Derives homeDir/chatWorkspaceRoot
  * and canonicalizes each via {@link realpathNearestExisting}.
  *
  * Project rows store REALPATH-canonicalized workspace roots (see
  * `canonicalizeProjectWorkspaceRoot` in wsRpc.ts), so the roots the server
  * reports in config/welcome payloads must be canonicalized the same way.
- * Otherwise a symlinked chat/Studio ancestor (e.g. a symlinked `~/Documents`)
+ * Otherwise a symlinked chat ancestor (e.g. a symlinked `~/Documents`)
  * makes client-side classifiers mis-detect which container a thread belongs
- * to. The Studio root in particular may not exist yet (it's created lazily),
- * so canonicalization walks up to the nearest existing ancestor and
- * re-appends the not-yet-created remainder.
+ * to.
  */
 export const resolveCanonicalWorkspaceRoots = Effect.fn(function* (input: {
   readonly homeDir: string;
@@ -215,10 +201,7 @@ export const resolveCanonicalWorkspaceRoots = Effect.fn(function* (input: {
   const chatWorkspaceRoot = yield* realpathNearestExisting(
     resolveDefaultChatWorkspaceRoot({ homeDir, platform }),
   );
-  const studioWorkspaceRoot = yield* realpathNearestExisting(
-    resolveDefaultStudioWorkspaceRoot({ homeDir, platform }),
-  );
-  return { homeDir, chatWorkspaceRoot, studioWorkspaceRoot };
+  return { homeDir, chatWorkspaceRoot };
 });
 
 /**
@@ -247,14 +230,14 @@ export class ServerConfig extends ServiceMap.Service<ServerConfig, ServerConfigS
 
         yield* Effect.sync(() => preparePrivateServerPaths(derivedPaths));
 
-        const { homeDir, chatWorkspaceRoot, studioWorkspaceRoot } =
-          yield* resolveCanonicalWorkspaceRoots({ homeDir: OS.homedir() });
+        const { homeDir, chatWorkspaceRoot } = yield* resolveCanonicalWorkspaceRoots({
+          homeDir: OS.homedir(),
+        });
 
         return {
           cwd,
           homeDir,
           chatWorkspaceRoot,
-          studioWorkspaceRoot,
           baseDir,
           ...derivedPaths,
           mode: "web",

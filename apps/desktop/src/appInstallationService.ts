@@ -21,6 +21,7 @@ import {
   type VerifiedAppPackageInput,
 } from "./appInstallationState";
 import { permissionsRequiringUpdateReview } from "@penkra/sdk";
+import { gt } from "semver";
 import type { AppInstallationStore } from "./appInstallationStore";
 import type { AppRuntimeLifecycle } from "./appRuntimeLifecycle";
 import type { AppUpdateJournal } from "./appUpdateJournal";
@@ -177,9 +178,16 @@ export class AppInstallationService {
   }): Promise<AppInstallationState> {
     const current = this.#store.snapshot();
     const existing = getInstalledAppPackage(current, input.package.manifest.id, input.spaceId);
-    if (!existing || (existing.source !== "sideload" && !isRequiredApp(existing.appId))) {
+    if (!existing) {
       return Promise.reject(
-        new Error(`${input.package.manifest.id} is not installed as a sideload.`),
+        new Error(`${input.package.manifest.id} is not installed in Space ${input.spaceId}.`),
+      );
+    }
+    if (existing.source === "registry" && !gt(input.package.manifest.version, existing.version)) {
+      return Promise.reject(
+        new Error(
+          `Sideload version ${input.package.manifest.version} must be newer than installed registry version ${existing.version}; uninstall the registry App first to sideload this version.`,
+        ),
       );
     }
     const permissions =
@@ -648,12 +656,11 @@ function applyUpdate(
   const appId = input.package.manifest.id;
   const previousPackage = getInstalledAppPackage(state, appId, input.spaceId);
   if (!previousPackage) throw new Error(`${appId} is not installed in Space ${input.spaceId}.`);
-  const replacesRequiredRegistryApp =
-    isRequiredApp(appId) &&
+  const replacesRegistryAppWithSideload =
     previousPackage.source === "registry" &&
     input.package.source === "sideload" &&
     previousPackage.slug === input.package.manifest.slug;
-  let next = replacesRequiredRegistryApp
+  let next = replacesRegistryAppWithSideload
     ? registerVerifiedAppPackage(
         unregisterAppPackage(state, appId, input.spaceId),
         input.package,

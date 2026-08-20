@@ -1,4 +1,4 @@
-import type { GitBranch, ProviderKind } from "@penkra/contracts";
+import type { ProviderKind } from "@penkra/contracts";
 import {
   BUILT_IN_COMPOSER_SLASH_COMMANDS,
   isBuiltInComposerSlashCommandName,
@@ -24,7 +24,7 @@ export interface ComposerSlashInvocation {
 }
 
 export type FastSlashCommandAction = "toggle" | "on" | "off" | "status" | "invalid";
-export type ForkSlashCommandTarget = "local" | "worktree";
+export type ForkSlashCommandTarget = "local";
 
 const CLAUDE_NATIVE_COMMAND_ALIASES: Record<string, readonly string[]> = {
   clear: ["reset", "new"],
@@ -160,7 +160,7 @@ const COMPOSER_SLASH_COMMAND_DEFINITIONS: Record<
   fork: {
     command: "fork",
     label: "/fork",
-    description: "Fork this thread into local or a new worktree",
+    description: "Fork this thread locally",
     source: "app",
   },
   status: {
@@ -280,13 +280,8 @@ export function buildSubagentsPrompt(existingPrompt: string): string {
   return trimmedPrompt.length > 0 ? `${trimmedPrompt}\n\n${cannedPrompt}` : cannedPrompt;
 }
 
-export function buildReviewPrompt(input: { target: "changes" | "base-branch" }): string {
-  const baseInstruction =
-    "Review the local code changes for bugs, risks, behavioural regressions, and missing tests. Findings first, ordered by severity.";
-  if (input.target === "base-branch") {
-    return `${baseInstruction}\nFocus on the current branch diff against its base branch.`;
-  }
-  return `${baseInstruction}\nFocus on the current uncommitted changes.`;
+export function buildReviewPrompt(): string {
+  return "Review the local code changes for bugs, risks, behavioural regressions, and missing tests. Findings first, ordered by severity.\nFocus on the current uncommitted changes.";
 }
 
 export function parseFastSlashCommandAction(text: string): FastSlashCommandAction | null {
@@ -308,25 +303,6 @@ export function parseFastSlashCommandAction(text: string): FastSlashCommandActio
     return "status";
   }
   return "invalid";
-}
-
-export function resolveComposerSlashRootBranch(input: {
-  branches: ReadonlyArray<GitBranch> | null | undefined;
-  activeProjectCwd: string | null | undefined;
-  activeThreadBranch: string | null | undefined;
-}): string | null {
-  return (
-    input.branches?.find(
-      (branch) =>
-        branch.current === true &&
-        (branch.worktreePath === null ||
-          branch.worktreePath === undefined ||
-          branch.worktreePath === input.activeProjectCwd),
-    )?.name ??
-    input.branches?.find((branch) => branch.current === true)?.name ??
-    input.activeThreadBranch ??
-    null
-  );
 }
 
 export function getAvailableComposerSlashCommands(input: {
@@ -383,18 +359,9 @@ export function hasProviderNativeSlashCommand(
 
 export function buildSlashReviewComposerPrompt(args: string): string {
   const trimmedArgs = args.trim();
-  const normalizedArgs = trimmedArgs.toLowerCase();
-  const reviewTarget =
-    normalizedArgs === "base" || normalizedArgs.startsWith("base ") ? "base-branch" : "changes";
-  const basePrompt = buildReviewPrompt({ target: reviewTarget });
+  const basePrompt = buildReviewPrompt();
   if (!trimmedArgs) {
     return basePrompt;
-  }
-  if (reviewTarget === "base-branch") {
-    const baseBranchHint = trimmedArgs.replace(/^base\b/i, "").trim();
-    return baseBranchHint.length > 0
-      ? `${basePrompt}\nUse ${baseBranchHint} as the base branch if needed.`
-      : basePrompt;
   }
   return `${basePrompt}\nFocus especially on: ${trimmedArgs}`;
 }
@@ -409,7 +376,7 @@ export function parseForkSlashCommandArgs(args: string): {
     return { target: null, invalid: false };
   }
 
-  const match = /^(local|worktree)$/i.exec(trimmedArgs);
+  const match = /^(local)$/i.exec(trimmedArgs);
   if (!match) {
     return { target: null, invalid: true };
   }

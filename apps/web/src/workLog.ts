@@ -1,12 +1,13 @@
 import {
   isToolLifecycleItemType,
-  STUDIO_OUTPUTS_ACTIVITY_KIND,
   type OrchestrationLatestTurnState,
   type OrchestrationThreadActivity,
   type ProviderKind,
   type ToolLifecycleItemType,
   type TurnId,
 } from "@penkra/contracts";
+
+const LEGACY_OUTPUTS_CAPTURED_ACTIVITY_KIND = "legacy.outputs.captured";
 import {
   decodeSubagentAgentStates,
   extractSubagentIdentityHints,
@@ -38,10 +39,6 @@ import type { ChatMessage } from "./types";
 
 export type WorkLogRequestKind = ApprovalRequestKind;
 
-// Mirrors CHECKPOINT_REVERT_FAILED_ACTIVITY_KIND in
-// apps/server/src/orchestration/commandInvariants.ts, which the web app cannot
-// import.
-const CHECKPOINT_REVERT_FAILED_ACTIVITY_KIND = "checkpoint.revert.failed";
 const THREAD_SELECTION_ACTIVITY_KINDS = new Set(["connection-changed", "model-changed"]);
 
 export function isThreadSelectionWorkEntry(entry: Pick<WorkLogEntry, "activityKind">): boolean {
@@ -114,7 +111,6 @@ export interface WorkLogPenkraCreatedThread {
   title: string;
   provider: ProviderKind;
   model: string;
-  environment: "local" | "worktree";
   status: string;
 }
 
@@ -154,7 +150,6 @@ export interface WorkLogSubagentAction {
 interface DerivedWorkLogEntry extends WorkLogEntry {
   activityKind: OrchestrationThreadActivity["kind"];
   collapseKey?: string;
-  collapseCommand?: string;
   toolName?: string;
   runtimeWarningRepeatCount?: number;
   runtimeWarningMessage?: string;
@@ -282,9 +277,8 @@ export function deriveWorkLogEntries(
       (activity) =>
         activity.kind !== "context-window.updated" && activity.kind !== "context-window.configured",
     )
-    .filter((activity) => activity.summary !== "Checkpoint captured")
-    // Server-side Studio output attribution is environment-panel data, not transcript work.
-    .filter((activity) => activity.kind !== STUDIO_OUTPUTS_ACTIVITY_KIND)
+    // Legacy output attribution is environment metadata, not transcript work.
+    .filter((activity) => activity.kind !== LEGACY_OUTPUTS_CAPTURED_ACTIVITY_KIND)
     .filter((activity) => !isPlanBoundaryToolActivity(activity))
     .map(toDerivedWorkLogEntry);
   // Strip the derivation-only helpers that exist solely on DerivedWorkLogEntry.
@@ -303,7 +297,6 @@ export function deriveWorkLogEntries(
     .filter((entry) => !isUninformativeCommandStartEntry(entry))
     .map(
       ({
-        collapseCommand: _collapseCommand,
         collapseKey: _collapseKey,
         runtimeWarningMessage: _runtimeWarningMessage,
         runtimeWarningRepeatCount: _runtimeWarningRepeatCount,
@@ -334,14 +327,6 @@ function shouldKeepActivityForWorkLog(
   // Created-automation milestones are thread-scoped and carry no provider turn id;
   // keep them so the transcript card survives once the thread has turn-stamped messages.
   if (activity.kind === "automation.created") {
-    return true;
-  }
-
-  // Revert failures are the only feedback a failed Undo produces. They can be
-  // emitted before any checkpoint exists to anchor them to a turn (or against a
-  // turn that the revert itself just rolled out of view), so never let the
-  // turn-visibility filter drop them.
-  if (activity.kind === CHECKPOINT_REVERT_FAILED_ACTIVITY_KIND) {
     return true;
   }
 
@@ -425,21 +410,14 @@ function extractWorkLogPenkraThreadCreation(
     const title = asTrimmedString(thread?.title);
     const provider = asTrimmedString(thread?.provider);
     const model = asTrimmedString(thread?.model);
-    const environment = asTrimmedString(thread?.environment);
     const status = asTrimmedString(thread?.status) ?? "created";
     const providerKind = PROVIDER_DESCRIPTORS.find(
       (descriptor) => descriptor.kind === provider,
     )?.kind;
-    if (
-      !threadId ||
-      !title ||
-      !providerKind ||
-      !model ||
-      (environment !== "local" && environment !== "worktree")
-    ) {
+    if (!threadId || !title || !providerKind || !model) {
       return [];
     }
-    return [{ threadId, title, provider: providerKind, model, environment, status }];
+    return [{ threadId, title, provider: providerKind, model, status }];
   });
   if (threads.length === 0) {
     return null;
@@ -603,15 +581,9 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (toolDetails) {
     entry.toolDetails = toolDetails;
   }
-  const collapseKey =
-    deriveProviderRuntimeReconciliationCollapseKey(activity, payload) ??
-    deriveToolLifecycleCollapseKey(entry);
+  const collapseKey = deriveProviderRuntimeReconciliationCollapseKey(activity, payload);
   if (collapseKey) {
     entry.collapseKey = collapseKey;
-  }
-  const collapseCommand = deriveToolLifecycleCollapseCommand(entry);
-  if (collapseCommand) {
-    entry.collapseCommand = collapseCommand;
   }
   return entry;
 }
@@ -644,6 +616,12 @@ function deriveProviderRuntimeReconciliationCollapseKey(
     projectedTurnId,
     runtimeTurnId ?? null,
   ])}`;
+}
+
+function isRenderableToolLifecycleActivity(
+  kind: OrchestrationThreadActivity["kind"],
+): kind is "tool.started" | "tool.updated" | "tool.completed" {
+  return kind === "tool.started" || kind === "tool.updated" || kind === "tool.completed";
 }
 
 function deriveToolLifecycleStatus(
@@ -846,13 +824,6 @@ function collapseDerivedWorkLogEntries(
   entries: ReadonlyArray<DerivedWorkLogEntry>,
 ): DerivedWorkLogEntry[] {
   const collapsed: DerivedWorkLogEntry[] = [];
-  // Tools that carry a unique tool-call id (collapseKey "tool:<id>") merge by that
-  // id regardless of position. This is what fixes providers that emit every tool's
-  // started event before any of their completed events — Claude's parallel tool
-  // calls — which the adjacency-only path below renders as a started row plus a
-  // separate completed row. The id is unique per call, so distinct calls of the
-  // same tool never merge into each other.
-  const stableToolIndexByKey = new Map<string, number>();
   // Older servers included the current observation sequence in recovery ids,
   // so the same repair could be persisted more than once while projections
   // converged. Preserve the first row for each semantic repair and hide only
@@ -877,29 +848,7 @@ function collapseDerivedWorkLogEntries(
       collapsed[collapsed.length - 1] = mergeDerivedWorkLogEntries(previous, entry);
       continue;
     }
-    const stableToolKey =
-      entry.collapseKey?.startsWith("tool:") &&
-      isRenderableToolLifecycleActivity(entry.activityKind)
-        ? entry.collapseKey
-        : undefined;
-    if (stableToolKey !== undefined) {
-      const existingIndex = stableToolIndexByKey.get(stableToolKey);
-      if (existingIndex !== undefined) {
-        collapsed[existingIndex] = mergeDerivedWorkLogEntries(collapsed[existingIndex]!, entry);
-        continue;
-      }
-    }
-    if (previous && shouldCollapseToolLifecycleEntries(previous, entry)) {
-      collapsed[collapsed.length - 1] = mergeDerivedWorkLogEntries(previous, entry);
-      if (stableToolKey !== undefined) {
-        stableToolIndexByKey.set(stableToolKey, collapsed.length - 1);
-      }
-      continue;
-    }
     collapsed.push(entry);
-    if (stableToolKey !== undefined) {
-      stableToolIndexByKey.set(stableToolKey, collapsed.length - 1);
-    }
   }
   return collapsed;
 }
@@ -972,42 +921,6 @@ function shouldCollapseContextCompactionEntries(
   // Only merge into a row that is still in progress; a terminal row belongs to
   // an earlier compaction and must not swallow the next one's progress row.
   return previous.label === CONTEXT_COMPACTION_PROGRESS_LABEL;
-}
-
-function shouldCollapseToolLifecycleEntries(
-  previous: DerivedWorkLogEntry,
-  next: DerivedWorkLogEntry,
-): boolean {
-  if (!isRenderableToolLifecycleActivity(previous.activityKind)) {
-    return false;
-  }
-  if (!isRenderableToolLifecycleActivity(next.activityKind)) {
-    return false;
-  }
-  if (previous.activityKind === "tool.completed") {
-    return false;
-  }
-  if (previous.suppressStandaloneCommandStart && next.toolCallId === undefined) {
-    return false;
-  }
-  if (previous.collapseKey !== undefined && previous.collapseKey === next.collapseKey) {
-    if (previous.collapseKey.startsWith("tool:")) {
-      return true;
-    }
-    if (!areToolLifecycleChangedFilesCompatible(previous.changedFiles, next.changedFiles)) {
-      return false;
-    }
-    return areToolLifecycleCommandsCompatible(previous.collapseCommand, next.collapseCommand);
-  }
-  return (
-    previous.toolCallId !== undefined &&
-    next.toolCallId === undefined &&
-    previous.itemType === next.itemType &&
-    normalizeCompactToolLabel(previous.toolTitle ?? previous.label) ===
-      normalizeCompactToolLabel(next.toolTitle ?? next.label) &&
-    areToolLifecycleChangedFilesCompatible(previous.changedFiles, next.changedFiles) &&
-    areToolLifecycleCommandsCompatible(previous.collapseCommand, next.collapseCommand)
-  );
 }
 
 function mergeDerivedWorkLogEntries(
@@ -1326,65 +1239,6 @@ function mergeChangedFiles(
     return [];
   }
   return [...new Set(merged)];
-}
-
-// Keep a stable lifecycle key so providers like Claude can stream many
-// in-progress tool deltas without turning each partial update into its own row.
-function deriveToolLifecycleCollapseKey(entry: DerivedWorkLogEntry): string | undefined {
-  if (!isRenderableToolLifecycleActivity(entry.activityKind)) {
-    return undefined;
-  }
-  if (entry.toolCallId) {
-    return `tool:${entry.toolCallId}`;
-  }
-  const normalizedLabel = normalizeCompactToolLabel(entry.toolTitle ?? entry.label);
-  const itemType = entry.itemType ?? "";
-  const requestKind = entry.requestKind ?? "";
-  const toolName = entry.toolName ?? "";
-  const command = normalizeCompactToolLabel(entry.command ?? "");
-  const detailHint = normalizeCompactToolLabel(extractDetailCollapseHint(entry.detail));
-  if (
-    normalizedLabel.length === 0 &&
-    itemType.length === 0 &&
-    requestKind.length === 0 &&
-    toolName.length === 0 &&
-    detailHint.length === 0
-  ) {
-    return command.length > 0 ? `command-only${"\u001f"}${command}` : undefined;
-  }
-  return [itemType, normalizedLabel, requestKind, toolName, detailHint].join("\u001f");
-}
-
-function isRenderableToolLifecycleActivity(
-  kind: OrchestrationThreadActivity["kind"],
-): kind is "tool.started" | "tool.updated" | "tool.completed" {
-  return kind === "tool.started" || kind === "tool.updated" || kind === "tool.completed";
-}
-
-function deriveToolLifecycleCollapseCommand(entry: DerivedWorkLogEntry): string | undefined {
-  const command = normalizeCompactToolLabel(entry.command ?? "");
-  return command.length > 0 ? command : undefined;
-}
-
-function areToolLifecycleCommandsCompatible(
-  previous: string | undefined,
-  next: string | undefined,
-): boolean {
-  if (!previous || !next) {
-    return true;
-  }
-  return previous === next || previous.startsWith(next) || next.startsWith(previous);
-}
-
-function areToolLifecycleChangedFilesCompatible(
-  previous: ReadonlyArray<string> | undefined,
-  next: ReadonlyArray<string> | undefined,
-): boolean {
-  if (!previous?.length || !next?.length) {
-    return true;
-  }
-  const nextSet = new Set(next);
-  return previous.some((path) => nextSet.has(path));
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -1924,21 +1778,6 @@ function stripTrailingExitCode(value: string): {
   };
 }
 
-function extractDetailCollapseHint(detail: string | undefined): string {
-  if (!detail) {
-    return "";
-  }
-  const firstLine = detail.split("\n", 1)[0]?.trim() ?? "";
-  if (firstLine.length === 0) {
-    return "";
-  }
-  const colonIndex = firstLine.indexOf(":");
-  if (colonIndex <= 0) {
-    return firstLine;
-  }
-  return firstLine.slice(0, colonIndex);
-}
-
 function extractWorkLogItemType(
   payload: Record<string, unknown> | null,
 ): WorkLogEntry["itemType"] | undefined {
@@ -2065,10 +1904,6 @@ function compareActivitiesByOrder(
     if (left.sequence !== right.sequence) {
       return left.sequence - right.sequence;
     }
-  } else if (left.sequence !== undefined) {
-    return 1;
-  } else if (right.sequence !== undefined) {
-    return -1;
   }
 
   const createdAtComparison = left.createdAt.localeCompare(right.createdAt);

@@ -57,13 +57,9 @@ function MessageEnterTimeline() {
           activeTurnStartedAt={null}
           enteringUserMessageIds={enteringUserMessageIds}
           timelineEntries={entries}
-          turnDiffSummaryByAssistantMessageId={new Map()}
           nowIso="2026-03-17T19:12:30.000Z"
           expandedWorkGroups={{}}
           onToggleWorkGroup={() => {}}
-          revertTurnCountByUserMessageId={new Map()}
-          onRevertUserMessage={() => {}}
-          isRevertingCheckpoint={false}
           onImageExpand={() => {}}
           markdownCwd={undefined}
           resolvedTheme="dark"
@@ -95,13 +91,9 @@ function HydratingTimeline() {
           activeTurnInProgress={false}
           activeTurnStartedAt={null}
           timelineEntries={entries}
-          turnDiffSummaryByAssistantMessageId={new Map()}
           nowIso="2026-03-17T19:12:30.000Z"
           expandedWorkGroups={{}}
           onToggleWorkGroup={() => {}}
-          revertTurnCountByUserMessageId={new Map()}
-          onRevertUserMessage={() => {}}
-          isRevertingCheckpoint={false}
           onImageExpand={() => {}}
           markdownCwd={undefined}
           resolvedTheme="dark"

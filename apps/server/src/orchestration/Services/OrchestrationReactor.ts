@@ -14,7 +14,7 @@ import type { Effect, Scope } from "effect";
  */
 export interface OrchestrationReactorShape {
   /**
-   * Start orchestration-side reactors for provider/runtime/checkpoint flows.
+   * Start orchestration-side reactors for provider and runtime flows.
    *
    * The returned effect must be run in a scope so all worker fibers can be
    * finalized on shutdown.

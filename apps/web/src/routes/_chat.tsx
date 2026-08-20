@@ -16,7 +16,6 @@ import { FindProvider } from "../components/find/FindProvider";
 import ThreadSidebar from "../components/Sidebar";
 import { isElectron } from "../env";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
-import { useHandleNewStudioChat } from "../hooks/useHandleNewStudioChat";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useRecentViewSwitcher } from "../hooks/useRecentViewSwitcher";
 import { useLatestProjectStore } from "../latestProjectStore";
@@ -213,13 +212,8 @@ function ChatRouteGlobalShortcuts() {
     projects,
   });
   const { handleNewChat } = useHandleNewChat(handleNewThread);
-  const { handleNewStudioChat } = useHandleNewStudioChat(handleNewThread);
   const homeDir = useWorkspacePathsStore((state) => state.homeDir);
   const chatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
-  const studioWorkspaceRoot = useWorkspacePathsStore((state) => state.studioWorkspaceRoot);
-  const isStudioRoute = useLocation({
-    select: (location) => location.pathname === "/studio",
-  });
   const latestProjectId = useLatestProjectStore((state) => state.latestProjectId);
   const setLatestProjectId = useLatestProjectStore((state) => state.setLatestProjectId);
   const clearLatestProjectId = useLatestProjectStore((state) => state.clearLatestProjectId);
@@ -244,10 +238,10 @@ function ChatRouteGlobalShortcuts() {
     () =>
       projects.filter(
         (project) =>
-          isOrdinarySpaceProject(project, { homeDir, chatWorkspaceRoot, studioWorkspaceRoot }) &&
+          isOrdinarySpaceProject(project, { homeDir, chatWorkspaceRoot }) &&
           (project.spaceId ?? null) === activeSpaceId,
       ),
-    [activeSpaceId, chatWorkspaceRoot, homeDir, projects, studioWorkspaceRoot],
+    [activeSpaceId, chatWorkspaceRoot, homeDir, projects],
   );
   const currentProjectId = resolveCurrentProjectTargetId(
     activeSpaceProjects,
@@ -266,13 +260,7 @@ function ChatRouteGlobalShortcuts() {
     if (newChatInFlightRef.current) {
       return newChatInFlightRef.current;
     }
-    const operation = startFreshChatForActiveSurface({
-      activeProject,
-      isStudioRoute,
-      paths: { homeDir, chatWorkspaceRoot, studioWorkspaceRoot },
-      handleNewChat,
-      handleNewStudioChat,
-    });
+    const operation = startFreshChatForActiveSurface({ handleNewChat });
     newChatInFlightRef.current = operation;
     const clearOperation = () => {
       if (newChatInFlightRef.current === operation) {
@@ -281,15 +269,7 @@ function ChatRouteGlobalShortcuts() {
     };
     void operation.then(clearOperation, clearOperation);
     return operation;
-  }, [
-    activeProject,
-    chatWorkspaceRoot,
-    handleNewChat,
-    handleNewStudioChat,
-    homeDir,
-    isStudioRoute,
-    studioWorkspaceRoot,
-  ]);
+  }, [handleNewChat]);
 
   useEffect(() => {
     if (!currentProjectId) {
@@ -473,8 +453,7 @@ function ChatRouteGlobalShortcuts() {
       if (command !== "chat.new") return;
       // Falls back to the most recent project when none is focused (e.g. the landing
       // view) so the primary "new thread" chord always creates a thread; on that
-      // fallback the active branch/worktree context belongs to the absent project, so
-      // `resolveNewThreadTarget` omits it and we defer to the target's defaults.
+      // fallback omits inherited context and defers to the target's defaults.
       const target = resolveNewThreadTarget({ currentProjectId, latestUsableProjectId });
       if (!target) return;
       event.preventDefault();
