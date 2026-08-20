@@ -84,6 +84,21 @@ describe("planRestartTurnReconciliation", () => {
     expect(planRestartTurnReconciliation({ threads, now: NOW })).toEqual([]);
   });
 
+  it("never plans commands for deleted threads with stale runtime state", () => {
+    const threads = [
+      makeThread("deleted-stuck", {
+        deletedAt: "2026-06-13T09:00:00.000Z",
+        session: makeSession("deleted-stuck", {
+          status: "running",
+          activeTurnId: TurnId.makeUnsafe("deleted-turn"),
+        }),
+        latestTurn: { state: "running" },
+      }),
+    ];
+
+    expect(planRestartTurnReconciliation({ threads, now: NOW })).toEqual([]);
+  });
+
   it("clears a dangling active turn id while preserving the terminal error session", () => {
     const threads = [
       makeThread("errored", {
@@ -289,6 +304,42 @@ describe("planRestartTurnReconciliation", () => {
       turnId: "streaming-turn",
       createdAt: NOW,
     });
+  });
+
+  it("settles an orphaned streaming message after the lightweight session pass", () => {
+    const turnId = TurnId.makeUnsafe("already-interrupted-turn");
+    const commands = planRestartTurnReconciliation({
+      threads: [
+        makeThread("already-interrupted", {
+          session: makeSession("already-interrupted", {
+            status: "interrupted",
+            activeTurnId: null,
+          }),
+          latestTurn: { turnId, state: "interrupted" },
+          messages: [
+            {
+              id: MessageId.makeUnsafe("orphaned-streaming-message"),
+              role: "assistant",
+              streaming: true,
+              turnId,
+            },
+          ],
+        }),
+      ],
+      now: NOW,
+    });
+
+    expect(commands).toEqual([
+      {
+        type: "thread.message.assistant.complete",
+        commandId:
+          "restart-reconcile-streaming-message:already-interrupted:orphaned-streaming-message",
+        threadId: "already-interrupted",
+        messageId: "orphaned-streaming-message",
+        turnId: "already-interrupted-turn",
+        createdAt: NOW,
+      },
+    ]);
   });
 
   it("resolves stale pending approval and user-input requests before interrupting the session", () => {

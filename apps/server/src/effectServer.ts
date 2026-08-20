@@ -224,23 +224,16 @@ export const createEffectServer = Effect.fn(function* (
   // releasing SQLite and provider services. Keep the finalizer as an idempotent
   // fallback for startup failures and abrupt parent disconnects.
   yield* Effect.addFinalizer(() => shutdown);
+  // Clear lightweight orphaned-turn state before provider replay begins. Full
+  // history cleanup is forked into this supervised scope by the reconciler and
+  // must not delay command readiness.
+  yield* reconcileRestartStuckTurns({ backgroundScope: subscriptionsScope });
   yield* Scope.provide(orchestrationReactor.start, subscriptionsScope);
   yield* Scope.provide(threadDeletionReactor.start(), subscriptionsScope);
   yield* Scope.provide(providerSessionReaper.start(), subscriptionsScope);
   yield* Scope.provide(providerRuntimeReconciler.start(), subscriptionsScope);
   yield* readiness.markOrchestrationSubscriptionsReady;
   yield* readiness.markTerminalSubscriptionsReady;
-  // Heal turns orphaned by the previous process exit (their in-memory runtimes
-  // died, so they can never complete on their own) before clients can observe
-  // the stale "Working" state.
-  yield* reconcileRestartStuckTurns;
-  // The reconciliation above terminalizes durable turn projections without a
-  // provider terminal event. Remove their replay-ledger rows now so the next
-  // process start cannot replay state-dependent commands against the terminal
-  // projection.
-  yield* orchestrationReactor.reconcileSettledOpenTurns;
-  yield* providerThreadSwitchCoordinator.recoverOpen;
-  yield* recoverRestartInterruptedTurns;
   yield* runtimeStartup.markCommandReady;
 
   yield* lifecycleEvents.publish({
@@ -256,6 +249,22 @@ export const createEffectServer = Effect.fn(function* (
     type: "ready",
     payload: { at: new Date().toISOString() },
   });
+
+  // Durable recovery journals are best-effort startup maintenance. All live
+  // subscribers are attached and new commands are safe before these scans and
+  // provider resumptions complete, so keep them supervised but off the startup
+  // readiness path.
+  yield* Effect.gen(function* () {
+    yield* orchestrationReactor.reconcileSettledOpenTurns;
+    yield* providerThreadSwitchCoordinator.recoverOpen;
+    yield* recoverRestartInterruptedTurns;
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("post-ready restart recovery failed", { cause }),
+    ),
+    Effect.forkIn(subscriptionsScope),
+    Effect.asVoid,
+  );
 
   if (!nodeServer) {
     return yield* new ServerLifecycleError({ operation: "httpServerListen" });
