@@ -4348,6 +4348,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             .filter((command) => command?.type === "sidebar.item.move"),
         ).toHaveLength(0);
       });
+      await waitForLayout();
 
       await dragWithPointerFrames(source.element(), target.element(), 0.25, () => {
         const targetWrapper = target.element().closest<HTMLElement>("[data-sidebar-drop-preview]");
