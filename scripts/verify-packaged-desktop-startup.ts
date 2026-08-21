@@ -270,6 +270,15 @@ export function resolvePackagedDesktopSmokeLogPath(root: string): string {
   );
 }
 
+export function removePackagedDesktopSmokeRoot(root: string): void {
+  rmSync(root, {
+    recursive: true,
+    force: true,
+    maxRetries: process.platform === "win32" ? 20 : 0,
+    retryDelay: 250,
+  });
+}
+
 function waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
   return new Promise((resolveExit) => {
@@ -539,7 +548,7 @@ export async function verifyPackagedDesktopStartup(
       await terminateProcessTree(child);
     }
     await terminateProcessesInsideRoot(temporaryRoot);
-    rmSync(temporaryRoot, { recursive: true, force: true });
+    removePackagedDesktopSmokeRoot(temporaryRoot);
   }
 }
 

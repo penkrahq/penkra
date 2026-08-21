@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,6 +9,7 @@ import {
   extractPackagedDesktopBackendPort,
   inspectPackagedDesktopStartupLog,
   parsePackagedDesktopStartupArgs,
+  removePackagedDesktopSmokeRoot,
   resolvePackagedDesktopSmokeLogPath,
   resolvePackagedDesktopSmokePenkraRoot,
   resolveNativePackagedDesktopPlatform,
@@ -101,6 +102,15 @@ describe("packaged desktop startup verification", () => {
     expect(resolveNativePackagedDesktopPlatform("darwin")).toBe("mac");
     expect(resolveNativePackagedDesktopPlatform("win32")).toBe("win");
     expect(resolveNativePackagedDesktopPlatform("linux")).toBe("linux");
+  });
+
+  it("removes the isolated startup tree after process cleanup", () => {
+    const root = mkdtempSync(join(tmpdir(), "penkra-packaged-smoke-cleanup-test-"));
+    writeFileSync(join(root, "proof.txt"), "ready");
+
+    removePackagedDesktopSmokeRoot(root);
+
+    expect(existsSync(root)).toBe(false);
   });
 
   it("requires complete startup proof and rejects missing account-auth IPC", () => {
