@@ -12,6 +12,7 @@ import { startTransition, useCallback, useEffect, useMemo, useState } from "reac
 
 import type { SidebarThreadSortOrder } from "../appSettings";
 import {
+  archiveSpace,
   createSpace,
   deleteSpace,
   isOrdinarySpaceProject,
@@ -405,6 +406,34 @@ export function useSpacesController(input: {
     ],
   );
 
+  const handleArchiveSpace = useCallback(
+    async (spaceId: SpaceId) => {
+      const api = readNativeApi();
+      const space = spaces.find((candidate) => candidate.id === spaceId);
+      if (!api || !space) return;
+
+      try {
+        await archiveSpace({ api, spaceId });
+
+        if (activeSpaceId === spaceId || routeSpaceId === spaceId) {
+          const nextSpace = spaces.find((candidate) => candidate.id !== spaceId);
+          if (!nextSpace) throw new Error("At least one active Space must remain.");
+          selectSpaceForNavigation(nextSpace.id);
+        }
+        if (routeSpaceId === spaceId) {
+          void navigate({ to: "/" });
+        }
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Unable to archive space",
+          description: error instanceof Error ? error.message : "Try again.",
+        });
+      }
+    },
+    [activeSpaceId, navigate, routeSpaceId, selectSpaceForNavigation, spaces],
+  );
+
   const handleRenameSpace = useCallback(async (space: Space, name: string) => {
     const api = readNativeApi();
     if (!api || space.name === name) return;
@@ -506,6 +535,7 @@ export function useSpacesController(input: {
     handleSelectSpaceForIncomingProject,
     handleReorderSpaces,
     handleRenameSpace,
+    handleArchiveSpace,
     handleDeleteSpace,
     handleMoveProjectToSpace,
     handleSpaceEditorSubmit,

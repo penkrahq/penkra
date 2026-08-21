@@ -135,6 +135,7 @@ async function withAuthEffectServer(
             activate: () => Effect.die("provider installation not used in this test"),
             list: () => Effect.succeed([]),
             getRecord: () => Effect.die("provider installation not used in this test"),
+            reactivate: () => Effect.die("provider installation not used in this test"),
           }),
           Layer.succeed(ProviderLaunchResolver, {
             resolve: () => Effect.die("provider launch not used in this test"),

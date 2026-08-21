@@ -15,6 +15,7 @@ import type { Project } from "~/types";
 import { isHomeChatContainerProject } from "~/lib/chatProjects";
 import type { ServerWorkspacePaths } from "~/lib/serverWorkspacePaths";
 import { newCommandId, newSpaceId } from "~/lib/utils";
+import { dispatchShellCommand } from "~/lib/shellMutation";
 
 /**
  * Spaces organize ordinary projects only: managed chat containers are reachable
@@ -58,7 +59,7 @@ export async function updateSpace(input: {
   name?: string | undefined;
   icon?: SpaceIconName | undefined;
 }): Promise<void> {
-  await input.api.orchestration.dispatchCommand({
+  await dispatchShellCommand(input.api, {
     type: "space.meta.update",
     commandId: newCommandId(),
     spaceId: input.spaceId,
@@ -68,7 +69,7 @@ export async function updateSpace(input: {
 }
 
 export async function deleteSpace(input: { api: NativeApi; spaceId: SpaceId }): Promise<void> {
-  await input.api.orchestration.dispatchCommand({
+  await dispatchShellCommand(input.api, {
     type: "space.delete",
     commandId: newCommandId(),
     spaceId: input.spaceId,
@@ -76,7 +77,7 @@ export async function deleteSpace(input: { api: NativeApi; spaceId: SpaceId }): 
 }
 
 export async function archiveSpace(input: { api: NativeApi; spaceId: SpaceId }): Promise<void> {
-  await input.api.orchestration.dispatchCommand({
+  await dispatchShellCommand(input.api, {
     type: "space.archive",
     commandId: newCommandId(),
     spaceId: input.spaceId,
@@ -88,7 +89,7 @@ export async function restoreSpace(input: {
   spaceId: SpaceId;
   name?: string | undefined;
 }): Promise<void> {
-  await input.api.orchestration.dispatchCommand({
+  await dispatchShellCommand(input.api, {
     type: "space.restore",
     commandId: newCommandId(),
     spaceId: input.spaceId,
@@ -110,7 +111,7 @@ export async function reorderSpaces(input: {
       ? { type: "before" as const, spaceId: nextSpaceId }
       : null;
   if (!position) return;
-  await input.api.orchestration.dispatchCommand({
+  await dispatchShellCommand(input.api, {
     type: "space.reorder",
     commandId: newCommandId(),
     spaceId: input.movedSpaceId,
@@ -123,7 +124,7 @@ export async function moveProjectToSpace(input: {
   projectId: ContainerId;
   spaceId: SpaceId;
 }): Promise<void> {
-  await input.api.orchestration.dispatchCommand({
+  await dispatchShellCommand(input.api, {
     type: "project.meta.update",
     commandId: newCommandId(),
     projectId: input.projectId,

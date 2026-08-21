@@ -160,6 +160,7 @@ describe("store facade", () => {
           cwd: "/tmp/project-3",
         }),
       ],
+      archivedProjects: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -192,6 +193,7 @@ describe("store facade", () => {
           expanded: false,
         }),
       ],
+      archivedProjects: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -224,6 +226,7 @@ describe("store facade", () => {
           cwd: "/tmp/project-2",
         }),
       ],
+      archivedProjects: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -255,6 +258,7 @@ describe("store facade", () => {
           cwd: "/tmp/project-2",
         }),
       ],
+      archivedProjects: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -303,6 +307,7 @@ describe("store facade", () => {
           cwd: "/tmp/project-1",
         }),
       ],
+      archivedProjects: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -357,6 +362,7 @@ describe("store facade", () => {
           cwd: "/tmp/project-2",
         }),
       ],
+      archivedProjects: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };

@@ -228,7 +228,7 @@ export const WorkspaceWatcherLive = Layer.effect(
       () =>
         Effect.runPromise(
           engine
-            .getReadModel()
+            .getCommandReadModel()
             .pipe(
               Effect.map((model) =>
                 model.projects

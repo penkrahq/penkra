@@ -455,6 +455,9 @@ export const OrchestrationSpaceShell = Schema.Struct({
   sortOrder: NonNegativeInt,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
 });
 export type OrchestrationSpaceShell = typeof OrchestrationSpaceShell.Type;
 
@@ -471,6 +474,9 @@ export const OrchestrationProject = Schema.Struct({
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type OrchestrationProject = typeof OrchestrationProject.Type;
@@ -488,6 +494,9 @@ export const OrchestrationProjectShell = Schema.Struct({
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
 });
 export type OrchestrationProjectShell = typeof OrchestrationProjectShell.Type;
 
@@ -802,6 +811,9 @@ export const OrchestrationShellSnapshot = Schema.Struct({
     Schema.withDecodingDefault(() => []),
   ),
   projects: Schema.Array(OrchestrationProjectShell),
+  archivedProjects: Schema.optional(Schema.Array(OrchestrationProjectShell)).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   threads: Schema.Array(OrchestrationThreadShell),
   updatedAt: IsoDateTime,
 });
@@ -981,6 +993,7 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   isPinned: Schema.optional(Schema.Boolean),
   spaceId: Schema.optional(Schema.NullOr(SpaceId)),
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
 });
 
 const ProjectDeleteCommand = Schema.Struct({
@@ -1645,6 +1658,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   isPinned: Schema.optional(Schema.Boolean),
   spaceId: Schema.optional(Schema.NullOr(SpaceId)),
   sidebarSortOrder: Schema.optional(NonNegativeInt),
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   updatedAt: IsoDateTime,
 });
 

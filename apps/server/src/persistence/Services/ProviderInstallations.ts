@@ -54,6 +54,10 @@ export interface ProviderInstallationRepositoryShape {
     Option.Option<ProviderInstallationRecord>,
     ProviderInstallationRepositoryError
   >;
+  readonly reactivate: (
+    id: ProviderInstallationId,
+    activatedAt: typeof IsoDateTime.Type,
+  ) => Effect.Effect<ProviderInstallation, ProviderInstallationRepositoryError>;
 }
 
 export class ProviderInstallationRepository extends ServiceMap.Service<

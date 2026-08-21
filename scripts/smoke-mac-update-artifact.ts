@@ -28,6 +28,7 @@ import {
   assertMacUpdateManifestZipMetadata,
   resolveSingleMacUpdateZipFileName,
 } from "./lib/mac-update-zip.ts";
+import { resolveUnusedClaudePlatformPackageName } from "./lib/desktop-staged-runtime.ts";
 
 interface SmokeResult {
   readonly artifactDir: string;
@@ -88,7 +89,9 @@ function resolveSmokeArch(rawValue: string | boolean | undefined): "arm64" | "x6
 }
 
 function resolveSingleMacUpdateManifestName(entries: ReadonlyArray<string>): string {
-  const manifestNames = entries.filter((entry) => entry.endsWith("-mac.yml"));
+  const manifestNames = entries.filter((entry) =>
+    /^latest-mac(?:-(?:arm64|x64|universal))?\.yml$/.test(entry),
+  );
   if (manifestNames.length !== 1 || !manifestNames[0]) {
     throw new Error(`Expected one macOS update manifest, found ${manifestNames.length}.`);
   }
@@ -306,9 +309,10 @@ async function smokeMacUpdateArtifact(): Promise<SmokeResult> {
       throw new Error("The public update ZIP contains the private Penkra CLI.");
     }
 
-    const unusedClaudePlatformBinaryAbsent = !zipEntries.some((entry) =>
-      entry.includes("claude-agent-sdk-darwin-arm64"),
-    );
+    const unusedClaudePlatformPackageName = resolveUnusedClaudePlatformPackageName("mac", arch);
+    const unusedClaudePlatformBinaryAbsent =
+      unusedClaudePlatformPackageName !== null &&
+      !zipEntries.some((entry) => entry.includes(unusedClaudePlatformPackageName));
     if (!unusedClaudePlatformBinaryAbsent) {
       throw new Error("The update ZIP contains the unused Claude platform binary.");
     }

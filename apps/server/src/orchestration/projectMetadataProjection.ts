@@ -39,6 +39,7 @@ export const applyProjectMetadataProjection = (input: {
           sidebarSortOrder: input.event.payload.sidebarSortOrder ?? 0,
           createdAt: input.event.payload.createdAt,
           updatedAt: input.event.payload.updatedAt,
+          archivedAt: null,
           deletedAt: null,
         });
         break;
@@ -74,6 +75,9 @@ export const applyProjectMetadataProjection = (input: {
               : {}),
             ...(input.event.payload.sidebarSortOrder !== undefined
               ? { sidebarSortOrder: input.event.payload.sidebarSortOrder }
+              : {}),
+            ...(input.event.payload.archivedAt !== undefined
+              ? { archivedAt: input.event.payload.archivedAt }
               : {}),
             updatedAt: input.event.payload.updatedAt,
           });

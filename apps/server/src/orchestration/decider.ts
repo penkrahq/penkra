@@ -384,22 +384,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: "At least one active Space must remain.",
         });
       }
-      if (
-        readModel.projects.some(
-          (project) =>
-            project.kind === "project" &&
-            project.deletedAt === null &&
-            project.spaceId === command.spaceId,
-        ) ||
-        readModel.threads.some(
-          (thread) => thread.deletedAt === null && thread.spaceId === command.spaceId,
-        )
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Move every folder and chat thread out of this Space before archiving it.",
-        });
-      }
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -917,7 +901,20 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command.workspaceRoot !== undefined ||
         command.defaultModelSelection !== undefined ||
         command.scripts !== undefined ||
-        command.isPinned !== undefined;
+        command.isPinned !== undefined ||
+        command.archivedAt !== undefined;
+      if (command.archivedAt !== undefined && nextProjectKind !== "project") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Only ordinary folders can be archived.",
+        });
+      }
+      if (command.archivedAt !== undefined && existingProject.deletedAt !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Deleted folders cannot be archived or restored.",
+        });
+      }
       const isLegacyHomeChatContainer = isLegacyHomeChatContainerRow({
         projectTitle: existingProject.title,
         projectWorkspaceRoot: existingProject.workspaceRoot,
@@ -1045,6 +1042,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { sidebarSortOrder: 0 }
             : {}),
           ...(changedSpaceId !== undefined ? { spaceId: changedSpaceId } : {}),
+          ...(command.archivedAt !== undefined ? { archivedAt: command.archivedAt } : {}),
           updatedAt: occurredAt,
         },
       };

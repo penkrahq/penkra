@@ -9,6 +9,7 @@ import type {
 } from "@penkra/contracts";
 
 import { newCommandId } from "~/lib/utils";
+import { dispatchShellCommand } from "~/lib/shellMutation";
 
 export function resolveSidebarInsertionIndex(input: {
   item: SidebarItemReference;
@@ -54,7 +55,7 @@ export async function moveSidebarItem(input: {
   target: SidebarItemParent;
   position: SidebarItemMovePosition;
 }): Promise<void> {
-  await input.api.orchestration.dispatchCommand({
+  await dispatchShellCommand(input.api, {
     type: "sidebar.item.move",
     commandId: newCommandId(),
     item: input.item,

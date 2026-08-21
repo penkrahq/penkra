@@ -237,27 +237,54 @@ describe("Spaces", () => {
     ).rejects.toThrow(/must remain assigned/i);
   });
 
-  it("blocks archive and delete while a Space owns live content", async () => {
+  it("archives a non-empty Space while preserving its content assignments", async () => {
+    const personal = SpaceId.makeUnsafe("personal");
+    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
+      .readModel;
+    ({ readModel } = await addSpace(readModel, "work", "Work"));
+    ({ readModel } = await addFolder(readModel, "ideas", personal));
+    ({ readModel } = await addThread({
+      readModel,
+      id: "personal-chat",
+      projectId: ContainerId.makeUnsafe("ideas"),
+    }));
+
+    const archived = await dispatch(readModel, {
+      type: "space.archive",
+      commandId: CommandId.makeUnsafe("space.archive-owned"),
+      spaceId: personal,
+    });
+
+    expect(
+      archived.readModel.spaces.find((space) => space.id === personal)?.archivedAt,
+    ).not.toBeNull();
+    expect(archived.readModel.projects.find((project) => project.id === "ideas")?.spaceId).toBe(
+      personal,
+    );
+    expect(
+      archived.readModel.threads.find((thread) => thread.id === "personal-chat")?.projectId,
+    ).toBe("ideas");
+  });
+
+  it("blocks delete while a Space owns live content", async () => {
     const personal = SpaceId.makeUnsafe("personal");
     let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
       .readModel;
     ({ readModel } = await addSpace(readModel, "work", "Work"));
     ({ readModel } = await addFolder(readModel, "ideas", personal));
 
-    for (const type of ["space.archive", "space.delete"] as const) {
-      await expect(
-        Effect.runPromise(
-          decideOrchestrationCommand({
-            command: {
-              type,
-              commandId: CommandId.makeUnsafe(`${type}-owned`),
-              spaceId: personal,
-            },
-            readModel,
-          }),
-        ),
-      ).rejects.toThrow(/move every folder and chat thread/i);
-    }
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "space.delete",
+            commandId: CommandId.makeUnsafe("space.delete-owned"),
+            spaceId: personal,
+          },
+          readModel,
+        }),
+      ),
+    ).rejects.toThrow(/move every folder and chat thread/i);
   });
 
   it("allows deleting an empty Space without changing assignments", async () => {
@@ -489,5 +516,35 @@ describe("Spaces", () => {
         },
       }),
     ).rejects.toThrow(/cannot be interleaved/i);
+  });
+
+  it("archives and restores a folder without changing its threads", async () => {
+    const personal = SpaceId.makeUnsafe("personal");
+    const projectId = ContainerId.makeUnsafe("folder");
+    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
+      .readModel;
+    ({ readModel } = await addFolder(readModel, projectId, personal));
+    ({ readModel } = await addThread({ readModel, id: "thread", projectId }));
+    const originalThread = readModel.threads[0];
+
+    ({ readModel } = await dispatch(readModel, {
+      type: "project.meta.update",
+      commandId: CommandId.makeUnsafe("archive-folder"),
+      projectId,
+      archivedAt: "2026-08-02T11:00:00.000Z",
+    }));
+
+    expect(readModel.projects[0]?.archivedAt).toBe("2026-08-02T11:00:00.000Z");
+    expect(readModel.threads[0]).toEqual(originalThread);
+
+    ({ readModel } = await dispatch(readModel, {
+      type: "project.meta.update",
+      commandId: CommandId.makeUnsafe("restore-folder"),
+      projectId,
+      archivedAt: null,
+    }));
+
+    expect(readModel.projects[0]?.archivedAt).toBeNull();
+    expect(readModel.threads[0]).toEqual(originalThread);
   });
 });

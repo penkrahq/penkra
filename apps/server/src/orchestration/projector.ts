@@ -401,6 +401,7 @@ export function projectEvent(
             sidebarSortOrder: payload.sidebarSortOrder ?? 0,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
+            archivedAt: null,
             deletedAt: null,
           };
 
@@ -440,6 +441,7 @@ export function projectEvent(
                   ...(payload.sidebarSortOrder !== undefined
                     ? { sidebarSortOrder: payload.sidebarSortOrder }
                     : {}),
+                  ...(payload.archivedAt !== undefined ? { archivedAt: payload.archivedAt } : {}),
                   updatedAt: payload.updatedAt,
                 }
               : project,

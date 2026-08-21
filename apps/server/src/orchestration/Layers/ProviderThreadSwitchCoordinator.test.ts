@@ -10,7 +10,12 @@ import {
 import { assert, it } from "@effect/vitest";
 import { Effect, Fiber, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterAll } from "vitest";
 
+import { ServerConfig } from "../../config.ts";
 import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../../managedAttachmentPrincipal.ts";
 import {
   ProviderNativeForkOperationRepository,
@@ -21,10 +26,19 @@ import {
   type ProviderThreadSwitchOperationRecord,
 } from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
+import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
-import { ProviderNativeContinuationVerifier } from "../../provider/Services/ProviderNativeContinuationVerifier.ts";
+import {
+  ProviderNativeContinuationVerificationError,
+  ProviderNativeContinuationVerifier,
+} from "../../provider/Services/ProviderNativeContinuationVerifier.ts";
 import { ProviderNativeStateMaterializer } from "../../provider/Services/ProviderNativeStateMaterializer.ts";
+import {
+  activateManagedProviderRuntime,
+  readManagedProviderRuntimeActivation,
+  resolveManagedProviderVersionDirectory,
+} from "../../provider/managedProviderRuntime.ts";
 import {
   ProviderTurnSelectionResolver,
   type ResolvedProviderTurnSelection,
@@ -39,7 +53,10 @@ const threadId = ThreadId.makeUnsafe("switch-thread");
 const sourceConnectionId = ProviderConnectionId.makeUnsafe("connection-personal");
 const targetConnectionId = ProviderConnectionId.makeUnsafe("connection-work");
 const installationId = ProviderInstallationId.makeUnsafe("installation-opencode");
+const targetInstallationId = ProviderInstallationId.makeUnsafe("installation-opencode-new");
 const forkSourceThreadId = ThreadId.makeUnsafe("fork-source-thread");
+const runtimeStateDir = mkdtempSync(path.join(tmpdir(), "penkra-provider-switch-"));
+afterAll(() => rmSync(runtimeStateDir, { recursive: true, force: true }));
 
 const command = {
   type: "thread.turn.start",
@@ -66,6 +83,7 @@ const selection: ResolvedProviderTurnSelection = {
   connectionLabel: "Work",
   previousConnectionId: sourceConnectionId,
   previousModelId: "opencode-go/kimi-k2.5",
+  previousInstallationId: installationId,
   installationId,
   internalProviderId: "opencode-go",
   modelId: "opencode-go/kimi-k2.5",
@@ -90,6 +108,9 @@ let dispatchCount = 0;
 let failAfterCommit = false;
 let hasBinding = true;
 let modelOnlySelection = false;
+let runtimeUpgradeSelection = false;
+let verificationFails = false;
+let repositoryActiveInstallationId = installationId;
 let acceptedProviderSwitchContext: unknown;
 let initialContext: unknown;
 let dispatchedCommand: OrchestrationCommand | undefined;
@@ -100,7 +121,48 @@ let advanceStateRevisionOnInterrupt = false;
 let verifiedStateRevision: number | undefined;
 const order: string[] = [];
 
+const prepareRuntimeUpgrade = () =>
+  Effect.gen(function* () {
+    rmSync(path.join(runtimeStateDir, "provider-runtimes"), { recursive: true, force: true });
+    for (const [version, id] of [
+      ["1.0.0", installationId],
+      ["2.0.0", targetInstallationId],
+    ] as const) {
+      const versionDirectory = resolveManagedProviderVersionDirectory({
+        stateDir: runtimeStateDir,
+        provider: "opencode",
+        version,
+      });
+      const executablePath = path.join(versionDirectory, "bin", "opencode");
+      mkdirSync(path.dirname(executablePath), { recursive: true });
+      writeFileSync(executablePath, "#!/bin/sh\n");
+      yield* activateManagedProviderRuntime({
+        stateDir: runtimeStateDir,
+        provider: "opencode",
+        installationId: id,
+        version,
+        executablePath,
+      });
+    }
+    repositoryActiveInstallationId = targetInstallationId;
+  });
+
 const dependencies = Layer.mergeAll(
+  Layer.succeed(ServerConfig, { stateDir: runtimeStateDir } as never),
+  Layer.succeed(ProviderInstallationRepository, {
+    activate: () => Effect.die("not expected"),
+    list: () => Effect.succeed([]),
+    getRecord: () => Effect.succeed(Option.none()),
+    reactivate: (id: typeof installationId) =>
+      Effect.sync(() => {
+        repositoryActiveInstallationId = id;
+        return {
+          id,
+          harness: "opencode",
+          lifecycle: "active",
+        } as never;
+      }),
+  }),
   Layer.succeed(ProjectionSnapshotQuery, {
     getThreadShellById: () =>
       Effect.sync(() => {
@@ -257,18 +319,27 @@ const dependencies = Layer.mergeAll(
               changed: false,
               requiresNativeStateMaterialization: false,
             }
-          : modelOnlySelection
+          : runtimeUpgradeSelection
             ? {
                 ...selection,
                 stateRevision: resolvedStateRevision,
                 connectionId: sourceConnectionId,
                 previousConnectionId: sourceConnectionId,
-                previousModelId: "opencode-go/kimi-k2.5",
-                modelId: "opencode-go/glm-5.1",
-                modelLabel: "GLM-5.1",
-                requiresNativeStateMaterialization: false,
+                previousInstallationId: installationId,
+                installationId: targetInstallationId,
               }
-            : { ...selection, stateRevision: resolvedStateRevision },
+            : modelOnlySelection
+              ? {
+                  ...selection,
+                  stateRevision: resolvedStateRevision,
+                  connectionId: sourceConnectionId,
+                  previousConnectionId: sourceConnectionId,
+                  previousModelId: "opencode-go/kimi-k2.5",
+                  modelId: "opencode-go/glm-5.1",
+                  modelLabel: "GLM-5.1",
+                  requiresNativeStateMaterialization: false,
+                }
+              : { ...selection, stateRevision: resolvedStateRevision },
       ),
   }),
   Layer.succeed(ProviderThreadSwitchOperationRepository, {
@@ -351,9 +422,14 @@ const dependencies = Layer.mergeAll(
   } as never),
   Layer.succeed(ProviderNativeContinuationVerifier, {
     verifySwitch: (input: { selection: ResolvedProviderTurnSelection }) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         order.push("verify");
         verifiedStateRevision = input.selection.stateRevision;
+        if (verificationFails) {
+          return yield* Effect.fail(
+            new ProviderNativeContinuationVerificationError({ detail: "resume rejected" }),
+          );
+        }
         return {
           generationId: ProviderNativeStateGenerationId.makeUnsafe(
             `provider-switch-generation:${command.commandId}`,
@@ -483,6 +559,88 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         "runtime-binding",
       );
       modelOnlySelection = false;
+    }),
+  );
+
+  it.effect("prunes the predecessor only after an old thread resumes on the new runtime", () =>
+    Effect.gen(function* () {
+      yield* prepareRuntimeUpgrade();
+      hasBinding = true;
+      activeTurn = false;
+      operation = undefined;
+      runtimeUpgradeSelection = true;
+      verificationFails = false;
+      order.length = 0;
+      const coordinator = yield* ProviderThreadSwitchCoordinator;
+
+      const result = yield* coordinator.dispatchTurnStart({
+        command: {
+          ...command,
+          commandId: CommandId.makeUnsafe("command-runtime-upgrade-success"),
+          connectionId: undefined,
+          bindingRevision: undefined,
+          modelSelection: undefined,
+        },
+        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+      });
+      const activation = yield* readManagedProviderRuntimeActivation({
+        stateDir: runtimeStateDir,
+        provider: "opencode",
+      });
+
+      assert.strictEqual(result.sequence, 42);
+      assert.include(order, "verify");
+      assert.strictEqual(activation?.active.installationId, targetInstallationId);
+      assert.strictEqual(activation?.previous, null);
+      assert.isFalse(
+        existsSync(
+          resolveManagedProviderVersionDirectory({
+            stateDir: runtimeStateDir,
+            provider: "opencode",
+            version: "1.0.0",
+          }),
+        ),
+      );
+      runtimeUpgradeSelection = false;
+    }),
+  );
+
+  it.effect("rejects an incompatible runtime and dispatches the same turn on its predecessor", () =>
+    Effect.gen(function* () {
+      yield* prepareRuntimeUpgrade();
+      hasBinding = true;
+      activeTurn = false;
+      operation = undefined;
+      runtimeUpgradeSelection = true;
+      verificationFails = true;
+      dispatchCount = 0;
+      order.length = 0;
+      const coordinator = yield* ProviderThreadSwitchCoordinator;
+
+      const result = yield* coordinator.dispatchTurnStart({
+        command: {
+          ...command,
+          commandId: CommandId.makeUnsafe("command-runtime-upgrade-fallback"),
+          connectionId: undefined,
+          bindingRevision: undefined,
+          modelSelection: undefined,
+        },
+        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+      });
+      const activation = yield* readManagedProviderRuntimeActivation({
+        stateDir: runtimeStateDir,
+        provider: "opencode",
+      });
+
+      assert.strictEqual(result.sequence, 42);
+      assert.strictEqual(dispatchCount, 1);
+      assert.strictEqual(repositoryActiveInstallationId, installationId);
+      assert.strictEqual(activation?.active.installationId, installationId);
+      assert.strictEqual(activation?.previous, null);
+      assert.strictEqual(activation?.rejected?.installationId, targetInstallationId);
+      assert.match(currentOperation()?.failureReason ?? "", /continuation-incompatible/);
+      verificationFails = false;
+      runtimeUpgradeSelection = false;
     }),
   );
 
@@ -793,6 +951,45 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
       assert.strictEqual(currentOperation()?.state, "committed");
       assert.deepStrictEqual(order.slice(0, 4), ["interrupted", "verify", "verified", "dispatch"]);
       resolvedStateRevision = 2;
+      operation = undefined;
+    }),
+  );
+
+  it.effect("discards a pre-cutover pending switch that the new schema cannot recover", () =>
+    Effect.gen(function* () {
+      const { previousInstallationId: _discarded, ...legacySelection } = selection;
+      activeTurn = false;
+      nativeForkOperation = undefined;
+      discardCount = 0;
+      operation = {
+        id: "provider-switch:command-pre-cutover",
+        threadId,
+        commandId: CommandId.makeUnsafe("command-pre-cutover"),
+        kind: "native-state",
+        state: "pending",
+        sourceStateRevision: 2,
+        sourceBindingRevision: 4,
+        targetNativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
+          "provider-switch-generation:command-pre-cutover",
+        ),
+        selectionJson: JSON.stringify(legacySelection),
+        commandJson: JSON.stringify({
+          ...command,
+          commandId: CommandId.makeUnsafe("command-pre-cutover"),
+        }),
+        cwd: null,
+        verificationJson: null,
+        failureReason: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      const coordinator = yield* ProviderThreadSwitchCoordinator;
+
+      yield* coordinator.recoverOpen;
+
+      assert.strictEqual(discardCount, 1);
+      assert.strictEqual(currentOperation()?.state, "failed");
+      assert.match(currentOperation()?.failureReason ?? "", /pre-cutover/);
       operation = undefined;
     }),
   );

@@ -207,6 +207,8 @@ import { buildGitHubReleasesPageUrl, resolveGitHubUpdateSource } from "./githubU
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
 import { BROWSER_SESSION_PARTITION, DesktopBrowserManager } from "./browserManager";
 import { createScopedBrowserSessionPartition } from "./browserSessionPolicy";
+import { applyUnmanagedWebviewWindowOpenPolicy } from "./webviewWindowOpenPolicy";
+import { createContextMenuSelection } from "./contextMenuSelection";
 import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPipeServer";
 import { AppTabObserver, resolveAppTabObservationTarget } from "./appTabObserver";
 import { BROWSER_APP_ID, isRequiredApp } from "./appDistributionPolicy";
@@ -1036,31 +1038,31 @@ async function showAppContextMenu(
       : null;
   const window = BrowserWindow.getFocusedWindow() ?? mainWindow;
   if (!window) return null;
-  return new Promise<string | null>((resolve) => {
-    const template: MenuItemConstructorOptions[] = [];
-    let hasInsertedDestructiveSeparator = false;
-    for (const item of normalizedItems) {
-      const shouldInsertSeparator =
-        item.separatorBefore ||
-        (item.destructive && !hasInsertedDestructiveSeparator && template.length > 0);
-      if (shouldInsertSeparator && template.length > 0) template.push({ type: "separator" });
-      if (item.destructive) hasInsertedDestructiveSeparator = true;
-      const itemOption: MenuItemConstructorOptions = {
-        label: item.label,
-        click: () => resolve(item.id),
-      };
-      if (item.destructive) {
-        const destructiveIcon = getDestructiveMenuIcon();
-        if (destructiveIcon) itemOption.icon = destructiveIcon;
-      }
-      template.push(itemOption);
+  const selection = createContextMenuSelection<string>();
+  const template: MenuItemConstructorOptions[] = [];
+  let hasInsertedDestructiveSeparator = false;
+  for (const item of normalizedItems) {
+    const shouldInsertSeparator =
+      item.separatorBefore ||
+      (item.destructive && !hasInsertedDestructiveSeparator && template.length > 0);
+    if (shouldInsertSeparator && template.length > 0) template.push({ type: "separator" });
+    if (item.destructive) hasInsertedDestructiveSeparator = true;
+    const itemOption: MenuItemConstructorOptions = {
+      label: item.label,
+      click: () => selection.select(item.id),
+    };
+    if (item.destructive) {
+      const destructiveIcon = getDestructiveMenuIcon();
+      if (destructiveIcon) itemOption.icon = destructiveIcon;
     }
-    Menu.buildFromTemplate(template).popup({
-      window,
-      ...popupPosition,
-      callback: () => resolve(null),
-    });
+    template.push(itemOption);
+  }
+  Menu.buildFromTemplate(template).popup({
+    window,
+    ...popupPosition,
+    callback: selection.dismiss,
   });
+  return selection.result;
 }
 
 async function runtimeV2FilePath(
@@ -7081,6 +7083,9 @@ configureAppIdentity();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
+  app.on("web-contents-created", (_event, contents) => {
+    applyUnmanagedWebviewWindowOpenPolicy(contents);
+  });
   app.on("open-url", (event, value) => {
     const request = parseAppListingDeepLink(value);
     if (!request) return;

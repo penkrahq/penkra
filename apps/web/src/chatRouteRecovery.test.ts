@@ -1,12 +1,7 @@
-import type {
-  NativeApi,
-  OrchestrationReadModel,
-  OrchestrationShellSnapshot,
-} from "@penkra/contracts";
+import type { NativeApi, OrchestrationShellSnapshot } from "@penkra/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const storeMocks = vi.hoisted(() => ({
-  syncServerReadModel: vi.fn(),
   syncServerShellSnapshot: vi.fn(),
 }));
 
@@ -28,22 +23,11 @@ function shellSnapshot(input: {
   } as unknown as OrchestrationShellSnapshot;
 }
 
-function readModel(input: { projects?: unknown[]; threads?: unknown[] }): OrchestrationReadModel {
-  return {
-    projects: input.projects ?? [],
-    threads: input.threads ?? [],
-  } as unknown as OrchestrationReadModel;
-}
-
-function makeApi(input: {
-  shell: OrchestrationShellSnapshot;
-  snapshot: OrchestrationReadModel;
-  repaired: OrchestrationReadModel;
-}) {
+function makeApi(shell: OrchestrationShellSnapshot) {
   const orchestration = {
-    getShellSnapshot: vi.fn().mockResolvedValue(input.shell),
-    getSnapshot: vi.fn().mockResolvedValue(input.snapshot),
-    repairState: vi.fn().mockResolvedValue(input.repaired),
+    getShellSnapshot: vi.fn().mockResolvedValue(shell),
+    getSnapshot: vi.fn(),
+    repairState: vi.fn(),
   };
 
   return {
@@ -54,26 +38,18 @@ function makeApi(input: {
 
 describe("refreshEmptyRouteRestoreSnapshot", () => {
   beforeEach(() => {
-    storeMocks.syncServerReadModel.mockClear();
     storeMocks.syncServerShellSnapshot.mockClear();
   });
 
-  it("does not rebuild state when shell and full snapshots only contain projects", async () => {
+  it("treats a project-only shell as an authoritative empty Thread set", async () => {
     const shell = shellSnapshot({ projects: [{ id: "project-1" }] });
-    const snapshot = readModel({ projects: [{ id: "project-1" }] });
-    const repaired = readModel({
-      projects: [{ id: "project-1" }],
-      threads: [{ id: "thread-1" }],
-    });
-    const { api, orchestration } = makeApi({ shell, snapshot, repaired });
+    const { api, orchestration } = makeApi(shell);
 
     await expect(refreshEmptyRouteRestoreSnapshot(api)).resolves.toBe(false);
 
-    expect(orchestration.getSnapshot).toHaveBeenCalledTimes(1);
+    expect(orchestration.getSnapshot).not.toHaveBeenCalled();
     expect(orchestration.repairState).not.toHaveBeenCalled();
     expect(storeMocks.syncServerShellSnapshot).toHaveBeenCalledWith(shell);
-    expect(storeMocks.syncServerReadModel).toHaveBeenNthCalledWith(1, snapshot);
-    expect(storeMocks.syncServerReadModel).toHaveBeenCalledTimes(1);
   });
 
   it("stops at the shell snapshot when it already has threads", async () => {
@@ -81,18 +57,12 @@ describe("refreshEmptyRouteRestoreSnapshot", () => {
       projects: [{ id: "project-1" }],
       threads: [{ id: "thread-1" }],
     });
-    const snapshot = readModel({ projects: [{ id: "project-1" }] });
-    const repaired = readModel({
-      projects: [{ id: "project-1" }],
-      threads: [{ id: "thread-1" }],
-    });
-    const { api, orchestration } = makeApi({ shell, snapshot, repaired });
+    const { api, orchestration } = makeApi(shell);
 
     await expect(refreshEmptyRouteRestoreSnapshot(api)).resolves.toBe(true);
 
     expect(orchestration.getSnapshot).not.toHaveBeenCalled();
     expect(orchestration.repairState).not.toHaveBeenCalled();
     expect(storeMocks.syncServerShellSnapshot).toHaveBeenCalledWith(shell);
-    expect(storeMocks.syncServerReadModel).not.toHaveBeenCalled();
   });
 });

@@ -428,7 +428,7 @@ const make = Effect.gen(function* () {
   // as commands commit, so reading it here is both free and strictly fresher than
   // re-running the eight-query snapshot load on the blocking startup path (~150ms on a
   // large database). It cannot fail, so there is no failure mode left to log.
-  const seedThreadModelSelections = orchestrationEngine.getReadModel().pipe(
+  const seedThreadModelSelections = orchestrationEngine.getCommandReadModel().pipe(
     Effect.map((snapshot) => {
       for (const thread of snapshot.threads) {
         threadSessionModelSelections.set(thread.id, thread.modelSelection);
@@ -2067,7 +2067,7 @@ const make = Effect.gen(function* () {
             new Error(`Queued message '${event.payload.messageId}' has no projected message.`),
           );
         }
-        const readModel = yield* orchestrationEngine.getReadModel();
+        const readModel = yield* orchestrationEngine.getCommandReadModel();
         const cwd = resolveThreadWorkspaceCwd({
           workingDirectory: thread.workingDirectory,
           projectCwd:
@@ -2840,7 +2840,7 @@ const make = Effect.gen(function* () {
       });
     }
 
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getCommandReadModel();
     const cwd = resolveThreadWorkspaceCwd({
       workingDirectory: originalThread.workingDirectory,
       projectCwd:

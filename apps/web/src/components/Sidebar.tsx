@@ -85,7 +85,8 @@ import {
   resolveSidebarMovePosition,
 } from "../lib/sidebarOrdering";
 import { SquareImageError, compressSquareImage } from "../lib/squareImage";
-import { archiveSpace, isOrdinarySpaceProject } from "../lib/spaces";
+import { isOrdinarySpaceProject } from "../lib/spaces";
+import { archiveProject } from "../lib/projectArchive";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { dispatchThreadRename } from "../lib/threadRename";
 import { isMacPlatform, newCommandId, newProjectId, newThreadId } from "../lib/utils";
@@ -116,6 +117,7 @@ import {
   DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
   beginInlineFolderCreation,
   buildProjectThreadTree,
+  canArchiveSidebarFolder,
   canArchiveSidebarThreads,
   derivePinnedProjectIdsForSidebar,
   deriveSidebarProjectData,
@@ -673,7 +675,6 @@ export default function Sidebar() {
     toggleThreadPinned,
     archiveThread,
     confirmAndArchiveThread,
-    archiveAllThreadsInProject,
   } = useSidebarThreadActions({
     activeSplitView,
     appSettings,
@@ -1450,6 +1451,7 @@ export default function Sidebar() {
     handleSelectSpace,
     handleSelectSpaceForIncomingProject,
     handleReorderSpaces,
+    handleArchiveSpace,
     handleMoveProjectToSpace,
     handleSpaceEditorSubmit,
   } = useSpacesController({
@@ -1536,7 +1538,7 @@ export default function Sidebar() {
         return;
       }
       if (clicked === "archive") {
-        await archiveSpace({ api, spaceId: space.id });
+        await handleArchiveSpace(space.id);
         return;
       }
       if (clicked === "toggle-expanded") {
@@ -1551,6 +1553,7 @@ export default function Sidebar() {
     [
       collapsedSpaceIds,
       handleSelectSpaceForIncomingProject,
+      handleArchiveSpace,
       openInlineFolderCreator,
       openSpaceEditor,
     ],
@@ -1671,11 +1674,18 @@ export default function Sidebar() {
         return;
       }
       if (clicked === "archive") {
-        await archiveAllThreadsInProject(projectId);
+        try {
+          await archiveProject(api, projectId);
+        } catch (error) {
+          toastManager.add({
+            type: "error",
+            title: "Unable to archive folder",
+            description: error instanceof Error ? error.message : "Try again.",
+          });
+        }
       }
     },
     [
-      archiveAllThreadsInProject,
       copyPathToClipboard,
       handleOpenProjectRunServer,
       handleStopProjectRun,
@@ -1710,18 +1720,15 @@ export default function Sidebar() {
     const projectRunServer = projectRunServerByProjectId.get(projectId) ?? null;
     const hasOpenServer =
       projectRunServer !== null && firstLocalServerUrl(projectRunServer) !== null;
-    const hasArchivableThreads = projectThreads.some((thread) => thread.archivedAt == null);
-    const canArchive =
-      hasArchivableThreads &&
-      canArchiveSidebarThreads(
-        projectThreads.map((thread) =>
-          resolveVisibleThreadWorkStatus({
-            status: resolveThreadStatusForSidebar(thread),
-            isRecording: thread.id === voiceRecordingThreadId,
-            projectedWorkStatus: thread.workStatus,
-          }),
-        ),
-      );
+    const canArchive = canArchiveSidebarFolder(
+      projectThreads.map((thread) =>
+        resolveVisibleThreadWorkStatus({
+          status: resolveThreadStatusForSidebar(thread),
+          isRecording: thread.id === voiceRecordingThreadId,
+          projectedWorkStatus: thread.workStatus,
+        }),
+      ),
+    );
     const moveTargets = spaces.filter((space) => space.id !== project.spaceId);
     const items: Array<{
       id: ProjectNativeContextMenuId;
@@ -1765,7 +1772,7 @@ export default function Sidebar() {
       { id: "toggle-pin", label: pinActionLabel("folder", isPinned) },
     );
     if (canArchive) {
-      items.push({ id: "archive", label: "Archive", separatorBefore: true });
+      items.push({ id: "archive", label: "Archive folder", separatorBefore: true });
     }
 
     const clicked = await api.contextMenu.show<ProjectNativeContextMenuId>(items, position);

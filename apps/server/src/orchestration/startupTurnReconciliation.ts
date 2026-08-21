@@ -327,7 +327,7 @@ export const reconcileRestartStuckTurns = (input: {
     const engine = yield* OrchestrationEngineService;
     const snapshotQuery = yield* ProjectionSnapshotQuery;
 
-    const readModel = yield* engine.getReadModel();
+    const readModel = yield* engine.getCommandReadModel();
     const openTurnCountRows = yield* snapshotQuery.listOpenTurnCounts().pipe(
       Effect.catchCause((cause) =>
         Effect.logWarning("restart turn reconciliation continuing without open-turn counts", {

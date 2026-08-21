@@ -317,6 +317,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         connectionLabel,
         previousConnectionId: null,
         previousModelId: null,
+        previousInstallationId: null,
         installationId: activeInstallation.id,
         internalProviderId,
         modelId: modelSelection.model,
@@ -394,15 +395,19 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       const internalProviderId = yield* internalProviderIdForModel(state.value.harness, modelId);
       const connectionId =
         input.connectionId === undefined ? binding.value.connectionId : input.connectionId;
-      const changed =
+      const selectionChanged =
         connectionId !== binding.value.connectionId ||
         internalProviderId !== binding.value.internalProviderId ||
         modelId !== binding.value.modelId;
+      const activeInstallation = yield* requireActiveInstallation(state.value.harness);
+      const installationChanged = activeInstallation.id !== binding.value.installationId;
+      const changed = selectionChanged || installationChanged;
       const requiresNativeStateMaterialization =
         connectionId !== binding.value.connectionId ||
-        internalProviderId !== binding.value.internalProviderId;
+        internalProviderId !== binding.value.internalProviderId ||
+        (installationChanged && state.value.providerSessionId !== null);
 
-      if (changed) {
+      if (selectionChanged) {
         if (input.bindingRevision === undefined) {
           return yield* new ProviderTurnSelectionResolutionError({
             detail: "Changing a thread selection requires its exact binding revision.",
@@ -460,11 +465,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         const availableModel = yield* requireAvailableModel({
           harness: state.value.harness,
           connectionId,
-          installationId: binding.value.installationId,
+          installationId: activeInstallation.id,
           internalProviderId,
           modelId,
           nativeStateIdentity: state.value.nativeStateGenerationId,
-          allowRetiredInstallation: true,
         });
         modelLabel = availableModel.name;
       }
@@ -476,7 +480,8 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         connectionLabel,
         previousConnectionId: binding.value.connectionId,
         previousModelId: binding.value.modelId,
-        installationId: binding.value.installationId,
+        previousInstallationId: binding.value.installationId,
+        installationId: activeInstallation.id,
         internalProviderId,
         modelId,
         modelLabel,

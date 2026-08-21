@@ -349,6 +349,7 @@ function toProjectedProject(row: ProjectionProjectDbRow): OrchestrationProject {
     sidebarSortOrder: row.sidebarSortOrder,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    archivedAt: row.archivedAt ?? null,
     deletedAt: row.deletedAt,
   };
 }
@@ -374,6 +375,7 @@ function toProjectedSpaceShell(row: ProjectionSpaceDbRow): OrchestrationSpaceShe
     sortOrder: row.sortOrder,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    archivedAt: row.archivedAt ?? null,
   };
 }
 
@@ -485,6 +487,7 @@ function toProjectedProjectShell(row: ProjectionProjectDbRow): OrchestrationProj
     sidebarSortOrder: row.sidebarSortOrder,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    archivedAt: row.archivedAt ?? null,
   };
 }
 
@@ -659,6 +662,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           space_id AS "spaceId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
+          archived_at AS "archivedAt",
           deleted_at AS "deletedAt"
         FROM projection_projects
         ORDER BY created_at ASC, project_id ASC
@@ -849,10 +853,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listThreadActivityRows = SqlSchema.findAll({
-    Request: Schema.Void,
+  const listThreadSummaryActivityRowsByThread = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
     Result: ProjectionThreadActivityDbRowSchema,
-    execute: () =>
+    execute: ({ threadId }) =>
       sql`
         SELECT
           activity_id AS "activityId",
@@ -876,7 +880,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 activity_id DESC
             ) AS activity_rank
           FROM thread_activities_read
-          WHERE ${liveThreadScope}
+          WHERE thread_id = ${threadId}
         ) AS ranked
         WHERE activity_rank <= ${MAX_SNAPSHOT_THREAD_ACTIVITIES}
           OR (
@@ -1113,6 +1117,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           space_id AS "spaceId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
+          archived_at AS "archivedAt",
           deleted_at AS "deletedAt"
         FROM projection_projects
         WHERE project_id = ${projectId}
@@ -1535,7 +1540,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             projectRows,
             threadRows,
             messageRows,
-            activityRows,
             pendingInteractionRows,
             sessionRows,
             latestTurnRows,
@@ -1585,14 +1589,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 ),
               ),
             ),
-            listThreadActivityRows(undefined).pipe(
-              Effect.mapError(
-                toPersistenceSqlOrDecodeError(
-                  "ProjectionSnapshotQuery.getSnapshot:listThreadActivities:query",
-                  "ProjectionSnapshotQuery.getSnapshot:listThreadActivities:decodeRows",
-                ),
-              ),
-            ),
             listPendingInteractionRows(undefined).pipe(
               Effect.mapError(
                 toPersistenceSqlOrDecodeError(
@@ -1626,6 +1622,24 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ),
             ),
           ]);
+
+          // A full compatibility snapshot remains bounded per live Thread.
+          // Querying each indexed Thread partition independently lets SQLite
+          // stop after that Thread's window instead of ranking the complete
+          // canonical activity view before applying the per-Thread cap.
+          const activityRows = (yield* Effect.forEach(
+            threadRows.filter((row) => row.deletedAt === null),
+            (row) =>
+              listThreadSummaryActivityRowsByThread({ threadId: row.threadId }).pipe(
+                Effect.mapError(
+                  toPersistenceSqlOrDecodeError(
+                    "ProjectionSnapshotQuery.getSnapshot:listThreadActivities:query",
+                    "ProjectionSnapshotQuery.getSnapshot:listThreadActivities:decodeRows",
+                  ),
+                ),
+              ),
+            { concurrency: 1 },
+          )).flat();
 
           const messages = collectProjectedMessages(messageRows);
           const activities = collectProjectedActivities(activityRows);
@@ -1879,7 +1893,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               .filter((row) => row.deletedAt === null && row.archivedAt !== null)
               .map(toProjectedSpaceShell),
             projects: projectRows
-              .filter((row) => row.deletedAt === null)
+              .filter((row) => row.deletedAt === null && row.archivedAt === null)
+              .map((row) => toProjectedProjectShell(row)),
+            archivedProjects: projectRows
+              .filter((row) => row.deletedAt === null && row.archivedAt !== null)
               .map((row) => toProjectedProjectShell(row)),
             threads: threadRows
               .filter((row) => row.deletedAt === null)

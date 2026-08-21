@@ -197,24 +197,31 @@ export function upsertProject(
   if (state.deletedProjectIdsById?.[incoming.id] !== undefined) {
     return state;
   }
-  const existingProject = state.projects.find((project) => project.id === incoming.id);
+  const existingProject =
+    state.projects.find((project) => project.id === incoming.id) ??
+    (state.archivedProjects ?? []).find((project) => project.id === incoming.id);
   const nextProject = normalizeProject(incoming, existingProject);
-
-  if (existingProject) {
-    if (existingProject === nextProject) {
-      return state;
-    }
-    return {
-      ...state,
-      projects: state.projects.map((project) =>
-        project.id === existingProject.id ? nextProject : project,
-      ),
-    };
+  const belongsInArchive = nextProject.archivedAt != null;
+  const projects = belongsInArchive
+    ? state.projects.filter((project) => project.id !== incoming.id)
+    : existingProject && state.projects.some((project) => project.id === incoming.id)
+      ? state.projects.map((project) => (project.id === incoming.id ? nextProject : project))
+      : [...state.projects, nextProject];
+  const archivedProjects = belongsInArchive
+    ? existingProject &&
+      (state.archivedProjects ?? []).some((project) => project.id === incoming.id)
+      ? (state.archivedProjects ?? []).map((project) =>
+          project.id === incoming.id ? nextProject : project,
+        )
+      : [...(state.archivedProjects ?? []), nextProject]
+    : (state.archivedProjects ?? []).filter((project) => project.id !== incoming.id);
+  if (projects === state.projects && archivedProjects === (state.archivedProjects ?? [])) {
+    return state;
   }
-
   return {
     ...state,
-    projects: [...state.projects, nextProject],
+    projects,
+    archivedProjects,
   };
 }
 
@@ -946,20 +953,26 @@ function removeProjectState(state: AppState, projectId: Project["id"]): AppState
   const nextProjects = state.projects.some((project) => project.id === projectId)
     ? state.projects.filter((project) => project.id !== projectId)
     : state.projects;
+  const currentArchivedProjects = state.archivedProjects ?? [];
+  const nextArchivedProjects = currentArchivedProjects.some((project) => project.id === projectId)
+    ? currentArchivedProjects.filter((project) => project.id !== projectId)
+    : currentArchivedProjects;
   const nextState = [...threadIds].reduce((currentState, threadId) => {
     return removeThreadState(currentState, threadId);
   }, state);
 
-  if (nextProjects === state.projects && nextState === state) {
+  if (
+    nextProjects === state.projects &&
+    nextArchivedProjects === currentArchivedProjects &&
+    nextState === state
+  ) {
     return state;
   }
-
-  return nextProjects === nextState.projects
-    ? nextState
-    : {
-        ...nextState,
-        projects: nextProjects,
-      };
+  return {
+    ...nextState,
+    projects: nextProjects,
+    archivedProjects: nextArchivedProjects,
+  };
 }
 
 export function removeDeletedProjectFromClientState(
@@ -1105,9 +1118,13 @@ export function syncServerShellSnapshot(
   const snapshotProjects = snapshot.projects.filter(
     (project) => deletedProjectIdsById[project.id] === undefined,
   );
+  const snapshotArchivedProjects = (snapshot.archivedProjects ?? []).filter(
+    (project) => deletedProjectIdsById[project.id] === undefined,
+  );
   const spaces = mapSpaces(snapshot.spaces ?? [], state.spaces ?? []);
   const archivedSpaces = mapSpaces(snapshot.archivedSpaces ?? [], state.archivedSpaces ?? []);
   const projects = mapProjects(snapshotProjects, state.projects);
+  const archivedProjects = mapProjects(snapshotArchivedProjects, state.archivedProjects ?? []);
   const nextThreadIds = new Set(snapshotThreads.map((thread) => thread.id));
 
   const normalizedState: AppState = {
@@ -1142,6 +1159,7 @@ export function syncServerShellSnapshot(
       spaces,
       archivedSpaces,
       projects,
+      archivedProjects,
       sidebarThreadSummaryById,
       threadsHydrated: true,
     },
@@ -1203,15 +1221,24 @@ export function syncServerThreadDetailHotPath(state: AppState, thread: ReadModel
 }
 
 export function applyShellEvent(state: AppState, event: OrchestrationShellStreamEvent): AppState {
+  let nextState: AppState;
   switch (event.kind) {
     case "space-upserted":
-      return upsertSpace(state, event.space);
+      nextState = upsertSpace(state, event.space);
+      break;
     case "space-removed":
-      return removeSpace(state, event.spaceId, event.updatedAt, event.preserveAssignments ?? false);
+      nextState = removeSpace(
+        state,
+        event.spaceId,
+        event.updatedAt,
+        event.preserveAssignments ?? false,
+      );
+      break;
     case "space-order-updated":
-      return applySpaceOrder(state, event.orderedSpaceIds);
+      nextState = applySpaceOrder(state, event.orderedSpaceIds);
+      break;
     case "sidebar-layout-updated": {
-      let nextState = state;
+      nextState = state;
       for (const project of event.projects) {
         nextState = upsertProject(nextState, project, "id-only");
       }
@@ -1231,29 +1258,38 @@ export function applyShellEvent(state: AppState, event: OrchestrationShellStream
           thread.id,
         );
       }
-      return nextState;
+      break;
     }
     case "project-upserted":
-      return upsertProject(state, event.project, "id-only");
+      nextState = upsertProject(state, event.project, "id-only");
+      break;
     case "project-removed":
-      return removeDeletedProjectFromClientState(state, event.projectId, event.sequence);
+      nextState = removeDeletedProjectFromClientState(state, event.projectId, event.sequence);
+      break;
     case "thread-upserted": {
       if (
         state.deletedProjectIdsById?.[event.thread.projectId] !== undefined ||
         state.deletedThreadIdsById?.[event.thread.id] !== undefined
       ) {
-        return removeThreadState(state, event.thread.id);
+        nextState = removeThreadState(state, event.thread.id);
+        break;
       }
-      const nextState = writeThreadShellProjection(
+      nextState = writeThreadShellProjection(
         state,
         normalizeThreadShellSnapshot(event.thread, getThreadFromState(state, event.thread.id)),
       );
-      return commitThreadProjection(nextState, event.thread.id);
+      nextState = commitThreadProjection(nextState, event.thread.id);
+      break;
     }
     case "thread-removed":
       // Shell removals can be retryable draft rollbacks; explicit delete reconciliation owns tombstones.
-      return removeThreadState(state, event.threadId);
+      nextState = removeThreadState(state, event.threadId);
+      break;
   }
+  const shellSnapshotSequence = Math.max(state.shellSnapshotSequence ?? 0, event.sequence);
+  return nextState.shellSnapshotSequence === shellSnapshotSequence
+    ? nextState
+    : { ...nextState, shellSnapshotSequence };
 }
 
 export function syncServerReadModel(state: AppState, readModel: OrchestrationReadModel): AppState {
@@ -1286,9 +1322,21 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
   );
   const projects = mapProjects(
     readModel.projects.filter(
-      (project) => project.deletedAt === null && deletedProjectIdsById[project.id] === undefined,
+      (project) =>
+        project.deletedAt === null &&
+        project.archivedAt == null &&
+        deletedProjectIdsById[project.id] === undefined,
     ),
     state.projects,
+  );
+  const archivedProjects = mapProjects(
+    readModel.projects.filter(
+      (project) =>
+        project.deletedAt === null &&
+        project.archivedAt != null &&
+        deletedProjectIdsById[project.id] === undefined,
+    ),
+    state.archivedProjects ?? [],
   );
   const nextThreads = readModel.threads
     .filter(
@@ -1341,6 +1389,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     spaces === state.spaces &&
     archivedSpaces === state.archivedSpaces &&
     projects === state.projects &&
+    archivedProjects === (state.archivedProjects ?? []) &&
     sidebarThreadSummaryById === state.sidebarThreadSummaryById &&
     normalizedState.threadIds === state.threadIds &&
     normalizedState.threadShellById === state.threadShellById &&
@@ -1375,6 +1424,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
       spaces,
       archivedSpaces,
       projects,
+      archivedProjects,
       sidebarThreadSummaryById,
       threadsHydrated: true,
     },

@@ -1135,6 +1135,14 @@ export class WsTransport {
           if (wasReplacedOrStopped || this.disposed) {
             return;
           }
+          // Subscription streams are intentionally unbounded. A clean completion is therefore
+          // a dropped lease, not success; re-establish it instead of silently freezing the UI.
+          if (restart && Exit.isSuccess(exit)) {
+            window.setTimeout(() => {
+              if (!this.disposed && !this.streamCleanups.has(key)) restart();
+            }, 100);
+            return;
+          }
           if (restart && Exit.isFailure(exit)) {
             const admissionRetry = resolveStreamAdmissionRetry(
               exit.cause,

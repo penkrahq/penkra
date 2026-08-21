@@ -27,6 +27,7 @@ export interface AppState {
   spaces: Space[];
   archivedSpaces: Space[];
   projects: Project[];
+  archivedProjects: Project[];
   sidebarThreadSummaryById: Record<string, SidebarThreadSummary>;
   threadsHydrated: boolean;
   threadIds?: ThreadId[];
@@ -68,6 +69,7 @@ export const initialState: AppState = {
   spaces: [],
   archivedSpaces: [],
   projects: [],
+  archivedProjects: [],
   sidebarThreadSummaryById: {},
   threadsHydrated: false,
   threadIds: [],

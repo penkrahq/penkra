@@ -26,6 +26,7 @@ export const ResolvedProviderTurnSelection = Schema.Struct({
   connectionLabel: Schema.NullOr(TrimmedNonEmptyStringSchema),
   previousConnectionId: Schema.NullOr(ProviderConnectionIdSchema),
   previousModelId: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  previousInstallationId: Schema.NullOr(ProviderInstallationIdSchema),
   installationId: ProviderInstallationIdSchema,
   internalProviderId: Schema.NullOr(TrimmedNonEmptyStringSchema),
   modelId: TrimmedNonEmptyStringSchema,

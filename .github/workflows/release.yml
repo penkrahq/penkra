@@ -40,6 +40,12 @@ jobs:
             target: dmg
             arch: arm64
             artifact: mac-arm64
+          - name: macOS x64
+            runner: macos-26-intel
+            platform: mac
+            target: dmg
+            arch: x64
+            artifact: mac-x64
           - name: Linux x64
             runner: ubuntu-24.04
             platform: linux
@@ -238,7 +244,7 @@ jobs:
         run: |
           set -euo pipefail
           bun run dist:desktop:artifact -- \
-            --platform mac --target dmg --arch arm64 \
+            --platform mac --target dmg --arch "${{ matrix.arch }}" \
             --build-version "${{ steps.release.outputs.version }}" \
             --source-commit "${{ steps.release.outputs.source_commit }}" \
             --source-tag "${RELEASE_TAG}" \
@@ -282,14 +288,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bun run release:smoke:mac-update -- --artifact-dir release
-          node scripts/verify-packaged-desktop-startup.ts --assets-dir release --platform mac --arch arm64 --version "${{ steps.release.outputs.version }}"
+          bun run release:smoke:mac-update -- --artifact-dir release --arch "${{ matrix.arch }}"
+          node scripts/verify-packaged-desktop-startup.ts --assets-dir release --platform mac --arch "${{ matrix.arch }}" --version "${{ steps.release.outputs.version }}"
           if ditto -l -k release/*.zip | grep -q '/Contents/Resources/penkra-cli/'; then
             echo "Public desktop artifact contains the private Penkra CLI." >&2
             exit 1
           fi
           node scripts/write-release-artifact-provenance.ts \
-            --assets-dir release --platform mac --arch arm64 --target dmg \
+            --assets-dir release --platform mac --arch "${{ matrix.arch }}" --target dmg \
             --version "${{ steps.release.outputs.version }}" \
             --source-commit "${{ steps.release.outputs.source_commit }}" \
             --source-tag "${RELEASE_TAG}" \
@@ -358,12 +364,24 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout tagged release tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
       - name: Download verified release artifacts
         uses: actions/download-artifact@v8
         with:
           pattern: penkra-*
           path: release
           merge-multiple: true
+
+      - name: Merge macOS architecture update manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/merge-mac-update-manifests.ts release/latest-mac.yml release/latest-mac-x64.yml
+          rm release/latest-mac-x64.yml
 
       - name: Write aggregate SHA-256 checksums
         working-directory: release

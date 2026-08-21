@@ -5,8 +5,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   activateManagedProviderRuntime,
+  confirmManagedProviderRuntimeCompatibility,
   deactivateManagedProviderRuntimeInstallation,
   readManagedProviderRuntimeActivation,
+  rejectManagedProviderRuntimeUpdate,
   resolveManagedProviderVersionDirectory,
   resolveProviderBinary,
   rollbackManagedProviderRuntime,
@@ -102,7 +104,6 @@ describe("managed provider runtime", () => {
     const result = await runInTemp((stateDir) =>
       Effect.gen(function* () {
         const first = yield* createVersionExecutable(stateDir, "1.0.0");
-        const second = yield* createVersionExecutable(stateDir, "2.0.0");
         yield* activateManagedProviderRuntime({
           stateDir,
           provider: "codex",
@@ -110,6 +111,7 @@ describe("managed provider runtime", () => {
           version: "1.0.0",
           executablePath: first,
         });
+        const second = yield* createVersionExecutable(stateDir, "2.0.0");
         yield* activateManagedProviderRuntime({
           stateDir,
           provider: "codex",
@@ -134,11 +136,30 @@ describe("managed provider runtime", () => {
     expect(result.activation?.previous?.version).toBe("2.0.0");
   });
 
-  it("restores a retained predecessor when recording the new activation fails", async () => {
+  it("retains only the active runtime and its immediate predecessor", async () => {
+    const versions = await runInTemp((stateDir) =>
+      Effect.gen(function* () {
+        for (const version of ["1.0.0", "2.0.0", "3.0.0"]) {
+          const executablePath = yield* createVersionExecutable(stateDir, version);
+          yield* activateManagedProviderRuntime({
+            stateDir,
+            provider: "codex",
+            installationId: `install-${version}`,
+            version,
+            executablePath,
+          });
+        }
+        return fs.readdirSync(`${stateDir}/provider-runtimes/codex/versions`).sort();
+      }),
+    );
+
+    expect(versions).toEqual(["2.0.0", "3.0.0"]);
+  });
+
+  it("prunes the predecessor after the active runtime proves continuation compatibility", async () => {
     const result = await runInTemp((stateDir) =>
       Effect.gen(function* () {
         const first = yield* createVersionExecutable(stateDir, "1.0.0");
-        const second = yield* createVersionExecutable(stateDir, "2.0.0");
         yield* activateManagedProviderRuntime({
           stateDir,
           provider: "codex",
@@ -146,6 +167,135 @@ describe("managed provider runtime", () => {
           version: "1.0.0",
           executablePath: first,
         });
+        const second = yield* createVersionExecutable(stateDir, "2.0.0");
+        yield* activateManagedProviderRuntime({
+          stateDir,
+          provider: "codex",
+          installationId: "install-2",
+          version: "2.0.0",
+          executablePath: second,
+        });
+        const confirmed = yield* confirmManagedProviderRuntimeCompatibility({
+          stateDir,
+          provider: "codex",
+          installationId: "install-2",
+        });
+        const activation = yield* readManagedProviderRuntimeActivation({
+          stateDir,
+          provider: "codex",
+        });
+        const versions = fs.readdirSync(`${stateDir}/provider-runtimes/codex/versions`).sort();
+        return { confirmed, activation, versions };
+      }),
+    );
+
+    expect(result.confirmed).toBe(true);
+    expect(result.activation?.previous).toBeNull();
+    expect(result.versions).toEqual(["2.0.0"]);
+  });
+
+  it("does not replace the predecessor when the same active generation is reactivated", async () => {
+    const activation = await runInTemp((stateDir) =>
+      Effect.gen(function* () {
+        const first = yield* createVersionExecutable(stateDir, "1.0.0");
+        yield* activateManagedProviderRuntime({
+          stateDir,
+          provider: "codex",
+          installationId: "install-1",
+          version: "1.0.0",
+          executablePath: first,
+        });
+        const second = yield* createVersionExecutable(stateDir, "2.0.0");
+        yield* activateManagedProviderRuntime({
+          stateDir,
+          provider: "codex",
+          installationId: "install-2",
+          version: "2.0.0",
+          executablePath: second,
+        });
+        yield* activateManagedProviderRuntime({
+          stateDir,
+          provider: "codex",
+          installationId: "install-2",
+          version: "2.0.0",
+          executablePath: second,
+        });
+        return yield* readManagedProviderRuntimeActivation({ stateDir, provider: "codex" });
+      }),
+    );
+
+    expect(activation?.previous?.installationId).toBe("install-1");
+  });
+
+  it("rejects an incompatible candidate, restores its predecessor, and blocks exact retry", async () => {
+    const result = await runInTemp((stateDir) =>
+      Effect.gen(function* () {
+        const first = yield* createVersionExecutable(stateDir, "1.0.0");
+        yield* activateManagedProviderRuntime({
+          stateDir,
+          provider: "codex",
+          installationId: "install-1",
+          version: "1.0.0",
+          executablePath: first,
+        });
+        const second = yield* createVersionExecutable(stateDir, "2.0.0");
+        yield* activateManagedProviderRuntime({
+          stateDir,
+          provider: "codex",
+          installationId: "install-2",
+          version: "2.0.0",
+          executablePath: second,
+        });
+        const rejected = yield* rejectManagedProviderRuntimeUpdate({
+          stateDir,
+          provider: "codex",
+          installationId: "install-2",
+        });
+        const activation = yield* readManagedProviderRuntimeActivation({
+          stateDir,
+          provider: "codex",
+        });
+        const versionsAfterRejection = fs
+          .readdirSync(`${stateDir}/provider-runtimes/codex/versions`)
+          .sort();
+        const reinstalledSecond = yield* createVersionExecutable(stateDir, "2.0.0");
+        const retry = yield* Effect.exit(
+          activateManagedProviderRuntime({
+            stateDir,
+            provider: "codex",
+            installationId: "install-2",
+            version: "2.0.0",
+            executablePath: reinstalledSecond,
+          }),
+        );
+        const versionsAfterRetry = fs
+          .readdirSync(`${stateDir}/provider-runtimes/codex/versions`)
+          .sort();
+        return { rejected, activation, versionsAfterRejection, retry, versionsAfterRetry };
+      }),
+    );
+
+    expect(result.rejected).toBe(true);
+    expect(result.activation?.active.installationId).toBe("install-1");
+    expect(result.activation?.previous).toBeNull();
+    expect(result.activation?.rejected?.installationId).toBe("install-2");
+    expect(result.versionsAfterRejection).toEqual(["1.0.0"]);
+    expect(result.retry._tag).toBe("Failure");
+    expect(result.versionsAfterRetry).toEqual(["1.0.0"]);
+  });
+
+  it("restores a retained predecessor when recording the new activation fails", async () => {
+    const result = await runInTemp((stateDir) =>
+      Effect.gen(function* () {
+        const first = yield* createVersionExecutable(stateDir, "1.0.0");
+        yield* activateManagedProviderRuntime({
+          stateDir,
+          provider: "codex",
+          installationId: "install-1",
+          version: "1.0.0",
+          executablePath: first,
+        });
+        const second = yield* createVersionExecutable(stateDir, "2.0.0");
         yield* activateManagedProviderRuntime({
           stateDir,
           provider: "codex",

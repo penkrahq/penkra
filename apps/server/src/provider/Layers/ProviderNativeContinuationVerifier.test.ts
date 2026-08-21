@@ -32,6 +32,7 @@ const selection: ResolvedProviderTurnSelection = {
   connectionLabel: "Work",
   previousConnectionId: ProviderConnectionId.makeUnsafe("verify-previous"),
   previousModelId: "opencode-go/kimi-k2.5",
+  previousInstallationId: installationId,
   installationId,
   internalProviderId: "opencode-go",
   modelId: "opencode-go/kimi-k2.5",

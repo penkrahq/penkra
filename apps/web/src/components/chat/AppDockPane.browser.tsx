@@ -226,6 +226,7 @@ describe("AppDockPane Runtime v2 frame", () => {
     );
     expect(webview.getAttribute("partition")).toBe("persist:app-space-browser");
     expect(webview.getAttribute("src")).toBe("https://example.com");
+    expect(webview.hasAttribute("allowpopups")).toBe(true);
     expect(webview.getAttribute("useragent")).not.toMatch(/Electron|Penkra/iu);
     expect(webview.getAttribute("useragent")).toContain("Chrome/144.0.7559.236");
     expect(webview.style.top).toBe("44px");

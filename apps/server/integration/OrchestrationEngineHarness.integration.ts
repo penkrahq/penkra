@@ -304,6 +304,7 @@ export const makeOrchestrationIntegrationHarness = (
           connectionLabel: "Integration",
           previousConnectionId: INTEGRATION_CONNECTION_ID,
           previousModelId: selection.modelSelection?.model ?? null,
+          previousInstallationId: INTEGRATION_INSTALLATION_ID,
           installationId: INTEGRATION_INSTALLATION_ID,
           internalProviderId: null,
           modelId: selection.modelSelection?.model ?? "integration-model",

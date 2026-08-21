@@ -5,6 +5,7 @@ import { RenameDialog } from "~/components/RenameDialog";
 import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
 import { restoreSpace } from "~/lib/spaces";
+import { restoreProject } from "~/lib/projectArchive";
 import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
 import type { Space } from "~/types";
@@ -47,13 +48,14 @@ export function SettingsSpacesPage() {
   const spaces = useStore((store) => store.spaces);
   const archivedSpaces = useStore((store) => store.archivedSpaces);
   const projects = useStore((store) => store.projects);
+  const archivedProjects = useStore((store) => store.archivedProjects);
   const threadShellById = useStore((store) => store.threadShellById ?? {});
   const [restoreRenameSpace, setRestoreRenameSpace] = useState<Space | null>(null);
   const countsBySpace = useMemo(() => {
     const counts = new Map<string, { folders: number; threads: number }>();
     for (const space of [...spaces, ...archivedSpaces])
       counts.set(space.id, { folders: 0, threads: 0 });
-    for (const project of projects) {
+    for (const project of [...projects, ...archivedProjects]) {
       if (project.spaceId === null || project.spaceId === undefined) continue;
       const countsForSpace = counts.get(project.spaceId);
       if (countsForSpace) countsForSpace.folders += 1;
@@ -64,7 +66,21 @@ export function SettingsSpacesPage() {
       if (countsForSpace) countsForSpace.threads += 1;
     }
     return counts;
-  }, [archivedSpaces, projects, spaces, threadShellById]);
+  }, [archivedProjects, archivedSpaces, projects, spaces, threadShellById]);
+
+  const restoreFolder = async (projectId: (typeof archivedProjects)[number]["id"]) => {
+    const api = readNativeApi();
+    if (!api) return;
+    try {
+      await restoreProject(api, projectId);
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Unable to restore folder",
+        description: error instanceof Error ? error.message : "Try again.",
+      });
+    }
+  };
 
   const restore = async (space: Space, name?: string) => {
     const api = readNativeApi();
@@ -138,6 +154,41 @@ export function SettingsSpacesPage() {
                   size="sm"
                   variant="outline"
                 >
+                  Restore
+                </Button>
+              </div>
+            );
+          })}
+        </section>
+      ) : null}
+      {archivedProjects.length > 0 ? (
+        <section className="space-y-2">
+          <h2 className="text-[12px] font-semibold text-[var(--color-text-foreground-tertiary)]">
+            Archived folders
+          </h2>
+          {archivedProjects.map((project) => {
+            const space = [...spaces, ...archivedSpaces].find(
+              (candidate) => candidate.id === project.spaceId,
+            );
+            const threadCount = Object.values(threadShellById).filter(
+              (thread) => thread.projectId === project.id,
+            ).length;
+            return (
+              <div
+                className="flex h-[54px] items-center gap-2.5 rounded-[10px] border border-[var(--color-border)] bg-[var(--color-background-surface)] px-3"
+                key={project.id}
+              >
+                <IconArchive className="size-3.5 text-[var(--color-text-foreground-tertiary)]" />
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate text-[13px] font-semibold text-[var(--color-text-foreground)]">
+                    {project.name}
+                  </span>
+                  <span className="truncate text-[11px] text-[var(--color-text-foreground-tertiary)]">
+                    {space?.name ?? "Unknown Space"} · {countLabel(threadCount, "Thread")} · content
+                    preserved
+                  </span>
+                </span>
+                <Button onClick={() => void restoreFolder(project.id)} size="sm" variant="outline">
                   Restore
                 </Button>
               </div>

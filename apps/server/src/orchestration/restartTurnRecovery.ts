@@ -32,7 +32,7 @@ export const recoverRestartInterruptedTurns = Effect.gen(function* () {
   `;
   if (recoveries.length === 0) return;
 
-  const readModel = yield* engine.getReadModel();
+  const readModel = yield* engine.getCommandReadModel();
   const threadById = new Map(readModel.threads.map((thread) => [thread.id, thread] as const));
 
   yield* Effect.forEach(

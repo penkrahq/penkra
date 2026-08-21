@@ -105,12 +105,11 @@ export interface OrchestrationEngineShape {
     Scope.Scope
   >;
 
-  /**
-   * Read the command-oriented in-memory model used by orchestration tests and
-   * compatibility callers. Runtime snapshot reads should prefer
-   * ProjectionSnapshotQuery.
-   */
+  /** Read the canonical projection snapshot, including operations and notices. */
   readonly getReadModel: () => Effect.Effect<OrchestrationReadModel, never, never>;
+
+  /** Read the already-loaded model used to decide commands and startup state. */
+  readonly getCommandReadModel: () => Effect.Effect<OrchestrationReadModel, never, never>;
 
   /**
    * Dispatch a validated orchestration command.

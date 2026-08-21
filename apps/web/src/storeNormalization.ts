@@ -51,6 +51,7 @@ export type ProjectNormalizationInput = Pick<
   | "sidebarSortOrder"
   | "createdAt"
   | "updatedAt"
+  | "archivedAt"
 >;
 
 export const MAX_THREAD_MESSAGES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.messages;
@@ -322,6 +323,7 @@ export function normalizeProject(
     (previous.sidebarSortOrder ?? 0) === (incoming.sidebarSortOrder ?? 0) &&
     previous.createdAt === incoming.createdAt &&
     previous.updatedAt === incoming.updatedAt &&
+    (previous.archivedAt ?? null) === (incoming.archivedAt ?? null) &&
     previous.scripts === scripts
   ) {
     return previous;
@@ -343,6 +345,7 @@ export function normalizeProject(
     sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     createdAt: incoming.createdAt,
     updatedAt: incoming.updatedAt,
+    archivedAt: incoming.archivedAt ?? null,
     scripts,
   } satisfies Project;
 }

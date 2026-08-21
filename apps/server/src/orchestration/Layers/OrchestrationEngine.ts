@@ -1259,10 +1259,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     eventPubSub,
   ).pipe(Effect.map((subscription) => Stream.fromEffectRepeat(PubSub.take(subscription))));
 
-  // Compatibility bridge for older tests and out-of-tree callers. Rehydrate
-  // from the authoritative snapshot so canonical operations/notices are
-  // visible even though they intentionally do not emit orchestration events.
+  // Preserve canonical read-side semantics for compatibility consumers while
+  // giving command/startup callers an explicit O(1) path to the model already
+  // loaded and maintained by this engine.
   const getReadModel = () => projectionSnapshotQuery.getSnapshot().pipe(Effect.orDie);
+  const getCommandReadModel = () => Effect.sync(() => commandReadModel);
   const refreshCommandReadModel: OrchestrationEngineShape["refreshCommandReadModel"] = () =>
     maintenanceLock.withPermits(1)(refreshCommandReadModelFromProjectionState);
 
@@ -1504,6 +1505,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     stop,
     getProjectionCatchUpStatus,
     getReadModel,
+    getCommandReadModel,
     refreshCommandReadModel,
     readEvents,
     readEventsThrough,

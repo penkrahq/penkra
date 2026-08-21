@@ -130,6 +130,7 @@ export interface Project {
   sidebarSortOrder?: number;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
+  archivedAt?: string | null;
   scripts: ProjectScript[];
 }
 
@@ -140,6 +141,7 @@ export interface Space {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  archivedAt?: string | null;
 }
 
 export interface ThreadWorkspaceState {

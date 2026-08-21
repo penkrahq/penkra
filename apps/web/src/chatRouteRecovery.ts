@@ -3,11 +3,7 @@
 // Layer: Routing support
 // Exports: empty-startup snapshot recovery helper shared by chat index and thread routes.
 
-import type {
-  NativeApi,
-  OrchestrationReadModel,
-  OrchestrationShellSnapshot,
-} from "@penkra/contracts";
+import type { NativeApi, OrchestrationShellSnapshot } from "@penkra/contracts";
 
 import { EMPTY_ROUTE_RESTORE_FALLBACK_DELAY_MS } from "./chatRouteRestore";
 import { useStore } from "./store";
@@ -20,24 +16,16 @@ function shellSnapshotHasThreads(snapshot: OrchestrationShellSnapshot): boolean 
   return snapshot.threads.length > 0;
 }
 
-function readModelHasProjectsOrThreads(snapshot: OrchestrationReadModel): boolean {
-  return snapshot.projects.length > 0 || snapshot.threads.length > 0;
-}
-
-function readModelHasThreads(snapshot: OrchestrationReadModel): boolean {
-  return snapshot.threads.length > 0;
-}
-
 export function waitForEmptyRouteRestoreFallbackDelay(): Promise<void> {
   return new Promise((resolve) => {
     globalThis.setTimeout(resolve, EMPTY_ROUTE_RESTORE_FALLBACK_DELAY_MS);
   });
 }
 
-// Empty shell snapshots can arrive before desktop projection startup catches up.
-// Try the authoritative full read once so route guards do not replace valid
-// thread URLs. Repair is intentionally excluded: an empty read is not proof of
-// corrupt state, and rebuild is an explicit user action only.
+// The shell projection is the authoritative route/navigation source. A full
+// transcript snapshot reads the same project/thread projection rows and cannot
+// make an empty shell more authoritative; using it as a fallback only turns an
+// empty-state check into an unbounded history hydration.
 export async function refreshEmptyRouteRestoreSnapshot(
   api: NativeApi | undefined,
 ): Promise<boolean> {
@@ -51,17 +39,7 @@ export async function refreshEmptyRouteRestoreSnapshot(
     if (shellSnapshotHasThreads(shellSnapshot)) {
       return true;
     }
-    // Project-only shell snapshots do not prove route recovery is done; thread
-    // projections may still need the full snapshot below.
-  }
-
-  const readModel = await api.orchestration.getSnapshot();
-  if (readModelHasProjectsOrThreads(readModel)) {
-    useStore.getState().syncServerReadModel(readModel);
-    if (readModelHasThreads(readModel)) {
-      return true;
-    }
-    // A project-only read model is a valid empty thread set.
+    // A project-only shell is a valid empty Thread set.
   }
   return false;
 }

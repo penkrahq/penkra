@@ -47,6 +47,7 @@ import {
 } from "./managedProviderArtifactInstaller";
 import {
   deactivateManagedProviderRuntimeInstallation,
+  readManagedProviderRuntimeActivation,
   resolveProviderBinary,
   type ResolvedProviderBinary,
 } from "./managedProviderRuntime";
@@ -185,6 +186,7 @@ type ManagedProviderCoordinatorInput = {
     readonly provider: ProviderKind;
     readonly version: string;
   }) => Effect.Effect<ManagedProviderGenerationManifest | null, unknown>;
+  readonly readManagedActivation?: typeof readManagedProviderRuntimeActivation;
 };
 
 function installAndRecordManagedArtifact(input: {
@@ -349,6 +351,20 @@ export function runAutomaticProviderUpdateCycle(input: ManagedProviderCoordinato
       const release = MANAGED_PROVIDER_ADAPTER_RELEASES[candidate.provider];
       const targetVersion = candidate.versionAdvisory?.latestVersion ?? null;
       if (!release || !targetVersion) {
+        continue;
+      }
+      const activation = yield* (
+        input.readManagedActivation ?? readManagedProviderRuntimeActivation
+      )({
+        stateDir: input.config.stateDir,
+        provider: candidate.provider,
+      });
+      if (activation?.rejected?.version === targetVersion) {
+        yield* Effect.logWarning("provider update skipped after continuation rejection", {
+          provider: candidate.provider,
+          targetVersion,
+          rejectedInstallationId: activation.rejected.installationId,
+        });
         continue;
       }
       const shell = yield* input.projectionSnapshotQuery.getShellSnapshot();

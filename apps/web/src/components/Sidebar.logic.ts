@@ -171,6 +171,10 @@ export function canArchiveSidebarThreads(statuses: ReadonlyArray<SidebarWorkStat
   return statuses.length > 0 && statuses.every((status) => status === "idle");
 }
 
+export function canArchiveSidebarFolder(statuses: ReadonlyArray<SidebarWorkStatus>): boolean {
+  return statuses.every((status) => status === "idle" || status === "done");
+}
+
 export function resolveSidebarWorkStatus(
   status: ThreadStatusPill | null,
   isRecording = false,

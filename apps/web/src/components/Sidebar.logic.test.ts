@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   beginInlineFolderCreation,
   buildProjectThreadTree,
+  canArchiveSidebarFolder,
   canArchiveSidebarThreads,
   createSidebarThreadHoverAnchorId,
   derivePinnedProjectIdsForSidebar,
@@ -49,6 +50,16 @@ import {
   type SidebarThreadSummary,
   type Thread,
 } from "../types";
+
+describe("canArchiveSidebarFolder", () => {
+  it("allows empty and completed folders but blocks live or attention work", () => {
+    expect(canArchiveSidebarFolder([])).toBe(true);
+    expect(canArchiveSidebarFolder(["idle", "done"])).toBe(true);
+    expect(canArchiveSidebarFolder(["running"])).toBe(false);
+    expect(canArchiveSidebarFolder(["attention"])).toBe(false);
+    expect(canArchiveSidebarFolder(["recording"])).toBe(false);
+  });
+});
 
 describe("resolveProjectHeaderState", () => {
   it("highlights the folder only while its focused chat is still a local draft", () => {

@@ -20,6 +20,7 @@ const threadId = ThreadId.makeUnsafe("selection-thread");
 const connectionId = ProviderConnectionId.makeUnsafe("selection-go");
 const codexConnectionId = ProviderConnectionId.makeUnsafe("selection-codex-managed");
 const installationId = ProviderInstallationId.makeUnsafe("selection-installation");
+const activeInstallationId = ProviderInstallationId.makeUnsafe("selection-active-installation");
 const timestamp = "2026-08-08T00:00:00.000Z";
 
 let connectionLifecycle: "active" | "terminated" = "active";
@@ -121,6 +122,24 @@ const dependencies = Layer.mergeAll(
           activatedAt: timestamp,
           retiredAt: null,
         },
+        ...(installationLifecycle === "retired"
+          ? [
+              {
+                id: activeInstallationId,
+                harness: "opencode" as const,
+                version: "1.18.20",
+                platform: "darwin",
+                architecture: "arm64",
+                adapterVersion: "1",
+                protocolVersion: "v1",
+                lifecycle: "active" as const,
+                healthReason: null,
+                installedAt: timestamp,
+                activatedAt: timestamp,
+                retiredAt: null,
+              },
+            ]
+          : []),
         {
           id: ProviderInstallationId.makeUnsafe("selection-codex-installation"),
           harness: "codex",
@@ -136,12 +155,12 @@ const dependencies = Layer.mergeAll(
           retiredAt: null,
         },
       ]),
-    getRecord: () =>
+    getRecord: (id: typeof installationId) =>
       Effect.succeed(
         Option.some({
-          id: installationId,
+          id,
           harness: "opencode",
-          version: "1.18.10",
+          version: id === activeInstallationId ? "1.18.20" : "1.18.10",
           platform: "darwin",
           architecture: "arm64",
           executablePath: "/managed/opencode",
@@ -150,13 +169,14 @@ const dependencies = Layer.mergeAll(
           artifactSha256: "a".repeat(64),
           adapterVersion: "1",
           protocolVersion: "v1",
-          lifecycle: installationLifecycle,
+          lifecycle: id === activeInstallationId ? "active" : installationLifecycle,
           healthReason: null,
           installedAt: timestamp,
           activatedAt: timestamp,
           retiredAt: null,
         }),
       ),
+    reactivate: () => Effect.die("not expected"),
   } as never),
   Layer.succeed(ProviderConnectionRepository, {
     getRecord: (id: typeof connectionId) =>
@@ -307,14 +327,16 @@ layer("ProviderTurnSelectionResolver", (it) => {
     }),
   );
 
-  it.effect("retains an existing thread's exact retired installation", () =>
+  it.effect("migrates a retired thread binding to the active installation", () =>
     Effect.gen(function* () {
       installationLifecycle = "retired";
       connectionLifecycle = "active";
       hasRuntimeBinding = true;
       const resolver = yield* ProviderTurnSelectionResolver;
       const selected = yield* resolver.resolveExisting({ threadId });
-      assert.strictEqual(selected.installationId, installationId);
+      assert.strictEqual(selected.changed, true);
+      assert.strictEqual(selected.requiresNativeStateMaterialization, true);
+      assert.strictEqual(selected.installationId, activeInstallationId);
       const switched = yield* resolver.resolveExisting({
         threadId,
         modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
@@ -322,7 +344,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
         bindingRevision: 7,
       });
       assert.strictEqual(switched.changed, true);
-      assert.strictEqual(switched.installationId, installationId);
+      assert.strictEqual(switched.installationId, activeInstallationId);
       installationLifecycle = "active";
     }),
   );

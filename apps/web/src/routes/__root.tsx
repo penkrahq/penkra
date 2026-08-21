@@ -56,7 +56,6 @@ import {
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { useStore } from "../store";
-import { createAllThreadsSelector } from "../storeSelectors";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { terminalActivityFromEvent } from "../terminalActivity";
 import {
@@ -73,6 +72,7 @@ import {
 } from "../wsTransportEvents";
 import { invalidateProjectFileQueriesForCwds, projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
+import { hasActiveThreadExecution } from "../lib/activeWorkPower";
 import { useProjectRunStore } from "../projectRunStore";
 import { VoiceSessionCoordinatorProvider } from "../voiceSessionCoordinator";
 import { TaskCompletionNotifications } from "../notifications/taskCompletion";
@@ -92,7 +92,6 @@ import { usePreloadRouteChunks } from "../hooks/usePreloadRouteChunks";
 import { useSyncDesktopTopBarTrafficLightGutterZoom } from "../hooks/useDesktopTopBarGutter";
 import { useTheme } from "../hooks/useTheme";
 import { useNativeFontSmoothing } from "../hooks/useNativeFontSmoothing";
-import { hasLiveThreadsWithMissingProjects } from "../lib/desktopProjectRecovery";
 import { useChatRouteSearch } from "../hooks/useChatRouteSearch";
 import { resolveSplitViewThreadIds, selectSplitView, useSplitViewStore } from "../splitViewStore";
 import { providerModelDiscoveryInvalidationFingerprint } from "../lib/providerDiscoveryInvalidation";
@@ -109,6 +108,7 @@ const SHELL_SNAPSHOT_BOOTSTRAP_FALLBACK_DELAY_MS = 1_500;
 const THREAD_DETAIL_CATCHUP_INTERVAL_MS = 1_500;
 const THREAD_DETAIL_PROJECTION_RECONCILE_INTERVAL_MS = 4_500;
 const THREAD_DETAIL_PROJECTION_RECONCILE_MAX_CONCURRENCY = 2;
+const ACTIVE_SHELL_RECONCILE_INTERVAL_MS = 5_000;
 const PENDING_SHELL_EVENT_BUFFER_LIMIT = 1_024;
 const PENDING_THREAD_EVENT_BUFFER_LIMIT = 512;
 const IMMEDIATE_ASSISTANT_FLUSH_ID_LIMIT = 512;
@@ -234,7 +234,6 @@ function RootRouteView() {
               <GlobalWhatsNewSurface />
               <TaskCompletionNotifications />
               <ProviderUpdateNotifications />
-              <DesktopProjectBootstrap />
               <QueuedComposerTurnDispatcher />
               <Outlet />
             </AnchoredToastProvider>
@@ -1018,6 +1017,7 @@ function EventRouter() {
     let nextThreadSubscriptionGeneration = 0;
     let reconcileThreadSubscriptionsChain = Promise.resolve();
     let scopedSubscriptionsReady = false;
+    let shellSnapshotInFlight: Promise<void> | null = null;
 
     const isDraftThreadAwaitingProjection = (threadId: ThreadId): boolean => {
       if (useComposerDraftStore.getState().draftThreadsByThreadId[threadId] === undefined) {
@@ -1172,36 +1172,25 @@ function EventRouter() {
       await reconcileThreadProjection(threadId);
     };
 
-    const shouldApplyBootstrapShellSnapshot = (snapshot: OrchestrationShellSnapshot) => {
-      if (disposed) {
-        return false;
-      }
-      const currentState = useStore.getState();
-      if (!currentState.threadsHydrated) {
-        return true;
-      }
-      // Desktop can briefly hydrate from an empty startup stream before the
-      // projection reader is fully ready. Let the later non-empty shell query win.
-      return (
-        (currentState.spaces.length === 0 && snapshot.spaces.length > 0) ||
-        (currentState.projects.length === 0 && snapshot.projects.length > 0) ||
-        ((currentState.threadIds?.length ?? 0) === 0 && snapshot.threads.length > 0)
-      );
-    };
-
     const loadShellSnapshotOnce = async () => {
       if (disposed) {
         return;
       }
-      const snapshot = await api.orchestration.getShellSnapshot();
-      if (!shouldApplyBootstrapShellSnapshot(snapshot)) {
-        return;
-      }
-      shellSnapshotSequence = snapshot.snapshotSequence;
-      syncServerShellSnapshot(snapshot);
-      reconcilePromotedDraftsFromShellThreads(snapshot.threads);
-      removeOrphanedTerminalsForCurrentState();
-      flushShellBuffer(snapshot.snapshotSequence);
+      if (shellSnapshotInFlight) return shellSnapshotInFlight;
+      shellSnapshotInFlight = api.orchestration
+        .getShellSnapshot()
+        .then((snapshot) => {
+          if (disposed) return;
+          shellSnapshotSequence = Math.max(shellSnapshotSequence, snapshot.snapshotSequence);
+          syncServerShellSnapshot(snapshot);
+          reconcilePromotedDraftsFromShellThreads(snapshot.threads);
+          removeOrphanedTerminalsForCurrentState();
+          flushShellBuffer(snapshot.snapshotSequence);
+        })
+        .finally(() => {
+          shellSnapshotInFlight = null;
+        });
+      return shellSnapshotInFlight;
     };
 
     const ensureScopedSubscriptions = async () => {
@@ -1720,6 +1709,7 @@ function EventRouter() {
         // Reopening the socket is a projection boundary. React Query otherwise
         // keeps the previous infinite-stale config and can strand "Checking".
         void refreshServerConfigAfterTransportOpen(queryClient).catch(() => undefined);
+        void loadShellSnapshotOnce().catch(() => undefined);
       },
       { replayCurrent: true },
     );
@@ -1736,6 +1726,18 @@ function EventRouter() {
     const shellBootstrapFallbackTimer = window.setTimeout(() => {
       void loadShellSnapshotOnce().catch(() => undefined);
     }, SHELL_SNAPSHOT_BOOTSTRAP_FALLBACK_DELAY_MS);
+    const reconcileVisibleShell = () => {
+      if (document.visibilityState === "visible") {
+        void loadShellSnapshotOnce().catch(() => undefined);
+      }
+    };
+    document.addEventListener("visibilitychange", reconcileVisibleShell);
+    window.addEventListener("focus", reconcileVisibleShell);
+    const activeShellReconcileInterval = window.setInterval(() => {
+      if (document.visibilityState === "visible" && hasActiveThreadExecution(useStore.getState())) {
+        void loadShellSnapshotOnce().catch(() => undefined);
+      }
+    }, ACTIVE_SHELL_RECONCILE_INTERVAL_MS);
     const threadDetailCatchupInterval = window.setInterval(() => {
       const now = Date.now();
       let availableProjectionReconcileSlots = Math.max(
@@ -1775,7 +1777,10 @@ function EventRouter() {
       flushPendingDomainEvents();
       disposed = true;
       window.clearTimeout(shellBootstrapFallbackTimer);
+      window.clearInterval(activeShellReconcileInterval);
       window.clearInterval(threadDetailCatchupInterval);
+      document.removeEventListener("visibilitychange", reconcileVisibleShell);
+      window.removeEventListener("focus", reconcileVisibleShell);
       threadProjectionReconcileInFlight.clear();
       threadProjectionInvalidationPending.clear();
       threadProjectionTerminalFencePending.clear();
@@ -1831,51 +1836,3 @@ function EventRouter() {
 
   return null;
 }
-
-function DesktopProjectBootstrap() {
-  const syncServerReadModel = useStore((store) => store.syncServerReadModel);
-  const projects = useStore((store) => store.projects);
-  const threads = useStore(selectAllThreads);
-  const threadsHydrated = useStore((store) => store.threadsHydrated);
-  const attemptedRecoveryRef = useRef(false);
-
-  useEffect(() => {
-    const api = readNativeApi();
-    if (!api || attemptedRecoveryRef.current || !threadsHydrated) {
-      return;
-    }
-
-    const projectIds = new Set(projects.map((project) => project.id));
-    const hasThreadWithoutProject = threads.some((thread) => !projectIds.has(thread.projectId));
-    if (projects.length > 0 && !hasThreadWithoutProject) {
-      return;
-    }
-
-    attemptedRecoveryRef.current = true;
-
-    // Shell subscriptions should normally hydrate the sidebar. If shell rows
-    // look incomplete, refresh from the authoritative full snapshot once.
-    // Never infer corruption from an empty read or trigger repair implicitly.
-    void api.orchestration
-      .getShellSnapshot()
-      .then((snapshot) => {
-        const needsFullRefresh =
-          (snapshot.projects.length === 0 && snapshot.threads.length === 0) ||
-          hasLiveThreadsWithMissingProjects(snapshot);
-        if (!needsFullRefresh) {
-          useStore.getState().syncServerShellSnapshot(snapshot);
-          return;
-        }
-        return api.orchestration.getSnapshot().then((fullSnapshot) => {
-          syncServerReadModel(fullSnapshot);
-        });
-      })
-      .catch(() => {
-        attemptedRecoveryRef.current = false;
-      });
-  }, [projects, syncServerReadModel, threads, threadsHydrated]);
-
-  // Desktop hydration normally runs through EventRouter project + orchestration sync.
-  return null;
-}
-const selectAllThreads = createAllThreadsSelector();

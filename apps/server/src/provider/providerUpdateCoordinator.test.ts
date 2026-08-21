@@ -21,6 +21,7 @@ const installationRepository = {
   activate: () => Effect.succeed({} as never),
   list: () => Effect.succeed([]),
   getRecord: () => Effect.succeed({ _tag: "None" } as never),
+  reactivate: () => Effect.die("not expected"),
 };
 
 function thread(overrides: Partial<OrchestrationThreadShell> = {}): OrchestrationThreadShell {
@@ -279,6 +280,51 @@ describe("provider update coordinator", () => {
       }).pipe(Effect.provide(NodeServices.layer)),
     );
     expect(updateProvider).not.toHaveBeenCalled();
+  });
+
+  it("does not redownload a version rejected by continuation verification", async () => {
+    const resolveManagedArtifact = vi.fn();
+    const getShellSnapshot = vi.fn();
+    await Effect.runPromise(
+      runAutomaticProviderUpdateCycle({
+        providerHealth: {
+          getStatuses: Effect.succeed([]),
+          refresh: Effect.succeed([outdatedCodex()]),
+          updateProvider: vi.fn(),
+          streamChanges: Stream.empty,
+        } as unknown as ProviderHealthShape,
+        projectionSnapshotQuery: {
+          getShellSnapshot,
+        } as unknown as ProjectionSnapshotQueryShape,
+        serverSettings: {
+          getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+        } as unknown as ServerSettingsShape,
+        config: { stateDir: "/unused" },
+        installationRepository,
+        readManagedActivation: () =>
+          Effect.succeed({
+            schemaVersion: 2,
+            provider: "codex",
+            active: {
+              installationId: "install-codex-1-0-0",
+              version: "1.0.0",
+              executableRelativePath: "bin/codex",
+              activatedAt: "2026-08-08T00:00:00.000Z",
+            },
+            previous: null,
+            rejected: {
+              installationId: "install-codex-1-1-0",
+              version: "1.1.0",
+              executableRelativePath: "bin/codex",
+              activatedAt: "2026-08-08T01:00:00.000Z",
+            },
+          }),
+        resolveManagedArtifact,
+      }).pipe(Effect.provide(NodeServices.layer)),
+    );
+
+    expect(resolveManagedArtifact).not.toHaveBeenCalled();
+    expect(getShellSnapshot).not.toHaveBeenCalled();
   });
 
   it("installs and confirms a managed runtime in automatic mode", async () => {

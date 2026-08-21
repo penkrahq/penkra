@@ -226,7 +226,23 @@ function verifyReleaseWorkflowSafety(): void {
     "Expected release QA to verify the compiled Desktop trust anchors.",
   );
   assertContains(workflow, "--target dmg", "Expected a signed DMG and matching update ZIP.");
-  assertContains(workflow, "--arch arm64", "Expected the production release to be macOS arm64.");
+  assertContains(workflow, "arch: arm64", "Expected an Apple silicon macOS release target.");
+  assertContains(workflow, "arch: x64", "Expected an Intel macOS release target.");
+  assertContains(
+    workflow,
+    "runner: macos-26-intel",
+    "Expected the Intel macOS release to build on an Intel runner.",
+  );
+  assertContains(
+    workflow,
+    '--arch "${{ matrix.arch }}"',
+    "Expected macOS build and verification steps to use the matrix architecture.",
+  );
+  assertContains(
+    workflow,
+    "node scripts/merge-mac-update-manifests.ts release/latest-mac.yml release/latest-mac-x64.yml",
+    "Expected release assembly to merge both macOS updater manifests.",
+  );
   assertContains(workflow, "--target AppImage", "Expected a Linux AppImage.");
   assertContains(workflow, "--target nsis", "Expected an initial Windows NSIS installer.");
   assertContains(

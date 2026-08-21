@@ -40,6 +40,7 @@ import { ProviderRuntimeReconciler } from "./provider/Services/ProviderRuntimeRe
 import { ProviderService, type ProviderServiceShape } from "./provider/Services/ProviderService";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
+import { runStartupStage } from "./startupTiming";
 import { ServerSettingsService } from "./serverSettings";
 import { makeServerReadiness } from "./server/readiness";
 import { makeServerShutdownController, type ServerShutdownController } from "./serverShutdown";
@@ -227,11 +228,26 @@ export const createEffectServer = Effect.fn(function* (
   // Clear lightweight orphaned-turn state before provider replay begins. Full
   // history cleanup is forked into this supervised scope by the reconciler and
   // must not delay command readiness.
-  yield* reconcileRestartStuckTurns({ backgroundScope: subscriptionsScope });
-  yield* Scope.provide(orchestrationReactor.start, subscriptionsScope);
-  yield* Scope.provide(threadDeletionReactor.start(), subscriptionsScope);
-  yield* Scope.provide(providerSessionReaper.start(), subscriptionsScope);
-  yield* Scope.provide(providerRuntimeReconciler.start(), subscriptionsScope);
+  yield* runStartupStage(
+    "restart-stuck-turns.reconcile",
+    reconcileRestartStuckTurns({ backgroundScope: subscriptionsScope }),
+  );
+  yield* runStartupStage(
+    "orchestration-reactor.start",
+    Scope.provide(orchestrationReactor.start, subscriptionsScope),
+  );
+  yield* runStartupStage(
+    "thread-deletion-reactor.start",
+    Scope.provide(threadDeletionReactor.start(), subscriptionsScope),
+  );
+  yield* runStartupStage(
+    "provider-session-reaper.start",
+    Scope.provide(providerSessionReaper.start(), subscriptionsScope),
+  );
+  yield* runStartupStage(
+    "provider-runtime-reconciler.start",
+    Scope.provide(providerRuntimeReconciler.start(), subscriptionsScope),
+  );
   yield* readiness.markOrchestrationSubscriptionsReady;
   yield* readiness.markTerminalSubscriptionsReady;
   yield* runtimeStartup.markCommandReady;

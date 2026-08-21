@@ -17,7 +17,7 @@ const DEFAULT_SPACES = [
  */
 export const ensureDefaultSpaces = (engine: OrchestrationEngineShape) =>
   Effect.gen(function* () {
-    const readModel = yield* engine.getReadModel();
+    const readModel = yield* engine.getCommandReadModel();
     const isNewSpaceHistory = readModel.spaces.length === 0;
     if (isNewSpaceHistory) {
       const createdAt = new Date().toISOString();

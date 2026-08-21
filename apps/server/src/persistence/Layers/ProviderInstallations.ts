@@ -2,7 +2,7 @@
 // Purpose: Atomically activates verified installations while retaining prior generations.
 
 import { ProviderInstallation } from "@penkra/contracts";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
@@ -96,6 +96,33 @@ const makeProviderInstallationRepository = Effect.gen(function* () {
       ),
     list: () => mapped("ProviderInstallationRepository.list", listRows()),
     getRecord: (id) => mapped("ProviderInstallationRepository.getRecord", selectRecord({ id })),
+    reactivate: (id, activatedAt) =>
+      mapped(
+        "ProviderInstallationRepository.reactivate",
+        sql.withTransaction(
+          selectRecord({ id }).pipe(
+            Effect.flatMap((record) =>
+              Option.isNone(record)
+                ? Effect.die("The predecessor installation was not readable.")
+                : sql`
+                    UPDATE provider_installations
+                    SET lifecycle = 'retired', retired_at = ${activatedAt}
+                    WHERE harness_kind = ${record.value.harness}
+                      AND lifecycle = 'active'
+                      AND installation_id != ${id}
+                  `.pipe(
+                    Effect.andThen(sql`
+                      UPDATE provider_installations
+                      SET lifecycle = 'active', health_reason = NULL,
+                        activated_at = ${activatedAt}, retired_at = NULL
+                      WHERE installation_id = ${id}
+                    `),
+                    Effect.andThen(selectById(id)),
+                  ),
+            ),
+          ),
+        ),
+      ),
   } satisfies ProviderInstallationRepositoryShape;
 });
 

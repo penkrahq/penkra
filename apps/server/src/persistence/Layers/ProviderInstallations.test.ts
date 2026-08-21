@@ -51,6 +51,19 @@ layer("ProviderInstallationRepository", (it) => {
           ["install-1", "retired"],
         ],
       );
+
+      yield* repository.reactivate(
+        ProviderInstallationId.makeUnsafe("install-1"),
+        "2026-08-08T02:00:00.000Z",
+      );
+      const rolledBack = yield* repository.list();
+      assert.deepStrictEqual(
+        rolledBack.map((row) => [row.id, row.lifecycle]),
+        [
+          ["install-2", "retired"],
+          ["install-1", "active"],
+        ],
+      );
     }),
   );
 

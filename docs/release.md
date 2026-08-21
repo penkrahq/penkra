@@ -6,12 +6,13 @@ every native artifact, assembles one immutable release, and publishes those same
 platform succeeds. Published update-capable artifacts are then visible to `electron-updater`; the
 initial unsigned Windows installer remains manual-only.
 
-The current release matrix is macOS arm64, Linux x64, and Windows x64. macOS uses a
-signed/notarized DMG plus update ZIP, Linux uses AppImage, and Windows initially uses an explicitly
-unsigned NSIS installer. The Windows installer is a manual download: the release deliberately omits
-`latest.yml` and the NSIS blockmap so unsigned builds cannot enter Penkra's signature-verified
-auto-update path. Windows displays an Unknown publisher/SmartScreen warning until a signing identity
-is provisioned.
+The current release matrix is macOS arm64, macOS x64, Linux x64, and Windows x64. Each macOS
+architecture uses a signed/notarized DMG plus update ZIP; release assembly merges both ZIP entries
+into one architecture-aware updater manifest. Linux uses AppImage, and Windows initially uses an
+explicitly unsigned NSIS installer. The Windows installer is a manual download: the release
+deliberately omits `latest.yml` and the NSIS blockmap so unsigned builds cannot enter Penkra's
+signature-verified auto-update path. Windows displays an Unknown publisher/SmartScreen warning until
+a signing identity is provisioned.
 
 Runtime OS behavior is selected once through `apps/desktop/src/desktopPlatform.ts`. That adapter is
 the authority for application identity, profile paths, shutdown semantics, encrypted credential
@@ -172,8 +173,10 @@ Each stable release contains the applicable artifacts for its advertised platfor
 
 - `Penkra-<version>-arm64.dmg` for installation and recovery;
 - `Penkra-<version>-arm64.zip` for Electron auto-update;
-- the ZIP blockmap used for differential downloads;
-- `latest-mac.yml` generated from the same finalized ZIP;
+- `Penkra-<version>-x64.dmg` for installation and recovery on Intel Macs;
+- `Penkra-<version>-x64.zip` for Electron auto-update on Intel Macs;
+- both ZIP blockmaps used for differential downloads;
+- `latest-mac.yml`, merged from the two finalized architecture-specific ZIP manifests;
 - Linux AppImage, blockmap, and `latest-linux.yml` for the finalized artifact;
 - `Penkra-<version>-x64.exe` as the explicitly unsigned manual Windows installer;
 - `SHA256SUMS.txt`;

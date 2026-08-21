@@ -237,6 +237,41 @@ layer("ThreadProviderBindingRepository", (it) => {
       });
       assert.strictEqual(switched.state.revision, 2);
       assert.strictEqual(switched.binding.revision, 2);
+
+      yield* sql`
+        INSERT INTO provider_installations (
+          installation_id, harness_kind, version, platform, architecture,
+          executable_path, artifact_source, artifact_url, artifact_sha256,
+          adapter_version, protocol_version, lifecycle, installed_at, activated_at
+        ) VALUES (
+          'binding-install-next', 'codex', '2.0.0', 'darwin', 'arm64', '/managed/codex-next',
+          'test', 'https://example.invalid/codex-next', ${"b".repeat(64)}, '1', 'v1', 'active',
+          '2026-08-08T00:04:00.000Z', '2026-08-08T00:04:00.000Z'
+        )
+      `;
+      const migrated = yield* repository.commitSwitch({
+        threadId: ThreadId.makeUnsafe("binding-thread"),
+        expectedStateRevision: 2,
+        expectedBindingRevision: 2,
+        generation: {
+          id: ProviderNativeStateGenerationId.makeUnsafe("native-d"),
+          ownerThreadId: ThreadId.makeUnsafe("binding-thread"),
+          harness: "codex",
+          adapterSchemaVersion: "1",
+          stateManifestJson: '{"profile":"profile-next"}',
+          createdAt: "2026-08-08T00:04:00.000Z",
+        },
+        providerSessionId: "session-d",
+        nativeStateLocatorJson: '{"thread":"native-thread-d"}',
+        verifiedAt: "2026-08-08T00:04:00.000Z",
+        connectionId: ProviderConnectionId.makeUnsafe("binding-connection"),
+        installationId: ProviderInstallationId.makeUnsafe("binding-install-next"),
+        internalProviderId: null,
+        modelId: "gpt-5.6",
+        updatedAt: "2026-08-08T00:04:00.000Z",
+      });
+      assert.strictEqual(migrated.binding.installationId, "binding-install-next");
+      assert.strictEqual(migrated.binding.revision, 3);
     }),
   );
 });

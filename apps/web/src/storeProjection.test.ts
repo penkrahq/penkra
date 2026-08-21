@@ -177,6 +177,7 @@ describe("store projection", () => {
           cwd: "/tmp/shared-root",
         }),
       ],
+      archivedProjects: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -209,6 +210,29 @@ describe("store projection", () => {
     });
   });
 
+  it("moves an archived folder out of the active project collection", () => {
+    const projectId = ContainerId.makeUnsafe("project-archive");
+    const initialState: AppState = {
+      ...makeState(makeThread({ projectId })),
+      projects: [makeProject({ id: projectId })],
+      archivedProjects: [],
+    };
+    const project = makeReadModelProject({ id: projectId });
+
+    const next = applyShellEvent(initialState, {
+      kind: "project-upserted",
+      sequence: 4,
+      project: {
+        ...project,
+        archivedAt: "2026-08-21T00:00:00.000Z",
+      },
+    } satisfies OrchestrationShellStreamEvent);
+
+    expect(next.projects).toEqual([]);
+    expect(next.archivedProjects.map((entry) => entry.id)).toEqual([projectId]);
+    expect(next.shellSnapshotSequence).toBe(4);
+  });
+
   it("removes an empty Space without rewriting folder assignments", () => {
     const spaceId = SpaceId.makeUnsafe("space-shell-delete");
     const initialState: AppState = {
@@ -230,6 +254,7 @@ describe("store projection", () => {
           updatedAt: "2026-07-15T10:00:01.000Z",
         }),
       ],
+      archivedProjects: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -262,6 +287,7 @@ describe("store projection", () => {
       spaces: [space],
       archivedSpaces: [],
       projects: [makeProject({ spaceId })],
+      archivedProjects: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -304,6 +330,7 @@ describe("store projection", () => {
         },
       ],
       projects: [makeProject({ spaceId })],
+      archivedProjects: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -336,6 +363,7 @@ describe("store projection", () => {
             cwd: "/tmp/project-other",
           }),
         ],
+        archivedProjects: [],
         sidebarThreadSummaryById: {},
         threadsHydrated: true,
       },
@@ -1832,9 +1860,8 @@ describe("store projection", () => {
       sequence: 3,
       threadId,
     } satisfies OrchestrationShellStreamEvent);
-    const next = syncServerShellSnapshot(
-      removedState,
-      makeShellSnapshot({
+    const next = syncServerShellSnapshot(removedState, {
+      ...makeShellSnapshot({
         id: threadId,
         projectId: ContainerId.makeUnsafe("project-1"),
         title: "Rehydrated shell removed thread",
@@ -1849,7 +1876,8 @@ describe("store projection", () => {
         updatedAt: "2026-02-27T00:00:30.000Z",
         session: null,
       }),
-    );
+      snapshotSequence: 3,
+    });
 
     expect(removedState.deletedThreadIdsById?.[threadId]).toBeUndefined();
     expect(threadsOf(next)).toHaveLength(1);

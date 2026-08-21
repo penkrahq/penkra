@@ -100,7 +100,7 @@ describe("moveProjectsToSpace", () => {
 
 describe("reorderSpaces", () => {
   it("sends a neighboring anchor instead of the client's full Space list", async () => {
-    const dispatchCommand = vi.fn().mockResolvedValue({ sequence: 1 });
+    const dispatchCommand = vi.fn().mockResolvedValue({ sequence: 0 });
     const first = SpaceId.makeUnsafe("first");
     const second = SpaceId.makeUnsafe("second");
     const third = SpaceId.makeUnsafe("third");

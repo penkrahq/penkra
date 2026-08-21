@@ -15,6 +15,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PanelStateMessage } from "./PanelStateMessage";
 
+// Electron treats `allowpopups` as a boolean-by-presence webview attribute, but React removes a
+// lowercase custom attribute when given `true`. Keep the type expected by React's webview
+// declaration while passing the string value React will actually serialize.
+const ALLOW_WEBVIEW_POPUPS_ATTRIBUTE = "true" as unknown as boolean;
+
 export function AppDockPane(props: {
   tabId: string;
   rendererId: number;
@@ -212,6 +217,7 @@ export function AppDockPane(props: {
       ) : null}
       {props.visible && browserSurface && browserPage && browserPage.url !== "about:blank" ? (
         <webview
+          allowpopups={ALLOW_WEBVIEW_POPUPS_ATTRIBUTE}
           key={browserPage.id}
           ref={browserWebviewRef}
           className="absolute z-10 flex bg-background"

@@ -319,9 +319,11 @@ describe("OrchestrationEngine", () => {
       }),
     );
 
-    const readModelA = await system.run(engine.getReadModel());
-    const readModelB = await system.run(engine.getReadModel());
-    expect(readModelB).toEqual(readModelA);
+    const readModelA = await system.run(engine.getCommandReadModel());
+    const readModelB = await system.run(engine.getCommandReadModel());
+    // Reads are an O(1) view of the engine-owned command model. Returning a
+    // distinct object here means a caller rehydrated the projection database.
+    expect(readModelB).toBe(readModelA);
     await system.dispose();
   });
 
@@ -711,7 +713,7 @@ describe("OrchestrationEngine", () => {
     );
 
     expect(result.sequence).toBe(3);
-    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(3);
+    expect((await runtime.runPromise(engine.getCommandReadModel())).snapshotSequence).toBe(3);
     await runtime.dispose();
   });
 
@@ -815,7 +817,10 @@ describe("OrchestrationEngine", () => {
       "project.created",
       "thread.created",
     ]);
-    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(0);
+    // The failed command must not advance the in-memory model past the last
+    // durable event. The projection pipeline in this test is intentionally a
+    // no-op, so a database snapshot would report zero and mask this invariant.
+    expect((await runtime.runPromise(engine.getCommandReadModel())).snapshotSequence).toBe(3);
 
     const retryResult = await runtime.runPromise(engine.dispatch(turnStartCommand));
     expect(retryResult.sequence).toBe(5);

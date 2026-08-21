@@ -52,6 +52,7 @@ import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ensureDefaultSpaces } from "./orchestration/defaultSpacesBootstrap";
 import { startThreadRetentionJob } from "./threadRetention";
+import { runStartupStage } from "./startupTiming";
 import {
   consumeDesktopParentPidFromEnvironment,
   waitForDesktopParentDisconnect,
@@ -405,11 +406,20 @@ const makeServerProgram = (input: CliInput) => {
     }
 
     const orchestrationEngine = yield* OrchestrationEngineService;
-    yield* providerNativeStateDeletionCoordinator.recover;
-    yield* providerConnectionLifecycle.recover;
-    yield* providerConnectionLoginCoordinator.recover;
-    yield* ensureDefaultSpaces(orchestrationEngine);
-    const startedServer = yield* start;
+    yield* runStartupStage(
+      "provider-native-state-deletion.recover",
+      providerNativeStateDeletionCoordinator.recover,
+    );
+    yield* runStartupStage(
+      "provider-connection-lifecycle.recover",
+      providerConnectionLifecycle.recover,
+    );
+    yield* runStartupStage(
+      "provider-connection-login.recover",
+      providerConnectionLoginCoordinator.recover,
+    );
+    yield* runStartupStage("default-spaces.ensure", ensureDefaultSpaces(orchestrationEngine));
+    const startedServer = yield* runStartupStage("http-runtime.start", start);
 
     const localUrl = `http://localhost:${config.port}`;
     const bindUrl =
