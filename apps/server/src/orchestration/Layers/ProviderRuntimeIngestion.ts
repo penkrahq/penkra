@@ -4,6 +4,7 @@ import {
   EventId,
   isToolLifecycleItemType,
   MessageId,
+  type OrchestrationCommand,
   type OrchestrationEvent,
   ThreadId,
   TurnId,
@@ -1005,6 +1006,25 @@ const make = Effect.gen(function* () {
     lookup: () => Effect.succeed({ initialized: false, childIds: new Set<string>() }),
   });
 
+  /**
+   * A runtime event can span several independently committed orchestration commands before its
+   * journal cursor advances. If the process stops between those commits, replay must continue
+   * after the commands that are already durable instead of recomputing their payloads from the
+   * now-mutated thread projection and colliding with their deterministic command IDs.
+   *
+   * Rejected receipts are deliberately not skipped: no durable effect was accepted, and the
+   * engine must preserve its normal identity/invariant checks for the retry.
+   */
+  const dispatchProviderCommandOnce = Effect.fnUntraced(function* (command: OrchestrationCommand) {
+    const existingReceipt = yield* commandReceipts.getByCommandId({
+      commandId: command.commandId,
+    });
+    if (Option.isSome(existingReceipt) && existingReceipt.value.status === "accepted") {
+      return { sequence: existingReceipt.value.resultSequence };
+    }
+    return yield* orchestrationEngine.dispatch(command);
+  });
+
   const claimNativeChildSlot = Effect.fnUntraced(function* (
     parentThreadId: ThreadId,
     sourceTurnId: TurnId | null,
@@ -1063,7 +1083,7 @@ const make = Effect.gen(function* () {
       }
     }
 
-    yield* orchestrationEngine.dispatch({
+    yield* dispatchProviderCommandOnce({
       type: "thread.activity.append",
       commandId,
       threadId,
@@ -1364,7 +1384,7 @@ const make = Effect.gen(function* () {
         return false;
       }
 
-      yield* orchestrationEngine.dispatch({
+      yield* dispatchProviderCommandOnce({
         type: "thread.message.assistant.delta",
         commandId: providerCommandId(input.event, input.commandTag, input.messageId),
         threadId: input.threadId,
@@ -1439,15 +1459,16 @@ const make = Effect.gen(function* () {
   }) =>
     Effect.gen(function* () {
       const bufferedText = yield* takeBufferedAssistantText(input.messageId);
-      const text =
-        bufferedText.length > 0
-          ? bufferedText
-          : (input.fallbackText?.trim().length ?? 0) > 0
-            ? input.fallbackText!
-            : "";
+      const authoritativeText =
+        (input.fallbackText?.trim().length ?? 0) > 0 ? input.fallbackText : undefined;
+      const text = authoritativeText ?? bufferedText;
 
-      if (hasRenderableAssistantText(text)) {
-        yield* orchestrationEngine.dispatch({
+      // A completed assistant item is an authoritative accumulated snapshot. In buffered mode it
+      // can replace the entire in-memory assembly directly; in streaming mode the terminal event
+      // replaces whatever fragments were already projected. Only synthesize a final delta when a
+      // provider did not supply completion text.
+      if (authoritativeText === undefined && hasRenderableAssistantText(text)) {
+        yield* dispatchProviderCommandOnce({
           type: "thread.message.assistant.delta",
           commandId: providerCommandId(input.event, input.finalDeltaCommandTag, input.messageId),
           threadId: input.threadId,
@@ -1458,11 +1479,12 @@ const make = Effect.gen(function* () {
         });
       }
 
-      yield* orchestrationEngine.dispatch({
+      yield* dispatchProviderCommandOnce({
         type: "thread.message.assistant.complete",
         commandId: providerCommandId(input.event, input.commandTag, input.messageId),
         threadId: input.threadId,
         messageId: input.messageId,
+        ...(authoritativeText !== undefined ? { finalText: authoritativeText } : {}),
         ...(input.turnId ? { turnId: input.turnId } : {}),
         createdAt: input.createdAt,
       });
@@ -1507,7 +1529,7 @@ const make = Effect.gen(function* () {
       let dispatchedDelta = false;
       if (missingMarkdown.length > 0) {
         const joined = missingMarkdown.join("\n\n");
-        yield* orchestrationEngine.dispatch({
+        yield* dispatchProviderCommandOnce({
           type: "thread.message.assistant.delta",
           commandId: providerCommandId(input.event, "generated-image-delta", targetMessageId),
           threadId: input.threadId,
@@ -1525,7 +1547,7 @@ const make = Effect.gen(function* () {
       // and duplicate provider notifications from emitting redundant message-sent events.
       const shouldComplete = dispatchedDelta || !input.targetMessage || targetIsStreaming;
       if (shouldComplete) {
-        yield* orchestrationEngine.dispatch({
+        yield* dispatchProviderCommandOnce({
           type: "thread.message.assistant.complete",
           commandId: providerCommandId(input.event, "generated-image-complete", targetMessageId),
           threadId: input.threadId,
@@ -1698,7 +1720,7 @@ const make = Effect.gen(function* () {
               const overflowId = EventId.makeUnsafe(
                 `provider-native-child-overflow:${slot.budgetKey}`,
               );
-              yield* orchestrationEngine.dispatch({
+              yield* dispatchProviderCommandOnce({
                 type: "thread.activity.append",
                 commandId: CommandId.makeUnsafe(`provider:native-child-overflow:${slot.budgetKey}`),
                 threadId: parentThread.id,
@@ -1718,7 +1740,7 @@ const make = Effect.gen(function* () {
               });
               return undefined;
             }
-            yield* orchestrationEngine.dispatch({
+            yield* dispatchProviderCommandOnce({
               type: "thread.create",
               commandId: providerCommandId(event, "subagent-thread-create", childThreadId),
               threadId: childThreadId,
@@ -1748,7 +1770,7 @@ const make = Effect.gen(function* () {
               identity?.role !== undefined ||
               (identity?.model !== undefined && identity.modelIsRequestedHint !== true)
             ) {
-              yield* orchestrationEngine.dispatch({
+              yield* dispatchProviderCommandOnce({
                 type: "thread.meta.update",
                 commandId: providerCommandId(event, "subagent-thread-meta-update", childThreadId),
                 threadId: childThreadId,
@@ -1958,6 +1980,18 @@ const make = Effect.gen(function* () {
               return activeTurnId !== null ? "running" : "ready";
           }
         })();
+        if (
+          (event.type === "session.started" || event.type === "thread.started") &&
+          activeTurnId !== null
+        ) {
+          yield* Effect.logInfo("preserving active turn across provider connection readiness", {
+            threadId: thread.id,
+            turnId: activeTurnId,
+            provider: event.provider,
+            runtimeEventId: event.eventId,
+            runtimeEventType: event.type,
+          });
+        }
         const lastError =
           event.type === "session.state.changed" && event.payload.state === "error"
             ? (event.payload.reason ?? thread.session?.lastError ?? "Provider session error")
@@ -1970,7 +2004,7 @@ const make = Effect.gen(function* () {
                 : (thread.session?.lastError ?? null);
 
         if (shouldApplyThreadLifecycle) {
-          yield* orchestrationEngine.dispatch({
+          yield* dispatchProviderCommandOnce({
             type: "thread.session.set",
             commandId: providerCommandId(event, "thread-session-set", thread.id),
             threadId: thread.id,
@@ -1991,7 +2025,7 @@ const make = Effect.gen(function* () {
       if (event.type === "user-input.resolved") {
         const inferredRuntimeMode = inferRuntimeModeFromUserInputAnswers(event.payload.answers);
         if (inferredRuntimeMode && inferredRuntimeMode !== thread.runtimeMode) {
-          yield* orchestrationEngine.dispatch({
+          yield* dispatchProviderCommandOnce({
             type: "thread.runtime-mode.set",
             commandId: providerCommandId(event, "thread-runtime-mode-set", thread.id),
             threadId: thread.id,
@@ -2050,7 +2084,7 @@ const make = Effect.gen(function* () {
         if (assistantDeliveryMode === "buffered") {
           const spillChunk = yield* appendBufferedAssistantText(assistantMessageId, assistantDelta);
           if (spillChunk.length > 0) {
-            yield* orchestrationEngine.dispatch({
+            yield* dispatchProviderCommandOnce({
               type: "thread.message.assistant.delta",
               commandId: providerCommandId(
                 event,
@@ -2065,7 +2099,7 @@ const make = Effect.gen(function* () {
             });
           }
         } else {
-          yield* orchestrationEngine.dispatch({
+          yield* dispatchProviderCommandOnce({
             type: "thread.message.assistant.delta",
             commandId: providerCommandId(event, "assistant-delta", assistantMessageId),
             threadId: thread.id,
@@ -2090,11 +2124,6 @@ const make = Effect.gen(function* () {
           thread,
           ...(turnId ? { turnId } : {}),
         });
-        const existingAssistantMessage = thread.messages.find(
-          (entry) => entry.id === assistantMessageId,
-        );
-        const shouldApplyFallbackCompletionText =
-          !existingAssistantMessage || existingAssistantMessage.text.length === 0;
         if (turnId) {
           yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
         }
@@ -2107,7 +2136,7 @@ const make = Effect.gen(function* () {
           createdAt: now,
           commandTag: "assistant-complete",
           finalDeltaCommandTag: "assistant-delta-finalize",
-          ...(assistantCompletion.fallbackText !== undefined && shouldApplyFallbackCompletionText
+          ...(assistantCompletion.fallbackText !== undefined
             ? { fallbackText: assistantCompletion.fallbackText }
             : {}),
         });
@@ -2232,7 +2261,7 @@ const make = Effect.gen(function* () {
           : activeTurnId === null || eventTurnId === undefined || sameId(activeTurnId, eventTurnId);
 
         if (shouldApplyRuntimeError) {
-          yield* orchestrationEngine.dispatch({
+          yield* dispatchProviderCommandOnce({
             type: "thread.session.set",
             commandId: providerCommandId(event, "runtime-error-session-set", thread.id),
             threadId: thread.id,
@@ -2251,7 +2280,7 @@ const make = Effect.gen(function* () {
       }
 
       if (event.type === "thread.metadata.updated" && event.payload.name) {
-        yield* orchestrationEngine.dispatch({
+        yield* dispatchProviderCommandOnce({
           type: "thread.meta.update",
           commandId: providerCommandId(event, "thread-meta-update", thread.id),
           threadId: thread.id,
@@ -2278,6 +2307,19 @@ const make = Effect.gen(function* () {
         canonicalOperationFromRuntimeEvent(canonicalActivityEvent) !== null;
       const canonicalNoticeMaterialized = canonicalActivityEvent.type === "runtime.warning";
       yield* commitCanonical(canonicalActivityEvent);
+      if (canonicalOperationMaterialized || canonicalNoticeMaterialized) {
+        yield* dispatchProviderCommandOnce({
+          type: "thread.activity-read-model.touch",
+          commandId: providerCommandId(
+            canonicalActivityEvent,
+            "activity-read-model-touch",
+            thread.id,
+          ),
+          threadId: thread.id,
+          turnId: canonicalActivityEvent.turnId ?? null,
+          createdAt: canonicalActivityEvent.createdAt,
+        });
+      }
       yield* Effect.forEach(projectProviderRuntimeActivities(activityEvent), (activity) =>
         canonicalOperationMaterialized || canonicalNoticeMaterialized
           ? Effect.void
@@ -2726,6 +2768,38 @@ const make = Effect.gen(function* () {
       { concurrency: 1 },
     );
   });
+
+  // Quarantine isolates a poison head from unrelated threads during one runtime, but it must not
+  // become a permanent data-loss boundary after an upgrade or restart has fixed the projector.
+  // Give every preserved quarantined head one startup retry. A still-invalid head remains isolated
+  // and returns to quarantine through the normal bounded retry policy; a healed head drains its
+  // complete retained tail without an operator having to know about the internal failure ledger.
+  const releaseQuarantinedThreadsForStartupRetry = Effect.gen(function* () {
+    const failures = yield* runtimeEvents.listQuarantinedProjectionFailures;
+    const releasedAt = new Date().toISOString();
+    yield* Effect.forEach(
+      failures,
+      (failure) =>
+        runtimeEvents
+          .releaseQuarantinedThread({
+            threadId: failure.threadId,
+            releasedAt,
+          })
+          .pipe(
+            Effect.tap((released) =>
+              released
+                ? Effect.log("released quarantined provider runtime head for startup retry", {
+                    threadId: failure.threadId,
+                    sequence: failure.sequence,
+                    eventId: failure.eventId,
+                    errorFingerprint: failure.errorFingerprint,
+                  })
+                : Effect.void,
+            ),
+          ),
+      { concurrency: 1 },
+    );
+  });
   const startupRuntimeReplayComplete = yield* Deferred.make<void>();
 
   const start: ProviderRuntimeIngestionShape["start"] = startDrainableWorkerProducers(
@@ -2771,8 +2845,11 @@ const make = Effect.gen(function* () {
       // process-local state.
       yield* runtimeEvents.pruneSettledOpenTurns;
       yield* rebuildAcceptedOpenTurnState;
-      yield* restoreQuarantinedThreadAttention;
+      yield* releaseQuarantinedThreadsForStartupRetry;
       yield* drainRuntimeJournal;
+      // Only heads that failed their startup retry should retain/recreate the
+      // user-visible quarantine attention state.
+      yield* restoreQuarantinedThreadAttention;
       yield* Deferred.succeed(startupRuntimeReplayComplete, undefined);
       yield* Effect.forkScoped(
         Effect.sleep(PROVIDER_RUNTIME_REPLAY_POLL_INTERVAL).pipe(

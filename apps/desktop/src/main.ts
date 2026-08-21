@@ -491,7 +491,6 @@ function requireGrantedIdentityAudience(
 }
 
 async function invokeAppStorageCall(
-  runtime: DesktopAppRuntime,
   identity: { appId: string; spaceId: string },
   method: string,
   value: unknown,
@@ -499,53 +498,18 @@ async function invokeAppStorageCall(
   const storage = appStorage;
   if (!storage) throw new Error("The App storage service is not ready.");
   const owner = { appId: identity.appId, spaceId: identity.spaceId };
-  const requiresNetwork = method === "fetchToFile" || method === "uploadFromFile";
-  if (requiresNetwork) {
-    const permission = queryAppPermission(
-      runtime.installations.snapshot(),
-      identity,
-      "network-fetch",
-    );
-    if (!permission.declared || permission.state !== "granted") {
-      throw Object.assign(new Error("network-fetch is not granted for this App."), {
-        code: "PERMISSION_DENIED",
-      });
-    }
-  }
   const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  const startedAt = performance.now();
-  try {
-    switch (method) {
-      case "fetchToFile":
-        return storage.fetchToFile(owner, input as Parameters<AppStorageService["fetchToFile"]>[1]);
-      case "writeFile":
-        return storage.writeFile(owner, input as Parameters<AppStorageService["writeFile"]>[1]);
-      case "uploadFromFile":
-        return storage.uploadFromFile(
-          owner,
-          input as Parameters<AppStorageService["uploadFromFile"]>[1],
-        );
-      case "remove":
-        return storage.remove(owner, input as Parameters<AppStorageService["remove"]>[1]);
-      case "list":
-        return storage.list(owner, input as Parameters<AppStorageService["list"]>[1]);
-      case "usage":
-        return storage.usage(owner);
-      default:
-        throw new Error(`Unsupported App storage method: ${method}.`);
-    }
-  } finally {
-    if (requiresNetwork) {
-      void runtime.diagnostics
-        .record({
-          kind: "permission-used",
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          operation: "network-fetch",
-          durationMs: Math.round(performance.now() - startedAt),
-        })
-        .catch(() => undefined);
-    }
+  switch (method) {
+    case "writeFile":
+      return storage.writeFile(owner, input as Parameters<AppStorageService["writeFile"]>[1]);
+    case "remove":
+      return storage.remove(owner, input as Parameters<AppStorageService["remove"]>[1]);
+    case "list":
+      return storage.list(owner, input as Parameters<AppStorageService["list"]>[1]);
+    case "usage":
+      return storage.usage(owner);
+    default:
+      throw new Error(`Unsupported App storage method: ${method}.`);
   }
 }
 
@@ -693,6 +657,12 @@ const runtimeV2FileWatches = new Map<
 
 function revokeRuntimeV2FileScope(appId: string, spaceId: string): void {
   runtimeV2FileHandles.revokeScope(appId, spaceId);
+  desktopAppRuntime?.blobUrls.revokeMatching(
+    (record) => record.appId === appId && record.spaceId === spaceId,
+  );
+  desktopAppRuntime?.transfers.revokeMatching(
+    (record) => record.appId === appId && record.spaceId === spaceId,
+  );
   void runtimeV2FileWrites.abortMatching(
     (write) => write.appId === appId && write.spaceId === spaceId,
   );
@@ -5096,7 +5066,7 @@ function registerIpcHandlers(): void {
     }
     const record = request as { method?: unknown; input?: unknown };
     if (typeof record.method !== "string") throw new Error("Storage method is required.");
-    return invokeAppStorageCall(runtime, identity, record.method, record.input);
+    return invokeAppStorageCall(identity, record.method, record.input);
   });
   ipcMain.removeHandler(IPC.appRuntime.composerStage);
   ipcMain.handle(IPC.appRuntime.composerStage, async (event, input: unknown) => {
@@ -5476,28 +5446,125 @@ function registerIpcHandlers(): void {
       case "files.list":
         return runtimeV2FileHandles.list(identity.appId, identity.spaceId);
       case "files.pick": {
-        if (value !== "file" && value !== "directory") {
-          throw new Error("File picker kind must be file or directory.");
+        const pickerInput =
+          typeof value === "string"
+            ? { kind: value, options: undefined }
+            : value && typeof value === "object" && !Array.isArray(value)
+              ? (value as { kind?: unknown; options?: unknown })
+              : {};
+        const kind = pickerInput.kind;
+        if (kind !== "file" && kind !== "directory" && kind !== "save") {
+          throw new Error("File picker kind must be file, directory, or save.");
         }
-        const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+        const pickerOwner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+        if (kind === "save") {
+          const pickerOptions =
+            pickerInput.options &&
+            typeof pickerInput.options === "object" &&
+            !Array.isArray(pickerInput.options)
+              ? (pickerInput.options as { suggestedName?: unknown })
+              : {};
+          if (
+            pickerOptions.suggestedName !== undefined &&
+            typeof pickerOptions.suggestedName !== "string"
+          ) {
+            throw new Error("Suggested save name must be a string.");
+          }
+          const result = pickerOwner
+            ? await dialog.showSaveDialog(pickerOwner, {
+                ...(pickerOptions.suggestedName
+                  ? { defaultPath: pickerOptions.suggestedName }
+                  : {}),
+              })
+            : await dialog.showSaveDialog({
+                ...(pickerOptions.suggestedName
+                  ? { defaultPath: pickerOptions.suggestedName }
+                  : {}),
+              });
+          if (result.canceled || !result.filePath) return null;
+          return runtimeV2FileHandles.grantWritableFile({
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            path: result.filePath,
+          });
+        }
         const options: Electron.OpenDialogOptions = {
-          properties: value === "directory" ? ["openDirectory", "createDirectory"] : ["openFile"],
+          properties: kind === "directory" ? ["openDirectory", "createDirectory"] : ["openFile"],
         };
-        const result = owner
-          ? await dialog.showOpenDialog(owner, options)
+        const result = pickerOwner
+          ? await dialog.showOpenDialog(pickerOwner, options)
           : await dialog.showOpenDialog(options);
         const selected = result.canceled ? null : (result.filePaths[0] ?? null);
         if (!selected) return null;
         return runtimeV2FileHandles.grant({
           appId: identity.appId,
           spaceId: identity.spaceId,
-          kind: value,
+          kind,
           path: selected,
         });
+      }
+      case "files.open": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Scoped file open input must be an object.");
+        }
+        const record = value as Record<string, unknown>;
+        const handle = runtimeV2FileHandles.resolve(
+          identity.appId,
+          identity.spaceId,
+          record.handleId,
+        );
+        const path = await runtimeV2FilePath(handle, record.relativePath);
+        return runtime.blobUrls.open(
+          {
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            tabId,
+            rendererId,
+            origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
+          },
+          path,
+          { handleId: handle.id },
+        );
+      }
+      case "files.closeUrl":
+      case "storage.closeUrl": {
+        runtime.blobUrls.close(
+          {
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            tabId,
+            rendererId,
+            origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
+          },
+          value,
+        );
+        return;
+      }
+      case "storage.open": {
+        if (typeof value !== "string") throw new Error("App storage path must be a string.");
+        const storage = appStorage;
+        if (!storage) throw new Error("The App storage service is not ready.");
+        const path = await storage.resolveFile(identity, value);
+        return runtime.blobUrls.open(
+          {
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            tabId,
+            rendererId,
+            origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
+          },
+          path,
+        );
       }
       case "files.revoke": {
         const handle = runtimeV2FileHandles.resolve(identity.appId, identity.spaceId, value);
         runtimeV2FileHandles.revoke(identity.appId, identity.spaceId, value);
+        runtime.blobUrls.revokeMatching(
+          (record) =>
+            record.appId === identity.appId &&
+            record.spaceId === identity.spaceId &&
+            record.handleId === handle.id,
+        );
         await runtimeV2FileWrites.abortMatching(
           (write) =>
             write.appId === identity.appId &&
@@ -5884,13 +5951,97 @@ function registerIpcHandlers(): void {
         }
         return mediatedAppFetch(value as import("./appNetworkFetch").AppNetworkFetchRequest);
       }
-      case "storage.fetchToFile":
+      case "transfer.begin":
+      case "transfer.send":
+      case "transfer.receive": {
+        const permission = queryAppPermission(
+          runtime.installations.snapshot(),
+          identity,
+          "network-fetch",
+        );
+        if (!permission.declared || permission.state !== "granted") {
+          throw Object.assign(new Error("network-fetch is not granted for this App."), {
+            code: "PERMISSION_DENIED",
+          });
+        }
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Transfer input must be an object.");
+        }
+        const input = value as Record<string, unknown>;
+        const owner = {
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          tabId,
+          rendererId,
+          origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
+        };
+        if (method === "transfer.begin") {
+          return runtime.transfers.begin(
+            owner,
+            input as Parameters<DesktopAppRuntime["transfers"]["begin"]>[1],
+          );
+        }
+        const storage = appStorage;
+        if (!storage) throw new Error("The App storage service is not ready.");
+        if (method === "transfer.send") {
+          if (!input.from || typeof input.from !== "object" || Array.isArray(input.from)) {
+            throw new Error("Transfer source must be a file handle or App storage path.");
+          }
+          const from = input.from as Record<string, unknown>;
+          let sourcePath: string;
+          if (typeof from.handleId === "string") {
+            const handle = runtimeV2FileHandles.resolve(
+              identity.appId,
+              identity.spaceId,
+              from.handleId,
+            );
+            sourcePath = await runtimeV2FilePath(handle, from.relativePath);
+          } else if (typeof from.storage === "string") {
+            sourcePath = await storage.resolveFile(identity, from.storage);
+          } else {
+            throw new Error("Transfer source must be a file handle or App storage path.");
+          }
+          return runtime.transfers.send(
+            owner,
+            input as Parameters<DesktopAppRuntime["transfers"]["send"]>[1],
+            { path: sourcePath },
+          );
+        }
+        if (!input.to || typeof input.to !== "object" || Array.isArray(input.to)) {
+          throw new Error("Transfer destination must be a file handle or App storage path.");
+        }
+        const to = input.to as Record<string, unknown>;
+        if (typeof to.storage === "string") {
+          const path = await storage.resolveDestination(identity, to.storage);
+          return runtime.transfers.receive(
+            owner,
+            input as Parameters<DesktopAppRuntime["transfers"]["receive"]>[1],
+            {
+              path,
+              assertFreeSpace: (bytes) => storage.assertFreeSpace(identity, bytes),
+            },
+          );
+        }
+        if (typeof to.handleId === "string") {
+          const handle = runtimeV2FileHandles.resolve(
+            identity.appId,
+            identity.spaceId,
+            to.handleId,
+          );
+          const path = await resolveWritableAppScopedPath(handle, to.relativePath);
+          return runtime.transfers.receive(
+            owner,
+            input as Parameters<DesktopAppRuntime["transfers"]["receive"]>[1],
+            { path },
+          );
+        }
+        throw new Error("Transfer destination must be a file handle or App storage path.");
+      }
       case "storage.writeFile":
-      case "storage.uploadFromFile":
       case "storage.remove":
       case "storage.list":
       case "storage.usage":
-        return invokeAppStorageCall(runtime, identity, method.slice("storage.".length), value);
+        return invokeAppStorageCall(identity, method.slice("storage.".length), value);
       case "composer.stage":
         return requestAppComposerStage(runtime, identity, value);
       case "installations.getState":
@@ -7023,6 +7174,8 @@ async function bootstrap(): Promise<void> {
         runtimeV2FileWatches.delete(watchId);
       }
       void runtimeV2FileWrites.abortMatching((write) => write.tabId === descriptor.id);
+      desktopAppRuntime?.blobUrls.revokeMatching((record) => record.tabId === descriptor.id);
+      desktopAppRuntime?.transfers.revokeMatching((record) => record.tabId === descriptor.id);
       runtimeV2SimulatorSurfaces.get(descriptor.id)?.stopFrames?.();
       runtimeV2SimulatorSurfaces.delete(descriptor.id);
       void desktopSimulatorRuntime?.manager.closeTab(descriptor.id).catch((error) => {
@@ -7046,6 +7199,8 @@ async function bootstrap(): Promise<void> {
           runtimeV2FileWatches.delete(watchId);
         }
         void runtimeV2FileWrites.abortMatching((write) => write.rendererId === renderer.id);
+        desktopAppRuntime?.blobUrls.revokeMatching((record) => record.rendererId === renderer.id);
+        desktopAppRuntime?.transfers.revokeMatching((record) => record.rendererId === renderer.id);
       });
     },
     onInvalidRendererMessage: (error, senderId) => {
@@ -7215,12 +7370,14 @@ async function bootstrap(): Promise<void> {
                 `(() => {
                   const element = document.querySelector('[data-app-tab-id=${JSON.stringify(targetTabId)}]');
                   if (!(element instanceof HTMLElement)) throw new Error('App frame element is unavailable.');
+                  if (element.hidden || element.getClientRects().length === 0 || !element.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return null;
                   const bounds = element.getBoundingClientRect();
+                  if (!Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) || bounds.width <= 0 || bounds.height <= 0) return null;
                   return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
                 })()`,
                 false,
               );
-              return rect as Electron.Rectangle;
+              return rect as Electron.Rectangle | null;
             },
           };
         },

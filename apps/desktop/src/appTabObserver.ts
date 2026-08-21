@@ -69,7 +69,8 @@ export interface AppTabObservationTarget {
   descriptor: DesktopAppTabDescriptor;
   webContents: WebContents;
   frame?: WebFrameMain;
-  captureBounds?: () => Promise<Rectangle> | Rectangle;
+  /** Null means the shell has not made this App tab visible for capture. */
+  captureBounds?: () => Promise<Rectangle | null> | Rectangle | null;
   embedded?: {
     target: AppTabObservationTarget;
     insets: { top: number; right: number; bottom: number; left: number };
@@ -254,6 +255,19 @@ export class AppTabObserver {
   async screenshot(tabId: string): Promise<{ kind: "image"; mimeType: "image/png"; data: string }> {
     const target = await this.#target(tabId);
     const bounds = await target.captureBounds?.();
+    if (
+      bounds === null ||
+      (bounds &&
+        (!isFiniteNumber(bounds.width) ||
+          !isFiniteNumber(bounds.height) ||
+          bounds.width <= 0 ||
+          bounds.height <= 0))
+    ) {
+      throw observerError(
+        "TAB_NOT_VISIBLE",
+        `App tab ${tabId} is not visible. Focus the tab before requesting a screenshot.`,
+      );
+    }
     const bytes = (await target.webContents.capturePage(bounds)).toPNG();
     if (bytes.byteLength === 0)
       throw observerError("CAPTURE_FAILED", "The App tab capture was empty.");

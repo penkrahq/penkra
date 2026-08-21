@@ -61,7 +61,13 @@ export async function resolveWritableAppScopedPath(
   } catch (error) {
     if (!isMissing(error)) throw error;
     const parent = await FS.promises.realpath(Path.dirname(candidate));
-    assertInsideRoot(root.rootPath, parent, "File destination escaped the selected directory.");
+    if (root.kind === "file") {
+      if (parent !== Path.dirname(root.rootPath)) {
+        throw new Error("File destination escaped the selected resource.");
+      }
+    } else {
+      assertInsideRoot(root.rootPath, parent, "File destination escaped the selected directory.");
+    }
     return candidate;
   }
 }

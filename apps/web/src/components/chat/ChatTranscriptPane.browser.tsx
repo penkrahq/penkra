@@ -106,7 +106,6 @@ function TranscriptPerfHarness(props: { onTranscriptRender: () => void }) {
             expandedWorkGroups={EMPTY_WORK_GROUPS}
             hasMessages
             isWorking={false}
-            followLiveOutput={false}
             listRef={listRef}
             markdownCwd={undefined}
             onExpandTimelineImage={NOOP}
@@ -192,7 +191,6 @@ describe("ChatTranscriptPane", () => {
         emptyStateProjectName={undefined}
         hasMessages
         isWorking={false}
-        followLiveOutput={false}
         listRef={{ current: null }}
         markdownCwd={undefined}
         onExpandTimelineImage={NOOP}

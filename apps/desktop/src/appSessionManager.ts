@@ -8,6 +8,7 @@ import type { InstalledAppPackage } from "./appInstallationState";
 import type { AppStandardPermissionName } from "./appStandardPermissions";
 import {
   createAppPackageProtocolHandler,
+  type AppPackageProtocolInput,
   type AppPackageProtocolHandler,
 } from "./appPackageProtocol";
 import {
@@ -41,6 +42,11 @@ export interface AppSessionManagerDependencies {
   fromPartition?: typeof session.fromPartition;
   createProtocolHandler?: typeof createAppPackageProtocolHandler;
   resolveOrigin: (appId: string, spaceId: string) => string;
+  protocolResources?: (input: {
+    appId: string;
+    spaceId: string;
+    origin: string;
+  }) => Pick<AppPackageProtocolInput, "blobUrls" | "transferHandler">;
   getStandardPermission?: (
     appId: string,
     spaceId: string,
@@ -65,6 +71,7 @@ export class AppSessionManager {
   readonly #fromPartition: typeof session.fromPartition;
   readonly #createProtocolHandler: typeof createAppPackageProtocolHandler;
   readonly #resolveOrigin: AppSessionManagerDependencies["resolveOrigin"];
+  readonly #protocolResources: NonNullable<AppSessionManagerDependencies["protocolResources"]>;
   readonly #records = new Map<string, ActiveAppSessionRecord>();
   readonly #queues = new Map<string, Promise<void>>();
   readonly #getStandardPermission: NonNullable<
@@ -79,6 +86,7 @@ export class AppSessionManager {
     this.#createProtocolHandler =
       dependencies.createProtocolHandler ?? createAppPackageProtocolHandler;
     this.#resolveOrigin = dependencies.resolveOrigin;
+    this.#protocolResources = dependencies.protocolResources ?? (() => ({}));
     this.#getStandardPermission = dependencies.getStandardPermission ?? (() => false);
     this.#requestStandardPermissions =
       dependencies.requestStandardPermissions ?? (async () => false);
@@ -92,6 +100,11 @@ export class AppSessionManager {
         origin,
         packageRoot: input.installedApp.packagePath,
         entrypoint: input.installedApp.manifest.entrypoints.app,
+        ...this.#protocolResources({
+          appId: input.installedApp.appId,
+          spaceId: input.spaceId,
+          origin,
+        }),
       });
       const existing = this.#records.get(partition);
       if (existing) {

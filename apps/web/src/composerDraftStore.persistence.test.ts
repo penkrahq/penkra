@@ -1,4 +1,4 @@
-import { ContainerId, MessageId, ThreadId } from "@penkra/contracts";
+import { ContainerId, MessageId, ProviderConnectionId, ThreadId } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { partializeComposerDraftStoreState, useComposerDraftStore } from "./composerDraftStore";
 import { normalizeCurrentPersistedComposerDraftStoreState } from "./composerDraftPersistence";
@@ -23,6 +23,7 @@ describe("composerDraftStore persisted-state hydration", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyConnectionByProvider: {},
       stickyActiveProvider: null,
     };
 
@@ -85,6 +86,18 @@ describe("composerDraftStore persisted-state hydration", () => {
       },
     ]);
   });
+
+  it("keeps the last composer Connection selection per provider", () => {
+    const connectionId = ProviderConnectionId.makeUnsafe("connection-last-used");
+    const normalized = normalizeCurrentPersistedComposerDraftStoreState({
+      draftsByThreadId: {},
+      draftThreadsByThreadId: {},
+      projectDraftThreadIdByProjectId: {},
+      stickyConnectionByProvider: { codex: connectionId },
+    });
+
+    expect(normalized.stickyConnectionByProvider).toEqual({ codex: connectionId });
+  });
 });
 
 describe("composerDraftStore provider references", () => {
@@ -145,6 +158,7 @@ describe("composerDraftStore terminal contexts", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyConnectionByProvider: {},
       stickyActiveProvider: null,
     });
   });

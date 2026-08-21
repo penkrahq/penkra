@@ -7,6 +7,7 @@ import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 import type { ChatAttachment, ModelSelection, ProviderStartOptions } from "@penkra/contracts";
 
+import type { ProviderManagedLaunchContext } from "../../provider/Services/ProviderAdapter.ts";
 import type { TextGenerationError } from "../Errors.ts";
 
 export interface ThreadTitleGenerationInput {
@@ -19,6 +20,8 @@ export interface ThreadTitleGenerationInput {
   modelSelection?: ModelSelection;
   /** Optional provider startup overrides, such as custom binary paths or server URLs. */
   providerOptions?: ProviderStartOptions;
+  /** Exact server-resolved installation, Connection, profile, and credentials for this Thread. */
+  managedLaunch?: ProviderManagedLaunchContext;
 }
 
 export interface ThreadTitleGenerationResult {

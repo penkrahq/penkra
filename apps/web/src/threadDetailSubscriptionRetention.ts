@@ -292,12 +292,19 @@ export function resolveThreadDetailSubscriptionLeaseIds(input: {
   readonly visibleThreadIds: readonly ThreadId[];
   readonly retainedThreadIds: readonly ThreadId[];
   readonly serverThreadIds: ReadonlySet<ThreadId>;
+  readonly draftThreadIds: ReadonlySet<ThreadId>;
 }): ThreadId[] {
   const threadIds = new Set<ThreadId>();
   for (const threadId of input.visibleThreadIds) {
     if (threadIds.size >= WS_STREAM_LIMITS.threadPerClient) break;
-    // A visible draft needs a lease before its shell row exists so its first
-    // provider events cannot outrun promotion into the server snapshot.
+    // A known local draft has no authoritative snapshot until `thread.create`
+    // projects its shell row. Subscribing earlier turns that expected state into
+    // THREAD_SNAPSHOT_NOT_FOUND after the bounded bootstrap retry. Once the row
+    // exists, snapshot-then-replay covers every event committed before the lease.
+    // Unknown visible ids still subscribe so invalid/deleted routes fail visibly.
+    if (!input.serverThreadIds.has(threadId) && input.draftThreadIds.has(threadId)) {
+      continue;
+    }
     threadIds.add(threadId);
   }
   for (const threadId of input.retainedThreadIds) {

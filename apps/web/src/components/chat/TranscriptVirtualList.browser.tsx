@@ -41,8 +41,8 @@ function VirtualListHarness() {
       <TranscriptVirtualList
         ref={listRef}
         data={rows}
+        anchorRevision={`${rows.length}:${rows.at(-1)?.id ?? "empty"}:${rows.at(-1)?.height ?? 0}`}
         estimatedItemSize={32}
-        followLiveOutput
         keyExtractor={(row) => row.id}
         renderItem={(row) => <div style={{ height: row.height }}>{row.id}</div>}
         paddingEnd={16}

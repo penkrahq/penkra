@@ -145,6 +145,7 @@ export const createComposerDraftStoreState =
     draftThreadsByThreadId: {},
     projectDraftThreadIdByProjectId: {},
     stickyModelSelectionByProvider: {},
+    stickyConnectionByProvider: {},
     stickyActiveProvider: null,
     getDraftThreadByProjectId: (projectId, entryPoint = "chat") => {
       if (projectId.length === 0) {

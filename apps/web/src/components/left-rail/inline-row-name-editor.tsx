@@ -25,7 +25,7 @@ export function InlineRowNameEditor(props: {
   return (
     <div ref={editor.rootRef} className="min-w-0" data-inline-name-editor>
       <LeftRailRowFrame
-        className={cn("cursor-text gap-3 pr-2.5", props.className)}
+        className={cn("cursor-text gap-3 pr-2.5 ring-inset", props.className)}
         data-pencil-component={props.pencilComponentId}
         leading={props.leading}
         leadingClassName="size-3.5"

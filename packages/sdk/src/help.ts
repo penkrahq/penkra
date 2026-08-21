@@ -8,8 +8,6 @@ export interface GenerateAppHelpInput {
   instructions: string;
   /** App-local dotted operation key. Omit for App-root help. */
   operation?: string;
-  /** Include the complete validated input/output schemas after the concise flag reference. */
-  schema?: boolean;
 }
 
 /** Generates canonical agent-gateway help from one immutable App package. */
@@ -22,7 +20,7 @@ export function generateAppHelp(input: GenerateAppHelpInput): string {
     );
     if (!declaration)
       throw new Error(`${input.manifest.slug} does not declare operation ${input.operation}.`);
-    return operationHelp(input.manifest, instructions, declaration, input.schema === true);
+    return operationHelp(input.manifest, declaration);
   }
   const lines = [
     `${input.manifest.name} (${input.manifest.slug})`,
@@ -42,12 +40,7 @@ export function generateAppHelp(input: GenerateAppHelpInput): string {
   return `${lines.join("\n")}\n`;
 }
 
-function operationHelp(
-  manifest: PenkraAppManifest,
-  instructions: string,
-  declaration: OperationDeclaration,
-  includeSchema: boolean,
-): string {
+function operationHelp(manifest: PenkraAppManifest, declaration: OperationDeclaration): string {
   const lines = [
     commandPath(manifest.slug, declaration.key),
     declaration.summary,
@@ -55,14 +48,15 @@ function operationHelp(
     "Usage",
     `  ${commandPath(manifest.slug, declaration.key)} [--input '<json>'] [--<property> <value> ...] [--tab-id <tab-id>]`,
     "",
-    "App instructions",
-    instructions,
-    "",
-    "Options",
+    "Operation input",
     ...operationFlagHelp(declaration.input),
+    "",
+    "Invocation",
     "  --tab-id <tab-id>  Target one existing App tab (invocation envelope; not App input).",
     "  --input <json>      Supply the complete input object as JSON.",
-    "  --schema            Show the validated input and output JSON Schemas.",
+    "",
+    "App guidance",
+    `  Run ${manifest.slug} --help for ${manifest.name} operating instructions.`,
     "",
     "Declared permissions",
     ...(manifest.permissions?.length
@@ -71,16 +65,13 @@ function operationHelp(
             `  ${permission.name} (${permission.required ? "required" : "optional"})${permission.audience ? ` for ${permission.audience}` : ""} — ${permission.reason}`,
         )
       : ["  None."]),
+    "",
+    "Validated input schema",
+    JSON.stringify(declaration.input, null, 2),
+    "",
+    "Validated output schema",
+    JSON.stringify(declaration.output, null, 2),
   ];
-  if (includeSchema)
-    lines.push(
-      "",
-      "Input schema",
-      JSON.stringify(declaration.input, null, 2),
-      "",
-      "Output schema",
-      JSON.stringify(declaration.output, null, 2),
-    );
   lines.push("");
   return lines.join("\n");
 }
@@ -124,5 +115,5 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 function commandPath(slug: string, operation: string): string {
-  return `penkra ${slug} ${operation.split(".").join(" ")}`;
+  return `${slug} ${operation.split(".").join(" ")}`;
 }

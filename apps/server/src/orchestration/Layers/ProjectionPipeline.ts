@@ -1146,13 +1146,36 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               event.payload.session.activeTurnId !== null
             ) {
               yield* sql`
+                WITH canonical_turn AS (
+                  SELECT turn_id, pending_message_id, requested_at
+                  FROM projection_turns
+                  WHERE thread_id = ${event.payload.threadId}
+                    AND (turn_id = ${event.payload.session.activeTurnId}
+                         OR provider_turn_id = ${event.payload.session.activeTurnId})
+                  ORDER BY
+                    CASE WHEN turn_id = ${event.payload.session.activeTurnId} THEN 0 ELSE 1 END,
+                    requested_at DESC,
+                    turn_id DESC
+                  LIMIT 1
+                )
                 INSERT INTO restart_turn_recoveries (
                   thread_id, turn_id, message_id, requested_at, updated_at
                 ) VALUES (
-                  ${event.payload.threadId}, ${event.payload.session.activeTurnId},
-                  (SELECT message_id FROM restart_turn_recoveries
-                   WHERE thread_id = ${event.payload.threadId}),
-                  ${event.payload.session.updatedAt}, ${event.payload.session.updatedAt}
+                  ${event.payload.threadId},
+                  COALESCE(
+                    (SELECT turn_id FROM canonical_turn),
+                    ${event.payload.session.activeTurnId}
+                  ),
+                  COALESCE(
+                    (SELECT message_id FROM restart_turn_recoveries
+                     WHERE thread_id = ${event.payload.threadId}),
+                    (SELECT pending_message_id FROM canonical_turn)
+                  ),
+                  COALESCE(
+                    (SELECT requested_at FROM canonical_turn),
+                    ${event.payload.session.updatedAt}
+                  ),
+                  ${event.payload.session.updatedAt}
                 )
                 ON CONFLICT(thread_id) DO UPDATE SET
                   updated_at = excluded.updated_at

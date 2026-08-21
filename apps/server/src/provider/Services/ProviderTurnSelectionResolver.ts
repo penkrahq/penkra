@@ -15,7 +15,6 @@ import type {
   ProviderInstallationId,
   ProviderKind,
   ProviderNativeStateGenerationId,
-  SpaceId,
   ThreadId,
 } from "@penkra/contracts";
 import { Data, Effect, Schema, ServiceMap } from "effect";
@@ -51,9 +50,8 @@ export class ProviderTurnSelectionResolutionError extends Data.TaggedError(
 }
 
 export interface ProviderTurnSelectionResolverShape {
-  /** Resolve the Connection for a not-yet-started thread from Primary/Space policy. */
+  /** Resolve the first compatible Connection for a not-yet-started thread. */
   readonly resolveNewThreadConnection: (input: {
-    readonly spaceId: SpaceId | null;
     readonly modelSelection: ModelSelection;
   }) => Effect.Effect<ProviderConnectionId | null, ProviderTurnSelectionResolutionError>;
   readonly resolveInitial: (input: {

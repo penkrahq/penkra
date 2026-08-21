@@ -452,7 +452,7 @@ describe("WsTransport", () => {
     );
   });
 
-  it("treats an explicit identical thread subscribe as a forced snapshot refresh", async () => {
+  it("treats an explicit identical thread subscribe as an idempotent ownership request", async () => {
     const { transport, internals } = makeBareTransport();
     const threadId = "thread-explicit-snapshot";
     const input = { threadId };
@@ -467,7 +467,7 @@ describe("WsTransport", () => {
 
     await transport.request(ORCHESTRATION_WS_METHODS.subscribeThread, { threadId });
 
-    expect(startThreadStream).toHaveBeenCalledWith(client, threadId, input, true);
+    expect(startThreadStream).toHaveBeenCalledWith(client, threadId, input);
   });
 
   it("latches terminal compatibility guidance for late UI subscribers", () => {

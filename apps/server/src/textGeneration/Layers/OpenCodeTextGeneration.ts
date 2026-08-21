@@ -32,6 +32,7 @@ import {
 } from "../../provider/opencodeRuntime.ts";
 import { TextGenerationError } from "../Errors.ts";
 import {
+  type ThreadTitleGenerationInput,
   type TextGenerationOperation,
   type TextGenerationShape,
   KiloTextGeneration,
@@ -93,6 +94,7 @@ interface SharedOpenCodeTextGenerationServerState {
   serverScope: Scope.Closeable | null;
   binaryPath: string | null;
   cwd: string | null;
+  isolationKey: string | null;
   activeRequests: number;
   idleCloseFiber: Fiber.Fiber<void, never> | null;
 }
@@ -151,6 +153,7 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       serverScope: null,
       binaryPath: null,
       cwd: null,
+      isolationKey: null,
       activeRequests: 0,
       idleCloseFiber: null,
     };
@@ -161,6 +164,7 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       sharedServerState.serverScope = null;
       sharedServerState.binaryPath = null;
       sharedServerState.cwd = null;
+      sharedServerState.isolationKey = null;
       if (scope !== null) {
         yield* Scope.close(scope, Exit.void).pipe(Effect.ignore);
       }
@@ -199,6 +203,8 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       readonly binaryPath: string;
       readonly cwd: string;
       readonly operation: TextGenerationOperation;
+      readonly isolationKey: string;
+      readonly processEnv?: NodeJS.ProcessEnv;
     }) =>
       sharedServerMutex.withPermit(
         Effect.gen(function* () {
@@ -212,6 +218,7 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
                   binaryPath: input.binaryPath,
                   cliSpec: config.cliSpec,
                   cwd: input.cwd,
+                  ...(input.processEnv ? { processEnv: input.processEnv } : {}),
                 })
                 .pipe(
                   Effect.provideService(Scope.Scope, serverScope),
@@ -241,7 +248,8 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
           if (existingServer !== null) {
             const sameConfigScope =
               sharedServerState.binaryPath === input.binaryPath &&
-              sharedServerState.cwd === input.cwd;
+              sharedServerState.cwd === input.cwd &&
+              sharedServerState.isolationKey === input.isolationKey;
             if (!sameConfigScope && sharedServerState.activeRequests === 0) {
               yield* closeSharedServer();
             } else {
@@ -280,6 +288,7 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
               sharedServerState.serverScope = serverScope;
               sharedServerState.binaryPath = input.binaryPath;
               sharedServerState.cwd = input.cwd;
+              sharedServerState.isolationKey = input.isolationKey;
               sharedServerState.activeRequests = 1;
               return {
                 server,
@@ -329,6 +338,7 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       readonly modelSelection: OpenCodeCompatibleModelSelection;
       readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;
       readonly providerOptions?: ProviderStartOptions;
+      readonly managedLaunch?: ThreadTitleGenerationInput["managedLaunch"];
     }) {
       const parsedModel = parseOpenCodeModelSlug(input.modelSelection.model);
       if (!parsedModel) {
@@ -338,9 +348,16 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
         });
       }
 
-      const providerOptions = input.providerOptions?.[config.provider];
-      const binaryPath = providerOptions?.binaryPath?.trim() || config.cliSpec.defaultBinaryPath;
+      const providerOptions = input.managedLaunch
+        ? undefined
+        : input.providerOptions?.[config.provider];
+      const binaryPath =
+        input.managedLaunch?.binaryPath ??
+        providerOptions?.binaryPath?.trim() ??
+        config.cliSpec.defaultBinaryPath;
       const serverUrl = providerOptions?.serverUrl?.trim() || "";
+      const processEnv = input.managedLaunch?.childEnvironment(process.env);
+      const isolationKey = input.managedLaunch?.isolationKey ?? "unmanaged";
       const serverPassword = config.resolveServerPassword
         ? ((yield* config.resolveServerPassword(config.provider)) ?? "")
         : "";
@@ -447,6 +464,8 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
                 binaryPath,
                 cwd: input.cwd,
                 operation: input.operation,
+                isolationKey,
+                ...(processEnv ? { processEnv } : {}),
               }),
               (acquired) => runAgainstServer(acquired.server),
               releaseSharedServer,
@@ -485,6 +504,7 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
         modelSelection,
         ...(input.attachments ? { attachments: input.attachments } : {}),
         ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
+        ...(input.managedLaunch ? { managedLaunch: input.managedLaunch } : {}),
       });
 
       return {

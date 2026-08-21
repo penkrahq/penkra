@@ -10,6 +10,19 @@ import type {
 
 import { newCommandId } from "~/lib/utils";
 
+export function resolveSidebarInsertionIndex(input: {
+  item: SidebarItemReference;
+  destinationItems: ReadonlyArray<SidebarItemReference>;
+  requestedIndex: number;
+  isPinned: (item: SidebarItemReference) => boolean;
+}): number {
+  const pinned = input.isPinned(input.item);
+  const pinnedCount = input.destinationItems.filter(input.isPinned).length;
+  return pinned
+    ? Math.max(0, Math.min(input.requestedIndex, pinnedCount))
+    : Math.max(pinnedCount, Math.min(input.requestedIndex, input.destinationItems.length));
+}
+
 export function resolveSidebarMovePosition(input: {
   item: SidebarItemReference;
   destinationItems: ReadonlyArray<SidebarItemReference>;
@@ -18,10 +31,11 @@ export function resolveSidebarMovePosition(input: {
 }): SidebarItemMovePosition {
   const pinned = input.isPinned(input.item);
   const pinnedCount = input.destinationItems.filter(input.isPinned).length;
-  const insertionIndex = pinned
-    ? Math.max(0, Math.min(input.requestedIndex, pinnedCount))
-    : Math.max(pinnedCount, Math.min(input.requestedIndex, input.destinationItems.length));
-  if (insertionIndex === pinnedCount) return { type: "pinned-boundary" };
+  const insertionIndex = resolveSidebarInsertionIndex(input);
+  const crossesPinnedBoundary = pinned
+    ? input.requestedIndex >= pinnedCount
+    : input.requestedIndex < pinnedCount;
+  if (crossesPinnedBoundary) return { type: "pinned-boundary" };
 
   const nextItem = input.destinationItems[insertionIndex];
   if (nextItem && input.isPinned(nextItem) === pinned) {

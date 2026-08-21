@@ -11,6 +11,7 @@ const MAX_REDIRECTS = 5;
 const ALLOWED_METHODS = new Set(["DELETE", "GET", "HEAD", "PATCH", "POST", "PUT"]);
 const FORBIDDEN_HEADERS = new Set([
   "connection",
+  "content-length",
   "cookie",
   "host",
   "proxy-authorization",

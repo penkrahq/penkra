@@ -84,7 +84,7 @@ function emptyStateCopy(provider: ProviderKind, hasAnonymousRoute: boolean) {
 
 export function SettingsAgentsPage(_props: { embedded?: boolean } = {}) {
   const queryClient = useQueryClient();
-  const connectionsQuery = useQuery(providerConnectionsQueryOptions(null));
+  const connectionsQuery = useQuery(providerConnectionsQueryOptions());
   const [openProvider, setOpenProvider] = useState<ProviderKind | null>("claudeAgent");
   const [addingProvider, setAddingProvider] = useState<ProviderKind | null>(null);
   const [methodId, setMethodId] = useState<string | null>(null);

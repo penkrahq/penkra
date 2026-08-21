@@ -66,6 +66,14 @@ describe("App-scoped file paths", () => {
       resolveWritableAppScopedPath({ kind: "directory", rootPath }, "notes/new.txt"),
     ).resolves.toBe(Path.join(rootPath, "notes", "new.txt"));
   });
+
+  it("allows the not-yet-created leaf represented by a save-file handle", async () => {
+    const directory = await temporaryDirectory();
+    const rootPath = Path.join(directory, "export.pen");
+    await expect(resolveWritableAppScopedPath({ kind: "file", rootPath }, undefined)).resolves.toBe(
+      rootPath,
+    );
+  });
 });
 
 async function temporaryDirectory(): Promise<string> {

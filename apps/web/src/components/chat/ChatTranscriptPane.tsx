@@ -40,7 +40,6 @@ interface ChatTranscriptPaneProps {
   expandedWorkGroups?: Record<string, boolean>;
   hasMessages: boolean;
   isWorking: boolean;
-  followLiveOutput: boolean;
   listRef: RefObject<TranscriptVirtualListRef | null>;
   pinnedMessageIds?: ReadonlySet<MessageId>;
   canPinMessage?: (messageId: MessageId) => boolean;
@@ -90,7 +89,6 @@ function ChatTranscriptPaneImpl({
   expandedWorkGroups,
   hasMessages,
   isWorking,
-  followLiveOutput,
   listRef,
   pinnedMessageIds,
   canPinMessage,
@@ -165,7 +163,6 @@ function ChatTranscriptPaneImpl({
             {...(subagentToolTraceByThreadId ? { subagentToolTraceByThreadId } : {})}
             {...(onEditUserMessage ? { onEditUserMessage } : {})}
             onImageExpand={onExpandTimelineImage}
-            followLiveOutput={followLiveOutput}
             onIsAtEndChange={onIsAtEndChange}
             onMessagesScroll={onMessagesScroll}
             onMessagesClickCapture={onMessagesClickCapture}

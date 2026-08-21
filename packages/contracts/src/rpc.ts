@@ -24,7 +24,6 @@ import {
   ProviderConnection,
   ProviderConnectionsSnapshot,
   ProviderConnectionsSnapshotInput,
-  SetSpaceConnectionDefaultInput,
   TerminateProviderConnectionInput,
   ThreadProviderBindingSnapshot,
   ThreadProviderBindingSnapshotInput,
@@ -620,11 +619,6 @@ export const WsProviderTerminateConnectionRpc = Rpc.make(WS_METHODS.providerTerm
   success: ProviderConnection,
   error: WsRpcError,
 });
-export const WsProviderSetSpaceDefaultConnectionRpc = Rpc.make(
-  WS_METHODS.providerSetSpaceDefaultConnection,
-  { payload: SetSpaceConnectionDefaultInput, success: Schema.Void, error: WsRpcError },
-);
-
 export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 
 export const WsFeatureRpcGroup = RpcGroup.make(
@@ -700,7 +694,6 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsProviderGetConnectionLoginRpc,
   WsProviderCancelConnectionLoginRpc,
   WsProviderTerminateConnectionRpc,
-  WsProviderSetSpaceDefaultConnectionRpc,
 );
 
 /** @deprecated Use WsFeatureRpcGroup. Bootstrap is intentionally a separate endpoint/group. */

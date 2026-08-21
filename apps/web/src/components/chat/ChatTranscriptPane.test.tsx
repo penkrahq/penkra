@@ -18,7 +18,6 @@ function renderTranscriptPaneMarkup(
       emptyStateProjectName={undefined}
       hasMessages
       isWorking={false}
-      followLiveOutput={false}
       listRef={createRef<TranscriptVirtualListRef | null>()}
       markdownCwd={undefined}
       onExpandTimelineImage={() => {}}

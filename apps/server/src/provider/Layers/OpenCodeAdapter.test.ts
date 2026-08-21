@@ -2069,7 +2069,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     const result = await Effect.runPromise(
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
-        const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 6)).pipe(
+        const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 7)).pipe(
           Effect.forkChild,
         );
 
@@ -2130,6 +2130,16 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
             delta: "ERING",
           },
         });
+        // A repeated speculative fragment must remain visible while streaming, but the provider's
+        // completed part snapshot below is authoritative and repairs it.
+        eventQueue.push({
+          type: "message.part.delta",
+          properties: {
+            sessionID: "opencode-session-1",
+            partID: "part-1",
+            delta: "ERING",
+          },
+        });
         eventQueue.push({
           type: "message.part.updated",
           properties: {
@@ -2181,6 +2191,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       "turn.started",
       "content.delta",
       "content.delta",
+      "content.delta",
       "item.completed",
     ]);
     expect(result.events[3]).toMatchObject({
@@ -2198,12 +2209,23 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       },
     });
     expect(result.events[5]).toMatchObject({
+      type: "content.delta",
+      payload: {
+        streamKind: "assistant_text",
+        delta: "ERING",
+      },
+    });
+    expect(result.events[6]).toMatchObject({
       type: "item.completed",
       payload: {
         itemType: "assistant_message",
         detail: "STEERING",
       },
     });
+    expect(new Set(result.events.map((event) => event.eventId)).size).toBe(result.events.length);
+    expect(result.events.every((event) => !event.eventId.startsWith("native:opencode:"))).toBe(
+      true,
+    );
   });
 
   it("filters Kilo synthetic and ignored text parts from assistant transcript", async () => {

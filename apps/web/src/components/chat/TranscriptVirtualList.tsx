@@ -26,8 +26,8 @@ interface TranscriptVirtualListProps<TItem> extends Omit<
   "children"
 > {
   data: readonly TItem[];
+  anchorRevision: string;
   estimatedItemSize: number;
-  followLiveOutput: boolean;
   keyExtractor: (item: TItem) => string;
   renderItem: (item: TItem) => ReactNode;
   paddingEnd: number;
@@ -46,11 +46,12 @@ function alignFromViewPosition(viewPosition: number | undefined): "start" | "cen
 function TranscriptVirtualListInner<TItem>(
   {
     data,
+    anchorRevision,
     estimatedItemSize,
-    followLiveOutput,
     keyExtractor,
     renderItem,
     paddingEnd,
+    onScroll,
     ...scrollProps
   }: TranscriptVirtualListProps<TItem>,
   ref: React.ForwardedRef<TranscriptVirtualListRef>,
@@ -60,13 +61,19 @@ function TranscriptVirtualListInner<TItem>(
     (index: number) => keyExtractor(data[index]!),
     [data, keyExtractor],
   );
+  const previousAnchorRevisionRef = useRef(anchorRevision);
+  const hasSemanticAppend = previousAnchorRevisionRef.current !== anchorRevision;
+  const wasAtEndRef = useRef(true);
+  const shouldEndAnchor = hasSemanticAppend && wasAtEndRef.current;
   const virtualizer = useVirtualizer({
     count: data.length,
     getScrollElement: () => scrollElementRef.current,
     estimateSize: () => estimatedItemSize,
     getItemKey,
-    anchorTo: "end",
-    followOnAppend: followLiveOutput ? "auto" : false,
+    // Only real message-tail changes end-anchor. Tool/status rows preserve the
+    // viewport even when their insertion changes the virtual row count.
+    anchorTo: shouldEndAnchor ? "end" : "start",
+    followOnAppend: false,
     scrollEndThreshold: END_THRESHOLD_PX,
     overscan: OVERSCAN_ROWS,
     paddingEnd,
@@ -80,6 +87,10 @@ function TranscriptVirtualListInner<TItem>(
     // ResizeObserver loop without adding a second scroll correction owner.
     useAnimationFrameWithResizeObserver: true,
   });
+
+  useLayoutEffect(() => {
+    previousAnchorRevisionRef.current = anchorRevision;
+  }, [anchorRevision]);
 
   useImperativeHandle(
     ref,
@@ -114,9 +125,18 @@ function TranscriptVirtualListInner<TItem>(
     position: "relative",
     width: "100%",
   };
+  const handleScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      const element = event.currentTarget;
+      wasAtEndRef.current =
+        element.scrollHeight - element.clientHeight - element.scrollTop <= END_THRESHOLD_PX;
+      onScroll?.(event);
+    },
+    [onScroll],
+  );
 
   return (
-    <div {...scrollProps} ref={scrollElementRef}>
+    <div {...scrollProps} ref={scrollElementRef} onScroll={handleScroll}>
       <div ref={virtualizer.containerRef} style={containerStyle}>
         {virtualItems.map((virtualItem) => (
           <div

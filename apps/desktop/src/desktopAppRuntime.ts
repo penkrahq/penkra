@@ -41,6 +41,8 @@ import {
   resolveAppUpdateJournalPath,
   type AppUpdateRecovery,
 } from "./appUpdateJournal";
+import { AppBlobUrlRegistry } from "./appBlobUrlRegistry";
+import { AppTransferService } from "./appTransfer";
 
 export interface DesktopAppRuntime {
   readonly store: AppInstallationStore;
@@ -56,6 +58,8 @@ export interface DesktopAppRuntime {
   readonly identities: AppIdentityService;
   readonly vault: AppDataVault;
   readonly providerCredentialVault: ProviderCredentialVault;
+  readonly blobUrls: AppBlobUrlRegistry;
+  readonly transfers: AppTransferService;
   readonly safeStartRecovery: null | { quarantinedPath: string; error: Error };
   readonly updateRecovery: AppUpdateRecovery | null;
   readonly packageGarbageCollection: AppPackageGarbageCollectionResult;
@@ -102,12 +106,6 @@ export async function startDesktopAppRuntime(input: {
     userDataPath: input.userDataPath,
     getAccountId: input.getAccountId ?? (async () => null),
   });
-  const frameDocuments = new AppFrameDocumentRegistry({
-    protocol: session.defaultSession.protocol,
-    runtimeScriptPath: input.appFrameRuntimePath,
-    resolveOrigin: (appId, spaceId) => identities.resolveOrigin(appId, spaceId),
-  });
-  await frameDocuments.start();
   if (!safeStorage.isEncryptionAvailable())
     throw new Error("Secure App secret storage is unavailable on this device.");
   const vault = await AppDataVault.open({
@@ -131,6 +129,27 @@ export async function startDesktopAppRuntime(input: {
     ),
   );
   const tabs = new DeferredAppTabHost();
+  const blobUrls = new AppBlobUrlRegistry();
+  let appTabs!: ElectronAppTabHost;
+  const transfers = new AppTransferService({
+    emitProgress: (owner, event) => {
+      try {
+        appTabs.sendFrameEvent(owner.tabId, "transfer.progress", event);
+      } catch {
+        // Closing tabs revoke outstanding transfer authority.
+      }
+    },
+  });
+  const frameDocuments = new AppFrameDocumentRegistry({
+    protocol: session.defaultSession.protocol,
+    runtimeScriptPath: input.appFrameRuntimePath,
+    resolveOrigin: (appId, spaceId) => identities.resolveOrigin(appId, spaceId),
+    protocolResources: ({ origin }) => ({
+      blobUrls,
+      transferHandler: (request) => transfers.handleEndpoint(origin, request),
+    }),
+  });
+  await frameDocuments.start();
   const rpc = new AppRendererRpcHost();
   const ipcBridge = new AppRendererIpcBridge({
     ipcMain: input.ipcMain,
@@ -158,6 +177,10 @@ export async function startDesktopAppRuntime(input: {
   let installations!: AppInstallationService;
   const sessions = new AppSessionManager({
     resolveOrigin: (appId, spaceId) => identities.resolveOrigin(appId, spaceId),
+    protocolResources: ({ origin }) => ({
+      blobUrls,
+      transferHandler: (request) => transfers.handleEndpoint(origin, request),
+    }),
     getStandardPermission: (appId, spaceId, permission) => {
       const space = Object.values(store.snapshot().spaceStateByKey).find(
         (candidate) => candidate.appId === appId && candidate.spaceId === spaceId,
@@ -217,7 +240,6 @@ export async function startDesktopAppRuntime(input: {
       onRendererCreated: registerRendererIdentity,
     }),
   });
-  let appTabs!: ElectronAppTabHost;
   const lifecycle = new AppRuntimeLifecycle({
     store,
     sessions,
@@ -290,6 +312,8 @@ export async function startDesktopAppRuntime(input: {
     identities,
     vault,
     providerCredentialVault,
+    blobUrls,
+    transfers,
     safeStartRecovery: storeResult.recovery,
     updateRecovery,
     packageGarbageCollection,
@@ -307,6 +331,8 @@ export async function startDesktopAppRuntime(input: {
         unsubscribeUnexpectedDisable();
         unbindTabs();
         appTabs.closeAll("host-stopped");
+        blobUrls.clear();
+        transfers.clear();
         await lifecycle.shutdown();
         await frameDocuments.dispose();
       } finally {

@@ -39,6 +39,11 @@ export interface ProjectionGeneratedImageActivityRecord {
   readonly payload: unknown;
 }
 
+export interface ProjectionOpenTurnCount {
+  readonly threadId: ThreadId;
+  readonly count: number;
+}
+
 /**
  * ProjectionSnapshotQueryShape - Service API for read-model snapshots.
  */
@@ -82,6 +87,12 @@ export interface ProjectionSnapshotQueryShape {
     readonly updatedBefore: string;
     readonly limit: number;
   }) => Effect.Effect<ReadonlyArray<ThreadId>, ProjectionRepositoryError>;
+
+  /** Count every non-terminal turn per thread for restart-time settlement. */
+  readonly listOpenTurnCounts: () => Effect.Effect<
+    ReadonlyArray<ProjectionOpenTurnCount>,
+    ProjectionRepositoryError
+  >;
 
   /**
    * Read the latest orchestration shell snapshot.

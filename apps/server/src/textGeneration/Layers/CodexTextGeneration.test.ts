@@ -101,6 +101,14 @@ function makeFakeCodexBinary(dir: string) {
         '  printf "%s\\n" "missing auth.json in CODEX_HOME" >&2',
         "  exit 6",
         "fi",
+        'if [ -n "$PENKRA_FAKE_CODEX_EXPECT_CODEX_HOME" ] && [ "$CODEX_HOME" != "$PENKRA_FAKE_CODEX_EXPECT_CODEX_HOME" ]; then',
+        '  printf "%s\\n" "unexpected CODEX_HOME" >&2',
+        "  exit 11",
+        "fi",
+        'if [ -n "$PENKRA_FAKE_CODEX_EXPECT_OPENAI_API_KEY" ] && [ "$OPENAI_API_KEY" != "$PENKRA_FAKE_CODEX_EXPECT_OPENAI_API_KEY" ]; then',
+        '  printf "%s\\n" "unexpected OPENAI_API_KEY" >&2',
+        "  exit 12",
+        "fi",
         'if [ -n "$PENKRA_FAKE_CODEX_CODEX_HOME_CONFIG_MUST_CONTAIN" ]; then',
         '  grep -F -- "$PENKRA_FAKE_CODEX_CODEX_HOME_CONFIG_MUST_CONTAIN" "$CODEX_HOME/config.toml" >/dev/null || {',
         '    printf "%s\\n" "CODEX_HOME config missing expected content" >&2',
@@ -375,6 +383,49 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
         });
 
         expect(generated.title).toBe("Polish sidebar loading state");
+      }),
+    ),
+  );
+
+  it.effect("uses the exact managed Codex profile and selected credential", () =>
+    withFakeCodexEnv(
+      { output: JSON.stringify({ title: "Managed Codex title" }) },
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const textGeneration = yield* TextGeneration;
+        const managedHome = path.join(process.env.PENKRA_HOME ?? "", "managed-codex-home");
+        yield* fs.makeDirectory(managedHome, { recursive: true });
+        process.env.PENKRA_FAKE_CODEX_EXPECT_CODEX_HOME = managedHome;
+        process.env.PENKRA_FAKE_CODEX_EXPECT_OPENAI_API_KEY = "selected-connection-key";
+
+        return yield* textGeneration
+          .generateThreadTitle({
+            cwd: process.cwd(),
+            message: "Use the selected managed Codex Connection",
+            managedLaunch: {
+              binaryPath: "codex",
+              isolationKey: "managed-codex-connection",
+              profileRoot: path.dirname(managedHome),
+              nativeStateRoot: path.join(path.dirname(managedHome), "native-state"),
+              childEnvironment: (baseEnv) => ({
+                ...baseEnv,
+                CODEX_HOME: managedHome,
+                OPENAI_API_KEY: "selected-connection-key",
+              }),
+            },
+          })
+          .pipe(
+            Effect.tap((generated) =>
+              Effect.sync(() => expect(generated.title).toBe("Managed Codex title")),
+            ),
+            Effect.ensuring(
+              Effect.sync(() => {
+                delete process.env.PENKRA_FAKE_CODEX_EXPECT_CODEX_HOME;
+                delete process.env.PENKRA_FAKE_CODEX_EXPECT_OPENAI_API_KEY;
+              }),
+            ),
+          );
       }),
     ),
   );

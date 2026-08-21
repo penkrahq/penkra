@@ -1,12 +1,21 @@
 // FILE: SidebarDnd.tsx
 // Purpose: Registers sidebar rows with the shell-wide current dnd-kit provider.
 
+import { OptimisticSortingPlugin } from "@dnd-kit/dom/sortable";
 import { useDragDropManager, useDragDropMonitor, useDroppable } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import type { DragEndEvent, DragOverEvent } from "@dnd-kit/react";
 import type { ProviderKind, SidebarItemParent, SidebarItemReference } from "@penkra/contracts";
 import { ContainerId, SpaceId } from "@penkra/contracts";
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
 import { cn } from "~/lib/utils";
 import { FolderRowShared } from "../left-rail/folder-row-shared/FolderRowShared";
@@ -16,6 +25,7 @@ import {
   type ThreadRowLevel,
 } from "../left-rail/thread-row-shared/ThreadRowShared";
 import type { WorkStatus } from "../left-rail/work-status-shared/WorkStatusShared";
+import { DisclosureRegion } from "../ui/DisclosureRegion";
 
 export const SIDEBAR_SPACE_DRAG_TYPE = "penkra/sidebar-space";
 export const SIDEBAR_PROJECT_DRAG_TYPE = "penkra/sidebar-project";
@@ -36,6 +46,10 @@ export const SIDEBAR_THREAD_DRAG_TYPES = [
   sidebarItemDragType("thread", true),
   sidebarItemDragType("thread", false),
 ];
+// Folder containers surround their sortable thread rows. Keep the container below row
+// collisions so a pointer over a thread preserves an exact before/after anchor, while the
+// container still owns the folder header and empty-content area.
+const SIDEBAR_FOLDER_CONTAINER_COLLISION_PRIORITY = 1;
 
 export type SidebarDndPreview =
   | {
@@ -125,41 +139,203 @@ export function dragTypeForData(data: SidebarDndData): string {
   return SIDEBAR_THREAD_DRAG_TYPE;
 }
 
+export function canMoveSidebarItemToParent(
+  item: SidebarItemReference,
+  parent: SidebarItemParent,
+): boolean {
+  return item.kind === "project" ? parent.kind === "space" : parent.kind === "project";
+}
+
+export type SidebarItemDropTarget =
+  | {
+      parent: SidebarItemParent;
+      targetKind: "container";
+    }
+  | {
+      parent: SidebarItemParent;
+      targetItem: SidebarItemReference;
+      targetKind: "item";
+    };
+
+export type SidebarDropPreview =
+  | {
+      kind: "space";
+      placement: SidebarDropPlacement;
+      targetSpaceId: SpaceId;
+    }
+  | {
+      kind: "item";
+      anchorItem: SidebarItemReference | null;
+      parent: SidebarItemParent;
+      placement: SidebarDropPlacement;
+      targetKind: "container" | "item";
+    };
+
+function areSidebarDropPreviewsEqual(
+  left: SidebarDropPreview | null,
+  right: SidebarDropPreview | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.kind !== right.kind) return false;
+  if (left.kind === "space" && right.kind === "space") {
+    return left.targetSpaceId === right.targetSpaceId && left.placement === right.placement;
+  }
+  if (left.kind !== "item" || right.kind !== "item") return false;
+  const anchorsEqual =
+    left.anchorItem === right.anchorItem ||
+    (left.anchorItem !== null &&
+      right.anchorItem !== null &&
+      left.anchorItem.kind === right.anchorItem.kind &&
+      left.anchorItem.id === right.anchorItem.id);
+  return (
+    anchorsEqual &&
+    left.placement === right.placement &&
+    left.targetKind === right.targetKind &&
+    areSidebarItemParentsEqual(left.parent, right.parent)
+  );
+}
+
+interface SidebarDropPreviewStore {
+  getSnapshot: () => SidebarDropPreview | null;
+  setSnapshot: (next: SidebarDropPreview | null) => void;
+  subscribe: (listener: () => void) => () => void;
+}
+
+function createSidebarDropPreviewStore(): SidebarDropPreviewStore {
+  let snapshot: SidebarDropPreview | null = null;
+  const listeners = new Set<() => void>();
+  return {
+    getSnapshot: () => snapshot,
+    setSnapshot(next) {
+      if (areSidebarDropPreviewsEqual(snapshot, next)) return;
+      snapshot = next;
+      for (const listener of listeners) listener();
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
+const SidebarDropPreviewStoreContext = createContext<SidebarDropPreviewStore | null>(null);
+
+function useSidebarDropPreviewSnapshot() {
+  const store = useContext(SidebarDropPreviewStoreContext);
+  return useSyncExternalStore(
+    store?.subscribe ?? (() => () => undefined),
+    store?.getSnapshot ?? (() => null),
+    () => null,
+  );
+}
+
+export function resolveSidebarItemDropTarget(
+  sourceItem: SidebarItemReference,
+  targetData: SidebarDndData | null,
+): SidebarItemDropTarget | null {
+  if (targetData?.type === "container") {
+    return canMoveSidebarItemToParent(sourceItem, targetData.parent)
+      ? { parent: targetData.parent, targetKind: "container" }
+      : null;
+  }
+  if (targetData?.type !== "item") return null;
+  if (sourceItem.kind === targetData.item.kind && sourceItem.id === targetData.item.id) return null;
+  return canMoveSidebarItemToParent(sourceItem, targetData.parent)
+    ? { parent: targetData.parent, targetItem: targetData.item, targetKind: "item" }
+    : null;
+}
+
 export function acceptedTypesForData(data: SidebarDndData): string[] {
   if (data.type === "space") return [SIDEBAR_SPACE_DRAG_TYPE];
   if (data.type === "container") {
     return data.parent.kind === "space"
-      ? [...SIDEBAR_PROJECT_DRAG_TYPES, ...SIDEBAR_THREAD_DRAG_TYPES]
+      ? [...SIDEBAR_PROJECT_DRAG_TYPES]
       : [...SIDEBAR_THREAD_DRAG_TYPES];
   }
   const pinned = data.preview.pinned;
-  return data.parent.kind === "space"
-    ? [sidebarItemDragType("project", pinned), sidebarItemDragType("thread", pinned)]
+  return data.item.kind === "project"
+    ? [sidebarItemDragType("project", pinned)]
     : [sidebarItemDragType("thread", pinned)];
+}
+
+export function areSidebarItemParentsEqual(
+  left: SidebarItemParent,
+  right: SidebarItemParent,
+): boolean {
+  if (left.kind !== right.kind) return false;
+  return left.kind === "space"
+    ? left.spaceId === (right.kind === "space" ? right.spaceId : null)
+    : left.projectId === (right.kind === "project" ? right.projectId : null);
+}
+
+export function canUseSidebarSortableTarget(
+  sourceData: SidebarDndData | null,
+  targetData: SidebarDndData,
+): boolean {
+  if (!sourceData) return false;
+  if (sourceData.type === "space" || targetData.type === "space") {
+    return sourceData.type === "space" && targetData.type === "space";
+  }
+  if (sourceData.type !== "item" || targetData.type !== "item") return false;
+  return acceptedTypesForData(targetData).includes(dragTypeForData(sourceData));
 }
 
 export function SidebarDndMonitor(props: {
   children: ReactNode;
   onDragEnd: (event: DragEndEvent) => void;
-  onDragOver: (event: DragOverEvent, placement: SidebarDropPlacement) => void;
+  onDragOver: (
+    event: Pick<DragOverEvent, "operation">,
+    placement: SidebarDropPlacement,
+  ) => SidebarDropPreview | null | undefined;
 }) {
   const manager = useDragDropManager();
+  const previewStoreRef = useRef<SidebarDropPreviewStore | null>(null);
+  previewStoreRef.current ??= createSidebarDropPreviewStore();
+  const previewStore = previewStoreRef.current;
   const pendingFrameRef = useRef<number | null>(null);
+  const pendingPreviewFrameRef = useRef<number | null>(null);
+  const pendingPreviewRef = useRef<SidebarDropPreview | null>(null);
+  const latestPointerYRef = useRef<number | null>(null);
+  const updatePreview = (next: SidebarDropPreview | null | undefined) => {
+    if (next === undefined) return;
+    pendingPreviewRef.current = next;
+    if (pendingPreviewFrameRef.current !== null) return;
+    pendingPreviewFrameRef.current = requestAnimationFrame(() => {
+      pendingPreviewFrameRef.current = null;
+      previewStore.setSnapshot(pendingPreviewRef.current);
+    });
+  };
   useEffect(
     () => () => {
       if (pendingFrameRef.current !== null) cancelAnimationFrame(pendingFrameRef.current);
+      if (pendingPreviewFrameRef.current !== null) {
+        cancelAnimationFrame(pendingPreviewFrameRef.current);
+      }
+      previewStore.setSnapshot(null);
     },
     [],
   );
   useDragDropMonitor({
+    onDragMove(event) {
+      latestPointerYRef.current =
+        typeof MouseEvent !== "undefined" && event.nativeEvent instanceof MouseEvent
+          ? event.nativeEvent.clientY
+          : null;
+      updatePreview(props.onDragOver(event, resolveSidebarDropPlacement(event)));
+    },
     onDragOver(event) {
-      props.onDragOver(event, resolveSidebarDropPlacement(event));
+      updatePreview(
+        props.onDragOver(
+          event,
+          resolveSidebarDropPlacement(event, latestPointerYRef.current ?? undefined),
+        ),
+      );
     },
     onDragEnd(event) {
-      // The sortable plugin temporarily reparents React-owned DOM nodes while it
-      // previews an order. Applying authoritative state during this callback can
-      // make React reconcile before dnd-kit restores that DOM, causing removeChild
-      // failures. Commit only after the operation reaches its public idle state.
+      latestPointerYRef.current = null;
+      updatePreview(null);
+      // Commit after the operation reaches its public idle state so authoritative
+      // sidebar state never races the drag source and overlay cleanup.
       const commitAfterDomRestore = () => {
         if (!manager || manager.dragOperation.status.idle) {
           pendingFrameRef.current = null;
@@ -171,16 +347,31 @@ export function SidebarDndMonitor(props: {
       pendingFrameRef.current = requestAnimationFrame(commitAfterDomRestore);
     },
   });
-  return props.children;
+  return (
+    <SidebarDropPreviewStoreContext.Provider value={previewStore}>
+      {props.children}
+    </SidebarDropPreviewStoreContext.Provider>
+  );
 }
 
-export function resolveSidebarDropPlacement(event: DragOverEvent): SidebarDropPlacement {
+export function resolveSidebarDropPlacement(
+  event: Pick<DragOverEvent, "operation"> & { nativeEvent?: Event },
+  pointerY?: number,
+): SidebarDropPlacement {
   const target = event.operation.target;
-  const targetRect = target?.element?.getBoundingClientRect();
+  const targetElement = target?.element;
+  const placementElement =
+    targetElement && typeof targetElement.querySelector === "function"
+      ? (targetElement.querySelector("button") ?? targetElement)
+      : targetElement;
+  const targetRect = placementElement?.getBoundingClientRect();
   if (!targetRect || targetRect.height <= 0) return "before";
-  return event.operation.position.current.y >= targetRect.top + targetRect.height / 2
-    ? "after"
-    : "before";
+  const resolvedPointerY =
+    pointerY ??
+    (typeof MouseEvent !== "undefined" && event.nativeEvent instanceof MouseEvent
+      ? event.nativeEvent.clientY
+      : event.operation.position.current.y);
+  return resolvedPointerY >= targetRect.top + targetRect.height / 2 ? "after" : "before";
 }
 
 export function SidebarDragPreview(props: { preview: SidebarDndPreview }) {
@@ -231,17 +422,30 @@ export function SortableSidebarNode(props: {
     index: props.index,
     group: props.group,
     type: dragTypeForData(props.data),
-    accept: acceptedTypesForData(props.data),
+    // With optimistic DOM sorting disabled, row targets are safe across parents:
+    // they provide precise before/after anchors without reparenting React-owned DOM.
+    accept: (source) =>
+      source.id !== props.id &&
+      canUseSidebarSortableTarget(readSidebarDndData(source.data), props.data),
     data: props.data,
+    // Sidebar order is server-authoritative. dnd-kit's optimistic plugin physically
+    // moves React-owned DOM nodes and can leave the moved node behind when a thread
+    // changes folders. Keep collision/drag behavior, but commit semantic targets only.
+    plugins: (defaults) => defaults.filter((plugin) => plugin !== OptimisticSortingPlugin),
     transition: { duration: 180, easing: "cubic-bezier(0.2, 0, 0, 1)" },
   });
-  const setNodeRef = (element: Element | null) => {
-    sortable.ref(element);
-    // Keep the layout wrapper inert. Every sidebar node already owns an accessible
-    // row/header button, so registering that existing control as the handle avoids
-    // introducing a second tab stop or a nested synthetic button role.
-    sortable.handleRef(element?.querySelector("button") ?? element);
-  };
+  const sortableRef = sortable.ref;
+  const sortableHandleRef = sortable.handleRef;
+  const setNodeRef = useCallback(
+    (element: Element | null) => {
+      sortableRef(element);
+      // Keep the layout wrapper inert. Every sidebar node already owns an accessible
+      // row/header button, so registering that existing control as the handle avoids
+      // introducing a second tab stop or a nested synthetic button role.
+      sortableHandleRef(element?.querySelector("button") ?? element);
+    },
+    [sortableHandleRef, sortableRef],
+  );
 
   return (
     <div
@@ -254,8 +458,70 @@ export function SortableSidebarNode(props: {
       data-sidebar-dnd-source={sortable.isDragSource ? "true" : undefined}
       data-sidebar-dnd-target={sortable.isDropTarget ? "true" : undefined}
     >
+      <SidebarDropFeedbackFrame data={props.data}>{props.children}</SidebarDropFeedbackFrame>
+    </div>
+  );
+}
+
+function SidebarDropFeedbackFrame(props: { children: ReactNode; data: SidebarDndData }) {
+  const preview = useSidebarDropPreviewSnapshot();
+  const dropGap =
+    preview?.kind === "space" && props.data.type === "space"
+      ? preview.targetSpaceId === props.data.spaceId
+        ? preview.placement
+        : null
+      : preview?.kind === "item" && props.data.type === "item" && preview.anchorItem
+        ? areSidebarItemParentsEqual(preview.parent, props.data.parent) &&
+          preview.anchorItem.kind === props.data.item.kind &&
+          preview.anchorItem.id === props.data.item.id
+          ? preview.placement
+          : null
+        : null;
+
+  return (
+    <div
+      className={cn(
+        "relative transition-[padding] duration-150 [transition-timing-function:ease] motion-reduce:transition-none",
+        dropGap === "before" ? "pt-7" : "pt-0",
+        dropGap === "after" ? "pb-7" : "pb-0",
+      )}
+      data-sidebar-drop-preview={dropGap ?? undefined}
+    >
+      {dropGap ? (
+        <div
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute inset-x-2 z-30 h-0.5 rounded-full bg-[var(--color-border-focus)]",
+            dropGap === "before" ? "top-3.5" : "bottom-3.5",
+          )}
+          data-sidebar-drop-indicator={dropGap}
+        />
+      ) : null}
       {props.children}
     </div>
+  );
+}
+
+export function SidebarContainerDropPreview(props: {
+  enabled?: boolean;
+  parent: SidebarItemParent;
+}) {
+  const preview = useSidebarDropPreviewSnapshot();
+  const open =
+    props.enabled !== false &&
+    preview?.kind === "item" &&
+    preview.targetKind === "container" &&
+    areSidebarItemParentsEqual(preview.parent, props.parent);
+  return (
+    <DisclosureRegion open={open}>
+      <div
+        aria-hidden="true"
+        className="relative h-7"
+        data-sidebar-container-drop-preview={open ? "true" : undefined}
+      >
+        <div className="absolute inset-x-2 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-[var(--color-border-focus)]" />
+      </div>
+    </DisclosureRegion>
   );
 }
 
@@ -269,6 +535,9 @@ export function SidebarContainerDropTarget(props: {
     id: props.id,
     type: `penkra/sidebar-container:${props.data.parent.kind}`,
     accept: acceptedTypesForData(props.data),
+    ...(props.data.parent.kind === "project"
+      ? { collisionPriority: SIDEBAR_FOLDER_CONTAINER_COLLISION_PRIORITY }
+      : {}),
     data: props.data,
   });
 

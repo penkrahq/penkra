@@ -104,7 +104,7 @@ import {
   CHAT_COLUMN_GUTTER_CLASS_NAME,
   CHAT_CONTENT_INSET_MOTION_CLASS_NAME,
 } from "./composerPickerStyles";
-import { formatShortTimestamp } from "../../timestampFormat";
+import { formatMessageTimestamp } from "../../timestampFormat";
 import {
   buildInlineTerminalContextText,
   textContainsInlineTerminalContextLabels,
@@ -268,7 +268,6 @@ interface MessagesTimelineProps {
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
-  followLiveOutput?: boolean;
   emptyStateContent?: ReactNode;
   listRef?: RefObject<TranscriptVirtualListRef | null>;
   /** Optional controller for transcript navigation surfaces and interaction stories. */
@@ -325,7 +324,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isWorking,
   activeTurnInProgress,
   activeTurnStartedAt,
-  followLiveOutput: followLiveOutputProp,
   listRef,
   controllerRef,
   pinnedMessageIds,
@@ -365,7 +363,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 }: MessagesTimelineProps) {
   // Assignment-pattern parameters make React Compiler silently skip the whole
   // timeline, so resolve optional defaults in the body.
-  const followLiveOutput = followLiveOutputProp ?? false;
   const threadMarkers = threadMarkersProp ?? EMPTY_MESSAGE_MARKERS;
   const enteringUserMessageIds = enteringUserMessageIdsProp ?? EMPTY_MESSAGE_ID_SET;
   const crossTaskOrigin = crossTaskOriginProp ?? null;
@@ -374,6 +371,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const normalizedChatFontSizePx = normalizeChatFontSizePx(
     chatFontSizePxProp ?? DEFAULT_CHAT_FONT_SIZE_PX,
   );
+  const messageTimestampReference = new Date(nowIso ?? Date.now());
   // Inset rows from the right (overriding the gutter's right padding) without moving the
   // scroll viewport, so the scrollbar stays pinned to the far right while content clears
   // any right-edge overlay. Kept stable so virtualization does not remeasure on unrelated updates.
@@ -473,6 +471,20 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [timelineEntries, isWorking, activeTurnInProgress, activeTurnId, activeTurnStartedAt],
   );
   const rows = useStableRows(rawRows);
+  const transcriptAnchorRevision = useMemo(() => {
+    const messageRows = rows.filter(
+      (row): row is Extract<MessagesTimelineRow, { kind: "message" }> => row.kind === "message",
+    );
+    const tail = messageRows.at(-1)?.message ?? null;
+    return [
+      messageRows.length,
+      tail?.id ?? "empty",
+      tail?.role ?? "empty",
+      tail?.streaming ? "streaming" : "settled",
+      tail?.text.length ?? 0,
+      tail?.completedAt ?? "",
+    ].join(":");
+  }, [rows]);
   // The newest work group renders its rows inline while the turn is live; every
   // older run of tool calls folds into a "Ran N commands..." summary row.
   const lastLiveWorkGroupId = useMemo(() => findLastLiveWorkGroupId(rows), [rows]);
@@ -1253,7 +1265,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         style={chatMessageFooterStyle}
                       >
                         <p className={cn("px-2 tabular-nums", MESSAGE_HOVER_REVEAL_CLASS_NAME)}>
-                          {formatShortTimestamp(row.message.createdAt, timestampFormat)}
+                          {formatMessageTimestamp(
+                            row.message.createdAt,
+                            timestampFormat,
+                            messageTimestampReference,
+                          )}
                         </p>
                         <div className="flex items-center gap-1">
                           {displayedUserMessage.copyText && (
@@ -1357,7 +1373,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const isTerminalAssistantMessage = row.showAssistantCopyButton;
             const assistantMeta = [
               isTerminalAssistantMessage
-                ? formatShortTimestamp(row.message.createdAt, timestampFormat)
+                ? formatMessageTimestamp(
+                    row.message.createdAt,
+                    timestampFormat,
+                    messageTimestampReference,
+                  )
                 : null,
             ]
               .filter((value): value is string => Boolean(value))
@@ -1748,9 +1768,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
         {row.kind === "working-header" && (
           <div>
-            {/* Non-collapsible twin of the settled "Worked for" header: same label
-              tone, size, and full-width divider, but counting up live. -ml-0.5
-              optically aligns the leading "W" with the reply text below. */}
             <div
               className="-ml-0.5 pb-2 text-muted-foreground/70"
               style={{ fontSize: chatTypographyStyle.fontSize }}
@@ -1798,10 +1815,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       <TranscriptVirtualList<MessagesTimelineRow>
         ref={resolvedListRef}
         data={rows}
+        anchorRevision={transcriptAnchorRevision}
         keyExtractor={(row) => row.id}
         renderItem={renderRowContent}
         estimatedItemSize={90}
-        followLiveOutput={followLiveOutput}
         paddingEnd={BOTTOM_CONTENT_INSET_PX}
         onClickCapture={onMessagesClickCapture}
         onMouseUp={onMessagesMouseUp}

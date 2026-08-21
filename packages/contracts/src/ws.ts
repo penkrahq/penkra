@@ -75,7 +75,6 @@ import {
   BeginProviderConnectionLoginInput,
   GetProviderConnectionLoginInput,
   ProviderConnectionsSnapshotInput,
-  SetSpaceConnectionDefaultInput,
   TerminateProviderConnectionInput,
   ThreadProviderBindingSnapshotInput,
 } from "./providerConnections";
@@ -155,7 +154,6 @@ export const WS_METHODS = {
   providerGetConnectionLogin: "provider.getConnectionLogin",
   providerCancelConnectionLogin: "provider.cancelConnectionLogin",
   providerTerminateConnection: "provider.terminateConnection",
-  providerSetSpaceDefaultConnection: "provider.setSpaceDefaultConnection",
 } as const;
 
 // ── Push Event Channels ──────────────────────────────────────────────
@@ -273,7 +271,6 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.providerGetConnectionLogin, GetProviderConnectionLoginInput),
   tagRequestBody(WS_METHODS.providerCancelConnectionLogin, GetProviderConnectionLoginInput),
   tagRequestBody(WS_METHODS.providerTerminateConnection, TerminateProviderConnectionInput),
-  tagRequestBody(WS_METHODS.providerSetSpaceDefaultConnection, SetSpaceConnectionDefaultInput),
 ]);
 
 export const WebSocketRequest = Schema.Struct({

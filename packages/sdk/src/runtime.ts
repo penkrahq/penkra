@@ -84,6 +84,13 @@ export interface AppScopedFileWrite {
   chunkBytes: number;
 }
 
+export interface AppTransferProgressEvent {
+  id: string;
+  phase: "uploading" | "downloading";
+  movedBytes: number;
+  totalBytes: number | null;
+}
+
 export interface AppBrowserPage {
   id: string;
   url: string;
@@ -189,7 +196,12 @@ export interface PenkraAppRuntimeApi {
   /** User-selected or host-handed-off file capabilities scoped to this App and Space. */
   files: {
     list(): Promise<ReadonlyArray<AppScopedFileHandle>>;
-    pick(kind: "file" | "directory"): Promise<AppScopedFileHandle | null>;
+    pick(
+      kind: "file" | "directory" | "save",
+      options?: { suggestedName?: string },
+    ): Promise<AppScopedFileHandle | null>;
+    open(handleId: string, relativePath?: string): Promise<string>;
+    closeUrl(url: string): Promise<void>;
     revoke(handleId: string): Promise<void>;
     stat(handleId: string, relativePath?: string): Promise<AppScopedFileEntry>;
     listDirectory(
@@ -224,28 +236,44 @@ export interface PenkraAppRuntimeApi {
   };
   /** Host-mediated private storage scoped to this App and Space. */
   storage: {
-    fetchToFile(input: {
-      url: string;
-      method?: "GET" | "POST";
-      headers?: Record<string, string>;
-      body?: string;
-      into: string;
-    }): Promise<{ path: string; bytes: number; sha256: string }>;
+    open(path: string): Promise<string>;
+    closeUrl(url: string): Promise<void>;
     writeFile(input: {
       into: string;
       content: string;
       encoding?: "utf-8" | "base64";
     }): Promise<{ path: string; bytes: number }>;
-    uploadFromFile(input: {
-      url: string;
-      method?: "POST" | "PUT";
-      headers?: Record<string, string>;
-      from: string;
-      field?: string;
-    }): Promise<{ status: number; headers: Record<string, string>; body: string }>;
     remove(input: { path: string; recursive?: boolean }): Promise<void>;
     list(input?: { path?: string }): Promise<ReadonlyArray<AppStorageFileEntry>>;
     usage(): Promise<{ bytes: number }>;
+  };
+  /** Host-validated bulk transfer service for renderer, handle, and App-storage bytes. */
+  transfer: {
+    begin(input: {
+      url: string;
+      method?: "POST" | "PUT" | "PATCH";
+      headers?: Record<string, string>;
+    }): Promise<{ id: string; endpoint: string }>;
+    send(input: {
+      url: string;
+      method?: "POST" | "PUT" | "PATCH";
+      headers?: Record<string, string>;
+      from: { handleId: string; relativePath?: string } | { storage: string };
+      field?: string;
+    }): Promise<{
+      id: string;
+      status: number;
+      headers: Record<string, string>;
+      body: string;
+    }>;
+    receive(input: {
+      url: string;
+      method?: "GET" | "POST";
+      headers?: Record<string, string>;
+      body?: string;
+      to: { storage: string } | { handleId: string; relativePath?: string };
+    }): Promise<{ id: string; bytes: number; sha256: string }>;
+    onProgress(listener: (event: AppTransferProgressEvent) => void): () => void;
   };
   composer: {
     /** Stage a visible draft in this App surface's thread. Never sends it. */
@@ -390,7 +418,9 @@ export const contextMenu: PenkraAppRuntimeApi["contextMenu"] = {
 
 export const files: PenkraAppRuntimeApi["files"] = {
   list: () => runtime().files.list(),
-  pick: (kind) => runtime().files.pick(kind),
+  pick: (kind, options) => runtime().files.pick(kind, options),
+  open: (handleId, relativePath) => runtime().files.open(handleId, relativePath),
+  closeUrl: (url) => runtime().files.closeUrl(url),
   revoke: (handleId) => runtime().files.revoke(handleId),
   stat: (handleId, relativePath) => runtime().files.stat(handleId, relativePath),
   listDirectory: (handleId, relativePath) => runtime().files.listDirectory(handleId, relativePath),
@@ -409,12 +439,19 @@ export const files: PenkraAppRuntimeApi["files"] = {
 };
 
 export const storage: PenkraAppRuntimeApi["storage"] = {
-  fetchToFile: (input) => runtime().storage.fetchToFile(input),
+  open: (path) => runtime().storage.open(path),
+  closeUrl: (url) => runtime().storage.closeUrl(url),
   writeFile: (input) => runtime().storage.writeFile(input),
-  uploadFromFile: (input) => runtime().storage.uploadFromFile(input),
   remove: (input) => runtime().storage.remove(input),
   list: (input) => runtime().storage.list(input),
   usage: () => runtime().storage.usage(),
+};
+
+export const transfer: PenkraAppRuntimeApi["transfer"] = {
+  begin: (input) => runtime().transfer.begin(input),
+  send: (input) => runtime().transfer.send(input),
+  receive: (input) => runtime().transfer.receive(input),
+  onProgress: (listener) => runtime().transfer.onProgress(listener),
 };
 
 export const composer: PenkraAppRuntimeApi["composer"] = {

@@ -761,6 +761,23 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           },
         ]);
 
+        // If a stale readiness event or an older build removed the journal row,
+        // a later running session must recover the canonical Penkra turn and
+        // message identity from projection_turns. Persisting the provider turn
+        // id here would make restartTurnRecovery reject the row as a mismatch.
+        yield* sql`
+          DELETE FROM restart_turn_recoveries
+          WHERE thread_id = ${threadId}
+        `;
+        yield* setSession("running-rearmed", "running", "turn-recovery-1");
+        assert.deepStrictEqual(yield* rows(), [
+          {
+            threadId: "thread-restart-recovery",
+            turnId: "turn:cmd-restart-recovery-1-admitted",
+            messageId: "message-restart-recovery",
+          },
+        ]);
+
         yield* setSession("shutdown", "stopped", null);
         assert.equal((yield* rows()).length, 1);
 

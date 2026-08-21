@@ -3981,6 +3981,64 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
     }),
   );
 
+  it.effect("preserves repeated Codex delta occurrences with identical raw payloads", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const session = yield* provider.startSession(asThreadId("thread-repeated-delta"), {
+        provider: "codex",
+        threadId: asThreadId("thread-repeated-delta"),
+        runtimeMode: "full-access",
+      });
+
+      const receivedRef = yield* Ref.make<Array<ProviderRuntimeEvent>>([]);
+      const consumer = yield* Stream.take(provider.streamEvents, 2).pipe(
+        Stream.runForEach((event) => Ref.update(receivedRef, (current) => [...current, event])),
+        Effect.forkChild,
+      );
+      yield* sleep(50);
+
+      const raw = {
+        source: "codex.app-server.notification" as const,
+        method: "item/agentMessage/delta",
+        payload: {
+          threadId: "provider-thread-repeated-delta",
+          turnId: "turn-repeated-delta",
+          itemId: "item-repeated-delta",
+          delta: " is",
+        },
+      };
+      for (const eventId of ["evt-repeated-delta-1", "evt-repeated-delta-2"]) {
+        fanout.codex.emit({
+          type: "content.delta",
+          eventId: asEventId(eventId),
+          provider: "codex",
+          createdAt: new Date().toISOString(),
+          threadId: session.threadId,
+          turnId: asTurnId("turn-repeated-delta"),
+          itemId: "item-repeated-delta",
+          payload: { streamKind: "assistant_text", delta: " is" },
+          raw,
+        });
+      }
+
+      yield* Fiber.join(consumer);
+      const received = yield* Ref.get(receivedRef);
+      assert.deepEqual(
+        received.map((event) => ({ eventId: event.eventId, payload: event.payload })),
+        [
+          {
+            eventId: asEventId("evt-repeated-delta-1"),
+            payload: { streamKind: "assistant_text", delta: " is" },
+          },
+          {
+            eventId: asEventId("evt-repeated-delta-2"),
+            payload: { streamKind: "assistant_text", delta: " is" },
+          },
+        ],
+      );
+    }),
+  );
+
   it.effect("keeps subscriber delivery ordered and isolates failing subscribers", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;

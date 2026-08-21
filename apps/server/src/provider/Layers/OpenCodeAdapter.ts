@@ -28,7 +28,6 @@ import type {
 } from "@opencode-ai/sdk/v2";
 
 import { resolveProviderAttachmentPath } from "../providerAttachmentPaths.ts";
-import { providerRuntimeEventIdFromNative } from "../providerRuntimeEventIdentity.ts";
 import { ServerConfig } from "../../config.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import {
@@ -278,15 +277,11 @@ function buildProviderEventBase(input: {
   "eventId" | "provider" | "threadId" | "createdAt" | "turnId" | "itemId" | "requestId" | "raw"
 > {
   return {
-    eventId:
-      input.raw === undefined
-        ? EventId.makeUnsafe(randomUUID())
-        : providerRuntimeEventIdFromNative({
-            provider: input.provider,
-            source: input.runtimeEventSource,
-            threadId: input.threadId,
-            nativeEvent: input.raw,
-          }),
+    // OpenCode's event stream does not expose a provider occurrence id or replay cursor. A
+    // cumulative native snapshot can also fan out into several canonical deltas, so hashing that
+    // snapshot is neither unique per occurrence nor a safe replay identity. Assign identity at
+    // this canonical emission boundary; completed text snapshots reconcile replayed fragments.
+    eventId: EventId.makeUnsafe(randomUUID()),
     provider: input.provider,
     threadId: input.threadId,
     createdAt: input.createdAt ?? nowIso(),
@@ -556,7 +551,18 @@ function resolveLatestAssistantText(previousText: string | undefined, nextText: 
 function mergeOpenCodeAssistantText(
   previousText: string | undefined,
   nextText: string,
+  options?: { readonly authoritative?: boolean },
 ): { readonly latestText: string; readonly deltaToEmit: string } {
+  if (options?.authoritative) {
+    const previous = previousText ?? "";
+    return {
+      latestText: nextText,
+      // A terminal snapshot can safely extend an observed prefix. If it instead corrects or
+      // shortens speculative deltas, emit no append: item.completed replaces the projection with
+      // this authoritative snapshot.
+      deltaToEmit: nextText.startsWith(previous) ? nextText.slice(previous.length) : "",
+    };
+  }
   const latestText = resolveLatestAssistantText(previousText, nextText);
   return {
     latestText,
@@ -1209,13 +1215,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
       const emit = (context: OpenCodeSessionContext, event: ProviderRuntimeEvent) =>
         Queue.offer(runtimeEvents, {
           ...event,
-          // One native notification may fan out (for example a final text
-          // snapshot can emit both its missing delta and item completion).
-          // Namespace the stable native id by canonical lifecycle type so both
-          // records survive while an identical replay remains idempotent.
-          eventId: event.eventId.startsWith("native:")
-            ? EventId.makeUnsafe(`${event.eventId}:${event.type}`)
-            : event.eventId,
           ...(context.lifecycleGeneration !== undefined
             ? { lifecycleGeneration: context.lifecycleGeneration }
             : {}),
@@ -1341,7 +1340,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             ? nextTextItemId
             : part.id;
         const previousText = context.emittedTextByPartId.get(itemId);
-        const { latestText, deltaToEmit } = mergeOpenCodeAssistantText(previousText, text);
+        const { latestText, deltaToEmit } = mergeOpenCodeAssistantText(previousText, text, {
+          authoritative: part.type === "text" && part.time?.end !== undefined,
+        });
         context.emittedTextByPartId.set(itemId, latestText);
         if (itemId !== part.id) {
           context.emittedTextByPartId.set(part.id, latestText);
@@ -1417,7 +1418,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
 
           const previousText = context.emittedTextByPartId.get(nextTextItemId);
-          const { latestText, deltaToEmit } = mergeOpenCodeAssistantText(previousText, text);
+          const { latestText, deltaToEmit } = mergeOpenCodeAssistantText(previousText, text, {
+            authoritative: part.time?.end !== undefined,
+          });
           context.emittedTextByPartId.set(nextTextItemId, latestText);
           context.emittedTextByPartId.set(part.id, latestText);
           context.partById.set(part.id, { ...part, text: latestText });

@@ -152,6 +152,7 @@ describe("TraitsPicker (Claude)", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyConnectionByProvider: {},
     });
   });
 
@@ -400,6 +401,7 @@ describe("TraitsPicker (Codex)", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyConnectionByProvider: {},
     });
   });
 
@@ -745,6 +747,7 @@ describe("TraitsPicker (OpenCode)", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyConnectionByProvider: {},
     });
   });
 

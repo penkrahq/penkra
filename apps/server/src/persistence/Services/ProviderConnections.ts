@@ -1,5 +1,5 @@
 // FILE: ProviderConnections.ts
-// Purpose: Durable Connection lifecycle and Space-default repository contract.
+// Purpose: Durable Connection lifecycle repository contract.
 
 import {
   IsoDateTime,
@@ -8,8 +8,6 @@ import {
   ProviderConnectionId,
   ProviderConnectionTerminationReason,
   ProviderKind,
-  SpaceConnectionDefault,
-  SpaceId,
   TrimmedNonEmptyString,
 } from "@penkra/contracts";
 import { Effect, Option, Schema, ServiceMap } from "effect";
@@ -131,12 +129,6 @@ export interface ProviderConnectionRepositoryShape {
     readonly reason: ProviderConnectionTerminationReason;
     readonly terminatedAt: string;
   }) => Effect.Effect<Option.Option<ProviderConnection>, ProviderConnectionRepositoryError>;
-  readonly setSpaceDefault: (
-    input: SpaceConnectionDefault,
-  ) => Effect.Effect<void, ProviderConnectionRepositoryError>;
-  readonly listSpaceDefaults: (
-    spaceId: SpaceId,
-  ) => Effect.Effect<ReadonlyArray<SpaceConnectionDefault>, ProviderConnectionRepositoryError>;
 }
 
 export class ProviderConnectionRepository extends ServiceMap.Service<

@@ -3725,6 +3725,14 @@ describe("ProviderCommandReactor", () => {
     );
 
     await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
+      managedLaunch: {
+        binaryPath: "/managed/provider",
+        isolationKey: "test-managed-isolation",
+        profileRoot: "/managed/profile",
+        nativeStateRoot: "/managed/native",
+      },
+    });
     await waitFor(
       async () => (await readHarnessThread(harness))?.title === "Polish loading states",
     );

@@ -59,6 +59,46 @@ export class AppScopedFileHandleStore {
     return publicHandle(handle);
   }
 
+  async grantWritableFile(input: {
+    appId: string;
+    spaceId: string;
+    path: string;
+  }): Promise<AppScopedFileHandle> {
+    if (!Path.isAbsolute(input.path) || input.path.includes("\0")) {
+      throw new Error("The save destination must be an absolute file path.");
+    }
+    const parent = await FS.promises.realpath(Path.dirname(input.path));
+    const stats = await FS.promises.stat(parent);
+    if (!stats.isDirectory()) throw new Error("The save destination parent is not a directory.");
+    const rootPath = Path.join(parent, Path.basename(input.path));
+    try {
+      const existingPath = await FS.promises.realpath(rootPath);
+      const existing = await FS.promises.stat(existingPath);
+      if (!existing.isFile()) throw new Error("The save destination must be a regular file.");
+      if (existingPath !== rootPath) throw new Error("The save destination cannot be a symlink.");
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+    }
+    const duplicate = [...this.#handles.values()].find(
+      (handle) =>
+        handle.appId === input.appId &&
+        handle.spaceId === input.spaceId &&
+        handle.kind === "file" &&
+        handle.rootPath === rootPath,
+    );
+    if (duplicate) return publicHandle(duplicate);
+    const handle: AppScopedFileHandleRecord = {
+      id: Crypto.randomUUID(),
+      appId: input.appId,
+      spaceId: input.spaceId,
+      kind: "file",
+      name: Path.basename(rootPath),
+      rootPath,
+    };
+    this.#handles.set(handle.id, handle);
+    return publicHandle(handle);
+  }
+
   resolve(appId: string, spaceId: string, handleId: unknown): AppScopedFileHandleRecord {
     if (typeof handleId !== "string") throw new Error("File handle ID must be a string.");
     const handle = this.#handles.get(handleId);
@@ -81,6 +121,10 @@ export class AppScopedFileHandleStore {
       this.#handles.delete(handleId);
     }
   }
+}
+
+function isMissing(error: unknown): boolean {
+  return !!error && typeof error === "object" && "code" in error && error.code === "ENOENT";
 }
 
 function publicHandle(handle: AppScopedFileHandleRecord): AppScopedFileHandle {

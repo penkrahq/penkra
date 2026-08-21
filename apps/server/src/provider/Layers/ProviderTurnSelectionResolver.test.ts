@@ -2,7 +2,6 @@ import {
   ProviderConnectionId,
   ProviderInstallationId,
   ProviderNativeStateGenerationId,
-  SpaceId,
   ThreadId,
 } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
@@ -20,12 +19,10 @@ import { ProviderTurnSelectionResolverLive } from "./ProviderTurnSelectionResolv
 const threadId = ThreadId.makeUnsafe("selection-thread");
 const connectionId = ProviderConnectionId.makeUnsafe("selection-go");
 const codexConnectionId = ProviderConnectionId.makeUnsafe("selection-codex-managed");
-const spaceId = SpaceId.makeUnsafe("selection-space");
 const installationId = ProviderInstallationId.makeUnsafe("selection-installation");
 const timestamp = "2026-08-08T00:00:00.000Z";
 
 let connectionLifecycle: "active" | "terminated" = "active";
-let spaceDefaultConnectionId: ProviderConnectionId | null = codexConnectionId;
 let modelAvailable = true;
 let hasRuntimeBinding = true;
 let installationLifecycle: "active" | "retired" = "active";
@@ -183,20 +180,6 @@ const dependencies = Layer.mergeAll(
           updatedAt: timestamp,
         }),
       ),
-    listSpaceDefaults: () =>
-      Effect.succeed(
-        spaceDefaultConnectionId === null
-          ? []
-          : [
-              {
-                spaceId,
-                harness: spaceDefaultConnectionId === codexConnectionId ? "codex" : "opencode",
-                connectionId: spaceDefaultConnectionId,
-                createdAt: timestamp,
-                updatedAt: timestamp,
-              },
-            ],
-      ),
     list: () =>
       Effect.succeed([
         {
@@ -206,12 +189,12 @@ const dependencies = Layer.mergeAll(
           authenticationMethodId: "chatgpt",
           label: "Codex",
           providerIdentityId: null,
-          health: "ready",
+          health: connectionLifecycle === "active" ? "ready" : "unavailable",
           healthReason: null,
           lastCheckedAt: timestamp,
-          lifecycle: "active",
-          terminationReason: null,
-          terminatedAt: null,
+          lifecycle: connectionLifecycle,
+          terminationReason: connectionLifecycle === "terminated" ? "disconnected" : null,
+          terminatedAt: connectionLifecycle === "terminated" ? timestamp : null,
           createdAt: timestamp,
           updatedAt: timestamp,
         },
@@ -223,23 +206,10 @@ const resolverLayer = ProviderTurnSelectionResolverLive.pipe(Layer.provide(depen
 const layer = it.layer(Layer.mergeAll(dependencies, resolverLayer));
 
 layer("ProviderTurnSelectionResolver", (it) => {
-  it.effect("accepts a managed profile as the Space's exact new-thread Connection", () =>
-    Effect.gen(function* () {
-      spaceDefaultConnectionId = codexConnectionId;
-      const resolver = yield* ProviderTurnSelectionResolver;
-      const selected = yield* resolver.resolveNewThreadConnection({
-        spaceId,
-        modelSelection: { provider: "codex", model: "gpt-5.5" },
-      });
-      assert.strictEqual(selected, codexConnectionId);
-    }),
-  );
-
-  it.effect("uses the newest compatible active Connection as Primary's default", () =>
+  it.effect("uses the newest compatible active Connection for a new thread", () =>
     Effect.gen(function* () {
       const resolver = yield* ProviderTurnSelectionResolver;
       const selected = yield* resolver.resolveNewThreadConnection({
-        spaceId: null,
         modelSelection: { provider: "codex", model: "gpt-5.5" },
       });
       assert.strictEqual(selected, codexConnectionId);
@@ -248,32 +218,19 @@ layer("ProviderTurnSelectionResolver", (it) => {
 
   it.effect("uses null only for an explicitly adapter-authorized anonymous route", () =>
     Effect.gen(function* () {
-      spaceDefaultConnectionId = null;
       const resolver = yield* ProviderTurnSelectionResolver;
       const anonymous = yield* resolver.resolveNewThreadConnection({
-        spaceId,
         modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
       });
       assert.strictEqual(anonymous, null);
+      connectionLifecycle = "terminated";
       const unavailable = yield* Effect.exit(
         resolver.resolveNewThreadConnection({
-          spaceId,
           modelSelection: { provider: "codex", model: "gpt-5.5" },
         }),
       );
+      connectionLifecycle = "active";
       assert.strictEqual(unavailable._tag, "Failure");
-    }),
-  );
-
-  it.effect("uses an anonymous model route instead of an incompatible Space default", () =>
-    Effect.gen(function* () {
-      spaceDefaultConnectionId = connectionId;
-      const resolver = yield* ProviderTurnSelectionResolver;
-      const anonymous = yield* resolver.resolveNewThreadConnection({
-        spaceId,
-        modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
-      });
-      assert.strictEqual(anonymous, null);
     }),
   );
 

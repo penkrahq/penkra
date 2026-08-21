@@ -1347,6 +1347,14 @@ const ThreadActivityAppendCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadActivityReadModelTouchCommand = Schema.Struct({
+  type: Schema.Literal("thread.activity-read-model.touch"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  turnId: Schema.NullOr(TurnId),
+  createdAt: IsoDateTime,
+});
+
 const DispatchableClientOrchestrationCommand = Schema.Union([
   SpaceCreateCommand,
   SpaceMetaUpdateCommand,
@@ -1465,6 +1473,8 @@ const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   messageId: MessageId,
+  /** Authoritative provider snapshot; replaces any streamed or buffered accumulator. */
+  finalText: Schema.optional(Schema.String),
   turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
@@ -1503,6 +1513,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
   ThreadActivityAppendCommand,
+  ThreadActivityReadModelTouchCommand,
   ThreadConversationRollbackCommand,
   ThreadConversationRollbackCompleteCommand,
   ThreadTurnStartCancelCompleteCommand,
@@ -1562,6 +1573,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.session-stop-requested",
   "thread.session-set",
   "thread.activity-appended",
+  "thread.activity-read-model-updated",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -1935,6 +1947,12 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
   activity: OrchestrationThreadActivity,
 });
 
+export const ThreadActivityReadModelUpdatedPayload = Schema.Struct({
+  threadId: ThreadId,
+  turnId: Schema.NullOr(TurnId),
+  updatedAt: IsoDateTime,
+});
+
 export const OrchestrationEventMetadata = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
@@ -2166,6 +2184,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.activity-read-model-updated"),
+    payload: ThreadActivityReadModelUpdatedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

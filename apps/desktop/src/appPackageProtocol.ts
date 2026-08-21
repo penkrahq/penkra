@@ -3,8 +3,10 @@
 // Layer: Trusted desktop App runtime
 
 import * as FS from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import * as Path from "node:path";
 
+import { APP_BLOB_URL_PREFIX, type AppBlobUrlRegistry } from "./appBlobUrlRegistry";
 import { resolveAppSpacePackagePath } from "./appRuntimePolicy";
 
 export const APP_FRAME_RUNTIME_PATH = "/.penkra/runtime.js";
@@ -28,6 +30,8 @@ export interface AppPackageProtocolInput {
   packageRoot: string;
   entrypoint: string;
   runtimeScriptPath?: string;
+  blobUrls?: Pick<AppBlobUrlRegistry, "resolve">;
+  transferHandler?: (request: Request) => Promise<Response>;
 }
 
 export type AppPackageProtocolHandler = (request: Request) => Promise<Response>;
@@ -56,6 +60,14 @@ export async function createAppPackageProtocolHandler(
           headers: responseHeaders("runtime.js"),
         });
       }
+      if (requestUrl.pathname.startsWith(APP_BLOB_URL_PREFIX)) {
+        if (!input.blobUrls) throw new Error("The App blob service is unavailable.");
+        return await serveAppBlob(input.origin, request, input.blobUrls);
+      }
+      if (requestUrl.pathname.startsWith("/.penkra/transfer/")) {
+        if (!input.transferHandler) throw new Error("The App transfer service is unavailable.");
+        return await input.transferHandler(request);
+      }
       const requestedPath = resolveAppSpacePackagePath(canonicalRoot, input.origin, request.url);
       const path = await resolveRequestFile(canonicalRoot, requestedPath, entrypointPath);
       const contents = await FS.promises.readFile(path);
@@ -74,6 +86,147 @@ export async function createAppPackageProtocolHandler(
         headers: responseHeaders("not-found.txt"),
       });
     }
+  };
+}
+
+async function serveAppBlob(
+  origin: string,
+  request: Request,
+  registry: Pick<AppBlobUrlRegistry, "resolve">,
+): Promise<Response> {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response("Method not allowed", {
+      status: 405,
+      headers: { ...responseHeaders("method-not-allowed.txt"), Allow: "GET, HEAD" },
+    });
+  }
+  const url = new URL(request.url);
+  assertAssignedOrigin(origin, url);
+  const token = url.pathname.slice(APP_BLOB_URL_PREFIX.length);
+  const record = registry.resolve(origin, token);
+  const canonicalPath = await FS.promises.realpath(record.path);
+  if (canonicalPath !== record.path) throw new Error("The App blob target changed.");
+  const file = await FS.promises.open(
+    canonicalPath,
+    FS.constants.O_RDONLY | FS.constants.O_NOFOLLOW,
+  );
+  let stat: FS.Stats;
+  try {
+    stat = await file.stat();
+  } catch (error) {
+    await file.close().catch(() => undefined);
+    throw error;
+  }
+  if (!stat.isFile()) {
+    await file.close();
+    throw new Error("The App blob target is not a regular file.");
+  }
+
+  const range = parseByteRange(request.headers.get("range"), stat.size);
+  if (range === "unsatisfiable") {
+    await file.close();
+    return new Response(null, {
+      status: 416,
+      headers: blobHeaders(canonicalPath, 0, { contentRange: `bytes */${stat.size}` }),
+    });
+  }
+  const start = range?.start ?? 0;
+  const end = range?.end ?? Math.max(0, stat.size - 1);
+  const length = stat.size === 0 ? 0 : end - start + 1;
+  const headers = blobHeaders(canonicalPath, length, {
+    ...(range ? { contentRange: `bytes ${start}-${end}/${stat.size}` } : {}),
+  });
+  if (request.method === "HEAD" || length === 0) {
+    await file.close();
+    return new Response(null, { status: range ? 206 : 200, headers });
+  }
+  const body = fileRangeStream(file, start, length);
+  return new Response(body, { status: range ? 206 : 200, headers });
+}
+
+function fileRangeStream(
+  file: FileHandle,
+  start: number,
+  length: number,
+): ReadableStream<Uint8Array> {
+  let position = start;
+  let remaining = length;
+  let closed = false;
+  const close = async () => {
+    if (closed) return;
+    closed = true;
+    await file.close();
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (remaining === 0) {
+        controller.close();
+        await close();
+        return;
+      }
+      const chunk = new Uint8Array(Math.min(64 * 1024, remaining));
+      try {
+        const { bytesRead } = await file.read(chunk, 0, chunk.byteLength, position);
+        if (bytesRead === 0) {
+          throw new Error("The App blob target changed while it was streaming.");
+        }
+        position += bytesRead;
+        remaining -= bytesRead;
+        controller.enqueue(bytesRead === chunk.byteLength ? chunk : chunk.subarray(0, bytesRead));
+        if (remaining === 0) {
+          controller.close();
+          await close();
+        }
+      } catch (error) {
+        await close().catch(() => undefined);
+        controller.error(error);
+      }
+    },
+    async cancel() {
+      await close();
+    },
+  });
+}
+
+function assertAssignedOrigin(origin: string, url: URL): void {
+  const expected = new URL(origin);
+  if (url.protocol !== expected.protocol || url.host !== expected.host) {
+    throw new Error("The App resource belongs to another origin.");
+  }
+}
+
+function parseByteRange(
+  value: string | null,
+  size: number,
+): { start: number; end: number } | "unsatisfiable" | null {
+  if (!value) return null;
+  const match = /^bytes=(\d*)-(\d*)$/u.exec(value.trim());
+  if (!match || (!match[1] && !match[2]) || size === 0) return "unsatisfiable";
+  if (!match[1]) {
+    const suffix = Number(match[2]);
+    if (!Number.isSafeInteger(suffix) || suffix <= 0) return "unsatisfiable";
+    return { start: Math.max(0, size - suffix), end: size - 1 };
+  }
+  const start = Number(match[1]);
+  const requestedEnd = match[2] ? Number(match[2]) : size - 1;
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(requestedEnd) ||
+    start < 0 ||
+    start >= size ||
+    requestedEnd < start
+  ) {
+    return "unsatisfiable";
+  }
+  return { start, end: Math.min(requestedEnd, size - 1) };
+}
+
+function blobHeaders(path: string, length: number, input: { contentRange?: string }): HeadersInit {
+  return {
+    ...responseHeaders(path),
+    "Accept-Ranges": "bytes",
+    "Content-Length": String(length),
+    ...(input.contentRange ? { "Content-Range": input.contentRange } : {}),
   };
 }
 
@@ -154,6 +307,27 @@ function contentType(path: string): string {
       return "image/jpeg";
     case ".webp":
       return "image/webp";
+    case ".avif":
+      return "image/avif";
+    case ".gif":
+      return "image/gif";
+    case ".mp4":
+    case ".m4v":
+      return "video/mp4";
+    case ".mov":
+      return "video/quicktime";
+    case ".webm":
+      return "video/webm";
+    case ".mp3":
+      return "audio/mpeg";
+    case ".m4a":
+      return "audio/mp4";
+    case ".wav":
+      return "audio/wav";
+    case ".ogg":
+      return "audio/ogg";
+    case ".pdf":
+      return "application/pdf";
     case ".woff":
       return "font/woff";
     case ".woff2":

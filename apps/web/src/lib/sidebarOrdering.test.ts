@@ -4,7 +4,7 @@
 import type { SidebarItemReference } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
-import { resolveSidebarMovePosition } from "./sidebarOrdering";
+import { resolveSidebarInsertionIndex, resolveSidebarMovePosition } from "./sidebarOrdering";
 
 const project = (id: string): SidebarItemReference => ({ kind: "project", id: id as never });
 
@@ -33,6 +33,37 @@ describe("resolveSidebarMovePosition", () => {
         isPinned,
       }),
     ).toEqual({ type: "before", item: project("two") });
+  });
+
+  it("anchors the first position when the list has no pinned items", () => {
+    const unpinnedItems = [project("one"), project("two")];
+    expect(
+      resolveSidebarMovePosition({
+        item: project("moved"),
+        destinationItems: unpinnedItems,
+        requestedIndex: 0,
+        isPinned: () => false,
+      }),
+    ).toEqual({ type: "before", item: project("one") });
+  });
+
+  it("exposes the same pin-clamped insertion index for live drag feedback", () => {
+    expect(
+      resolveSidebarInsertionIndex({
+        item: project("moved"),
+        destinationItems,
+        requestedIndex: 0,
+        isPinned,
+      }),
+    ).toBe(2);
+    expect(
+      resolveSidebarInsertionIndex({
+        item: project("moved"),
+        destinationItems: [project("one"), project("two")],
+        requestedIndex: 0,
+        isPinned: () => false,
+      }),
+    ).toBe(0);
   });
 
   it("keeps pinned moves inside the pinned block", () => {

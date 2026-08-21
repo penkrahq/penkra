@@ -518,8 +518,6 @@ export function createWsNativeApi(): NativeApi {
         transport.request(WS_METHODS.providerCancelConnectionLogin, input),
       terminateConnection: (input) =>
         transport.request(WS_METHODS.providerTerminateConnection, input),
-      setSpaceDefaultConnection: (input) =>
-        transport.request(WS_METHODS.providerSetSpaceDefaultConnection, input),
     },
     orchestration: {
       getSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getSnapshot),

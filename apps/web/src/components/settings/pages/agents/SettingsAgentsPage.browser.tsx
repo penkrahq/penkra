@@ -125,21 +125,23 @@ function snapshot() {
       },
     ],
     installations,
-    spaceDefaults: [],
     anonymousRoutes: [{ harness: "opencode" as const, internalProviderId: "opencode" }],
     authenticationMethods,
   };
 }
 
-function renderPage() {
+let mountedPage: Awaited<ReturnType<typeof render>> | null = null;
+
+async function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  mountedPage = await render(
     <QueryClientProvider client={queryClient}>
       <div className="w-[640px] p-6">
         <SettingsAgentsPage />
       </div>
     </QueryClientProvider>,
   );
+  return mountedPage;
 }
 
 describe("Settings Agents Connections", () => {
@@ -166,8 +168,13 @@ describe("Settings Agents Connections", () => {
     nativeApi.confirm.mockResolvedValue(true);
   });
 
-  afterEach(() => {
-    vi.clearAllMocks();
+  afterEach(async () => {
+    try {
+      await mountedPage?.unmount();
+    } finally {
+      mountedPage = null;
+      vi.clearAllMocks();
+    }
   });
 
   it("adds an OpenCode Connection from the inline API-key state", async () => {
@@ -193,7 +200,7 @@ describe("Settings Agents Connections", () => {
   });
 
   it("starts ChatGPT account sign-in directly from the inline card", async () => {
-    const screen = await renderPage();
+    await renderPage();
 
     await page.getByRole("button", { name: "ChatGPT agent" }).click();
     const signIn = page.getByRole("button", { name: "Sign in for ChatGPT" });
@@ -213,11 +220,10 @@ describe("Settings Agents Connections", () => {
       });
       expect(nativeApi.openExternal).toHaveBeenCalledWith("https://auth.example.test/codex");
     });
-    await screen.unmount();
   });
 
   it("imports an OpenAI API key through the ChatGPT native profile", async () => {
-    const screen = await renderPage();
+    await renderPage();
 
     await page.getByRole("button", { name: "ChatGPT agent" }).click();
     await page.getByRole("button", { name: "API key for ChatGPT" }).click();
@@ -233,7 +239,6 @@ describe("Settings Agents Connections", () => {
       });
       expect(nativeApi.createStaticConnection).not.toHaveBeenCalled();
     });
-    await screen.unmount();
   });
 
   it("keeps Connection management limited to disconnect", async () => {

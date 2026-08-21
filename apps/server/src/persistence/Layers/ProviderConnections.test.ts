@@ -1,4 +1,4 @@
-import { ProviderConnectionId, SpaceId } from "@penkra/contracts";
+import { ProviderConnectionId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -163,14 +163,6 @@ layer("ProviderConnectionRepository", (it) => {
         ) VALUES ('identity-thread', ${duplicateId}, 'identity-installation', 0,
           '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z')
       `;
-      yield* repository.setSpaceDefault({
-        spaceId: SpaceId.makeUnsafe("identity-space"),
-        harness: "codex",
-        connectionId: duplicateId,
-        createdAt: "2026-08-08T00:00:00.000Z",
-        updatedAt: "2026-08-08T00:00:00.000Z",
-      });
-
       const reactivated = yield* repository.reactivateIdentity({
         id: historicalId,
         harness: "codex",
@@ -196,11 +188,6 @@ layer("ProviderConnectionRepository", (it) => {
         FROM thread_runtime_bindings WHERE thread_id = 'identity-thread'
       `;
       assert.deepStrictEqual(bindings, [{ connectionId: historicalId, bindingRevision: 1 }]);
-      assert.strictEqual(
-        (yield* repository.listSpaceDefaults(SpaceId.makeUnsafe("identity-space")))[0]
-          ?.connectionId,
-        historicalId,
-      );
       assert.deepStrictEqual(
         (yield* repository.list()).map((connection) => connection.id),
         [historicalId],
@@ -246,11 +233,6 @@ layer("ProviderConnectionRepository", (it) => {
         `,
         [{ connectionId: historicalId, bindingRevision: 1 }],
       );
-      assert.strictEqual(
-        (yield* repository.listSpaceDefaults(SpaceId.makeUnsafe("identity-space")))[0]
-          ?.connectionId,
-        historicalId,
-      );
       assert.deepStrictEqual(
         yield* sql<{ readonly profileRef: string; readonly lifecycle: string }>`
           SELECT profile_ref AS "profileRef", lifecycle
@@ -273,7 +255,7 @@ layer("ProviderConnectionRepository", (it) => {
     }),
   );
 
-  it.effect("keeps secret references internal and applies terminal Space fallback", () =>
+  it.effect("keeps secret references internal and filters terminated Connections", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const repository = yield* ProviderConnectionRepository;
@@ -308,13 +290,6 @@ layer("ProviderConnectionRepository", (it) => {
 
       assert.notProperty(personal, "profileRef");
       assert.notProperty(personal, "credentialRef");
-      yield* repository.setSpaceDefault({
-        spaceId: SpaceId.makeUnsafe("space-1"),
-        harness: "codex",
-        connectionId: work.id,
-        createdAt: "2026-08-08T00:00:01.000Z",
-        updatedAt: "2026-08-08T00:00:01.000Z",
-      });
       const terminated = yield* repository.terminate({
         id: work.id,
         reason: "disconnected",
@@ -322,11 +297,6 @@ layer("ProviderConnectionRepository", (it) => {
       });
       assert.isTrue(Option.isSome(terminated));
       assert.strictEqual(Option.getOrThrow(terminated).lifecycle, "terminated");
-      const defaults = yield* repository.listSpaceDefaults(SpaceId.makeUnsafe("space-1"));
-      assert.deepStrictEqual(
-        defaults.map((entry) => entry.connectionId),
-        [personal.id],
-      );
       const active = yield* repository.list();
       assert.deepStrictEqual(
         active.map((connection) => connection.id),

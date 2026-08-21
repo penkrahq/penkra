@@ -390,7 +390,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
             cwd: workspaceRoot,
           });
           const connectionId = yield* providerTurnSelectionResolver
-            .resolveNewThreadConnection({ spaceId: callerSpaceId, modelSelection: target })
+            .resolveNewThreadConnection({ modelSelection: target })
             .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
           if (spec.runtimeMode === "full-access" && caller.runtimeMode !== "full-access") {
             return yield* Effect.fail(

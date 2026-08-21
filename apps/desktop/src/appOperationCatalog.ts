@@ -63,12 +63,7 @@ export class AppOperationCatalog {
       .sort((left, right) => left.slug.localeCompare(right.slug));
   }
 
-  async help(input: {
-    spaceId: string;
-    slug: string;
-    operation?: string;
-    schema?: boolean;
-  }): Promise<string> {
+  async help(input: { spaceId: string; slug: string; operation?: string }): Promise<string> {
     const state = this.#installationState();
     const app = findInstalledAppBySlug(state, input.slug, input.spaceId);
     if (!app || !isEnabled(state, app.appId, input.spaceId)) {
@@ -78,7 +73,6 @@ export class AppOperationCatalog {
       manifest: app.manifest,
       instructions: await readInstructions(app),
       ...(input.operation === undefined ? {} : { operation: input.operation }),
-      ...(input.schema === undefined ? {} : { schema: input.schema }),
     });
   }
 

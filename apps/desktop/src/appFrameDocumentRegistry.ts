@@ -7,6 +7,7 @@ import type { Protocol } from "electron";
 import type { InstalledAppPackage } from "./appInstallationState";
 import {
   createAppPackageProtocolHandler,
+  type AppPackageProtocolInput,
   type AppPackageProtocolHandler,
 } from "./appPackageProtocol";
 import { createAppDocumentUrlForOrigin, PENKRA_APP_SCHEME } from "./appRuntimePolicy";
@@ -23,6 +24,11 @@ export interface AppFrameDocumentRegistryOptions {
   runtimeScriptPath: string;
   resolveOrigin(appId: string, spaceId: string): string;
   createProtocolHandler?: typeof createAppPackageProtocolHandler;
+  protocolResources?: (input: {
+    appId: string;
+    spaceId: string;
+    origin: string;
+  }) => Pick<AppPackageProtocolInput, "blobUrls" | "transferHandler">;
 }
 
 export class AppFrameDocumentRegistry {
@@ -30,6 +36,7 @@ export class AppFrameDocumentRegistry {
   readonly #runtimeScriptPath: string;
   readonly #resolveOrigin: AppFrameDocumentRegistryOptions["resolveOrigin"];
   readonly #createProtocolHandler: typeof createAppPackageProtocolHandler;
+  readonly #protocolResources: NonNullable<AppFrameDocumentRegistryOptions["protocolResources"]>;
   readonly #records = new Map<string, AppFrameDocumentRecord>();
   readonly #queues = new Map<string, Promise<void>>();
   #started = false;
@@ -39,6 +46,7 @@ export class AppFrameDocumentRegistry {
     this.#runtimeScriptPath = options.runtimeScriptPath;
     this.#resolveOrigin = options.resolveOrigin;
     this.#createProtocolHandler = options.createProtocolHandler ?? createAppPackageProtocolHandler;
+    this.#protocolResources = options.protocolResources ?? (() => ({}));
   }
 
   async start(): Promise<void> {
@@ -57,6 +65,7 @@ export class AppFrameDocumentRegistry {
         packageRoot: installedApp.packagePath,
         entrypoint: installedApp.manifest.entrypoints.app,
         runtimeScriptPath: this.#runtimeScriptPath,
+        ...this.#protocolResources({ appId: installedApp.appId, spaceId, origin }),
       });
       const existing = this.#records.get(origin);
       if (existing && (existing.appId !== installedApp.appId || existing.spaceId !== spaceId)) {

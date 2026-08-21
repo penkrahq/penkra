@@ -45,7 +45,8 @@ Use `contextMenu.show(...)` from a direct pointer interaction when an App needs 
 right-click menu. Penkra returns the selected item ID or `null`; Apps never receive Electron menu
 objects.
 
-Files and directories use `files.pick("file" | "directory")` and opaque App×Space-scoped handle IDs.
+Files and directories use `files.pick("file" | "directory" | "save")` and opaque
+App×Space-scoped handle IDs.
 The host validates every descendant and symlink boundary and never reveals an absolute path.
 Handles survive iframe reload but currently expire when the desktop runtime restarts; there is no
 filesystem manifest permission or ambient filesystem namespace. Apps may also declare exact
@@ -53,6 +54,11 @@ filesystem manifest permission or ambient filesystem namespace. Apps may also de
 handle to the declared operation. Use `readBinary` for bounded reads and the
 `beginWrite` / `writeChunk` / `commitWrite` session for larger atomic writes; abort unfinished
 writes when App-side work fails.
+
+For bulk bytes, `files.open` and `storage.open` return revocable same-origin URLs suitable for
+`fetch`, images, audio, and ranged video playback. Network uploads and downloads use the
+permission-gated `transfer.begin`, `transfer.send`, and `transfer.receive` APIs; subscribe with
+`transfer.onProgress` for host-measured remote progress. Bulk bytes do not cross renderer RPC.
 
 Privileged Penkra APIs require matching manifest declarations and per-Space grants. Hosted browser
 APIs require `browser-session`, and hosted simulated-device APIs require `simulator-session`. Both

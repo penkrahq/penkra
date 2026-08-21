@@ -1,7 +1,7 @@
 // FILE: ProviderConnections.ts
-// Purpose: SQLite implementation of durable Connection identity, lifecycle, and Space defaults.
+// Purpose: SQLite implementation of durable Connection identity and lifecycle.
 
-import { ProviderConnection, SpaceConnectionDefault } from "@penkra/contracts";
+import { ProviderConnection } from "@penkra/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -85,22 +85,6 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
       FROM provider_connections
       WHERE ${includeTerminated ? 1 : 0} = 1 OR lifecycle = 'active'
       ORDER BY created_at DESC, connection_id DESC
-    `,
-  });
-
-  const listDefaults = SqlSchema.findAll({
-    Request: Schema.Struct({ spaceId: SpaceConnectionDefault.fields.spaceId }),
-    Result: SpaceConnectionDefault,
-    execute: ({ spaceId }) => sql`
-      SELECT
-        space_id AS "spaceId",
-        harness_kind AS harness,
-        connection_id AS "connectionId",
-        created_at AS "createdAt",
-        updated_at AS "updatedAt"
-      FROM space_connection_defaults
-      WHERE space_id = ${spaceId}
-      ORDER BY harness_kind ASC
     `,
   });
 
@@ -353,15 +337,6 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
               )
             `),
             Effect.andThen(sql`
-              UPDATE space_connection_defaults
-              SET connection_id = ${input.id}, updated_at = ${input.updatedAt}
-              WHERE connection_id IN (
-                SELECT connection_id FROM provider_connections
-                WHERE connection_id != ${input.id}
-                  AND provider_identity_id LIKE 'superseded:' || ${input.id} || ':%'
-              )
-            `),
-            Effect.andThen(sql`
               UPDATE provider_connections
               SET lifecycle = 'terminated', termination_reason = 'removed',
                   terminated_at = ${input.updatedAt}, health_status = 'unavailable',
@@ -439,17 +414,6 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
               )
             `),
             Effect.andThen(sql`
-              UPDATE space_connection_defaults
-              SET connection_id = ${input.id}, updated_at = ${input.updatedAt}
-              WHERE connection_id IN (
-                SELECT connection_id FROM provider_connections
-                WHERE connection_id != ${input.id}
-                  AND harness_kind = ${input.harness}
-                  AND authentication_target_id = ${input.authenticationTargetId}
-                  AND provider_identity_id LIKE 'superseded:' || ${input.id} || ':%'
-              )
-            `),
-            Effect.andThen(sql`
               UPDATE provider_connections
               SET lifecycle = 'terminated', termination_reason = 'removed',
                   terminated_at = ${input.updatedAt}, health_status = 'unavailable',
@@ -489,23 +453,6 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
           `.pipe(Effect.andThen(selectRecord({ id: input.id }))),
         ),
       ).pipe(Effect.map(Option.map(toPublicConnection))),
-    setSpaceDefault: (input) =>
-      mapped(
-        "ProviderConnectionRepository.setSpaceDefault",
-        sql`
-          INSERT INTO space_connection_defaults (
-            space_id, harness_kind, connection_id, created_at, updated_at
-          ) VALUES (
-            ${input.spaceId}, ${input.harness}, ${input.connectionId},
-            ${input.createdAt}, ${input.updatedAt}
-          )
-          ON CONFLICT (space_id, harness_kind) DO UPDATE SET
-            connection_id = excluded.connection_id,
-            updated_at = excluded.updated_at
-        `.pipe(Effect.asVoid),
-      ),
-    listSpaceDefaults: (spaceId) =>
-      mapped("ProviderConnectionRepository.listSpaceDefaults", listDefaults({ spaceId })),
   } satisfies ProviderConnectionRepositoryShape;
 });
 

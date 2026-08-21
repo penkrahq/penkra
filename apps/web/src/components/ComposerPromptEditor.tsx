@@ -95,6 +95,7 @@ import {
 } from "./composer-nodes";
 
 const COMPOSER_EDITOR_HMR_KEY = `composer-editor-${Math.random().toString(36).slice(2)}`;
+const CONTROLLED_COMPOSER_UPDATE_TAG = "penkra-controlled-composer-update";
 
 const ComposerRemoveTerminalContextContext = createContext<(contextId: string) => void>(() => {});
 
@@ -966,7 +967,6 @@ function ComposerPromptEditorInner({
     selectionCollapsed: true,
     terminalContextIds: terminalContexts.map((context) => context.id),
   });
-  const isApplyingControlledUpdateRef = useRef(false);
   const pendingInputInteractionIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -1024,20 +1024,23 @@ function ComposerPromptEditorInner({
       return;
     }
 
-    isApplyingControlledUpdateRef.current = true;
-    editor.update(() => {
-      const shouldRewriteEditorState =
-        previousSnapshot.value !== value || contextsChanged || mentionsChanged;
-      if (shouldRewriteEditorState) {
-        $setComposerEditorPrompt(value, terminalContexts, mentionReferences);
-      }
-      if (shouldRewriteEditorState || isFocused) {
-        $setSelectionAtComposerOffset(normalizedCursor);
-      }
-    });
-    queueMicrotask(() => {
-      isApplyingControlledUpdateRef.current = false;
-    });
+    editor.update(
+      () => {
+        const shouldRewriteEditorState =
+          previousSnapshot.value !== value || contextsChanged || mentionsChanged;
+        if (shouldRewriteEditorState) {
+          $setComposerEditorPrompt(value, terminalContexts, mentionReferences);
+        }
+        if (shouldRewriteEditorState || isFocused) {
+          $setSelectionAtComposerOffset(normalizedCursor);
+        }
+      },
+      // A controlled value reset is host state being applied to Lexical, not
+      // user input. Give it an explicit ownership tag so the update listener
+      // rejects this exact event instead of relying on timing around Lexical's
+      // asynchronous reconciliation.
+      { tag: CONTROLLED_COMPOSER_UPDATE_TAG },
+    );
   }, [
     cursor,
     editor,
@@ -1054,9 +1057,12 @@ function ComposerPromptEditorInner({
       if (!rootElement) return;
       const boundedCursor = clampCollapsedComposerCursor(snapshotRef.current.value, nextCursor);
       rootElement.focus();
-      editor.update(() => {
-        $setSelectionAtComposerOffset(boundedCursor);
-      });
+      editor.update(
+        () => {
+          $setSelectionAtComposerOffset(boundedCursor);
+        },
+        { tag: CONTROLLED_COMPOSER_UPDATE_TAG },
+      );
       snapshotRef.current = {
         value: snapshotRef.current.value,
         cursor: boundedCursor,
@@ -1064,13 +1070,11 @@ function ComposerPromptEditorInner({
         selectionCollapsed: true,
         terminalContextIds: snapshotRef.current.terminalContextIds,
       };
-      onChangeRef.current(
-        snapshotRef.current.value,
-        boundedCursor,
-        snapshotRef.current.expandedCursor,
-        false,
-        snapshotRef.current.terminalContextIds,
-      );
+      // Imperative focus is a host-side selection action, not editor input. Every
+      // caller that changes composer content persists that content and cursor
+      // before requesting focus. Echoing the current snapshot through onChange
+      // here can resurrect a stale pre-reset prompt while a local draft is being
+      // promoted and finalized, creating a React/Zustand feedback loop.
     },
     [editor],
   );
@@ -1147,61 +1151,64 @@ function ComposerPromptEditorInner({
     [blurEditor, focusAt, isEditorFocused, readSnapshot],
   );
 
-  const handleEditorChange = useCallback((editorState: EditorState) => {
-    const processingStartedAt = performance.now();
-    const interactionId = pendingInputInteractionIdRef.current;
-    pendingInputInteractionIdRef.current = null;
-    editorState.read(() => {
-      const selection = $getSelection();
-      const selectionCollapsed = !$isRangeSelection(selection) || selection.isCollapsed();
-      const nextValue = $getRoot().getTextContent();
-      const fallbackCursor = clampCollapsedComposerCursor(nextValue, snapshotRef.current.cursor);
-      const nextCursor = clampCollapsedComposerCursor(
-        nextValue,
-        $readSelectionOffsetFromEditorState(fallbackCursor),
-      );
-      const fallbackExpandedCursor = clampExpandedCursor(
-        nextValue,
-        snapshotRef.current.expandedCursor,
-      );
-      const nextExpandedCursor = clampExpandedCursor(
-        nextValue,
-        $readExpandedSelectionOffsetFromEditorState(fallbackExpandedCursor),
-      );
-      const terminalContextIds = collectTerminalContextIds($getRoot());
-      const previousSnapshot = snapshotRef.current;
-      if (
-        previousSnapshot.value === nextValue &&
-        previousSnapshot.cursor === nextCursor &&
-        previousSnapshot.expandedCursor === nextExpandedCursor &&
-        previousSnapshot.terminalContextIds.length === terminalContextIds.length &&
-        previousSnapshot.terminalContextIds.every((id, index) => id === terminalContextIds[index])
-      ) {
+  const handleEditorChange = useCallback(
+    (editorState: EditorState, _editor: unknown, tags: Set<string>) => {
+      if (tags.has(CONTROLLED_COMPOSER_UPDATE_TAG)) {
         return;
       }
-      if (isApplyingControlledUpdateRef.current) {
-        return;
-      }
-      snapshotRef.current = {
-        value: nextValue,
-        cursor: nextCursor,
-        expandedCursor: nextExpandedCursor,
-        selectionCollapsed,
-        terminalContextIds,
-      };
-      const cursorAdjacentToMention =
-        isCollapsedCursorAdjacentToInlineToken(nextValue, nextCursor, "left") ||
-        isCollapsedCursorAdjacentToInlineToken(nextValue, nextCursor, "right");
-      onChangeRef.current(
-        nextValue,
-        nextCursor,
-        nextExpandedCursor,
-        cursorAdjacentToMention,
-        terminalContextIds,
-      );
-    });
-    finishComposerInputProcessing(interactionId, processingStartedAt);
-  }, []);
+      const processingStartedAt = performance.now();
+      const interactionId = pendingInputInteractionIdRef.current;
+      pendingInputInteractionIdRef.current = null;
+      editorState.read(() => {
+        const selection = $getSelection();
+        const selectionCollapsed = !$isRangeSelection(selection) || selection.isCollapsed();
+        const nextValue = $getRoot().getTextContent();
+        const fallbackCursor = clampCollapsedComposerCursor(nextValue, snapshotRef.current.cursor);
+        const nextCursor = clampCollapsedComposerCursor(
+          nextValue,
+          $readSelectionOffsetFromEditorState(fallbackCursor),
+        );
+        const fallbackExpandedCursor = clampExpandedCursor(
+          nextValue,
+          snapshotRef.current.expandedCursor,
+        );
+        const nextExpandedCursor = clampExpandedCursor(
+          nextValue,
+          $readExpandedSelectionOffsetFromEditorState(fallbackExpandedCursor),
+        );
+        const terminalContextIds = collectTerminalContextIds($getRoot());
+        const previousSnapshot = snapshotRef.current;
+        if (
+          previousSnapshot.value === nextValue &&
+          previousSnapshot.cursor === nextCursor &&
+          previousSnapshot.expandedCursor === nextExpandedCursor &&
+          previousSnapshot.terminalContextIds.length === terminalContextIds.length &&
+          previousSnapshot.terminalContextIds.every((id, index) => id === terminalContextIds[index])
+        ) {
+          return;
+        }
+        snapshotRef.current = {
+          value: nextValue,
+          cursor: nextCursor,
+          expandedCursor: nextExpandedCursor,
+          selectionCollapsed,
+          terminalContextIds,
+        };
+        const cursorAdjacentToMention =
+          isCollapsedCursorAdjacentToInlineToken(nextValue, nextCursor, "left") ||
+          isCollapsedCursorAdjacentToInlineToken(nextValue, nextCursor, "right");
+        onChangeRef.current(
+          nextValue,
+          nextCursor,
+          nextExpandedCursor,
+          cursorAdjacentToMention,
+          terminalContextIds,
+        );
+      });
+      finishComposerInputProcessing(interactionId, processingStartedAt);
+    },
+    [],
+  );
 
   return (
     <ComposerRemoveTerminalContextContext.Provider value={onRemoveTerminalContext}>

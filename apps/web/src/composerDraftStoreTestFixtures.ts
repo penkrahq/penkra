@@ -124,6 +124,7 @@ export function resetComposerDraftStore() {
     draftThreadsByThreadId: {},
     projectDraftThreadIdByProjectId: {},
     stickyModelSelectionByProvider: {},
+    stickyConnectionByProvider: {},
     stickyActiveProvider: null,
   });
 }

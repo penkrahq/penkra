@@ -217,6 +217,24 @@ describe("AppPreloadRuntime", () => {
     expect(listener).toHaveBeenCalledOnce();
   });
 
+  it("delivers host-measured transfer progress through the runtime event surface", () => {
+    const test = fixture();
+    const listener = vi.fn();
+    const unsubscribe = test.runtime.api.transfer.onProgress(listener);
+    const progress = {
+      id: "transfer-1",
+      phase: "uploading" as const,
+      movedBytes: 2048,
+      totalBytes: 4096,
+    };
+
+    test.event("transfer.progress", progress);
+    expect(listener).toHaveBeenCalledWith(progress);
+    unsubscribe();
+    test.event("transfer.progress", { ...progress, movedBytes: 4096 });
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
   it("shows native context menus without exposing Electron primitives", async () => {
     const test = fixture();
     await expect(

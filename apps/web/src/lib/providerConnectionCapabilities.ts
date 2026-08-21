@@ -142,10 +142,10 @@ export function resolveComposerConnection(input: {
       ? null
       : undefined;
   }
-  const spaceDefault = input.snapshot.spaceDefaults.find(
-    (entry) => entry.harness === input.provider,
-  )?.connectionId;
-  if (spaceDefault !== undefined && connectionIsValid(spaceDefault)) return spaceDefault;
+  const firstAvailableConnection = input.snapshot.connections.find(
+    (connection) => connection.harness === input.provider && connectionIsValid(connection.id),
+  )?.id;
+  if (firstAvailableConnection !== undefined) return firstAvailableConnection;
   return anonymousRouteAuthorizesModel({
     snapshot: input.snapshot,
     provider: input.provider,

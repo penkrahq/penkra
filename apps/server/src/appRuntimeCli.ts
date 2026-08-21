@@ -150,7 +150,7 @@ export async function executePenkraExecCommand(
         throw new Error(`Unknown Penkra tabs command ${action}. Run penkra tabs --help.`);
       }
       const parsed = parseRegisteredCommandFlags(args.slice(3));
-      if (parsed.positionals.length > 0 || parsed.help || parsed.schema || parsed.input) {
+      if (parsed.positionals.length > 0 || parsed.help || parsed.input) {
         throw new Error(`Invalid arguments for penkra tabs ${action}. Run penkra tabs --help.`);
       }
       if (!parsed.tabId) throw new Error(`penkra tabs ${action} requires --tab-id.`);
@@ -267,7 +267,7 @@ export async function executePenkraExecCommand(
   const app = catalog.find((candidate) => candidate.slug === parsed.positionals[0]);
   if (!app) throw new Error(`Unknown or disabled App command root ${parsed.positionals[0]}.`);
   const operationWords = parsed.positionals.slice(1);
-  if (parsed.help || parsed.schema || operationWords.length === 0) {
+  if (parsed.help || operationWords.length === 0) {
     const operation =
       operationWords.length === 0 ? undefined : resolveOperation(app, operationWords);
     return {
@@ -277,7 +277,6 @@ export async function executePenkraExecCommand(
         {
           slug: app.slug,
           ...(operation ? { operation } : {}),
-          ...(parsed.schema ? { schema: true } : {}),
           ...appScope,
         },
         env,
@@ -435,9 +434,9 @@ async function executeAppDeveloperCommand(
 
 function parseAppDeveloperFlags(args: ReadonlyArray<string>) {
   const parsed = parseRegisteredCommandFlags(args);
-  if (parsed.help || parsed.schema || parsed.input !== undefined || parsed.tabId !== undefined) {
+  if (parsed.help || parsed.input !== undefined || parsed.tabId !== undefined) {
     throw new Error(
-      "App developer commands do not accept --help with other arguments, --schema, --input, or --tab-id.",
+      "App developer commands do not accept --help with other arguments, --input, or --tab-id.",
     );
   }
   return parsed;
@@ -603,14 +602,12 @@ function requireContextText(value: string, name: string): string {
 export function parseRegisteredCommandFlags(args: ReadonlyArray<string>): {
   positionals: string[];
   help: boolean;
-  schema: boolean;
   input?: string;
   tabId?: string;
   named: Record<string, string>;
 } {
   const positionals: string[] = [];
   let help = false;
-  let schema = false;
   let input: string | undefined;
   let tabId: string | undefined;
   const named: Record<string, string> = {};
@@ -621,8 +618,9 @@ export function parseRegisteredCommandFlags(args: ReadonlyArray<string>): {
       continue;
     }
     if (value === "--schema") {
-      schema = true;
-      continue;
+      throw new Error(
+        "--schema has been removed. Run the command with --help for its complete validated input contract.",
+      );
     }
     if (value === "--input" || value === "--tab-id") {
       const next = args[index + 1];
@@ -657,7 +655,6 @@ export function parseRegisteredCommandFlags(args: ReadonlyArray<string>): {
   return {
     positionals,
     help,
-    schema,
     named,
     ...(input === undefined ? {} : { input }),
     ...(tabId === undefined ? {} : { tabId }),
@@ -667,9 +664,7 @@ export function parseRegisteredCommandFlags(args: ReadonlyArray<string>): {
 function resolveOperation(app: CatalogEntry, words: ReadonlyArray<string>): string {
   const key = words.join(".");
   if (!app.operations.some((candidate) => candidate.key === key)) {
-    throw new Error(
-      `${app.slug} does not declare operation ${key}. Run penkra ${app.slug} --help.`,
-    );
+    throw new Error(`${app.slug} does not declare operation ${key}. Run ${app.slug} --help.`);
   }
   return key;
 }
@@ -707,29 +702,49 @@ export function parseOperationInput(
   }
   const result = { ...(base as Record<string, unknown>) };
   for (const [name, raw] of Object.entries(named)) {
-    const declaration = (properties as Record<string, unknown>)[name];
+    const propertyName = resolveOperationPropertyName(properties as Record<string, unknown>, name);
+    if (propertyName === undefined) {
+      throw new Error(`Unknown operation option --${name}.`);
+    }
+    const declaration = (properties as Record<string, unknown>)[propertyName];
     if (!declaration || typeof declaration !== "object" || Array.isArray(declaration)) {
       throw new Error(`Unknown operation option --${name}.`);
     }
-    if (Object.hasOwn(result, name))
-      throw new Error(`${name} was supplied by both --input and --${name}.`);
+    if (Object.hasOwn(result, propertyName))
+      throw new Error(`${propertyName} was supplied by both --input and --${name}.`);
     const type = (declaration as Record<string, unknown>).type;
     if (type === "boolean") {
       if (raw !== "true" && raw !== "false") throw new Error(`--${name} must be true or false.`);
-      result[name] = raw === "true";
+      result[propertyName] = raw === "true";
     } else if (type === "number" || type === "integer") {
       const value = Number(raw);
       if (!Number.isFinite(value) || (type === "integer" && !Number.isInteger(value))) {
         throw new Error(`--${name} must be a${type === "integer" ? "n integer" : " number"}.`);
       }
-      result[name] = value;
+      result[propertyName] = value;
     } else if (type === "object" || type === "array") {
-      result[name] = parseInput(raw);
+      result[propertyName] = parseInput(raw);
     } else {
-      result[name] = raw;
+      result[propertyName] = raw;
     }
   }
   return result;
+}
+
+function resolveOperationPropertyName(
+  properties: Readonly<Record<string, unknown>>,
+  flagName: string,
+): string | undefined {
+  if (Object.hasOwn(properties, flagName)) return flagName;
+  const matches = Object.keys(properties).filter(
+    (propertyName) => camelToKebab(propertyName) === flagName,
+  );
+  if (matches.length > 1) throw new Error(`Operation option --${flagName} is ambiguous.`);
+  return matches[0];
+}
+
+function camelToKebab(value: string): string {
+  return value.replace(/[A-Z]/g, (character) => `-${character.toLowerCase()}`);
 }
 
 async function request(method: string, params: unknown, env: NodeJS.ProcessEnv): Promise<unknown> {

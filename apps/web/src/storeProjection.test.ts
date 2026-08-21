@@ -1437,6 +1437,58 @@ describe("store projection", () => {
     expect(next.sidebarThreadSummaryById[threadId]?.session?.orchestrationStatus).toBe("running");
   });
 
+  it("preserves persisted sidebar rollups through full and shell normalization", () => {
+    const threadId = ThreadId.makeUnsafe("thread-sidebar-rollups");
+    const runningAt = "2026-02-27T00:00:02.000Z";
+    const initial = syncServerReadModel(
+      makeState(makeThread({ id: threadId })),
+      makeReadModel(
+        makeReadModelThread({
+          id: threadId,
+          workStatus: "running",
+          lastMessagePreview: "Working on the hotfix",
+          lastActivityAt: runningAt,
+        }),
+      ),
+    );
+
+    expect(initial.threadShellById?.[threadId]).toMatchObject({
+      workStatus: "running",
+      lastMessagePreview: "Working on the hotfix",
+      lastActivityAt: runningAt,
+    });
+    expect(initial.sidebarThreadSummaryById[threadId]).toMatchObject({
+      workStatus: "running",
+      lastMessagePreview: "Working on the hotfix",
+      lastActivityAt: runningAt,
+    });
+
+    const completedAt = "2026-02-27T00:00:03.000Z";
+    const next = syncServerShellSnapshot(
+      initial,
+      makeShellSnapshot(
+        makeReadModelThread({
+          id: threadId,
+          workStatus: "done",
+          lastMessagePreview: "Hotfix complete",
+          lastActivityAt: completedAt,
+          updatedAt: completedAt,
+        }),
+      ),
+    );
+
+    expect(next.threadShellById?.[threadId]).toMatchObject({
+      workStatus: "done",
+      lastMessagePreview: "Hotfix complete",
+      lastActivityAt: completedAt,
+    });
+    expect(next.sidebarThreadSummaryById[threadId]).toMatchObject({
+      workStatus: "done",
+      lastMessagePreview: "Hotfix complete",
+      lastActivityAt: completedAt,
+    });
+  });
+
   it("keeps sidebar summaries shell-owned during hot-path thread detail syncs", () => {
     const initialState = syncServerReadModel(
       makeState(makeThread({ title: "Original title" })),

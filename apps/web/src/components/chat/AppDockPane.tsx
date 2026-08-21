@@ -11,7 +11,7 @@ import {
 } from "@penkra/contracts";
 import { deriveChromeUserAgent } from "@penkra/shared/browserSession";
 import type { AppBrowserSessionState } from "@penkra/sdk";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PanelStateMessage } from "./PanelStateMessage";
 
@@ -25,6 +25,10 @@ export function AppDockPane(props: {
   documentUrl: string;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const frameConnectionRef = useRef<{
+    port: MessagePort;
+    removeHostMessage: () => void;
+  } | null>(null);
   const browserWebviewRef = useRef<BrowserWebviewElement | null>(null);
   const [browserState, setBrowserState] = useState<AppBrowserSessionState | null>(null);
   const [browserSurface, setBrowserSurface] = useState<BrowserSurface | null>(null);
@@ -59,17 +63,20 @@ export function AppDockPane(props: {
     });
   }, [props.rendererId, props.tabId, props.visible]);
 
-  useEffect(() => {
-    const bridge = window.desktopBridge?.appTabs;
-    const iframe = iframeRef.current;
-    if (!bridge || !iframe || !props.documentUrl) return;
-    let port: MessagePort | null = null;
-    let removeHostMessage: (() => void) | null = null;
-    const connect = () => {
-      port?.close();
-      removeHostMessage?.();
+  const disconnectFrame = useCallback(() => {
+    const connection = frameConnectionRef.current;
+    frameConnectionRef.current = null;
+    connection?.removeHostMessage();
+    connection?.port.close();
+  }, []);
+
+  const connectFrame = useCallback(
+    (iframe: HTMLIFrameElement) => {
+      const bridge = window.desktopBridge?.appTabs;
+      if (!bridge || !props.documentUrl) return;
+      disconnectFrame();
       const channel = new MessageChannel();
-      port = channel.port1;
+      const port = channel.port1;
       port.onmessage = (event: MessageEvent<AppRuntimeFrameMessage>) => {
         const message = event.data;
         if (message.type === "ready") {
@@ -90,13 +97,13 @@ export function AppDockPane(props: {
             })
             .then(
               (result) =>
-                port?.postMessage({
+                port.postMessage({
                   type: "call-result",
                   id: message.id,
                   result,
                 } satisfies AppRuntimeHostMessage),
               (error: unknown) =>
-                port?.postMessage({
+                port.postMessage({
                   type: "call-error",
                   id: message.id,
                   code:
@@ -109,7 +116,7 @@ export function AppDockPane(props: {
         }
       };
       port.start();
-      removeHostMessage = bridge.onFrameHostMessage((input) => {
+      const removeHostMessage = bridge.onFrameHostMessage((input) => {
         if (input.tabId !== props.tabId || input.rendererId !== props.rendererId) return;
         if (input.delivery.kind === "event" && input.delivery.name === "browser.state") {
           setBrowserState(input.delivery.payload as AppBrowserSessionState);
@@ -128,7 +135,7 @@ export function AppDockPane(props: {
           const frame = input.delivery.payload as { dataUrl?: unknown } | null;
           if (typeof frame?.dataUrl === "string") setSimulatorFrame(frame.dataUrl);
         }
-        port?.postMessage(
+        port.postMessage(
           input.delivery.kind === "host-message"
             ? ({
                 type: "host-message",
@@ -141,6 +148,7 @@ export function AppDockPane(props: {
               } satisfies AppRuntimeHostMessage),
         );
       });
+      frameConnectionRef.current = { port, removeHostMessage };
       iframe.contentWindow?.postMessage(
         {
           type: APP_RUNTIME_CONNECT_MESSAGE,
@@ -149,14 +157,11 @@ export function AppDockPane(props: {
         "*",
         [channel.port2],
       );
-    };
-    iframe.addEventListener("load", connect);
-    return () => {
-      iframe.removeEventListener("load", connect);
-      removeHostMessage?.();
-      port?.close();
-    };
-  }, [props.documentUrl, props.rendererId, props.tabId]);
+    },
+    [disconnectFrame, props.documentUrl, props.rendererId, props.tabId],
+  );
+
+  useEffect(() => disconnectFrame, [connectFrame, disconnectFrame]);
 
   useEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
@@ -202,6 +207,7 @@ export function AppDockPane(props: {
           sandbox="allow-forms allow-modals allow-same-origin allow-scripts"
           src={props.documentUrl}
           title={props.appName ?? "App"}
+          onLoad={(event) => connectFrame(event.currentTarget)}
         />
       ) : null}
       {props.visible && browserSurface && browserPage && browserPage.url !== "about:blank" ? (

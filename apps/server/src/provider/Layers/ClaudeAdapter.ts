@@ -107,7 +107,6 @@ import {
   type AgentGatewaySessionLease,
 } from "../../agentGateway/sessionLease.ts";
 import { resolveProviderAttachmentPath } from "../providerAttachmentPaths.ts";
-import { providerRuntimeEventIdFromNative } from "../providerRuntimeEventIdentity.ts";
 import { ServerConfig } from "../../config.ts";
 import { buildFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { loadClaudeAgentSdk } from "../claudeAgentSdk.ts";
@@ -1763,18 +1762,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     ): Effect.Effect<void> =>
       Queue.offer(runtimeEventQueue, {
         ...event,
-        ...(event.raw !== undefined
-          ? {
-              eventId: EventId.makeUnsafe(
-                `${providerRuntimeEventIdFromNative({
-                  provider: event.provider,
-                  source: event.raw.source,
-                  threadId: event.threadId,
-                  nativeEvent: event.raw,
-                })}:${event.type}:${event.itemId ?? event.requestId ?? "event"}`,
-              ),
-            }
-          : {}),
+        // The Claude SDK stream has no replay cursor that uniquely identifies
+        // each delivery. Keep the per-emission UUID assigned by the adapter:
+        // content-derived identities collapse legitimate repeated deltas such
+        // as two consecutive spaces or punctuation chunks.
         ...(context.lifecycleGeneration !== undefined
           ? { lifecycleGeneration: context.lifecycleGeneration }
           : {}),

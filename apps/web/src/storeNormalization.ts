@@ -124,9 +124,35 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
+    left.workStatus === right.workStatus &&
+    left.lastMessagePreview === right.lastMessagePreview &&
+    left.lastActivityAt === right.lastActivityAt &&
     left.pendingInteractions === right.pendingInteractions &&
     left.lastVisitedAt === right.lastVisitedAt
   );
+}
+
+function resolveThreadSidebarRollups(
+  incoming: Pick<ReadModelThread, "workStatus" | "lastMessagePreview" | "lastActivityAt">,
+  previous: Thread | undefined,
+): Pick<Thread, "workStatus" | "lastMessagePreview" | "lastActivityAt"> {
+  return {
+    ...(Object.hasOwn(incoming, "workStatus") && incoming.workStatus !== undefined
+      ? { workStatus: incoming.workStatus }
+      : previous?.workStatus !== undefined
+        ? { workStatus: previous.workStatus }
+        : {}),
+    ...(Object.hasOwn(incoming, "lastMessagePreview")
+      ? { lastMessagePreview: incoming.lastMessagePreview ?? null }
+      : previous?.lastMessagePreview !== undefined
+        ? { lastMessagePreview: previous.lastMessagePreview }
+        : {}),
+    ...(Object.hasOwn(incoming, "lastActivityAt")
+      ? { lastActivityAt: incoming.lastActivityAt ?? null }
+      : previous?.lastActivityAt !== undefined
+        ? { lastActivityAt: previous.lastActivityAt }
+        : {}),
+  };
 }
 
 export function threadTurnStatesEqual(
@@ -1439,6 +1465,7 @@ export function normalizeThreadFromReadModel(
     typeof incoming.hasPendingApprovals === "boolean" ? incoming.hasPendingApprovals : undefined;
   const resolvedHasPendingUserInput =
     typeof incoming.hasPendingUserInput === "boolean" ? incoming.hasPendingUserInput : undefined;
+  const sidebarRollups = resolveThreadSidebarRollups(incoming, previous);
   const nextWorkingDirectory = incoming.workingDirectory ?? null;
   const pendingTurnStartMessageId = incoming.pendingTurnStartMessageId ?? null;
 
@@ -1471,6 +1498,9 @@ export function normalizeThreadFromReadModel(
     previous.latestUserMessageAt === resolvedLatestUserMessageAt &&
     previous.hasPendingApprovals === resolvedHasPendingApprovals &&
     previous.hasPendingUserInput === resolvedHasPendingUserInput &&
+    previous.workStatus === sidebarRollups.workStatus &&
+    previous.lastMessagePreview === sidebarRollups.lastMessagePreview &&
+    previous.lastActivityAt === sidebarRollups.lastActivityAt &&
     (previous.forkSourceThreadId ?? null) === (incoming.forkSourceThreadId ?? null) &&
     previous.pinnedMessages === pinnedMessages &&
     previous.threadMarkers === threadMarkers &&
@@ -1521,6 +1551,7 @@ export function normalizeThreadFromReadModel(
     ...(resolvedHasPendingUserInput !== undefined
       ? { hasPendingUserInput: resolvedHasPendingUserInput }
       : {}),
+    ...sidebarRollups,
     activities,
     ...(pendingInteractions !== undefined ? { pendingInteractions } : {}),
   };
@@ -1538,6 +1569,7 @@ export function normalizeThreadShellSnapshot(
   const { session, latestTurn } = normalizeThreadLifecycle(incoming, previous);
   const error = normalizeThreadErrorMessage(incoming.session?.lastError);
   const lastVisitedAt = incoming.lastVisitedAt ?? previous?.lastVisitedAt ?? incoming.updatedAt;
+  const sidebarRollups = resolveThreadSidebarRollups(incoming, previous);
   const nextWorkingDirectory = incoming.workingDirectory ?? null;
   const shell: ThreadShell = {
     id: incoming.id,
@@ -1575,6 +1607,7 @@ export function normalizeThreadShellSnapshot(
     ...(incoming.hasPendingUserInput !== undefined
       ? { hasPendingUserInput: incoming.hasPendingUserInput }
       : {}),
+    ...sidebarRollups,
     ...(previous?.pendingInteractions !== undefined
       ? { pendingInteractions: previous.pendingInteractions }
       : {}),

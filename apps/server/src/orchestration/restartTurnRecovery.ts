@@ -46,12 +46,23 @@ export const recoverRestartInterruptedTurns = Effect.gen(function* () {
         // A natural terminal event removes its marker while the session is still
         // running. During shutdown the session is stopped first, so a later
         // provider failure leaves the marker intact and remains recoverable.
-        if (
-          !thread ||
-          thread.deletedAt !== null ||
-          thread.latestTurn?.turnId !== interruptedTurnId ||
-          (thread.latestTurn.state !== "interrupted" && thread.latestTurn.state !== "error")
-        ) {
+        const discardReason = !thread
+          ? "thread-missing"
+          : thread.deletedAt !== null
+            ? "thread-deleted"
+            : thread.latestTurn?.turnId !== interruptedTurnId
+              ? "latest-turn-mismatch"
+              : thread.latestTurn.state !== "interrupted" && thread.latestTurn.state !== "error"
+                ? `latest-turn-${thread.latestTurn.state}`
+                : null;
+        if (discardReason !== null) {
+          yield* Effect.logWarning("discarding invalid restart turn recovery", {
+            threadId,
+            recoveryTurnId: interruptedTurnId,
+            latestTurnId: thread?.latestTurn?.turnId ?? null,
+            latestTurnState: thread?.latestTurn?.state ?? null,
+            reason: discardReason,
+          });
           yield* sql`
             DELETE FROM restart_turn_recoveries
             WHERE thread_id = ${threadId}
@@ -76,6 +87,13 @@ export const recoverRestartInterruptedTurns = Effect.gen(function* () {
               : ProviderConnectionId.makeUnsafe(recovery.connectionId),
           bindingRevision: recovery.bindingRevision,
           createdAt,
+        });
+        yield* Effect.logInfo("started restart turn continuation", {
+          threadId,
+          interruptedTurnId,
+          recoveryTurnId: turnId,
+          connectionId: recovery.connectionId,
+          bindingRevision: recovery.bindingRevision,
         });
       }).pipe(
         Effect.catchCause((cause) =>

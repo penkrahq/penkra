@@ -32,11 +32,11 @@ function commandText(entry: AgentGatewayCommandEntry): string {
   return `penkra ${entry.words.join(" ")}`;
 }
 
-function commandHelp(entry: AgentGatewayCommandEntry, includeSchema: boolean): McpToolCallResult {
+function commandHelp(entry: AgentGatewayCommandEntry): McpToolCallResult {
   return mcpToolResultJson({
     command: commandText(entry),
     description: entry.tool.definition.description,
-    ...(includeSchema ? { inputSchema: entry.tool.definition.inputSchema } : {}),
+    inputSchema: entry.tool.definition.inputSchema,
   });
 }
 
@@ -88,8 +88,8 @@ export function resolveAgentGatewayCommand(
       `Invalid arguments for ${commandText(exact)}. Run ${commandText(exact)} --help.`,
     );
   }
-  if (parsed.help || parsed.schema) {
-    return { kind: "result", result: commandHelp(exact, parsed.schema) };
+  if (parsed.help) {
+    return { kind: "result", result: commandHelp(exact) };
   }
   const decoded = parseOperationInput(
     exact.tool.definition.inputSchema,

@@ -507,6 +507,24 @@ describe("planRestartTurnReconciliation", () => {
     expect(commands[0]?.threadId).toBe("orphan-turn");
   });
 
+  it("settles every restart-orphaned turn even when older open rows hide behind a terminal latest turn", () => {
+    const threads = [
+      makeThread("hidden-open-turns", {
+        session: makeSession("hidden-open-turns", { status: "ready", activeTurnId: null }),
+        latestTurn: { state: "completed" },
+        openTurnCount: 2,
+      }),
+    ];
+
+    const commands = expectSessionCommands(planRestartTurnReconciliation({ threads, now: NOW }));
+    expect(commands).toHaveLength(2);
+    expect(commands.map((command) => command.commandId)).toEqual([
+      `restart-reconcile:hidden-open-turns:${NOW}:open-turn:1`,
+      `restart-reconcile:hidden-open-turns:${NOW}:open-turn:2`,
+    ]);
+    expect(commands.every((command) => command.session.status === "interrupted")).toBe(true);
+  });
+
   it("falls back to the thread runtime mode and a null provider when no session row exists", () => {
     const threads = [
       makeThread("no-session-open-turn", {

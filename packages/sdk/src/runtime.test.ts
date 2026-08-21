@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   identity,
+  files,
   account,
   operations,
   permissions,
   settings,
   storage,
+  transfer,
   tab,
   type PenkraAppRuntimeApi,
 } from "./runtime";
@@ -42,6 +44,8 @@ function createFilesMock(): PenkraAppRuntimeApi["files"] {
   return {
     list: vi.fn(),
     pick: vi.fn(),
+    open: vi.fn(),
+    closeUrl: vi.fn(),
     revoke: vi.fn(),
     stat: vi.fn(),
     listDirectory: vi.fn(),
@@ -59,12 +63,21 @@ function createFilesMock(): PenkraAppRuntimeApi["files"] {
 
 function createStorageMock(): PenkraAppRuntimeApi["storage"] {
   return {
-    fetchToFile: vi.fn(),
+    open: vi.fn(),
+    closeUrl: vi.fn(),
     writeFile: vi.fn(),
-    uploadFromFile: vi.fn(),
     remove: vi.fn(),
     list: vi.fn(),
     usage: vi.fn(),
+  };
+}
+
+function createTransferMock(): PenkraAppRuntimeApi["transfer"] {
+  return {
+    begin: vi.fn(),
+    send: vi.fn(),
+    receive: vi.fn(),
+    onProgress: vi.fn(),
   };
 }
 
@@ -100,6 +113,7 @@ describe("framework-neutral App runtime exports", () => {
       contextMenu: { show: vi.fn(async () => null) },
       files: createFilesMock(),
       storage: createStorageMock(),
+      transfer: createTransferMock(),
       composer: { stage: vi.fn() },
       open: vi.fn(),
       browser: createBrowserMock(),
@@ -155,6 +169,8 @@ describe("framework-neutral App runtime exports", () => {
     tab.onVisibilityChange(visibilityHandler);
     await tab.setRoute({ route: "/document", state: { documentId: "doc-1" } });
     await storage.usage();
+    await files.open("handle-1", "movie.mp4");
+    await transfer.begin({ url: "https://uploads.example/files" });
 
     expect(runtime.operations.handle).toHaveBeenCalledWith("issues.create", operationHandler);
     expect(runtime.tab.handle).toHaveBeenCalledWith("selection.replace-text", tabHandler);
@@ -165,6 +181,10 @@ describe("framework-neutral App runtime exports", () => {
       state: { documentId: "doc-1" },
     });
     expect(runtime.storage.usage).toHaveBeenCalledOnce();
+    expect(runtime.files.open).toHaveBeenCalledWith("handle-1", "movie.mp4");
+    expect(runtime.transfer.begin).toHaveBeenCalledWith({
+      url: "https://uploads.example/files",
+    });
   });
 
   it("forwards read-only permission inspection to the preload-owned API", async () => {
@@ -172,6 +192,7 @@ describe("framework-neutral App runtime exports", () => {
       contextMenu: { show: vi.fn(async () => null) },
       files: createFilesMock(),
       storage: createStorageMock(),
+      transfer: createTransferMock(),
       composer: { stage: vi.fn() },
       open: vi.fn(),
       browser: createBrowserMock(),

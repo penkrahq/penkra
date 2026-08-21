@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   beginInlineFolderCreation,
   buildProjectThreadTree,
+  canArchiveSidebarThreads,
   createSidebarThreadHoverAnchorId,
   derivePinnedProjectIdsForSidebar,
   derivePinnedThreadIdsForSidebar,
@@ -22,7 +23,6 @@ import {
   getVisibleSidebarThreadIds,
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
-  hasUnseenCompletion,
   isLatestPinnedThreadMutation,
   isLoopbackHostname,
   pruneProjectThreadListPagingForCollapsedProjects,
@@ -32,6 +32,7 @@ import {
   resolveSettingsBackTarget,
   resolveProjectStatusIndicator,
   resolveSidebarWorkStatus,
+  resolveVisibleThreadWorkStatus,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   shouldShowDebugFeatureFlagsMenu,
@@ -40,6 +41,7 @@ import {
   sortProjectsForSidebar,
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
+import { hasUnseenThreadCompletion } from "../threadCompletion";
 import { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
 import {
   DEFAULT_RUNTIME_MODE,
@@ -83,7 +85,7 @@ describe("resolveProjectHeaderState", () => {
 function makeLatestTurn(overrides?: {
   completedAt?: string | null;
   startedAt?: string | null;
-}): Parameters<typeof hasUnseenCompletion>[0]["latestTurn"] {
+}): Thread["latestTurn"] {
   return {
     turnId: "turn-1" as never,
     state: "completed",
@@ -125,10 +127,10 @@ describe("beginInlineFolderCreation", () => {
   });
 });
 
-describe("hasUnseenCompletion", () => {
+describe("hasUnseenThreadCompletion", () => {
   it("returns true when a thread completed after its last visit", () => {
     expect(
-      hasUnseenCompletion({
+      hasUnseenThreadCompletion({
         latestTurn: makeLatestTurn(),
         lastVisitedAt: "2026-03-09T10:04:00.000Z",
       }),
@@ -921,6 +923,31 @@ describe("resolveSidebarWorkStatus", () => {
       ),
     ).toBe("recording");
     expect(resolveSidebarWorkStatus(null, true)).toBe("recording");
+  });
+
+  it("renders no icon for a neutral thread even when the coarse rollup still says done", () => {
+    expect(
+      resolveVisibleThreadWorkStatus({
+        status: null,
+        projectedWorkStatus: "done",
+      }),
+    ).toBe("idle");
+  });
+});
+
+describe("canArchiveSidebarThreads", () => {
+  it("allows archive only when every selected thread is idle", () => {
+    expect(canArchiveSidebarThreads(["idle"])).toBe(true);
+    expect(canArchiveSidebarThreads(["idle", "idle"])).toBe(true);
+
+    for (const status of ["running", "done", "attention", "recording"] as const) {
+      expect(canArchiveSidebarThreads([status])).toBe(false);
+      expect(canArchiveSidebarThreads(["idle", status])).toBe(false);
+    }
+  });
+
+  it("fails closed when no thread statuses are available", () => {
+    expect(canArchiveSidebarThreads([])).toBe(false);
   });
 });
 

@@ -15,6 +15,7 @@ import { ShowMoreRow } from "./show-more-row/ShowMoreRow";
 import { SidebarHeaderShared } from "./sidebar-header-shared/SidebarHeaderShared";
 import { SidebarProjects } from "./sidebar-projects/SidebarProjects";
 import { SidebarTopNavigation } from "./sidebar-top-navigation/SidebarTopNavigation";
+import { SpaceHeaderInlineEdit } from "./space-header-inline-edit/SpaceHeaderInlineEdit";
 import { SpaceHeaderShared } from "./space-header-shared/SpaceHeaderShared";
 import { ThreadRowShared } from "./thread-row-shared/ThreadRowShared";
 import { ThreadRowInlineEdit } from "./thread-row-inline-edit/ThreadRowInlineEdit";
@@ -252,14 +253,15 @@ describe("Pencil left rail", () => {
     await expect.element(disclosure).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("commits an inline folder draft when an outside interaction blurs it", async () => {
+  it("reverts an inline folder rename when an outside interaction blurs it", async () => {
+    const onCancel = vi.fn();
     const onSubmit = vi.fn();
     await render(
       <>
         <FolderRowInlineEdit
           defaultValue="Product"
           existingNames={["Engineering"]}
-          onCancel={() => undefined}
+          onCancel={onCancel}
           onSubmit={onSubmit}
         />
         <div>Outside editor</div>
@@ -269,8 +271,8 @@ describe("Pencil left rail", () => {
     const input = page.getByRole("textbox", { name: "Rename folder" });
     await input.fill("Research");
     await page.getByText("Outside editor", { exact: true }).click();
-    await expect.element(input).toHaveValue("Research");
-    expect(onSubmit).toHaveBeenCalledWith("Research");
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("dismisses an empty inline folder draft without creating it", async () => {
@@ -297,7 +299,7 @@ describe("Pencil left rail", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("creates a named inline folder draft on blur", async () => {
+  it("reverts a named inline folder draft on blur", async () => {
     const onCancel = vi.fn();
     const onSubmit = vi.fn();
     await render(
@@ -316,8 +318,52 @@ describe("Pencil left rail", () => {
     await page.getByRole("textbox", { name: "New folder name" }).fill("Research");
     await page.getByRole("button", { name: "Outside editor" }).click();
 
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("creates an inline folder only when Enter is pressed", async () => {
+    const onCancel = vi.fn();
+    const onSubmit = vi.fn();
+    await render(
+      <FolderRowInlineEdit
+        mode="create"
+        defaultValue=""
+        existingNames={[]}
+        onCancel={onCancel}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await page.getByRole("textbox", { name: "New folder name" }).fill("Research");
+    await userEvent.keyboard("{Enter}");
+
     expect(onSubmit).toHaveBeenCalledWith("Research");
     expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it("reverts a new Space draft on blur and submits it on Enter", async () => {
+    const onCancel = vi.fn();
+    const onSubmit = vi.fn();
+    const view = await render(
+      <>
+        <SpaceHeaderInlineEdit mode="create" onCancel={onCancel} onSubmit={onSubmit} />
+        <button type="button">Outside space editor</button>
+      </>,
+    );
+
+    const input = page.getByRole("textbox", { name: "New Space name" });
+    await input.fill("Work");
+    await page.getByRole("button", { name: "Outside space editor" }).click();
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await view.rerender(
+      <SpaceHeaderInlineEdit mode="create" onCancel={onCancel} onSubmit={onSubmit} />,
+    );
+    await page.getByRole("textbox", { name: "New Space name" }).fill("Work");
+    await userEvent.keyboard("{Enter}");
+    expect(onSubmit).toHaveBeenCalledWith("Work");
   });
 
   it("cancels inline thread editing on Escape", async () => {

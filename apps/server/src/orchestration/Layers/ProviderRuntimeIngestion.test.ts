@@ -877,6 +877,148 @@ describe("ProviderRuntimeIngestion", () => {
     );
   });
 
+  it("recovers a quarantined partially accepted provider event and projects its retained assistant tail", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const threadId = asThreadId("thread-1");
+    const turnId = asTurnId("turn-after-partial-provider-event");
+    const itemId = asItemId("item-after-partial-provider-event");
+    const startedAt = "2026-07-14T00:05:10.000Z";
+    const threadStarted: ProviderRuntimeEvent = {
+      type: "thread.started",
+      eventId: asEventId("evt-partially-accepted-thread-started"),
+      provider: "claudeAgent",
+      createdAt: startedAt,
+      threadId,
+      payload: {},
+    };
+    const partiallyAcceptedCommandId = CommandId.makeUnsafe(
+      `provider:${threadStarted.eventId}:thread-session-set:${threadId}`,
+    );
+
+    // Simulate the crash window from production: this event's deterministic
+    // session command committed, another durable reconciliation changed the
+    // projected session, but the runtime journal cursor never advanced.
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: partiallyAcceptedCommandId,
+        threadId,
+        session: {
+          threadId,
+          status: "ready",
+          providerName: "claudeAgent",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: startedAt,
+        },
+        createdAt: startedAt,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-reconcile-after-partial-provider-event"),
+        threadId,
+        session: {
+          threadId,
+          status: "starting",
+          providerName: "claudeAgent",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: "2026-07-14T00:05:11.000Z",
+        },
+        createdAt: "2026-07-14T00:05:11.000Z",
+      }),
+    );
+
+    const persistedThreadStarted = await Effect.runPromise(
+      harness.runtimeEventRepository.append(threadStarted),
+    );
+    await Effect.runPromise(
+      harness.runtimeEventRepository.recordProjectionFailure({
+        sequence: persistedThreadStarted.sequence,
+        errorFingerprint: "partial-provider-command-identity-collision",
+        errorDetail:
+          "Command identity collision: the command ID is already bound to different command content.",
+        failedAt: "2026-07-14T00:05:11.500Z",
+        attemptLimit: 1,
+        minBlockedMs: 0,
+      }),
+    );
+    await Effect.runPromise(
+      harness.runtimeEventRepository.append({
+        type: "turn.started",
+        eventId: asEventId("evt-turn-after-partial-provider-event"),
+        provider: "claudeAgent",
+        createdAt: "2026-07-14T00:05:12.000Z",
+        threadId,
+        turnId,
+        payload: {},
+      }),
+    );
+    await Effect.runPromise(
+      harness.runtimeEventRepository.append({
+        type: "content.delta",
+        eventId: asEventId("evt-delta-after-partial-provider-event"),
+        provider: "claudeAgent",
+        createdAt: "2026-07-14T00:05:13.000Z",
+        threadId,
+        turnId,
+        itemId,
+        payload: {
+          streamKind: "assistant_text",
+          delta: "This retained reply must remain visible.",
+        },
+      }),
+    );
+    await Effect.runPromise(
+      harness.runtimeEventRepository.append({
+        type: "item.completed",
+        eventId: asEventId("evt-item-complete-after-partial-provider-event"),
+        provider: "claudeAgent",
+        createdAt: "2026-07-14T00:05:14.000Z",
+        threadId,
+        turnId,
+        itemId,
+        payload: { itemType: "assistant_message", status: "completed" },
+      }),
+    );
+    const completed = await Effect.runPromise(
+      harness.runtimeEventRepository.append({
+        type: "turn.completed",
+        eventId: asEventId("evt-complete-after-partial-provider-event"),
+        provider: "claudeAgent",
+        createdAt: "2026-07-14T00:05:15.000Z",
+        threadId,
+        turnId,
+        payload: { state: "completed" },
+      }),
+    );
+
+    await harness.startIngestion();
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "ready" &&
+        entry.messages.some(
+          (message) =>
+            message.id === `assistant:${itemId}` &&
+            message.text === "This retained reply must remain visible." &&
+            message.streaming === false,
+        ),
+    );
+
+    expect(thread.latestTurn).toMatchObject({ turnId, state: "completed" });
+    expect(await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(threadId))).toBe(
+      completed.sequence,
+    );
+    expect(
+      await Effect.runPromise(harness.runtimeEventRepository.getThreadProjectionFailure(threadId)),
+    ).toBeNull();
+  });
+
   it("isolates a failed thread head without blocking another thread", async () => {
     const harness = await createHarness({ startIngestion: false });
     const createdAt = new Date().toISOString();
@@ -905,26 +1047,29 @@ describe("ProviderRuntimeIngestion", () => {
     const failedCommandId = CommandId.makeUnsafe(
       `provider:${failedEvent.eventId}:thread-session-set:thread-1`,
     );
-    // Reserve the deterministic command id with different content. Replaying
-    // the runtime event now fails after journaling, exactly like a deterministic
-    // projection incompatibility rather than an invalid event rejected upfront.
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: failedCommandId,
-        threadId: asThreadId("thread-1"),
-        session: {
-          threadId: asThreadId("thread-1"),
-          status: "stopped",
-          providerName: "codex",
-          runtimeMode: "approval-required",
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: createdAt,
-        },
-        createdAt,
-      }),
+    // Reserve the deterministic command id with a rejected command. Accepted
+    // provider effects are safe replay checkpoints and are skipped; a rejected
+    // receipt must still preserve the engine's identity-collision protection.
+    const rejected = await Effect.runPromise(
+      Effect.exit(
+        harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: failedCommandId,
+          threadId: asThreadId("missing-thread"),
+          session: {
+            threadId: asThreadId("missing-thread"),
+            status: "stopped",
+            providerName: "codex",
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: createdAt,
+          },
+          createdAt,
+        }),
+      ),
     );
+    expect(rejected._tag).toBe("Failure");
     const failed = await Effect.runPromise(harness.runtimeEventRepository.append(failedEvent));
     const healthyEvent: ProviderRuntimeEvent = {
       type: "runtime.warning",
@@ -965,7 +1110,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
   });
 
-  it("restores durable quarantine as thread attention after restart", async () => {
+  it("retries and recovers a durable quarantine after restart", async () => {
     const harness = await createHarness({ startIngestion: false });
     const quarantinedTurnId = asTurnId("turn-quarantined-before-restart");
     await Effect.runPromise(
@@ -1007,24 +1152,21 @@ describe("ProviderRuntimeIngestion", () => {
     );
 
     await harness.startIngestion();
-    const thread = await waitForThread(
-      harness.engine,
-      (entry) =>
-        entry.session?.status === "error" &&
-        entry.session.lastError?.includes("paused this thread") === true,
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some((activity) => activity.id === event.eventId),
     );
     expect(thread.session?.activeTurnId).toBe(event.turnId);
     expect(thread.latestTurn).toMatchObject({
       turnId: quarantinedTurnId,
-      state: "error",
+      state: "running",
     });
-    expect(thread.latestTurn?.completedAt).not.toBeNull();
+    expect(thread.latestTurn?.completedAt).toBeNull();
     expect(
       await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(event.threadId)),
-    ).toBe(0);
+    ).toBe(persisted.sequence);
     expect(
       await Effect.runPromise(harness.runtimeEventRepository.listQuarantinedProjectionFailures),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("maps turn started/completed events into thread session updates", async () => {
@@ -1273,6 +1415,11 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(midThread?.session?.status).toBe("running");
     expect(midThread?.session?.activeTurnId).toBe("turn-midturn-lifecycle");
+    expect(midThread?.latestTurn).toMatchObject({
+      turnId: "turn-midturn-lifecycle",
+      state: "running",
+      completedAt: null,
+    });
 
     harness.emit({
       type: "turn.completed",
@@ -2753,9 +2900,20 @@ describe("ProviderRuntimeIngestion", () => {
           AND json_extract(payload_json, '$.activity.payload.operationId') = 'call-operation'
       `,
     );
-    // Tool lifecycle no longer amplifies into orchestration events. The durable runtime journal
-    // retains its bounded replay tail while the canonical activity remains singular and terminal.
+    // Tool lifecycle does not duplicate its payload into legacy activity events.
     expect(lifecycleEvents[0]?.count).toBe(0);
+    const readModelInvalidations = await Effect.runPromise(
+      harness.sql<{ readonly count: number }>`
+        SELECT COUNT(*) AS count
+        FROM orchestration_events
+        WHERE stream_id = 'thread-1'
+          AND event_type = 'thread.activity-read-model-updated'
+          AND json_extract(payload_json, '$.turnId') = 'turn-operation'
+      `,
+    );
+    // Lightweight invalidations preserve live delivery without retaining historical
+    // tool patches outside the singular canonical operation row.
+    expect(readModelInvalidations[0]?.count).toBe(4);
   });
 
   it("uses assistant item completion detail when no assistant deltas were streamed", async () => {
@@ -2858,6 +3016,67 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(message?.text).toBe("buffer me");
     expect(message?.streaming).toBe(false);
+  });
+
+  it("keeps every repeated assistant chunk and reconciles to completion text", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const turnId = asTurnId("turn-repeated-assistant-chunks");
+    const itemId = asItemId("item-repeated-assistant-chunks");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-repeated-assistant-chunks"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "running" && thread.session.activeTurnId === turnId,
+    );
+
+    for (const [index, delta] of ["The", " is", " is", ".", "."].entries()) {
+      harness.emit({
+        type: "content.delta",
+        eventId: asEventId(`evt-repeated-assistant-chunk-${index}`),
+        provider: "codex",
+        createdAt: now,
+        threadId: asThreadId("thread-1"),
+        turnId,
+        itemId,
+        payload: { streamKind: "assistant_text", delta },
+      });
+    }
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-complete-repeated-assistant-chunks"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId,
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "The is is..",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-repeated-assistant-chunks" && !message.streaming,
+      ),
+    );
+    expect(
+      thread.messages.find(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-repeated-assistant-chunks",
+      )?.text,
+    ).toBe("The is is..");
   });
 
   it("ignores whitespace-only buffered assistant deltas on completion", async () => {
@@ -2969,31 +3188,37 @@ describe("ProviderRuntimeIngestion", () => {
         thread.session?.activeTurnId === "turn-streaming-mode",
     );
 
-    harness.emit({
-      type: "content.delta",
-      eventId: asEventId("evt-message-delta-streaming-mode"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-streaming-mode"),
-      itemId: asItemId("item-streaming-mode"),
-      payload: {
-        streamKind: "assistant_text",
-        delta: "hello live",
-      },
-    });
+    for (const eventId of [
+      "evt-message-delta-streaming-mode",
+      "evt-message-repeated-delta-streaming-mode",
+    ]) {
+      harness.emit({
+        type: "content.delta",
+        eventId: asEventId(eventId),
+        provider: "codex",
+        createdAt: now,
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-streaming-mode"),
+        itemId: asItemId("item-streaming-mode"),
+        payload: {
+          streamKind: "assistant_text",
+          delta: "hello live",
+        },
+      });
+    }
 
     const liveThread = await waitForThread(harness.engine, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-streaming-mode" &&
           message.streaming &&
-          message.text === "hello live",
+          message.text === "hello livehello live",
       ),
     );
     const liveMessage = liveThread.messages.find(
       (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-streaming-mode",
     );
+    expect(liveMessage?.text).toBe("hello livehello live");
     expect(liveMessage?.streaming).toBe(true);
 
     harness.emit({
@@ -4365,7 +4590,9 @@ describe("ProviderRuntimeIngestion", () => {
       payload: {
         itemType: "assistant_message",
         status: "completed",
-        detail: "ther",
+        // Completion detail is the canonical full-text snapshot, even when a
+        // provider cannot supply a completion item id.
+        detail: "Come together",
       },
     });
 

@@ -1,11 +1,17 @@
-import { EventId, RuntimeTaskId, ThreadId, type ProviderRuntimeEvent } from "@penkra/contracts";
+import {
+  EventId,
+  RuntimeItemId,
+  RuntimeTaskId,
+  ThreadId,
+  type ProviderRuntimeEvent,
+} from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
   assignDerivedProviderRuntimeEventIds,
   providerRuntimeEventIdFromNative,
 } from "./providerRuntimeEventIdentity.ts";
-import { canonicalizeProviderRuntimeEventIdentity } from "./Layers/ProviderService.ts";
+import { normalizeProviderRuntimeEvent } from "./Layers/ProviderService.ts";
 
 const base = {
   eventId: EventId.makeUnsafe("native-event"),
@@ -47,42 +53,82 @@ describe("assignDerivedProviderRuntimeEventIds", () => {
 });
 
 describe("providerRuntimeEventIdFromNative", () => {
-  it("enforces stable raw-notification identity at the shared adapter boundary", () => {
+  it("normalizes provider-authored lifecycle text without flattening multiline content", () => {
     const event = {
-      type: "runtime.warning" as const,
-      eventId: EventId.makeUnsafe("random-on-each-replay"),
-      provider: "pi" as const,
-      createdAt: "2026-08-19T00:00:00.000Z",
-      threadId: ThreadId.makeUnsafe("thread-shared-boundary"),
-      payload: { message: "retrying" },
-      raw: {
-        source: "pi.sdk.event",
-        payload: { sequence: 7, nested: { b: 2, a: 1 } },
+      ...base,
+      type: "item.completed",
+      itemId: RuntimeItemId.makeUnsafe("item-whitespace"),
+      payload: {
+        itemType: "command_execution",
+        title: "  Bash: cd /tmp;\n  ./node_modules/.bin/vitest run  \n",
+        detail: "   ",
       },
     } satisfies ProviderRuntimeEvent;
-    const replay = {
-      ...event,
-      eventId: EventId.makeUnsafe("another-random-id"),
-      raw: {
-        source: "pi.sdk.event",
-        payload: { nested: { a: 1, b: 2 }, sequence: 7 },
+
+    const normalized = normalizeProviderRuntimeEvent(event);
+    expect(normalized.payload).toEqual({
+      itemType: "command_execution",
+      title: "Bash: cd /tmp;\n  ./node_modules/.bin/vitest run",
+    });
+  });
+
+  it("preserves distinct occurrence ids for identical raw assistant deltas", () => {
+    const makeDelta = (eventId: string) =>
+      ({
+        ...base,
+        eventId: EventId.makeUnsafe(eventId),
+        type: "content.delta",
+        itemId: RuntimeItemId.makeUnsafe("assistant-repeated-chunk"),
+        payload: { streamKind: "assistant_text", delta: " is" },
+        raw: {
+          source: "codex.app-server.notification",
+          method: "item/agentMessage/delta",
+          payload: {
+            threadId: "provider-thread",
+            turnId: "provider-turn",
+            itemId: "assistant-repeated-chunk",
+            delta: " is",
+          },
+        },
+      }) satisfies ProviderRuntimeEvent;
+
+    expect([
+      normalizeProviderRuntimeEvent(makeDelta("delta-occurrence-1")).eventId,
+      normalizeProviderRuntimeEvent(makeDelta("delta-occurrence-2")).eventId,
+    ]).toEqual(["delta-occurrence-1", "delta-occurrence-2"]);
+  });
+
+  it("preserves assistant completion text byte-for-byte", () => {
+    const event = {
+      ...base,
+      type: "item.completed",
+      itemId: RuntimeItemId.makeUnsafe("assistant-completion-whitespace"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        title: " Assistant message ",
+        detail: "  first line\nsecond line\n",
       },
     } satisfies ProviderRuntimeEvent;
-    expect(canonicalizeProviderRuntimeEventIdentity(event).eventId).toBe(
-      canonicalizeProviderRuntimeEventIdentity(replay).eventId,
-    );
+
+    expect(normalizeProviderRuntimeEvent(event).payload).toEqual({
+      itemType: "assistant_message",
+      status: "completed",
+      title: "Assistant message",
+      detail: "  first line\nsecond line\n",
+    });
   });
 
   it("is stable across replay and JSON object key order", () => {
     const first = providerRuntimeEventIdFromNative({
-      provider: "opencode",
-      source: "opencode.sdk.event",
+      provider: "claude",
+      source: "claude.sdk.message",
       threadId: "thread-1",
       nativeEvent: { type: "part.updated", properties: { id: "part-1", text: "hello" } },
     });
     const replay = providerRuntimeEventIdFromNative({
-      provider: "opencode",
-      source: "opencode.sdk.event",
+      provider: "claude",
+      source: "claude.sdk.message",
       threadId: "thread-1",
       nativeEvent: { properties: { text: "hello", id: "part-1" }, type: "part.updated" },
     });
@@ -99,10 +145,10 @@ describe("providerRuntimeEventIdFromNative", () => {
       });
     expect(
       new Set([
-        make("opencode", "opencode.sdk.event", "thread-1"),
+        make("claude", "claude.sdk.message", "thread-1"),
         make("kilo", "kilo.sdk.event", "thread-1"),
-        make("opencode", "other.source", "thread-1"),
-        make("opencode", "opencode.sdk.event", "thread-2"),
+        make("claude", "other.source", "thread-1"),
+        make("claude", "claude.sdk.message", "thread-2"),
       ]).size,
     ).toBe(4);
   });

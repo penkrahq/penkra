@@ -25,6 +25,7 @@ const runtimeMock = {
   state: {
     startCalls: [] as string[],
     startCwds: [] as Array<string | undefined>,
+    startEnvs: [] as Array<NodeJS.ProcessEnv | undefined>,
     sessionCreateInputs: [] as Array<Record<string, unknown>>,
     promptUrls: [] as string[],
     promptInputs: [] as Array<Record<string, unknown>>,
@@ -39,6 +40,7 @@ const runtimeMock = {
   reset() {
     this.state.startCalls.length = 0;
     this.state.startCwds.length = 0;
+    this.state.startEnvs.length = 0;
     this.state.sessionCreateInputs.length = 0;
     this.state.promptUrls.length = 0;
     this.state.promptInputs.length = 0;
@@ -51,12 +53,13 @@ const runtimeMock = {
 };
 
 const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
-  startOpenCodeServerProcess: ({ binaryPath, cwd }) =>
+  startOpenCodeServerProcess: ({ binaryPath, cwd, processEnv }) =>
     Effect.gen(function* () {
       const index = runtimeMock.state.startCalls.length + 1;
       const url = `http://127.0.0.1:${4_300 + index}`;
       runtimeMock.state.startCalls.push(binaryPath);
       runtimeMock.state.startCwds.push(cwd);
+      runtimeMock.state.startEnvs.push(processEnv);
 
       // Mirror the production scoped cleanup so we can assert idle shutdown behavior.
       yield* Effect.addFinalizer(() =>
@@ -282,6 +285,41 @@ it.layer(OpenCodeTextGenerationTestLayer)("OpenCodeTextGenerationServiceLive", (
         .pipe(Effect.flip);
 
       expect(error.message).toContain("Model did not produce structured output");
+    }),
+  );
+
+  it.effect("isolates managed title servers by Connection and forwards credentials", () =>
+    Effect.gen(function* () {
+      const textGeneration = yield* OpenCodeTextGeneration;
+      const managedLaunch = (isolationKey: string, credential: string) => ({
+        binaryPath: "/managed/opencode",
+        isolationKey,
+        profileRoot: `/profiles/${isolationKey}`,
+        nativeStateRoot: `/native/${isolationKey}`,
+        childEnvironment: (baseEnv: NodeJS.ProcessEnv) => ({
+          ...baseEnv,
+          OPENCODE_AUTH_CONTENT: credential,
+        }),
+      });
+
+      yield* textGeneration.generateThreadTitle({
+        cwd: process.cwd(),
+        message: "Title with Connection A",
+        modelSelection: DEFAULT_TEST_MODEL_SELECTION,
+        managedLaunch: managedLaunch("connection-a", "credential-a"),
+      });
+      yield* textGeneration.generateThreadTitle({
+        cwd: process.cwd(),
+        message: "Title with Connection B",
+        modelSelection: DEFAULT_TEST_MODEL_SELECTION,
+        managedLaunch: managedLaunch("connection-b", "credential-b"),
+      });
+
+      expect(runtimeMock.state.startCalls).toEqual(["/managed/opencode", "/managed/opencode"]);
+      expect(runtimeMock.state.startEnvs.map((env) => env?.OPENCODE_AUTH_CONTENT)).toEqual([
+        "credential-a",
+        "credential-b",
+      ]);
     }),
   );
 });

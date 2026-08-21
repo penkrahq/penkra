@@ -220,7 +220,7 @@ function ChatRouteGlobalShortcuts() {
   const threadsHydrated = useStore((state) => state.threadsHydrated);
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
-  const providerConnectionsQuery = useQuery(providerConnectionsQueryOptions(activeSpaceId));
+  const providerConnectionsQuery = useQuery(providerConnectionsQueryOptions());
   const keybindings = serverConfigQuery.data?.keybindings ?? EMPTY_KEYBINDINGS;
   const platform = typeof navigator === "undefined" ? "" : navigator.platform;
   const providerStatuses = useProviderStatusesForLocalConfig();

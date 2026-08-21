@@ -45,7 +45,6 @@ const snapshot = {
     },
   ],
   anonymousRoutes: [{ harness: "opencode", internalProviderId: "opencode" }],
-  spaceDefaults: [{ harness: "opencode", connectionId: goConnectionId }],
 } as unknown as ProviderConnectionsSnapshot;
 
 describe("provider Connection capabilities", () => {
@@ -123,7 +122,7 @@ describe("provider Connection capabilities", () => {
     ).toBe(false);
   });
 
-  it("preserves a started Thread's exact binding without falling through to a Space default", () => {
+  it("preserves a started Thread's exact binding without falling through to another Connection", () => {
     const unavailableConnectionId = ProviderConnectionId.makeUnsafe(
       "00000000-0000-4000-8000-000000000099",
     );
@@ -223,11 +222,10 @@ describe("provider Connection capabilities", () => {
     ).toEqual({ specified: false, connectionId: undefined });
   });
 
-  it("re-reads the exact Space default when a managed login completed behind the composer", async () => {
+  it("re-reads available Connections when a managed login completed behind the composer", async () => {
     const staleSnapshot = {
       ...snapshot,
       connections: [],
-      spaceDefaults: [],
     } as unknown as ProviderConnectionsSnapshot;
     let refreshCount = 0;
     await expect(

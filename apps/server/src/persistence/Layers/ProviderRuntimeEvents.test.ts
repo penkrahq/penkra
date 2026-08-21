@@ -48,6 +48,7 @@ layer("ProviderRuntimeEventRepository", (it) => {
       const replayedLater = yield* repository.append({
         ...runtimeEvent("runtime-event-1", "hello"),
         createdAt: "2026-07-14T00:00:30.000Z",
+        lifecycleGeneration: "generation-2",
       });
       assert.strictEqual(replayedLater.sequence, first.sequence);
       assert.isAbove(second.sequence, first.sequence);

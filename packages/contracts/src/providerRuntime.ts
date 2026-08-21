@@ -396,6 +396,11 @@ export const ItemLifecyclePayload = Schema.Struct({
   itemType: CanonicalItemType,
   status: Schema.optional(RuntimeItemStatus),
   title: Schema.optional(TrimmedNonEmptyStringSchema),
+  /**
+   * Provider-authored lifecycle detail. For a completed `assistant_message`, adapters that expose
+   * the accumulated final message put that authoritative snapshot here. Consumers must not infer
+   * a snapshot when the provider omits it.
+   */
   detail: Schema.optional(TrimmedNonEmptyStringSchema),
   /** Provider-normalized tool input. Lifecycle envelopes belong in `data`, not here. */
   input: Schema.optional(Schema.Unknown),

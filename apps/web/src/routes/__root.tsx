@@ -862,6 +862,7 @@ function isThreadDetailEventForThread(event: OrchestrationEvent, threadId: Threa
   return (
     event.type === "thread.message-sent" ||
     event.type === "thread.activity-appended" ||
+    event.type === "thread.activity-read-model-updated" ||
     event.type === "thread.conversation-rolled-back" ||
     event.type === "thread.session-set" ||
     event.type === "thread.meta-updated" ||
@@ -959,14 +960,21 @@ function EventRouter() {
   );
   const retainedThreadIds = useRetainedThreadDetailIds();
   const serverThreadIds = useMemo(() => new Set(serverThreadIdList ?? []), [serverThreadIdList]);
+  const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
+  const draftThreadIds = useMemo(
+    () =>
+      new Set(Object.keys(draftThreadsByThreadId).map((threadId) => ThreadId.makeUnsafe(threadId))),
+    [draftThreadsByThreadId],
+  );
   const subscribedThreadIds = useMemo(
     () =>
       resolveThreadDetailSubscriptionLeaseIds({
         visibleThreadIds,
         retainedThreadIds,
         serverThreadIds,
+        draftThreadIds,
       }),
-    [retainedThreadIds, serverThreadIds, visibleThreadIds],
+    [draftThreadIds, retainedThreadIds, serverThreadIds, visibleThreadIds],
   );
   const pathnameRef = useRef(pathname);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
@@ -1003,11 +1011,13 @@ function EventRouter() {
     const threadSnapshotRefreshPending = new Set<ThreadId>();
     const threadReplayRequestInFlight = new Set<ThreadId>();
     const threadProjectionReconcileInFlight = new Map<ThreadId, number>();
+    const threadProjectionInvalidationPending = new Set<ThreadId>();
     const threadProjectionTerminalFencePending = new Set<ThreadId>();
     const threadSubscriptionGenerationById = new Map<ThreadId, number>();
     const nextThreadProjectionReconcileAtById = new Map<ThreadId, number>();
     let nextThreadSubscriptionGeneration = 0;
     let reconcileThreadSubscriptionsChain = Promise.resolve();
+    let scopedSubscriptionsReady = false;
 
     const isDraftThreadAwaitingProjection = (threadId: ThreadId): boolean => {
       if (useComposerDraftStore.getState().draftThreadsByThreadId[threadId] === undefined) {
@@ -1025,6 +1035,7 @@ function EventRouter() {
       threadSnapshotRequestInFlight.delete(threadId);
       threadSnapshotRefreshPending.delete(threadId);
       threadProjectionReconcileInFlight.delete(threadId);
+      threadProjectionInvalidationPending.delete(threadId);
       threadProjectionTerminalFencePending.delete(threadId);
       nextThreadSubscriptionGeneration += 1;
       threadSubscriptionGenerationById.set(threadId, nextThreadSubscriptionGeneration);
@@ -1042,7 +1053,13 @@ function EventRouter() {
         if (event.sequence > latestThreadSequence) {
           latestThreadSequence = event.sequence;
           threadSnapshotSequenceById.set(threadId, latestThreadSequence);
-          queueDomainEvent(event);
+          if (event.type === "thread.activity-read-model-updated") {
+            threadProjectionInvalidationPending.add(threadId);
+            nextThreadProjectionReconcileAtById.set(threadId, Date.now());
+            void reconcileThreadProjection(threadId).catch(() => undefined);
+          } else {
+            queueDomainEvent(event);
+          }
         }
       }
     };
@@ -1073,6 +1090,7 @@ function EventRouter() {
         threadSnapshotRefreshPending.delete(threadId);
         threadReplayRequestInFlight.delete(threadId);
         threadProjectionReconcileInFlight.delete(threadId);
+        threadProjectionInvalidationPending.delete(threadId);
         threadProjectionTerminalFencePending.delete(threadId);
         threadSubscriptionGenerationById.delete(threadId);
         nextThreadProjectionReconcileAtById.delete(threadId);
@@ -1142,14 +1160,16 @@ function EventRouter() {
       });
     };
 
-    // Draft routes can subscribe before the server thread exists. Once the shell
-    // row appears, explicitly restart the stream for a first thread snapshot so
-    // buffered detail events can flush instead of waiting forever.
+    // A stream event can arrive before its initial snapshot (or the initial
+    // projection can be temporarily unavailable). Query the authoritative detail
+    // projection without churning the healthy stream lease; the returned snapshot
+    // establishes the cursor and flushes buffered events.
     const requestThreadSnapshot = async (threadId: ThreadId) => {
       if (threadSnapshotSequenceById.has(threadId)) {
         return;
       }
-      await refreshThreadSnapshot(threadId);
+      nextThreadProjectionReconcileAtById.set(threadId, Date.now());
+      await reconcileThreadProjection(threadId);
     };
 
     const shouldApplyBootstrapShellSnapshot = (snapshot: OrchestrationShellSnapshot) => {
@@ -1199,6 +1219,7 @@ function EventRouter() {
         threadSnapshotRefreshPending.clear();
         threadReplayRequestInFlight.clear();
         threadProjectionReconcileInFlight.clear();
+        threadProjectionInvalidationPending.clear();
         threadProjectionTerminalFencePending.clear();
         threadSubscriptionGenerationById.clear();
         nextThreadProjectionReconcileAtById.clear();
@@ -1218,6 +1239,7 @@ function EventRouter() {
           ),
         );
         await reconcileThreadSubscriptions(visibleThreadIdsRef.current);
+        scopedSubscriptionsReady = true;
       });
     };
 
@@ -1284,7 +1306,13 @@ function EventRouter() {
               continue;
             }
             threadSnapshotSequenceById.set(threadId, event.sequence);
-            queueDomainEvent(event);
+            if (event.type === "thread.activity-read-model-updated") {
+              threadProjectionInvalidationPending.add(threadId);
+              nextThreadProjectionReconcileAtById.set(threadId, Date.now());
+              void reconcileThreadProjection(threadId).catch(() => undefined);
+            } else {
+              queueDomainEvent(event);
+            }
           }
         })
         .finally(() => {
@@ -1303,6 +1331,7 @@ function EventRouter() {
         return;
       }
       threadProjectionReconcileInFlight.set(threadId, subscriptionGeneration);
+      threadProjectionInvalidationPending.delete(threadId);
       let projectionConfirmed = false;
       try {
         const snapshot = await api.orchestration.getThreadDetailSnapshot({
@@ -1346,7 +1375,9 @@ function EventRouter() {
           if (projectionConfirmed) {
             threadProjectionTerminalFencePending.delete(threadId);
           }
-          if (
+          if (threadProjectionInvalidationPending.has(threadId)) {
+            nextThreadProjectionReconcileAtById.set(threadId, Date.now());
+          } else if (
             threadProjectionTerminalFencePending.has(threadId) ||
             shouldReconcileThreadProjection(threadId) ||
             isDraftThreadAwaitingProjection(threadId)
@@ -1374,11 +1405,10 @@ function EventRouter() {
     );
 
     reconcileThreadSubscriptionsRef.current = (threadIds) =>
-      enqueueThreadSubscriptionReconcile(threadIds);
-    // The layout effect runs before this passive effect on the initial mount, so
-    // its first read of the ref is necessarily null. Subscribe the initial visible
-    // set here; subsequent route/retention changes are handled by the layout effect.
-    void reconcileThreadSubscriptionsRef.current(visibleThreadIdsRef.current);
+      scopedSubscriptionsReady ? enqueueThreadSubscriptionReconcile(threadIds) : Promise.resolve();
+    // Initial shell + detail ownership is established once by
+    // `ensureScopedSubscriptions` below. Subsequent route/retention changes are
+    // handled by the layout effect through this ref.
 
     const unsubShellEvent = api.orchestration.onShellEvent((item) => {
       if (item.kind === "snapshot") {
@@ -1482,7 +1512,13 @@ function EventRouter() {
         threadId,
         Date.now() + THREAD_DETAIL_PROJECTION_RECONCILE_INTERVAL_MS,
       );
-      queueDomainEvent(item.event);
+      if (item.event.type === "thread.activity-read-model-updated") {
+        threadProjectionInvalidationPending.add(threadId);
+        nextThreadProjectionReconcileAtById.set(threadId, Date.now());
+        void reconcileThreadProjection(threadId).catch(() => undefined);
+      } else {
+        queueDomainEvent(item.event);
+      }
     });
     const unsubThreadStreamFailure = onThreadStreamFailure((failure) => {
       const threadId = ThreadId.makeUnsafe(failure.threadId);
@@ -1578,10 +1614,7 @@ function EventRouter() {
           homeDir: payload.homeDir,
           chatWorkspaceRoot: payload.chatWorkspaceRoot,
         });
-        await ensureScopedSubscriptions();
-        if (disposed) {
-          return;
-        }
+        if (disposed) return;
         await loadShellSnapshotOnce();
 
         if (!payload.bootstrapProjectId || !payload.bootstrapThreadId) {
@@ -1744,6 +1777,7 @@ function EventRouter() {
       window.clearTimeout(shellBootstrapFallbackTimer);
       window.clearInterval(threadDetailCatchupInterval);
       threadProjectionReconcileInFlight.clear();
+      threadProjectionInvalidationPending.clear();
       threadProjectionTerminalFencePending.clear();
       threadSubscriptionGenerationById.clear();
       nextThreadProjectionReconcileAtById.clear();

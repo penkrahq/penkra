@@ -1400,7 +1400,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("+2 more tool calls");
   });
 
-  it("renders reasoning activity as iconless tool text while Thinking remains live", async () => {
+  it("keeps Thinking visible alongside the live elapsed-time status", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const activeTurnId = TurnId.makeUnsafe("turn-reasoning-live");
     const markup = renderToStaticMarkup(
@@ -1482,7 +1482,10 @@ describe("MessagesTimeline", () => {
 
     expect(markup.match(/data-codex-status-row="true"/g) ?? []).toHaveLength(3);
     expect(markup.match(/data-work-entry-icon="true"/g) ?? []).toHaveLength(1);
-    expect(markup).toContain(">Thinking<");
+    expect(markup).toContain("Working for");
+    expect(markup).toContain('class="shimmer pt-0.5 text-muted-foreground/70 font-system-ui"');
+    expect(markup).toContain(">Thinking</div>");
+    expect(markup).not.toContain('aria-hidden="true">Thinking</div>');
     expect(markup).toContain("Inspecting apps/web/src/store.ts");
     expect(markup).not.toContain("Reasoning trace Inspecting");
   });

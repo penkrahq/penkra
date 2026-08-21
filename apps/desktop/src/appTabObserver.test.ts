@@ -206,6 +206,19 @@ describe("AppTabObserver", () => {
     });
   });
 
+  it("rejects a hidden App tab without capturing the host window", async () => {
+    const { contents } = makeContents();
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents, captureBounds: () => null }),
+    });
+
+    await expect(observer.screenshot("tab-1")).rejects.toMatchObject({
+      code: "TAB_NOT_VISIBLE",
+      message: "App tab tab-1 is not visible. Focus the tab before requesting a screenshot.",
+    });
+    expect(contents.capturePage).not.toHaveBeenCalled();
+  });
+
   it("can return a fresh observation with an action", async () => {
     const { contents } = makeContents();
     const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });

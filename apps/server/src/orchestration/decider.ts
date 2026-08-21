@@ -2348,7 +2348,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           messageId: command.messageId,
           role: "assistant",
-          text: existingMessage?.text ?? "",
+          text: command.finalText ?? existingMessage?.text ?? "",
           turnId: resolveStableMessageTurnId({
             existingTurnId: existingMessage?.turnId,
             incomingTurnId: command.turnId,
@@ -2466,6 +2466,28 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           activity: command.activity,
+        },
+      };
+    }
+
+    case "thread.activity-read-model.touch": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.activity-read-model-updated",
+        payload: {
+          threadId: command.threadId,
+          turnId: command.turnId,
+          updatedAt: command.createdAt,
         },
       };
     }

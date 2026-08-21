@@ -76,23 +76,44 @@ import {
   makeProviderRuntimeEventPumpHealthRegistry,
   runProviderRuntimeEventPump,
 } from "../providerRuntimeEventPump.ts";
-import { providerRuntimeEventIdFromNative } from "../providerRuntimeEventIdentity.ts";
+/**
+ * Preserve the adapter's per-occurrence identity. A content-derived id cannot distinguish two
+ * legitimate notifications with identical payloads (assistant streams commonly repeat spaces,
+ * punctuation, and short token chunks), so replay stability belongs to adapters that expose a
+ * native cursor or other occurrence identity.
+ */
+export function normalizeProviderRuntimeEvent(event: ProviderRuntimeEvent): ProviderRuntimeEvent {
+  return normalizeProviderAuthoredText(event);
+}
 
-/** Shared adapter boundary: replayable native notifications never retain random ids. */
-export function canonicalizeProviderRuntimeEventIdentity(
-  event: ProviderRuntimeEvent,
-): ProviderRuntimeEvent {
-  if (event.raw === undefined) return event;
+/**
+ * Provider display text is not an identifier and is not authored by Penkra.
+ * Normalize its outer whitespace at the shared ingress boundary so an otherwise
+ * valid native event cannot be permanently rejected by the encoded contract.
+ * Internal newlines and indentation remain intact. Blank optional display fields
+ * are omitted instead of turning harmless provider output into data loss.
+ */
+function normalizeProviderAuthoredText(event: ProviderRuntimeEvent): ProviderRuntimeEvent {
+  if (
+    event.type !== "item.started" &&
+    event.type !== "item.updated" &&
+    event.type !== "item.completed"
+  ) {
+    return event;
+  }
+  const { title: originalTitle, detail: originalDetail, ...payload } = event.payload;
+  const title = originalTitle?.trim();
+  // Assistant completion detail is the provider's authoritative accumulated message text.
+  // Preserve it byte-for-byte so completion can repair a missing or duplicated stream fragment.
+  const detail =
+    event.payload.itemType === "assistant_message" ? originalDetail : originalDetail?.trim();
   return {
     ...event,
-    eventId: providerRuntimeEventIdFromNative({
-      provider: event.provider,
-      source: [event.type, event.turnId, event.itemId, event.requestId]
-        .filter((value) => value !== undefined)
-        .join(":"),
-      threadId: event.threadId,
-      nativeEvent: event.raw,
-    }),
+    payload: {
+      ...payload,
+      ...(title ? { title } : {}),
+      ...(detail ? { detail } : {}),
+    },
   };
 }
 
@@ -1097,7 +1118,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               eventLifecycleGeneration: event.lifecycleGeneration,
             });
           }
-          const canonicalEvent = canonicalizeProviderRuntimeEventIdentity(event);
+          const canonicalEvent = normalizeProviderRuntimeEvent(event);
           return Effect.sync(() => {
             if (canonicalEvent.type === "turn.started") {
               reconcileRuntimeIdleTimer(canonicalEvent);

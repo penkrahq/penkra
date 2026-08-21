@@ -1579,6 +1579,8 @@ const make = Effect.gen(function* () {
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
+    readonly connectionId?: ProviderConnectionId | null;
+    readonly bindingRevision?: number;
     readonly providerOptions?: ProviderStartOptions;
   }) {
     const thread = yield* resolveFirstTurnThread(input.threadId, input.messageId);
@@ -1600,6 +1602,12 @@ const make = Effect.gen(function* () {
     if (!textGenerationInput) {
       return;
     }
+    const managedRuntime = yield* resolveManagedTurnRuntime({
+      threadId: input.threadId,
+      ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+      ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+      ...(input.bindingRevision !== undefined ? { bindingRevision: input.bindingRevision } : {}),
+    });
     const textGenerationSelection = textGenerationInput.modelSelection;
     const textGenerationLogContext = {
       threadId: input.threadId,
@@ -1621,6 +1629,7 @@ const make = Effect.gen(function* () {
       message: input.messageText,
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       modelSelection: textGenerationInput.modelSelection,
+      managedLaunch: managedRuntime.managedLaunch,
       ...(textGenerationInput.providerOptions
         ? { providerOptions: textGenerationInput.providerOptions }
         : {}),
@@ -1827,6 +1836,12 @@ const make = Effect.gen(function* () {
           ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
           ...(event.payload.modelSelection !== undefined
             ? { modelSelection: event.payload.modelSelection }
+            : {}),
+          ...(event.payload.connectionId !== undefined
+            ? { connectionId: event.payload.connectionId }
+            : {}),
+          ...(event.payload.bindingRevision !== undefined
+            ? { bindingRevision: event.payload.bindingRevision }
             : {}),
           ...(event.payload.providerOptions !== undefined
             ? { providerOptions: event.payload.providerOptions }

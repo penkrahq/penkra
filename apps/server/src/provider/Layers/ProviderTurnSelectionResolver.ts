@@ -194,53 +194,41 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
           harness,
           input.modelSelection.model,
         );
-        const selected =
-          input.spaceId === null
-            ? yield* connections.list().pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderTurnSelectionResolutionError({
-                      detail: "Could not read the Primary Connection default.",
-                      cause,
-                    }),
-                ),
-                Effect.map((entries) => {
-                  const connection = entries.find((entry) => {
-                    if (entry.harness !== harness || entry.lifecycle !== "active") return false;
-                    const method = findConnectionAuthenticationMethod(entry);
-                    return method?.authorizesInternalProvider(internalProviderId) === true;
-                  });
-                  return connection ? { connectionId: connection.id } : undefined;
-                }),
-              )
-            : yield* connections.listSpaceDefaults(input.spaceId).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderTurnSelectionResolutionError({
-                      detail: "Could not read the Space Connection defaults.",
-                      cause,
-                    }),
-                ),
-                Effect.map((entries) => entries.find((entry) => entry.harness === harness)),
-              );
+        const selected = yield* connections.list().pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderTurnSelectionResolutionError({
+                detail: "Could not read available Connections.",
+                cause,
+              }),
+          ),
+          Effect.map((entries) => {
+            const connection = entries.find((entry) => {
+              if (entry.harness !== harness || entry.lifecycle !== "active") return false;
+              const method = findConnectionAuthenticationMethod(entry);
+              return method?.authorizesInternalProvider(internalProviderId) === true;
+            });
+            return connection ? { connectionId: connection.id } : undefined;
+          }),
+        );
         if (selected) {
-          const defaultConnection = yield* connections.getRecord(selected.connectionId).pipe(
+          const selectedConnection = yield* connections.getRecord(selected.connectionId).pipe(
             Effect.mapError(
               (cause) =>
                 new ProviderTurnSelectionResolutionError({
-                  detail: "Could not read the Space's default Connection.",
+                  detail: "Could not read the selected Connection.",
                   cause,
                 }),
             ),
           );
-          const defaultMethod = Option.isSome(defaultConnection)
-            ? findConnectionAuthenticationMethod(defaultConnection.value)
+          const selectedMethod = Option.isSome(selectedConnection)
+            ? findConnectionAuthenticationMethod(selectedConnection.value)
             : null;
           if (
-            Option.isSome(defaultConnection) &&
-            defaultConnection.value.lifecycle === "active" &&
-            defaultConnection.value.harness === harness &&
-            defaultMethod?.authorizesInternalProvider(internalProviderId) === true
+            Option.isSome(selectedConnection) &&
+            selectedConnection.value.lifecycle === "active" &&
+            selectedConnection.value.harness === harness &&
+            selectedMethod?.authorizesInternalProvider(internalProviderId) === true
           ) {
             yield* requireAuthorizedConnection({
               harness,
@@ -250,10 +238,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
             return selected.connectionId;
           }
           if (manifest.anonymous?.authorizesInternalProvider(internalProviderId)) return null;
-          return yield* fail("The Space's default Connection cannot authorize this model route.");
+          return yield* fail("The selected Connection cannot authorize this model route.");
         }
         if (manifest.anonymous?.authorizesInternalProvider(internalProviderId)) return null;
-        return yield* fail(`No default Connection is configured for this context and harness.`);
+        return yield* fail(`No compatible Connection is available for this harness.`);
       });
 
   const resolveInitial: ProviderTurnSelectionResolverShape["resolveInitial"] = (input) =>
@@ -287,7 +275,6 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       const connectionId =
         input.connectionId === undefined
           ? yield* resolveNewThreadConnection({
-              spaceId: thread.value.spaceId ?? null,
               modelSelection,
             })
           : input.connectionId;

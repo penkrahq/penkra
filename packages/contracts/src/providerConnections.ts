@@ -8,7 +8,6 @@ import {
   ProviderConnectionId,
   ProviderInstallationId,
   ProviderNativeStateGenerationId,
-  SpaceId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
@@ -96,17 +95,7 @@ export const ThreadHarnessState = Schema.Struct({
 });
 export type ThreadHarnessState = typeof ThreadHarnessState.Type;
 
-export const SpaceConnectionDefault = Schema.Struct({
-  spaceId: SpaceId,
-  harness: ProviderKind,
-  connectionId: ProviderConnectionId,
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-export type SpaceConnectionDefault = typeof SpaceConnectionDefault.Type;
-
 export const ProviderConnectionsSnapshotInput = Schema.Struct({
-  spaceId: Schema.optional(SpaceId),
   includeTerminated: Schema.optional(Schema.Boolean),
 });
 export type ProviderConnectionsSnapshotInput = typeof ProviderConnectionsSnapshotInput.Type;
@@ -114,7 +103,6 @@ export type ProviderConnectionsSnapshotInput = typeof ProviderConnectionsSnapsho
 export const ProviderConnectionsSnapshot = Schema.Struct({
   connections: Schema.Array(ProviderConnection),
   installations: Schema.Array(ProviderInstallation),
-  spaceDefaults: Schema.Array(SpaceConnectionDefault),
   anonymousRoutes: Schema.Array(
     Schema.Struct({ harness: ProviderKind, internalProviderId: TrimmedNonEmptyString }),
   ),
@@ -195,10 +183,3 @@ export const TerminateProviderConnectionInput = Schema.Struct({
   reason: ProviderConnectionTerminationReason,
 });
 export type TerminateProviderConnectionInput = typeof TerminateProviderConnectionInput.Type;
-
-export const SetSpaceConnectionDefaultInput = Schema.Struct({
-  spaceId: SpaceId,
-  harness: ProviderKind,
-  connectionId: ProviderConnectionId,
-});
-export type SetSpaceConnectionDefaultInput = typeof SetSpaceConnectionDefaultInput.Type;

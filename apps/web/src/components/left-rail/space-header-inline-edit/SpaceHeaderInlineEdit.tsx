@@ -10,7 +10,6 @@ export interface SpaceHeaderInlineEditProps {
   mode: "create" | "rename";
   onCancel: () => void;
   onSubmit: (name: string) => Promise<void> | void;
-  submitLabel?: string;
 }
 
 export function SpaceHeaderInlineEdit({
@@ -22,12 +21,12 @@ export function SpaceHeaderInlineEdit({
   mode,
   onCancel,
   onSubmit,
-  submitLabel,
 }: SpaceHeaderInlineEditProps) {
   const editor = useInlineNameEditor({ defaultValue, existingNames, onCancel, onSubmit });
 
   return (
     <div
+      ref={editor.rootRef}
       className={cn("flex w-full flex-col gap-1", className)}
       data-pencil-component="c9CIe"
       data-space-inline-editor={mode}
@@ -48,6 +47,7 @@ export function SpaceHeaderInlineEdit({
             className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[length:var(--app-font-size-ui,12px)] font-semibold text-foreground outline-none"
             disabled={editor.submitting}
             maxLength={80}
+            onBlur={editor.onBlur}
             onChange={(event) => {
               editor.onChange(event.target.value);
             }}
@@ -62,16 +62,6 @@ export function SpaceHeaderInlineEdit({
             ↵
           </span>
         </div>
-        {submitLabel ? (
-          <button
-            type="button"
-            className="h-[27px] shrink-0 rounded-md bg-foreground px-2.5 text-[length:var(--app-font-size-ui-xs,10px)] font-medium text-background disabled:opacity-50"
-            disabled={Boolean(editor.validationError) || editor.submitting}
-            onClick={() => void editor.submit()}
-          >
-            {editor.submitting ? "Creating…" : submitLabel}
-          </button>
-        ) : null}
       </div>
       {editor.visibleError ? (
         <p

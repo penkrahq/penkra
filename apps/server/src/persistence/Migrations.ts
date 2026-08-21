@@ -147,6 +147,8 @@ import Migration0138 from "./Migrations/138_CanonicalActivityReadModel.ts";
 import Migration0139 from "./Migrations/139_RemoveGitThreadMetadata.ts";
 import Migration0140 from "./Migrations/140_RemoveRedundantOperationDetail.ts";
 import Migration0141 from "./Migrations/141_ThreadSidebarRollups.ts";
+import Migration0142 from "./Migrations/142_LatestTurnSidebarStatus.ts";
+import Migration0143 from "./Migrations/143_RemoveSpaceConnectionDefaults.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -293,6 +295,8 @@ export const migrationEntries = [
   [139, "RemoveGitThreadMetadata", Migration0139],
   [140, "RemoveRedundantOperationDetail", Migration0140],
   [141, "ThreadSidebarRollups", Migration0141],
+  [142, "LatestTurnSidebarStatus", Migration0142],
+  [143, "RemoveSpaceConnectionDefaults", Migration0143],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

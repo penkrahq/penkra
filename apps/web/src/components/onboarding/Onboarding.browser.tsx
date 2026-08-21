@@ -67,7 +67,6 @@ describe("Pencil onboarding", () => {
         activatedAt: "2026-08-09T00:00:00.000Z",
         retiredAt: null,
       })),
-      spaceDefaults: [],
       anonymousRoutes: [{ harness: "opencode", internalProviderId: "opencode" }],
       authenticationMethods: [
         {

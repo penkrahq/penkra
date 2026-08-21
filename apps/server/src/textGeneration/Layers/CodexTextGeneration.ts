@@ -260,6 +260,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     model,
     modelSelection,
     providerOptions,
+    managedLaunch,
   }: {
     operation: TextGenerationOperation;
     cwd: string;
@@ -271,9 +272,10 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     model?: string;
     modelSelection?: ThreadTitleGenerationInput["modelSelection"];
     providerOptions?: ThreadTitleGenerationInput["providerOptions"];
+    managedLaunch?: ThreadTitleGenerationInput["managedLaunch"];
   }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
     Effect.gen(function* () {
-      const codexBinaryPath = resolveCodexBinaryPath(providerOptions);
+      const codexBinaryPath = managedLaunch?.binaryPath ?? resolveCodexBinaryPath(providerOptions);
       const resolvedCodexHomePath = resolveCodexHomePath(codexHomePath, providerOptions);
       const schemaPath = yield* writeTempFile(
         operation,
@@ -281,7 +283,13 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         JSON.stringify(toJsonSchemaObject(outputSchemaJson)),
       );
       const outputPath = yield* writeTempFile(operation, "codex-output", "");
-      const isolatedCodexHome = yield* prepareIsolatedCodexHome(operation, resolvedCodexHomePath);
+      // Managed Connections may store Codex auth in the OS keyring under a key derived from
+      // CODEX_HOME. Keep that exact profile for the ephemeral command; changing CODEX_HOME would
+      // silently select a different credential namespace. Legacy/unmanaged calls still receive a
+      // disposable home so title generation cannot mutate the user's normal Codex state.
+      const isolatedCodexHome = managedLaunch
+        ? null
+        : yield* prepareIsolatedCodexHome(operation, resolvedCodexHomePath);
 
       const workingDirectoryExists = fileSystem.stat(cwd).pipe(
         Effect.map((cwdInfo) => cwdInfo.type === "Directory"),
@@ -298,9 +306,11 @@ const makeCodexTextGeneration = Effect.gen(function* () {
           return yield* missingWorkingDirectoryError();
         }
 
-        const env = yield* Effect.promise(() =>
-          buildCodexProcessEnv({ homePath: isolatedCodexHome.homePath }),
-        );
+        const env = managedLaunch
+          ? managedLaunch.childEnvironment(process.env)
+          : yield* Effect.promise(() =>
+              buildCodexProcessEnv({ homePath: isolatedCodexHome!.homePath }),
+            );
         const args = [
           "exec",
           "--ephemeral",
@@ -389,7 +399,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         [
           safeUnlink(schemaPath),
           safeUnlink(outputPath),
-          safeRemoveDirectory(isolatedCodexHome.homePath),
+          ...(isolatedCodexHome ? [safeRemoveDirectory(isolatedCodexHome.homePath)] : []),
           ...cleanupPaths.map((filePath) => safeUnlink(filePath)),
         ],
         {
@@ -455,6 +465,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         ...(input.model ? { model: input.model } : {}),
         ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
         ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
+        ...(input.managedLaunch ? { managedLaunch: input.managedLaunch } : {}),
       });
 
       return {

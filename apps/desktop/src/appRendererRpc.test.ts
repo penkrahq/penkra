@@ -45,7 +45,7 @@ describe("AppRendererRpcHost", () => {
       message: "Select a tab.",
     });
     await expect(result).rejects.toMatchObject({
-      code: "renderer-error",
+      code: "app-error",
       rendererCode: "TAB_REQUIRED",
       message: "Select a tab.",
     });

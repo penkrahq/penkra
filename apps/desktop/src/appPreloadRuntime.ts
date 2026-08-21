@@ -101,7 +101,10 @@ export class AppPreloadRuntime {
       },
       files: {
         list: () => this.#runtimeV2Call("files.list"),
-        pick: (kind) => this.#runtimeV2Call("files.pick", kind),
+        pick: (kind, options) => this.#runtimeV2Call("files.pick", { kind, options }),
+        open: (handleId, relativePath) =>
+          this.#runtimeV2Call("files.open", { handleId, relativePath }),
+        closeUrl: (url) => this.#runtimeV2Call("files.closeUrl", url),
         revoke: (handleId) => this.#runtimeV2Call("files.revoke", handleId),
         stat: (handleId, relativePath) =>
           this.#runtimeV2Call("files.stat", { handleId, relativePath }),
@@ -131,17 +134,14 @@ export class AppPreloadRuntime {
         },
       },
       storage: {
-        fetchToFile: (input) =>
-          this.#transport.storageCall("fetchToFile", input) as ReturnType<
-            PenkraAppRuntimeApi["storage"]["fetchToFile"]
+        open: (path) =>
+          this.#transport.storageCall("open", path) as ReturnType<
+            PenkraAppRuntimeApi["storage"]["open"]
           >,
+        closeUrl: (url) => this.#transport.storageCall("closeUrl", url) as Promise<void>,
         writeFile: (input) =>
           this.#transport.storageCall("writeFile", input) as ReturnType<
             PenkraAppRuntimeApi["storage"]["writeFile"]
-          >,
-        uploadFromFile: (input) =>
-          this.#transport.storageCall("uploadFromFile", input) as ReturnType<
-            PenkraAppRuntimeApi["storage"]["uploadFromFile"]
           >,
         remove: (input) => this.#transport.storageCall("remove", input) as Promise<void>,
         list: (input) =>
@@ -149,6 +149,15 @@ export class AppPreloadRuntime {
             PenkraAppRuntimeApi["storage"]["list"]
           >,
         usage: () => this.#transport.storageCall("usage") as Promise<{ bytes: number }>,
+      },
+      transfer: {
+        begin: (input) => this.#runtimeV2Call("transfer.begin", input),
+        send: (input) => this.#runtimeV2Call("transfer.send", input),
+        receive: (input) => this.#runtimeV2Call("transfer.receive", input),
+        onProgress: (listener) =>
+          this.#transport.onEvent?.("transfer.progress", (payload) =>
+            listener(payload as import("@penkra/sdk").AppTransferProgressEvent),
+          ) ?? (() => undefined),
       },
       composer: {
         stage: (input) => this.#transport.composerStage(input),

@@ -165,6 +165,7 @@ export interface ComposerDraftStoreState {
   draftThreadsByThreadId: Record<ThreadId, DraftThreadState>;
   projectDraftThreadIdByProjectId: Record<string, ThreadId>;
   stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
+  stickyConnectionByProvider: Partial<Record<ProviderKind, ProviderConnectionId | null>>;
   stickyActiveProvider: ProviderKind | null;
   getDraftThreadByProjectId: (
     projectId: ContainerId,

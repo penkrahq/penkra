@@ -38,10 +38,11 @@ describe("generated App help", () => {
     });
     expect(help).toContain("Linear (linear)");
     expect(help).toContain("Create issues only after confirming the project.");
-    expect(help).toContain("penkra linear issues create");
+    expect(help).toContain("linear issues create");
+    expect(help).not.toContain("penkra linear");
   });
 
-  it("renders concise required-first flags and hides raw schemas by default", () => {
+  it("renders required-first flags, invocation controls, and complete schemas", () => {
     const help = generateAppHelp({
       manifest,
       instructions: "Follow workspace conventions.",
@@ -50,18 +51,10 @@ describe("generated App help", () => {
     expect(help).toContain("[--input '<json>'] [--<property> <value> ...] [--tab-id <tab-id>]");
     expect(help).toContain("--title <string>  required.");
     expect(help).toContain('--priority <string>  optional; default "low"; one of "low", "high".');
-    expect(help).not.toContain('"required": [');
-    expect(help).toContain("App instructions\nFollow workspace conventions.");
-  });
-
-  it("shows validated schemas only when explicitly requested", () => {
-    const help = generateAppHelp({
-      manifest,
-      instructions: "Follow conventions.",
-      operation: "issues.create",
-      schema: true,
-    });
     expect(help).toContain('"required": [');
-    expect(help).toContain("Output schema");
+    expect(help).toContain("Validated output schema");
+    expect(help).toContain("Invocation\n  --tab-id");
+    expect(help).toContain("Run linear --help for Linear operating instructions.");
+    expect(help).not.toContain("Follow workspace conventions.");
   });
 });

@@ -351,7 +351,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           latestUserMessageAt: "2026-02-24T00:00:03.500Z",
           hasPendingApprovals: true,
           hasPendingUserInput: true,
-          workStatus: "running",
+          workStatus: "done",
           lastMessagePreview: "hello from projection",
           lastActivityAt: "2026-02-24T00:00:06.750Z",
           latestTurn: {
@@ -655,6 +655,140 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.equal(resolvedDetailActivities[0]?.id, asEventId("approval-old"));
       assert.equal(resolvedDetailActivities[1]?.id, asEventId("approval-resolved-old"));
       assert.equal(resolvedDetailActivities.at(-1)?.id, asEventId("resolved-activity-504"));
+
+      // Canonical notices have no legacy sequence. A newer canonical resolution
+      // must still suppress an older request that sits outside the raw snapshot
+      // window; otherwise the UI resurrects an already-settled approval.
+      yield* sql`
+        DELETE FROM projection_thread_activities
+        WHERE thread_id = 'thread-activity-cap'
+      `;
+      yield* sql`DELETE FROM notices WHERE thread_id = 'thread-activity-cap'`;
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id, thread_id, turn_id, tone, kind, summary,
+          payload_json, sequence, created_at
+        ) VALUES (
+          'approval-old', 'thread-activity-cap', NULL, 'approval',
+          'approval.requested', 'Command approval requested',
+          '{"requestId":"approval-1","requestKind":"command"}', 0,
+          '2026-02-24T00:00:00.000Z'
+        )
+      `;
+      for (let index = 0; index < 505; index += 1) {
+        yield* sql`
+          INSERT INTO projection_thread_activities (
+            activity_id, thread_id, turn_id, tone, kind, summary,
+            payload_json, sequence, created_at
+          ) VALUES (
+            ${`canonical-resolution-activity-${index}`},
+            'thread-activity-cap', NULL, 'tool', 'tool.completed',
+            'Tool completed', '{"stage":"completed"}', ${index + 1},
+            '2026-02-24T00:00:00.000Z'
+          )
+        `;
+      }
+      yield* sql`
+        INSERT INTO notices (
+          notice_id, thread_id, turn_id, kind, tone, summary, detail_json, created_at
+        ) VALUES (
+          'approval-resolved-canonical', 'thread-activity-cap', NULL,
+          'approval.resolved', 'info', 'Command approval resolved',
+          '{"requestId":"approval-1","decision":"accept"}',
+          '2026-02-24T00:00:01.000Z'
+        )
+      `;
+
+      const canonicalResolvedSnapshot = yield* snapshotQuery.getSnapshot();
+      const canonicalResolvedActivities = canonicalResolvedSnapshot.threads[0]?.activities ?? [];
+      assert.equal(canonicalResolvedActivities.length, 500);
+      assert.equal(
+        canonicalResolvedActivities[0]?.id,
+        asEventId("canonical-resolution-activity-6"),
+      );
+      assert.equal(
+        canonicalResolvedActivities.at(-1)?.id,
+        asEventId("approval-resolved-canonical"),
+      );
+      assert.isFalse(
+        canonicalResolvedActivities.some((activity) => activity.id === asEventId("approval-old")),
+      );
+    }),
+  );
+
+  it.effect("keeps newer canonical operations inside long-thread activity windows", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM operations`;
+      yield* sql`DELETE FROM notices`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_thread_messages`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, default_model_selection_json,
+          scripts_json, created_at, updated_at, deleted_at
+        ) VALUES (
+          'project-canonical-window', 'Canonical window', '/tmp/canonical-window',
+          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '2026-08-19T00:00:00.000Z', '2026-08-19T00:00:00.000Z', NULL
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, title, model_selection_json, working_directory,
+          latest_turn_id, created_at, updated_at, deleted_at
+        ) VALUES (
+          'thread-canonical-window', 'project-canonical-window', 'Canonical Window',
+          '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
+          '2026-08-19T00:00:00.000Z', '2026-08-20T00:00:00.000Z', NULL
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id, thread_id, turn_id, tone, kind, summary,
+          payload_json, sequence, created_at
+        )
+        WITH RECURSIVE sequences(n) AS (
+          SELECT 1 UNION ALL SELECT n + 1 FROM sequences WHERE n < 2_100
+        )
+        SELECT
+          'legacy-' || n, 'thread-canonical-window', 'turn-legacy', 'tool',
+          'tool.completed', 'Legacy tool', '{}', n,
+          strftime('%Y-%m-%dT%H:%M:%fZ', '2026-08-19T00:00:00.000Z', '+' || n || ' seconds')
+        FROM sequences
+      `;
+      yield* sql`
+        INSERT INTO operations (
+          operation_id, provider_operation_id, thread_id, turn_id, provider, item_type,
+          title, status, input_json, activity_json, started_at, ended_at,
+          last_source_event_id, updated_at
+        ) VALUES (
+          'canonical-current', 'provider-current', 'thread-canonical-window', 'turn-current',
+          'codex', 'dynamic_tool_call', 'Current tool', 'running', '{"query":"TODO"}',
+          '{"tone":"tool","kind":"tool.updated","summary":"Current tool","payload":{"operationId":"provider-current"}}',
+          '2026-08-20T00:00:00.000Z', NULL, 'current-event', '2026-08-20T00:00:00.000Z'
+        )
+      `;
+
+      const snapshot = yield* snapshotQuery.getSnapshot();
+      const snapshotActivities = snapshot.threads[0]?.activities ?? [];
+      assert.equal(snapshotActivities.length, 500);
+      assert.equal(snapshotActivities.at(-1)?.id, asEventId("canonical-current"));
+
+      const detail = yield* snapshotQuery.getThreadDetailById(
+        asThreadId("thread-canonical-window"),
+      );
+      assert.isTrue(Option.isSome(detail));
+      const detailActivities = Option.isSome(detail) ? detail.value.activities : [];
+      // The older legacy turn straddles the raw cap and is dropped as a whole;
+      // the newer canonical turn must still survive that boundary alignment.
+      assert.equal(detailActivities.length, 1);
+      assert.equal(detailActivities.at(-1)?.id, asEventId("canonical-current"));
+      assert.equal(detailActivities.at(-1)?.sequence, undefined);
     }),
   );
 
@@ -1639,10 +1773,15 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         INSERT INTO projection_turns (
           thread_id, turn_id, pending_message_id, assistant_message_id, state, requested_at,
           started_at, completed_at
-        ) VALUES (
-          'thread-queued-oldest', 'turn-queued', NULL, NULL, 'pending', '2026-07-21T00:00:00.000Z',
-          NULL, NULL
-        )
+        ) VALUES
+          (
+            'thread-queued-oldest', 'turn-queued-old', NULL, NULL, 'running',
+            '2026-07-20T23:59:00.000Z', '2026-07-20T23:59:01.000Z', NULL
+          ),
+          (
+            'thread-queued-oldest', 'turn-queued', NULL, NULL, 'pending',
+            '2026-07-21T00:00:00.000Z', NULL, NULL
+          )
       `;
       yield* sql`
         INSERT INTO projection_thread_sessions (
@@ -1700,6 +1839,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           last_seen_at = excluded.last_seen_at,
           runtime_payload_json = excluded.runtime_payload_json
       `;
+
+      assert.deepEqual(yield* snapshotQuery.listOpenTurnCounts(), [
+        { threadId: ThreadId.makeUnsafe("thread-queued-oldest"), count: 2 },
+      ]);
 
       const candidates = yield* snapshotQuery.listStaleInFlightThreadIds({
         updatedBefore: "2026-07-23T09:00:00.000Z",

@@ -54,6 +54,7 @@ import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
   ProjectionSnapshotQuery,
   type ProjectionGeneratedImageActivityRecord,
+  type ProjectionOpenTurnCount,
   type ProjectionSnapshotCounts,
   type ProjectionSnapshotSequence,
   type ProjectionSnapshotQueryShape,
@@ -123,6 +124,10 @@ const ProjectionLatestTurnDbRowSchema = Schema.Struct({
 });
 const ProjectionPendingTurnStartDbRowSchema = Schema.Struct({
   messageId: MessageId,
+});
+const ProjectionOpenTurnCountRowSchema = Schema.Struct({
+  threadId: ThreadId,
+  count: NonNegativeInt,
 });
 const ProjectionQueuedMessageDbRowSchema = Schema.Struct({
   messageId: MessageId,
@@ -783,6 +788,19 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  const listOpenTurnCountRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionOpenTurnCountRowSchema,
+    execute: () =>
+      sql`
+        SELECT thread_id AS "threadId", COUNT(*) AS "count"
+        FROM projection_turns
+        WHERE state IN ('pending', 'running')
+        GROUP BY thread_id
+        ORDER BY thread_id ASC
+      `,
+  });
+
   const listThreadMessageRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: ProjectionThreadMessageDbRowSchema,
@@ -852,9 +870,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ROW_NUMBER() OVER (
               PARTITION BY thread_id
               ORDER BY
+                created_at DESC,
                 CASE WHEN sequence IS NULL THEN 0 ELSE 1 END DESC,
                 sequence DESC,
-                created_at DESC,
                 activity_id DESC
             ) AS activity_rank
           FROM thread_activities_read
@@ -897,24 +915,23 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   )
                 )
                 AND (
-                  CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END >
-                    CASE WHEN ranked.sequence IS NULL THEN 0 ELSE 1 END
+                  later.created_at > ranked.created_at
                   OR (
-                    CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END =
+                    later.created_at = ranked.created_at
+                    AND CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END >
+                      CASE WHEN ranked.sequence IS NULL THEN 0 ELSE 1 END
+                  )
+                  OR (
+                    later.created_at = ranked.created_at
+                    AND CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END =
                       CASE WHEN ranked.sequence IS NULL THEN 0 ELSE 1 END
                     AND COALESCE(later.sequence, -1) > COALESCE(ranked.sequence, -1)
                   )
                   OR (
-                    CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END =
+                    later.created_at = ranked.created_at
+                    AND CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END =
                       CASE WHEN ranked.sequence IS NULL THEN 0 ELSE 1 END
                     AND COALESCE(later.sequence, -1) = COALESCE(ranked.sequence, -1)
-                    AND later.created_at > ranked.created_at
-                  )
-                  OR (
-                    CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END =
-                      CASE WHEN ranked.sequence IS NULL THEN 0 ELSE 1 END
-                    AND COALESCE(later.sequence, -1) = COALESCE(ranked.sequence, -1)
-                    AND later.created_at = ranked.created_at
                     AND later.activity_id > ranked.activity_id
                   )
                 )
@@ -922,9 +939,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           )
         ORDER BY
           thread_id ASC,
+          created_at ASC,
           CASE WHEN sequence IS NULL THEN 0 ELSE 1 END ASC,
           sequence ASC,
-          created_at ASC,
           activity_id ASC
       `,
   });
@@ -1258,9 +1275,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ROW_NUMBER() OVER (
               PARTITION BY thread_id
               ORDER BY
+                created_at DESC,
                 CASE WHEN sequence IS NULL THEN 0 ELSE 1 END DESC,
                 sequence DESC,
-                created_at DESC,
                 activity_id DESC
             ) AS activity_rank
           FROM thread_activities_read
@@ -1361,24 +1378,23 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                     )
                   )
                   AND (
-                    CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END >
-                      CASE WHEN ranked.sequence IS NULL THEN 0 ELSE 1 END
+                    later.created_at > ranked.created_at
                     OR (
-                      CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END =
+                      later.created_at = ranked.created_at
+                      AND CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END >
+                        CASE WHEN ranked.sequence IS NULL THEN 0 ELSE 1 END
+                    )
+                    OR (
+                      later.created_at = ranked.created_at
+                      AND CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END =
                         CASE WHEN ranked.sequence IS NULL THEN 0 ELSE 1 END
                       AND COALESCE(later.sequence, -1) > COALESCE(ranked.sequence, -1)
                     )
                     OR (
-                      CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END =
+                      later.created_at = ranked.created_at
+                      AND CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END =
                         CASE WHEN ranked.sequence IS NULL THEN 0 ELSE 1 END
                       AND COALESCE(later.sequence, -1) = COALESCE(ranked.sequence, -1)
-                      AND later.created_at > ranked.created_at
-                    )
-                    OR (
-                      CASE WHEN later.sequence IS NULL THEN 0 ELSE 1 END =
-                        CASE WHEN ranked.sequence IS NULL THEN 0 ELSE 1 END
-                      AND COALESCE(later.sequence, -1) = COALESCE(ranked.sequence, -1)
-                      AND later.created_at = ranked.created_at
                       AND later.activity_id > ranked.activity_id
                     )
                   )
@@ -1386,9 +1402,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             )
           )
         ORDER BY
+          created_at ASC,
           CASE WHEN sequence IS NULL THEN 0 ELSE 1 END ASC,
           sequence ASC,
-          created_at ASC,
           activity_id ASC
       `,
   });
@@ -2096,6 +2112,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         }),
       );
 
+  const listOpenTurnCounts: ProjectionSnapshotQueryShape["listOpenTurnCounts"] = () =>
+    listOpenTurnCountRows(undefined).pipe(
+      Effect.map((rows) => rows satisfies ReadonlyArray<ProjectionOpenTurnCount>),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.listOpenTurnCounts:query",
+          "ProjectionSnapshotQuery.listOpenTurnCounts:decodeRows",
+        ),
+      ),
+    );
+
   const findSyntheticSubagentParentThread: ProjectionSnapshotQueryShape["findSyntheticSubagentParentThread"] =
     (threadId) =>
       sql
@@ -2340,6 +2367,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getCounts,
     getSnapshotSequence,
     listStaleInFlightThreadIds,
+    listOpenTurnCounts,
     getActiveProjectByWorkspaceRoot,
     getProjectShellById,
     getSpaceShellById,

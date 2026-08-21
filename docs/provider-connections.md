@@ -26,21 +26,17 @@ anonymous model route, such as an OpenCode Zen free model, is not a Connection.
    isolated profile, then terminates the durable Connection record. Existing
    Thread bindings remain exact and fail on their next send until the user
    explicitly chooses an available Connection.
-8. A Space default affects new Threads only. If it is disconnected, the newest
-   remaining active Connection for that harness becomes the Space default. If
-   none remains, the default is removed; the next Connection added for that
-   harness becomes the default through the normal first-Connection rule.
-9. The selected model route wins over an incompatible Space default. In
-   particular, an OpenCode Go default cannot override an explicitly selected
-   anonymous OpenCode Zen free model.
+8. The composer remembers the last explicitly selected Connection per harness.
+   New Threads reuse that preference when it can authorize the selected model;
+   otherwise they use the first compatible active Connection.
+9. An anonymous model route is selected by the model itself and never creates or
+   mutates a Connection preference.
 
 ## Durable shape
 
 - `provider_installations` records immutable managed executable generations.
 - `provider_connections` records accounts and keys without storing the
   secret itself.
-- `space_connection_defaults` stores the new-Thread default per Space and
-  harness.
 - `provider_native_state_generations` owns isolated native state.
 - `thread_harness_states` and `thread_runtime_bindings` bind a Thread to
   exact native state, installation, Connection, internal provider, and model.
@@ -73,9 +69,10 @@ Connection. It is not recognized by the runtime after that migration.
 ## Selection flow
 
 For a new Thread, the composer resolves one exact route from the selected model:
-an authorized Space default or an explicitly provider-declared anonymous route.
-The first send verifies the managed installation, route, credential backend,
-and live model catalog before committing the initial binding.
+the last compatible Connection selected in the composer, the first compatible
+active Connection, or an explicitly provider-declared anonymous route. The
+first send verifies the managed installation, route, credential backend, and
+live model catalog before committing the initial binding.
 
 For a started Thread, choosing a model or Connection does not interrupt the
 current turn and does not change durable state. The next send carries the exact
@@ -88,9 +85,9 @@ turn admission.
 ## Product surface
 
 - Settings > Agents owns installation readiness and Connections.
-- Settings > Spaces owns per-Space defaults.
-- The composer owns a separate per-Thread Connection control beside the model
-  control. Connection switching is not nested inside model selection.
+- The composer owns a Connection control beside the model control and remembers
+  the last explicit selection per harness. Connection switching is not nested
+  inside model selection.
 - Account Connections show a user glyph. Opening their popup loads the
   provider-reported usage windows for the exact isolated Connection profile;
   usage is never prefetched or refreshed in the background.
@@ -121,7 +118,7 @@ records agree; a plausible response by itself is not proof of routing.
 2. Add one Connection through each supported authentication method being
    released. Verify the managed installation and isolated profile used by the
    launched child, the provider-returned account email or credential suffix,
-   and the first-Connection Space default. Never inspect or print a secret.
+   and the resulting composer selection. Never inspect or print a secret.
 3. Add a second account for the same harness. Start separate Threads on both,
    close and reopen Penkra, log out and back into Penkra, and verify each Thread
    resumes its original native identity and Connection.
@@ -141,9 +138,10 @@ records agree; a plausible response by itself is not proof of routing.
    binding or transcript. Explicitly select a remaining Connection and verify
    the next send switches successfully. Re-add the disconnected provider as a
    new Connection; no retired identity is revived.
-8. Disconnect a Space default. Verify the newest remaining active Connection
-   for that harness becomes the new-Thread default, or that the default is
-   removed when none remains. Existing Threads do not change.
+8. Save a Connection in the composer, switch Spaces, and start a new Thread.
+   Verify the saved compatible Connection remains selected. Disconnect it and
+   verify a new Thread uses the first compatible active Connection while
+   existing Thread bindings remain unchanged.
 9. Interrupt Penkra once in each open operation phase: Connection login,
    credential creation, Connection termination, queued/steered switch, and
    native-state materialization. Restart and verify the same journal either

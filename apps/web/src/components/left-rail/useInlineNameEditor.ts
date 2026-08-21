@@ -73,11 +73,8 @@ export function useInlineNameEditor(input: {
     rootRef,
     onBlur(event: FocusEvent<HTMLInputElement>) {
       if (rootRef.current?.contains(event.relatedTarget)) return;
-      if (input.cancelWhenEmpty && trimmedValue.length === 0) {
-        input.onCancel();
-        return;
-      }
-      void submit();
+      if (submittingRef.current) return;
+      input.onCancel();
     },
     onChange(nextValue: string) {
       if (input.value === undefined) setLocalValue(nextValue);

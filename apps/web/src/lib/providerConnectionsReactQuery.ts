@@ -1,17 +1,17 @@
-import type { SpaceId, ThreadId } from "@penkra/contracts";
+import type { ThreadId } from "@penkra/contracts";
 import { queryOptions } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
 
 export const providerConnectionQueryKeys = {
   all: ["provider-connections"] as const,
-  snapshot: (spaceId: SpaceId | null) => ["provider-connections", "snapshot", spaceId] as const,
+  snapshot: ["provider-connections", "snapshot"] as const,
   thread: (threadId: ThreadId | null) => ["provider-connections", "thread", threadId] as const,
 };
 
-export function providerConnectionsQueryOptions(spaceId: SpaceId | null) {
+export function providerConnectionsQueryOptions() {
   return queryOptions({
-    queryKey: providerConnectionQueryKeys.snapshot(spaceId),
-    queryFn: () => ensureNativeApi().provider.getConnections(spaceId === null ? {} : { spaceId }),
+    queryKey: providerConnectionQueryKeys.snapshot,
+    queryFn: () => ensureNativeApi().provider.getConnections(),
   });
 }
 

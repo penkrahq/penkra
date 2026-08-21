@@ -427,7 +427,6 @@ export class AppCommandPipeServer {
         const context = this.#context(params);
         const slug = requiredString(params.slug, "slug");
         const operation = optionalString(params.operation, "operation");
-        const schema = params.schema === true;
         return {
           ok: true,
           id: request.id,
@@ -435,7 +434,6 @@ export class AppCommandPipeServer {
             spaceId: context.spaceId,
             slug,
             ...(operation === null ? {} : { operation }),
-            ...(schema ? { schema: true } : {}),
           }),
         };
       }

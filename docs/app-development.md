@@ -120,15 +120,21 @@ attribution, credentials, and revocation stay enforceable. The current special p
 
 ### Files and directories
 
-Use `files.pick("file")` or `files.pick("directory")`. The native picker is one authorization
-boundary; the trusted host may also hand an App one explicitly opened resource through a declared
-file or directory handler. Penkra returns an opaque handle ID plus bounded metadata, never an
-absolute path or a Chromium `FileSystemHandle`. Use `files.stat`, `files.listDirectory`,
+Use `files.pick("file")`, `files.pick("directory")`, or `files.pick("save", { suggestedName })`.
+The native picker is one authorization boundary; the trusted host may also hand an App one
+explicitly opened resource through a declared file or directory handler. Penkra returns an opaque
+handle ID plus bounded metadata, never an absolute path or a Chromium `FileSystemHandle`. A save
+handle is writable even when its selected leaf does not exist yet. Use `files.stat`,
+`files.listDirectory`,
 `files.readText`, chunked `files.readBinary`, `files.writeText`, atomic chunked writes with
 `files.beginWrite` / `files.writeChunk` / `files.commitWrite`, `files.createDirectory`, and
 `files.watch` against that
 handle. `open({ handleId, relativePath, with: "system" })` asks the trusted host to open one selected
 resource with the operating system.
+
+Do not substitute `window.showOpenFilePicker()` or `window.showSaveFilePicker()`. Apps run in a
+cross-origin child frame, and Chromium rejects File System Access API pickers from that frame with
+a `SecurityError`. The host `files.pick` methods are the supported user-selection boundary.
 
 `readText` and `writeText` are convenience methods for text up to 16 MB. For larger files, read
 successive binary chunks and decode them with a streaming `TextDecoder`. To write a larger file,
@@ -294,20 +300,89 @@ navigation event. Penkra uses that latest recorded route and state when it recre
 Apps may invoke another enabled App's public operation through `context.operations.invoke`; the
 callee's schemas and permissions still apply. Apps cannot invoke private installation operations.
 
-## App storage, downloads, and composer staging
+## App storage, byte movement, and composer staging
 
 `storage` is private to one App and Space. `writeFile`, `list`, `usage`, and `remove` operate only
-inside that root. `fetchToFile` streams an HTTPS response into it and `uploadFromFile` streams a
-stored file into an HTTPS request; both require `network-fetch`. Destinations are relative, returned
-paths are absolute, and an absolute upload source is accepted only when it resolves inside the same
-root. The host rejects traversal and symlinks, keeps a free-disk safety floor, and erases the root
-when App data is removed.
+inside that root. Paths supplied to storage methods are relative; listed entries retain their
+host-local absolute path for composer staging and other host-mediated operations. The host rejects
+traversal and symlinks, keeps a free-disk safety floor, and erases the root when App data is removed.
 
-The App never holds bulk bytes. Do not implement download-then-write as `network.fetch` followed by
-`storage.writeFile`: renderer RPC is limited to 1 MiB and that design fails only when real data
-arrives. Name both endpoints and let the host stream with `fetchToFile` or `uploadFromFile`.
-Absolute paths work because Penkra Threads execute locally. If execution becomes remote, this
-contract will require opaque handles and an explicit export step.
+Bulk bytes use same-origin URLs instead of renderer RPC. `files.open(handleId, relativePath?)` and
+`storage.open(path)` return an unguessable `penkra-app://…/.penkra/blob/…` URL. Use that URL with
+ordinary browser APIs such as `fetch`, `<img src>`, `<audio src>`, or `<video src>`. The host serves
+the authorized file as a ranged response, so media can stream and seek without loading the whole
+file or moving its bytes across the privileged bridge. The 1 MiB limit still applies to renderer
+RPC; it is no longer the bulk-byte path.
+
+```js
+import { files, storage } from "@penkra/sdk";
+
+const picked = await files.pick("file");
+if (picked) {
+  const url = await files.open(picked.id);
+  video.src = url;
+  // Later, once no element or request uses it:
+  await files.closeUrl(url);
+}
+
+image.src = await storage.open("thumbs/cover.png");
+```
+
+An opened URL remains valid until its creating tab closes, its handle is revoked, or the App calls
+the matching `files.closeUrl(url)` or `storage.closeUrl(url)`. Treat it like a browser object URL:
+do not persist it, share it with another App, or close it while an element or request is still using
+it.
+
+Use `transfer` when bytes cross the network. Every method requires `network-fetch`. The App names
+the HTTPS destination through `transfer.begin`, `transfer.send`, or `transfer.receive`; the host
+validates and pins that destination before moving bytes. A renderer cannot turn an arbitrary local
+URL into a network target.
+
+Upload bytes generated in the renderer without routing them through RPC:
+
+```js
+import { transfer } from "@penkra/sdk";
+
+const { endpoint } = await transfer.begin({
+  url: "https://api.example.com/v1/documents",
+  method: "POST",
+  headers: { "content-type": "application/json" },
+});
+const response = await fetch(endpoint, { method: "POST", body: documentBlob });
+```
+
+Upload a picked or stored file without giving its bulk bytes to the renderer:
+
+```js
+await transfer.send({
+  url: "https://api.example.com/v1/uploads",
+  method: "POST",
+  from: { handleId: picked.id }, // or { storage: "exports/archive.zip" }
+  field: "file", // omit for a raw request body
+});
+```
+
+Download atomically to App storage or to a user-selected save location:
+
+```js
+const target = await files.pick("save", { suggestedName: "export.pen" });
+if (target) {
+  await transfer.receive({
+    url: "https://api.example.com/v1/export",
+    to: { handleId: target.id }, // or { storage: "exports/export.pen" }
+  });
+}
+```
+
+Transfer progress comes from the host and measures the actual remote upload or download. Native
+`XMLHttpRequest.upload.onprogress` does not fire for the local custom-scheme endpoint and would in
+any case measure only renderer-to-host handoff. Use the supported subscription:
+
+```js
+const stop = transfer.onProgress((event) => {
+  progress.value = event.totalBytes ? event.movedBytes / event.totalBytes : null;
+});
+```
 
 Hosted-page downloads for an App with `browser-session` are redirected into
 `downloads/<tab-id>/` under its storage root. Subscribe with `browser.onDownload`; each transfer
@@ -329,8 +404,10 @@ penkra apps list
 penkra open --path /absolute/path/to/file
 notes notes open --id note-123
 notes notes open --help
-notes notes open --schema
 ```
+
+Operation help includes the complete validated input and output JSON Schemas. App commands do not
+have a separate schema mode.
 
 These are registered commands, not shell strings. An agent must establish enabled Apps with
 `penkra apps list` rather than infer installation from source code or a similarly named tool.

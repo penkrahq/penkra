@@ -14,7 +14,7 @@
     },
     "apps/desktop": {
       "name": "@penkra/desktop",
-      "version": "0.11.4",
+      "version": "0.11.5",
       "dependencies": {
         "@better-auth/electron": "1.6.25",
         "@grpc/grpc-js": "1.14.4",
@@ -57,7 +57,7 @@
     },
     "apps/server": {
       "name": "@penkra/cli",
-      "version": "0.11.4",
+      "version": "0.11.5",
       "bin": {
         "penkra": "dist/index.mjs",
         "penkra-database": "dist/databaseMaintenance.mjs",
@@ -104,7 +104,7 @@
     },
     "apps/web": {
       "name": "@penkra/web",
-      "version": "0.11.4",
+      "version": "0.11.5",
       "dependencies": {
         "@base-ui/react": "^1.5.0",
         "@dnd-kit/dom": "^0.5.0",
@@ -188,7 +188,7 @@
     },
     "packages/contracts": {
       "name": "@penkra/contracts",
-      "version": "0.11.4",
+      "version": "0.11.5",
       "dependencies": {
         "effect": "catalog:",
       },

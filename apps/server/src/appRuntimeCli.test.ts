@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   executePenkraExecCommand,
   parseOperationInput,
+  parseRegisteredCommandFlags,
   tokenizeRegisteredCommand,
 } from "./appRuntimeCli";
 
@@ -22,6 +23,7 @@ describe("App runtime CLI operation flags", () => {
       confirm: { type: "boolean" },
       priority: { type: "integer" },
       labels: { type: "array" },
+      documentId: { type: "string" },
     },
   } as const;
 
@@ -32,12 +34,14 @@ describe("App runtime CLI operation flags", () => {
         confirm: "true",
         priority: "2",
         labels: '["auth"]',
+        "document-id": "doc-1",
       }),
     ).toEqual({
       title: "Fix redirect",
       confirm: true,
       priority: 2,
       labels: ["auth"],
+      documentId: "doc-1",
     });
   });
 
@@ -53,6 +57,12 @@ describe("App runtime CLI operation flags", () => {
 });
 
 describe("penkra_exec_command tokenization", () => {
+  it("directs removed schema requests to the complete help surface", () => {
+    expect(() => parseRegisteredCommandFlags(["--schema"])).toThrow(
+      "Run the command with --help for its complete validated input contract.",
+    );
+  });
+
   it("preserves quoted structured input without invoking a shell", () => {
     expect(
       tokenizeRegisteredCommand(

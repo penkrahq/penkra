@@ -67,6 +67,7 @@ import { estimateTimelineMessageHeight } from "./timelineHeight";
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
 const OTHER_THREAD_ID = "thread-browser-test-other" as ThreadId;
+const DESTINATION_THREAD_ID = "thread-browser-test-destination" as ThreadId;
 const THREAD_TITLE = "Browser test thread";
 const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROJECT_ID = "project-1" as ContainerId;
@@ -79,7 +80,6 @@ const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
 let attachmentResponseDelayMs = 0;
 let attachmentUploadSequence = 0;
-let omitProviderSpaceDefaults = false;
 
 interface WsRequestEnvelope {
   id: string;
@@ -1121,17 +1121,6 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
           retiredAt: null,
         },
       ],
-      spaceDefaults: omitProviderSpaceDefaults
-        ? []
-        : [
-            {
-              spaceId: TEST_SPACE_ID,
-              harness: "codex",
-              connectionId: "connection-codex-browser",
-              createdAt: NOW_ISO,
-              updatedAt: NOW_ISO,
-            },
-          ],
       anonymousRoutes: [{ harness: "opencode", internalProviderId: "opencode" }],
       authenticationMethods: [
         {
@@ -1434,6 +1423,76 @@ async function waitForLayout(): Promise<void> {
   await nextFrame();
   await nextFrame();
   await nextFrame();
+}
+
+async function dragWithPointerFrames(
+  source: Element,
+  target: Element,
+  targetYRatio = 0.5,
+  beforeFinish?: () => void | Promise<void>,
+  finish: "drop" | "cancel" = "drop",
+): Promise<void> {
+  const sourceRect = source.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const start = {
+    x: sourceRect.left + sourceRect.width / 2,
+    y: sourceRect.top + sourceRect.height / 2,
+  };
+  const end = {
+    x: targetRect.left + targetRect.width / 2,
+    y: targetRect.top + targetRect.height * targetYRatio,
+  };
+  const pointerId = 41;
+  const dispatch = (
+    eventTarget: EventTarget,
+    type: "pointercancel" | "pointerdown" | "pointermove" | "pointerup",
+    x: number,
+    y: number,
+  ) => {
+    eventTarget.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        buttons: type === "pointerup" || type === "pointercancel" ? 0 : 1,
+        clientX: x,
+        clientY: y,
+        isPrimary: true,
+        pointerId,
+        pointerType: "mouse",
+      }),
+    );
+  };
+  const body = document.body;
+  const setPointerCapture = body.setPointerCapture;
+  const releasePointerCapture = body.releasePointerCapture;
+  body.setPointerCapture = () => undefined;
+  body.releasePointerCapture = () => undefined;
+
+  try {
+    dispatch(source, "pointerdown", start.x, start.y);
+    await nextFrame();
+    for (const progress of [0.35, 0.7, 1]) {
+      dispatch(
+        document,
+        "pointermove",
+        start.x + (end.x - start.x) * progress,
+        start.y + (end.y - start.y) * progress,
+      );
+      await nextFrame();
+    }
+    await nextFrame();
+    await beforeFinish?.();
+    if (finish === "cancel") {
+      dispatch(document, "pointercancel", end.x, end.y);
+    } else {
+      dispatch(document, "pointerup", end.x, end.y);
+    }
+    await nextFrame();
+  } finally {
+    body.setPointerCapture = setPointerCapture;
+    body.releasePointerCapture = releasePointerCapture;
+  }
 }
 
 async function setViewport(viewport: ViewportSpec): Promise<void> {
@@ -1948,7 +2007,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     await setViewport(DEFAULT_VIEWPORT);
     attachmentResponseDelayMs = 0;
     attachmentUploadSequence = 0;
-    omitProviderSpaceDefaults = false;
     localStorage.clear();
     useLatestProjectStore.setState({ latestProjectId: null });
     document.body.innerHTML = "";
@@ -1958,6 +2016,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyConnectionByProvider: {},
       stickyActiveProvider: null,
     });
     useStore.setState({ ...initialState });
@@ -2362,12 +2421,35 @@ describe("ChatView timeline estimator parity (full app)", () => {
             document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
           ).toBeNull();
           expect(document.body.textContent).toContain("Thinking");
+          const thinkingStatus = document.querySelector<HTMLElement>(
+            '[data-timeline-row-kind="working"] > div',
+          );
+          expect(thinkingStatus).toBeTruthy();
+          expect(getComputedStyle(thinkingStatus!).visibility).toBe("visible");
         },
         { timeout: 8_000, interval: 16 },
       );
     };
 
     try {
+      // A canonical provider-connection projection has no optimistic local-dispatch latch. It
+      // still owns both Stop and the transcript status; they must never diverge.
+      syncActiveThread((thread) => ({
+        ...thread,
+        session: thread.session
+          ? { ...thread.session, status: "starting", updatedAt: isoAt(2_100) }
+          : null,
+        updatedAt: isoAt(2_100),
+      }));
+      await expectLiveSendChrome();
+      syncActiveThread((thread) => ({
+        ...thread,
+        session: thread.session
+          ? { ...thread.session, status: "ready", updatedAt: isoAt(2_101) }
+          : null,
+        updatedAt: isoAt(2_101),
+      }));
+
       const prompt = "keep working chrome continuously visible";
       useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
       (await waitForSendButton()).click();
@@ -2416,25 +2498,39 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expectLiveSendChrome();
 
       const turnId = TurnId.makeUnsafe("turn-send-handoff-running");
+      // The durable turn request arrives before either the provider start
+      // timestamp or the session's running projection. Once local dispatch is
+      // acknowledged, this exact first-turn seam must keep Thinking visible.
       syncActiveThread((thread) => ({
         ...thread,
+        workStatus: "running",
         latestTurn: {
           turnId,
           state: "running",
           requestedAt: isoAt(2_103),
-          startedAt: isoAt(2_105),
+          startedAt: null,
           completedAt: null,
           assistantMessageId: null,
         },
+        updatedAt: isoAt(2_105),
+      }));
+      await expectLiveSendChrome();
+      expect(document.body.textContent).not.toContain("Working for");
+
+      syncActiveThread((thread) => ({
+        ...thread,
+        latestTurn: thread.latestTurn
+          ? { ...thread.latestTurn, startedAt: isoAt(2_106) }
+          : thread.latestTurn,
         session: thread.session
           ? {
               ...thread.session,
               status: "running",
               activeTurnId: turnId,
-              updatedAt: isoAt(2_105),
+              updatedAt: isoAt(2_106),
             }
           : null,
-        updatedAt: isoAt(2_105),
+        updatedAt: isoAt(2_106),
       }));
       await expectLiveSendChrome();
       await vi.waitFor(() => expect(document.body.textContent).toContain("Working for"), {
@@ -2889,6 +2985,96 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("accepts accessibility fill in a local draft without a composer store feedback loop", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          entryPoint: "chat",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+    const consoleError = vi.spyOn(console, "error");
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+    });
+
+    try {
+      await waitForServerConfigToApply();
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("Run pwd, then sleep 5.");
+      await expect.element(editor).toHaveTextContent("Run pwd, then sleep 5.");
+      await vi.waitFor(() => {
+        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+          "Run pwd, then sleep 5.",
+        );
+      });
+      expect(
+        consoleError.mock.calls.some((call) =>
+          call.some((value) => String(value).includes("Maximum update depth exceeded")),
+        ),
+      ).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+      await mounted.cleanup();
+    }
+  });
+
+  it("accepts a new prompt after a local draft is promoted without a controlled update loop", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          entryPoint: "chat",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+    const consoleError = vi.spyOn(console, "error");
+    const draftSnapshot = createDraftOnlySnapshot();
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: draftSnapshot,
+    });
+
+    try {
+      await waitForServerConfigToApply();
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("first prompt");
+      await expect.element(editor).toHaveTextContent("first prompt");
+
+      useStore.getState().syncServerReadModel(addThreadToSnapshot(draftSnapshot, THREAD_ID));
+      useComposerDraftStore.getState().clearDraftThread(THREAD_ID);
+      await expect.element(editor).toHaveTextContent("");
+
+      await editor.fill("second prompt");
+      await expect.element(editor).toHaveTextContent("second prompt");
+      await vi.waitFor(() => {
+        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+          "second prompt",
+        );
+      });
+      expect(
+        consoleError.mock.calls.some((call) =>
+          call.some((value) => String(value).includes("Maximum update depth exceeded")),
+        ),
+      ).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+      await mounted.cleanup();
+    }
+  });
+
   it("runs project scripts from local draft threads at the project cwd", async () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
@@ -3096,7 +3282,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("sends a new Thread through its default Connection before model discovery", async () => {
+  it("sends a new Thread through the last Connection saved in the composer", async () => {
     const base = createSnapshotForTargetUser({
       targetMessageId: "msg-user-default-connection-bootstrap" as MessageId,
       targetText: "unused bootstrap",
@@ -3120,7 +3306,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           wsRequests.some((request) => request._tag === WS_METHODS.providerGetConnections),
         ).toBe(true);
       });
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "use the default connection");
+      useComposerDraftStore.setState({
+        stickyConnectionByProvider: { codex: TEST_CONNECTION_ID },
+      });
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "use the saved connection");
       const composerForm = await waitForElement(
         () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
         "Unable to find composer form.",
@@ -3138,7 +3327,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
                 typeof candidate.message === "object" &&
                 candidate.message !== null &&
                 "text" in candidate.message &&
-                candidate.message.text === "use the default connection",
+                candidate.message.text === "use the saved connection",
             );
           expect(command).toMatchObject({
             type: "thread.turn.start",
@@ -3156,8 +3345,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("lets the server resolve a new Thread's default Connection", async () => {
-    omitProviderSpaceDefaults = true;
+  it("chooses the first available Connection when the composer has no saved choice", async () => {
     const base = createSnapshotForTargetUser({
       targetMessageId: "msg-user-server-default-connection" as MessageId,
       targetText: "unused bootstrap",
@@ -3176,7 +3364,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
 
     try {
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "use the server default");
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "use the first connection");
       const composerForm = await waitForElement(
         () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
         "Unable to find composer form.",
@@ -3191,8 +3379,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
               (candidate) =>
                 candidate?.type === "thread.turn.start" && candidate.threadId === THREAD_ID,
             );
-          expect(command).toMatchObject({ type: "thread.turn.start" });
-          expect(command).not.toHaveProperty("connectionId");
+          expect(command).toMatchObject({
+            type: "thread.turn.start",
+            connectionId: TEST_CONNECTION_ID,
+          });
           expect(document.body.textContent).not.toContain(
             "Choose a Connection before sending this message.",
           );
@@ -4141,19 +4331,206 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const source = page.getByRole("button", { name: otherThreadTitle, exact: true });
       const target = page.getByRole("button", { name: THREAD_TITLE, exact: true });
 
-      await userEvent.dragAndDrop(source, target);
+      await dragWithPointerFrames(
+        source.element(),
+        target.element(),
+        0.25,
+        () => {
+          expect(document.querySelector("[data-sidebar-drop-preview]")).not.toBeNull();
+        },
+        "cancel",
+      );
+      await vi.waitFor(() => {
+        expect(document.querySelector("[data-sidebar-drop-preview]")).toBeNull();
+        expect(
+          wsRequests
+            .map(readDispatchedCommand)
+            .filter((command) => command?.type === "sidebar.item.move"),
+        ).toHaveLength(0);
+      });
+
+      await dragWithPointerFrames(source.element(), target.element(), 0.25, () => {
+        const targetWrapper = target.element().closest<HTMLElement>("[data-sidebar-drop-preview]");
+        expect(targetWrapper?.dataset.sidebarDropPreview).toBe("before");
+        expect(Number.parseFloat(getComputedStyle(targetWrapper!).paddingTop)).toBeGreaterThan(0);
+        expect(document.querySelector('[data-sidebar-drag-overlay="true"]')).not.toBeNull();
+      });
       await target.click();
 
       await vi.waitFor(
         () => {
           expect(mounted.router.state.location.pathname).toBe(`/${THREAD_ID}`);
           expect(document.querySelector('[data-sidebar-drag-overlay="true"]')).toBeNull();
+          expect(document.querySelector("[data-sidebar-drop-preview]")).toBeNull();
           expect(document.body.textContent).not.toContain("Something went wrong");
+          const moveCommands = wsRequests
+            .map(readDispatchedCommand)
+            .filter((command) => command?.type === "sidebar.item.move");
+          expect(moveCommands).toHaveLength(1);
+          expect(moveCommands[0]).toMatchObject({
+            item: { kind: "thread", id: OTHER_THREAD_ID },
+            position: { type: "before", item: { kind: "thread", id: THREAD_ID } },
+            target: { kind: "project", projectId: PROJECT_ID },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps one React-owned row when a thread moves into another folder and back", async () => {
+    const sourceThreadTitle = "Cross-folder drag source";
+    const destinationFolderTitle = "Cross-folder destination";
+    const destinationThreadTitle = "Existing destination thread";
+    const snapshotWithThreads = addThreadToSnapshot(
+      addThreadToSnapshot(
+        createSnapshotForTargetUser({
+          targetMessageId: "msg-user-cross-folder-drag" as MessageId,
+          targetText: "cross-folder drag target",
+        }),
+        OTHER_THREAD_ID,
+        { title: sourceThreadTitle },
+      ),
+      DESTINATION_THREAD_ID,
+      { title: destinationThreadTitle },
+    );
+    const baseSnapshot = {
+      ...snapshotWithThreads,
+      threads: snapshotWithThreads.threads.map((thread) =>
+        thread.id === DESTINATION_THREAD_ID ? { ...thread, projectId: OTHER_PROJECT_ID } : thread,
+      ),
+    };
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...baseSnapshot,
+        projects: [
+          ...baseSnapshot.projects,
+          {
+            ...baseSnapshot.projects[0]!,
+            id: OTHER_PROJECT_ID,
+            title: destinationFolderTitle,
+            workspaceRoot: "/repo/other",
+          },
+        ],
+      },
+    });
+    try {
+      const source = page.getByRole("button", { name: sourceThreadTitle, exact: true });
+      const target = page.getByRole("button", { name: destinationFolderTitle, exact: true });
+
+      useStore.getState().setProjectExpanded(OTHER_PROJECT_ID, false);
+      await vi.waitFor(() => {
+        expect(target.element().getAttribute("aria-expanded")).toBe("false");
+        expect(
+          page.getByRole("button", { name: destinationThreadTitle, exact: true }).elements(),
+        ).toHaveLength(0);
+      });
+
+      await dragWithPointerFrames(source.element(), target.element(), 0.5, () => {
+        expect(
+          page
+            .getByRole("button", { name: destinationFolderTitle, exact: true })
+            .element()
+            .getAttribute("aria-expanded"),
+        ).toBe("false");
+        expect(
+          page.getByRole("button", { name: destinationThreadTitle, exact: true }).elements(),
+        ).toHaveLength(0);
+        const containerPreview = document.querySelector<HTMLElement>(
+          '[data-sidebar-container-drop-preview="true"]',
+        );
+        expect(containerPreview).not.toBeNull();
+        expect(containerPreview!.getBoundingClientRect().height).toBeGreaterThan(0);
+        expect(
+          page.getByRole("button", { name: sourceThreadTitle, exact: true }).elements(),
+        ).toHaveLength(1);
+      });
+
+      await vi.waitFor(
+        () => {
+          const moveCommands = wsRequests
+            .map(readDispatchedCommand)
+            .filter((command) => command?.type === "sidebar.item.move");
+          expect(moveCommands).toHaveLength(1);
+          expect(moveCommands[0]).toMatchObject({
+            item: { kind: "thread", id: OTHER_THREAD_ID },
+            target: { kind: "project", projectId: OTHER_PROJECT_ID },
+          });
           expect(
-            wsRequests
-              .map(readDispatchedCommand)
-              .filter((command) => command?.type === "sidebar.item.move"),
+            page
+              .getByRole("button", { name: destinationFolderTitle, exact: true })
+              .element()
+              .getAttribute("aria-expanded"),
+          ).toBe("false");
+          expect(document.querySelector("[data-sidebar-drop-preview]")).toBeNull();
+          expect(document.querySelector("[data-sidebar-container-drop-preview]")).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      let currentSnapshot: OrchestrationReadModel = {
+        ...fixture.snapshot,
+        snapshotSequence: fixture.snapshot.snapshotSequence + 1,
+        threads: fixture.snapshot.threads.map((thread) =>
+          thread.id === OTHER_THREAD_ID ? { ...thread, projectId: OTHER_PROJECT_ID } : thread,
+        ),
+      };
+      fixture = { ...fixture, snapshot: currentSnapshot };
+      useStore.getState().syncServerReadModel(currentSnapshot);
+
+      await page.getByRole("button", { name: destinationFolderTitle, exact: true }).click();
+      await vi.waitFor(
+        () => {
+          expect(
+            page.getByRole("button", { name: sourceThreadTitle, exact: true }).elements(),
           ).toHaveLength(1);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const movedSource = page.getByRole("button", { name: sourceThreadTitle, exact: true });
+      const originalThread = page.getByRole("button", { name: THREAD_TITLE, exact: true });
+      await dragWithPointerFrames(movedSource.element(), originalThread.element(), 0.25, () => {
+        const targetWrapper = originalThread
+          .element()
+          .closest<HTMLElement>("[data-sidebar-drop-preview]");
+        expect(targetWrapper?.dataset.sidebarDropPreview).toBe("before");
+      });
+
+      await vi.waitFor(
+        () => {
+          const moveCommands = wsRequests
+            .map(readDispatchedCommand)
+            .filter((command) => command?.type === "sidebar.item.move");
+          expect(moveCommands).toHaveLength(2);
+          expect(moveCommands[1]).toMatchObject({
+            item: { kind: "thread", id: OTHER_THREAD_ID },
+            position: { type: "before", item: { kind: "thread", id: THREAD_ID } },
+            target: { kind: "project", projectId: PROJECT_ID },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      currentSnapshot = {
+        ...currentSnapshot,
+        snapshotSequence: currentSnapshot.snapshotSequence + 1,
+        threads: currentSnapshot.threads.map((thread) =>
+          thread.id === OTHER_THREAD_ID ? { ...thread, projectId: PROJECT_ID } : thread,
+        ),
+      };
+      fixture = { ...fixture, snapshot: currentSnapshot };
+      useStore.getState().syncServerReadModel(currentSnapshot);
+
+      await vi.waitFor(
+        () => {
+          expect(
+            page.getByRole("button", { name: sourceThreadTitle, exact: true }).elements(),
+          ).toHaveLength(1);
+          expect(document.body.textContent).not.toContain("Unable to move sidebar item");
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -5653,6 +6030,58 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(document.body.textContent).toContain("Finished the investigation.");
           expect(document.body.textContent).not.toContain("3 out of 3 tasks completed");
           expect(document.querySelector('[data-testid="active-task-list-card"]')).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("acknowledges the same unseen completion identity used by the sidebar", async () => {
+    const settledSnapshot = createSnapshotWithSettledInlinePlan();
+    const completionAt = isoAt(1_004);
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...settledSnapshot,
+        threads: settledSnapshot.threads.map((thread) =>
+          thread.id === THREAD_ID
+            ? {
+                ...thread,
+                lastVisitedAt: isoAt(1_003),
+                latestTurn: thread.latestTurn
+                  ? {
+                      ...thread.latestTurn,
+                      // Completion notification acknowledgement must not depend
+                      // on optional provider timing metadata.
+                      startedAt: null,
+                    }
+                  : null,
+              }
+            : thread,
+        ),
+      },
+    });
+
+    try {
+      await vi.waitFor(
+        () => {
+          const visitCommands = wsRequests
+            .map(readDispatchedCommand)
+            .filter(
+              (command) => command?.type === "thread.meta.update" && "lastVisitedAt" in command,
+            );
+          expect(visitCommands).toHaveLength(1);
+          expect(visitCommands[0]).toMatchObject({
+            type: "thread.meta.update",
+            threadId: THREAD_ID,
+          });
+          if (visitCommands[0]?.type !== "thread.meta.update") return;
+          const lastVisitedAt = visitCommands[0].lastVisitedAt;
+          expect(
+            Date.parse(typeof lastVisitedAt === "string" ? lastVisitedAt : ""),
+          ).toBeGreaterThanOrEqual(Date.parse(completionAt));
         },
         { timeout: 8_000, interval: 16 },
       );

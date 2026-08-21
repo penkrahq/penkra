@@ -76,9 +76,29 @@ First-party App packages receive the same sandbox and permission checks as third
   an equivalent user action mediated by the host.
 - Remote access is performed through the declared `network-fetch` permission and mediated API.
   Renderer navigation is not a substitute for network permission.
+- Bulk transfer destinations are host-named, HTTPS-only, and resolved through the same public-address
+  checks as mediated fetches. Renderer-supplied request bodies may stream through a single-use
+  same-origin ticket only after the host validates and pins the remote destination. Tickets expire,
+  cannot be replayed, and are released with their owning tab or renderer. This prevents an App from
+  using a same-origin request as an SSRF path to local or private services.
 - Downloads, external-protocol links, clipboard, microphone, camera, notifications, hosted browser
   pages, and simulated devices each require their dedicated host policy. No generic escape hatch
   exists, and Apps have no raw-socket or process-spawn API.
+
+## Local byte URLs
+
+- Blob URL tokens contain at least 256 bits of randomness and disclose no filesystem path. A token
+  is registered only after the host resolves an existing regular file through an App-scoped handle
+  or the calling App and Space's private storage root.
+- Lookup is bound to the exact `penkra-app:` origin and therefore to one App and Space partition.
+  Presenting a token from another origin fails closed even if the token value is known.
+- The registry owns the canonical resolved path. Serving rejects a path that later resolves through
+  a different filesystem object, and responses support only GET/HEAD with single byte ranges.
+- A URL is released explicitly, when its source handle is revoked, when its owning tab or renderer
+  closes, when the App/Space runtime deactivates, or when the host shuts down. URL lifetime does not
+  extend the underlying file-handle or App-storage authority.
+- Blob responses retain the App CSP and no-sniff policy. They do not create a second scheme,
+  renderer permission, ambient filesystem capability, or cross-App byte channel.
 
 ## Required failure behavior
 

@@ -1174,7 +1174,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           },
         });
       }
-      this.emitLifecycleEvent(context, "session/ready", `Connected to thread ${providerThreadId}`);
+      // Thread-open readiness is connection lifecycle, not evidence that the
+      // conversation has no active turn. A restart continuation may be
+      // admitted immediately after this request resolves, before this event is
+      // durably projected. `session/started` preserves an already-running turn
+      // at ingestion time, while still projecting an idle session as ready.
+      this.emitLifecycleEvent(
+        context,
+        "session/started",
+        `Connected to thread ${providerThreadId}`,
+      );
       void this.refreshComputerUseCapabilityHealth(context, providerThreadId).catch((error) => {
         log.warn("Computer Use capability preflight failed", {
           threadId,
@@ -1766,9 +1775,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         resumeCursor: { threadId: forkedProviderThreadId },
       });
       this.emitLifecycleEvent(context, "session/threadOpenResolved", "Codex thread/fork resolved.");
+      // As with thread/resume, fork resolution proves connection readiness but
+      // is not a terminal turn signal. Keep it causally distinct from a real
+      // provider `turn/completed` notification.
       this.emitLifecycleEvent(
         context,
-        "session/ready",
+        "session/started",
         `Connected to thread ${forkedProviderThreadId}`,
       );
 

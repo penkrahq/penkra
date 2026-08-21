@@ -125,6 +125,7 @@ export default defineConfig({
       "@pierre/diffs",
       "@pierre/diffs/react",
       "@pierre/diffs/worker/worker.js",
+      "@dnd-kit/dom/sortable",
       "react-icons/gr",
     ],
   },

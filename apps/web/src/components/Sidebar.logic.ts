@@ -22,6 +22,7 @@ import {
   SIDEBAR_THREAD_ROW_BASE_CLASS_NAME,
 } from "../sidebarRowStyles";
 import { canSessionAnswerPendingRequests, isSessionRunningTurn } from "../session-logic";
+import { getThreadCompletionKey, hasUnseenThreadCompletion } from "../threadCompletion";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
@@ -166,6 +167,10 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
 
 export type SidebarWorkStatus = "idle" | "running" | "done" | "attention" | "recording";
 
+export function canArchiveSidebarThreads(statuses: ReadonlyArray<SidebarWorkStatus>): boolean {
+  return statuses.length > 0 && statuses.every((status) => status === "idle");
+}
+
 export function resolveSidebarWorkStatus(
   status: ThreadStatusPill | null,
   isRecording = false,
@@ -175,6 +180,16 @@ export function resolveSidebarWorkStatus(
   if (status.label === "Working" || status.label === "Connecting") return "running";
   if (status.label === "Completed") return "done";
   return "attention";
+}
+
+export function resolveVisibleThreadWorkStatus(input: {
+  status: ThreadStatusPill | null;
+  isRecording?: boolean;
+  projectedWorkStatus?: SidebarThreadSummary["workStatus"];
+}): SidebarWorkStatus {
+  // `projectedWorkStatus` remains useful for sorting and compact shell state,
+  // but it is not visit-aware enough to drive the visible row icon.
+  return resolveSidebarWorkStatus(input.status, input.isRecording);
 }
 
 type ThreadStatusInput = Pick<Thread, "latestTurn" | "lastVisitedAt" | "session" | "updatedAt"> & {
@@ -195,22 +210,7 @@ function createThreadStatusDismissalKey(
 }
 
 function createCompletedDismissalKey(thread: ThreadStatusInput): string | null {
-  if (!thread.latestTurn?.completedAt) {
-    return null;
-  }
-
-  return ["Completed", thread.latestTurn.turnId, thread.latestTurn.completedAt].join(":");
-}
-
-export function hasUnseenCompletion(thread: Pick<Thread, "latestTurn" | "lastVisitedAt">): boolean {
-  if (!thread.latestTurn?.completedAt) return false;
-  const completedAt = Date.parse(thread.latestTurn.completedAt);
-  if (Number.isNaN(completedAt)) return false;
-  if (!thread.lastVisitedAt) return true;
-
-  const lastVisitedAt = Date.parse(thread.lastVisitedAt);
-  if (Number.isNaN(lastVisitedAt)) return true;
-  return completedAt > lastVisitedAt;
+  return getThreadCompletionKey(thread.latestTurn);
 }
 
 export function shouldClearThreadSelectionOnMouseDown(target: HTMLElement | null): boolean {
@@ -447,7 +447,7 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (hasUnseenCompletion(thread)) {
+  if (hasUnseenThreadCompletion(thread)) {
     const dismissalKey = createCompletedDismissalKey(thread);
     if (dismissalKey && thread.dismissedStatusKey === dismissalKey) {
       return null;

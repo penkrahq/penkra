@@ -48,8 +48,11 @@ export {
 } from "./operations";
 
 export {
+  files,
+  open,
   operations,
   storage,
+  transfer,
   composer,
   browser,
   simulator,
@@ -76,6 +79,11 @@ export {
   type AppPermissionStatus,
   type AppOperationHandler,
   type AppStorageFileEntry,
+  type AppScopedBinaryRead,
+  type AppScopedFileEntry,
+  type AppScopedFileHandle,
+  type AppScopedFileWrite,
+  type AppTransferProgressEvent,
   type AppComposerModelSelection,
   type AppComposerStageInput,
   type AppTabHandlerContext,

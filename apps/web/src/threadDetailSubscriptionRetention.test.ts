@@ -311,11 +311,27 @@ describe("threadDetailSubscriptionRetention", () => {
         visibleThreadIds: visible,
         retainedThreadIds: retained,
         serverThreadIds: new Set(retained),
+        draftThreadIds: new Set(),
       }),
     ).toEqual([
       ...visible,
       ...retained.slice(0, WS_STREAM_LIMITS.threadPerClient - visible.length),
     ]);
+  });
+
+  it("waits to lease a known local draft but still surfaces an unknown visible route", () => {
+    const draft = ThreadId.makeUnsafe("draft-thread");
+    const unknown = ThreadId.makeUnsafe("unknown-thread");
+    const authoritative = ThreadId.makeUnsafe("authoritative-thread");
+
+    expect(
+      resolveThreadDetailSubscriptionLeaseIds({
+        visibleThreadIds: [draft, unknown, authoritative],
+        retainedThreadIds: [],
+        serverThreadIds: new Set([authoritative]),
+        draftThreadIds: new Set([draft]),
+      }),
+    ).toEqual([unknown, authoritative]);
   });
 
   it("notifies eviction subscribers so lease owners can refresh wiped detail", () => {

@@ -258,6 +258,7 @@ function isThreadDetailEventFor(threadId: ThreadId, event: OrchestrationEvent): 
     event.aggregateId === threadId &&
     (event.type === "thread.message-sent" ||
       event.type === "thread.activity-appended" ||
+      event.type === "thread.activity-read-model-updated" ||
       event.type === "thread.conversation-rolled-back" ||
       event.type === "thread.session-set" ||
       event.type === "thread.meta-updated" ||
@@ -1120,10 +1121,6 @@ const makeWsRpcHandlersLayer = () =>
                 includeTerminated: input.includeTerminated === true,
               }),
               installations: providerInstallations.list(),
-              spaceDefaults:
-                input.spaceId === undefined
-                  ? Effect.succeed([])
-                  : providerConnections.listSpaceDefaults(input.spaceId),
               anonymousRoutes: Effect.succeed(
                 listProviderConnectionManifests().flatMap(({ harness, anonymous }) => {
                   return (anonymous?.internalProviderIds ?? []).map((internalProviderId) => ({
@@ -1216,17 +1213,6 @@ const makeWsRpcHandlersLayer = () =>
               ),
             ),
             "Failed to disconnect the Connection",
-          ),
-        [WS_METHODS.providerSetSpaceDefaultConnection]: (input) =>
-          rpcEffect(
-            providerConnections.setSpaceDefault({
-              spaceId: input.spaceId,
-              harness: input.harness,
-              connectionId: input.connectionId,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            }),
-            "Failed to set the Space Connection",
           ),
         [WS_METHODS.serverListLocalServers]: () =>
           rpcEffect(

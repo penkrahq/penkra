@@ -33,7 +33,6 @@ vi.mock("~/nativeApi", async () => {
           activatedAt: "2026-08-01T00:00:00.000Z",
           retiredAt: null,
         })),
-        spaceDefaults: [],
         anonymousRoutes: [{ harness: "opencode" as const, internalProviderId: "opencode" }],
         authenticationMethods: [
           {

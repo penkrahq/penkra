@@ -5641,7 +5641,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       return Effect.gen(function* () {
         const adapter = yield* ClaudeAdapter;
 
-        const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 8).pipe(
+        const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 9).pipe(
           Stream.runCollect,
           Effect.forkChild,
         );
@@ -5691,6 +5691,23 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
           },
         } as unknown as SDKMessage);
 
+        // An identical adjacent provider delivery is still a distinct stream
+        // occurrence and must never be collapsed by content-derived identity.
+        harness.query.emit({
+          type: "stream_event",
+          session_id: "sdk-session-early-assistant",
+          uuid: "stream-early",
+          parent_tool_use_id: null,
+          event: {
+            type: "content_block_delta",
+            index: 0,
+            delta: {
+              type: "text_delta",
+              text: "Late text",
+            },
+          },
+        } as unknown as SDKMessage);
+
         harness.query.emit({
           type: "result",
           subtype: "success",
@@ -5710,10 +5727,21 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
             "turn.started",
             "thread.started",
             "content.delta",
+            "content.delta",
             "item.completed",
             "turn.completed",
           ],
         );
+
+        const textDeltas = runtimeEvents.filter(
+          (event): event is Extract<ProviderRuntimeEvent, { type: "content.delta" }> =>
+            event.type === "content.delta" && event.payload.streamKind === "assistant_text",
+        );
+        assert.deepEqual(
+          textDeltas.map((event) => event.payload.delta),
+          ["Late text", "Late text"],
+        );
+        assert.notEqual(String(textDeltas[0]?.eventId), String(textDeltas[1]?.eventId));
 
         const deltaIndex = runtimeEvents.findIndex((event) => event.type === "content.delta");
         const completedIndex = runtimeEvents.findIndex((event) => event.type === "item.completed");

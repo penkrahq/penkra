@@ -146,10 +146,13 @@ const make = Effect.gen(function* () {
         );
         const existingAtReplayTime = yield* encodeEvent({
           ...existingEvent,
-          // Replayable native notifications retain a stable event id, but adapters timestamp the
-          // local observation. A restart may therefore observe the same native event later. The
-          // first durable timestamp remains authoritative; no other content difference is allowed.
+          // Adapters with a provider-native cursor may intentionally reuse a stable event id on
+          // replay while the local observation time and lifecycle fence change. Adapters without
+          // such an occurrence identity keep their unique per-delivery ids.
           createdAt: persistedEvent.createdAt,
+          ...(persistedEvent.lifecycleGeneration !== undefined
+            ? { lifecycleGeneration: persistedEvent.lifecycleGeneration }
+            : { lifecycleGeneration: undefined }),
         }).pipe(Effect.mapError(toPersistenceDecodeError("ProviderRuntimeEvent.append.replay")));
         if (existingAtReplayTime !== eventJson) {
           return yield* new PersistenceDecodeError({

@@ -59,9 +59,7 @@ export function useHandleNewThread() {
     const currentState = useStore.getState();
     const targetProject = currentState.projects.find((project) => project.id === projectId);
     // A virtual Folder is always owned by exactly one Space. Make that durable
-    // parent authoritative for every draft created inside it; otherwise the
-    // draft queries Connections with a null Space and cannot resolve the
-    // Space's exact default Connection.
+    // parent authoritative for every draft created inside it.
     const parentScopedOptions =
       targetProject === undefined
         ? requestedOptions

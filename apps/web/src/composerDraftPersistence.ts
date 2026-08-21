@@ -260,6 +260,9 @@ const PersistedComposerDraftStoreState = Schema.Struct({
   stickyModelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
   ),
+  stickyConnectionByProvider: Schema.optionalKey(
+    Schema.Record(ProviderKind, Schema.optionalKey(Schema.NullOr(ProviderConnectionId))),
+  ),
   stickyActiveProvider: Schema.optionalKey(Schema.NullOr(ProviderKind)),
 });
 
@@ -270,6 +273,7 @@ const EMPTY_PERSISTED_DRAFT_STORE_STATE = Object.freeze<PersistedComposerDraftSt
   draftThreadsByThreadId: {},
   projectDraftThreadIdByProjectId: {},
   stickyModelSelectionByProvider: {},
+  stickyConnectionByProvider: {},
   stickyActiveProvider: null,
 });
 
@@ -868,6 +872,7 @@ export function migratePersistedComposerDraftStoreState(
   return {
     ...EMPTY_PERSISTED_DRAFT_STORE_STATE,
     stickyModelSelectionByProvider: normalized.stickyModelSelectionByProvider ?? {},
+    stickyConnectionByProvider: normalized.stickyConnectionByProvider ?? {},
     stickyActiveProvider: normalized.stickyActiveProvider ?? null,
   };
 }
@@ -1145,6 +1150,7 @@ export function partializeComposerDraftStoreState(
     draftThreadsByThreadId: state.draftThreadsByThreadId,
     projectDraftThreadIdByProjectId: state.projectDraftThreadIdByProjectId,
     stickyModelSelectionByProvider: state.stickyModelSelectionByProvider,
+    stickyConnectionByProvider: state.stickyConnectionByProvider,
     stickyActiveProvider: state.stickyActiveProvider,
   };
 }
@@ -1164,6 +1170,13 @@ export function normalizeCurrentPersistedComposerDraftStoreState(
 
   // Handle both v3 (modelSelectionByProvider) and v2/legacy formats
   let stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>> = {};
+  const stickyConnectionByProvider = Object.fromEntries(
+    Object.entries(normalizedPersistedState.stickyConnectionByProvider ?? {}).filter(
+      ([provider, connectionId]) =>
+        Schema.is(ProviderKind)(provider) &&
+        (connectionId === null || Schema.is(ProviderConnectionId)(connectionId)),
+    ),
+  ) as Partial<Record<ProviderKind, ProviderConnectionId | null>>;
   let stickyActiveProvider: ProviderKind | null = null;
   if (
     normalizedPersistedState.stickyModelSelectionByProvider &&
@@ -1206,6 +1219,7 @@ export function normalizeCurrentPersistedComposerDraftStoreState(
     draftThreadsByThreadId,
     projectDraftThreadIdByProjectId,
     stickyModelSelectionByProvider: sanitizeStickyModelSelectionMap(stickyModelSelectionByProvider),
+    stickyConnectionByProvider,
     stickyActiveProvider,
   };
 }

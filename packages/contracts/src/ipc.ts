@@ -120,7 +120,6 @@ import type {
   ProviderConnection,
   ProviderConnectionsSnapshot,
   ProviderConnectionsSnapshotInput,
-  SetSpaceConnectionDefaultInput,
   TerminateProviderConnectionInput,
   ThreadProviderBindingSnapshot,
   ThreadProviderBindingSnapshotInput,
@@ -1079,7 +1078,6 @@ export interface NativeApi {
       input: GetProviderConnectionLoginInput,
     ) => Promise<ProviderConnectionLoginSnapshot>;
     terminateConnection: (input: TerminateProviderConnectionInput) => Promise<ProviderConnection>;
-    setSpaceDefaultConnection: (input: SetSpaceConnectionDefaultInput) => Promise<void>;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;

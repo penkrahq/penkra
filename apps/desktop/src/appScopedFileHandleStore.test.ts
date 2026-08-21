@@ -50,6 +50,22 @@ describe("AppScopedFileHandleStore", () => {
     expect(() => store.resolve("explorer", "one", first.id)).toThrow("unavailable");
     expect(store.resolve("explorer", "two", second.id).rootPath).toBe(directory);
   });
+
+  it("grants a confined writable handle before the chosen save file exists", async () => {
+    const directory = await temporaryDirectory();
+    const store = new AppScopedFileHandleStore();
+    const path = Path.join(directory, "export.pen");
+
+    const handle = await store.grantWritableFile({
+      appId: "explorer",
+      spaceId: "one",
+      path,
+    });
+
+    expect(handle).toMatchObject({ kind: "file", name: "export.pen" });
+    expect(store.resolve("explorer", "one", handle.id).rootPath).toBe(path);
+    await expect(FS.promises.access(path)).rejects.toThrow();
+  });
 });
 
 async function temporaryDirectory(): Promise<string> {

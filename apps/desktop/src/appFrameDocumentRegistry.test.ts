@@ -42,11 +42,14 @@ describe("AppFrameDocumentRegistry", () => {
     };
     const packageHandler = vi.fn(async () => new Response("app"));
     const createProtocolHandler = vi.fn(async () => packageHandler);
+    const blobUrls = { resolve: vi.fn() };
+    const transferHandler = vi.fn(async () => new Response("transfer"));
     const registry = new AppFrameDocumentRegistry({
       protocol: protocol as never,
       runtimeScriptPath: "/trusted/appFrameRuntime.iife.js",
       resolveOrigin: () => ORIGIN,
       createProtocolHandler,
+      protocolResources: () => ({ blobUrls: blobUrls as never, transferHandler }),
     });
 
     await registry.start();
@@ -61,6 +64,8 @@ describe("AppFrameDocumentRegistry", () => {
       packageRoot: "/packages/apps/1.0.0",
       entrypoint: "app.html",
       runtimeScriptPath: "/trusted/appFrameRuntime.iife.js",
+      blobUrls,
+      transferHandler,
     });
     const delegate = protocol.handle.mock.calls[0]?.[1] as
       | ((request: Request) => Promise<Response>)

@@ -83,6 +83,8 @@ export interface ReconcilableThread {
   readonly messages?: ReadonlyArray<
     Pick<OrchestrationMessage, "id" | "role" | "streaming" | "turnId">
   >;
+  /** Every pending/running projection row, including older rows hidden by latestTurn. */
+  readonly openTurnCount?: number;
 }
 
 function planStreamingMessageSettlementCommands(input: {
@@ -212,12 +214,15 @@ export function planRestartTurnReconciliation(input: {
     // that the orchestration invariant layer will necessarily reject.
     if (thread.deletedAt != null) continue;
 
+    const openTurnCount = thread.openTurnCount ?? 0;
     const activeTurnAlreadyTerminal =
+      openTurnCount === 0 &&
       thread.session?.activeTurnId !== null &&
       thread.session?.activeTurnId !== undefined &&
       thread.latestTurn?.turnId === thread.session.activeTurnId &&
       (thread.latestTurn.state === "completed" || thread.latestTurn.state === "error");
-    const hasInFlightTurn = !activeTurnAlreadyTerminal && threadHasInFlightTurn(thread);
+    const hasInFlightTurn =
+      !activeTurnAlreadyTerminal && (threadHasInFlightTurn(thread) || openTurnCount > 0);
     // A streaming message cannot have a surviving producer across a process
     // boundary. Plan its settlement independently from current session state so
     // the lightweight session pass may run before detail hydration.
@@ -273,24 +278,30 @@ export function planRestartTurnReconciliation(input: {
       });
       continue;
     }
-    commands.push({
-      type: "thread.session.set",
-      commandId: CommandId.makeUnsafe(`restart-reconcile:${thread.id}:${input.now}`),
-      threadId: thread.id,
-      session: {
+    const settlementPasses = Math.max(1, openTurnCount);
+    for (let pass = 0; pass < settlementPasses; pass += 1) {
+      const baseCommandId = `restart-reconcile:${thread.id}:${input.now}`;
+      commands.push({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe(
+          settlementPasses === 1 ? baseCommandId : `${baseCommandId}:open-turn:${pass + 1}`,
+        ),
         threadId: thread.id,
-        status: "interrupted",
-        providerName: thread.session?.providerName ?? null,
-        // Prefer the session's own mode; fall back to the thread default when the
-        // thread never had a materialized session row.
-        runtimeMode: thread.session?.runtimeMode ?? thread.runtimeMode,
-        activeTurnId: null,
-        // "interrupted" is a clean stop, not an error: no lastError banner.
-        lastError: null,
-        updatedAt: input.now,
-      },
-      createdAt: input.now,
-    });
+        session: {
+          threadId: thread.id,
+          status: "interrupted",
+          providerName: thread.session?.providerName ?? null,
+          // Prefer the session's own mode; fall back to the thread default when the
+          // thread never had a materialized session row.
+          runtimeMode: thread.session?.runtimeMode ?? thread.runtimeMode,
+          activeTurnId: null,
+          // "interrupted" is a clean stop, not an error: no lastError banner.
+          lastError: null,
+          updatedAt: input.now,
+        },
+        createdAt: input.now,
+      });
+    }
   }
   return commands;
 }
@@ -311,25 +322,37 @@ export function planRestartTurnReconciliation(input: {
  */
 export const reconcileRestartStuckTurns = (input: {
   readonly backgroundScope: Scope.Closeable;
-}): Effect.Effect<
-  void,
-  never,
-  OrchestrationEngineService | ProjectionSnapshotQuery
-> =>
+}): Effect.Effect<void, never, OrchestrationEngineService | ProjectionSnapshotQuery> =>
   Effect.gen(function* () {
     const engine = yield* OrchestrationEngineService;
     const snapshotQuery = yield* ProjectionSnapshotQuery;
 
     const readModel = yield* engine.getReadModel();
+    const openTurnCountRows = yield* snapshotQuery.listOpenTurnCounts().pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("restart turn reconciliation continuing without open-turn counts", {
+          cause,
+        }).pipe(Effect.as([] as const)),
+      ),
+    );
+    const openTurnCounts = new Map(
+      openTurnCountRows.map(({ threadId, count }) => [threadId, count] as const),
+    );
 
     const now = new Date().toISOString();
-    const threadsNeedingRestartCleanup = readModel.threads.filter(
-      (thread) =>
-        thread.deletedAt === null &&
-        (needsRestartReconciliation(thread) ||
-          thread.hasPendingApprovals ||
-          thread.hasPendingUserInput),
-    );
+    const threadsNeedingRestartCleanup = readModel.threads
+      .filter(
+        (thread) =>
+          thread.deletedAt === null &&
+          (needsRestartReconciliation(thread) ||
+            (openTurnCounts.get(thread.id) ?? 0) > 0 ||
+            thread.hasPendingApprovals ||
+            thread.hasPendingUserInput),
+      )
+      .map((thread) => ({
+        ...thread,
+        openTurnCount: openTurnCounts.get(thread.id) ?? 0,
+      }));
     if (threadsNeedingRestartCleanup.length === 0) {
       return;
     }

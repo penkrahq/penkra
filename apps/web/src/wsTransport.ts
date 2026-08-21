@@ -510,12 +510,14 @@ export class WsTransport {
       if (method === ORCHESTRATION_WS_METHODS.subscribeThread) {
         const threadId = (params as { threadId: string }).threadId;
         this.resetStreamCapacityRetry(`orchestration.thread:${threadId}`);
-        // Preserve the stored input identity across explicit refreshes so stale
-        // restart callbacks cannot supersede the newly requested stream.
+        // Preserve the stored input identity across repeated ownership requests so
+        // subscribing an already-owned thread is idempotent. Snapshot refreshes
+        // explicitly unsubscribe first; forcibly replacing a healthy stream here
+        // races the server-side lease finalizer and can be rejected as a duplicate.
         const existingInput = this.threadSubscriptions.get(threadId);
         const input = threadStreamInputsEqual(existingInput, params) ? existingInput : params;
         this.threadSubscriptions.set(threadId, input);
-        await this.startThreadStream(client, threadId, input as never, true);
+        await this.startThreadStream(client, threadId, input as never);
         return undefined as T;
       }
 

@@ -170,6 +170,7 @@ import {
   createThreadSelector,
 } from "../storeSelectors";
 import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
+import { hasUnseenThreadCompletion } from "../threadCompletion";
 import {
   canOfferForkSlashCommand,
   canOfferReviewSlashCommand,
@@ -771,6 +772,9 @@ export default function ChatView({
   const { open: leftRailOpen, setOpen: setLeftRailOpen } = useSidebar();
   const setComposerDraftModelSelectionAndSticky = useComposerDraftStore(
     (store) => store.setModelSelectionAndSticky,
+  );
+  const stickyConnectionByProvider = useComposerDraftStore(
+    (store) => store.stickyConnectionByProvider,
   );
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
@@ -1422,11 +1426,10 @@ export default function ChatView({
     activeThread?.session ?? null,
   );
   const latestTurnSettled = latestTurnSettledByProvider && !hasLiveTurnTail;
-  // `latestTurnSettled` is also false when there is NO started turn (a brand-new
-  // chat), because `isLatestTurnSettled` treats a non-existent turn as unsettled.
-  // Gate live-turn UI on an actually-started turn so composer chrome cannot
-  // appear on a fresh chat just because the repo already has local edits.
-  const latestTurnLive = Boolean(activeLatestTurn?.startedAt) && !latestTurnSettled;
+  // `latestTurnSettled` is also false when there is no turn at all, so require a
+  // durable turn identity. Do not require `startedAt`: the first-turn request is
+  // projected as a running latest turn before the provider start timestamp arrives.
+  const latestTurnLive = activeLatestTurn !== null && !latestTurnSettled;
   const activeProjectId = activeThread?.projectId ?? draftThread?.projectId ?? null;
   const activeProject = useStore(
     useMemo(() => createProjectSelector(activeProjectId), [activeProjectId]),
@@ -1550,12 +1553,14 @@ export default function ChatView({
 
   useEffect(() => {
     if (!activeThread?.id) return;
-    if (!latestTurnSettled) return;
-    if (!activeLatestTurn?.completedAt) return;
-    const turnCompletedAt = Date.parse(activeLatestTurn.completedAt);
-    if (Number.isNaN(turnCompletedAt)) return;
-    const lastVisitedAt = activeThread.lastVisitedAt ? Date.parse(activeThread.lastVisitedAt) : NaN;
-    if (!Number.isNaN(lastVisitedAt) && lastVisitedAt >= turnCompletedAt) return;
+    if (
+      !hasUnseenThreadCompletion({
+        latestTurn: activeLatestTurn,
+        lastVisitedAt: activeThread.lastVisitedAt,
+      })
+    ) {
+      return;
+    }
 
     const visitedAt = new Date().toISOString();
     markThreadVisited(activeThread.id, visitedAt);
@@ -1573,7 +1578,6 @@ export default function ChatView({
     activeThread?.id,
     activeThread?.lastVisitedAt,
     activeLatestTurn?.completedAt,
-    latestTurnSettled,
     markThreadVisited,
   ]);
 
@@ -1587,9 +1591,7 @@ export default function ChatView({
       activeThread.messages.length > 0 ||
       activeThread.session !== null),
   );
-  const providerConnectionsQuery = useQuery(
-    providerConnectionsQueryOptions(activeThread?.spaceId ?? null),
-  );
+  const providerConnectionsQuery = useQuery(providerConnectionsQueryOptions());
   const threadProviderBindingQuery = useQuery(
     threadProviderBindingQueryOptions(activeThread?.id ?? null),
   );
@@ -1818,7 +1820,10 @@ export default function ChatView({
   const [selectedConnectionByThread, setSelectedConnectionByThread] = useState<
     Partial<Record<ThreadId, PendingConnectionSelection>>
   >({});
-  const selectedConnectionByProvider = selectedConnectionByThread[threadId] ?? {};
+  const pendingConnectionByProvider = selectedConnectionByThread[threadId] ?? {};
+  const selectedConnectionByProvider = hasThreadStarted
+    ? pendingConnectionByProvider
+    : { ...stickyConnectionByProvider, ...pendingConnectionByProvider };
   const setSelectedConnectionByProvider = useCallback(
     (update: (current: PendingConnectionSelection) => PendingConnectionSelection) => {
       setSelectedConnectionByThread((current) => ({
@@ -1940,6 +1945,12 @@ export default function ChatView({
     setSelectedConnectionByProvider((current) => ({
       ...current,
       [selectedProvider]: connectionId,
+    }));
+    useComposerDraftStore.setState((state) => ({
+      stickyConnectionByProvider: {
+        ...state.stickyConnectionByProvider,
+        [selectedProvider]: connectionId,
+      },
     }));
   };
   const handleManageConnections = useCallback(() => {
@@ -2390,9 +2401,15 @@ export default function ChatView({
     messages: activeThread?.messages ?? EMPTY_MESSAGES,
     session: activeThread?.session,
   });
-  const showThinking = hasLiveTurn || isSendBusy || hasPendingTurnStart;
-  const hasControllableTurn =
-    hasLiveTurn || isSendBusy || hasPendingTurnStart || phase === "connecting";
+  const hasCanonicalRunningWork = activeThread?.workStatus === "running";
+  const isTurnWorking =
+    hasCanonicalRunningWork || hasLiveTurn || latestTurnLive || isSendBusy || hasPendingTurnStart;
+  // One working predicate owns both Stop and the transcript status so the
+  // provider-connection handoff cannot make Thinking disappear between durable
+  // turn projections.
+  const isWorking = isTurnWorking || isConnecting || isEditingMessageHistory;
+  const showThinking = isWorking;
+  const hasControllableTurn = isTurnWorking || phase === "connecting";
   useEffect(() => {
     if (phase === "connecting" || isSendBusy || hasPendingTurnStart) {
       return;
@@ -2403,11 +2420,6 @@ export default function ChatView({
       pendingTurnStartMessageRef.current = null;
     }
   }, [hasPendingTurnStart, isSendBusy, phase]);
-  const isWorking =
-    hasLiveTurn || isSendBusy || hasPendingTurnStart || isConnecting || isEditingMessageHistory;
-  const hasStreamingAssistantText =
-    activeThread?.messages.some((message) => message.role === "assistant" && message.streaming) ??
-    false;
   const activeTurnLayoutLive = isWorking || !latestTurnSettled;
   const [keepSettledActiveTurnLayout, setKeepSettledActiveTurnLayout] = useState(false);
   const previousActiveTurnLayoutLiveRef = useRef(activeTurnLayoutLive);
@@ -3117,19 +3129,21 @@ export default function ChatView({
       : activeProviderStatus;
   const voiceConnectionId = useMemo(() => {
     const snapshot = providerConnectionsQuery.data;
-    const defaultConnectionId = snapshot?.spaceDefaults.find(
-      (entry) => entry.harness === "codex",
-    )?.connectionId;
-    if (defaultConnectionId === undefined) return undefined;
-    return snapshot?.connections.some(
-      (connection) =>
-        connection.id === defaultConnectionId &&
-        connection.harness === "codex" &&
-        connection.lifecycle === "active",
-    )
-      ? defaultConnectionId
-      : undefined;
-  }, [providerConnectionsQuery.data]);
+    const savedConnectionId = stickyConnectionByProvider.codex;
+    if (savedConnectionId !== null && savedConnectionId !== undefined) {
+      return snapshot?.connections.some(
+        (connection) =>
+          connection.id === savedConnectionId &&
+          connection.harness === "codex" &&
+          connection.lifecycle === "active",
+      )
+        ? savedConnectionId
+        : undefined;
+    }
+    return snapshot?.connections.find(
+      (connection) => connection.harness === "codex" && connection.lifecycle === "active",
+    )?.id;
+  }, [providerConnectionsQuery.data, stickyConnectionByProvider.codex]);
   const refreshProviderStatuses = useRefreshProviderStatusesNow();
   const hasNativeUserMessages = useMemo(
     () =>
@@ -3653,6 +3667,8 @@ export default function ChatView({
   const latestTranscriptMessage = useMemo(() => {
     return timelineMessages.at(-1) ?? null;
   }, [timelineMessages]);
+  const latestTranscriptMessageIsStreamingAssistant =
+    latestTranscriptMessage?.role === "assistant" && latestTranscriptMessage.streaming;
   const transcriptTailKey = latestTranscriptMessage
     ? [
         latestTranscriptMessage.id,
@@ -3737,8 +3753,7 @@ export default function ChatView({
   }, [clearTranscriptAutoFollow]);
   useLayoutEffect(() => {
     if (
-      latestTranscriptMessage?.role === "assistant" &&
-      latestTranscriptMessage.streaming &&
+      latestTranscriptMessageIsStreamingAssistant &&
       isAtEndRef.current &&
       activeThread?.id !== undefined
     ) {
@@ -3755,14 +3770,19 @@ export default function ChatView({
       const shouldAnimate = animateNextAutoFollowScrollRef.current;
       animateNextAutoFollowScrollRef.current = false;
       scrollToEnd(shouldAnimate);
-      if (!latestTranscriptMessage?.streaming) {
+      if (!latestTranscriptMessageIsStreamingAssistant) {
         autoFollowThreadIdRef.current = null;
       }
     });
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [activeThread?.id, latestTranscriptMessage, scrollToEnd, transcriptAutoFollowSignal]);
+  }, [
+    activeThread?.id,
+    latestTranscriptMessageIsStreamingAssistant,
+    scrollToEnd,
+    transcriptAutoFollowSignal,
+  ]);
   const {
     pendingTranscriptSelectionAction,
     commitTranscriptAssistantSelection,
@@ -4680,22 +4700,30 @@ export default function ChatView({
         const availableConnectionIds = runtimeModelsByProvider[provider].find(
           (descriptor) => descriptor.slug === resolvedModel,
         )?.availableConnectionIds;
+        const reconciled = reconcileComposerConnectionSelection({
+          snapshot,
+          provider,
+          model: resolvedModel,
+          ...(availableConnectionIds === undefined ? {} : { availableConnectionIds }),
+          current: {
+            specified: Object.prototype.hasOwnProperty.call(selectedConnectionByProvider, provider),
+            connectionId: selectedConnectionByProvider[provider],
+          },
+        });
         setSelectedConnectionByProvider((current) => {
-          const reconciled = reconcileComposerConnectionSelection({
-            snapshot,
-            provider,
-            model: resolvedModel,
-            ...(availableConnectionIds === undefined ? {} : { availableConnectionIds }),
-            current: {
-              specified: Object.prototype.hasOwnProperty.call(current, provider),
-              connectionId: current[provider],
-            },
-          });
           const next = { ...current };
           if (reconciled.specified) next[provider] = reconciled.connectionId ?? null;
           else delete next[provider];
           return next;
         });
+        if (!hasThreadStarted) {
+          useComposerDraftStore.setState((state) => {
+            const next = { ...state.stickyConnectionByProvider };
+            if (reconciled.specified) next[provider] = reconciled.connectionId ?? null;
+            else delete next[provider];
+            return { stickyConnectionByProvider: next };
+          });
+        }
       }
       setComposerDraftModelSelectionAndSticky(activeThread.id, nextModelSelection);
       if (provider === "cursor") {
@@ -4714,7 +4742,9 @@ export default function ChatView({
       setComposerDraftProviderModelOptions,
       customModelsByProvider,
       providerConnectionsQuery.data,
+      hasThreadStarted,
       runtimeModelsByProvider,
+      selectedConnectionByProvider,
       selectableModelOptionsByProvider,
       setSelectedConnectionByProvider,
     ],
@@ -8010,7 +8040,6 @@ export default function ChatView({
                       subagentToolTraceByThreadId={subagentToolTraceByThreadId}
                       onEditUserMessage={onEditUserMessageFromTranscript}
                       onExpandTimelineImage={onExpandTimelineImage}
-                      followLiveOutput={hasStreamingAssistantText}
                       onIsAtEndChange={onIsAtEndChange}
                       markdownCwd={threadWorkspaceCwd ?? undefined}
                       resolvedTheme={resolvedTheme}

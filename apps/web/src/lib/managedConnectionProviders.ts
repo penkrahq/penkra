@@ -39,16 +39,3 @@ export function declaredConnectionProviders(
   );
   return orderProviders(installed);
 }
-
-export function activeConnectionProviders(
-  snapshot: ProviderConnectionsSnapshot | undefined,
-): ProviderKind[] {
-  if (snapshot === undefined) return [];
-  return orderProviders(
-    new Set(
-      snapshot.connections
-        .filter((connection) => connection.lifecycle === "active")
-        .map((connection) => connection.harness),
-    ),
-  );
-}

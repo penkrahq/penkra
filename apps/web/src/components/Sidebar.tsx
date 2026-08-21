@@ -15,7 +15,6 @@ import {
   type SidebarItemReference,
 } from "@penkra/contracts";
 import type { DragEndEvent, DragOverEvent } from "@dnd-kit/react";
-import { isSortable } from "@dnd-kit/react/sortable";
 import { getDefaultModel } from "@penkra/shared/model";
 import { pluralize } from "@penkra/shared/text";
 import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
@@ -63,9 +62,7 @@ import {
   threadJumpIndexFromCommand,
 } from "../keybindings";
 import { useLatestProjectStore } from "../latestProjectStore";
-import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientReconciliation";
 import { waitForRecoverableProjectInReadModel } from "../lib/projectCreateRecovery";
-import { deleteProjectFromClient } from "../lib/projectDelete";
 import {
   resolveCurrentProjectTargetId,
   resolveLatestProjectTargetIdWithFallback,
@@ -82,7 +79,11 @@ import {
 } from "../lib/providerModelPrefetch";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { activeSpaceDisplayNameForReference, resolveActiveSpaceId } from "../lib/spaceGrouping";
-import { moveSidebarItem, resolveSidebarMovePosition } from "../lib/sidebarOrdering";
+import {
+  moveSidebarItem,
+  resolveSidebarInsertionIndex,
+  resolveSidebarMovePosition,
+} from "../lib/sidebarOrdering";
 import { SquareImageError, compressSquareImage } from "../lib/squareImage";
 import { archiveSpace, isOrdinarySpaceProject } from "../lib/spaces";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -115,6 +116,7 @@ import {
   DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
   beginInlineFolderCreation,
   buildProjectThreadTree,
+  canArchiveSidebarThreads,
   derivePinnedProjectIdsForSidebar,
   deriveSidebarProjectData,
   getNextVisibleSidebarThreadId,
@@ -130,6 +132,7 @@ import {
   resolveSidebarWorkStatus,
   resolveSidebarThreadListPaging,
   resolveThreadStatusPill,
+  resolveVisibleThreadWorkStatus,
   shouldClearThreadSelectionOnMouseDown,
   shouldPrunePinnedThreads,
   shouldShowDebugFeatureFlagsMenu,
@@ -169,12 +172,18 @@ import {
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
 import {
+  areSidebarItemParentsEqual,
+  canMoveSidebarItemToParent,
   readSidebarDndData,
+  resolveSidebarDropPlacement,
+  resolveSidebarItemDropTarget,
   type SidebarDropPlacement,
+  type SidebarDropPreview,
+  type SidebarItemDropTarget,
   sidebarItemDndId,
-  sidebarParentFromDndGroup,
   sidebarParentDndGroup,
   sidebarSpaceDndId,
+  SidebarContainerDropPreview,
   SidebarContainerDropTarget,
   SidebarDndMonitor,
   SortableSidebarNode,
@@ -234,7 +243,8 @@ type SidebarDropIntent =
     }
   | {
       kind: "item";
-      target: SidebarItemParent;
+      dropTarget: SidebarItemDropTarget;
+      placement: SidebarDropPlacement;
     };
 
 const DebugFeatureFlagsMenu = import.meta.env.DEV
@@ -255,9 +265,7 @@ type ProjectContextMenuId =
   | "set-icon"
   | "remove-icon"
   | "toggle-pin"
-  | "archive-threads"
-  | "delete-threads"
-  | "delete";
+  | "archive";
 
 type ProjectNativeContextMenuId = ProjectContextMenuId | "new-space" | `move-to-space:${string}`;
 
@@ -372,14 +380,10 @@ export default function Sidebar() {
   }, []);
   const toggleProject = useStore((store) => store.toggleProject);
   const setProjectExpanded = useStore((store) => store.setProjectExpanded);
-  const removeDeletedProjectFromClientState = useStore(
-    (store) => store.removeDeletedProjectFromClientState,
-  );
   const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
   const clearTerminalState = useTerminalStateStore((state) => state.clearTerminalState);
   const openChatThreadPage = useTerminalStateStore((state) => state.openChatThreadPage);
   const openTerminalThreadPage = useTerminalStateStore((state) => state.openTerminalThreadPage);
-  const clearProjectDraftThreads = useComposerDraftStore((store) => store.clearProjectDraftThreads);
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
   const persistedPinnedProjectIds = usePinnedProjectsStore((store) => store.pinnedProjectIds);
   const pinProjectLocally = usePinnedProjectsStore((store) => store.pinProject);
@@ -667,12 +671,9 @@ export default function Sidebar() {
     pinnedThreadIds,
     pinnedThreadIdSet,
     toggleThreadPinned,
-    deleteThread,
-    confirmAndDeleteThread,
     archiveThread,
     confirmAndArchiveThread,
     archiveAllThreadsInProject,
-    deleteProjectThreads,
   } = useSidebarThreadActions({
     activeSplitView,
     appSettings,
@@ -1230,6 +1231,15 @@ export default function Sidebar() {
       const threadSummary = sidebarThreadSummaryById[threadId];
       const isPinned = pinnedThreadIdSet.has(threadId);
       const threadStatus = threadSummary ? resolveThreadStatusForSidebar(threadSummary) : null;
+      const canArchive =
+        threadSummary !== undefined &&
+        canArchiveSidebarThreads([
+          resolveVisibleThreadWorkStatus({
+            status: threadStatus,
+            isRecording: threadId === voiceRecordingThreadId,
+            projectedWorkStatus: threadSummary.workStatus,
+          }),
+        ]);
       const threadWorkspacePath = resolveThreadWorkspaceCwd({
         projectCwd: projectCwdById.get(thread.projectId) ?? null,
         workingDirectory: thread.workingDirectory,
@@ -1245,8 +1255,7 @@ export default function Sidebar() {
           { id: "copy-path", label: "Copy Path", separatorBefore: true },
           { id: "copy-thread-id", label: "Copy Thread ID" },
           ...(options?.extraItems ?? []),
-          { id: "archive", label: "Archive", separatorBefore: true },
-          { id: "delete", label: "Delete", destructive: true },
+          ...(canArchive ? [{ id: "archive", label: "Archive", separatorBefore: true }] : []),
         ],
         position,
       );
@@ -1298,14 +1307,10 @@ export default function Sidebar() {
       }
       if (clicked === "archive") {
         await confirmAndArchiveThread(threadId);
-        return;
       }
-      if (clicked !== "delete") return;
-      await confirmAndDeleteThread(threadId);
     },
     [
       confirmAndArchiveThread,
-      confirmAndDeleteThread,
       copyPathToClipboard,
       copyThreadIdToClipboard,
       clearDismissedThreadStatus,
@@ -1318,6 +1323,7 @@ export default function Sidebar() {
       resolveThreadStatusForSidebar,
       sidebarThreadSummaryById,
       toggleThreadPinned,
+      voiceRecordingThreadId,
     ],
   );
   const handleMultiSelectContextMenu = useCallback(
@@ -1327,12 +1333,22 @@ export default function Sidebar() {
       const ids = [...selectedThreadIds];
       if (ids.length === 0) return;
       const count = ids.length;
+      const canArchive = canArchiveSidebarThreads(
+        ids.map((id) => {
+          const thread = sidebarThreadSummaryById[id];
+          if (!thread) return "attention";
+          return resolveVisibleThreadWorkStatus({
+            status: resolveThreadStatusForSidebar(thread),
+            isRecording: id === voiceRecordingThreadId,
+            projectedWorkStatus: thread.workStatus,
+          });
+        }),
+      );
 
       const clicked = await api.contextMenu.show(
         [
           { id: "mark-unread", label: `Mark unread (${count})` },
-          { id: "archive", label: `Archive (${count})` },
-          { id: "delete", label: `Delete (${count})`, destructive: true },
+          ...(canArchive ? [{ id: "archive", label: `Archive (${count})` }] : []),
         ],
         position,
       );
@@ -1370,53 +1386,19 @@ export default function Sidebar() {
         removeFromSelection(ids);
         return;
       }
-
-      if (clicked !== "delete") return;
-
-      if (appSettings.confirmThreadDelete) {
-        const confirmed = await api.dialogs.confirm(
-          [
-            `Delete ${count} ${pluralize(count, "thread")}?`,
-            "This permanently clears conversation history for these threads.",
-          ].join("\n"),
-        );
-        if (!confirmed) return;
-      }
-
-      const deletedIds = new Set<ThreadId>(ids);
-      const successfullyDeletedIds: ThreadId[] = [];
-      const runDeletes = async (): Promise<void> => {
-        for (const id of ids) {
-          await deleteThread(id, {
-            deletedThreadIds: deletedIds,
-            reconcileDeletedThread: false,
-          });
-          successfullyDeletedIds.push(id);
-        }
-      };
-      await runDeletes().finally(() => {
-        if (successfullyDeletedIds.length > 0) {
-          void reconcileDeletedThreadsFromClient({
-            threadIds: successfullyDeletedIds,
-            removeDeletedThreadFromClientState:
-              useStore.getState().removeDeletedThreadFromClientState,
-          });
-        }
-      });
-      removeFromSelection(ids);
     },
     [
       appSettings.confirmThreadArchive,
-      appSettings.confirmThreadDelete,
       archiveThread,
       clearSelection,
       clearDismissedThreadStatus,
-      deleteThread,
       markThreadUnread,
       persistThreadVisit,
       removeFromSelection,
+      resolveThreadStatusForSidebar,
       selectedThreadIds,
       sidebarThreadSummaryById,
+      voiceRecordingThreadId,
     ],
   );
 
@@ -1688,81 +1670,18 @@ export default function Sidebar() {
         toggleProjectPinned(projectId);
         return;
       }
-      if (clicked === "archive-threads") {
+      if (clicked === "archive") {
         await archiveAllThreadsInProject(projectId);
-        return;
-      }
-      if (clicked === "delete-threads") {
-        await deleteProjectThreads(projectId);
-        return;
-      }
-      if (clicked !== "delete") return;
-
-      const projectThreads = sidebarThreads.filter((thread) => thread.projectId === projectId);
-      const confirmed = await api.dialogs.confirm(
-        projectThreads.length > 0
-          ? [
-              `Remove folder "${project.name}"?`,
-              `This will delete ${projectThreads.length} ${pluralize(projectThreads.length, "thread")} in this folder and remove the folder.`,
-            ].join("\n")
-          : `Remove folder "${project.name}"?`,
-      );
-      if (!confirmed) return;
-
-      try {
-        // `project.delete` refuses non-empty folders, so `Remove` clears threads first.
-        const deletionResult = await deleteProjectThreads(projectId, {
-          confirmMessage: null,
-          showEmptyToast: false,
-          showResultToast: false,
-        });
-        if (deletionResult === null) {
-          return;
-        }
-        if (deletionResult.failureCount > 0) {
-          toastManager.add({
-            type: "error",
-            title: `Failed to remove "${project.name}"`,
-            description: `Could not delete ${deletionResult.failureCount} ${pluralize(deletionResult.failureCount, "thread")} in "${project.name}".`,
-          });
-          return;
-        }
-
-        await deleteProjectFromClient({
-          api: api.orchestration,
-          projectId,
-          removeDeletedProjectFromClientState,
-        });
-        clearProjectDraftThreads(projectId);
-        toastManager.add({
-          type: "success",
-          title: `Removed "${project.name}"`,
-          description:
-            deletionResult.deletedCount > 0
-              ? `Deleted ${deletionResult.deletedCount} ${pluralize(deletionResult.deletedCount, "thread")} and removed the folder.`
-              : "Folder removed.",
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error removing folder.";
-        console.error("Failed to remove project", { projectId, error });
-        toastManager.add({
-          type: "error",
-          title: `Failed to remove "${project.name}"`,
-          description: message,
-        });
       }
     },
     [
       archiveAllThreadsInProject,
-      clearProjectDraftThreads,
       copyPathToClipboard,
-      deleteProjectThreads,
       handleOpenProjectRunServer,
       handleStopProjectRun,
       handleFolderIconFile,
       openProjectRunDialog,
       projectById,
-      removeDeletedProjectFromClientState,
       sidebarThreads,
       startFolderInlineRename,
       toggleProjectPinned,
@@ -1791,8 +1710,18 @@ export default function Sidebar() {
     const projectRunServer = projectRunServerByProjectId.get(projectId) ?? null;
     const hasOpenServer =
       projectRunServer !== null && firstLocalServerUrl(projectRunServer) !== null;
-    const hasAnyThreads = projectThreads.length > 0;
     const hasArchivableThreads = projectThreads.some((thread) => thread.archivedAt == null);
+    const canArchive =
+      hasArchivableThreads &&
+      canArchiveSidebarThreads(
+        projectThreads.map((thread) =>
+          resolveVisibleThreadWorkStatus({
+            status: resolveThreadStatusForSidebar(thread),
+            isRecording: thread.id === voiceRecordingThreadId,
+            projectedWorkStatus: thread.workStatus,
+          }),
+        ),
+      );
     const moveTargets = spaces.filter((space) => space.id !== project.spaceId);
     const items: Array<{
       id: ProjectNativeContextMenuId;
@@ -1835,18 +1764,9 @@ export default function Sidebar() {
       ...(project.iconDataUrl ? [{ id: "remove-icon" as const, label: "Remove icon" }] : []),
       { id: "toggle-pin", label: pinActionLabel("folder", isPinned) },
     );
-    if (hasArchivableThreads) {
-      items.push({ id: "archive-threads", label: "Archive threads", separatorBefore: true });
+    if (canArchive) {
+      items.push({ id: "archive", label: "Archive", separatorBefore: true });
     }
-    if (hasAnyThreads) {
-      items.push({
-        id: "delete-threads",
-        label: "Delete threads",
-        separatorBefore: !hasArchivableThreads,
-        destructive: true,
-      });
-    }
-    items.push({ id: "delete", label: "Remove", destructive: true });
 
     const clicked = await api.contextMenu.show<ProjectNativeContextMenuId>(items, position);
     if (!clicked) return;
@@ -2012,12 +1932,16 @@ export default function Sidebar() {
   );
   const sidebarDropIntentRef = useRef<SidebarDropIntent | null>(null);
   const handleSidebarDragOver = useCallback(
-    (event: DragOverEvent, placement: SidebarDropPlacement) => {
-      const sourceData = readSidebarDndData(event.operation.source?.data);
+    (
+      event: Pick<DragOverEvent, "operation">,
+      placement: SidebarDropPlacement,
+    ): SidebarDropPreview | null | undefined => {
+      const source = event.operation.source;
+      const sourceData = readSidebarDndData(source?.data);
       const targetData = readSidebarDndData(event.operation.target?.data);
       if (!sourceData || !targetData) {
         sidebarDropIntentRef.current = null;
-        return;
+        return null;
       }
 
       if (sourceData.type === "space" && targetData.type === "space") {
@@ -2029,37 +1953,81 @@ export default function Sidebar() {
                 placement,
                 targetSpaceId: targetData.spaceId,
               };
-        return;
+        return sourceData.spaceId === targetData.spaceId
+          ? null
+          : {
+              kind: "space",
+              placement,
+              targetSpaceId: targetData.spaceId,
+            };
       }
 
       if (sourceData.type !== "item") {
         sidebarDropIntentRef.current = null;
-        return;
+        return null;
       }
-      if (targetData.type === "container") {
+      const dropTarget = resolveSidebarItemDropTarget(sourceData.item, targetData);
+      if (dropTarget) {
+        if (
+          dropTarget.targetKind === "container" &&
+          areSidebarItemParentsEqual(sourceData.parent, dropTarget.parent) &&
+          sidebarDropIntentRef.current?.kind === "item" &&
+          sidebarDropIntentRef.current.dropTarget.targetKind === "item" &&
+          areSidebarItemParentsEqual(
+            sidebarDropIntentRef.current.dropTarget.parent,
+            dropTarget.parent,
+          )
+        ) {
+          return;
+        }
         sidebarDropIntentRef.current = {
           kind: "item",
-          target: targetData.parent,
+          dropTarget,
+          placement,
         };
-        return;
+        if (dropTarget.targetKind === "item") {
+          return {
+            kind: "item",
+            anchorItem: dropTarget.targetItem,
+            parent: dropTarget.parent,
+            placement,
+            targetKind: "item",
+          };
+        }
+        const destinationItems = getOrderedSidebarItems(dropTarget.parent).filter(
+          (candidate) =>
+            candidate.kind !== sourceData.item.kind || candidate.id !== sourceData.item.id,
+        );
+        const insertionIndex = resolveSidebarInsertionIndex({
+          item: sourceData.item,
+          destinationItems,
+          requestedIndex: destinationItems.filter(isSidebarItemPinned).length,
+          isPinned: isSidebarItemPinned,
+        });
+        const nextItem = destinationItems[insertionIndex];
+        const previousItem = destinationItems[insertionIndex - 1];
+        return {
+          kind: "item",
+          anchorItem: nextItem ?? previousItem ?? null,
+          parent: dropTarget.parent,
+          placement: nextItem ? "before" : previousItem ? "after" : "before",
+          targetKind: "container",
+        };
       }
-      if (targetData.type !== "item") {
-        sidebarDropIntentRef.current = null;
-        return;
-      }
+      // Collision ownership can return to the source as the pointer crosses
+      // nested row bounds. Preserve the last real sibling target so drag-end
+      // retains the intended before/after position.
       if (
-        sourceData.item.kind === targetData.item.kind &&
-        sourceData.item.id === targetData.item.id
+        targetData.type === "item" &&
+        targetData.item.kind === sourceData.item.kind &&
+        targetData.item.id === sourceData.item.id
       ) {
-        sidebarDropIntentRef.current = null;
         return;
       }
-      sidebarDropIntentRef.current = {
-        kind: "item",
-        target: targetData.parent,
-      };
+      sidebarDropIntentRef.current = null;
+      return null;
     },
-    [],
+    [getOrderedSidebarItems, isSidebarItemPinned],
   );
   const handleSidebarDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -2074,9 +2042,7 @@ export default function Sidebar() {
         const sourceSpace = spaces.find((space) => space.id === sourceData.spaceId);
         if (!sourceSpace) return;
         const reordered = spaces.filter((space) => space.id !== sourceData.spaceId);
-        if (isSortable(source)) {
-          reordered.splice(Math.max(0, Math.min(source.index, reordered.length)), 0, sourceSpace);
-        } else if (intent?.kind === "space") {
+        if (intent?.kind === "space") {
           const targetIndex = reordered.findIndex((space) => space.id === intent.targetSpaceId);
           if (targetIndex < 0) return;
           reordered.splice(targetIndex + (intent.placement === "after" ? 1 : 0), 0, sourceSpace);
@@ -2091,22 +2057,42 @@ export default function Sidebar() {
       }
       if (sourceData.type !== "item") return;
 
-      const target = isSortable(source)
-        ? sidebarParentFromDndGroup(source.group)
+      const finalDropTarget = resolveSidebarItemDropTarget(
+        sourceData.item,
+        readSidebarDndData(event.operation.target?.data),
+      );
+      const intendedDrop = finalDropTarget
+        ? {
+            dropTarget: finalDropTarget,
+            placement: resolveSidebarDropPlacement(event),
+          }
         : intent?.kind === "item"
-          ? intent.target
+          ? intent
           : null;
-      if (!target) return;
+      if (!intendedDrop) return;
+      const dropTarget = intendedDrop.dropTarget;
+      const target = dropTarget.parent;
+      if (!target || !canMoveSidebarItemToParent(sourceData.item, target)) return;
       const destinationItems = getOrderedSidebarItems(target).filter(
         (candidate) =>
           candidate.kind !== sourceData.item.kind || candidate.id !== sourceData.item.id,
       );
+      const targetIndex =
+        dropTarget.targetKind === "item"
+          ? destinationItems.findIndex(
+              (candidate) =>
+                candidate.kind === dropTarget.targetItem.kind &&
+                candidate.id === dropTarget.targetItem.id,
+            )
+          : -1;
+      const requestedIndex =
+        targetIndex >= 0
+          ? targetIndex + (intendedDrop.placement === "after" ? 1 : 0)
+          : destinationItems.filter(isSidebarItemPinned).length;
       const position = resolveSidebarMovePosition({
         item: sourceData.item,
         destinationItems,
-        requestedIndex: isSortable(source)
-          ? source.index
-          : destinationItems.filter(isSidebarItemPinned).length,
+        requestedIndex,
         isPinned: isSidebarItemPinned,
       });
 
@@ -2414,76 +2400,81 @@ export default function Sidebar() {
       >
         <SidebarContainerDropTarget
           id={`sidebar-container:project:${project.id}`}
-          className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[27px]"
+          className="relative"
           data={{
             type: "container",
             parent: { kind: "project", projectId: project.id },
             label: project.name,
           }}
-        />
-        <FolderGroupShared
-          expanded={project.expanded}
-          hasContent={hasProjectContent}
-          headerState={resolveProjectHeaderState({
-            projectId: project.id,
-            activeDraftProjectId: activeDraftThread?.projectId,
-            activeDraftPromotedTo: activeDraftThread?.promotedTo,
-          })}
-          header={
-            renamingThisFolder ? (
-              <FolderRowInlineEdit
-                defaultValue={project.name}
-                existingNames={existingFolderNames}
-                expanded={project.expanded}
-                onCancel={cancelInlineRename}
-                onSubmit={async (title) => {
-                  if (title !== project.remoteName) {
-                    await commitFolderRename(project.id, title);
-                  }
-                  finishInlineRename({ kind: "folder", projectId: project.id });
-                }}
-                onValueChange={updateInlineRenameValue}
-                pinned={pinnedProjectIdSet.has(project.id)}
-                value={inlineRenameEditor.value}
-              />
-            ) : undefined
-          }
-          label={project.name}
-          {...(project.iconDataUrl === undefined ? {} : { iconDataUrl: project.iconDataUrl })}
-          onExpandedChange={(nextExpanded) => {
-            if (!nextExpanded) setThreadListExtraPagesForProject(pagingKey, 0);
-            toggleProject(project.id);
-          }}
-          onHeaderAction={createProjectThread}
-          onHeaderContextMenu={openProjectContextMenu}
-          pinned={pinnedProjectIdSet.has(project.id)}
-          workStatus={projectWorkStatus}
         >
-          <div className="flex flex-col gap-0.5" data-pencil-project-id={project.id}>
-            {visibleEntries.map((entry) =>
-              renderPencilThreadRow(
-                entry.thread,
-                orderedProjectThreadIds,
-                entry.depth,
-                "nested",
-                entry.rootRowId,
-                entry.thread.id === entry.rootRowId
-                  ? {
-                      index: visibleRootIndexByThreadId.get(entry.rootRowId) ?? 0,
-                      parent: { kind: "project", projectId: project.id },
+          <FolderGroupShared
+            expanded={project.expanded}
+            hasContent={hasProjectContent}
+            headerState={resolveProjectHeaderState({
+              projectId: project.id,
+              activeDraftProjectId: activeDraftThread?.projectId,
+              activeDraftPromotedTo: activeDraftThread?.promotedTo,
+            })}
+            header={
+              renamingThisFolder ? (
+                <FolderRowInlineEdit
+                  defaultValue={project.name}
+                  existingNames={existingFolderNames}
+                  expanded={project.expanded}
+                  onCancel={cancelInlineRename}
+                  onSubmit={async (title) => {
+                    if (title !== project.remoteName) {
+                      await commitFolderRename(project.id, title);
                     }
-                  : undefined,
-              ),
-            )}
-            {canShowMoreThreads ? (
-              <ShowMoreRow
-                onClick={() => showMoreThreadsForProject(pagingKey, threadListExtraPages)}
-              >
-                Show more
-              </ShowMoreRow>
-            ) : null}
-          </div>
-        </FolderGroupShared>
+                    finishInlineRename({ kind: "folder", projectId: project.id });
+                  }}
+                  onValueChange={updateInlineRenameValue}
+                  pinned={pinnedProjectIdSet.has(project.id)}
+                  value={inlineRenameEditor.value}
+                />
+              ) : undefined
+            }
+            label={project.name}
+            {...(project.iconDataUrl === undefined ? {} : { iconDataUrl: project.iconDataUrl })}
+            onExpandedChange={(nextExpanded) => {
+              if (!nextExpanded) setThreadListExtraPagesForProject(pagingKey, 0);
+              toggleProject(project.id);
+            }}
+            onHeaderAction={createProjectThread}
+            onHeaderContextMenu={openProjectContextMenu}
+            pinned={pinnedProjectIdSet.has(project.id)}
+            workStatus={projectWorkStatus}
+          >
+            <div className="flex flex-col gap-0.5" data-pencil-project-id={project.id}>
+              {visibleEntries.map((entry) =>
+                renderPencilThreadRow(
+                  entry.thread,
+                  orderedProjectThreadIds,
+                  entry.depth,
+                  "nested",
+                  entry.rootRowId,
+                  entry.thread.id === entry.rootRowId
+                    ? {
+                        index: visibleRootIndexByThreadId.get(entry.rootRowId) ?? 0,
+                        parent: { kind: "project", projectId: project.id },
+                      }
+                    : undefined,
+                ),
+              )}
+              {canShowMoreThreads ? (
+                <ShowMoreRow
+                  onClick={() => showMoreThreadsForProject(pagingKey, threadListExtraPages)}
+                >
+                  Show more
+                </ShowMoreRow>
+              ) : null}
+            </div>
+          </FolderGroupShared>
+          <SidebarContainerDropPreview
+            enabled={!project.expanded || !hasProjectContent}
+            parent={{ kind: "project", projectId: project.id }}
+          />
+        </SidebarContainerDropTarget>
       </SortableSidebarNode>
     );
   }
@@ -2499,10 +2490,15 @@ export default function Sidebar() {
     const isActive = visualActiveSidebarThreadId === thread.id;
     const isSelected = selectedThreadIds.has(thread.id);
     const threadStatus = resolveThreadStatusForSidebar(thread);
-    const workStatus: ThreadWorkStatus =
-      thread.id === voiceRecordingThreadId
-        ? "recording"
-        : (thread.workStatus ?? resolveSidebarWorkStatus(threadStatus, false));
+    // The server rollup is intentionally coarse and can remain `done` until its
+    // visit acknowledgement reaches the next snapshot. The visible row icon is
+    // visit-aware, so derive it from the resolved pill instead of falling back
+    // to that transient rollup; a neutral/seen thread must render no icon.
+    const workStatus: ThreadWorkStatus = resolveVisibleThreadWorkStatus({
+      status: threadStatus,
+      isRecording: thread.id === voiceRecordingThreadId,
+      projectedWorkStatus: thread.workStatus,
+    });
     const harness =
       thread.title.trim().toLowerCase() === "main"
         ? ("github" as const)
@@ -3310,6 +3306,7 @@ export default function Sidebar() {
             <div className="flex flex-col gap-4" data-slot="space-list">
               {sidebarSpaceSections.map((section, spaceIndex) => {
                 const creatingFolderHere = creatingFolderSpaceId === section.space.id;
+                const spaceParent = { kind: "space", spaceId: section.space.id } as const;
                 const expanded = creatingFolderHere || !collapsedSpaceIds.has(section.key);
                 const hasContent = creatingFolderHere || section.items.length > 0;
                 const editingThisSpace =
@@ -3366,7 +3363,9 @@ export default function Sidebar() {
                         label={section.label}
                         onExpandedChange={(nextExpanded) => {
                           if (!nextExpanded) setChatThreadListExtraPages(0);
-                          if (!nextExpanded && creatingFolderHere) setCreatingFolderSpaceId(null);
+                          if (!nextExpanded && creatingFolderHere) {
+                            setCreatingFolderSpaceId(null);
+                          }
                           setCollapsedSpaceIds((current) => {
                             const next = new Set(current);
                             if (nextExpanded) next.delete(section.key);
@@ -3406,6 +3405,10 @@ export default function Sidebar() {
                             : null,
                         )}
                       </SpaceGroupShared>
+                      <SidebarContainerDropPreview
+                        enabled={!expanded || !hasContent}
+                        parent={spaceParent}
+                      />
                     </div>
                   </SortableSidebarNode>
                 );

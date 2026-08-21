@@ -275,7 +275,10 @@ const exposedApi = Object.assign(runtime.api, {
   },
   files: {
     list: () => transport.call("files.list"),
-    pick: (kind: unknown) => transport.call("files.pick", kind),
+    pick: (kind: unknown, options?: unknown) => transport.call("files.pick", { kind, options }),
+    open: (handleId: unknown, relativePath?: unknown) =>
+      transport.call("files.open", { handleId, relativePath }),
+    closeUrl: (url: unknown) => transport.call("files.closeUrl", url),
     revoke: (handleId: unknown) => transport.call("files.revoke", handleId),
     stat: (handleId: unknown, relativePath?: unknown) =>
       transport.call("files.stat", { handleId, relativePath }),
@@ -358,8 +361,11 @@ function installAppearanceBridge(frameTransport: AppFramePortTransport): void {
 function installHostedSurfaceOverlayGuard(api: PenkraAppRuntimeApi): void {
   const publish = api.browser.setSurfaceLayout.bind(api.browser);
   let requestedInsets: import("@penkra/sdk").AppHostedSurfaceInsets | null = null;
-  let publishedSignature: string | null | undefined;
+  // The host starts with no hosted surface. Do not make an implicit Browser API call for
+  // ordinary Apps that never request one.
+  let publishedSignature: string | null = null;
   let scheduledFrame: number | null = null;
+  let observing = false;
 
   const sync = (): Promise<void> => {
     scheduledFrame = null;
@@ -370,10 +376,7 @@ function installHostedSurfaceOverlayGuard(api: PenkraAppRuntimeApi): void {
       : null;
     if (signature === publishedSignature) return Promise.resolve();
     publishedSignature = signature;
-    return publish(effectiveInsets).catch((error) => {
-      publishedSignature = undefined;
-      throw error;
-    });
+    return publish(effectiveInsets);
   };
 
   const schedule = () => {
@@ -381,12 +384,9 @@ function installHostedSurfaceOverlayGuard(api: PenkraAppRuntimeApi): void {
     scheduledFrame = window.requestAnimationFrame(() => void sync().catch(() => undefined));
   };
 
-  api.browser.setSurfaceLayout = (insets) => {
-    requestedInsets = insets;
-    return sync();
-  };
-
   const observe = () => {
+    if (observing) return;
+    observing = true;
     new MutationObserver(schedule).observe(document.documentElement, {
       attributes: true,
       childList: true,
@@ -395,8 +395,13 @@ function installHostedSurfaceOverlayGuard(api: PenkraAppRuntimeApi): void {
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
   };
-  if (document.documentElement) observe();
-  else window.addEventListener("DOMContentLoaded", observe, { once: true });
+
+  api.browser.setSurfaceLayout = (insets) => {
+    requestedInsets = insets;
+    if (document.documentElement) observe();
+    else window.addEventListener("DOMContentLoaded", observe, { once: true });
+    return sync();
+  };
 }
 
 function hasAppOverlayOverHostedSurface(

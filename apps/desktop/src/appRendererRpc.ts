@@ -88,7 +88,7 @@ export type AppRendererRpcErrorCode =
   | "host-stopped"
   | "invalid-message"
   | "payload-too-large"
-  | "renderer-error"
+  | "app-error"
   | "renderer-unavailable"
   | "target-overloaded"
   | "timeout";
@@ -248,7 +248,7 @@ export class AppRendererRpcHost {
     if (response.type === "result") {
       pending.resolve(response.result);
     } else {
-      pending.reject(new AppRendererRpcError("renderer-error", response.message, response.code));
+      pending.reject(new AppRendererRpcError("app-error", response.message, response.code));
     }
     return true;
   }
