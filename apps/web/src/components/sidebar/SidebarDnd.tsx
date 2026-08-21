@@ -364,7 +364,10 @@ export function resolveSidebarDropPlacement(
     targetElement && typeof targetElement.querySelector === "function"
       ? (targetElement.querySelector("button") ?? targetElement)
       : targetElement;
-  const targetRect = placementElement?.getBoundingClientRect();
+  // dnd-kit owns the geometry used for collision detection. Prefer that measured
+  // shape so our feedback padding cannot move the live DOM midpoint underneath a
+  // stationary pointer and flip an already-resolved before/after placement.
+  const targetRect = target?.shape?.boundingRectangle ?? placementElement?.getBoundingClientRect();
   if (!targetRect || targetRect.height <= 0) return "before";
   const resolvedPointerY =
     pointerY ??

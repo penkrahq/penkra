@@ -215,4 +215,30 @@ describe("SidebarDragPreview", () => {
     expect(resolveSidebarDropPlacement(eventAt(111))).toBe("before");
     expect(resolveSidebarDropPlacement(eventAt(112))).toBe("after");
   });
+
+  it("uses dnd-kit's measured target shape when feedback has shifted the live DOM", () => {
+    const event = {
+      operation: {
+        position: { current: { x: 0, y: 0 } },
+        target: {
+          element: {
+            querySelector: () => null,
+            getBoundingClientRect: () => ({ height: 24, top: 80 }),
+          },
+          shape: {
+            boundingRectangle: {
+              bottom: 124,
+              height: 24,
+              left: 0,
+              right: 100,
+              top: 100,
+              width: 100,
+            },
+          },
+        },
+      },
+    } as unknown as DragOverEvent;
+
+    expect(resolveSidebarDropPlacement(event, 110)).toBe("before");
+  });
 });
