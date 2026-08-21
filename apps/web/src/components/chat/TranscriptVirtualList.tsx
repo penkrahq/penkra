@@ -114,11 +114,18 @@ function TranscriptVirtualListInner<TItem>(
   useLayoutEffect(() => {
     if (didInitialScrollRef.current || data.length === 0) return;
     didInitialScrollRef.current = true;
-    // TanStack's direct DOM mode may synchronously notify React while a layout
-    // effect is committing. Move the initial imperative scroll to the next frame.
-    const frameId = window.requestAnimationFrame(() => virtualizer.scrollToEnd());
+    // Initial positioning is a one-shot DOM placement, not an ongoing scroll
+    // command. TanStack reconciles `scrollToEnd()` for up to five seconds while
+    // dynamic measurements settle; if the reader scrolls up during that window,
+    // a later append can retarget the stale command and pull them back down.
+    // ResizeObserver measurements are frame-batched above, so place the DOM at
+    // its real end in that same next-frame boundary without creating scroll state.
+    const frameId = window.requestAnimationFrame(() => {
+      const element = scrollElementRef.current;
+      if (element) element.scrollTop = element.scrollHeight;
+    });
     return () => window.cancelAnimationFrame(frameId);
-  }, [data.length, virtualizer]);
+  }, [data.length]);
 
   const virtualItems = virtualizer.getVirtualItems();
   const containerStyle: CSSProperties = {
