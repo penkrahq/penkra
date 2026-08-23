@@ -14,7 +14,7 @@ import rootPackageJson from "../package.json" with { type: "json" };
 import desktopPackageJson from "../apps/desktop/package.json" with { type: "json" };
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 import requiredAppsReleaseLockJson from "../required-apps.lock.json" with { type: "json" };
-import { packageAppDirectory } from "@penkra/shared/appPackaging";
+import { packageLockedAppDirectory } from "@penkra/shared/appPackaging";
 import {
   parseRequiredAppsReleaseLock,
   REQUIRED_APPS_ARCHIVE_FILE_NAME,
@@ -934,7 +934,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.makeDirectory(requiredAppsBundleDirectory, { recursive: true });
   const requiredAppsEvidence = yield* Effect.tryPromise({
     try: () =>
-      packageAppDirectory({
+      packageLockedAppDirectory({
         directory: requiredAppsSourcePath,
         output: requiredAppsArchivePath,
       }),

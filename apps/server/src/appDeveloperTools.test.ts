@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { packageLockedAppDirectory } from "@penkra/shared/appPackaging";
+
 import { packageAppDirectory, testAppDirectory } from "./appDeveloperTools";
 
 const roots: string[] = [];
@@ -182,6 +184,10 @@ describe("App developer packaging", () => {
     await expect(
       packageAppDirectory({ directory: root, output: join(root, "..", "bad.penkra") }),
     ).rejects.toThrow("missing required sections");
+
+    await expect(
+      packageLockedAppDirectory({ directory: root, output: join(root, "..", "locked.penkra") }),
+    ).resolves.toMatchObject({ slug: "canvas" });
 
     await writeFile(
       join(root, "INSTRUCTIONS.md"),

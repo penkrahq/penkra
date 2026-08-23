@@ -65,6 +65,24 @@ export async function packageAppDirectory(input: {
   directory: string;
   output: string;
 }): Promise<AppPackageEvidence> {
+  return packageAppDirectoryWithPolicy(input, true);
+}
+
+/**
+ * Reproduces an immutable, digest-locked App release that predates the current authoring contract.
+ * Callers must verify the returned identity and digest against a trusted release lock.
+ */
+export async function packageLockedAppDirectory(input: {
+  directory: string;
+  output: string;
+}): Promise<AppPackageEvidence> {
+  return packageAppDirectoryWithPolicy(input, false);
+}
+
+async function packageAppDirectoryWithPolicy(
+  input: { directory: string; output: string },
+  requireCurrentAgentInstructions: boolean,
+): Promise<AppPackageEvidence> {
   const root = await FS.realpath(Path.resolve(input.directory));
   const requestedOutput = Path.resolve(input.output);
   await FS.mkdir(Path.dirname(requestedOutput), { recursive: true });
@@ -78,7 +96,9 @@ export async function packageAppDirectory(input: {
   const files = await readPackageFiles(root);
   const documents = requiredDocuments(files);
   const manifest = parseManifest(documents.manifest);
-  assertAgentInstructionsContract(manifest, documents.instructions);
+  if (requireCurrentAgentInstructions) {
+    assertAgentInstructionsContract(manifest, documents.instructions);
+  }
   assertReferencedFiles(manifest, files);
 
   const temporary = `${output}.${randomUUID()}.tmp`;
