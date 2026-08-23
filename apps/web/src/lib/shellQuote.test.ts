@@ -8,7 +8,7 @@ describe("quotePosixShellArgument", () => {
   });
 
   it("leaves safe tokens unquoted", () => {
-    expect(quotePosixShellArgument("project")).toBe("project");
+    expect(quotePosixShellArgument("folder")).toBe("folder");
     expect(quotePosixShellArgument("/Users/dev/code/my-project")).toBe(
       "/Users/dev/code/my-project",
     );

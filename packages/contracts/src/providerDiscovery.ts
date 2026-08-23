@@ -7,17 +7,7 @@ import { Schema } from "effect";
 import { ProviderConnectionId, TrimmedNonEmptyString } from "./baseSchemas";
 import { ProviderOptionDescriptor } from "./model";
 
-const ProviderDiscoveryKind = Schema.Literals([
-  "codex",
-  "claudeAgent",
-  "cursor",
-  "antigravity",
-  "grok",
-  "droid",
-  "kilo",
-  "opencode",
-  "pi",
-]);
+const ProviderDiscoveryKind = Schema.Literals(["codex", "claudeAgent", "opencode"]);
 
 export const ProviderSkillInterface = Schema.Struct({
   displayName: Schema.optional(TrimmedNonEmptyString),
@@ -116,7 +106,7 @@ export const ProviderListSkillsResult = Schema.Struct({
 export type ProviderListSkillsResult = typeof ProviderListSkillsResult.Type;
 
 // Unified cross-provider skills catalog (Penkra portable skills). Descriptors use
-// `scope` to carry the origin label ("penkra", "codex", "claude", "cursor", ...).
+// `scope` carries the origin label (for example "penkra", "codex", or "claude").
 export const ProviderSkillsCatalogInput = Schema.Struct({
   cwd: Schema.optional(TrimmedNonEmptyString),
 });

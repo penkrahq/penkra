@@ -186,9 +186,9 @@ export function serverLocalServersQueryOptions(
 // through lsof/ps; active Penkra-owned runs still poll for responsive status.
 export function sidebarLocalServersQueryOptions(input: {
   hasActiveProjectRun: boolean;
-  hasProjects: boolean;
+  hasFolders: boolean;
 }) {
-  const enabled = input.hasProjects || input.hasActiveProjectRun;
+  const enabled = input.hasFolders || input.hasActiveProjectRun;
   return serverLocalServersQueryOptions({
     enabled,
     refetchInterval: input.hasActiveProjectRun ? LOCAL_SERVERS_VISIBLE_REFETCH_INTERVAL_MS : false,

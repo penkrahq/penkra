@@ -1,7 +1,6 @@
 import { Effect, Layer, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { redactCreationPlanForPurgedCaller } from "./agentGateway/operationPlan";
 import { isProviderIntentEventType } from "./orchestration/providerIntentClassification";
 import { PROVIDER_COMMAND_REACTOR_CONSUMER } from "./persistence/Services/OrchestrationEventDeliveries";
 import { THREAD_RETENTION_COMMAND_ID_PREFIX } from "./threadRetention";
@@ -85,45 +84,6 @@ const make = Effect.gen(function* () {
           WHERE thread_id = ${threadId}
             AND state IN ('promoted', 'cancelled')
         `;
-        yield* sql`
-          DELETE FROM agent_gateway_operations
-          WHERE caller_thread_id = ${threadId}
-            AND status IN ('reserved', 'completed', 'failed')
-        `;
-        const liveGatewayOperations = yield* sql<{
-          readonly operationId: string;
-          readonly planJson: string;
-        }>`
-          SELECT operation_id AS "operationId", plan_json AS "planJson"
-          FROM agent_gateway_operations
-          WHERE caller_thread_id = ${threadId}
-            AND status IN ('dispatching', 'compensating')
-        `;
-        yield* Effect.forEach(
-          liveGatewayOperations,
-          (operation) => {
-            const recoveryPlanJson = redactCreationPlanForPurgedCaller({
-              planJson: operation.planJson,
-              operationId: operation.operationId,
-            });
-            return sql`
-              UPDATE agent_gateway_operations
-              SET plan_json = ${recoveryPlanJson},
-                  caller_thread_id = 'purged-thread:' || operation_id,
-                  caller_turn_id = 'purged-turn:' || operation_id,
-                  request_id = operation_id,
-                  fingerprint = operation_id,
-                  result_json = NULL,
-                  error_json = NULL,
-                  caller_purged_at = ${deletedAt},
-                  updated_at = ${deletedAt}
-              WHERE operation_id = ${operation.operationId}
-                AND status IN ('dispatching', 'compensating')
-            `;
-          },
-          { concurrency: 1, discard: true },
-        );
-
         yield* sql`
           DELETE FROM orchestration_events
           WHERE aggregate_kind = 'thread'

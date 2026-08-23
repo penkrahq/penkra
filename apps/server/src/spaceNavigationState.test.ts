@@ -1,4 +1,4 @@
-import { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -18,16 +18,16 @@ layer("spaceNavigationState", (it) => {
       const initial = yield* getSpaceNavigationState(sql);
       assert.strictEqual(initial.activeSpaceId, SpaceId.makeUnsafe("penkra-personal"));
       assert.deepStrictEqual(initial.lastThreadIdBySpace, {});
-      assert.deepStrictEqual(initial.lastProjectIdBySpace, {});
+      assert.deepStrictEqual(initial.lastFolderIdBySpace, {});
       assert.isNotNull(initial.updatedAt);
 
       const spaceId = SpaceId.makeUnsafe("space-personal");
       const threadId = ThreadId.makeUnsafe("thread-main");
-      const projectId = ContainerId.makeUnsafe("folder-main");
+      const folderId = FolderId.makeUnsafe("folder-main");
       const updated = yield* updateSpaceNavigationState(sql, {
         activeSpaceId: spaceId,
         lastThreadIdBySpace: { [spaceId]: threadId },
-        lastProjectIdBySpace: { [spaceId]: projectId },
+        lastFolderIdBySpace: { [spaceId]: folderId },
       });
 
       assert.strictEqual(updated.activeSpaceId, spaceId);
@@ -36,8 +36,8 @@ layer("spaceNavigationState", (it) => {
         threadId,
       );
       assert.strictEqual(
-        (updated.lastProjectIdBySpace as Record<string, typeof projectId>)[spaceId],
-        projectId,
+        (updated.lastFolderIdBySpace as Record<string, typeof folderId>)[spaceId],
+        folderId,
       );
       assert.isNotNull(updated.updatedAt);
     }),

@@ -1,15 +1,10 @@
 // FILE: spaces.test.ts
 // Purpose: Verifies web-client Space command batching and partial-failure reporting.
 
-import {
-  SPACE_PROJECTS_ASSIGN_MAX_COUNT,
-  type NativeApi,
-  type ContainerId,
-  SpaceId,
-} from "@penkra/contracts";
+import { FOLDER_MOVE_MAX_COUNT, type NativeApi, type FolderId, SpaceId } from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import { moveProjectsToSpace, reorderSpaces } from "./spaces";
+import { moveFoldersToSpace, reorderSpaces } from "./spaces";
 
 function makeApi(
   dispatchCommand: ReturnType<typeof vi.fn>,
@@ -23,27 +18,27 @@ function makeApi(
   } as unknown as NativeApi;
 }
 
-describe("moveProjectsToSpace", () => {
+describe("moveFoldersToSpace", () => {
   it("reports only the failed and unattempted chunks without inventing a moved count", async () => {
-    const projectIds = Array.from(
-      { length: SPACE_PROJECTS_ASSIGN_MAX_COUNT + 2 },
-      (_, index) => `project-${index}` as ContainerId,
+    const folderIds = Array.from(
+      { length: FOLDER_MOVE_MAX_COUNT + 2 },
+      (_, index) => `project-${index}` as FolderId,
     );
     const dispatchCommand = vi
       .fn()
       .mockResolvedValueOnce({ sequence: 1 })
       .mockRejectedValueOnce(new Error("dispatch failed"));
 
-    const result = await moveProjectsToSpace({
+    const result = await moveFoldersToSpace({
       api: makeApi(dispatchCommand),
-      projectIds,
+      folderIds,
       spaceId: SpaceId.makeUnsafe("space-target"),
     });
 
     expect(result).toEqual({
-      failedProjectIds: projectIds.slice(SPACE_PROJECTS_ASSIGN_MAX_COUNT),
+      failedFolderIds: folderIds.slice(FOLDER_MOVE_MAX_COUNT),
     });
-    expect(result).not.toHaveProperty("movedProjectIds");
+    expect(result).not.toHaveProperty("movedFolderIds");
     expect(dispatchCommand).toHaveBeenCalledTimes(2);
   });
 
@@ -51,55 +46,55 @@ describe("moveProjectsToSpace", () => {
     const dispatchCommand = vi.fn().mockResolvedValue({ sequence: 1 });
 
     await expect(
-      moveProjectsToSpace({
+      moveFoldersToSpace({
         api: makeApi(dispatchCommand),
-        projectIds: ["project-1" as ContainerId, "project-2" as ContainerId],
+        folderIds: ["project-1" as FolderId, "project-2" as FolderId],
         spaceId: SpaceId.makeUnsafe("space-target"),
       }),
-    ).resolves.toEqual({ failedProjectIds: [] });
+    ).resolves.toEqual({ failedFolderIds: [] });
   });
 
-  it("does not report projects that committed before a transport failure", async () => {
+  it("does not report folders that committed before a transport failure", async () => {
     const targetSpaceId = SpaceId.makeUnsafe("space-target");
-    const projectIds = ["project-1", "project-2"] as ContainerId[];
+    const folderIds = ["project-1", "project-2"] as FolderId[];
     const dispatchCommand = vi.fn().mockRejectedValue(new Error("connection closed"));
     const getShellSnapshot = vi.fn().mockResolvedValue({
-      projects: [
-        { id: projectIds[0], spaceId: targetSpaceId },
-        { id: projectIds[1], spaceId: null },
+      folders: [
+        { id: folderIds[0], spaceId: targetSpaceId },
+        { id: folderIds[1], spaceId: null },
       ],
     });
 
     await expect(
-      moveProjectsToSpace({
+      moveFoldersToSpace({
         api: makeApi(dispatchCommand, getShellSnapshot),
-        projectIds,
+        folderIds,
         spaceId: targetSpaceId,
       }),
-    ).resolves.toEqual({ failedProjectIds: [projectIds[1]] });
+    ).resolves.toEqual({ failedFolderIds: [folderIds[1]] });
     expect(getShellSnapshot).toHaveBeenCalledOnce();
   });
 
-  it("does not report projects deleted concurrently with an ambiguous dispatch", async () => {
+  it("does not report folders deleted concurrently with an ambiguous dispatch", async () => {
     const targetSpaceId = SpaceId.makeUnsafe("space-target");
-    const projectIds = ["project-deleted", "project-still-active"] as ContainerId[];
+    const folderIds = ["project-deleted", "project-still-active"] as FolderId[];
     const dispatchCommand = vi.fn().mockRejectedValue(new Error("connection closed"));
     const getShellSnapshot = vi.fn().mockResolvedValue({
-      projects: [{ id: projectIds[1], spaceId: null }],
+      folders: [{ id: folderIds[1], spaceId: null }],
     });
 
     await expect(
-      moveProjectsToSpace({
+      moveFoldersToSpace({
         api: makeApi(dispatchCommand, getShellSnapshot),
-        projectIds,
+        folderIds,
         spaceId: targetSpaceId,
       }),
-    ).resolves.toEqual({ failedProjectIds: [projectIds[1]] });
+    ).resolves.toEqual({ failedFolderIds: [folderIds[1]] });
   });
 });
 
 describe("reorderSpaces", () => {
-  it("sends a neighboring anchor instead of the client's full Space list", async () => {
+  it("updates the moved Space's resulting sort order", async () => {
     const dispatchCommand = vi.fn().mockResolvedValue({ sequence: 0 });
     const first = SpaceId.makeUnsafe("first");
     const second = SpaceId.makeUnsafe("second");
@@ -113,9 +108,9 @@ describe("reorderSpaces", () => {
 
     expect(dispatchCommand).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "space.reorder",
+        type: "space.update",
         spaceId: third,
-        position: { type: "before", spaceId: first },
+        sortOrder: 0,
       }),
     );
     expect(dispatchCommand.mock.calls[0]?.[0]).not.toHaveProperty("orderedSpaceIds");

@@ -132,11 +132,10 @@ export function createShellSnapshotFromReadModel(
     spaces: snapshot.spaces
       .filter((space) => space.deletedAt === null)
       .map(({ deletedAt: _deletedAt, ...space }) => space),
-    projects: snapshot.projects
+    folders: snapshot.folders
       .filter((project) => project.deletedAt === null)
       .map((project) => ({
         id: project.id,
-        kind: project.kind,
         title: project.title,
         workspaceRoot: project.workspaceRoot,
         defaultModelSelection: project.defaultModelSelection,
@@ -149,8 +148,7 @@ export function createShellSnapshotFromReadModel(
       .filter((thread) => thread.deletedAt === null)
       .map((thread) => ({
         id: thread.id,
-        projectId: thread.projectId,
-        spaceId: thread.spaceId,
+        folderId: thread.folderId,
         title: thread.title,
         modelSelection: thread.modelSelection,
         runtimeMode: thread.runtimeMode,

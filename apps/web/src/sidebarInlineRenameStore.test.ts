@@ -1,4 +1,4 @@
-import { ContainerId, ThreadId } from "@penkra/contracts";
+import { FolderId, ThreadId } from "@penkra/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useSidebarInlineRenameStore } from "./sidebarInlineRenameStore";
@@ -19,15 +19,15 @@ describe("sidebarInlineRenameStore", () => {
   });
 
   it("only finishes the editor that completed its save", () => {
-    const projectId = ContainerId.makeUnsafe("project-1");
-    useSidebarInlineRenameStore.getState().startFolder(projectId, "Product");
+    const folderId = FolderId.makeUnsafe("project-1");
+    useSidebarInlineRenameStore.getState().startFolder(folderId, "Product");
 
     useSidebarInlineRenameStore
       .getState()
       .finish({ kind: "thread", threadId: ThreadId.makeUnsafe("thread-1") });
     expect(useSidebarInlineRenameStore.getState().editor).not.toBeNull();
 
-    useSidebarInlineRenameStore.getState().finish({ kind: "folder", projectId });
+    useSidebarInlineRenameStore.getState().finish({ kind: "folder", folderId });
     expect(useSidebarInlineRenameStore.getState().editor).toBeNull();
   });
 });

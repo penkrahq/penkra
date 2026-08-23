@@ -105,6 +105,23 @@ gpt-5.6-sol is exceptionally capable on long-running tasks. Give it substantial,
 
 Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
 
+## Leave no scratch behind
+
+QA, sideload, and staging work create throwaway roots. Put them under
+`.penkra/scratch/<task-slug>/` and delete them when the task ends, including when it ends in
+failure. A scratch root that outlives its task becomes indistinguishable from real state: the next
+person cannot tell whether it is a live fixture or abandoned work, so they leave it and the
+directory becomes permanent. If a root must survive a task, record why in a `README.md` inside it.
+
+## Provider adapter prose
+
+Provider adapters choose a delivery mechanism; they do not author host instructions. If a line
+would remain true for a provider Penkra has not integrated yet, it is host policy and belongs in
+`apps/server/src/agentGateway/instructions/INSTRUCTIONS.md`. Provider-specific adapter prose must
+describe only a constraint that is false for every other provider. Keep the shared instruction
+assembler and provider-neutral document as the single source rather than appending paraphrases in
+adapter files.
+
 ## UI Conventions
 
 ### Human approval gate for Pencil work

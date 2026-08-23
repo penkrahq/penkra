@@ -1,5 +1,5 @@
 // FILE: promptReferenceProjection.ts
-// Purpose: Projects structured composer references for providers without native mention input items.
+// Purpose: Folders structured composer references for providers without native mention input items.
 // Layer: Provider prompt compatibility
 // Exports: appendProviderReferencesPromptBlock.
 

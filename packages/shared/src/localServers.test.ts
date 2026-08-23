@@ -73,7 +73,7 @@ describe("localServerFolderLabel", () => {
   });
 
   it("tolerates Windows separators", () => {
-    expect(localServerFolderLabel(makeServer({ cwd: "C:\\Users\\me\\projects\\app" }))).toBe("app");
+    expect(localServerFolderLabel(makeServer({ cwd: "C:\\Users\\me\\folders\\app" }))).toBe("app");
   });
 
   it("returns null when the cwd is unknown", () => {

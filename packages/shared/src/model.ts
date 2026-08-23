@@ -3,21 +3,16 @@ import {
   MODEL_CAPABILITIES_INDEX,
   MODEL_OPTIONS_BY_PROVIDER,
   MODEL_SLUG_ALIASES_BY_PROVIDER,
-  type AntigravityModelOptions,
   type ClaudeApiEffort,
   type ClaudeModelOptions,
   type ClaudeCodeEffort,
   type CodexModelOptions,
-  type GrokModelOptions,
-  type GrokReasoningEffort,
   type ModelCapabilities,
   type ModelSelection,
   type ModelSlug,
   type OpenCodeModelOptions,
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
-  type PiModelOptions,
-  type PiThinkingLevel,
   type ProviderKind,
   type ProviderWithDefaultModel,
   CodexReasoningEffort,
@@ -26,14 +21,7 @@ import {
 const MODEL_SLUG_SET_BY_PROVIDER: Record<ProviderKind, ReadonlySet<ModelSlug>> = {
   claudeAgent: new Set(MODEL_OPTIONS_BY_PROVIDER.claudeAgent.map((option) => option.slug)),
   codex: new Set(MODEL_OPTIONS_BY_PROVIDER.codex.map((option) => option.slug)),
-  cursor: new Set(MODEL_OPTIONS_BY_PROVIDER.cursor.map((option) => option.slug)),
-  // Antigravity's built-in list is intentionally empty; its CLI supplies the live catalog.
-  antigravity: new Set<ModelSlug>(),
-  grok: new Set(MODEL_OPTIONS_BY_PROVIDER.grok.map((option) => option.slug)),
-  droid: new Set(MODEL_OPTIONS_BY_PROVIDER.droid.map((option) => option.slug)),
-  kilo: new Set(MODEL_OPTIONS_BY_PROVIDER.kilo.map((option) => option.slug)),
   opencode: new Set(MODEL_OPTIONS_BY_PROVIDER.opencode.map((option) => option.slug)),
-  pi: new Set<ModelSlug>(),
 };
 
 export interface SelectableModelOption {
@@ -41,14 +29,6 @@ export interface SelectableModelOption {
   name: string;
 }
 
-const PI_THINKING_LEVEL_SET = new Set<PiThinkingLevel>([
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-]);
 export const EMPTY_MODEL_CAPABILITIES: ModelCapabilities = {
   reasoningEffortLevels: [],
   supportsFastMode: false,
@@ -60,15 +40,9 @@ export function getModelOptions(provider: ProviderKind = "codex") {
   return MODEL_OPTIONS_BY_PROVIDER[provider];
 }
 
-function hasDefaultModel(provider: ProviderKind): provider is ProviderWithDefaultModel {
-  return provider !== "pi";
-}
-
-export function getDefaultModel(provider: "pi"): null;
 export function getDefaultModel(provider?: ProviderWithDefaultModel): ModelSlug;
-export function getDefaultModel(provider: ProviderKind): ModelSlug | null;
-export function getDefaultModel(provider: ProviderKind = "codex"): ModelSlug | null {
-  return hasDefaultModel(provider) ? DEFAULT_MODEL_BY_PROVIDER[provider] : null;
+export function getDefaultModel(provider: ProviderKind = "codex"): ModelSlug {
+  return DEFAULT_MODEL_BY_PROVIDER[provider];
 }
 
 const MODEL_NAME_BY_SLUG = new Map(
@@ -102,32 +76,6 @@ export function formatModelDisplayName(model: string | null | undefined): string
 }
 
 // ── Effort helpers ────────────────────────────────────────────────────
-
-export function parseCursorCliReasoningEffort(model: string): string | undefined {
-  const tokens = model.trim().toLowerCase().split("-");
-  for (let index = tokens.length - 1; index >= 0; index -= 1) {
-    const token = tokens[index];
-    if (!token) {
-      continue;
-    }
-    if (token === "xhigh") {
-      return "xhigh";
-    }
-    if (token === "high" && tokens[index - 1] === "extra") {
-      return "xhigh";
-    }
-    if (
-      token === "max" ||
-      token === "none" ||
-      token === "low" ||
-      token === "medium" ||
-      token === "high"
-    ) {
-      return token;
-    }
-  }
-  return undefined;
-}
 
 /** Check whether a capabilities object includes a given effort value. */
 export function hasEffortLevel(caps: ModelCapabilities, value: string): boolean {
@@ -281,11 +229,8 @@ function reasoningDescriptorId(provider: ProviderKind): string {
   if (provider === "claudeAgent") {
     return "effort";
   }
-  if (provider === "kilo" || provider === "opencode") {
+  if (provider === "opencode") {
     return "variant";
-  }
-  if (provider === "pi") {
-    return "thinkingLevel";
   }
   return "reasoningEffort";
 }
@@ -295,15 +240,13 @@ function legacyCapabilityDescriptors(
   caps: ModelCapabilities,
 ): ProviderOptionDescriptor[] {
   const primaryOptions =
-    provider === "kilo" || provider === "opencode"
-      ? (caps.variantOptions ?? [])
-      : caps.reasoningEffortLevels;
+    provider === "opencode" ? (caps.variantOptions ?? []) : caps.reasoningEffortLevels;
   const descriptors: ProviderOptionDescriptor[] = [];
   if (primaryOptions.length > 0) {
     const defaultPrimaryOption = primaryOptions.find((option) => option.isDefault);
     descriptors.push({
       id: reasoningDescriptorId(provider),
-      label: provider === "kilo" || provider === "opencode" ? "Variant" : "Reasoning",
+      label: provider === "opencode" ? "Variant" : "Reasoning",
       type: "select",
       options: primaryOptions.map((option) => ({
         id: option.value,
@@ -422,12 +365,6 @@ export function getModelCapabilities(
   if (slug && MODEL_CAPABILITIES_INDEX[provider]?.[slug]) {
     return MODEL_CAPABILITIES_INDEX[provider][slug];
   }
-  if (provider === "grok" && slug) {
-    // Grok exposes reasoning effort as a provider-level CLI option, while its
-    // runtime model catalog contains only model ids. New models must inherit the
-    // provider ladder even before runtime discovery has returned their descriptor.
-    return MODEL_CAPABILITIES_INDEX.grok["grok-build"] ?? EMPTY_MODEL_CAPABILITIES;
-  }
   return EMPTY_MODEL_CAPABILITIES;
 }
 
@@ -495,9 +432,6 @@ export function resolveModelSlug(
   provider: ProviderKind = "codex",
 ): ModelSlug | null {
   const normalized = normalizeModelSlug(model, provider);
-  if (provider === "pi") {
-    return normalized;
-  }
   if (!normalized) {
     return DEFAULT_MODEL_BY_PROVIDER[provider];
   }
@@ -638,45 +572,6 @@ export function claudeSelectionRequiresRestart(
   const prev = claudeSpawnProfile(previous);
   const desired = claudeSpawnProfile(next);
   return prev.maxEffort !== desired.maxEffort;
-}
-
-export function normalizeGrokModelOptions(
-  model: string | null | undefined,
-  modelOptions: GrokModelOptions | null | undefined,
-): GrokModelOptions | undefined {
-  const caps = getModelCapabilities("grok", model);
-  const reasoningEffort = trimOrNull(modelOptions?.reasoningEffort);
-  if (!reasoningEffort || !hasEffortLevel(caps, reasoningEffort)) {
-    return undefined;
-  }
-  if (reasoningEffort === getDefaultEffort(caps)) {
-    return undefined;
-  }
-  return { reasoningEffort: reasoningEffort as GrokReasoningEffort };
-}
-
-export function normalizeAntigravityModelOptions(
-  model: string | null | undefined,
-  modelOptions: AntigravityModelOptions | null | undefined,
-  capabilities: ModelCapabilities = getModelCapabilities("antigravity", model),
-): AntigravityModelOptions | undefined {
-  const reasoningEffort = trimOrNull(modelOptions?.reasoningEffort);
-  if (!reasoningEffort || !hasEffortLevel(capabilities, reasoningEffort)) {
-    return undefined;
-  }
-  if (reasoningEffort === getDefaultEffort(capabilities)) {
-    return undefined;
-  }
-  return { reasoningEffort };
-}
-
-export function normalizePiModelOptions(
-  modelOptions: PiModelOptions | null | undefined,
-): PiModelOptions | undefined {
-  const thinkingLevel = trimOrNull(modelOptions?.thinkingLevel);
-  return thinkingLevel && PI_THINKING_LEVEL_SET.has(thinkingLevel as PiThinkingLevel)
-    ? { thinkingLevel: thinkingLevel as PiThinkingLevel }
-    : undefined;
 }
 
 export function normalizeOpenCodeModelOptions(

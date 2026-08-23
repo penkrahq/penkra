@@ -19,9 +19,19 @@ export const READ_ONLY_TOOL_ANNOTATIONS = {
 
 export const WRITE_TOOL_ANNOTATIONS = {
   readOnlyHint: false,
-  destructiveHint: true,
+  destructiveHint: false,
   idempotentHint: false,
   openWorldHint: false,
+} as const;
+
+export const DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS = {
+  ...WRITE_TOOL_ANNOTATIONS,
+  destructiveHint: true,
+} as const;
+
+export const IDEMPOTENT_WRITE_TOOL_ANNOTATIONS = {
+  ...WRITE_TOOL_ANNOTATIONS,
+  idempotentHint: true,
 } as const;
 
 export interface ProviderSessionPrincipal {

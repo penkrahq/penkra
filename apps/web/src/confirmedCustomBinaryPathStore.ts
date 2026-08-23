@@ -15,13 +15,7 @@ const STORAGE_KEY = "penkra:confirmed-custom-binary-paths:v1";
 const PROVIDER_KINDS: ReadonlySet<ProviderKind> = new Set<ProviderKind>([
   "codex",
   "claudeAgent",
-  "cursor",
-  "antigravity",
-  "grok",
-  "droid",
-  "kilo",
   "opencode",
-  "pi",
 ]);
 
 function isProviderKind(value: string): value is ProviderKind {

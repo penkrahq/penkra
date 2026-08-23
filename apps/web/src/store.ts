@@ -94,76 +94,76 @@ export function markThreadUnread(state: AppState, threadId: ThreadId): AppState 
   });
 }
 
-export function toggleProject(state: AppState, projectId: Project["id"]): AppState {
+export function toggleProject(state: AppState, folderId: Project["id"]): AppState {
   return {
     ...state,
-    projects: state.projects.map((p) => (p.id === projectId ? { ...p, expanded: !p.expanded } : p)),
+    folders: state.folders.map((p) => (p.id === folderId ? { ...p, expanded: !p.expanded } : p)),
   };
 }
 
 export function setProjectExpanded(
   state: AppState,
-  projectId: Project["id"],
+  folderId: Project["id"],
   expanded: boolean,
 ): AppState {
   let changed = false;
-  const projects = state.projects.map((p) => {
-    if (p.id !== projectId || p.expanded === expanded) return p;
+  const folders = state.folders.map((p) => {
+    if (p.id !== folderId || p.expanded === expanded) return p;
     changed = true;
     return { ...p, expanded };
   });
-  return changed ? { ...state, projects } : state;
+  return changed ? { ...state, folders } : state;
 }
 
-export function setAllProjectsExpanded(state: AppState, expanded: boolean): AppState {
+export function setAllFoldersExpanded(state: AppState, expanded: boolean): AppState {
   let changed = false;
-  const projects = state.projects.map((project) => {
+  const folders = state.folders.map((project) => {
     if (project.expanded === expanded) return project;
     changed = true;
     return { ...project, expanded };
   });
-  return changed ? { ...state, projects } : state;
+  return changed ? { ...state, folders } : state;
 }
 
-export function collapseProjectsExcept(
+export function collapseFoldersExcept(
   state: AppState,
-  activeProjectId: Project["id"] | null,
+  activeFolderId: Project["id"] | null,
 ): AppState {
   let changed = false;
-  const projects = state.projects.map((project) => {
-    const nextExpanded = activeProjectId !== null && project.id === activeProjectId;
+  const folders = state.folders.map((project) => {
+    const nextExpanded = activeFolderId !== null && project.id === activeFolderId;
     if (project.expanded === nextExpanded) return project;
     changed = true;
     return { ...project, expanded: nextExpanded };
   });
-  return changed ? { ...state, projects } : state;
+  return changed ? { ...state, folders } : state;
 }
 
-export function reorderProjects(
+export function reorderFolders(
   state: AppState,
-  draggedProjectId: Project["id"],
-  targetProjectId: Project["id"],
+  draggedFolderId: Project["id"],
+  targetFolderId: Project["id"],
 ): AppState {
-  if (draggedProjectId === targetProjectId) return state;
-  const draggedIndex = state.projects.findIndex((project) => project.id === draggedProjectId);
-  const targetIndex = state.projects.findIndex((project) => project.id === targetProjectId);
+  if (draggedFolderId === targetFolderId) return state;
+  const draggedIndex = state.folders.findIndex((project) => project.id === draggedFolderId);
+  const targetIndex = state.folders.findIndex((project) => project.id === targetFolderId);
   if (draggedIndex < 0 || targetIndex < 0) return state;
-  const projects = [...state.projects];
-  const [draggedProject] = projects.splice(draggedIndex, 1);
+  const folders = [...state.folders];
+  const [draggedProject] = folders.splice(draggedIndex, 1);
   if (!draggedProject) return state;
-  projects.splice(targetIndex, 0, draggedProject);
-  return { ...state, projects };
+  folders.splice(targetIndex, 0, draggedProject);
+  return { ...state, folders };
 }
 
 export function renameProjectLocally(
   state: AppState,
-  projectId: Project["id"],
+  folderId: Project["id"],
   name: string | null,
 ): AppState {
   const normalizedName = name?.trim() ?? null;
   let changed = false;
-  const projects = state.projects.map((project) => {
-    if (project.id !== projectId) {
+  const folders = state.folders.map((project) => {
+    if (project.id !== folderId) {
       return project;
     }
     const nextLocalName = normalizedName && normalizedName.length > 0 ? normalizedName : null;
@@ -178,7 +178,7 @@ export function renameProjectLocally(
       localName: nextLocalName,
     };
   });
-  return changed ? { ...state, projects } : state;
+  return changed ? { ...state, folders } : state;
 }
 
 export function setError(state: AppState, threadId: ThreadId, error: string | null): AppState {
@@ -221,17 +221,17 @@ interface AppStore extends AppState {
   evictThreadDetails: (threadIds: readonly ThreadId[]) => void;
   markThreadDetailSyncFailed: (threadId: ThreadId) => void;
   clearThreadDetailSyncFailure: (threadId: ThreadId) => void;
-  removeDeletedProjectFromClientState: (projectId: Project["id"]) => void;
+  removeDeletedProjectFromClientState: (folderId: Project["id"]) => void;
   removeDeletedThreadFromClientState: (threadId: ThreadId) => void;
   markThreadVisited: (threadId: ThreadId, visitedAt?: string) => void;
   markThreadUnread: (threadId: ThreadId) => void;
-  toggleProject: (projectId: Project["id"]) => void;
-  setProjectExpanded: (projectId: Project["id"], expanded: boolean) => void;
-  setAllProjectsExpanded: (expanded: boolean) => void;
-  collapseProjectsExcept: (activeProjectId: Project["id"] | null) => void;
-  reorderProjects: (draggedProjectId: Project["id"], targetProjectId: Project["id"]) => void;
+  toggleProject: (folderId: Project["id"]) => void;
+  setProjectExpanded: (folderId: Project["id"], expanded: boolean) => void;
+  setAllFoldersExpanded: (expanded: boolean) => void;
+  collapseFoldersExcept: (activeFolderId: Project["id"] | null) => void;
+  reorderFolders: (draggedFolderId: Project["id"], targetFolderId: Project["id"]) => void;
   reorderSpacesLocally: (orderedSpaceIds: ReadonlyArray<SpaceId>) => void;
-  renameProjectLocally: (projectId: Project["id"], name: string | null) => void;
+  renameProjectLocally: (folderId: Project["id"], name: string | null) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
   setThreadWorkspace: (threadId: ThreadId, patch: ThreadWorkspacePatch) => void;
 }
@@ -268,25 +268,25 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => markThreadDetailSyncFailedInClientState(state, threadId)),
   clearThreadDetailSyncFailure: (threadId) =>
     set((state) => clearThreadDetailSyncFailureInClientState(state, threadId)),
-  removeDeletedProjectFromClientState: (projectId) =>
-    set((state) => removeDeletedProjectFromClientState(state, projectId)),
+  removeDeletedProjectFromClientState: (folderId) =>
+    set((state) => removeDeletedProjectFromClientState(state, folderId)),
   removeDeletedThreadFromClientState: (threadId) =>
     set((state) => removeDeletedThreadFromClientState(state, threadId)),
   markThreadVisited: (threadId, visitedAt) =>
     set((state) => markThreadVisited(state, threadId, visitedAt)),
   markThreadUnread: (threadId) => set((state) => markThreadUnread(state, threadId)),
-  toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
-  setProjectExpanded: (projectId, expanded) =>
-    set((state) => setProjectExpanded(state, projectId, expanded)),
-  setAllProjectsExpanded: (expanded) => set((state) => setAllProjectsExpanded(state, expanded)),
-  collapseProjectsExcept: (activeProjectId) =>
-    set((state) => collapseProjectsExcept(state, activeProjectId)),
-  reorderProjects: (draggedProjectId, targetProjectId) =>
-    set((state) => reorderProjects(state, draggedProjectId, targetProjectId)),
+  toggleProject: (folderId) => set((state) => toggleProject(state, folderId)),
+  setProjectExpanded: (folderId, expanded) =>
+    set((state) => setProjectExpanded(state, folderId, expanded)),
+  setAllFoldersExpanded: (expanded) => set((state) => setAllFoldersExpanded(state, expanded)),
+  collapseFoldersExcept: (activeFolderId) =>
+    set((state) => collapseFoldersExcept(state, activeFolderId)),
+  reorderFolders: (draggedFolderId, targetFolderId) =>
+    set((state) => reorderFolders(state, draggedFolderId, targetFolderId)),
   reorderSpacesLocally: (orderedSpaceIds) =>
     set((state) => applySpaceOrder(state, orderedSpaceIds)),
-  renameProjectLocally: (projectId, name) => {
-    set((state) => renameProjectLocally(state, projectId, name));
+  renameProjectLocally: (folderId, name) => {
+    set((state) => renameProjectLocally(state, folderId, name));
     persistAppStateNow();
   },
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),
@@ -296,8 +296,8 @@ export const useStore = create<AppStore>((set) => ({
 
 // Persist state changes with debouncing to avoid localStorage thrashing
 useStore.subscribe((state) => {
-  rememberProjectUiState(state.projects);
-  rememberProjectLocalNames(state.projects);
+  rememberProjectUiState(state.folders);
+  rememberProjectLocalNames(state.folders);
   debouncedPersistState.maybeExecute(state);
 });
 

@@ -119,7 +119,7 @@ export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
     whenAst: whenCreationAllowed,
   },
   {
-    command: "chat.newCursor",
+    command: "chat.newOpenCode",
     shortcut: commandShortcut("r", { altKey: true }),
     whenAst: whenCreationAllowed,
   },

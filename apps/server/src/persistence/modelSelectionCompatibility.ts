@@ -3,8 +3,6 @@
 // Layer: Persistence compatibility helper
 // Exports: normalizeLegacyModelSelection, normalizePersistedModelSelection
 
-import { MODEL_OPTIONS_BY_PROVIDER } from "@penkra/contracts";
-
 type ModelProviderKind =
   | "codex"
   | "claudeAgent"
@@ -16,16 +14,12 @@ type ModelProviderKind =
   | "opencode"
   | "pi";
 
-const NON_DROID_MODEL_SLUGS = new Set(
-  Object.entries(MODEL_OPTIONS_BY_PROVIDER).flatMap(([provider, models]) =>
-    provider === "droid" ? [] : models.map((model) => model.slug.toLowerCase()),
-  ),
-);
-const DROID_ONLY_MODEL_SLUGS = new Set(
-  MODEL_OPTIONS_BY_PROVIDER.droid
-    .map((model) => model.slug.toLowerCase())
-    .filter((slug) => !NON_DROID_MODEL_SLUGS.has(slug)),
-);
+const DROID_ONLY_MODEL_SLUGS = new Set([
+  "nemotron-3-ultra",
+  "deepseek-v4-pro",
+  "minimax-m3",
+  "minimax-m2.7",
+]);
 
 const LEGACY_GEMINI_MODEL_LABELS: Readonly<Record<string, string>> = {
   "gemini-3.1-pro-preview": "Gemini 3.1 Pro",

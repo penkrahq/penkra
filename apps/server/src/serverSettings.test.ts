@@ -42,7 +42,7 @@ describe("ServerSettingsService", () => {
     );
 
     expect(settings.providers.codex).not.toHaveProperty("binaryPath");
-    expect(settings.providers.grok.binaryPath).toBe("grok");
+    expect(Object.keys(settings.providers).sort()).toEqual(["claudeAgent", "codex", "opencode"]);
     expect(settings.providerUpdateMode).toBe("automatic");
   });
 
@@ -86,34 +86,6 @@ describe("ServerSettingsService", () => {
     });
   });
 
-  it("keeps provider passwords server-only and returns configured flags to clients", async () => {
-    const result = await runWithSettings(
-      Effect.gen(function* () {
-        const service = yield* ServerSettingsService;
-        const { settingsPath } = yield* ServerConfig;
-        const fs = yield* FileSystem.FileSystem;
-        yield* service.start;
-        const view = yield* service.updateSettingsView({
-          providers: {
-            kilo: { serverPassword: "kilo-secret" },
-          },
-        });
-        const internal = yield* service.getSettings;
-        const persisted = yield* fs.readFileString(settingsPath);
-        return { view, internal, persisted };
-      }),
-    );
-
-    expect(result.internal.providers.kilo.serverPasswordConfigured).toBe(true);
-    expect(result.view.providers.kilo).toMatchObject({
-      serverPasswordConfigured: true,
-    });
-    expect(JSON.stringify(result.internal)).not.toContain("kilo-secret");
-    expect(JSON.stringify(result.view)).not.toContain("kilo-secret");
-    expect(JSON.stringify(result.view)).not.toContain('"serverPassword"');
-    expect(result.persisted).not.toContain("kilo-secret");
-  });
-
   it("does not silently replace a disabled text generation selection", async () => {
     const settings = await Effect.runPromise(
       Effect.gen(function* () {
@@ -123,18 +95,18 @@ describe("ServerSettingsService", () => {
         Effect.provide(
           ServerSettingsService.layerTest({
             textGenerationModelSelection: {
-              provider: "antigravity",
-              model: DEFAULT_MODEL_BY_PROVIDER.antigravity,
+              provider: "opencode",
+              model: DEFAULT_MODEL_BY_PROVIDER.opencode,
             },
             providers: {
-              antigravity: { enabled: false },
+              opencode: { enabled: false },
             },
           }),
         ),
       ),
     );
 
-    expect(settings.textGenerationModelSelection.provider).toBe("antigravity");
-    expect(settings.textGenerationModelSelection.model).toBe(DEFAULT_MODEL_BY_PROVIDER.antigravity);
+    expect(settings.textGenerationModelSelection.provider).toBe("opencode");
+    expect(settings.textGenerationModelSelection.model).toBe(DEFAULT_MODEL_BY_PROVIDER.opencode);
   });
 });

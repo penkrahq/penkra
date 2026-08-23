@@ -14,11 +14,11 @@ vi.mock("./store", () => ({
 import { refreshEmptyRouteRestoreSnapshot } from "./chatRouteRecovery";
 
 function shellSnapshot(input: {
-  projects?: unknown[];
+  folders?: unknown[];
   threads?: unknown[];
 }): OrchestrationShellSnapshot {
   return {
-    projects: input.projects ?? [],
+    folders: input.folders ?? [],
     threads: input.threads ?? [],
   } as unknown as OrchestrationShellSnapshot;
 }
@@ -42,7 +42,7 @@ describe("refreshEmptyRouteRestoreSnapshot", () => {
   });
 
   it("treats a project-only shell as an authoritative empty Thread set", async () => {
-    const shell = shellSnapshot({ projects: [{ id: "project-1" }] });
+    const shell = shellSnapshot({ folders: [{ id: "project-1" }] });
     const { api, orchestration } = makeApi(shell);
 
     await expect(refreshEmptyRouteRestoreSnapshot(api)).resolves.toBe(false);
@@ -54,7 +54,7 @@ describe("refreshEmptyRouteRestoreSnapshot", () => {
 
   it("stops at the shell snapshot when it already has threads", async () => {
     const shell = shellSnapshot({
-      projects: [{ id: "project-1" }],
+      folders: [{ id: "project-1" }],
       threads: [{ id: "thread-1" }],
     });
     const { api, orchestration } = makeApi(shell);

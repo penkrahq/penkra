@@ -185,7 +185,7 @@ async function collectExactClaudeSessionFiles(
   providerSessionId: string,
 ): Promise<string[]> {
   const matches: string[] = [];
-  const projectsRoot = Path.join(root, "claude-config", "projects");
+  const projectsRoot = Path.join(root, "claude-config", "folders");
   const visit = async (directory: string): Promise<void> => {
     for (const entry of await readdir(directory, { withFileTypes: true }).catch(
       (cause: NodeJS.ErrnoException) => {

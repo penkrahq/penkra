@@ -51,26 +51,11 @@ const EMPTY_QUERY: QueryResultLike = {
 };
 const modelQueries = new Map<ProviderKind, QueryResultLike>();
 const agentQueries = new Map<ProviderKind, QueryResultLike>();
-const MODEL_HINTS = { cursor: "composer-2" } as const;
+const MODEL_HINTS = { opencode: "openai/gpt-5" } as const;
 const SETTINGS = {
-  antigravityBinaryPath: "",
-  cursorApiEndpoint: "",
-  cursorBinaryPath: "",
-  customAntigravityModels: [],
   customClaudeModels: [],
   customCodexModels: [],
-  customCursorModels: ["cursor-custom"],
-  customDroidModels: [],
-  customGrokModels: [],
-  customKiloModels: [],
-  customOpenCodeModels: [],
-  customPiModels: [],
-  droidBinaryPath: "",
-  grokBinaryPath: "",
-  kiloBinaryPath: "",
-  openCodeBinaryPath: "",
-  piAgentDir: "",
-  piBinaryPath: "",
+  customOpenCodeModels: ["openrouter/custom"],
 };
 
 function readCatalogRenders(
@@ -119,7 +104,7 @@ beforeEach(() => {
 describe("useProviderModelCatalog", () => {
   it("keeps aggregate identities stable when inputs and query data are unchanged", () => {
     const [first, second] = readCatalogRenders({
-      selectedProvider: "cursor",
+      selectedProvider: "opencode",
       discoveryEnabled: true,
       modelHintByProvider: MODEL_HINTS,
     });
@@ -134,13 +119,13 @@ describe("useProviderModelCatalog", () => {
   });
 
   it("discovers core agents only when selected unless eager-core is requested", () => {
-    readCatalogRenders({ selectedProvider: "cursor", discoveryEnabled: false });
+    readCatalogRenders({ selectedProvider: "opencode", discoveryEnabled: false });
     expect(readAgentQueryEnabled("claudeAgent")).toBe(false);
     expect(readAgentQueryEnabled("codex")).toBe(false);
 
     mocks.useQuery.mockClear();
     readCatalogRenders({
-      selectedProvider: "cursor",
+      selectedProvider: "opencode",
       discoveryEnabled: false,
       agentDiscoveryPolicy: "eager-core",
     });
@@ -149,32 +134,32 @@ describe("useProviderModelCatalog", () => {
   });
 
   it("merges a settled runtime catalog with custom models without reporting loading", () => {
-    modelQueries.set("cursor", {
+    modelQueries.set("opencode", {
       data: {
-        models: [{ slug: "composer-2", name: "Composer 2" }],
-        source: "cursor.cli",
+        models: [{ slug: "openai/gpt-5", name: "OpenAI GPT-5" }],
+        source: "managed-connections",
         cached: false,
       },
       isFetching: true,
       isError: false,
       isLoading: false,
-      isPlaceholderData: true,
+      isPlaceholderData: false,
     });
 
     const catalog = readCatalogRenders({
-      selectedProvider: "cursor",
+      selectedProvider: "opencode",
       discoveryEnabled: true,
       modelHintByProvider: MODEL_HINTS,
     }).at(-1);
 
-    expect(catalog?.modelOptionsByProvider.cursor.map((model) => model.slug)).toEqual([
-      "composer-2",
-      "cursor-custom",
+    expect(catalog?.modelOptionsByProvider.opencode.map((model) => model.slug)).toEqual([
+      "openai/gpt-5",
+      "openrouter/custom",
     ]);
-    expect(catalog?.loadingModelProviders.cursor).toBe(false);
+    expect(catalog?.loadingModelProviders.opencode).toBe(false);
     expect(catalog?.selectedProviderModelsLoading).toBe(false);
-    expect(catalog?.runtimeModelsByProvider.cursor).toEqual([
-      { slug: "composer-2", name: "Composer 2" },
+    expect(catalog?.runtimeModelsByProvider.opencode).toEqual([
+      { slug: "openai/gpt-5", name: "OpenAI GPT-5" },
     ]);
   });
 

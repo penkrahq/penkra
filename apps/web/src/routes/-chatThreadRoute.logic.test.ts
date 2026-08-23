@@ -1,8 +1,8 @@
-import { ContainerId, ThreadId } from "@penkra/contracts";
+import { FolderId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  resolveSingleProjectId,
+  resolveSingleFolderId,
   resolveSplitPaneCloseDecision,
   resolveSplitPaneMaximizeDecision,
   resolveThreadPickerTitle,
@@ -29,10 +29,10 @@ describe("Thread route logic", () => {
   });
 
   it("uses draft project identity only when the server Thread has none", () => {
-    const server = ContainerId.makeUnsafe("server-project");
-    const draft = ContainerId.makeUnsafe("draft-project");
-    expect(resolveSingleProjectId({ threadProjectId: server, draftProjectId: draft })).toBe(server);
-    expect(resolveSingleProjectId({ threadProjectId: null, draftProjectId: draft })).toBe(draft);
+    const server = FolderId.makeUnsafe("server-project");
+    const draft = FolderId.makeUnsafe("draft-project");
+    expect(resolveSingleFolderId({ threadFolderId: server, draftFolderId: draft })).toBe(server);
+    expect(resolveSingleFolderId({ threadFolderId: null, draftFolderId: draft })).toBe(draft);
   });
 
   it("normalizes empty Thread picker titles", () => {

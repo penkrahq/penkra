@@ -1,25 +1,13 @@
 import {
-  DEFAULT_MODEL_BY_PROVIDER,
-  PenkraCreateThreadsInput,
+  PenkraCreateThreadInput,
   PenkraWaitForThreadsInput,
-  type ModelSelection,
   type ProviderKind,
 } from "@penkra/contracts";
 import { Schema } from "effect";
 
 import { AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION } from "./targetResolver.ts";
 
-export const PROVIDER_KINDS: ReadonlyArray<ProviderKind> = [
-  "codex",
-  "claudeAgent",
-  "cursor",
-  "antigravity",
-  "grok",
-  "droid",
-  "kilo",
-  "opencode",
-  "pi",
-];
+export const PROVIDER_KINDS: ReadonlyArray<ProviderKind> = ["codex", "claudeAgent", "opencode"];
 
 export const MODEL_SELECTION_INPUT_SCHEMA = {
   type: "object",
@@ -118,37 +106,11 @@ export function readStringArrayArg(
   return value.map((entry) => (entry as string).trim());
 }
 
-export function parseProviderKind(raw: string): ProviderKind {
-  if ((PROVIDER_KINDS as ReadonlyArray<string>).includes(raw)) {
-    return raw as ProviderKind;
-  }
-  throw new ToolInputError(
-    `Unknown provider "${raw}". Supported providers: ${PROVIDER_KINDS.join(", ")}.`,
-  );
-}
-
-export function buildModelSelection(
-  provider: ProviderKind,
-  model: string | undefined,
-): ModelSelection {
-  const effectiveModel =
-    model ??
-    (provider === "pi"
-      ? undefined
-      : DEFAULT_MODEL_BY_PROVIDER[provider as Exclude<ProviderKind, "pi">]);
-  if (!effectiveModel) {
-    throw new ToolInputError(
-      `Provider "${provider}" has no default model; pass an explicit "model" argument.`,
-    );
-  }
-  return { provider, model: effectiveModel } as ModelSelection;
-}
-
-export function decodeCreateThreadsInput(value: unknown) {
+export function decodeCreateThreadInput(value: unknown) {
   try {
-    return Schema.decodeUnknownSync(PenkraCreateThreadsInput)(value);
+    return Schema.decodeUnknownSync(PenkraCreateThreadInput)(value);
   } catch (error) {
-    throw new ToolInputError(`Invalid Penkra creation plan: ${errorText(error)}`);
+    throw new ToolInputError(`Invalid Penkra thread request: ${errorText(error)}`);
   }
 }
 

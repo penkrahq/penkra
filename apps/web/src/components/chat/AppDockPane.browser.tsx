@@ -40,6 +40,7 @@ function installBridge() {
   let hostListener: ((message: unknown) => void) | null = null;
   const setActive = vi.fn(async () => undefined);
   const browserWebviewAttach = vi.fn(async () => undefined);
+  const browserWebviewDidFailLoad = vi.fn(async () => undefined);
   const browserWebviewDetach = vi.fn(async () => undefined);
   Object.defineProperty(window, "desktopBridge", {
     configurable: true,
@@ -47,6 +48,7 @@ function installBridge() {
       appTabs: {
         setActive,
         browserWebviewAttach,
+        browserWebviewDidFailLoad,
         browserWebviewDetach,
         frameCall,
         frameMessage,
@@ -63,6 +65,7 @@ function installBridge() {
   return {
     setActive,
     browserWebviewAttach,
+    browserWebviewDidFailLoad,
     browserWebviewDetach,
     frameCall,
     frameMessage,
@@ -235,6 +238,27 @@ describe("AppDockPane Runtime v2 frame", () => {
     expect(webview.style.left).toBe("8px");
     expect(webview.style.width).toBe("");
     expect(webview.style.height).toBe("");
+    expect(webview.style.visibility).toBe("visible");
+
+    webview.dispatchEvent(
+      Object.assign(new Event("did-fail-load"), {
+        errorCode: -102,
+        errorDescription: "ERR_CONNECTION_REFUSED",
+        validatedURL: "https://example.com",
+        isMainFrame: true,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(bridge.browserWebviewDidFailLoad).toHaveBeenCalledWith({
+        tabId: "browser-tab",
+        rendererId: -1,
+        pageId: "page-1",
+        errorCode: -102,
+        errorDescription: "ERR_CONNECTION_REFUSED",
+        validatedUrl: "https://example.com",
+        isMainFrame: true,
+      }),
+    );
 
     bridge.emitHostMessage({
       tabId: "browser-tab",
@@ -249,7 +273,72 @@ describe("AppDockPane Runtime v2 frame", () => {
         },
       },
     });
-    await vi.waitFor(() => expect(webview.getAttribute("src")).toBe("https://example.com/next"));
+    bridge.emitHostMessage({
+      tabId: "browser-tab",
+      rendererId: -1,
+      delivery: {
+        kind: "event",
+        name: "browser.surface",
+        payload: {
+          partition: "persist:app-space-browser",
+          insets: { top: 45, right: 8, bottom: 16, left: 8 },
+        },
+      },
+    });
+    await vi.waitFor(() => expect(webview.style.top).toBe("45px"));
+    expect(document.querySelector("webview")).toBe(webview);
+    // Guest navigation updates the Browser address/title state but must not be written back to
+    // the live webview's src. Electron treats every src write as a new top-level navigation.
+    expect(webview.getAttribute("src")).toBe("https://example.com");
+    expect(bridge.browserWebviewAttach).toHaveBeenCalledOnce();
+    expect(bridge.browserWebviewDetach).not.toHaveBeenCalled();
+
+    bridge.emitHostMessage({
+      tabId: "browser-tab",
+      rendererId: -1,
+      delivery: {
+        kind: "event",
+        name: "browser.state",
+        payload: {
+          sessionId: "browser-tab",
+          activePageId: "page-1",
+          pages: [
+            {
+              id: "page-1",
+              url: "https://example.com/next",
+              title: "Next",
+              lastError: "Couldn't open this page.",
+            },
+          ],
+        },
+      },
+    });
+    await vi.waitFor(() => expect(webview.style.visibility).toBe("hidden"));
+    expect(document.querySelector("webview")).toBe(webview);
+    expect(bridge.browserWebviewDetach).not.toHaveBeenCalled();
+
+    bridge.emitHostMessage({
+      tabId: "browser-tab",
+      rendererId: -1,
+      delivery: {
+        kind: "event",
+        name: "browser.state",
+        payload: {
+          sessionId: "browser-tab",
+          activePageId: "page-1",
+          pages: [
+            {
+              id: "page-1",
+              url: "https://example.com/next",
+              title: "Next",
+              lastError: null,
+            },
+          ],
+        },
+      },
+    });
+    await vi.waitFor(() => expect(webview.style.visibility).toBe("visible"));
+    expect(document.querySelector("webview")).toBe(webview);
     expect(bridge.browserWebviewAttach).toHaveBeenCalledOnce();
     expect(bridge.browserWebviewDetach).not.toHaveBeenCalled();
   });

@@ -4,7 +4,8 @@
 
 import {
   EventId,
-  ContainerId,
+  FolderId,
+  SpaceId,
   ThreadId,
   TurnId,
   type OrchestrationEvent,
@@ -17,11 +18,13 @@ import { getThreadsFromState } from "./threadDerivation";
 import type { AppState } from "./storeState";
 import { DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 
+const TEST_SPACE_ID = SpaceId.makeUnsafe("space-test");
+
 export function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
     id: ThreadId.makeUnsafe("thread-1"),
     codexThreadId: null,
-    projectId: ContainerId.makeUnsafe("project-1"),
+    folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
       provider: "codex",
@@ -52,11 +55,11 @@ export function makeDomainEvent<TType extends OrchestrationEvent["type"]>(
       ? payload.threadId
       : "spaceId" in payload
         ? payload.spaceId
-        : "projectId" in payload
-          ? payload.projectId
-          : ContainerId.makeUnsafe("project-1");
+        : "folderId" in payload
+          ? payload.folderId
+          : FolderId.makeUnsafe("project-1");
   const aggregateKind =
-    "threadId" in payload ? "thread" : "spaceId" in payload ? "space" : "project";
+    "threadId" in payload ? "thread" : "spaceId" in payload ? "space" : "folder";
   return {
     type,
     payload,
@@ -100,8 +103,8 @@ export function makeState(thread: Thread): AppState {
   return {
     spaces: [],
     archivedSpaces: [],
-    projects: [makeProject()],
-    archivedProjects: [],
+    folders: [makeProject()],
+    archivedFolders: [],
     sidebarThreadSummaryById: {},
     threadsHydrated: true,
     threadIds: [thread.id],
@@ -120,14 +123,13 @@ export function makeState(thread: Thread): AppState {
 }
 
 export function makeProject(
-  overrides: Partial<AppState["projects"][number]> = {},
-): AppState["projects"][number] {
+  overrides: Partial<AppState["folders"][number]> = {},
+): AppState["folders"][number] {
   return {
-    id: ContainerId.makeUnsafe("project-1"),
-    kind: "project",
+    id: FolderId.makeUnsafe("project-1"),
     name: "Project",
     remoteName: "Project",
-    folderName: "project",
+    folderName: "folder",
     localName: null,
     cwd: "/tmp/project",
     defaultModelSelection: {
@@ -135,7 +137,7 @@ export function makeProject(
       model: "gpt-5-codex",
     },
     expanded: true,
-    spaceId: null,
+    spaceId: TEST_SPACE_ID,
     scripts: [],
     ...overrides,
   };
@@ -144,7 +146,7 @@ export function makeProject(
 export function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"][number]>) {
   return {
     id: ThreadId.makeUnsafe("thread-1"),
-    projectId: ContainerId.makeUnsafe("project-1"),
+    folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
       provider: "codex",
@@ -170,10 +172,9 @@ export function makeReadModel(
     snapshotSequence: 1,
     updatedAt: "2026-02-27T00:00:00.000Z",
     spaces: [],
-    projects: [
+    folders: [
       {
-        id: ContainerId.makeUnsafe("project-1"),
-        kind: "project",
+        id: FolderId.makeUnsafe("project-1"),
         title: "Project",
         workspaceRoot: "/tmp/project",
         defaultModelSelection: {
@@ -184,7 +185,7 @@ export function makeReadModel(
         updatedAt: "2026-02-27T00:00:00.000Z",
         deletedAt: null,
         scripts: [],
-        spaceId: null,
+        spaceId: TEST_SPACE_ID,
       },
     ],
     threads: [thread],
@@ -196,9 +197,9 @@ export function makeShellSnapshot(thread: OrchestrationShellSnapshot["threads"][
     snapshotSequence: 2,
     updatedAt: "2026-02-27T00:01:00.000Z",
     spaces: [],
-    projects: [
+    folders: [
       {
-        id: ContainerId.makeUnsafe("project-1"),
+        id: FolderId.makeUnsafe("project-1"),
         title: "Project",
         workspaceRoot: "/tmp/project",
         defaultModelSelection: {
@@ -208,7 +209,7 @@ export function makeShellSnapshot(thread: OrchestrationShellSnapshot["threads"][
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:00.000Z",
         scripts: [],
-        spaceId: null,
+        spaceId: TEST_SPACE_ID,
       },
     ],
     threads: [thread],
@@ -216,11 +217,10 @@ export function makeShellSnapshot(thread: OrchestrationShellSnapshot["threads"][
 }
 
 export function makeReadModelProject(
-  overrides: Partial<OrchestrationReadModel["projects"][number]>,
-): OrchestrationReadModel["projects"][number] {
+  overrides: Partial<OrchestrationReadModel["folders"][number]>,
+): OrchestrationReadModel["folders"][number] {
   return {
-    id: ContainerId.makeUnsafe("project-1"),
-    kind: "project",
+    id: FolderId.makeUnsafe("project-1"),
     title: "Project",
     workspaceRoot: "/tmp/project",
     defaultModelSelection: {
@@ -231,7 +231,7 @@ export function makeReadModelProject(
     updatedAt: "2026-02-27T00:00:00.000Z",
     deletedAt: null,
     scripts: [],
-    spaceId: null,
+    spaceId: TEST_SPACE_ID,
     ...overrides,
   };
 }

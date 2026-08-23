@@ -2,7 +2,7 @@
  * AgentGateway - Penkra app-control tool surface for provider agents.
  *
  * Serves the single `penkra_exec_command` MCP tool that lets any provider session (Codex,
- * Claude, Grok, ...) inspect and control Penkra itself: list projects and
+ * Claude, Grok, ...) inspect and control Penkra itself: list folders and
  * threads, read thread status, spawn child threads, send messages, and manage
  * thread coordination. The HTTP route delegates every `POST /mcp` request
  * here; authentication and JSON-RPC handling both live behind this interface.

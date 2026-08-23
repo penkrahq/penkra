@@ -4,7 +4,7 @@
 
 import {
   MAX_PINNED_PROJECTS,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
   type DesktopUpdateState,
@@ -89,9 +89,9 @@ import { isOrdinarySpaceProject } from "../lib/spaces";
 import { archiveProject } from "../lib/projectArchive";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { dispatchThreadRename } from "../lib/threadRename";
-import { isMacPlatform, newCommandId, newProjectId, newThreadId } from "../lib/utils";
+import { isMacPlatform, newCommandId, newFolderId, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
-import { usePinnedProjectsStore } from "../pinnedProjectsStore";
+import { usePinnedFoldersStore } from "../pinnedFoldersStore";
 import { reconcileOptimisticPinState } from "../pinning.logic";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { selectSplitView, useSplitViewStore } from "../splitViewStore";
@@ -119,18 +119,19 @@ import {
   buildProjectThreadTree,
   canArchiveSidebarFolder,
   canArchiveSidebarThreads,
-  derivePinnedProjectIdsForSidebar,
+  derivePinnedFolderIdsForSidebar,
   deriveSidebarProjectData,
   getNextVisibleSidebarThreadId,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarEntriesForPreview,
-  groupSidebarThreadsByProjectId,
+  groupSidebarThreadsByFolderId,
   isLatestPinnedProjectMutation,
-  isProjectsSidebarSurface,
-  orderPinnedProjectsForSidebar,
+  isFoldersSidebarSurface,
+  orderPinnedFoldersForSidebar,
   orderSidebarSpaceItems,
-  pruneProjectThreadListPagingForCollapsedProjects,
+  pruneProjectThreadListPagingForCollapsedFolders,
   resolveProjectHeaderState,
+  resolveProjectStatusIndicator,
   resolveSidebarWorkStatus,
   resolveSidebarThreadListPaging,
   resolveThreadStatusPill,
@@ -138,7 +139,7 @@ import {
   shouldClearThreadSelectionOnMouseDown,
   shouldPrunePinnedThreads,
   shouldShowDebugFeatureFlagsMenu,
-  sortProjectsForSidebar,
+  sortFoldersForSidebar,
   sortThreadsForSidebar,
   type SidebarDerivedProjectData,
 } from "./Sidebar.logic";
@@ -196,7 +197,7 @@ import { FolderGroupShared } from "./left-rail/folder-group-shared/FolderGroupSh
 import { AccountControlShared } from "./left-rail/account-control-shared/AccountControlShared";
 import { ShowMoreRow } from "./left-rail/show-more-row/ShowMoreRow";
 import { SidebarHeaderShared } from "./left-rail/sidebar-header-shared/SidebarHeaderShared";
-import { SidebarProjects } from "./left-rail/sidebar-projects/SidebarProjects";
+import { SidebarFolders } from "./left-rail/sidebar-folders/SidebarFolders";
 import { SidebarTopNavigation } from "./left-rail/sidebar-top-navigation/SidebarTopNavigation";
 import { LeftRailContentShared } from "./left-rail/left-rail-content-shared/LeftRailContentShared";
 import { SpaceGroupShared } from "./left-rail/space-group-shared/SpaceGroupShared";
@@ -233,7 +234,7 @@ const EMPTY_THREAD_JUMP_LABELS = new Map<ThreadId, string>();
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS = 6;
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS = 50;
 
-function projectThreadListPagingKey(project: { id: ContainerId; cwd: string }): string {
+function projectThreadListPagingKey(project: { id: FolderId; cwd: string }): string {
   return normalizeSidebarProjectThreadListCwd(project.cwd) || `project:${project.id}`;
 }
 
@@ -354,7 +355,7 @@ export default function Sidebar() {
   const [showDebugFeatureFlagsMenu, setShowDebugFeatureFlagsMenu] = useState(
     readDebugFeatureFlagsMenuVisibility,
   );
-  const projects = useStore((store) => store.projects);
+  const folders = useStore((store) => store.folders);
   const spaces = useStore((store) => store.spaces);
   const archivedSpaces = useStore((store) => store.archivedSpaces);
   // Selection state only; the handlers and sync effects live in useSpacesController.
@@ -373,7 +374,7 @@ export default function Sidebar() {
     if (!api) return;
     void api.orchestration
       .dispatchCommand({
-        type: "thread.meta.update",
+        type: "thread.update",
         commandId: newCommandId(),
         threadId,
         lastVisitedAt,
@@ -387,10 +388,10 @@ export default function Sidebar() {
   const openChatThreadPage = useTerminalStateStore((state) => state.openChatThreadPage);
   const openTerminalThreadPage = useTerminalStateStore((state) => state.openTerminalThreadPage);
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
-  const persistedPinnedProjectIds = usePinnedProjectsStore((store) => store.pinnedProjectIds);
-  const pinProjectLocally = usePinnedProjectsStore((store) => store.pinProject);
-  const unpinProject = usePinnedProjectsStore((store) => store.unpinProject);
-  const prunePinnedProjects = usePinnedProjectsStore((store) => store.prunePinnedProjects);
+  const persistedPinnedFolderIds = usePinnedFoldersStore((store) => store.pinnedFolderIds);
+  const pinProjectLocally = usePinnedFoldersStore((store) => store.pinProject);
+  const unpinProject = usePinnedFoldersStore((store) => store.unpinProject);
+  const prunePinnedFolders = usePinnedFoldersStore((store) => store.prunePinnedFolders);
   const homeDir = useWorkspacePathsStore((store) => store.homeDir);
   const defaultProfileName = toDisplayName(
     (homeDir ?? "").split(/[\\/]/).findLast((segment) => segment.length > 0) ?? "",
@@ -418,7 +419,7 @@ export default function Sidebar() {
 
   useEffect(() => {
     const api = readNativeApi();
-    if (!api || !threadsHydrated || projects.length > 0) {
+    if (!api || !threadsHydrated || folders.length > 0) {
       return;
     }
 
@@ -431,7 +432,7 @@ export default function Sidebar() {
         if (
           cancelled ||
           (snapshot.spaces.length === 0 &&
-            snapshot.projects.length === 0 &&
+            snapshot.folders.length === 0 &&
             snapshot.threads.length === 0)
         ) {
           return;
@@ -443,7 +444,7 @@ export default function Sidebar() {
     return () => {
       cancelled = true;
     };
-  }, [projects.length, syncServerShellSnapshot, threadsHydrated]);
+  }, [folders.length, syncServerShellSnapshot, threadsHydrated]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -496,12 +497,12 @@ export default function Sidebar() {
     ...serverConfigQueryOptions(),
     select: (config) => config.cwd ?? null,
   });
-  const { activeDraftThread, activeProjectId: focusedProjectId } = useFocusedChatContext();
-  const latestProjectId = useLatestProjectStore((state) => state.latestProjectId);
+  const { activeDraftThread, activeFolderId: focusedFolderId } = useFocusedChatContext();
+  const latestFolderId = useLatestProjectStore((state) => state.latestFolderId);
   const [creatingFolderSpaceId, setCreatingFolderSpaceId] = useState<SpaceId | null>(null);
   const [searchPaletteOpen, setSearchPaletteOpen] = useState(false);
   const folderIconInputRef = useRef<HTMLInputElement>(null);
-  const folderIconTargetProjectIdRef = useRef<ContainerId | null>(null);
+  const folderIconTargetFolderIdRef = useRef<FolderId | null>(null);
   const openFeedbackDialog = useFeedbackDialogStore((state) => state.openDialog);
   const [searchPaletteMode, setSearchPaletteMode] = useState<SidebarSearchPaletteMode>("search");
   const inlineRenameEditor = useSidebarInlineRenameStore((state) => state.editor);
@@ -540,12 +541,12 @@ export default function Sidebar() {
     () => readSidebarUiState().lastThreadRoute,
   );
   const [optimisticActiveThreadId, setOptimisticActiveThreadId] = useState<ThreadId | null>(null);
-  const optimisticPinnedStateByProjectIdRef = useRef(new Map<ContainerId, boolean>());
-  const latestPinnedMutationVersionByProjectIdRef = useRef(new Map<ContainerId, number>());
+  const optimisticPinnedStateByFolderIdRef = useRef(new Map<FolderId, boolean>());
+  const latestPinnedMutationVersionByFolderIdRef = useRef(new Map<FolderId, number>());
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
   const [installingDesktopUpdate, setInstallingDesktopUpdate] = useState(false);
-  const [optimisticPinnedStateByProjectId, setOptimisticPinnedStateByProjectId] = useState<
-    ReadonlyMap<ContainerId, boolean>
+  const [optimisticPinnedStateByFolderId, setOptimisticPinnedStateByFolderId] = useState<
+    ReadonlyMap<FolderId, boolean>
   >(() => new Map());
   // Dedupes the manual-download fallback toast so a single failure surfaced by
   // both the click handler and the install-watchdog push only notifies once.
@@ -666,8 +667,8 @@ export default function Sidebar() {
     terminalOpen,
   });
   const projectById = useMemo(
-    () => new Map(projects.map((project) => [project.id, project] as const)),
-    [projects],
+    () => new Map(folders.map((project) => [project.id, project] as const)),
+    [folders],
   );
   const {
     pinnedThreadIds,
@@ -689,9 +690,9 @@ export default function Sidebar() {
     threadsHydrated,
   });
   const {
-    projectRunsByProjectId,
-    projectRunServerByProjectId,
-    projectRunDialogProjectId,
+    projectRunsByFolderId,
+    projectRunServerByFolderId,
+    projectRunDialogFolderId,
     projectRunDialogProject,
     projectRunDialogExistingRun,
     projectRunDialogCommandDraft,
@@ -703,32 +704,32 @@ export default function Sidebar() {
     handleStopProjectRun,
     handleOpenProjectRunServer,
   } = useSidebarProjectRunController({
-    projects,
+    folders,
     projectById,
     homeDir,
     chatWorkspaceRoot,
   });
-  const activeRouteProjectId = routeThreadId
-    ? (sidebarThreadSummaryById[routeThreadId]?.projectId ??
-      draftThreadsByThreadId[routeThreadId]?.projectId ??
+  const activeRouteFolderId = routeThreadId
+    ? (sidebarThreadSummaryById[routeThreadId]?.folderId ??
+      draftThreadsByThreadId[routeThreadId]?.folderId ??
       null)
     : null;
-  const activeRouteProject = activeRouteProjectId
-    ? (projectById.get(activeRouteProjectId) ?? null)
+  const activeRouteProject = activeRouteFolderId
+    ? (projectById.get(activeRouteFolderId) ?? null)
     : null;
-  const ordinarySpaceProjects = useMemo(
+  const ordinarySpaceFolders = useMemo(
     () =>
-      projects.filter((project) =>
+      folders.filter((project) =>
         isOrdinarySpaceProject(project, {
           homeDir,
           chatWorkspaceRoot,
         }),
       ),
-    [chatWorkspaceRoot, homeDir, projects],
+    [chatWorkspaceRoot, homeDir, folders],
   );
   const folderNamesBySpaceId = useMemo(() => {
     const namesBySpaceId = new Map<SpaceId, string[]>();
-    for (const project of ordinarySpaceProjects) {
+    for (const project of ordinarySpaceFolders) {
       if (!project.spaceId) continue;
       const names = namesBySpaceId.get(project.spaceId) ?? [];
       names.push(project.name);
@@ -736,68 +737,65 @@ export default function Sidebar() {
       namesBySpaceId.set(project.spaceId, names);
     }
     return namesBySpaceId;
-  }, [ordinarySpaceProjects]);
+  }, [ordinarySpaceFolders]);
 
   const projectCwdById = useMemo(
-    () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
-    [projects],
+    () => new Map(folders.map((project) => [project.id, project.cwd] as const)),
+    [folders],
   );
   const projectByIdRef = useRef(projectById);
   useEffect(() => {
     projectByIdRef.current = projectById;
   }, [projectById]);
-  const setOptimisticProjectPinned = useCallback((projectId: ContainerId, isPinned: boolean) => {
-    optimisticPinnedStateByProjectIdRef.current.set(projectId, isPinned);
-    setOptimisticPinnedStateByProjectId((current) => {
-      if (current.get(projectId) === isPinned) {
+  const setOptimisticProjectPinned = useCallback((folderId: FolderId, isPinned: boolean) => {
+    optimisticPinnedStateByFolderIdRef.current.set(folderId, isPinned);
+    setOptimisticPinnedStateByFolderId((current) => {
+      if (current.get(folderId) === isPinned) {
         return current;
       }
       const next = new Map(current);
-      next.set(projectId, isPinned);
+      next.set(folderId, isPinned);
       return next;
     });
   }, []);
-  const clearOptimisticProjectPinned = useCallback((projectId: ContainerId) => {
-    optimisticPinnedStateByProjectIdRef.current.delete(projectId);
-    setOptimisticPinnedStateByProjectId((current) => {
-      if (!current.has(projectId)) {
+  const clearOptimisticProjectPinned = useCallback((folderId: FolderId) => {
+    optimisticPinnedStateByFolderIdRef.current.delete(folderId);
+    setOptimisticPinnedStateByFolderId((current) => {
+      if (!current.has(folderId)) {
         return current;
       }
       const next = new Map(current);
-      next.delete(projectId);
+      next.delete(folderId);
       return next;
     });
   }, []);
-  const dispatchProjectPinnedState = useCallback(
-    async (projectId: ContainerId, isPinned: boolean) => {
-      const api = readNativeApi();
-      if (!api) return;
-      await api.orchestration.dispatchCommand({
-        type: "project.meta.update",
-        commandId: newCommandId(),
-        projectId,
-        isPinned,
-      });
-    },
-    [],
-  );
+  const dispatchProjectPinnedState = useCallback(async (folderId: FolderId, isPinned: boolean) => {
+    const api = readNativeApi();
+    if (!api) return;
+    await api.orchestration.dispatchCommand({
+      type: "folder.update",
+      commandId: newCommandId(),
+      folderId,
+      isPinned,
+    });
+  }, []);
   const setProjectPinned = useCallback(
-    async (projectId: ContainerId, isPinned: boolean) => {
+    async (folderId: FolderId, isPinned: boolean) => {
       const api = readNativeApi();
       if (!api) return;
-      const project = projectByIdRef.current.get(projectId);
-      if (!project || project.kind !== "project") {
+      const project = projectByIdRef.current.get(folderId);
+      if (!project) {
         return;
       }
       const requestVersion =
-        (latestPinnedMutationVersionByProjectIdRef.current.get(projectId) ?? 0) + 1;
-      latestPinnedMutationVersionByProjectIdRef.current.set(projectId, requestVersion);
+        (latestPinnedMutationVersionByFolderIdRef.current.get(folderId) ?? 0) + 1;
+      latestPinnedMutationVersionByFolderIdRef.current.set(folderId, requestVersion);
 
-      setOptimisticProjectPinned(projectId, isPinned);
+      setOptimisticProjectPinned(folderId, isPinned);
       if (isPinned) {
-        const accepted = pinProjectLocally(projectId);
+        const accepted = pinProjectLocally(folderId);
         if (!accepted) {
-          clearOptimisticProjectPinned(projectId);
+          clearOptimisticProjectPinned(folderId);
           toastManager.add({
             type: "warning",
             title: "Folder pin limit reached",
@@ -806,29 +804,29 @@ export default function Sidebar() {
           return;
         }
       } else {
-        unpinProject(projectId);
+        unpinProject(folderId);
       }
 
       try {
-        await dispatchProjectPinnedState(projectId, isPinned);
+        await dispatchProjectPinnedState(folderId, isPinned);
       } catch (error) {
         if (
           !isLatestPinnedProjectMutation({
-            projectId,
+            folderId,
             requestVersion,
-            latestMutationVersionByProjectId: latestPinnedMutationVersionByProjectIdRef.current,
+            latestMutationVersionByFolderId: latestPinnedMutationVersionByFolderIdRef.current,
           })
         ) {
           return;
         }
 
-        const confirmedPinned = projectByIdRef.current.get(projectId)?.isPinned === true;
+        const confirmedPinned = projectByIdRef.current.get(folderId)?.isPinned === true;
         if (confirmedPinned) {
-          pinProjectLocally(projectId);
+          pinProjectLocally(folderId);
         } else {
-          unpinProject(projectId);
+          unpinProject(folderId);
         }
-        clearOptimisticProjectPinned(projectId);
+        clearOptimisticProjectPinned(folderId);
         throw error;
       }
     },
@@ -841,14 +839,14 @@ export default function Sidebar() {
     ],
   );
   const toggleProjectPinned = useCallback(
-    (projectId: ContainerId) => {
-      const optimisticPinned = optimisticPinnedStateByProjectIdRef.current.get(projectId);
-      const locallyPinned = usePinnedProjectsStore.getState().pinnedProjectIds.includes(projectId);
-      const serverPinned = projectByIdRef.current.get(projectId)?.isPinned === true;
+    (folderId: FolderId) => {
+      const optimisticPinned = optimisticPinnedStateByFolderIdRef.current.get(folderId);
+      const locallyPinned = usePinnedFoldersStore.getState().pinnedFolderIds.includes(folderId);
+      const serverPinned = projectByIdRef.current.get(folderId)?.isPinned === true;
       const isPinned = optimisticPinned ?? (locallyPinned || serverPinned);
-      void setProjectPinned(projectId, !isPinned).catch((error) => {
+      void setProjectPinned(folderId, !isPinned).catch((error) => {
         console.error("Failed to update pinned project state", {
-          projectId,
+          folderId,
           error,
         });
         toastManager.add({
@@ -861,34 +859,34 @@ export default function Sidebar() {
     [setProjectPinned],
   );
   useEffect(() => {
-    if (optimisticPinnedStateByProjectId.size === 0) {
+    if (optimisticPinnedStateByFolderId.size === 0) {
       return;
     }
 
-    const serverPinnedStateByProjectId = new Map(
-      projects.map((project) => [project.id, project.isPinned === true] as const),
+    const serverPinnedStateByFolderId = new Map(
+      folders.map((project) => [project.id, project.isPinned === true] as const),
     );
     // Reconciliation drops optimistic entries the server has confirmed while syncing
     // the mirror ref. Deferring the setState off render (async is allowed) leaves the
     // derived pinned lists unchanged, since a confirmed entry is redundant either way.
     const settle = window.setTimeout(() => {
-      setOptimisticPinnedStateByProjectId((current) => {
+      setOptimisticPinnedStateByFolderId((current) => {
         const reconciled = reconcileOptimisticPinState({
           optimisticPinnedStateById: current,
-          serverPinnedStateById: serverPinnedStateByProjectId,
+          serverPinnedStateById: serverPinnedStateByFolderId,
         });
-        for (const projectId of reconciled.settledIds) {
-          optimisticPinnedStateByProjectIdRef.current.delete(projectId);
+        for (const folderId of reconciled.settledIds) {
+          optimisticPinnedStateByFolderIdRef.current.delete(folderId);
         }
         return reconciled.optimisticPinnedStateById;
       });
     }, 0);
     return () => window.clearTimeout(settle);
-  }, [optimisticPinnedStateByProjectId, projects]);
+  }, [optimisticPinnedStateByFolderId, folders]);
   const focusMostRecentThreadForProject = useCallback(
-    (projectId: ContainerId) => {
+    (folderId: FolderId) => {
       const latestThread = sortThreadsForSidebar(
-        sidebarThreads.filter((thread) => thread.projectId === projectId),
+        sidebarThreads.filter((thread) => thread.folderId === folderId),
         appSettings.sidebarThreadSortOrder,
       )[0];
       if (!latestThread) return;
@@ -901,17 +899,17 @@ export default function Sidebar() {
     [appSettings.sidebarThreadSortOrder, navigate, sidebarThreads],
   );
 
-  // Poll the server read model briefly after project.create so we only recover from fresh state.
+  // Poll the server read model briefly after folder.create so we only recover from fresh state.
   const waitForProjectInSnapshot = useCallback(
     async (
       api: NonNullable<ReturnType<typeof readNativeApi>>,
-      projectId: ContainerId,
+      folderId: FolderId,
     ): Promise<{
-      project: OrchestrationShellSnapshot["projects"][number] | null;
+      project: OrchestrationShellSnapshot["folders"][number] | null;
       snapshot: OrchestrationShellSnapshot | null;
     }> =>
       waitForRecoverableProjectInReadModel({
-        projectId,
+        folderId,
         loadSnapshot: () => api.orchestration.getShellSnapshot().catch(() => null),
         maxAttempts: ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS,
         delayMs: ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS,
@@ -920,15 +918,15 @@ export default function Sidebar() {
   );
 
   const handleOpenProjectFromSearch = useCallback(
-    (projectId: string) => {
-      const typedProjectId = ContainerId.makeUnsafe(projectId);
-      const hasProjectThread = sidebarThreads.some((thread) => thread.projectId === typedProjectId);
+    (folderId: string) => {
+      const typedFolderId = FolderId.makeUnsafe(folderId);
+      const hasProjectThread = sidebarThreads.some((thread) => thread.folderId === typedFolderId);
       if (hasProjectThread) {
-        focusMostRecentThreadForProject(typedProjectId);
+        focusMostRecentThreadForProject(typedFolderId);
         return;
       }
 
-      void handleNewThread(typedProjectId);
+      void handleNewThread(typedFolderId);
     },
     [focusMostRecentThreadForProject, handleNewThread, sidebarThreads],
   );
@@ -945,38 +943,38 @@ export default function Sidebar() {
     openInlineFolderCreator();
   }, [openInlineFolderCreator]);
 
-  const activeSpaceProjects = useMemo(
-    () => ordinarySpaceProjects.filter((project) => (project.spaceId ?? null) === activeSpaceId),
-    [activeSpaceId, ordinarySpaceProjects],
+  const activeSpaceFolders = useMemo(
+    () => ordinarySpaceFolders.filter((project) => (project.spaceId ?? null) === activeSpaceId),
+    [activeSpaceId, ordinarySpaceFolders],
   );
   const currentProjectShortcutTargetId = useMemo(
-    () => resolveCurrentProjectTargetId(activeSpaceProjects, focusedProjectId),
-    [activeSpaceProjects, focusedProjectId],
+    () => resolveCurrentProjectTargetId(activeSpaceFolders, focusedFolderId),
+    [activeSpaceFolders, focusedFolderId],
   );
-  const latestUsableProjectId = useMemo(
-    () => resolveLatestProjectTargetIdWithFallback(activeSpaceProjects, latestProjectId),
-    [activeSpaceProjects, latestProjectId],
+  const latestUsableFolderId = useMemo(
+    () => resolveLatestProjectTargetIdWithFallback(activeSpaceFolders, latestFolderId),
+    [activeSpaceFolders, latestFolderId],
   );
   const primaryNewThreadTarget = useMemo(
     () =>
       resolveNewThreadTarget({
-        currentProjectId: currentProjectShortcutTargetId,
-        latestUsableProjectId,
+        currentFolderId: currentProjectShortcutTargetId,
+        latestUsableFolderId,
       }),
-    [currentProjectShortcutTargetId, latestUsableProjectId],
+    [currentProjectShortcutTargetId, latestUsableFolderId],
   );
 
   // Warm model discovery before ChatView mounts so new-thread composers skip
   // the "Loading models" skeleton when React Query already has a fresh cache hit.
   const prefetchModelsForProjectNewThread = useCallback(
-    (projectId: ContainerId, options?: { includeDroid?: boolean }) => {
-      const project = projects.find((candidate) => candidate.id === projectId);
+    (folderId: FolderId, options?: { includeDroid?: boolean }) => {
+      const project = folders.find((candidate) => candidate.id === folderId);
       if (!project) {
         return;
       }
 
       const draftStore = useComposerDraftStore.getState();
-      const draftThread = draftStore.getDraftThreadByProjectId(projectId, "chat");
+      const draftThread = draftStore.getDraftThreadByFolderId(folderId, "chat");
       const draftComposer = draftThread
         ? (draftStore.draftsByThreadId[draftThread.threadId] ?? null)
         : null;
@@ -986,11 +984,6 @@ export default function Sidebar() {
         projectDefaultProvider: project.defaultModelSelection?.provider ?? null,
         defaultProvider: appSettings.defaultProvider,
       });
-      // Droid discovery spins a disposable ACP session per model — only warm it
-      // from explicit new-thread intent (hover/click), not idle project focus.
-      if (provider === "droid" && options?.includeDroid !== true) {
-        return;
-      }
       const cwd = resolveNewThreadModelPrefetchCwd({
         draftWorkingDirectory: draftThread?.workingDirectory ?? null,
         projectCwd: project.cwd,
@@ -1003,26 +996,26 @@ export default function Sidebar() {
         cwd,
       });
     },
-    [appSettings, projects, queryClient, serverCwd],
+    [appSettings, folders, queryClient, serverCwd],
   );
 
   useEffect(() => {
     if (!primaryNewThreadTarget) {
       return;
     }
-    prefetchModelsForProjectNewThread(primaryNewThreadTarget.projectId);
+    prefetchModelsForProjectNewThread(primaryNewThreadTarget.folderId);
   }, [prefetchModelsForProjectNewThread, primaryNewThreadTarget]);
 
   const handlePrimaryNewThread = useCallback(() => {
     if (primaryNewThreadTarget) {
-      prefetchModelsForProjectNewThread(primaryNewThreadTarget.projectId, {
+      prefetchModelsForProjectNewThread(primaryNewThreadTarget.folderId, {
         includeDroid: true,
       });
-      void handleNewThread(primaryNewThreadTarget.projectId);
+      void handleNewThread(primaryNewThreadTarget.folderId);
       return;
     }
 
-    // The projects snapshot can be temporarily empty during startup. Wait for hydration
+    // The folders snapshot can be temporarily empty during startup. Wait for hydration
     // before treating a missing target as a genuine no-project state.
     if (!threadsHydrated) {
       return;
@@ -1047,7 +1040,7 @@ export default function Sidebar() {
         throw new Error("Add a folder before importing a thread.");
       }
 
-      const activeProject = projects.find(
+      const activeProject = folders.find(
         (project) => project.id === currentProjectShortcutTargetId,
       );
       if (!activeProject) {
@@ -1058,15 +1051,10 @@ export default function Sidebar() {
       const modelSelection =
         activeProject.defaultModelSelection?.provider === provider
           ? activeProject.defaultModelSelection
-          : providerDefaultModel
-            ? {
-                provider,
-                model: providerDefaultModel,
-              }
-            : null;
-      if (!modelSelection) {
-        throw new Error("Select a Pi model before importing a Pi thread.");
-      }
+          : {
+              provider,
+              model: providerDefaultModel,
+            };
       const threadId = newThreadId();
       const createdAt = new Date().toISOString();
       const trimmedExternalId = externalId.trim();
@@ -1074,13 +1062,9 @@ export default function Sidebar() {
       const title =
         provider === "claudeAgent"
           ? `Imported Claude session${suffix ? ` ${suffix}` : ""}`
-          : provider === "cursor"
-            ? `Imported Cursor session${suffix ? ` ${suffix}` : ""}`
-            : provider === "kilo"
-              ? `Imported Kilo session${suffix ? ` ${suffix}` : ""}`
-              : provider === "opencode"
-                ? `Imported OpenCode session${suffix ? ` ${suffix}` : ""}`
-                : `Imported Codex thread${suffix ? ` ${suffix}` : ""}`;
+          : provider === "opencode"
+            ? `Imported OpenCode session${suffix ? ` ${suffix}` : ""}`
+            : `Imported Codex thread${suffix ? ` ${suffix}` : ""}`;
       let createdThread = false;
 
       try {
@@ -1088,7 +1072,7 @@ export default function Sidebar() {
           type: "thread.create",
           commandId: newCommandId(),
           threadId,
-          projectId: activeProject.id,
+          folderId: activeProject.id,
           title,
           modelSelection,
           runtimeMode: "full-access",
@@ -1118,7 +1102,7 @@ export default function Sidebar() {
         throw error;
       }
     },
-    [currentProjectShortcutTargetId, navigate, projects],
+    [currentProjectShortcutTargetId, navigate, folders],
   );
 
   const commitRename = useCallback(
@@ -1146,44 +1130,41 @@ export default function Sidebar() {
     [sidebarThreadSummaryById, startThreadInlineRename],
   );
 
-  const commitFolderRename = useCallback(async (projectId: ContainerId, title: string) => {
+  const commitFolderRename = useCallback(async (folderId: FolderId, title: string) => {
     const api = readNativeApi();
     if (!api) {
       throw new Error("Folder rename is unavailable while disconnected.");
     }
     await api.orchestration.dispatchCommand({
-      type: "project.meta.update",
+      type: "folder.update",
       commandId: newCommandId(),
-      projectId,
+      folderId,
       title,
     });
   }, []);
 
-  const updateFolderIcon = useCallback(
-    async (projectId: ContainerId, iconDataUrl: string | null) => {
-      const api = readNativeApi();
-      if (!api) throw new Error("Folder icon editing is unavailable while disconnected.");
-      await api.orchestration.dispatchCommand({
-        type: "project.meta.update",
-        commandId: newCommandId(),
-        projectId,
-        iconDataUrl,
-      });
-    },
-    [],
-  );
+  const updateFolderIcon = useCallback(async (folderId: FolderId, iconDataUrl: string | null) => {
+    const api = readNativeApi();
+    if (!api) throw new Error("Folder icon editing is unavailable while disconnected.");
+    await api.orchestration.dispatchCommand({
+      type: "folder.update",
+      commandId: newCommandId(),
+      folderId,
+      iconDataUrl,
+    });
+  }, []);
 
   const handleFolderIconFile = useCallback(
     async (file: File | undefined) => {
-      const projectId = folderIconTargetProjectIdRef.current;
-      if (!file || !projectId) return;
+      const folderId = folderIconTargetFolderIdRef.current;
+      if (!file || !folderId) return;
       try {
         const iconDataUrl = await compressSquareImage(file, {
           maxEdge: 64,
           quality: 0.84,
           maxDataUrlLength: 100_000,
         });
-        await updateFolderIcon(projectId, iconDataUrl);
+        await updateFolderIcon(folderId, iconDataUrl);
       } catch (error) {
         toastManager.add({
           type: "error",
@@ -1242,7 +1223,7 @@ export default function Sidebar() {
           }),
         ]);
       const threadWorkspacePath = resolveThreadWorkspaceCwd({
-        projectCwd: projectCwdById.get(thread.projectId) ?? null,
+        projectCwd: projectCwdById.get(thread.folderId) ?? null,
         workingDirectory: thread.workingDirectory,
       });
       const clicked = await api.contextMenu.show(
@@ -1455,13 +1436,13 @@ export default function Sidebar() {
     handleMoveProjectToSpace,
     handleSpaceEditorSubmit,
   } = useSpacesController({
-    ordinarySpaceProjects,
+    ordinarySpaceFolders,
     projectById,
     sidebarThreads,
     sidebarThreadSortOrder: appSettings.sidebarThreadSortOrder,
     routeThreadId,
     activeRouteProject,
-    activeRouteProjectId,
+    activeRouteFolderId,
     activateThreadFromSidebarIntent,
   });
 
@@ -1563,14 +1544,13 @@ export default function Sidebar() {
       const previousSpaceId = activeSpaceId;
       const api = readNativeApi();
       if (!api) throw new Error("The app server is unavailable.");
-      const projectId = newProjectId();
+      const folderId = newFolderId();
       handleSelectSpaceForIncomingProject(value.spaceId);
       try {
         await api.orchestration.dispatchCommand({
-          type: "project.create",
+          type: "folder.create",
           commandId: newCommandId(),
-          projectId,
-          kind: "project",
+          folderId,
           title: value.name,
           workspaceRoot: null,
           defaultModelSelection: {
@@ -1580,11 +1560,11 @@ export default function Sidebar() {
           spaceId: value.spaceId,
           createdAt: new Date().toISOString(),
         });
-        const { project, snapshot } = await waitForProjectInSnapshot(api, projectId);
+        const { project, snapshot } = await waitForProjectInSnapshot(api, folderId);
         if (snapshot) syncServerShellSnapshot(snapshot);
         if (!project) throw new Error("The folder was created but has not synced yet.");
-        setProjectExpanded(projectId, true);
-        await handleNewThread(projectId, { fresh: true });
+        setProjectExpanded(folderId, true);
+        await handleNewThread(folderId, { fresh: true });
       } catch (error) {
         if (previousSpaceId) handleSelectSpaceForIncomingProject(previousSpaceId);
         throw error;
@@ -1600,14 +1580,14 @@ export default function Sidebar() {
     ],
   );
   const handleProjectContextMenuAction = useCallback(
-    async (projectId: ContainerId, clicked: ProjectContextMenuId) => {
+    async (folderId: FolderId, clicked: ProjectContextMenuId) => {
       const api = readNativeApi();
       if (!api) return;
-      const project = projectById.get(projectId);
+      const project = projectById.get(folderId);
       if (!project) return;
       const physicalPath =
         sidebarThreads
-          .filter((thread) => thread.projectId === projectId && Boolean(thread.workingDirectory))
+          .filter((thread) => thread.folderId === folderId && Boolean(thread.workingDirectory))
           .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
           ?.workingDirectory?.trim() ||
         project.cwd ||
@@ -1634,23 +1614,23 @@ export default function Sidebar() {
         return;
       }
       if (clicked === "start-dev") {
-        openProjectRunDialog(projectId);
+        openProjectRunDialog(folderId);
         return;
       }
       if (clicked === "stop-dev") {
-        await handleStopProjectRun(projectId);
+        await handleStopProjectRun(folderId);
         return;
       }
       if (clicked === "open-dev-server") {
-        await handleOpenProjectRunServer(projectId);
+        await handleOpenProjectRunServer(folderId);
         return;
       }
       if (clicked === "rename") {
-        startFolderInlineRename(projectId, project.name);
+        startFolderInlineRename(folderId, project.name);
         return;
       }
       if (clicked === "set-icon") {
-        folderIconTargetProjectIdRef.current = projectId;
+        folderIconTargetFolderIdRef.current = folderId;
         if (api.dialogs.pickImage) {
           const pickedImage = await api.dialogs.pickImage();
           if (pickedImage) {
@@ -1666,16 +1646,16 @@ export default function Sidebar() {
         return;
       }
       if (clicked === "remove-icon") {
-        await updateFolderIcon(projectId, null);
+        await updateFolderIcon(folderId, null);
         return;
       }
       if (clicked === "toggle-pin") {
-        toggleProjectPinned(projectId);
+        toggleProjectPinned(folderId);
         return;
       }
       if (clicked === "archive") {
         try {
-          await archiveProject(api, projectId);
+          await archiveProject(api, folderId);
         } catch (error) {
           toastManager.add({
             type: "error",
@@ -1699,15 +1679,12 @@ export default function Sidebar() {
     ],
   );
 
-  async function handleProjectContextMenu(
-    projectId: ContainerId,
-    position: { x: number; y: number },
-  ) {
+  async function handleProjectContextMenu(folderId: FolderId, position: { x: number; y: number }) {
     const api = readNativeApi();
-    const project = projectById.get(projectId);
+    const project = projectById.get(folderId);
     if (!api || !project) return;
 
-    const projectThreads = sidebarThreads.filter((thread) => thread.projectId === projectId);
+    const projectThreads = sidebarThreads.filter((thread) => thread.folderId === folderId);
     const physicalPath =
       projectThreads
         .filter((thread) => Boolean(thread.workingDirectory))
@@ -1715,9 +1692,9 @@ export default function Sidebar() {
         ?.workingDirectory?.trim() ||
       project.cwd ||
       null;
-    const isPinned = pinnedProjectIdSet.has(projectId);
-    const isRunning = Boolean(projectRunsByProjectId[projectId]);
-    const projectRunServer = projectRunServerByProjectId.get(projectId) ?? null;
+    const isPinned = pinnedFolderIdSet.has(folderId);
+    const isRunning = Boolean(projectRunsByFolderId[folderId]);
+    const projectRunServer = projectRunServerByFolderId.get(folderId) ?? null;
     const hasOpenServer =
       projectRunServer !== null && firstLocalServerUrl(projectRunServer) !== null;
     const canArchive = canArchiveSidebarFolder(
@@ -1778,69 +1755,69 @@ export default function Sidebar() {
     const clicked = await api.contextMenu.show<ProjectNativeContextMenuId>(items, position);
     if (!clicked) return;
     if (clicked === "new-space") {
-      openSpaceCreator(projectId);
+      openSpaceCreator(folderId);
       return;
     }
     if (isMoveProjectToSpaceContextMenuId(clicked)) {
       const spaceId = clicked.slice(MOVE_PROJECT_TO_SPACE_CONTEXT_MENU_PREFIX.length);
       if (spaces.some((space) => space.id === spaceId)) {
-        await handleMoveProjectToSpace(projectId, SpaceId.makeUnsafe(spaceId));
+        await handleMoveProjectToSpace(folderId, SpaceId.makeUnsafe(spaceId));
       }
       return;
     }
-    await handleProjectContextMenuAction(projectId, clicked);
+    await handleProjectContextMenuAction(folderId, clicked);
   }
 
   // Trees need child (subagent) threads too; the flat display list stays
   // root-only for pinned rows and other non-tree consumers.
-  const sidebarThreadsByProjectId = useMemo(
-    () => groupSidebarThreadsByProjectId(sidebarTreeThreads),
+  const sidebarThreadsByFolderId = useMemo(
+    () => groupSidebarThreadsByFolderId(sidebarTreeThreads),
     [sidebarTreeThreads],
   );
-  const sortedSidebarThreadsByProjectId = useMemo(() => {
-    const byProjectId = new Map<ContainerId, SidebarThreadSummary[]>();
-    for (const [projectId, projectThreads] of sidebarThreadsByProjectId) {
-      byProjectId.set(
-        projectId,
+  const sortedSidebarThreadsByFolderId = useMemo(() => {
+    const byFolderId = new Map<FolderId, SidebarThreadSummary[]>();
+    for (const [folderId, projectThreads] of sidebarThreadsByFolderId) {
+      byFolderId.set(
+        folderId,
         sortThreadsForSidebar(projectThreads, appSettings.sidebarThreadSortOrder),
       );
     }
-    return byProjectId;
-  }, [appSettings.sidebarThreadSortOrder, sidebarThreadsByProjectId]);
-  const sortedProjects = useMemo(
-    () => sortProjectsForSidebar(projects, sidebarThreads, appSettings.sidebarProjectSortOrder),
-    [appSettings.sidebarProjectSortOrder, projects, sidebarThreads],
+    return byFolderId;
+  }, [appSettings.sidebarThreadSortOrder, sidebarThreadsByFolderId]);
+  const sortedFolders = useMemo(
+    () => sortFoldersForSidebar(folders, sidebarThreads, appSettings.sidebarProjectSortOrder),
+    [appSettings.sidebarProjectSortOrder, folders, sidebarThreads],
   );
-  const allStandardProjectsBase = useMemo(
+  const allStandardFoldersBase = useMemo(
     () =>
-      sortedProjects.filter((project) =>
+      sortedFolders.filter((project) =>
         isOrdinarySpaceProject(project, {
           homeDir,
           chatWorkspaceRoot,
         }),
       ),
-    [chatWorkspaceRoot, homeDir, sortedProjects],
+    [chatWorkspaceRoot, homeDir, sortedFolders],
   );
-  const standardProjectsBase = useMemo(() => allStandardProjectsBase, [allStandardProjectsBase]);
-  const pinnedProjectIds = useMemo(
+  const standardFoldersBase = useMemo(() => allStandardFoldersBase, [allStandardFoldersBase]);
+  const pinnedFolderIds = useMemo(
     () =>
-      derivePinnedProjectIdsForSidebar({
-        projects: standardProjectsBase,
-        persistedPinnedProjectIds,
-        optimisticPinnedStateByProjectId,
+      derivePinnedFolderIdsForSidebar({
+        folders: standardFoldersBase,
+        persistedPinnedFolderIds,
+        optimisticPinnedStateByFolderId,
       }),
-    [optimisticPinnedStateByProjectId, persistedPinnedProjectIds, standardProjectsBase],
+    [optimisticPinnedStateByFolderId, persistedPinnedFolderIds, standardFoldersBase],
   );
-  const pinnedProjectIdSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds]);
-  const standardProjects = useMemo(
-    () => orderPinnedProjectsForSidebar(standardProjectsBase, pinnedProjectIds),
-    [pinnedProjectIds, standardProjectsBase],
+  const pinnedFolderIdSet = useMemo(() => new Set(pinnedFolderIds), [pinnedFolderIds]);
+  const standardFolders = useMemo(
+    () => orderPinnedFoldersForSidebar(standardFoldersBase, pinnedFolderIds),
+    [pinnedFolderIds, standardFoldersBase],
   );
   const sidebarSpaceSections = useMemo(() => {
     const sections = spaces.map((space) => {
-      const projects = standardProjects.filter((project) => project.spaceId === space.id);
-      const projectItems = projects.map((project) => ({
-        kind: "project" as const,
+      const folders = standardFolders.filter((project) => project.spaceId === space.id);
+      const projectItems = folders.map((project) => ({
+        kind: "folder" as const,
         id: project.id,
         project,
       }));
@@ -1848,9 +1825,9 @@ export default function Sidebar() {
         threadItems: [],
         projectItems: projectItems.map((item) => ({
           id: item.id,
-          pinned: pinnedProjectIdSet.has(item.id),
+          pinned: pinnedFolderIdSet.has(item.id),
           sidebarSortOrder: item.project.sidebarSortOrder ?? 0,
-          threads: sortedSidebarThreadsByProjectId.get(item.id) ?? [],
+          threads: sortedSidebarThreadsByFolderId.get(item.id) ?? [],
           fallbackCreatedAt: item.project.createdAt,
           fallbackUpdatedAt: item.project.updatedAt,
           value: item,
@@ -1868,34 +1845,34 @@ export default function Sidebar() {
     return sections;
   }, [
     appSettings.sidebarThreadSortOrder,
-    pinnedProjectIdSet,
-    sortedSidebarThreadsByProjectId,
+    pinnedFolderIdSet,
+    sortedSidebarThreadsByFolderId,
     spaces,
-    standardProjects,
+    standardFolders,
   ]);
   const isSidebarItemPinned = useCallback(
     (item: SidebarItemReference) =>
-      item.kind === "project" ? pinnedProjectIdSet.has(item.id) : pinnedThreadIdSet.has(item.id),
-    [pinnedProjectIdSet, pinnedThreadIdSet],
+      item.kind === "folder" ? pinnedFolderIdSet.has(item.id) : pinnedThreadIdSet.has(item.id),
+    [pinnedFolderIdSet, pinnedThreadIdSet],
   );
   const getOrderedSidebarItems = useCallback(
     (parent: SidebarItemParent): SidebarItemReference[] => {
-      if (parent.kind === "project") {
-        return (sortedSidebarThreadsByProjectId.get(parent.projectId) ?? [])
+      if (parent.kind === "folder") {
+        return (sortedSidebarThreadsByFolderId.get(parent.folderId) ?? [])
           .filter((thread) => thread.parentThreadId == null && thread.archivedAt == null)
           .map((thread) => ({ kind: "thread" as const, id: thread.id }));
       }
 
-      const projectItems = standardProjects
+      const projectItems = standardFolders
         .filter((project) => project.spaceId === parent.spaceId)
         .map((project) => ({
           id: project.id,
-          pinned: pinnedProjectIdSet.has(project.id),
+          pinned: pinnedFolderIdSet.has(project.id),
           sidebarSortOrder: project.sidebarSortOrder ?? 0,
-          threads: sortedSidebarThreadsByProjectId.get(project.id) ?? [],
+          threads: sortedSidebarThreadsByFolderId.get(project.id) ?? [],
           fallbackCreatedAt: project.createdAt,
           fallbackUpdatedAt: project.updatedAt,
-          value: { kind: "project" as const, id: project.id },
+          value: { kind: "folder" as const, id: project.id },
         }));
       return orderSidebarSpaceItems<never, SidebarItemReference>({
         threadItems: [],
@@ -1905,9 +1882,9 @@ export default function Sidebar() {
     },
     [
       appSettings.sidebarThreadSortOrder,
-      pinnedProjectIdSet,
-      sortedSidebarThreadsByProjectId,
-      standardProjects,
+      pinnedFolderIdSet,
+      sortedSidebarThreadsByFolderId,
+      standardFolders,
     ],
   );
   const commitSidebarItemMove = useCallback(
@@ -2123,13 +2100,11 @@ export default function Sidebar() {
       spaces,
     ],
   );
-  const standardProjectSidebarDataById = useMemo<
-    ReadonlyMap<ContainerId, SidebarDerivedProjectData>
-  >(
+  const standardProjectSidebarDataById = useMemo<ReadonlyMap<FolderId, SidebarDerivedProjectData>>(
     () =>
       deriveSidebarProjectData({
-        projects: standardProjects,
-        sortedSidebarThreadsByProjectId,
+        folders: standardFolders,
+        sortedSidebarThreadsByFolderId,
         pinnedThreadIds,
         threadListExtraPagesByProjectCwd,
         normalizeProjectCwd: normalizeSidebarProjectThreadListCwd,
@@ -2143,8 +2118,8 @@ export default function Sidebar() {
       activeSidebarThreadId,
       threadListExtraPagesByProjectCwd,
       pinnedThreadIds,
-      sortedSidebarThreadsByProjectId,
-      standardProjects,
+      sortedSidebarThreadsByFolderId,
+      standardFolders,
       resolveThreadStatusForSidebar,
     ],
   );
@@ -2152,23 +2127,23 @@ export default function Sidebar() {
   useEffect(() => {
     const settle = window.setTimeout(() => {
       setThreadListExtraPagesByProjectCwd((current) =>
-        pruneProjectThreadListPagingForCollapsedProjects({
+        pruneProjectThreadListPagingForCollapsedFolders({
           threadListExtraPagesByProjectCwd: current,
-          projects: standardProjects,
+          folders: standardFolders,
           normalizeProjectCwd: normalizeSidebarProjectThreadListCwd,
           getProjectPagingKey: projectThreadListPagingKey,
         }),
       );
     }, 0);
     return () => window.clearTimeout(settle);
-  }, [standardProjects]);
+  }, [standardFolders]);
 
   useEffect(() => {
     if (!shouldPrunePinnedThreads({ threadsHydrated })) {
       return;
     }
-    prunePinnedProjects(allStandardProjectsBase.map((project) => project.id));
-  }, [allStandardProjectsBase, prunePinnedProjects, threadsHydrated]);
+    prunePinnedFolders(allStandardFoldersBase.map((project) => project.id));
+  }, [allStandardFoldersBase, prunePinnedFolders, threadsHydrated]);
 
   useEffect(() => {
     const retainedThreadIds = new Set(sidebarThreads.map((thread) => thread.id));
@@ -2329,10 +2304,7 @@ export default function Sidebar() {
     };
   }, [activeSidebarThreadId, visibleSidebarThreadIds]);
 
-  function renderPencilProjectItem(
-    project: (typeof sortedProjects)[number],
-    sortableIndex: number,
-  ) {
+  function renderPencilProjectItem(project: (typeof sortedFolders)[number], sortableIndex: number) {
     const projectSidebarData = standardProjectSidebarDataById.get(project.id);
     if (!projectSidebarData || !project.spaceId) {
       return null;
@@ -2357,14 +2329,9 @@ export default function Sidebar() {
       projectThreads.some((thread) => thread.id === voiceRecordingThreadId),
     );
     const renamingThisFolder =
-      inlineRenameEditor?.kind === "folder" && inlineRenameEditor.projectId === project.id;
-    const existingFolderNames = projects
-      .filter(
-        (candidate) =>
-          candidate.id !== project.id &&
-          candidate.kind === "project" &&
-          candidate.spaceId === project.spaceId,
-      )
+      inlineRenameEditor?.kind === "folder" && inlineRenameEditor.folderId === project.id;
+    const existingFolderNames = folders
+      .filter((candidate) => candidate.id !== project.id && candidate.spaceId === project.spaceId)
       .flatMap((candidate) =>
         candidate.name === candidate.remoteName
           ? [candidate.name]
@@ -2385,7 +2352,7 @@ export default function Sidebar() {
     return (
       <SortableSidebarNode
         key={project.id}
-        id={sidebarItemDndId({ kind: "project", id: project.id })}
+        id={sidebarItemDndId({ kind: "folder", id: project.id })}
         group={sidebarParentDndGroup({
           kind: "space",
           spaceId: project.spaceId,
@@ -2393,14 +2360,14 @@ export default function Sidebar() {
         index={sortableIndex}
         data={{
           type: "item",
-          item: { kind: "project", id: project.id },
+          item: { kind: "folder", id: project.id },
           parent: { kind: "space", spaceId: project.spaceId },
           label: project.name,
           preview: {
-            kind: "project",
+            kind: "folder",
             label: project.name,
             expanded: project.expanded,
-            pinned: pinnedProjectIdSet.has(project.id),
+            pinned: pinnedFolderIdSet.has(project.id),
             workStatus: projectWorkStatus,
           },
         }}
@@ -2410,7 +2377,7 @@ export default function Sidebar() {
           className="relative"
           data={{
             type: "container",
-            parent: { kind: "project", projectId: project.id },
+            parent: { kind: "folder", folderId: project.id },
             label: project.name,
           }}
         >
@@ -2418,8 +2385,8 @@ export default function Sidebar() {
             expanded={project.expanded}
             hasContent={hasProjectContent}
             headerState={resolveProjectHeaderState({
-              projectId: project.id,
-              activeDraftProjectId: activeDraftThread?.projectId,
+              folderId: project.id,
+              activeDraftFolderId: activeDraftThread?.folderId,
               activeDraftPromotedTo: activeDraftThread?.promotedTo,
             })}
             header={
@@ -2433,10 +2400,10 @@ export default function Sidebar() {
                     if (title !== project.remoteName) {
                       await commitFolderRename(project.id, title);
                     }
-                    finishInlineRename({ kind: "folder", projectId: project.id });
+                    finishInlineRename({ kind: "folder", folderId: project.id });
                   }}
                   onValueChange={updateInlineRenameValue}
-                  pinned={pinnedProjectIdSet.has(project.id)}
+                  pinned={pinnedFolderIdSet.has(project.id)}
                   value={inlineRenameEditor.value}
                 />
               ) : undefined
@@ -2449,7 +2416,7 @@ export default function Sidebar() {
             }}
             onHeaderAction={createProjectThread}
             onHeaderContextMenu={openProjectContextMenu}
-            pinned={pinnedProjectIdSet.has(project.id)}
+            pinned={pinnedFolderIdSet.has(project.id)}
             workStatus={projectWorkStatus}
           >
             <div className="flex flex-col gap-0.5" data-pencil-project-id={project.id}>
@@ -2463,7 +2430,7 @@ export default function Sidebar() {
                   entry.thread.id === entry.rootRowId
                     ? {
                         index: visibleRootIndexByThreadId.get(entry.rootRowId) ?? 0,
-                        parent: { kind: "project", projectId: project.id },
+                        parent: { kind: "folder", folderId: project.id },
                       }
                     : undefined,
                 ),
@@ -2479,7 +2446,7 @@ export default function Sidebar() {
           </FolderGroupShared>
           <SidebarContainerDropPreview
             enabled={!project.expanded || !hasProjectContent}
-            parent={{ kind: "project", projectId: project.id }}
+            parent={{ kind: "folder", folderId: project.id }}
           />
         </SidebarContainerDropTarget>
       </SortableSidebarNode>
@@ -2694,7 +2661,7 @@ export default function Sidebar() {
       }
       if (command === "space.previous" || command === "space.next") {
         if (
-          !isProjectsSidebarSurface({
+          !isFoldersSidebarSurface({
             isOnSettings,
             isOnWorkspace,
           })
@@ -2716,7 +2683,7 @@ export default function Sidebar() {
       const spaceJumpIndex = spaceJumpIndexFromCommand(command ?? "");
       if (spaceJumpIndex !== null) {
         if (
-          !isProjectsSidebarSurface({
+          !isFoldersSidebarSurface({
             isOnSettings,
             isOnWorkspace,
           })
@@ -2925,9 +2892,9 @@ export default function Sidebar() {
     shortcutLabelForCommand(keybindings, "sidebar.addProject") ??
     (isMacPlatform(navigator.platform) ? "⇧⌘O" : "Ctrl+Shift+O");
   const usageSettingsShortcutLabel = shortcutLabelForCommand(keybindings, "settings.usage");
-  const searchPaletteProjects = useMemo<SidebarSearchProject[]>(
+  const searchPaletteFolders = useMemo<SidebarSearchProject[]>(
     () =>
-      projects.flatMap((project) => {
+      folders.flatMap((project) => {
         let spaceName = "Global";
         if (
           isOrdinarySpaceProject(project, {
@@ -2961,7 +2928,7 @@ export default function Sidebar() {
           },
         ];
       }),
-    [archivedSpaces, chatWorkspaceRoot, homeDir, projects, spaces],
+    [archivedSpaces, chatWorkspaceRoot, homeDir, folders, spaces],
   );
   const searchPaletteActions = useMemo<SidebarSearchAction[]>(
     () => [
@@ -2977,16 +2944,7 @@ export default function Sidebar() {
         id: "import-thread",
         label: "Import thread from...",
         description: "Attach a local thread to an existing provider session.",
-        keywords: [
-          "import",
-          "resume",
-          "thread",
-          "session",
-          "codex",
-          "claude",
-          "cursor",
-          "opencode",
-        ],
+        keywords: ["import", "resume", "thread", "session", "codex", "claude", "opencode"],
         shortcutLabel: importThreadShortcutLabel,
       },
       {
@@ -3297,7 +3255,7 @@ export default function Sidebar() {
             </Alert>
           </div>
         ) : null}
-        <SidebarProjects className="sidebar-surface-enter font-system-ui">
+        <SidebarFolders className="sidebar-surface-enter font-system-ui">
           {spaceEditorOpen && spaceEditorMode === "create" ? (
             <SpaceHeaderInlineEdit
               existingNames={spaceEditorExistingNames}
@@ -3316,6 +3274,20 @@ export default function Sidebar() {
                 const spaceParent = { kind: "space", spaceId: section.space.id } as const;
                 const expanded = creatingFolderHere || !collapsedSpaceIds.has(section.key);
                 const hasContent = creatingFolderHere || section.items.length > 0;
+                const spaceProjectData = section.items.flatMap((item) => {
+                  const projectData = standardProjectSidebarDataById.get(item.project.id);
+                  return projectData ? [projectData] : [];
+                });
+                const spaceWorkStatus = resolveSidebarWorkStatus(
+                  resolveProjectStatusIndicator(
+                    spaceProjectData.map((projectData) => projectData.projectStatus),
+                  ),
+                  spaceProjectData.some((projectData) =>
+                    projectData.projectThreads.some(
+                      (thread) => thread.id === voiceRecordingThreadId,
+                    ),
+                  ),
+                );
                 const editingThisSpace =
                   spaceEditorOpen &&
                   spaceEditorMode === "edit" &&
@@ -3390,6 +3362,7 @@ export default function Sidebar() {
                         onHeaderContextMenu={(event: MouseEvent<HTMLButtonElement>) =>
                           void handleSpaceHeaderContextMenu(event, section.space)
                         }
+                        workStatus={spaceWorkStatus}
                       >
                         {creatingFolderHere ? (
                           <FolderRowInlineEdit
@@ -3407,7 +3380,7 @@ export default function Sidebar() {
                           />
                         ) : null}
                         {section.items.map((item, itemIndex) =>
-                          item.kind === "project"
+                          item.kind === "folder"
                             ? renderPencilProjectItem(item.project, itemIndex)
                             : null,
                         )}
@@ -3422,7 +3395,7 @@ export default function Sidebar() {
               })}
             </div>
           </SidebarDndMonitor>
-        </SidebarProjects>
+        </SidebarFolders>
       </LeftRailContentShared>
 
       <SidebarFooter className="gap-1 p-0 font-system-ui">
@@ -3450,7 +3423,7 @@ export default function Sidebar() {
       </SidebarFooter>
 
       <Dialog
-        open={projectRunDialogProjectId !== null}
+        open={projectRunDialogFolderId !== null}
         onOpenChange={(open) => {
           if (!open) {
             closeProjectRunDialog();
@@ -3525,7 +3498,7 @@ export default function Sidebar() {
             }
           }}
           actions={searchPaletteActions}
-          projects={searchPaletteProjects}
+          folders={searchPaletteFolders}
           projectById={projectById}
           onCreateChat={() => {
             if (activeSpaceId) void handleCreateSpaceThread(activeSpaceId);
@@ -3568,33 +3541,33 @@ function SidebarSearchPaletteController(props: {
   onModeChange: (mode: SidebarSearchPaletteMode) => void;
   onOpenChange: (open: boolean) => void;
   actions: readonly SidebarSearchAction[];
-  projects: readonly SidebarSearchProject[];
-  projectById: ReadonlyMap<ContainerId, { name: string; remoteName: string }>;
+  folders: readonly SidebarSearchProject[];
+  projectById: ReadonlyMap<FolderId, { name: string; remoteName: string }>;
   onCreateChat: () => void;
   onCreateThread: () => void;
   onOpenSettings: () => void;
   onOpenFeedback: () => void;
   onOpenUsageSettings: () => void;
-  onOpenProject: (projectId: string) => void;
+  onOpenProject: (folderId: string) => void;
   onImportThread: (provider: ImportProviderKind, externalId: string) => Promise<void>;
   onOpenThread: (threadId: string) => void;
 }) {
   const selectAllThreads = useMemo(() => createAllThreadsSelector(), []);
   const selectSidebarDisplayThreads = useMemo(() => createSidebarDisplayThreadsSelector(), []);
   const importProviderCapabilityQueries = useQueries({
-    queries: (["codex", "claudeAgent", "cursor", "kilo", "opencode"] as const).map((provider) =>
+    queries: (["codex", "claudeAgent", "opencode"] as const).map((provider) =>
       providerComposerCapabilitiesQueryOptions(provider),
     ),
   });
   const threads = useStore(selectAllThreads);
   const sidebarDisplayThreads = useStore(selectSidebarDisplayThreads);
   const importProviders: ReadonlyArray<ImportProviderKind> = (
-    ["codex", "claudeAgent", "cursor", "kilo", "opencode"] as const
+    ["codex", "claudeAgent", "opencode"] as const
   ).filter((provider, index) => supportsThreadImport(importProviderCapabilityQueries[index]?.data));
   const searchPaletteThreads = useMemo<SidebarSearchThread[]>(() => {
     const threadById = new Map(threads.map((thread) => [thread.id, thread] as const));
     const searchProjectById = new Map(
-      props.projects.map((project) => [project.id, project] as const),
+      props.folders.map((project) => [project.id, project] as const),
     );
     return sidebarDisplayThreads.flatMap((threadSummary) => {
       const thread = threadById.get(threadSummary.id);
@@ -3606,11 +3579,10 @@ function SidebarSearchPaletteController(props: {
         {
           id: thread.id,
           title: thread.title,
-          projectId: thread.projectId,
-          projectName: props.projectById.get(thread.projectId)?.name ?? "Unknown folder",
-          projectRemoteName:
-            props.projectById.get(thread.projectId)?.remoteName ?? "Unknown folder",
-          spaceName: searchProjectById.get(thread.projectId)?.spaceName ?? "Global",
+          folderId: thread.folderId,
+          projectName: props.projectById.get(thread.folderId)?.name ?? "Unknown folder",
+          projectRemoteName: props.projectById.get(thread.folderId)?.remoteName ?? "Unknown folder",
+          spaceName: searchProjectById.get(thread.folderId)?.spaceName ?? "Global",
           provider: thread.modelSelection.provider,
           createdAt: thread.createdAt,
           updatedAt: thread.updatedAt,
@@ -3620,7 +3592,7 @@ function SidebarSearchPaletteController(props: {
         },
       ];
     });
-  }, [props.projectById, props.projects, sidebarDisplayThreads, threads]);
+  }, [props.projectById, props.folders, sidebarDisplayThreads, threads]);
 
   return (
     <SidebarSearchPalette
@@ -3629,7 +3601,7 @@ function SidebarSearchPaletteController(props: {
       onModeChange={props.onModeChange}
       onOpenChange={props.onOpenChange}
       actions={props.actions}
-      projects={props.projects}
+      folders={props.folders}
       threads={searchPaletteThreads}
       onCreateChat={props.onCreateChat}
       onCreateThread={props.onCreateThread}

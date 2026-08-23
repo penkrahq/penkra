@@ -253,7 +253,7 @@ describe("TerminalEvent", () => {
     ).toBe(true);
   });
 
-  it.each(["codex", "claude", "antigravity"] as const)("accepts %s activity events", (cliKind) => {
+  it.each(["codex", "claude"] as const)("accepts %s activity events", (cliKind) => {
     expect(
       decodes(TerminalEvent, {
         type: "activity",

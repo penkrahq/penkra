@@ -6,7 +6,7 @@ import { suggestSpaceIcon } from "./spaceIconSuggestion";
 describe("suggestSpaceIcon", () => {
   it("matches meaningful names to their icon", () => {
     expect(suggestSpaceIcon("Work")).toBe("bag");
-    expect(suggestSpaceIcon("Side projects")).toBe("backpack");
+    expect(suggestSpaceIcon("Side folders")).toBe("backpack");
     expect(suggestSpaceIcon("Game dev")).toBe("code-brackets");
     expect(suggestSpaceIcon("Gaming")).toBe("gamecontroller");
     expect(suggestSpaceIcon("Università")).toBe("school");

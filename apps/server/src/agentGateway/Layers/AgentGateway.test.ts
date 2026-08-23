@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import type {
   OrchestrationCommand,
   OrchestrationEvent,
-  OrchestrationProjectShell,
+  OrchestrationFolderShell,
   OrchestrationThread,
   OrchestrationThreadShell,
   ProviderKind,
@@ -13,7 +13,7 @@ import {
   EventId,
   MessageId,
   ModelSelection,
-  ContainerId,
+  FolderId,
   ProviderConnectionId,
   SpaceId,
   ThreadId,
@@ -48,26 +48,22 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { AgentGateway } from "../Services/AgentGateway.ts";
 import { AgentGatewayCredentials } from "../Services/AgentGatewayCredentials.ts";
-import {
-  AgentGatewayOperationRepository,
-  type AgentGatewayOperationRecord,
-} from "../Services/AgentGatewayOperationRepository.ts";
 import { AgentGatewayLive } from "./AgentGateway.ts";
 import { AgentGatewayToolBridgeLive } from "./AgentGatewayToolBridge.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderThreadSwitchCoordinator } from "../../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
+import { penkraRootInstructions } from "../../appRuntimeCli.ts";
 
 const NOW = "2026-03-01T10:00:00.000Z";
-const PROJECT_ID = ContainerId.makeUnsafe("project-1");
+const PROJECT_ID = FolderId.makeUnsafe("project-1");
 const SPACE_ID = SpaceId.makeUnsafe("space-personal");
 const CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-default");
 
 function makeProjectShell(
-  scripts: OrchestrationProjectShell["scripts"] = [],
-): OrchestrationProjectShell {
+  scripts: OrchestrationFolderShell["scripts"] = [],
+): OrchestrationFolderShell {
   return {
     id: PROJECT_ID,
-    kind: "project",
     spaceId: SPACE_ID,
     title: "Demo project",
     workspaceRoot: "/tmp/demo",
@@ -85,8 +81,7 @@ function makeThreadShell(
 ): OrchestrationThreadShell {
   return {
     id: ThreadId.makeUnsafe(id),
-    projectId: PROJECT_ID,
-    spaceId: null,
+    folderId: PROJECT_ID,
     title: `Thread ${id}`,
     modelSelection: { provider: "codex", model: "gpt-5.5" },
     runtimeMode: "approval-required",
@@ -138,8 +133,6 @@ interface GatewayHarness {
     readonly assistantMessageId?: string | null;
   }) => void;
   readonly setProviderStatuses: (statuses: ReadonlyArray<ServerProviderStatus>) => void;
-  readonly getOperationStatus: (callerTurnId: string) => string | null;
-  readonly getOperationErrorCode: (callerTurnId: string) => string | null;
   readonly getWaitReadCounts: () => {
     readonly detailReads: number;
     readonly batchTurnReads: number;
@@ -162,34 +155,32 @@ const VALID_TOKENS: Record<string, string> = {
   "token-ghost": "thread-ghost",
 };
 
-const LEGACY_TEST_TOOL_COMMANDS: Readonly<Record<string, string>> = {
-  penkra_context: "penkra context",
-  penkra_capabilities: "penkra capabilities",
-  penkra_list_projects: "penkra projects list",
-  penkra_list_threads: "penkra threads list",
-  penkra_read_thread: "penkra threads read",
-  penkra_wait_for_threads: "penkra threads wait",
-  penkra_read_thread_activity: "penkra threads activity",
-  penkra_read_thread_events: "penkra threads events",
-  penkra_read_thread_runtime_events: "penkra threads runtime-events",
-  penkra_diagnose_thread: "penkra threads diagnose",
-  penkra_retry_thread_projection: "penkra threads retry-projection",
-  penkra_create_threads: "penkra threads create-many",
-  penkra_create_thread: "penkra threads create",
-  penkra_send_message: "penkra threads send",
-  penkra_interrupt_thread: "penkra threads interrupt",
-  penkra_set_thread_title: "penkra threads rename",
+const TEST_TOOL_COMMANDS: Readonly<Record<string, ReadonlyArray<string>>> = {
+  penkra_context: ["penkra", "context"],
+  penkra_capabilities: ["penkra", "capabilities"],
+  penkra_list_folders: ["penkra", "folders", "list"],
+  penkra_list_threads: ["penkra", "threads", "list"],
+  penkra_read_thread: ["penkra", "threads", "read"],
+  penkra_wait_for_threads: ["penkra", "threads", "wait"],
+  penkra_read_thread_activity: ["penkra", "threads", "activity"],
+  penkra_read_thread_events: ["penkra", "threads", "events"],
+  penkra_read_thread_runtime_events: ["penkra", "threads", "runtime-events"],
+  penkra_diagnose_thread: ["penkra", "threads", "diagnose"],
+  penkra_retry_thread_projection: ["penkra", "threads", "retry-projection"],
+  penkra_create_thread: ["penkra", "threads", "create"],
+  penkra_send_message: ["penkra", "threads", "send"],
+  penkra_interrupt_thread: ["penkra", "threads", "interrupt"],
+  penkra_set_thread_title: ["penkra", "threads", "rename"],
+  penkra_archive_thread: ["penkra", "threads", "archive"],
+  penkra_unarchive_thread: ["penkra", "threads", "unarchive"],
 };
 
-function testCommandForTool(name: string, args: Record<string, unknown>): string | undefined {
-  if (name === "penkra_set_thread_archived") {
-    const { archived, ...input } = args;
-    return `penkra threads ${archived === false ? "unarchive" : "archive"} --input '${JSON.stringify(input).replaceAll("'", "\\'")}'`;
-  }
-  const command = LEGACY_TEST_TOOL_COMMANDS[name];
-  return command
-    ? `${command} --input '${JSON.stringify(args).replaceAll("'", "\\'")}'`
-    : undefined;
+function testCommandForTool(
+  name: string,
+  args: Record<string, unknown>,
+): { command: ReadonlyArray<string>; input: Record<string, unknown> } | undefined {
+  const command = TEST_TOOL_COMMANDS[name];
+  return command ? { command, input: args } : undefined;
 }
 
 function makeHarnessLayer(
@@ -198,17 +189,7 @@ function makeHarnessLayer(
     readonly threadDetails?: ReadonlyMap<string, OrchestrationThread>;
     readonly failDispatch?: (command: OrchestrationCommand) => boolean;
     readonly dispatchDelayMs?: number;
-    readonly interruptedOperations?: ReadonlyArray<AgentGatewayOperationRecord>;
     readonly providerStatuses?: ReadonlyArray<ServerProviderStatus>;
-    readonly failOperationComplete?: boolean;
-    readonly pauseAfterReservation?: {
-      readonly entered: Deferred.Deferred<void>;
-      readonly release: Deferred.Deferred<void>;
-    };
-    readonly pauseAfterOperationComplete?: {
-      readonly entered: Deferred.Deferred<void>;
-      readonly release: Deferred.Deferred<void>;
-    };
     readonly pauseAfterDispatch?: {
       readonly commandType: OrchestrationCommand["type"];
       readonly entered: Deferred.Deferred<void>;
@@ -219,8 +200,8 @@ function makeHarnessLayer(
       readonly turnId: string;
       readonly state?: "running" | "completed" | "interrupted";
     };
-    readonly projectScripts?: OrchestrationProjectShell["scripts"];
-    readonly extraProjects?: ReadonlyArray<OrchestrationProjectShell>;
+    readonly projectScripts?: OrchestrationFolderShell["scripts"];
+    readonly extraFolders?: ReadonlyArray<OrchestrationFolderShell>;
     readonly diagnosticActivities?: ReadonlyArray<DiagnosticThreadActivity>;
     readonly diagnosticEvents?: ReadonlyArray<OrchestrationEvent>;
     readonly providerRuntimeEvents?: ReadonlyArray<PersistedProviderRuntimeEvent>;
@@ -292,17 +273,17 @@ function makeHarnessLayer(
     getShellSnapshot: () =>
       Effect.succeed({
         snapshotSequence: 1,
-        projects: [makeProjectShell(options.projectScripts), ...(options.extraProjects ?? [])],
+        folders: [makeProjectShell(options.projectScripts), ...(options.extraFolders ?? [])],
         threads: [...threadsById.values()],
         updatedAt: NOW,
       }),
     getThreadShellById: (threadId: ThreadIdType) =>
       Effect.succeed(Option.fromNullishOr(threadsById.get(threadId as string))),
-    getProjectShellById: (projectId: string) =>
+    getFolderShellById: (folderId: string) =>
       Effect.succeed(
-        projectId === (PROJECT_ID as string)
+        folderId === (PROJECT_ID as string)
           ? Option.some(makeProjectShell(options.projectScripts))
-          : Option.none<OrchestrationProjectShell>(),
+          : Option.none<OrchestrationFolderShell>(),
       ),
     getThreadDetailById: (threadId: ThreadIdType) =>
       Effect.sync(() => {
@@ -521,38 +502,13 @@ function makeHarnessLayer(
           },
         ],
         claudeAgent: [{ slug: "claude-sonnet-5", name: "Claude Sonnet 5" }],
-        cursor: [{ slug: "auto", name: "Auto" }],
-        antigravity: [
-          {
-            slug: "Gemini 3.5 Flash",
-            name: "Gemini 3.5 Flash",
-            supportedReasoningEfforts: [
-              { value: "low", label: "Low" },
-              { value: "high", label: "High" },
-            ],
-          },
-        ],
-        grok: [{ slug: "grok-build", name: "Grok Build" }],
-        droid: [{ slug: "claude-opus-4-8", name: "Claude Opus 4.8" }],
-        kilo: [{ slug: "kilo/kilo-auto/free", name: "Kilo Auto" }],
         opencode: [{ slug: "openai/gpt-5", name: "OpenAI GPT-5" }],
-        pi: [{ slug: "test-pi", name: "Test Pi" }],
       };
       return Effect.succeed({ models: modelsByProvider[provider] ?? [], source: "test" });
     },
   } as unknown as (typeof ProviderDiscoveryService)["Service"]);
 
-  const providerKinds: ReadonlyArray<ProviderKind> = [
-    "codex",
-    "claudeAgent",
-    "cursor",
-    "antigravity",
-    "grok",
-    "droid",
-    "kilo",
-    "opencode",
-    "pi",
-  ];
+  const providerKinds: ReadonlyArray<ProviderKind> = ["codex", "claudeAgent", "opencode"];
   let providerStatuses =
     options.providerStatuses ??
     providerKinds.map(
@@ -570,178 +526,6 @@ function makeHarnessLayer(
     updateProvider: () => Effect.die("Provider updates are not used by gateway tests."),
     streamChanges: Stream.empty,
   } as unknown as (typeof ProviderHealth)["Service"]);
-
-  const operationsByScope = new Map<string, AgentGatewayOperationRecord>();
-  for (const operation of options.interruptedOperations ?? []) {
-    operationsByScope.set(
-      `${operation.callerThreadId}:${operation.callerTurnId}:${operation.operationKind}`,
-      operation,
-    );
-  }
-  const operationLayer = Layer.succeed(AgentGatewayOperationRepository, {
-    reserve: (input: {
-      operationId: string;
-      callerThreadId: string;
-      callerTurnId: string;
-      operationKind: "create_threads";
-      requestId: string;
-      fingerprint: string;
-      requestedCount: number;
-      planJson: string;
-      now: string;
-    }) =>
-      Effect.gen(function* () {
-        const key = `${input.callerThreadId}:${input.callerTurnId}:${input.operationKind}`;
-        const existing = operationsByScope.get(key);
-        if (existing) {
-          const kind =
-            existing.requestId !== input.requestId
-              ? "creation_plan_locked"
-              : existing.fingerprint !== input.fingerprint
-                ? "idempotency_conflict"
-                : "replay";
-          return { kind, operation: existing };
-        }
-        const operation: AgentGatewayOperationRecord = {
-          ...input,
-          status: "reserved",
-          resultJson: null,
-          errorJson: null,
-          createdAt: input.now,
-          updatedAt: input.now,
-        };
-        operationsByScope.set(key, operation);
-        if (options.pauseAfterReservation) {
-          yield* Deferred.succeed(options.pauseAfterReservation.entered, undefined);
-          yield* Deferred.await(options.pauseAfterReservation.release);
-        }
-        return { kind: "reserved" as const, operation };
-      }),
-    markDispatching: ({ operationId, now }: { operationId: string; now: string }) =>
-      Effect.sync(() => {
-        for (const [key, operation] of operationsByScope) {
-          if (operation.operationId !== operationId || operation.status !== "reserved") continue;
-          operationsByScope.set(key, { ...operation, status: "dispatching", updatedAt: now });
-          return true;
-        }
-        return false;
-      }),
-    markCompensating: ({ operationId, now }: { operationId: string; now: string }) =>
-      Effect.sync(() => {
-        for (const [key, operation] of operationsByScope) {
-          if (operation.operationId === operationId) {
-            operationsByScope.set(key, {
-              ...operation,
-              status: "compensating",
-              updatedAt: now,
-            });
-          }
-        }
-      }),
-    recordCompensationFailure: ({
-      operationId,
-      errorJson,
-      now,
-    }: {
-      operationId: string;
-      errorJson: string;
-      now: string;
-    }) =>
-      Effect.sync(() => {
-        for (const [key, operation] of operationsByScope) {
-          if (
-            operation.operationId === operationId &&
-            (operation.status === "dispatching" || operation.status === "compensating")
-          ) {
-            operationsByScope.set(key, {
-              ...operation,
-              status: "compensating",
-              errorJson,
-              updatedAt: now,
-            });
-          }
-        }
-      }),
-    complete: ({
-      operationId,
-      resultJson,
-      now,
-    }: {
-      operationId: string;
-      resultJson: string;
-      now: string;
-    }) => {
-      if (options.failOperationComplete) {
-        return Effect.fail(new Error("injected operation completion failure"));
-      }
-      return Effect.gen(function* () {
-        yield* Effect.sync(() => {
-          for (const [key, operation] of operationsByScope) {
-            if (operation.operationId === operationId) {
-              operationsByScope.set(key, {
-                ...operation,
-                status: "completed",
-                resultJson,
-                updatedAt: now,
-              });
-            }
-          }
-        });
-        if (options.pauseAfterOperationComplete) {
-          yield* Deferred.succeed(options.pauseAfterOperationComplete.entered, undefined);
-          yield* Deferred.await(options.pauseAfterOperationComplete.release);
-        }
-      });
-    },
-    fail: ({
-      operationId,
-      errorJson,
-      now,
-    }: {
-      operationId: string;
-      errorJson: string;
-      now: string;
-    }) =>
-      Effect.sync(() => {
-        for (const [key, operation] of operationsByScope) {
-          if (operation.operationId === operationId) {
-            operationsByScope.set(key, {
-              ...operation,
-              status: "failed",
-              errorJson,
-              updatedAt: now,
-            });
-          }
-        }
-      }),
-    getById: (operationId: string) =>
-      Effect.sync(
-        () =>
-          [...operationsByScope.values()].find(
-            (operation) => operation.operationId === operationId,
-          ) ?? null,
-      ),
-    getByScope: (input: {
-      callerThreadId: string;
-      callerTurnId: string;
-      operationKind: "create_threads";
-    }) =>
-      Effect.sync(
-        () =>
-          operationsByScope.get(
-            `${input.callerThreadId}:${input.callerTurnId}:${input.operationKind}`,
-          ) ?? null,
-      ),
-    listNonTerminal: () =>
-      Effect.sync(() =>
-        [...operationsByScope.values()].filter(
-          (operation) =>
-            operation.status === "reserved" ||
-            operation.status === "dispatching" ||
-            operation.status === "compensating",
-        ),
-      ),
-  });
 
   const readProjectionTurn = (threadId: string, turnId: string) => {
     const pinned = projectionTurnsByKey.get(`${threadId}:${turnId}`);
@@ -815,7 +599,6 @@ function makeHarnessLayer(
     Layer.provide(providerDiscoveryLayer),
     Layer.provide(providerHealthLayer),
     Layer.provide(ServerSettingsService.layerTest()),
-    Layer.provide(operationLayer),
     Layer.provide(projectionTurnsLayer),
     Layer.provide(diagnosticsLayer),
     Layer.provide(eventStoreLayer),
@@ -838,7 +621,7 @@ function makeHarnessLayer(
             id: 1,
             method: "tools/call",
             params: translatedCommand
-              ? { name: "penkra_exec_command", arguments: { command: translatedCommand } }
+              ? { name: "penkra_exec_command", arguments: translatedCommand }
               : { name, arguments: args },
           },
         })
@@ -869,16 +652,6 @@ function makeHarnessLayer(
       },
       setProviderStatuses: (statuses) => {
         providerStatuses = statuses;
-      },
-      getOperationStatus: (callerTurnId) =>
-        [...operationsByScope.values()].find((operation) => operation.callerTurnId === callerTurnId)
-          ?.status ?? null,
-      getOperationErrorCode: (callerTurnId) => {
-        const errorJson = [...operationsByScope.values()].find(
-          (operation) => operation.callerTurnId === callerTurnId,
-        )?.errorJson;
-        if (!errorJson) return null;
-        return (JSON.parse(errorJson) as { code?: string }).code ?? null;
       },
       getWaitReadCounts: () => ({
         detailReads: threadDetailReads,
@@ -991,31 +764,6 @@ describe("AgentGateway", () => {
     },
   );
 
-  it.effect("enforces provider-session capabilities before destructive dispatch", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
-        token: "token-parent-readonly",
-        name: "penkra_create_threads",
-        args: {
-          requestId: "readonly-create",
-          threads: [
-            {
-              prompt: "should not run",
-              target: { provider: "codex", model: "gpt-5.5" },
-            },
-          ],
-        },
-      });
-      assert.equal(
-        (toolResultJson(response.result).error as { code: string }).code,
-        "capability_denied",
-      );
-      assert.equal(harness.dispatched.length, 0);
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
   it.effect("requires the explicit diagnostics capability for forensic tools", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
     return Effect.gen(function* () {
@@ -1031,47 +779,6 @@ describe("AgentGateway", () => {
       };
       assert.equal(error.code, "capability_denied");
       assert.equal(error.details.requiredCapability, "diagnostics:read");
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("rejects oversized and duplicate-id JSON-RPC batches before dispatch", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const request = (id: number, requestId: string) => ({
-        jsonrpc: "2.0",
-        id,
-        method: "tools/call",
-        params: {
-          name: "penkra_exec_command",
-          arguments: {
-            command: testCommandForTool("penkra_create_threads", {
-              requestId,
-              threads: [
-                {
-                  prompt: requestId,
-                  target: { provider: "codex", model: "gpt-5.5" },
-                },
-              ],
-            }),
-          },
-        },
-      });
-
-      const duplicate = yield* harness.postRaw({
-        authorizationHeader: "Bearer token-parent",
-        body: [request(7, "duplicate-a"), request(7, "duplicate-b")],
-      });
-      assert.equal(duplicate.status, 400);
-      assert.include(JSON.stringify(duplicate.body), "Duplicate JSON-RPC request id");
-
-      const oversized = yield* harness.postRaw({
-        authorizationHeader: "Bearer token-parent",
-        body: Array.from({ length: 51 }, (_, index) => request(index, `oversized-${index}`)),
-      });
-      assert.equal(oversized.status, 400);
-      assert.include(JSON.stringify(oversized.body), "at most 50");
-      assert.equal(harness.dispatched.length, 0);
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -1092,6 +799,13 @@ describe("AgentGateway", () => {
       const initResult = (init.body as { result: Record<string, unknown> }).result;
       assert.equal(initResult.protocolVersion, "2025-06-18");
       assert.isString(initResult.instructions);
+      assert.equal(
+        initResult.instructions,
+        penkraRootInstructions(
+          [],
+          Object.values(TEST_TOOL_COMMANDS).map((words) => words.join(" ")),
+        ),
+      );
 
       const list = yield* harness.postRaw({
         authorizationHeader: "Bearer token-parent",
@@ -1117,23 +831,21 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("lists only ordinary projects, excluding system-managed containers", () => {
+  it.effect("lists every folder without legacy container filtering", () => {
     // ServerConfig.layerTest canonicalizes the home dir via realpath, so the legacy
     // Home row must use the same canonical form for the workspace-root match to hold.
     const homeDir = realpathSync(homedir());
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      extraProjects: [
+      extraFolders: [
         {
           ...makeProjectShell(),
-          id: ContainerId.makeUnsafe("project-chat-container"),
-          kind: "chat",
+          id: FolderId.makeUnsafe("project-chat-container"),
           title: "che progetti ci sono in penkra",
           workspaceRoot: `${homeDir}/Documents/Penkra/2026-03-01/chat`,
         },
         {
           ...makeProjectShell(),
-          id: ContainerId.makeUnsafe("project-legacy-home"),
-          kind: "project",
+          id: FolderId.makeUnsafe("project-legacy-home"),
           title: "Home",
           workspaceRoot: homeDir,
         },
@@ -1143,14 +855,14 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "penkra_list_projects",
+        name: "penkra_list_folders",
         args: {},
       });
       const payload = toolResultJson(response.result);
-      const projects = payload.projects as Array<{ projectId: string }>;
+      const folders = payload.folders as Array<{ folderId: string }>;
       assert.deepEqual(
-        projects.map((project) => project.projectId),
-        [PROJECT_ID as string],
+        folders.map((project) => project.folderId),
+        [PROJECT_ID as string, "project-chat-container", "project-legacy-home"],
       );
     }).pipe(Effect.provide(gatewayLayer));
   });
@@ -1191,40 +903,11 @@ describe("AgentGateway", () => {
           ?.options,
         { effort: "low" },
       );
-      const antigravity = targetConstruction.antigravity as {
-        providerOptions: Array<{
-          key: string;
-          valueType: string;
-          allowedValues: ReadonlyArray<unknown>;
-          allowedValuesSource: string;
-        }>;
-        exampleTarget: { options: Record<string, unknown> };
-        optionsByModel: Record<
-          string,
-          Array<{
-            key: string;
-            valueType: string;
-            allowedValues: ReadonlyArray<unknown>;
-            allowedValuesSource: string;
-          }>
-        >;
-      };
-      assert.deepEqual(antigravity.exampleTarget.options, { reasoningEffort: "low" });
-      assert.deepEqual(
-        antigravity.providerOptions.find((option) => option.key === "reasoningEffort"),
-        {
-          key: "reasoningEffort",
-          valueType: "string",
-          allowedValues: [],
-          allowedValuesSource: "model-discovery",
-        },
-      );
-      assert.deepEqual(
-        antigravity.optionsByModel["Gemini 3.5 Flash"]?.find(
-          (option) => option.key === "reasoningEffort",
-        )?.allowedValues,
-        ["low", "high"],
-      );
+      assert.deepEqual(Object.keys(targetConstruction).toSorted(), [
+        "claudeAgent",
+        "codex",
+        "opencode",
+      ]);
 
       for (const construction of Object.values(targetConstruction)) {
         const exampleTarget = construction.exampleTarget;
@@ -1580,18 +1263,22 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("creates a standalone cross-provider thread and dispatches the initial turn", () => {
+  it.effect("creates a standalone OpenCode thread and dispatches the initial turn", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_create_thread",
-        args: { requestId: "create-grok", prompt: "analyze the feature", provider: "grok" },
+        args: {
+          requestId: "create-opencode",
+          prompt: "analyze the feature",
+          target: { provider: "opencode", model: "openai/gpt-5" },
+        },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       const payload = toolResultJson(response.result);
-      assert.equal(payload.provider, "grok");
+      assert.equal(payload.provider, "opencode");
       assert.strictEqual("parentThreadId" in payload, false);
 
       assert.equal(harness.dispatched.length, 3);
@@ -1601,9 +1288,9 @@ describe("AgentGateway", () => {
         // Gateway-created threads are ordinary top-level threads, not subagents.
         assert.strictEqual("parentThreadId" in create, false);
         assert.strictEqual("subagentNickname" in create, false);
-        assert.equal(create.modelSelection.provider, "grok");
+        assert.equal(create.modelSelection.provider, "opencode");
         // Project and runtime mode default from the calling thread.
-        assert.equal(create.projectId, PROJECT_ID);
+        assert.equal(create.folderId, PROJECT_ID);
         assert.equal(create.runtimeMode, "approval-required");
         // Same placeholder title flow as UI threads so the first-turn reactor
         // replaces it with a model-generated title.
@@ -1629,860 +1316,14 @@ describe("AgentGateway", () => {
       const response = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_create_thread",
-        args: { requestId: "create-crowded", prompt: "one more", provider: "codex" },
+        args: {
+          requestId: "create-crowded",
+          prompt: "one more",
+          target: { provider: "codex", model: "gpt-5.5" },
+        },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       assert.equal(harness.dispatched.length, 3);
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("compensates deterministic interrupted operations during gateway startup", () => {
-    const interrupted: AgentGatewayOperationRecord = {
-      operationId: "gateway:create:restart",
-      callerThreadId: "thread-parent",
-      callerTurnId: "turn-parent-active",
-      operationKind: "create_threads",
-      requestId: "restart-request",
-      fingerprint: "restart-fingerprint",
-      requestedCount: 1,
-      planJson: JSON.stringify([
-        {
-          workspaceRoot: "/tmp/demo",
-          newBranch: null,
-          plannedWorktreePath: null,
-          ownershipPreflightPassed: true,
-          ids: {
-            threadId: "agent:restart-child",
-            compensateCommandId: "agent:restart-child:compensate-delete",
-          },
-        },
-      ]),
-      status: "dispatching",
-      resultJson: null,
-      errorJson: null,
-      createdAt: NOW,
-      updatedAt: NOW,
-    };
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(
-      [
-        ...baseThreads,
-        makeThreadShell("agent:restart-child", {
-          creationSource: "penkra_mcp",
-          sourceThreadId: ThreadId.makeUnsafe("thread-parent"),
-          sourceTurnId: TurnId.makeUnsafe("turn-parent-active"),
-          gatewayOperationId: "gateway:create:restart",
-          gatewayOperationIndex: 0,
-        }),
-      ],
-      { interruptedOperations: [interrupted] },
-    );
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      assert.deepEqual(
-        harness.dispatched.filter((command) => command.type === "thread.delete"),
-        [
-          {
-            type: "thread.delete",
-            commandId: "agent:restart-child:compensate-delete",
-            threadId: "agent:restart-child",
-          },
-        ],
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.create").length,
-        0,
-      );
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("does not compensate a reserved operation that never began dispatch", () => {
-    const reserved: AgentGatewayOperationRecord = {
-      operationId: "gateway:create:reserved",
-      callerThreadId: "thread-parent",
-      callerTurnId: "turn-parent-active",
-      operationKind: "create_threads",
-      requestId: "reserved-request",
-      fingerprint: "reserved-fingerprint",
-      requestedCount: 1,
-      planJson: JSON.stringify([
-        {
-          workspaceRoot: "/tmp/demo",
-          newBranch: "user/pre-existing",
-          plannedWorktreePath: "/tmp/user-pre-existing",
-          ownershipPreflightPassed: false,
-          ids: {
-            threadId: "agent:reserved-child",
-            compensateCommandId: "agent:reserved-child:compensate-delete",
-          },
-        },
-      ]),
-      status: "reserved",
-      resultJson: null,
-      errorJson: null,
-      createdAt: NOW,
-      updatedAt: NOW,
-    };
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      interruptedOperations: [reserved],
-    });
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      assert.equal(harness.dispatched.length, 0);
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("rejects detached creation after the caller turn completed", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer([
-      makeThreadShell("thread-parent", {
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-parent-complete"),
-          state: "completed",
-          requestedAt: NOW,
-          startedAt: NOW,
-          completedAt: NOW,
-          assistantMessageId: null,
-        },
-      }),
-    ]);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args: {
-          requestId: "detached-attempt",
-          threads: [
-            {
-              prompt: "create too late",
-              target: { provider: "codex", model: "gpt-5.5" },
-            },
-          ],
-        },
-      });
-      assert.isTrue(isToolError(response.result));
-      assert.equal(
-        (toolResultJson(response.result).error as { code: string }).code,
-        "caller_turn_inactive",
-      );
-      assert.equal(harness.dispatched.length, 0);
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("compensates a child started while its ingress turn is interrupted", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      advanceParentTurnAfterDispatch: {
-        commandType: "thread.turn.start",
-        turnId: "turn-parent-active",
-        state: "interrupted",
-      },
-    });
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.postRaw({
-        authorizationHeader: "Bearer token-parent",
-        body: [
-          {
-            jsonrpc: "2.0",
-            id: 1,
-            method: "tools/call",
-            params: {
-              name: "penkra_exec_command",
-              arguments: {
-                command: testCommandForTool("penkra_create_threads", {
-                  requestId: "turn-a-plan",
-                  threads: [
-                    {
-                      prompt: "worker from turn A",
-                      target: { provider: "codex", model: "gpt-5.5" },
-                    },
-                  ],
-                }),
-              },
-            },
-          },
-          {
-            jsonrpc: "2.0",
-            id: 2,
-            method: "tools/call",
-            params: {
-              name: "penkra_exec_command",
-              arguments: {
-                command: testCommandForTool("penkra_create_threads", {
-                  requestId: "must-not-use-turn-b",
-                  threads: [
-                    {
-                      prompt: "late worker",
-                      target: { provider: "codex", model: "gpt-5.5" },
-                    },
-                  ],
-                }),
-              },
-            },
-          },
-        ],
-      });
-
-      const results = response.body as Array<{ result?: Record<string, unknown> }>;
-      assert.equal(response.status, 200);
-      assert.equal(
-        (toolResultJson(results[0]?.result).error as { code: string }).code,
-        "operation_failed",
-      );
-      assert.equal(
-        (toolResultJson(results[1]?.result).error as { code: string }).code,
-        "caller_turn_inactive",
-      );
-      assert.equal(harness.getOperationStatus("turn-parent-active"), "failed");
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.create").length,
-        1,
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.turn.start").length,
-        1,
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.delete").length,
-        1,
-      );
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("rejects every destructive tool after the caller turn completes", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer([
-      makeThreadShell("thread-parent", {
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-parent-complete"),
-          state: "completed",
-          requestedAt: NOW,
-          startedAt: NOW,
-          completedAt: NOW,
-          assistantMessageId: null,
-        },
-      }),
-      makeThreadShell("thread-child"),
-    ]);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const attempts = [
-        {
-          name: "penkra_create_threads",
-          args: {
-            requestId: "late-batch",
-            threads: [{ prompt: "late", target: { provider: "codex", model: "gpt-5.5" } }],
-          },
-        },
-        {
-          name: "penkra_create_thread",
-          args: { requestId: "late-single", prompt: "late", provider: "codex" },
-        },
-        {
-          name: "penkra_send_message",
-          args: { threadId: "thread-child", message: "late" },
-        },
-        { name: "penkra_interrupt_thread", args: { threadId: "thread-child" } },
-        {
-          name: "penkra_set_thread_title",
-          args: { threadId: "thread-child", title: "Late rename" },
-        },
-        {
-          name: "penkra_set_thread_archived",
-          args: { threadId: "thread-child", archived: true },
-        },
-      ];
-
-      for (const attempt of attempts) {
-        const response = yield* harness.callTool({ token: "token-parent", ...attempt });
-        assert.equal(
-          (toolResultJson(response.result).error as { code: string }).code,
-          "caller_turn_inactive",
-          attempt.name,
-        );
-      }
-      assert.equal(harness.dispatched.length, 0);
-
-      const read = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_list_threads",
-        args: {},
-      });
-      assert.isFalse(isToolError(read.result), toolErrorText(read.result));
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("replays an identical exact batch without creating more threads", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const args = {
-        requestId: "two-workers",
-        threads: [
-          { prompt: "worker one", target: { provider: "codex", model: "gpt-5.5" } },
-          {
-            prompt: "worker two",
-            target: { provider: "claudeAgent", model: "claude-sonnet-5" },
-          },
-        ],
-      };
-      const first = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args,
-      });
-      harness.setProviderStatuses([
-        {
-          provider: "codex",
-          status: "error",
-          available: false,
-          authStatus: "unauthenticated",
-          checkedAt: NOW,
-          message: "temporarily unavailable after dispatch",
-        },
-        {
-          provider: "claudeAgent",
-          status: "error",
-          available: false,
-          authStatus: "unauthenticated",
-          checkedAt: NOW,
-          message: "temporarily unavailable after dispatch",
-        },
-      ]);
-      const replay = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args,
-      });
-      assert.isFalse(isToolError(first.result), toolErrorText(first.result));
-      assert.isFalse(isToolError(replay.result), toolErrorText(replay.result));
-      assert.deepEqual(
-        toolResultJson(replay.result).threadIds,
-        toolResultJson(first.result).threadIds,
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.create").length,
-        2,
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.turn.start").length,
-        2,
-      );
-      const creationRecaps = harness.dispatched.filter(
-        (command) =>
-          command.type === "thread.activity.append" &&
-          command.activity.kind === "penkra.threads.created",
-      );
-      assert.equal(creationRecaps.length, 1);
-      const creationRecap = creationRecaps[0];
-      assert.equal(creationRecap?.type, "thread.activity.append");
-      if (creationRecap?.type === "thread.activity.append") {
-        assert.equal(creationRecap.threadId, ThreadId.makeUnsafe("thread-parent"));
-        assert.equal(creationRecap.activity.turnId, TurnId.makeUnsafe("turn-parent-active"));
-        assert.deepInclude(creationRecap.activity.payload as Record<string, unknown>, {
-          source: "penkra_mcp",
-          requestedCount: 2,
-          createdCount: 2,
-        });
-      }
-      const conflict = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args: {
-          ...args,
-          threads: [
-            {
-              prompt: "changed payload",
-              target: { provider: "codex", model: "made-up-model" },
-            },
-          ],
-        },
-      });
-      assert.equal(
-        (toolResultJson(conflict.result).error as { code: string }).code,
-        "idempotency_conflict",
-      );
-      const operationId = toolResultJson(first.result).operationId as string;
-      const creates = harness.dispatched.filter((command) => command.type === "thread.create");
-      assert.deepEqual(
-        creates.map((command) => ({
-          creationSource: command.creationSource,
-          sourceThreadId: command.sourceThreadId,
-          sourceTurnId: command.sourceTurnId,
-          gatewayOperationId: command.gatewayOperationId,
-          gatewayOperationIndex: command.gatewayOperationIndex,
-          parentThreadId: command.parentThreadId,
-        })),
-        [0, 1].map((index) => ({
-          creationSource: "penkra_mcp" as const,
-          sourceThreadId: ThreadId.makeUnsafe("thread-parent"),
-          sourceTurnId: TurnId.makeUnsafe("turn-parent-active"),
-          gatewayOperationId: operationId,
-          gatewayOperationIndex: index,
-          parentThreadId: undefined,
-        })),
-      );
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("coalesces concurrent identical creation calls onto one operation", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      dispatchDelayMs: 15,
-    });
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const call = () =>
-        harness.callTool({
-          token: "token-parent",
-          name: "penkra_create_threads",
-          args: {
-            requestId: "concurrent-exact-plan",
-            threads: [
-              {
-                prompt: "one exact worker",
-                target: { provider: "codex", model: "gpt-5.5" },
-              },
-            ],
-          },
-        });
-      const fibers = yield* Effect.forEach([call(), call()], (effect) =>
-        effect.pipe(Effect.forkChild),
-      );
-      yield* TestClock.adjust("1 second");
-      const responses = yield* Effect.forEach(fibers, (fiber) => Fiber.join(fiber));
-      const first = responses[0]!;
-      const second = responses[1]!;
-      assert.isFalse(isToolError(first.result), toolErrorText(first.result));
-      assert.isFalse(isToolError(second.result), toolErrorText(second.result));
-      assert.deepEqual(toolResultJson(first.result), toolResultJson(second.result));
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.create").length,
-        1,
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.turn.start").length,
-        1,
-      );
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("locks a second distinct creation plan in the same caller turn", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const create = (requestId: string, prompt: string) =>
-        harness.callTool({
-          token: "token-parent",
-          name: "penkra_create_threads",
-          args: {
-            requestId,
-            threads: [{ prompt, target: { provider: "codex", model: "gpt-5.5" } }],
-          },
-        });
-      yield* create("first-plan", "first");
-      const second = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args: {
-          requestId: "second-plan",
-          threads: [
-            {
-              prompt: "invalid second plan",
-              target: { provider: "codex", model: "made-up-model" },
-            },
-          ],
-        },
-      });
-      assert.isTrue(isToolError(second.result));
-      assert.equal(
-        (toolResultJson(second.result).error as { code: string }).code,
-        "creation_plan_locked",
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.create").length,
-        1,
-      );
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("rejects guessed Terra Low slugs before any dispatch", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args: {
-          requestId: "bad-terra",
-          threads: [
-            {
-              prompt: "inspect repo",
-              target: { provider: "codex", model: "gpt-5.6-terra-low" },
-            },
-          ],
-        },
-      });
-      assert.isTrue(isToolError(response.result));
-      assert.equal(
-        (toolResultJson(response.result).error as { code: string }).code,
-        "model_unavailable",
-      );
-      assert.equal(harness.dispatched.length, 0);
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("rejects an unavailable or unauthenticated provider before dispatch", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      providerStatuses: [
-        {
-          provider: "claudeAgent",
-          status: "error",
-          available: false,
-          authStatus: "unauthenticated",
-          checkedAt: NOW,
-          message: "Claude is not authenticated.",
-        },
-      ],
-    });
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args: {
-          requestId: "unavailable-provider",
-          threads: [
-            {
-              prompt: "must not dispatch",
-              target: { provider: "claudeAgent", model: "claude-sonnet-5" },
-            },
-          ],
-        },
-      });
-      assert.equal(
-        (toolResultJson(response.result).error as { code: string }).code,
-        "provider_unavailable",
-      );
-      assert.equal(harness.dispatched.length, 0);
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("persists canonical Terra Low as model plus reasoning option", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args: {
-          requestId: "terra-low",
-          threads: [
-            {
-              prompt: "inspect repo",
-              target: {
-                provider: "codex",
-                model: "gpt-5.6-terra",
-                options: { reasoningEffort: "low" },
-              },
-            },
-          ],
-        },
-      });
-      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
-      const create = harness.dispatched.find((command) => command.type === "thread.create");
-      assert.equal(create?.type, "thread.create");
-      if (create?.type === "thread.create") {
-        assert.deepEqual(create.modelSelection, {
-          provider: "codex",
-          model: "gpt-5.6-terra",
-          options: { reasoningEffort: "low" },
-        });
-      }
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("preflights the whole batch so one invalid target creates nothing", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args: {
-          requestId: "atomic-preflight",
-          threads: [
-            { prompt: "valid", target: { provider: "codex", model: "gpt-5.5" } },
-            {
-              prompt: "invalid",
-              target: { provider: "claudeAgent", model: "made-up-claude" },
-            },
-          ],
-        },
-      });
-      assert.isTrue(isToolError(response.result));
-      assert.equal(harness.dispatched.length, 0);
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("claims and terminalizes a reservation before observing request interruption", () => {
-    const reservationCreated = Deferred.makeUnsafe<void>();
-    const releaseReservation = Deferred.makeUnsafe<void>();
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      pauseAfterReservation: {
-        entered: reservationCreated,
-        release: releaseReservation,
-      },
-    });
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const requestFiber = yield* harness
-        .callTool({
-          token: "token-parent",
-          name: "penkra_create_threads",
-          args: {
-            requestId: "interrupt-after-reservation",
-            threads: [
-              {
-                prompt: "must not strand a reserved operation",
-                target: { provider: "codex", model: "gpt-5.5" },
-              },
-            ],
-          },
-        })
-        .pipe(Effect.forkChild);
-      yield* Deferred.await(reservationCreated);
-      const interruptFiber = yield* Fiber.interrupt(requestFiber).pipe(
-        Effect.forkChild({ startImmediately: true }),
-      );
-      yield* Deferred.succeed(releaseReservation, undefined);
-      yield* Fiber.join(interruptFiber);
-
-      const exit = yield* Fiber.await(requestFiber);
-      assert.isTrue(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause));
-      assert.equal(harness.dispatched.length, 0);
-      assert.equal(harness.getOperationStatus("turn-parent-active"), "failed");
-      assert.equal(harness.getOperationErrorCode("turn-parent-active"), "request_interrupted");
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("compensates a created thread when its MCP request fiber is interrupted", () => {
-    const threadCreated = Deferred.makeUnsafe<void>();
-    const releaseThreadCreate = Deferred.makeUnsafe<void>();
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      pauseAfterDispatch: {
-        commandType: "thread.create",
-        entered: threadCreated,
-        release: releaseThreadCreate,
-      },
-    });
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const requestFiber = yield* harness
-        .callTool({
-          token: "token-parent",
-          name: "penkra_create_threads",
-          args: {
-            requestId: "interrupt-after-thread-create",
-            threads: [
-              {
-                prompt: "must compensate the interrupted child",
-                target: { provider: "codex", model: "gpt-5.5" },
-              },
-            ],
-          },
-        })
-        .pipe(Effect.forkChild);
-      yield* Deferred.await(threadCreated);
-      const interruptFiber = yield* Fiber.interrupt(requestFiber).pipe(
-        Effect.forkChild({ startImmediately: true }),
-      );
-      yield* Deferred.succeed(releaseThreadCreate, undefined);
-      yield* Fiber.join(interruptFiber);
-
-      const exit = yield* Fiber.await(requestFiber);
-      assert.isTrue(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause));
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.create").length,
-        1,
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.turn.start").length,
-        0,
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.delete").length,
-        1,
-      );
-      assert.equal(harness.getOperationStatus("turn-parent-active"), "failed");
-      assert.equal(harness.getOperationErrorCode("turn-parent-active"), "request_interrupted");
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("keeps a completed operation committed when its request is interrupted", () => {
-    const operationCompleted = Deferred.makeUnsafe<void>();
-    const releaseCompletion = Deferred.makeUnsafe<void>();
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      pauseAfterOperationComplete: {
-        entered: operationCompleted,
-        release: releaseCompletion,
-      },
-    });
-    const request = {
-      token: "token-parent",
-      name: "penkra_create_threads",
-      args: {
-        requestId: "interrupt-after-operation-complete",
-        threads: [
-          {
-            prompt: "keep the committed child",
-            target: { provider: "codex", model: "gpt-5.5" },
-          },
-        ],
-      },
-    } as const;
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const requestFiber = yield* harness.callTool(request).pipe(Effect.forkChild);
-      yield* Deferred.await(operationCompleted);
-      const interruptFiber = yield* Fiber.interrupt(requestFiber).pipe(
-        Effect.forkChild({ startImmediately: true }),
-      );
-      yield* Deferred.succeed(releaseCompletion, undefined);
-      yield* Fiber.join(interruptFiber);
-
-      const exit = yield* Fiber.await(requestFiber);
-      assert.isTrue(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause));
-      assert.equal(harness.getOperationStatus("turn-parent-active"), "completed");
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.create").length,
-        1,
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.turn.start").length,
-        1,
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.delete").length,
-        0,
-      );
-
-      const replay = yield* harness.callTool(request);
-      assert.equal(toolResultJson(replay.result).createdCount, 1);
-      assert.equal(harness.dispatched.length, 2);
-      assert.equal(harness.getOperationStatus("turn-parent-active"), "completed");
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("compensates operation-owned threads after dispatch failure", () => {
-    let turnStarts = 0;
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      failDispatch: (command) => {
-        if (command.type !== "thread.turn.start") return false;
-        turnStarts += 1;
-        return turnStarts === 2;
-      },
-    });
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args: {
-          requestId: "compensated-batch",
-          threads: [
-            {
-              prompt: "first",
-              target: { provider: "codex", model: "gpt-5.5" },
-            },
-            {
-              prompt: "second",
-              target: { provider: "claudeAgent", model: "claude-sonnet-5" },
-            },
-          ],
-        },
-      });
-      assert.isTrue(isToolError(response.result));
-      assert.equal(
-        (toolResultJson(response.result).error as { code: string }).code,
-        "operation_failed",
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.create").length,
-        2,
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.delete").length,
-        2,
-      );
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("compensates successful dispatches when the replayable result cannot persist", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      failOperationComplete: true,
-    });
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args: {
-          requestId: "completion-persistence-failure",
-          threads: [
-            {
-              prompt: "dispatch then compensate",
-              target: { provider: "codex", model: "gpt-5.5" },
-            },
-          ],
-        },
-      });
-      assert.isTrue(isToolError(response.result));
-      assert.equal(
-        (toolResultJson(response.result).error as { code: string }).code,
-        "operation_failed",
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.create").length,
-        1,
-      );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.delete").length,
-        1,
-      );
-      assert.equal(harness.getOperationStatus("turn-parent-active"), "failed");
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("keeps a durable compensating status when cleanup itself fails", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      failDispatch: (command) =>
-        command.type === "thread.turn.start" || command.type === "thread.delete",
-    });
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args: {
-          requestId: "cleanup-failure",
-          threads: [
-            {
-              prompt: "fail and compensate",
-              target: { provider: "codex", model: "gpt-5.5" },
-            },
-          ],
-        },
-      });
-      const payload = toolResultJson(response.result);
-      assert.equal((payload.error as { code: string }).code, "operation_failed");
-      assert.equal(
-        (payload.error as { details: { compensationPending: boolean } }).details
-          .compensationPending,
-        true,
-      );
-      assert.equal(harness.getOperationStatus("turn-parent-active"), "compensating");
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.create").length,
-        1,
-      );
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -2693,140 +1534,6 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("replays the original two-agent incident without runaway replacements", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const args = {
-        requestId: "repo-summary-pair",
-        threads: [
-          {
-            prompt: "What is this repository about?",
-            target: {
-              provider: "codex",
-              model: "gpt-5.6-terra",
-              options: { reasoningEffort: "low" },
-            },
-          },
-          {
-            prompt: "What is this repository about?",
-            target: { provider: "claudeAgent", model: "claude-sonnet-5" },
-          },
-        ],
-      };
-      const created = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args,
-      });
-      const replay = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args,
-      });
-      assert.isFalse(isToolError(created.result), toolErrorText(created.result));
-      assert.isFalse(isToolError(replay.result), toolErrorText(replay.result));
-      const threadIds = toolResultJson(created.result).threadIds as string[];
-      assert.deepEqual(toolResultJson(replay.result).threadIds, threadIds);
-      assert.equal(threadIds.length, 2);
-
-      threadIds.forEach((threadId, index) => {
-        const runId = TurnId.makeUnsafe(`turn-repo-summary-${index}`);
-        const messageId = MessageId.makeUnsafe(`message-repo-summary-${index}`);
-        const shell = makeThreadShell(threadId, {
-          modelSelection:
-            index === 0
-              ? {
-                  provider: "codex",
-                  model: "gpt-5.6-terra",
-                  options: { reasoningEffort: "low" },
-                }
-              : { provider: "claudeAgent", model: "claude-sonnet-5" },
-          latestTurn: {
-            turnId: runId,
-            state: "completed",
-            requestedAt: NOW,
-            startedAt: NOW,
-            completedAt: NOW,
-            assistantMessageId: messageId,
-          },
-        });
-        harness.setThreadDetail({
-          ...makeThreadDetail(shell),
-          messages: [
-            {
-              id: messageId,
-              role: "assistant",
-              text: index === 0 ? "Terra repository summary" : "Claude repository summary",
-              turnId: runId,
-              streaming: false,
-              source: "native",
-              createdAt: NOW,
-              updatedAt: NOW,
-            },
-          ],
-        });
-      });
-
-      const waited = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_wait_for_threads",
-        args: { threadIds, timeoutMs: 0 },
-      });
-      assert.deepEqual(
-        (toolResultJson(waited.result).threads as Array<{ summary: string }>).map(
-          ({ summary }) => summary,
-        ),
-        ["Terra repository summary", "Claude repository summary"],
-      );
-
-      harness.setThreadDetail(
-        makeThreadDetail(
-          makeThreadShell("thread-parent", {
-            latestTurn: {
-              turnId: TurnId.makeUnsafe("turn-parent-active"),
-              state: "completed",
-              requestedAt: NOW,
-              startedAt: NOW,
-              completedAt: NOW,
-              assistantMessageId: null,
-            },
-          }),
-        ),
-      );
-      const detachedFallback = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_threads",
-        args: {
-          requestId: "detached-opencode-fallback",
-          threads: [
-            {
-              prompt: "Try again",
-              target: { provider: "opencode", model: "openai/gpt-5" },
-            },
-          ],
-        },
-      });
-      assert.equal(
-        (toolResultJson(detachedFallback.result).error as { code: string }).code,
-        "caller_turn_inactive",
-      );
-      const creates = harness.dispatched.filter((command) => command.type === "thread.create");
-      assert.equal(creates.length, 2);
-      assert.deepEqual(
-        creates.map((command) => command.modelSelection),
-        [
-          {
-            provider: "codex",
-            model: "gpt-5.6-terra",
-            options: { reasoningEffort: "low" },
-          },
-          { provider: "claudeAgent", model: "claude-sonnet-5" },
-        ],
-      );
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
   it.effect("wait reports idle, failure, timeout, and a later-completed pinned run", () => {
     const idle = makeThreadShell("thread-wait-idle");
     const failed = makeThreadShell("thread-wait-failed", {
@@ -3029,6 +1736,22 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
+  it.effect("rejects self-targeted sends before they fabricate a stacked user turn", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_send_message",
+        args: { threadId: "thread-parent", message: "continue" },
+      });
+      assert.isTrue(isToolError(response.result));
+      assert.include(toolErrorText(response.result), "agent-authored message with user role");
+      assert.include(toolErrorText(response.result), "starts another turn");
+      assert.equal(harness.dispatched.length, 0);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
   it.effect("rejects interrupts that would drive a higher-privileged thread", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer([
       ...baseThreads,
@@ -3069,7 +1792,7 @@ describe("AgentGateway", () => {
         args: {
           requestId: "create-escalated",
           prompt: "escalate please",
-          provider: "codex",
+          target: { provider: "codex", model: "gpt-5.5" },
           runtimeMode: "full-access",
         },
       });
@@ -3090,10 +1813,10 @@ describe("AgentGateway", () => {
       });
       yield* harness.callTool({
         token: "token-parent",
-        name: "penkra_set_thread_archived",
-        args: { threadId: "thread-child", archived: true },
+        name: "penkra_archive_thread",
+        args: { threadId: "thread-child" },
       });
-      assert.equal(harness.dispatched[0]?.type, "thread.meta.update");
+      assert.equal(harness.dispatched[0]?.type, "thread.update");
       assert.equal(harness.dispatched[1]?.type, "thread.archive");
     }).pipe(Effect.provide(gatewayLayer));
   });
@@ -3116,8 +1839,8 @@ describe("AgentGateway", () => {
 
       const archive = yield* harness.callTool({
         token: "token-parent",
-        name: "penkra_set_thread_archived",
-        args: { threadId: "thread-elevated", archived: true },
+        name: "penkra_archive_thread",
+        args: { threadId: "thread-elevated" },
       });
       assert.isTrue(isToolError(archive.result));
       assert.include(toolErrorText(archive.result), "full-access");

@@ -22,7 +22,7 @@
  * → "interrupted", with `completedAt`), so the UI clears blocked composers and
  * spinners instead of hanging.
  *
- * The runtime idle watchdog (AcpTurnIdleWatchdog) only protects turns started in
+ * The runtime idle watchdog (ProviderTurnIdleWatchdog) only protects turns started in
  * the *current* process; this is its restart-time counterpart for turns
  * orphaned by a process boundary the watchdog never saw.
  *

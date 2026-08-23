@@ -238,15 +238,15 @@ const failLiveUiStreamForSnapshotResync = (report: LiveUiStreamDropReport) =>
 function isShellRelevantEvent(event: OrchestrationEvent): boolean {
   return (
     event.type === "space.created" ||
-    event.type === "space.meta-updated" ||
-    event.type === "space.order-updated" ||
+    event.type === "space.updated" ||
     event.type === "space.archived" ||
     event.type === "space.restored" ||
     event.type === "space.deleted" ||
     event.type === "sidebar.layout-updated" ||
-    event.type === "project.created" ||
-    event.type === "project.meta-updated" ||
-    event.type === "project.deleted" ||
+    event.type === "folder.created" ||
+    event.type === "folder.updated" ||
+    event.type === "folder.moved" ||
+    event.type === "folder.deleted" ||
     event.type === "thread.deleted" ||
     (event.aggregateKind === "thread" && shouldPublishThreadShellForEvent(event))
   );
@@ -261,7 +261,7 @@ function isThreadDetailEventFor(threadId: ThreadId, event: OrchestrationEvent): 
       event.type === "thread.activity-read-model-updated" ||
       event.type === "thread.conversation-rolled-back" ||
       event.type === "thread.session-set" ||
-      event.type === "thread.meta-updated" ||
+      event.type === "thread.updated" ||
       event.type === "thread.pinned-message-added" ||
       event.type === "thread.pinned-message-removed" ||
       event.type === "thread.pinned-message-done-set" ||
@@ -485,7 +485,7 @@ const makeWsRpcHandlersLayer = () =>
             const thread = yield* projectionReadModelQuery.getThreadShellById(command.threadId);
             const project = yield* Option.match(thread, {
               onNone: () => Effect.succeed(Option.none()),
-              onSome: (value) => projectionReadModelQuery.getProjectShellById(value.projectId),
+              onSome: (value) => projectionReadModelQuery.getFolderShellById(value.folderId),
             });
             const cwd = Option.flatMap(thread, (value) =>
               Option.fromNullishOr(
@@ -532,7 +532,7 @@ const makeWsRpcHandlersLayer = () =>
           return;
         }
         yield* orchestrationEngine.dispatch({
-          type: "thread.meta.update",
+          type: "thread.update",
           commandId: CommandId.makeUnsafe(`server:terminal-title-rename:${crypto.randomUUID()}`),
           threadId: ThreadId.makeUnsafe(input.threadId),
           title: nextTitle,
@@ -556,7 +556,7 @@ const makeWsRpcHandlersLayer = () =>
           });
           if (trackedServer) {
             yield* devServerManager
-              .stop({ projectId: trackedServer.projectId })
+              .stop({ folderId: trackedServer.folderId })
               .pipe(Effect.catch(() => Effect.void));
           }
         }
@@ -589,7 +589,6 @@ const makeWsRpcHandlersLayer = () =>
       ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, WsRpcError> => {
         switch (event.type) {
           case "space.created":
-          case "space.meta-updated":
           case "space.restored":
             return projectionReadModelQuery.getSpaceShellById(event.payload.spaceId).pipe(
               Effect.map((space) =>
@@ -603,14 +602,27 @@ const makeWsRpcHandlersLayer = () =>
                 toWsRpcError(cause, "Failed to read a Space shell update"),
               ),
             );
-          case "space.order-updated":
-            return Effect.succeed(
-              Option.some({
-                kind: "space-order-updated" as const,
-                sequence: event.sequence,
-                orderedSpaceIds: event.payload.orderedSpaceIds,
-              }),
-            );
+          case "space.updated":
+            return event.payload.orderedSpaceIds !== undefined
+              ? Effect.succeed(
+                  Option.some({
+                    kind: "space-order-updated" as const,
+                    sequence: event.sequence,
+                    orderedSpaceIds: event.payload.orderedSpaceIds,
+                  }),
+                )
+              : projectionReadModelQuery.getSpaceShellById(event.payload.spaceId).pipe(
+                  Effect.map((space) =>
+                    Option.map(space, (nextSpace) => ({
+                      kind: "space-upserted" as const,
+                      sequence: event.sequence,
+                      space: nextSpace,
+                    })),
+                  ),
+                  Effect.mapError((cause) =>
+                    toWsRpcError(cause, "Failed to read a Space shell update"),
+                  ),
+                );
           case "space.deleted":
           case "space.archived":
             return Effect.succeed(
@@ -627,9 +639,9 @@ const makeWsRpcHandlersLayer = () =>
             );
           case "sidebar.layout-updated":
             return Effect.all({
-              projects: Effect.forEach(event.payload.projectUpdates, (update) =>
+              folders: Effect.forEach(event.payload.folderUpdates, (update) =>
                 projectionReadModelQuery
-                  .getProjectShellById(update.projectId)
+                  .getFolderShellById(update.folderId)
                   .pipe(Effect.map(Option.getOrNull)),
               ),
               threads: Effect.forEach(event.payload.threadUpdates, (update) =>
@@ -638,11 +650,11 @@ const makeWsRpcHandlersLayer = () =>
                   .pipe(Effect.map(Option.getOrNull)),
               ),
             }).pipe(
-              Effect.map(({ projects, threads }) =>
+              Effect.map(({ folders, threads }) =>
                 Option.some({
                   kind: "sidebar-layout-updated" as const,
                   sequence: event.sequence,
-                  projects: projects.filter((project) => project !== null),
+                  folders: folders.filter((project) => project !== null),
                   threads: threads.filter((thread) => thread !== null),
                 }),
               ),
@@ -650,26 +662,27 @@ const makeWsRpcHandlersLayer = () =>
                 toWsRpcError(cause, "Failed to read a sidebar layout update"),
               ),
             );
-          case "project.created":
-          case "project.meta-updated":
-            return projectionReadModelQuery.getProjectShellById(event.payload.projectId).pipe(
-              Effect.map((project) =>
-                Option.map(project, (nextProject) => ({
-                  kind: "project-upserted" as const,
+          case "folder.created":
+          case "folder.updated":
+          case "folder.moved":
+            return projectionReadModelQuery.getFolderShellById(event.payload.folderId).pipe(
+              Effect.map((folder) =>
+                Option.map(folder, (nextFolder) => ({
+                  kind: "folder-upserted" as const,
                   sequence: event.sequence,
-                  project: nextProject,
+                  folder: nextFolder,
                 })),
               ),
               Effect.mapError((cause) =>
                 toWsRpcError(cause, "Failed to read a project shell update"),
               ),
             );
-          case "project.deleted":
+          case "folder.deleted":
             return Effect.succeed(
               Option.some({
-                kind: "project-removed" as const,
+                kind: "folder-removed" as const,
                 sequence: event.sequence,
-                projectId: event.payload.projectId,
+                folderId: event.payload.folderId,
               }),
             );
           case "thread.deleted":
@@ -706,8 +719,7 @@ const makeWsRpcHandlersLayer = () =>
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           rpcEffect(
             Effect.gen(function* () {
-              const { command: normalizedCommand, prepareWorkspaceRoot } =
-                yield* normalizeDispatchCommand({ command });
+              const { command: normalizedCommand } = yield* normalizeDispatchCommand({ command });
               const observeFirstTurnLifecycle =
                 normalizedCommand.type === "thread.create" ||
                 normalizedCommand.type === "thread.turn.start" ||
@@ -748,12 +760,6 @@ const makeWsRpcHandlersLayer = () =>
                       ),
                 ),
               );
-              // Only scaffold managed workspace-root subdirectories (Inbox/Outbox/work/outputs)
-              // AFTER the decider has accepted the command. A rejected dispatch (e.g. a
-              // cross-kind workspace-root ownership conflict) must never mutate the filesystem.
-              if (prepareWorkspaceRoot) {
-                yield* prepareWorkspaceRoot;
-              }
               return result;
             }),
             "Failed to dispatch orchestration command",
@@ -986,7 +992,7 @@ const makeWsRpcHandlersLayer = () =>
         [WS_METHODS.subscribeProjectDevServerEvents]: (_, { clientId }) =>
           streamAdmission.guard(
             clientId,
-            { key: "projects.dev-servers" },
+            { key: "folders.dev-servers" },
             Stream.concat(
               Stream.fromEffect(
                 devServerManager.list.pipe(
@@ -999,7 +1005,7 @@ const makeWsRpcHandlersLayer = () =>
                 ),
               ),
               bufferLiveUiStream(devServerManager.stream, {
-                label: "projects.dev-servers",
+                label: "folders.dev-servers",
                 onDroppedEvents: failLiveUiStreamForSnapshotResync,
               }),
             ),
@@ -1007,9 +1013,9 @@ const makeWsRpcHandlersLayer = () =>
         [WS_METHODS.subscribeProjectWorkspaceChanges]: (_, { clientId }) =>
           streamAdmission.guard(
             clientId,
-            { key: "projects.workspace-changes" },
+            { key: "folders.workspace-changes" },
             bufferLiveUiStream(workspaceWatcher.stream, {
-              label: "projects.workspace-changes",
+              label: "folders.workspace-changes",
             }),
           ),
         [WS_METHODS.filesystemBrowse]: (input) =>

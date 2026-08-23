@@ -2,6 +2,9 @@
 
 Penkra keeps two documentation audiences separate.
 
+[`concepts.md`](concepts.md) is the normative glossary for the product model shared by both
+audiences. Other guides link to those definitions instead of creating local variants.
+
 ## Public App-author documentation
 
 [`app-development.md`](app-development.md) is the public contract for people and agents creating

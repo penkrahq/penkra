@@ -1,4 +1,4 @@
-import { CommandId, MessageId, ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
+import { CommandId, MessageId, FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { type CxOptions, cx } from "class-variance-authority";
 import { twMerge } from "tailwind-merge";
 import * as Random from "effect/Random";
@@ -25,7 +25,7 @@ export function randomUUID(): string {
 
 export const newCommandId = (): CommandId => CommandId.makeUnsafe(randomUUID());
 
-export const newProjectId = (): ContainerId => ContainerId.makeUnsafe(randomUUID());
+export const newFolderId = (): FolderId => FolderId.makeUnsafe(randomUUID());
 
 export const newSpaceId = (): SpaceId => SpaceId.makeUnsafe(randomUUID());
 

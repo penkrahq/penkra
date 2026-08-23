@@ -298,7 +298,7 @@ export function resolveThreadDetailSubscriptionLeaseIds(input: {
   for (const threadId of input.visibleThreadIds) {
     if (threadIds.size >= WS_STREAM_LIMITS.threadPerClient) break;
     // A known local draft has no authoritative snapshot until `thread.create`
-    // projects its shell row. Subscribing earlier turns that expected state into
+    // folders its shell row. Subscribing earlier turns that expected state into
     // THREAD_SNAPSHOT_NOT_FOUND after the bounded bootstrap retry. Once the row
     // exists, snapshot-then-replay covers every event committed before the lease.
     // Unknown visible ids still subscribe so invalid/deleted routes fail visibly.

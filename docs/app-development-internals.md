@@ -1,7 +1,9 @@
 # Penkra App-platform development internals
 
 This document is for contributors working on Penkra itself. App authors should use the public
-[`Build a Penkra App`](app-development.md) guide instead.
+[`Build a Penkra App`](app-development.md) guide instead. Both audiences use the normative
+[Penkra concepts](concepts.md) definitions for Space, Thread, folder, App, operation, controller,
+tab, installation, Skill, and sideload.
 
 ## Product and registry environments
 
@@ -23,13 +25,13 @@ desktop's display name.
 Every supported desktop flavor exposes the public App-author commands through
 `penkra_exec_command`:
 
-```text
-penkra app test <directory>
-penkra app package <directory> --output <path>
-penkra app sideload <directory>
-penkra app status [--app-id <app-id>]
-penkra app publish <directory> [--visibility public|private]
-penkra app access <invite|list|revoke> ...
+```json
+{ "command": ["penkra", "app", "test", "<directory>"] }
+{ "command": ["penkra", "app", "package", "<directory>"], "flags": { "output": "<path>" } }
+{ "command": ["penkra", "app", "sideload", "<directory>"] }
+{ "command": ["penkra", "app", "status"], "flags": { "app-id": "<app-id>" } }
+{ "command": ["penkra", "app", "publish", "<directory>"], "flags": { "visibility": "private" } }
+{ "command": ["penkra", "app", "access", "<invite|list|revoke>"], "flags": {} }
 ```
 
 These are registered host operations, never native executables or provider-shell commands.

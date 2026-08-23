@@ -4,7 +4,7 @@
 
 import {
   ModelSelection,
-  ContainerId,
+  FolderId,
   ProviderConnectionId,
   ProviderKind,
   ProviderMentionReference,
@@ -32,7 +32,7 @@ import {
   normalizeFileComments,
   normalizeTerminalContextsForThread,
   projectDraftThreadEntryPointFromKey,
-  projectIdFromDraftThreadMappingKey,
+  folderIdFromDraftThreadMappingKey,
   PersistedComposerImageAttachment,
   type ComposerDraftStoreState,
   type ComposerPromptHistorySavedDraft,
@@ -242,7 +242,7 @@ type LegacyPersistedComposerDraftStoreState = PersistedComposerDraftStoreState &
   LegacyV2StoreFields;
 
 const PersistedDraftThreadState = Schema.Struct({
-  projectId: ContainerId,
+  folderId: FolderId,
   spaceId: Schema.optionalKey(Schema.NullOr(SpaceId)),
   createdAt: Schema.String,
   runtimeMode: RuntimeMode,
@@ -256,7 +256,7 @@ type PersistedDraftThreadState = typeof PersistedDraftThreadState.Type;
 const PersistedComposerDraftStoreState = Schema.Struct({
   draftsByThreadId: Schema.Record(ThreadId, PersistedComposerThreadDraftState),
   draftThreadsByThreadId: Schema.Record(ThreadId, PersistedDraftThreadState),
-  projectDraftThreadIdByProjectId: Schema.Record(ContainerId, ThreadId),
+  projectDraftThreadIdByFolderId: Schema.Record(FolderId, ThreadId),
   stickyModelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
   ),
@@ -271,7 +271,7 @@ export type PersistedComposerDraftStoreState = typeof PersistedComposerDraftStor
 const EMPTY_PERSISTED_DRAFT_STORE_STATE = Object.freeze<PersistedComposerDraftStoreState>({
   draftsByThreadId: {},
   draftThreadsByThreadId: {},
-  projectDraftThreadIdByProjectId: {},
+  projectDraftThreadIdByFolderId: {},
   stickyModelSelectionByProvider: {},
   stickyConnectionByProvider: {},
   stickyActiveProvider: null,
@@ -613,10 +613,10 @@ function normalizePersistedQueuedTurns(
 
 function normalizePersistedDraftThreads(
   rawDraftThreadsByThreadId: unknown,
-  rawProjectDraftThreadIdByProjectId: unknown,
+  rawProjectDraftThreadIdByFolderId: unknown,
 ): Pick<
   PersistedComposerDraftStoreState,
-  "draftThreadsByThreadId" | "projectDraftThreadIdByProjectId"
+  "draftThreadsByThreadId" | "projectDraftThreadIdByFolderId"
 > {
   const draftThreadsByThreadId: Record<ThreadId, PersistedDraftThreadState> = {};
   if (rawDraftThreadsByThreadId && typeof rawDraftThreadsByThreadId === "object") {
@@ -630,7 +630,7 @@ function normalizePersistedDraftThreads(
         continue;
       }
       const candidateDraftThread = rawDraftThread as Record<string, unknown>;
-      const projectId = candidateDraftThread.projectId;
+      const folderId = candidateDraftThread.folderId;
       const createdAt = candidateDraftThread.createdAt;
       const workingDirectory = candidateDraftThread.workingDirectory;
       const promotedTo =
@@ -638,11 +638,11 @@ function normalizePersistedDraftThreads(
         candidateDraftThread.promotedTo.length > 0
           ? (candidateDraftThread.promotedTo as ThreadId)
           : undefined;
-      if (typeof projectId !== "string" || projectId.length === 0) {
+      if (typeof folderId !== "string" || folderId.length === 0) {
         continue;
       }
       draftThreadsByThreadId[threadId as ThreadId] = {
-        projectId: projectId as ContainerId,
+        folderId: folderId as FolderId,
         spaceId:
           typeof candidateDraftThread.spaceId === "string"
             ? SpaceId.makeUnsafe(candidateDraftThread.spaceId)
@@ -663,36 +663,33 @@ function normalizePersistedDraftThreads(
     }
   }
 
-  const projectDraftThreadIdByProjectId: Record<string, ThreadId> = {};
-  if (
-    rawProjectDraftThreadIdByProjectId &&
-    typeof rawProjectDraftThreadIdByProjectId === "object"
-  ) {
+  const projectDraftThreadIdByFolderId: Record<string, ThreadId> = {};
+  if (rawProjectDraftThreadIdByFolderId && typeof rawProjectDraftThreadIdByFolderId === "object") {
     for (const [mappingKey, threadId] of Object.entries(
-      rawProjectDraftThreadIdByProjectId as Record<string, unknown>,
+      rawProjectDraftThreadIdByFolderId as Record<string, unknown>,
     )) {
-      const projectId = projectIdFromDraftThreadMappingKey(mappingKey);
+      const folderId = folderIdFromDraftThreadMappingKey(mappingKey);
       const entryPoint = projectDraftThreadEntryPointFromKey(mappingKey);
       if (
-        typeof projectId === "string" &&
-        projectId.length > 0 &&
+        typeof folderId === "string" &&
+        folderId.length > 0 &&
         typeof threadId === "string" &&
         threadId.length > 0
       ) {
-        projectDraftThreadIdByProjectId[mappingKey] = threadId as ThreadId;
+        projectDraftThreadIdByFolderId[mappingKey] = threadId as ThreadId;
         if (!draftThreadsByThreadId[threadId as ThreadId]) {
           draftThreadsByThreadId[threadId as ThreadId] = {
-            projectId: projectId as ContainerId,
+            folderId: folderId as FolderId,
             spaceId: null,
             createdAt: new Date().toISOString(),
             runtimeMode: DEFAULT_RUNTIME_MODE,
             entryPoint,
             workingDirectory: null,
           };
-        } else if (draftThreadsByThreadId[threadId as ThreadId]?.projectId !== projectId) {
+        } else if (draftThreadsByThreadId[threadId as ThreadId]?.folderId !== folderId) {
           draftThreadsByThreadId[threadId as ThreadId] = {
             ...draftThreadsByThreadId[threadId as ThreadId]!,
-            projectId: projectId as ContainerId,
+            folderId: folderId as FolderId,
           };
         } else if (draftThreadsByThreadId[threadId as ThreadId]?.entryPoint !== entryPoint) {
           draftThreadsByThreadId[threadId as ThreadId] = {
@@ -704,7 +701,7 @@ function normalizePersistedDraftThreads(
     }
   }
 
-  return { draftThreadsByThreadId, projectDraftThreadIdByProjectId };
+  return { draftThreadsByThreadId, projectDraftThreadIdByFolderId };
 }
 
 function normalizePersistedDraftsByThreadId(
@@ -1148,7 +1145,7 @@ export function partializeComposerDraftStoreState(
   return {
     draftsByThreadId: persistedDraftsByThreadId,
     draftThreadsByThreadId: state.draftThreadsByThreadId,
-    projectDraftThreadIdByProjectId: state.projectDraftThreadIdByProjectId,
+    projectDraftThreadIdByFolderId: state.projectDraftThreadIdByFolderId,
     stickyModelSelectionByProvider: state.stickyModelSelectionByProvider,
     stickyConnectionByProvider: state.stickyConnectionByProvider,
     stickyActiveProvider: state.stickyActiveProvider,
@@ -1162,11 +1159,10 @@ export function normalizeCurrentPersistedComposerDraftStoreState(
     return EMPTY_PERSISTED_DRAFT_STORE_STATE;
   }
   const normalizedPersistedState = persistedState as LegacyPersistedComposerDraftStoreState;
-  const { draftThreadsByThreadId, projectDraftThreadIdByProjectId } =
-    normalizePersistedDraftThreads(
-      normalizedPersistedState.draftThreadsByThreadId,
-      normalizedPersistedState.projectDraftThreadIdByProjectId,
-    );
+  const { draftThreadsByThreadId, projectDraftThreadIdByFolderId } = normalizePersistedDraftThreads(
+    normalizedPersistedState.draftThreadsByThreadId,
+    normalizedPersistedState.projectDraftThreadIdByFolderId,
+  );
 
   // Handle both v3 (modelSelectionByProvider) and v2/legacy formats
   let stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>> = {};
@@ -1217,7 +1213,7 @@ export function normalizeCurrentPersistedComposerDraftStoreState(
   return {
     draftsByThreadId: normalizePersistedDraftsByThreadId(normalizedPersistedState.draftsByThreadId),
     draftThreadsByThreadId,
-    projectDraftThreadIdByProjectId,
+    projectDraftThreadIdByFolderId,
     stickyModelSelectionByProvider: sanitizeStickyModelSelectionMap(stickyModelSelectionByProvider),
     stickyConnectionByProvider,
     stickyActiveProvider,

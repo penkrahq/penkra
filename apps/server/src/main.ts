@@ -326,12 +326,12 @@ export const recordStartupHeartbeat = Effect.gen(function* () {
   const analytics = yield* AnalyticsService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
 
-  const { threadCount, projectCount } = yield* projectionSnapshotQuery.getCounts().pipe(
+  const { threadCount, folderCount } = yield* projectionSnapshotQuery.getCounts().pipe(
     Effect.catch((cause) =>
       Effect.logWarning("failed to gather startup projection counts for telemetry", { cause }).pipe(
         Effect.as({
           threadCount: 0,
-          projectCount: 0,
+          folderCount: 0,
         }),
       ),
     ),
@@ -339,7 +339,7 @@ export const recordStartupHeartbeat = Effect.gen(function* () {
 
   yield* analytics.record("server.boot.heartbeat", {
     threadCount,
-    projectCount,
+    folderCount,
   });
 });
 

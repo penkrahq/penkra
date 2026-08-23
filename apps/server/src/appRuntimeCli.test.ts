@@ -3,14 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 import {
   executePenkraExecCommand,
   parseOperationInput,
-  parseRegisteredCommandFlags,
-  tokenizeRegisteredCommand,
+  structuredArguments,
 } from "./appRuntimeCli";
 
 const context = { spaceId: "personal", threadId: "thread-1" };
+const command = (...words: string[]) => ({ command: words });
 const catalog = [
   {
     slug: "explorer",
+    summary: "Open local resources.",
     operations: [{ key: "resources.open", input: { type: "object", properties: {} } }],
   },
 ];
@@ -31,16 +32,14 @@ describe("App runtime CLI operation flags", () => {
     expect(
       parseOperationInput(schema, undefined, {
         title: "Fix redirect",
-        confirm: "true",
-        priority: "2",
-        labels: '["auth"]',
+        confirm: true,
+        priority: 2,
         "document-id": "doc-1",
       }),
     ).toEqual({
       title: "Fix redirect",
       confirm: true,
       priority: 2,
-      labels: ["auth"],
       documentId: "doc-1",
     });
   });
@@ -49,50 +48,35 @@ describe("App runtime CLI operation flags", () => {
     expect(() => parseOperationInput(schema, undefined, { unknown: "value" })).toThrow(
       "Unknown operation option",
     );
-    expect(() => parseOperationInput(schema, '{"title":"one"}', { title: "two" })).toThrow("both");
+    expect(() => parseOperationInput(schema, { title: "one" }, { title: "two" })).toThrow("both");
     expect(() => parseOperationInput(schema, undefined, { confirm: "yes" })).toThrow(
       "true or false",
     );
   });
 });
 
-describe("penkra_exec_command tokenization", () => {
-  it("directs removed schema requests to the complete help surface", () => {
-    expect(() => parseRegisteredCommandFlags(["--schema"])).toThrow(
-      "Run the command with --help for its complete validated input contract.",
-    );
-  });
-
-  it("preserves quoted structured input without invoking a shell", () => {
+describe("penkra_exec_command structure", () => {
+  it("keeps literal values out of command parsing", () => {
     expect(
-      tokenizeRegisteredCommand(
-        `linear issues create --title "Fix redirect" --input '{"priority":2}'`,
-      ),
-    ).toEqual([
-      "linear",
-      "issues",
-      "create",
-      "--title",
-      "Fix redirect",
-      "--input",
-      '{"priority":2}',
-    ]);
+      structuredArguments([], {
+        input: {
+          variable: "$fog",
+          prose: "Use `code` and a newline\nhere",
+          nested: { quote: 'He said "hello".' },
+        },
+      }),
+    ).toMatchObject({
+      positionals: [],
+      input: {
+        variable: "$fog",
+        prose: "Use `code` and a newline\nhere",
+        nested: { quote: 'He said "hello".' },
+      },
+    });
   });
 
-  it("rejects shell syntax and expansion", () => {
-    for (const command of [
-      "ffmpeg encode | cat",
-      "linear issues list > out",
-      "echo $HOME",
-      "x $(y)",
-    ]) {
-      expect(() => tokenizeRegisteredCommand(command)).toThrow();
-    }
-  });
-
-  it("does not confuse a native executable name with an App root", () => {
-    expect(tokenizeRegisteredCommand("ffmpeg media encode --input '{}'")[0]).toBe("ffmpeg");
-    expect(tokenizeRegisteredCommand("penkra tabs current")[0]).toBe("penkra");
+  it("requires options to use the structured fields", () => {
+    expect(() => structuredArguments(["--title", "Fix"], {})).toThrow("belong in flags");
   });
 });
 
@@ -103,18 +87,12 @@ describe("penkra_exec_command discovery", () => {
       return catalog;
     };
 
-    await expect(
-      executePenkraExecCommand("penkra --help", context, {}, bridge),
-    ).resolves.toMatchObject({
-      commands: expect.arrayContaining(["penkra apps list", "penkra tabs current"]),
-      appCommands: [
-        {
-          root: "explorer",
-          help: "penkra_exec_command: explorer --help",
-          operations: ["resources.open"],
-        },
-      ],
-    });
+    const help = await executePenkraExecCommand(command("penkra", "--help"), context, {}, bridge);
+    expect(help).toContain("# Penkra");
+    expect(help).toContain("`penkra apps list`");
+    expect(help).toContain("### explorer");
+    expect(help).toContain("Open local resources.");
+    expect(help).toContain("`resources.open`");
   });
 
   it("discovers and scopes every App developer command", async () => {
@@ -125,21 +103,12 @@ describe("penkra_exec_command discovery", () => {
     };
     const env = {};
 
-    await expect(
-      executePenkraExecCommand("penkra --help", context, env, bridge),
-    ).resolves.toMatchObject({
-      commands: expect.arrayContaining([
-        "penkra app test <directory>",
-        "penkra app package <directory> --output <path>",
-        "penkra app sideload <directory>",
-        "penkra app status [--app-id <app-id>]",
-        "penkra app publish <directory> [--visibility public|private]",
-        "penkra app access invite --app-id <app-id> --email <email>",
-      ]),
-    });
+    const help = await executePenkraExecCommand(command("penkra", "--help"), context, env, bridge);
+    expect(help).toContain('"penkra", "app", "test"');
+    expect(help).toContain('"penkra", "app", "sideload"');
     await expect(
       executePenkraExecCommand(
-        "penkra app sideload ./dist",
+        command("penkra", "app", "sideload", "./dist"),
         { ...context, workingDirectory: "/workspace" },
         env,
         bridge,
@@ -158,18 +127,12 @@ describe("penkra_exec_command discovery", () => {
       return method === "catalog.list" ? catalog : { status: "installed" };
     };
 
-    await expect(
-      executePenkraExecCommand("penkra --help", context, {}, bridge),
-    ).resolves.toMatchObject({
-      commands: expect.arrayContaining([
-        "penkra app test <directory>",
-        "penkra app sideload <directory>",
-        "penkra app publish <directory> [--visibility public|private]",
-      ]),
-    });
+    const help = await executePenkraExecCommand(command("penkra", "--help"), context, {}, bridge);
+    expect(help).toContain('"penkra", "app", "test"');
+    expect(help).toContain('"penkra", "app", "sideload"');
     await expect(
       executePenkraExecCommand(
-        "penkra app sideload ./dist",
+        command("penkra", "app", "sideload", "./dist"),
         { ...context, workingDirectory: "/workspace" },
         {},
         bridge,
@@ -211,7 +174,7 @@ describe("penkra_exec_command discovery", () => {
 
     await expect(
       executePenkraExecCommand(
-        "penkra app test ./dist",
+        command("penkra", "app", "test", "./dist"),
         developmentContext,
         env,
         bridge,
@@ -223,7 +186,10 @@ describe("penkra_exec_command discovery", () => {
     });
     await expect(
       executePenkraExecCommand(
-        "penkra app package ./dist --output ./build/app.penkra",
+        {
+          command: ["penkra", "app", "package", "./dist"],
+          flags: { output: "./build/app.penkra" },
+        },
         developmentContext,
         env,
         bridge,
@@ -238,7 +204,7 @@ describe("penkra_exec_command discovery", () => {
     });
     await expect(
       executePenkraExecCommand(
-        "penkra app status --app-id app-1",
+        { command: ["penkra", "app", "status"], flags: { "app-id": "app-1" } },
         developmentContext,
         env,
         bridge,
@@ -253,7 +219,10 @@ describe("penkra_exec_command discovery", () => {
       appId: "app-1",
     });
     await executePenkraExecCommand(
-      "penkra app publish ./dist --visibility public",
+      {
+        command: ["penkra", "app", "publish", "./dist"],
+        flags: { visibility: "public" },
+      },
       developmentContext,
       env,
       bridge,
@@ -267,7 +236,10 @@ describe("penkra_exec_command discovery", () => {
       }),
     );
     await executePenkraExecCommand(
-      "penkra app access invite --app-id app-1 --email person@example.com",
+      {
+        command: ["penkra", "app", "access", "invite"],
+        flags: { "app-id": "app-1", email: "person@example.com" },
+      },
       developmentContext,
       env,
       bridge,
@@ -282,13 +254,19 @@ describe("penkra_exec_command discovery", () => {
   it("rejects developer-only meta flags, unknown options, and invalid visibility", async () => {
     const env = { PENKRA_DESKTOP_FLAVOR: "development" };
     const developerContext = { ...context, workingDirectory: "/workspace" };
-    for (const command of [
-      "penkra app test ./dist --schema",
-      "penkra app package ./dist --output ./app.penkra --extra value",
-      "penkra app publish ./dist --visibility shared",
+    for (const invalid of [
+      { command: ["penkra", "app", "test", "./dist"], input: {} },
+      {
+        command: ["penkra", "app", "package", "./dist"],
+        flags: { output: "./app.penkra", extra: "value" },
+      },
+      {
+        command: ["penkra", "app", "publish", "./dist"],
+        flags: { visibility: "shared" },
+      },
     ]) {
       await expect(
-        executePenkraExecCommand(command, developerContext, env, async () => []),
+        executePenkraExecCommand(invalid, developerContext, env, async () => []),
       ).rejects.toThrow();
     }
   });
@@ -300,7 +278,7 @@ describe("penkra_exec_command discovery", () => {
     };
 
     await expect(
-      executePenkraExecCommand("penkra apps list", context, {}, bridge),
+      executePenkraExecCommand(command("penkra", "apps", "list"), context, {}, bridge),
     ).resolves.toEqual({
       spaceId: "personal",
       apps: [{ slug: "explorer", operations: ["resources.open"] }],
@@ -314,10 +292,19 @@ describe("penkra_exec_command discovery", () => {
       return { ok: true };
     };
 
-    await executePenkraExecCommand("penkra tabs list", context, {}, bridge);
-    await executePenkraExecCommand("penkra tabs snapshot --tab-id tab-A", context, {}, bridge);
+    await executePenkraExecCommand(command("penkra", "tabs", "list"), context, {}, bridge);
     await executePenkraExecCommand(
-      'penkra tabs type --tab-id tab-A --ref a7 --text "Updated copy"',
+      { command: ["penkra", "tabs", "snapshot"], tabId: "tab-A" },
+      context,
+      {},
+      bridge,
+    );
+    await executePenkraExecCommand(
+      {
+        command: ["penkra", "tabs", "type"],
+        tabId: "tab-A",
+        flags: { ref: "a7", text: "Updated copy" },
+      },
       context,
       {},
       bridge,
@@ -343,25 +330,42 @@ describe("penkra_exec_command discovery", () => {
       return {};
     };
     await executePenkraExecCommand(
-      "penkra tabs snapshot --tab-id tab-A --expand true",
+      {
+        command: ["penkra", "tabs", "snapshot"],
+        tabId: "tab-A",
+        flags: { expand: true },
+      },
       context,
       {},
       bridge,
     );
     await executePenkraExecCommand(
-      "penkra tabs click --tab-id tab-A --ref a1 --observe true",
+      {
+        command: ["penkra", "tabs", "click"],
+        tabId: "tab-A",
+        flags: { ref: "a1", observe: true },
+      },
       context,
       {},
       bridge,
     );
     await executePenkraExecCommand(
-      "penkra tabs handle-dialog --tab-id tab-A --accept false",
+      {
+        command: ["penkra", "tabs", "handle-dialog"],
+        tabId: "tab-A",
+        flags: { accept: false },
+      },
       context,
       {},
       bridge,
     );
     await executePenkraExecCommand(
-      "penkra tabs upload --tab-id tab-A --ref a2 --paths '[\"/app/report.pdf\"]'",
+      {
+        command: ["penkra", "tabs", "upload"],
+        tabId: "tab-A",
+        flags: { ref: "a2" },
+        input: { paths: ["/app/report.pdf"] },
+      },
       context,
       {},
       bridge,
@@ -379,7 +383,7 @@ describe("penkra_exec_command discovery", () => {
 
   it("points unknown core commands back to the canonical help command", async () => {
     await expect(
-      executePenkraExecCommand("penkra app unknown", context, {}, async () => []),
+      executePenkraExecCommand(command("penkra", "app", "unknown"), context, {}, async () => []),
     ).rejects.toThrow("Run penkra app --help");
   });
 
@@ -392,7 +396,12 @@ describe("penkra_exec_command discovery", () => {
     };
 
     await expect(
-      executePenkraExecCommand(`penkra open --path ${path}`, context, {}, bridge),
+      executePenkraExecCommand(
+        { command: ["penkra", "open"], flags: { path } },
+        context,
+        {},
+        bridge,
+      ),
     ).resolves.toEqual({ destination: "app", slug: "explorer", path });
   });
 });

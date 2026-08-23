@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { SidebarProjects } from "../sidebar-projects/SidebarProjects";
+import { SidebarFolders } from "../sidebar-folders/SidebarFolders";
 import { SidebarTopNavigation } from "../sidebar-top-navigation/SidebarTopNavigation";
 import { SpaceGroupShared } from "../space-group-shared/SpaceGroupShared";
 import { LeftRailContentShared } from "./LeftRailContentShared";
@@ -26,9 +26,9 @@ export const Default: Story = {
     children: (
       <>
         <SidebarTopNavigation disabledItemIds={["apps", "scheduled"]} />
-        <SidebarProjects>
+        <SidebarFolders>
           <SpaceGroupShared expanded label="Personal" />
-        </SidebarProjects>
+        </SidebarFolders>
       </>
     ),
   },

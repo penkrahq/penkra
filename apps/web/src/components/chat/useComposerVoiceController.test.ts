@@ -2,7 +2,7 @@
 // Purpose: Covers composer guards and thread-scoped projections of the global voice coordinator.
 // Layer: Chat composer hook tests
 
-import { ContainerId, ThreadId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {
@@ -119,11 +119,11 @@ import {
 const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
 const PROJECT: Project = {
-  id: ContainerId.makeUnsafe("project-a"),
-  kind: "project",
+  id: FolderId.makeUnsafe("project-a"),
+  spaceId: SpaceId.makeUnsafe("space-test"),
   name: "Project",
   remoteName: "Project",
-  folderName: "project",
+  folderName: "folder",
   localName: null,
   cwd: "/workspace/project",
   defaultModelSelection: null,
@@ -178,7 +178,7 @@ describe("useComposerVoiceController", () => {
     render();
   });
 
-  it("projects recording and transcription state only onto their owner thread", () => {
+  it("folders recording and transcription state only onto their owner thread", () => {
     expect(result.isVoiceRecording).toBe(true);
     expect(result.isVoiceTranscribing).toBe(false);
 
@@ -195,7 +195,7 @@ describe("useComposerVoiceController", () => {
     expect(result.isVoiceTranscribing).toBe(false);
   });
 
-  it("projects stopping as processing without dropping the final waveform", () => {
+  it("folders stopping as processing without dropping the final waveform", () => {
     coordinator.state.capture = {
       ...coordinator.state.capture!,
       phase: "stopping",

@@ -6,7 +6,7 @@ import { PROVIDER_DISPLAY_NAMES, type ProviderKind } from "@penkra/contracts";
 export interface ProviderDescriptor {
   readonly kind: ProviderKind;
   readonly displayName: string;
-  readonly available: boolean;
+  readonly adapterImplemented: boolean;
   readonly supportsNativeTurnSteering: boolean;
   readonly usage: {
     readonly signInCommand: string;
@@ -18,7 +18,7 @@ export const PROVIDER_DESCRIPTORS = [
   {
     kind: "codex",
     displayName: PROVIDER_DISPLAY_NAMES.codex,
-    available: true,
+    adapterImplemented: true,
     supportsNativeTurnSteering: true,
     usage: {
       signInCommand: "codex login",
@@ -28,7 +28,7 @@ export const PROVIDER_DESCRIPTORS = [
   {
     kind: "claudeAgent",
     displayName: PROVIDER_DISPLAY_NAMES.claudeAgent,
-    available: true,
+    adapterImplemented: true,
     supportsNativeTurnSteering: true,
     usage: {
       signInCommand: "claude",
@@ -36,55 +36,10 @@ export const PROVIDER_DESCRIPTORS = [
     },
   },
   {
-    kind: "cursor",
-    displayName: PROVIDER_DISPLAY_NAMES.cursor,
-    available: true,
-    supportsNativeTurnSteering: false,
-    usage: {
-      signInCommand: "cursor-agent login",
-      learnMoreHref: "https://cursor.com/dashboard",
-    },
-  },
-  {
-    kind: "antigravity",
-    displayName: PROVIDER_DISPLAY_NAMES.antigravity,
-    available: true,
-    supportsNativeTurnSteering: false,
-    usage: null,
-  },
-  {
-    kind: "grok",
-    displayName: PROVIDER_DISPLAY_NAMES.grok,
-    available: true,
-    supportsNativeTurnSteering: false,
-    usage: null,
-  },
-  {
-    kind: "droid",
-    displayName: PROVIDER_DISPLAY_NAMES.droid,
-    available: true,
-    supportsNativeTurnSteering: false,
-    usage: null,
-  },
-  {
-    kind: "kilo",
-    displayName: PROVIDER_DISPLAY_NAMES.kilo,
-    available: true,
-    supportsNativeTurnSteering: false,
-    usage: null,
-  },
-  {
     kind: "opencode",
     displayName: PROVIDER_DISPLAY_NAMES.opencode,
-    available: true,
+    adapterImplemented: true,
     supportsNativeTurnSteering: false,
-    usage: null,
-  },
-  {
-    kind: "pi",
-    displayName: PROVIDER_DISPLAY_NAMES.pi,
-    available: true,
-    supportsNativeTurnSteering: true,
     usage: null,
   },
 ] as const satisfies readonly ProviderDescriptor[];

@@ -1,7 +1,7 @@
 // FILE: ProjectMenuPicker.tsx
 // Purpose: Shared searchable project picker, grouped by the active and other Spaces.
 
-import type { ContainerId, SpaceId } from "@penkra/contracts";
+import type { FolderId, SpaceId } from "@penkra/contracts";
 import { Fragment, type ReactElement, type ReactNode, useMemo, useState } from "react";
 
 import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPopup";
@@ -20,7 +20,7 @@ import { useSpacesUiStore } from "~/spacesUiStore";
 import { useStore } from "~/store";
 
 export interface ProjectMenuPickerOption {
-  readonly id: ContainerId;
+  readonly id: FolderId;
   readonly name: string;
   readonly spaceId?: SpaceId | null;
   readonly spaceName?: string;
@@ -33,8 +33,8 @@ interface ResolvedProjectOption extends ProjectMenuPickerOption {
 
 export function ProjectMenuPicker(props: {
   projectOptions: ReadonlyArray<ProjectMenuPickerOption>;
-  selectedProjectId: ContainerId | null;
-  onProjectIdChange: (projectId: ContainerId) => void;
+  selectedFolderId: FolderId | null;
+  onFolderIdChange: (folderId: FolderId) => void;
   /** Rendered through MenuTrigger's `render` slot so each surface owns its trigger chrome. */
   trigger: ReactElement;
   /** Content merged into the trigger element (label, chevron, …). */
@@ -52,14 +52,14 @@ export function ProjectMenuPicker(props: {
         className={props.popupClassName ?? "min-w-60"}
       >
         {/* The list is its own component so its store subscriptions mount with the popup
-            and unmount with it: `projects` churns on every thread update, and a closed
+            and unmount with it: `folders` churns on every thread update, and a closed
             picker must stay completely inert rather than re-render on each tick. Query
             state lives here too, so closing the menu discards the search for free. */}
         {open ? (
           <ProjectMenuPickerList
             projectOptions={props.projectOptions}
-            selectedProjectId={props.selectedProjectId}
-            onProjectIdChange={props.onProjectIdChange}
+            selectedFolderId={props.selectedFolderId}
+            onFolderIdChange={props.onFolderIdChange}
           />
         ) : null}
       </ComposerPickerMenuPopup>
@@ -69,18 +69,18 @@ export function ProjectMenuPicker(props: {
 
 function ProjectMenuPickerList(props: {
   projectOptions: ReadonlyArray<ProjectMenuPickerOption>;
-  selectedProjectId: ContainerId | null;
-  onProjectIdChange: (projectId: ContainerId) => void;
+  selectedFolderId: FolderId | null;
+  onFolderIdChange: (folderId: FolderId) => void;
 }) {
   const [query, setQuery] = useState("");
-  const projects = useStore((state) => state.projects);
+  const folders = useStore((state) => state.folders);
   const spaces = useStore((state) => state.spaces);
   const storedActiveSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const activeSpaceId = resolveActiveSpaceId(storedActiveSpaceId, spaces);
 
   const groupedOptions = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    const projectById = new Map(projects.map((project) => [project.id, project] as const));
+    const projectById = new Map(folders.map((project) => [project.id, project] as const));
     // A caller may pass its own space assignment (e.g. an optimistic move); otherwise the
     // project snapshot is the source of truth.
     const resolved: ResolvedProjectOption[] = props.projectOptions
@@ -111,7 +111,7 @@ function ProjectMenuPickerList(props: {
       activeSpaceId,
       spaceIdOf: (option) => option.resolvedSpaceId,
     });
-  }, [activeSpaceId, projects, props.projectOptions, query, spaces]);
+  }, [activeSpaceId, folders, props.projectOptions, query, spaces]);
 
   return (
     <PickerPanelShell
@@ -128,11 +128,11 @@ function ProjectMenuPickerList(props: {
     >
       {groupedOptions.length > 0 ? (
         <MenuRadioGroup
-          value={props.selectedProjectId ?? ""}
+          value={props.selectedFolderId ?? ""}
           onValueChange={(value) => {
-            if (value === props.selectedProjectId) return;
+            if (value === props.selectedFolderId) return;
             const option = props.projectOptions.find((candidate) => candidate.id === value);
-            if (option) props.onProjectIdChange(option.id);
+            if (option) props.onFolderIdChange(option.id);
           }}
         >
           {groupedOptions.map((group, index) => (

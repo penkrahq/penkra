@@ -57,22 +57,6 @@ export class OpenCodeTextGeneration extends ServiceMap.Service<
 >()("penkra/textGeneration/Services/TextGeneration/OpenCodeTextGeneration") {}
 
 /**
- * KiloTextGeneration - Provider-specific Kilo implementation for Thread titles.
- */
-export class KiloTextGeneration extends ServiceMap.Service<
-  KiloTextGeneration,
-  TextGenerationShape
->()("penkra/textGeneration/Services/TextGeneration/KiloTextGeneration") {}
-
-/**
- * CursorTextGeneration - Provider-specific Cursor implementation for Thread titles.
- */
-export class CursorTextGeneration extends ServiceMap.Service<
-  CursorTextGeneration,
-  TextGenerationShape
->()("penkra/textGeneration/Services/TextGeneration/CursorTextGeneration") {}
-
-/**
  * TextGeneration - Service tag for first-message thread titles.
  */
 export class TextGeneration extends ServiceMap.Service<TextGeneration, TextGenerationShape>()(

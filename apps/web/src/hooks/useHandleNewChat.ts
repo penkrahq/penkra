@@ -9,9 +9,9 @@ import { useHandleNewThread } from "./useHandleNewThread";
 export function useHandleNewChat(
   handleNewThreadOverride?: ReturnType<typeof useHandleNewThread>["handleNewThread"],
 ) {
-  const projects = useStore((state) => state.projects);
+  const folders = useStore((state) => state.folders);
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
-  const { activeProjectId } = useFocusedChatContext();
+  const { activeFolderId } = useFocusedChatContext();
   const { handleNewThread: defaultHandleNewThread } = useHandleNewThread();
   const handleNewThread = handleNewThreadOverride ?? defaultHandleNewThread;
 
@@ -27,18 +27,16 @@ export function useHandleNewChat(
       };
     }
 
-    const spaceFolders = projects.filter(
-      (project) => project.kind === "project" && project.spaceId === spaceId,
-    );
+    const spaceFolders = folders.filter((project) => project.spaceId === spaceId);
     const preferredFolderId = defaultSpaceFolderId(spaceId);
     const targetFolder =
-      spaceFolders.find((project) => project.id === activeProjectId) ??
+      spaceFolders.find((project) => project.id === activeFolderId) ??
       spaceFolders.find((project) => project.id === preferredFolderId) ??
       spaceFolders[0] ??
       null;
 
     return startContainerChat({
-      ensureProjectId: async () => targetFolder?.id ?? null,
+      ensureFolderId: async () => targetFolder?.id ?? null,
       handleNewThread,
       fresh: options?.fresh,
       spaceId,

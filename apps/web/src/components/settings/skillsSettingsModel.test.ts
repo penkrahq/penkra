@@ -32,9 +32,9 @@ describe("buildSettingsSkillGroups", () => {
         scope: "claude",
       }),
       skill({
-        name: "cursor-only",
-        path: "/Users/test/.cursor/skills/cursor-only/SKILL.md",
-        scope: "cursor",
+        name: "opencode-only",
+        path: "/Users/test/.config/opencode/skills/opencode-only/SKILL.md",
+        scope: "opencode",
       }),
     ]);
 
@@ -47,9 +47,9 @@ describe("buildSettingsSkillGroups", () => {
       "/Users/test/.claude/skills/check-code/SKILL.md",
     ]);
 
-    const cursorOnly = groups.find((group) => group.key === "cursor-only");
-    expect(cursorOnly?.section).toBe("cursor");
-    expect(cursorOnly?.providers).toEqual(["cursor"]);
+    const openCodeOnly = groups.find((group) => group.key === "opencode-only");
+    expect(openCodeOnly?.section).toBe("opencode");
+    expect(openCodeOnly?.providers).toEqual(["opencode"]);
   });
 
   it("does not show provider icons for shared alias-only skills", () => {
@@ -81,13 +81,13 @@ describe("buildSettingsSkillSections", () => {
         scope: "claude",
       }),
       skill({
-        name: "cursor-only",
-        path: "/Users/test/.cursor/skills/cursor-only/SKILL.md",
-        scope: "cursor",
+        name: "opencode-only",
+        path: "/Users/test/.config/opencode/skills/opencode-only/SKILL.md",
+        scope: "opencode",
       }),
     ]);
 
-    expect(sections.map((section) => section.title)).toEqual(["Shared skills", "From Cursor"]);
+    expect(sections.map((section) => section.title)).toEqual(["Shared skills", "From OpenCode"]);
     expect(sections[0]?.groups.map((group) => group.key)).toEqual(["logic-consolidator"]);
   });
 });

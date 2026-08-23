@@ -7,10 +7,6 @@ import {
 } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 
-import {
-  isOrdinaryProjectRow,
-  type SpaceAssignmentWorkspacePaths,
-} from "../orchestration/commandInvariants.ts";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns.ts";
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
@@ -61,7 +57,7 @@ export interface ThreadReadToolsInput {
   readonly requireThreadShell: (
     threadId: string,
   ) => Effect.Effect<OrchestrationThreadShell, unknown, never>;
-  readonly workspacePaths: SpaceAssignmentWorkspacePaths;
+  readonly workspacePaths: { readonly homeDir: string; readonly chatWorkspaceRoot: string };
 }
 
 export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<ToolEntry> {
@@ -71,7 +67,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     providerDiscovery,
     loadProviderAvailabilities,
     requireThreadShell,
-    workspacePaths,
+    workspacePaths: _workspacePaths,
   } = input;
 
   const contextTool: ToolEntry = {
@@ -81,13 +77,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
       description:
         "Inspect the current Penkra harness identity, caller thread/turn, and authorized coordination capabilities.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      annotations: {
-        title: "Penkra context",
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+      annotations: { title: "Penkra context", ...READ_ONLY_TOOL_ANNOTATIONS },
     },
     handler: (_args, context) =>
       Effect.gen(function* () {
@@ -99,7 +89,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             threadId: caller.id,
             turnId,
             provider: context.callerProvider,
-            projectId: caller.projectId,
+            folderId: caller.folderId,
           },
           capabilities: {
             threadRead: context.callerCapabilities.has("thread:read"),
@@ -117,23 +107,17 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
       name: "penkra_capabilities",
       description: `List canonical Penkra provider/model targets, exact provider option keys, examples, and gateway limits used to validate thread creation. ${AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION}`,
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      annotations: {
-        title: "Penkra capabilities",
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+      annotations: { title: "Penkra capabilities", ...READ_ONLY_TOOL_ANNOTATIONS },
     },
     handler: (_args, context) =>
       Effect.gen(function* () {
         const caller = yield* requireThreadShell(context.callerThreadId);
-        const project = yield* snapshotQuery.getProjectShellById(caller.projectId).pipe(
+        const project = yield* snapshotQuery.getFolderShellById(caller.folderId).pipe(
           Effect.mapError((error) => new ToolInputError(errorText(error))),
           Effect.flatMap(
             Option.match({
               onNone: () =>
-                Effect.fail(new ToolInputError(`Project "${caller.projectId}" was not found.`)),
+                Effect.fail(new ToolInputError(`Folder "${caller.folderId}" was not found.`)),
               onSome: Effect.succeed,
             }),
           ),
@@ -162,42 +146,32 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           targetConstruction,
           providers,
           limits: {
-            maxThreadsPerOperation: PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
+            maxThreadsPerWait: PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
             maxWaitMs: 60_000,
-            oneCreationPlanPerActiveTurn: true,
           },
         });
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
 
-  const listProjects: ToolEntry = {
+  const listFolders: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "penkra_list_projects",
+      name: "penkra_list_folders",
       description:
-        "List Penkra projects (id, title, workspace root). System-managed chat containers are excluded. Use before creating a thread in another project.",
+        "List Penkra folders (id, title, workspace root). Use before creating a thread in another folder.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      annotations: { title: "List Penkra projects", ...READ_ONLY_TOOL_ANNOTATIONS },
+      annotations: { title: "List Penkra folders", ...READ_ONLY_TOOL_ANNOTATIONS },
     },
     handler: () =>
       snapshotQuery.getShellSnapshot().pipe(
         Effect.map((snapshot) =>
           mcpToolResultJson({
-            projects: snapshot.projects
-              .filter((project) =>
-                isOrdinaryProjectRow({
-                  projectKind: project.kind,
-                  projectTitle: project.title,
-                  projectWorkspaceRoot: project.workspaceRoot,
-                  workspacePaths,
-                }),
-              )
-              .map((project) => ({
-                projectId: project.id,
-                title: project.title,
-                workspaceRoot: project.workspaceRoot,
-                isPinned: project.isPinned,
-              })),
+            folders: snapshot.folders.map((project) => ({
+              folderId: project.id,
+              title: project.title,
+              workspaceRoot: project.workspaceRoot,
+              isPinned: project.isPinned,
+            })),
           }),
         ),
         Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error)))),
@@ -209,11 +183,11 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_list_threads",
       description:
-        "Discover Penkra threads by project, hierarchy, provider, model, status, title, creation source, or update window. Archived threads are hidden unless includeArchived is true.",
+        "Discover Penkra threads by folder, hierarchy, provider, model, status, title, creation source, or update window. Archived threads are hidden unless includeArchived is true.",
       inputSchema: {
         type: "object",
         properties: {
-          projectId: { type: "string", description: "Only threads of this project." },
+          folderId: { type: "string", description: "Only threads in this folder." },
           parentThreadId: {
             type: "string",
             description: "Only child threads of this thread (e.g. your own thread id).",
@@ -238,7 +212,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     },
     handler: (args, context) =>
       Effect.gen(function* () {
-        const projectId = readStringArg(args, "projectId");
+        const folderId = readStringArg(args, "folderId");
         const parentThreadId = readStringArg(args, "parentThreadId");
         const provider = readStringArg(args, "provider");
         const model = readStringArg(args, "model");
@@ -259,7 +233,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           .getShellSnapshot()
           .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
         const matching = snapshot.threads
-          .filter((thread) => (projectId ? thread.projectId === projectId : true))
+          .filter((thread) => (folderId ? thread.folderId === folderId : true))
           .filter((thread) => (parentThreadId ? thread.parentThreadId === parentThreadId : true))
           .filter((thread) => (provider ? thread.modelSelection.provider === provider : true))
           .filter((thread) => (model ? thread.modelSelection.model === model : true))
@@ -359,13 +333,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         required: ["threadIds"],
         additionalProperties: false,
       },
-      annotations: {
-        title: "Wait for Penkra threads",
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+      annotations: { title: "Wait for Penkra threads", ...READ_ONLY_TOOL_ANNOTATIONS },
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -524,5 +492,5 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
       ),
   };
 
-  return [contextTool, capabilitiesTool, listProjects, listThreads, readThread, waitForThreads];
+  return [contextTool, capabilitiesTool, listFolders, listThreads, readThread, waitForThreads];
 }

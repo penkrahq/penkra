@@ -150,7 +150,7 @@ async function dispatchSidepanelCommand(
         readonly label: string | null;
       }
     | {
-        readonly type: "thread.meta.update";
+        readonly type: "thread.update";
         readonly threadId: ThreadId;
         readonly notes: string;
       },
@@ -204,7 +204,7 @@ export function dispatchPinnedMessageLabelSet(
 
 export function dispatchThreadNotes(threadId: ThreadId, notes: string): Promise<void> {
   return dispatchSidepanelCommand({
-    type: "thread.meta.update",
+    type: "thread.update",
     threadId,
     notes: clampThreadNotes(notes),
   });

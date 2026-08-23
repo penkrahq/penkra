@@ -1,5 +1,5 @@
 import type {
-  OrchestrationProjectShell,
+  OrchestrationFolderShell,
   OrchestrationThreadShell,
   SpaceId,
 } from "@penkra/contracts";
@@ -9,40 +9,24 @@ import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/Pro
 import { ToolInputError, errorText } from "./toolInput.ts";
 
 export function resolveThreadSpaceId(input: {
-  readonly thread: Pick<OrchestrationThreadShell, "id" | "projectId" | "spaceId">;
-  readonly project: Pick<OrchestrationProjectShell, "id" | "spaceId">;
+  readonly thread: Pick<OrchestrationThreadShell, "id" | "folderId">;
+  readonly folder: Pick<OrchestrationFolderShell, "id" | "spaceId">;
 }): SpaceId {
-  const directSpaceId = input.thread.spaceId ?? null;
-  const projectSpaceId = input.project.spaceId ?? null;
-
-  if (directSpaceId !== null && projectSpaceId !== null && directSpaceId !== projectSpaceId) {
-    throw new ToolInputError(
-      `Thread "${input.thread.id}" belongs to Space "${directSpaceId}" but its parent project "${input.project.id}" belongs to Space "${projectSpaceId}".`,
-    );
-  }
-
-  const spaceId = directSpaceId ?? projectSpaceId;
-  if (spaceId === null) {
-    throw new ToolInputError(
-      `Neither Thread "${input.thread.id}" nor its parent project "${input.project.id}" is assigned to a Space.`,
-    );
-  }
-  return spaceId;
+  return input.folder.spaceId;
 }
 
 export function requireThreadSpaceId(
   snapshotQuery: ProjectionSnapshotQueryShape,
-  thread: Pick<OrchestrationThreadShell, "id" | "projectId" | "spaceId">,
+  thread: Pick<OrchestrationThreadShell, "id" | "folderId">,
 ): Effect.Effect<SpaceId, ToolInputError> {
-  return snapshotQuery.getProjectShellById(thread.projectId).pipe(
+  return snapshotQuery.getFolderShellById(thread.folderId).pipe(
     Effect.mapError((error) => new ToolInputError(errorText(error))),
     Effect.flatMap(
       Option.match({
-        onNone: () =>
-          Effect.fail(new ToolInputError(`Project "${thread.projectId}" was not found.`)),
-        onSome: (project) =>
+        onNone: () => Effect.fail(new ToolInputError(`Folder "${thread.folderId}" was not found.`)),
+        onSome: (folder) =>
           Effect.try({
-            try: () => resolveThreadSpaceId({ thread, project }),
+            try: () => resolveThreadSpaceId({ thread, folder }),
             catch: (error) => new ToolInputError(errorText(error)),
           }),
       }),

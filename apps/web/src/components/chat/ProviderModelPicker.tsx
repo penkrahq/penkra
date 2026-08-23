@@ -117,9 +117,7 @@ function providerIconClassName(
   provider: ProviderKind | ProviderPickerKind,
   fallbackClassName: string,
 ): string {
-  return provider === "claudeAgent" || provider === "antigravity" || provider === "pi"
-    ? "text-foreground"
-    : fallbackClassName;
+  return provider === "claudeAgent" ? "text-foreground" : fallbackClassName;
 }
 
 const SEARCHABLE_MODEL_PICKER_THRESHOLD = 15;
@@ -185,10 +183,6 @@ function toggleFavoriteModelSlug(current: ReadonlyArray<string>, slug: string): 
     : [...normalizedCurrent, slug];
 }
 
-function stripParameterizedModelSuffix(model: string): string {
-  return model.trim().replace(/\[[^\]]*\]$/u, "");
-}
-
 function resolveSelectedModelLabel(input: {
   provider: ProviderKind;
   model: string;
@@ -197,15 +191,6 @@ function resolveSelectedModelLabel(input: {
   const exact = input.options.find((option) => option.slug === input.model);
   if (exact) {
     return exact.name;
-  }
-  if (input.provider === "cursor") {
-    const baseModel = stripParameterizedModelSuffix(input.model);
-    const baseMatch = input.options.find(
-      (option) => stripParameterizedModelSuffix(option.slug) === baseModel,
-    );
-    if (baseMatch) {
-      return baseMatch.name;
-    }
   }
   return formatProviderModelOptionName({
     provider: input.provider,
@@ -252,23 +237,8 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
 ) {
   const { onAfterSelection } = props;
   const [modelSearchQuery, setModelSearchQuery] = useState("");
-  const [kiloFavoriteModelSlugs, setKiloFavoriteModelSlugs] = useLocalStorage(
-    FAVORITE_MODEL_STORAGE_KEYS.kilo,
-    EMPTY_FAVORITE_MODEL_SLUGS,
-    FavoriteModelSlugs,
-  );
-  const [cursorFavoriteModelSlugs, setCursorFavoriteModelSlugs] = useLocalStorage(
-    FAVORITE_MODEL_STORAGE_KEYS.cursor,
-    EMPTY_FAVORITE_MODEL_SLUGS,
-    FavoriteModelSlugs,
-  );
   const [openCodeFavoriteModelSlugs, setOpenCodeFavoriteModelSlugs] = useLocalStorage(
     FAVORITE_MODEL_STORAGE_KEYS.opencode,
-    EMPTY_FAVORITE_MODEL_SLUGS,
-    FavoriteModelSlugs,
-  );
-  const [piFavoriteModelSlugs, setPiFavoriteModelSlugs] = useLocalStorage(
-    FAVORITE_MODEL_STORAGE_KEYS.pi,
     EMPTY_FAVORITE_MODEL_SLUGS,
     FavoriteModelSlugs,
   );
@@ -295,15 +265,9 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
     hiddenProviderSet,
     protectedProviderSet,
   );
-  const kiloFavoriteModelSlugSet = new Set(kiloFavoriteModelSlugs);
   const openCodeFavoriteModelSlugSet = new Set(openCodeFavoriteModelSlugs);
-  const cursorFavoriteModelSlugSet = new Set(cursorFavoriteModelSlugs);
-  const piFavoriteModelSlugSet = new Set(piFavoriteModelSlugs);
   const favoriteModelSlugSets = {
-    cursor: cursorFavoriteModelSlugSet,
-    kilo: kiloFavoriteModelSlugSet,
     opencode: openCodeFavoriteModelSlugSet,
-    pi: piFavoriteModelSlugSet,
   };
   const handleModelChange = (provider: ProviderKind, value: string) => {
     if (props.disabled) return;
@@ -318,15 +282,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
     onAfterSelection?.();
   };
   const toggleFavoriteModel = (provider: FavoriteModelProvider, slug: string) => {
-    const setFavoriteModelSlugs =
-      provider === "cursor"
-        ? setCursorFavoriteModelSlugs
-        : provider === "kilo"
-          ? setKiloFavoriteModelSlugs
-          : provider === "pi"
-            ? setPiFavoriteModelSlugs
-            : setOpenCodeFavoriteModelSlugs;
-    setFavoriteModelSlugs((current) => toggleFavoriteModelSlug(current, slug));
+    setOpenCodeFavoriteModelSlugs((current) => toggleFavoriteModelSlug(current, slug));
   };
 
   const renderModelRadioGroup = (provider: ProviderKind) => {
@@ -393,9 +349,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
         </MenuRadioGroup>
       ) : (
         <div className="px-2 py-2 text-muted-foreground text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">
-          {provider === "pi" && normalizedModelSearchQuery.length === 0
-            ? "No Pi models found"
-            : "No matches"}
+          No matches
         </div>
       );
 

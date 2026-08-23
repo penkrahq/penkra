@@ -4,7 +4,7 @@
 
 import {
   type ModelSelection,
-  type ContainerId,
+  type FolderId,
   type ProviderConnectionId,
   type ProviderKind,
   type ProviderMentionReference,
@@ -137,7 +137,7 @@ export interface ComposerThreadDraftState {
 }
 
 export interface DraftThreadState {
-  projectId: ContainerId;
+  folderId: FolderId;
   spaceId?: SpaceId | null;
   createdAt: string;
   runtimeMode: RuntimeMode;
@@ -163,17 +163,17 @@ interface ProjectDraftThread extends DraftThreadState {
 export interface ComposerDraftStoreState {
   draftsByThreadId: Record<ThreadId, ComposerThreadDraftState>;
   draftThreadsByThreadId: Record<ThreadId, DraftThreadState>;
-  projectDraftThreadIdByProjectId: Record<string, ThreadId>;
+  projectDraftThreadIdByFolderId: Record<string, ThreadId>;
   stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
   stickyConnectionByProvider: Partial<Record<ProviderKind, ProviderConnectionId | null>>;
   stickyActiveProvider: ProviderKind | null;
-  getDraftThreadByProjectId: (
-    projectId: ContainerId,
+  getDraftThreadByFolderId: (
+    folderId: FolderId,
     entryPoint?: ThreadPrimarySurface,
   ) => ProjectDraftThread | null;
   getDraftThread: (threadId: ThreadId) => DraftThreadState | null;
   setProjectDraftThreadId: (
-    projectId: ContainerId,
+    folderId: FolderId,
     threadId: ThreadId,
     options?: DraftThreadMutationOptions,
   ) => void;
@@ -187,7 +187,7 @@ export interface ComposerDraftStoreState {
   registerDraftThread: (
     threadId: ThreadId,
     options: {
-      projectId: ContainerId;
+      folderId: FolderId;
       spaceId?: SpaceId | null;
       createdAt?: string;
       workingDirectory?: string | null;
@@ -197,7 +197,7 @@ export interface ComposerDraftStoreState {
   ) => void;
   setDraftThreadContext: (
     threadId: ThreadId,
-    options: DraftThreadMutationOptions & { projectId?: ContainerId },
+    options: DraftThreadMutationOptions & { folderId?: FolderId },
   ) => void;
   /**
    * Moves an existing draft into a project's primary draft slot while deleting
@@ -205,12 +205,12 @@ export interface ComposerDraftStoreState {
    */
   moveDraftThreadToProject: (
     threadId: ThreadId,
-    projectId: ContainerId,
+    folderId: FolderId,
     options?: DraftThreadMutationOptions,
   ) => void;
-  clearProjectDraftThreadId: (projectId: ContainerId, entryPoint?: ThreadPrimarySurface) => void;
-  clearProjectDraftThreads: (projectId: ContainerId) => void;
-  clearProjectDraftThreadById: (projectId: ContainerId, threadId: ThreadId) => void;
+  clearProjectDraftThreadId: (folderId: FolderId, entryPoint?: ThreadPrimarySurface) => void;
+  clearProjectDraftThreads: (folderId: FolderId) => void;
+  clearProjectDraftThreadById: (folderId: FolderId, threadId: ThreadId) => void;
   markDraftThreadPromoting: (threadId: ThreadId, promotedTo?: ThreadId) => void;
   finalizePromotedDraftThread: (threadId: ThreadId) => void;
   clearDraftThread: (threadId: ThreadId) => void;
@@ -306,24 +306,24 @@ export interface ComposerDraftStoreState {
 }
 
 export function projectDraftThreadMappingKey(
-  projectId: ContainerId,
+  folderId: FolderId,
   entryPoint: ThreadPrimarySurface = "chat",
 ): string {
   return entryPoint === "terminal"
-    ? `${projectId}${TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX}`
-    : projectId;
+    ? `${folderId}${TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX}`
+    : folderId;
 }
 
 export function projectDraftThreadEntryPointFromKey(key: string): ThreadPrimarySurface {
   return key.endsWith(TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX) ? "terminal" : "chat";
 }
 
-export function projectIdFromDraftThreadMappingKey(key: string): ContainerId {
+export function folderIdFromDraftThreadMappingKey(key: string): FolderId {
   return (
     key.endsWith(TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX)
       ? key.slice(0, -TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX.length)
       : key
-  ) as ContainerId;
+  ) as FolderId;
 }
 
 function resolveDraftThreadCreatedAt(input: {
@@ -341,7 +341,7 @@ function resolveDraftThreadCreatedAt(input: {
 }
 
 export function buildDraftThreadState(input: {
-  projectId: ContainerId;
+  folderId: FolderId;
   existingThread?: DraftThreadState | undefined;
   options?: DraftThreadMutationOptions | undefined;
   createdAtMode: DraftThreadCreatedAtMode;
@@ -354,7 +354,7 @@ export function buildDraftThreadState(input: {
   const nextPromotedTo = existingThread?.promotedTo;
 
   return {
-    projectId: input.projectId,
+    folderId: input.folderId,
     spaceId:
       options?.spaceId === undefined
         ? (existingThread?.spaceId ?? null)
@@ -383,7 +383,7 @@ export function draftThreadStatesEqual(
   }
 
   return (
-    left.projectId === right.projectId &&
+    left.folderId === right.folderId &&
     left.spaceId === right.spaceId &&
     left.createdAt === right.createdAt &&
     left.runtimeMode === right.runtimeMode &&
@@ -394,20 +394,20 @@ export function draftThreadStatesEqual(
 }
 
 export function removeProjectDraftMappingsForThread(
-  projectDraftThreadIdByProjectId: Record<string, ThreadId>,
+  projectDraftThreadIdByFolderId: Record<string, ThreadId>,
   threadId: ThreadId,
 ): Record<string, ThreadId> {
-  let nextProjectDraftThreadIdByProjectId = projectDraftThreadIdByProjectId;
-  for (const [mappingKey, mappedThreadId] of Object.entries(projectDraftThreadIdByProjectId)) {
+  let nextProjectDraftThreadIdByFolderId = projectDraftThreadIdByFolderId;
+  for (const [mappingKey, mappedThreadId] of Object.entries(projectDraftThreadIdByFolderId)) {
     if (mappedThreadId !== threadId) {
       continue;
     }
-    if (nextProjectDraftThreadIdByProjectId === projectDraftThreadIdByProjectId) {
-      nextProjectDraftThreadIdByProjectId = { ...projectDraftThreadIdByProjectId };
+    if (nextProjectDraftThreadIdByFolderId === projectDraftThreadIdByFolderId) {
+      nextProjectDraftThreadIdByFolderId = { ...projectDraftThreadIdByFolderId };
     }
-    delete nextProjectDraftThreadIdByProjectId[mappingKey];
+    delete nextProjectDraftThreadIdByFolderId[mappingKey];
   }
-  return nextProjectDraftThreadIdByProjectId;
+  return nextProjectDraftThreadIdByFolderId;
 }
 
 export function createEmptyThreadDraft(): ComposerThreadDraftState {

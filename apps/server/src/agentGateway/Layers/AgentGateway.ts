@@ -16,7 +16,6 @@ import { randomUUID } from "node:crypto";
 
 import {
   CommandId,
-  PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
   MessageId,
   ThreadId,
   type ProviderKind,
@@ -35,31 +34,28 @@ import { ProviderRuntimeEventRepository } from "../../persistence/Services/Provi
 import { ThreadDiagnosticsQuery } from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
 import { AgentGateway, type AgentGatewayShape } from "../Services/AgentGateway.ts";
 import { AgentGatewayCredentials } from "../Services/AgentGatewayCredentials.ts";
-import { AgentGatewayOperationRepository } from "../Services/AgentGatewayOperationRepository.ts";
 import { AgentGatewayToolBridge } from "../Services/AgentGatewayToolBridge.ts";
-import { PENKRA_GATEWAY_HARNESS_POLICY } from "../harnessPolicy.ts";
 import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
 import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import {
-  AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION,
-  type AgentGatewayProviderAvailability,
-} from "../targetResolver.ts";
+import { type AgentGatewayProviderAvailability } from "../targetResolver.ts";
 import { mcpToolResultError, mcpToolResultImage, mcpToolResultJson } from "../protocol.ts";
 import { gatewayIsoNow as isoNow } from "../creationUtils.ts";
 import {
   MODEL_SELECTION_INPUT_SCHEMA,
   PROVIDER_KINDS,
   ToolInputError,
-  buildModelSelection,
-  decodeCreateThreadsInput,
+  decodeCreateThreadInput,
   errorText,
-  parseProviderKind,
-  readBooleanArg,
   readRecordArg,
   readStringArg,
 } from "../toolInput.ts";
-import { WRITE_TOOL_ANNOTATIONS, type ToolEntry } from "../toolRuntime.ts";
+import {
+  DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS,
+  IDEMPOTENT_WRITE_TOOL_ANNOTATIONS,
+  WRITE_TOOL_ANNOTATIONS,
+  type ToolEntry,
+} from "../toolRuntime.ts";
 import { makeAgentGatewayMcpTransport } from "../mcpTransport.ts";
 import {
   agentGatewayCommandCatalog,
@@ -67,11 +63,11 @@ import {
   resolveAgentGatewayCommand,
   type AgentGatewayCommandEntry,
 } from "../commandSurface.ts";
-import { recoverInterruptedAgentGatewayOperations } from "../startupRecovery.ts";
-import { makeCreateThreadsHandler } from "../creationCoordinator.ts";
+import { makeCreateThreadHandler } from "../creationCoordinator.ts";
 import { makeThreadReadTools } from "../threadReadTools.ts";
 import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
-import { executePenkraExecCommand } from "../../appRuntimeCli.ts";
+import { executePenkraExecCommand, penkraRootInstructions } from "../../appRuntimeCli.ts";
+import type { PenkraExecCommandInput, PenkraExecFlagValue } from "../../appRuntimeCli.ts";
 import { requireThreadSpaceId } from "../threadSpaceContext.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderThreadSwitchCoordinator } from "../../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
@@ -83,8 +79,6 @@ import {
   PENKRA_EXEC_COMMAND_NAME,
 } from "../hostToolContract.ts";
 
-const AGENT_GATEWAY_INSTRUCTIONS = PENKRA_GATEWAY_HARNESS_POLICY;
-
 export const makeAgentGateway = Effect.gen(function* () {
   const credentials = yield* AgentGatewayCredentials;
   const toolBridge = yield* AgentGatewayToolBridge;
@@ -95,7 +89,6 @@ export const makeAgentGateway = Effect.gen(function* () {
   const providerDiscovery = yield* ProviderDiscoveryService;
   const providerHealth = yield* ProviderHealth;
   const serverSettings = yield* ServerSettingsService;
-  const operationRepository = yield* AgentGatewayOperationRepository;
   const projectionTurns = yield* ProjectionTurnRepository;
   const eventStore = yield* OrchestrationEventStore;
   const eventDeliveries = yield* OrchestrationEventDeliveryRepository;
@@ -128,12 +121,6 @@ export const makeAgentGateway = Effect.gen(function* () {
         ];
       }),
     );
-  });
-
-  yield* recoverInterruptedAgentGatewayOperations({
-    operationRepository,
-    snapshotQuery,
-    orchestrationEngine,
   });
 
   const requireThreadShell = (threadId: string) =>
@@ -190,76 +177,15 @@ export const makeAgentGateway = Effect.gen(function* () {
 
   // --- write tools ----------------------------------------------------------
 
-  const runCreateThreads = yield* makeCreateThreadsHandler({
+  const runCreateThread = yield* makeCreateThreadHandler({
     snapshotQuery,
     orchestrationEngine,
     providerDiscovery,
     providerTurnSelectionResolver,
     providerThreadSwitchCoordinator,
-    operationRepository,
-    serverConfig,
     loadProviderAvailabilities,
     requireThreadShell,
   });
-
-  const createThreads: ToolEntry = {
-    requiredCapability: "thread:write",
-    requiresActiveTurn: true,
-    definition: {
-      name: "penkra_create_threads",
-      description:
-        "Create an exact batch of 1–20 standalone Penkra threads. Validation or preflight failures create nothing and may be corrected with the same requestId; durable retries replay the exact operation.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          requestId: {
-            type: "string",
-            maxLength: 256,
-            description: "Stable id for this exact user-requested creation plan.",
-          },
-          threads: {
-            type: "array",
-            minItems: 1,
-            maxItems: PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
-            items: {
-              type: "object",
-              properties: {
-                prompt: { type: "string" },
-                title: { type: "string" },
-                target: {
-                  ...MODEL_SELECTION_INPUT_SCHEMA,
-                },
-                projectId: { type: "string" },
-                runtimeMode: {
-                  type: "string",
-                  enum: ["approval-required", "full-access"],
-                },
-              },
-              required: ["prompt", "target"],
-              additionalProperties: false,
-            },
-          },
-        },
-        required: ["requestId", "threads"],
-        additionalProperties: false,
-      },
-      annotations: {
-        title: "Create Penkra threads",
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: true,
-        openWorldHint: true,
-      },
-    },
-    handler: (args, context) =>
-      runCreateThreads(decodeCreateThreadsInput(args), {
-        kind: "provider-session",
-        callerThreadId: context.callerThreadId,
-        callerTurnId: context.callerTurnId,
-        assertAuthority: context.assertCallerTurnActive,
-        attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
-      }),
-  };
 
   const createThread: ToolEntry = {
     requiredCapability: "thread:write",
@@ -267,7 +193,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_create_thread",
       description:
-        "Create exactly one standalone Penkra thread. For two or more threads use one penkra_create_threads call instead.",
+        "Create one standalone Penkra thread. Retrying the same requestId is idempotent. Multiple create calls are independent and are not atomic: if a later call fails, earlier threads remain.",
       inputSchema: {
         type: "object",
         properties: {
@@ -277,75 +203,24 @@ export const makeAgentGateway = Effect.gen(function* () {
           target: {
             ...MODEL_SELECTION_INPUT_SCHEMA,
           },
-          provider: { type: "string", enum: [...PROVIDER_KINDS] },
-          model: { type: "string" },
-          options: {
-            type: "object",
-            description: AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION,
-          },
-          projectId: { type: "string" },
+          folderId: { type: "string" },
           runtimeMode: { type: "string", enum: ["approval-required", "full-access"] },
         },
-        required: ["requestId", "prompt"],
+        required: ["requestId", "prompt", "target"],
         additionalProperties: false,
       },
-      annotations: {
-        title: "Create a Penkra thread",
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: true,
-        openWorldHint: true,
-      },
+      annotations: { title: "Create a Penkra thread", ...IDEMPOTENT_WRITE_TOOL_ANNOTATIONS },
     },
     handler: (args, context) =>
-      Effect.suspend(() => {
-        const explicitTarget = readRecordArg(args, "target");
-        let target: Record<string, unknown>;
-        if (explicitTarget) {
-          target = explicitTarget;
-        } else {
-          const provider = parseProviderKind(readStringArg(args, "provider", { required: true })!);
-          const modelSelection = buildModelSelection(provider, readStringArg(args, "model"));
-          const options = readRecordArg(args, "options");
-          target = { ...modelSelection, ...(options ? { options } : {}) };
-        }
-        const spec: Record<string, unknown> = {
-          prompt: readStringArg(args, "prompt", { required: true })!,
-          target,
-        };
-        for (const key of ["title", "projectId", "runtimeMode"]) {
-          const value = args[key];
-          if (value !== undefined) spec[key] = value;
-        }
-        return runCreateThreads(
-          decodeCreateThreadsInput({
-            requestId: readStringArg(args, "requestId", { required: true }),
-            threads: [spec],
-          }),
-          {
-            kind: "provider-session",
-            callerThreadId: context.callerThreadId,
-            callerTurnId: context.callerTurnId,
-            assertAuthority: context.assertCallerTurnActive,
-            attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
-          },
-        ).pipe(
-          Effect.map((result) => {
-            if (result.isError) return result;
-            const textContent = result.content.find((content) => content.type === "text");
-            const batch = JSON.parse(textContent?.text ?? "{}") as {
-              operationId?: string;
-              requestId?: string;
-              threads?: Array<Record<string, unknown>>;
-            };
-            return mcpToolResultJson({
-              operationId: batch.operationId,
-              requestId: batch.requestId,
-              ...(batch.threads?.[0] ?? {}),
-            });
-          }),
-        );
-      }).pipe(Effect.catchDefect((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      Effect.suspend(() =>
+        runCreateThread(decodeCreateThreadInput(args), {
+          kind: "provider-session",
+          callerThreadId: context.callerThreadId,
+          callerTurnId: context.callerTurnId,
+          assertAuthority: context.assertCallerTurnActive,
+          attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
+        }),
+      ).pipe(Effect.catchDefect((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
 
   const sendMessage: ToolEntry = {
@@ -371,6 +246,11 @@ export const makeAgentGateway = Effect.gen(function* () {
       Effect.gen(function* () {
         const threadId = readStringArg(args, "threadId", { required: true })!;
         const message = readStringArg(args, "message", { required: true })!;
+        if (threadId === context.callerThreadId) {
+          throw new ToolInputError(
+            "Cannot send to the caller Thread: send writes an agent-authored message with user role and starts another turn on top of the current turn.",
+          );
+        }
         const modeArg = readStringArg(args, "mode") ?? "queue";
         if (modeArg !== "queue" && modeArg !== "steer") {
           throw new ToolInputError(`Argument "mode" must be "queue" or "steer".`);
@@ -423,7 +303,10 @@ export const makeAgentGateway = Effect.gen(function* () {
         required: ["threadId"],
         additionalProperties: false,
       },
-      annotations: { title: "Interrupt a Penkra thread", ...WRITE_TOOL_ANNOTATIONS },
+      annotations: {
+        title: "Interrupt a Penkra thread",
+        ...DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS,
+      },
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -470,7 +353,7 @@ export const makeAgentGateway = Effect.gen(function* () {
         yield* assertCallerMayDriveThread(caller, target);
         yield* orchestrationEngine
           .dispatch({
-            type: "thread.meta.update",
+            type: "thread.update",
             commandId: CommandId.makeUnsafe(`agent:${randomUUID()}:rename`),
             threadId: target.id,
             title,
@@ -480,54 +363,58 @@ export const makeAgentGateway = Effect.gen(function* () {
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
 
-  const setThreadArchived: ToolEntry = {
+  const makeSetThreadArchived = (archived: boolean): ToolEntry => ({
     requiredCapability: "thread:write",
     requiresActiveTurn: true,
     definition: {
-      name: "penkra_set_thread_archived",
-      description:
-        "Archive or unarchive a Penkra thread. Defaults to your own thread when threadId is omitted.",
+      name: archived ? "penkra_archive_thread" : "penkra_unarchive_thread",
+      description: `${archived ? "Archive" : "Unarchive"} a Penkra thread. The target threadId is required.`,
       inputSchema: {
         type: "object",
         properties: {
-          threadId: { type: "string", description: "Thread to archive/unarchive." },
-          archived: { type: "boolean", description: "true to archive, false to unarchive." },
+          threadId: {
+            type: "string",
+            description: `Thread to ${archived ? "archive" : "unarchive"}.`,
+          },
         },
-        required: ["archived"],
+        required: ["threadId"],
         additionalProperties: false,
       },
-      annotations: { title: "Update a Penkra thread", ...WRITE_TOOL_ANNOTATIONS },
+      annotations: {
+        title: `${archived ? "Archive" : "Unarchive"} a Penkra thread`,
+        ...(archived ? DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS : WRITE_TOOL_ANNOTATIONS),
+      },
     },
     handler: (args, context) =>
       Effect.gen(function* () {
-        const threadId = readStringArg(args, "threadId") ?? context.callerThreadId;
-        const archived = readBooleanArg(args, "archived");
-        if (archived === undefined) {
-          throw new ToolInputError(`Missing required argument "archived".`);
-        }
+        const threadId = readStringArg(args, "threadId", { required: true })!;
         const caller = yield* requireThreadShell(context.callerThreadId);
         const target = yield* requireThreadShell(threadId);
         yield* assertCallerMayDriveThread(caller, target);
         yield* orchestrationEngine
           .dispatch({
             type: archived ? "thread.archive" : "thread.unarchive",
-            commandId: CommandId.makeUnsafe(`agent:${randomUUID()}:archive`),
+            commandId: CommandId.makeUnsafe(
+              `agent:${randomUUID()}:${archived ? "archive" : "unarchive"}`,
+            ),
             threadId: target.id,
           })
           .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
         return mcpToolResultJson({ threadId: target.id, archived });
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
-  };
+  });
+  const archiveThread = makeSetThreadArchived(true);
+  const unarchiveThread = makeSetThreadArchived(false);
 
   const internalCommandTools = [
     ...readTools,
     ...diagnosticTools,
-    createThreads,
     createThread,
     sendMessage,
     interruptThread,
     setThreadTitle,
-    setThreadArchived,
+    archiveThread,
+    unarchiveThread,
   ] as const;
   const requireInternalTool = (name: string): ToolEntry => {
     const tool = internalCommandTools.find((candidate) => candidate.definition.name === name);
@@ -537,7 +424,7 @@ export const makeAgentGateway = Effect.gen(function* () {
   const gatewayCommands: ReadonlyArray<AgentGatewayCommandEntry> = [
     { words: ["context"], tool: requireInternalTool("penkra_context") },
     { words: ["capabilities"], tool: requireInternalTool("penkra_capabilities") },
-    { words: ["projects", "list"], tool: requireInternalTool("penkra_list_projects") },
+    { words: ["folders", "list"], tool: requireInternalTool("penkra_list_folders") },
     { words: ["threads", "list"], tool: requireInternalTool("penkra_list_threads") },
     { words: ["threads", "read"], tool: requireInternalTool("penkra_read_thread") },
     { words: ["threads", "wait"], tool: requireInternalTool("penkra_wait_for_threads") },
@@ -555,20 +442,17 @@ export const makeAgentGateway = Effect.gen(function* () {
       words: ["threads", "retry-projection"],
       tool: requireInternalTool("penkra_retry_thread_projection"),
     },
-    { words: ["threads", "create-many"], tool: createThreads },
     { words: ["threads", "create"], tool: createThread },
     { words: ["threads", "send"], tool: sendMessage },
     { words: ["threads", "interrupt"], tool: interruptThread },
     { words: ["threads", "rename"], tool: setThreadTitle },
     {
       words: ["threads", "archive"],
-      tool: setThreadArchived,
-      fixedArguments: { archived: true },
+      tool: archiveThread,
     },
     {
       words: ["threads", "unarchive"],
-      tool: setThreadArchived,
-      fixedArguments: { archived: false },
+      tool: unarchiveThread,
     },
   ];
 
@@ -582,8 +466,46 @@ export const makeAgentGateway = Effect.gen(function* () {
     },
     handler: (args, context) =>
       Effect.gen(function* () {
-        const command = readStringArg(args, "command", { required: true })!;
-        const resolution = resolveAgentGatewayCommand(command, gatewayCommands);
+        const rawCommand = args.command;
+        if (
+          !Array.isArray(rawCommand) ||
+          rawCommand.length === 0 ||
+          !rawCommand.every((word) => typeof word === "string" && word.length > 0)
+        ) {
+          return yield* Effect.fail(
+            new ToolInputError("command must be a non-empty array of non-empty strings."),
+          );
+        }
+        const rawFlags = args.flags;
+        if (
+          rawFlags !== undefined &&
+          (!rawFlags ||
+            typeof rawFlags !== "object" ||
+            Array.isArray(rawFlags) ||
+            !Object.values(rawFlags).every(
+              (value) =>
+                typeof value === "string" ||
+                typeof value === "number" ||
+                typeof value === "boolean",
+            ))
+        ) {
+          return yield* Effect.fail(
+            new ToolInputError("flags must contain only string, number, or boolean values."),
+          );
+        }
+        const tabId = args.tabId;
+        if (tabId !== undefined && (typeof tabId !== "string" || !tabId)) {
+          return yield* Effect.fail(new ToolInputError("tabId must be a non-empty string."));
+        }
+        const commandInput: PenkraExecCommandInput = {
+          command: rawCommand,
+          ...(args.input === undefined ? {} : { input: args.input }),
+          ...(rawFlags === undefined
+            ? {}
+            : { flags: rawFlags as Record<string, PenkraExecFlagValue> }),
+          ...(tabId === undefined ? {} : { tabId }),
+        };
+        const resolution = resolveAgentGatewayCommand(commandInput, gatewayCommands);
         if (resolution.kind === "result") return resolution.result;
         if (resolution.kind === "call") {
           return yield* invokeResolvedAgentGatewayCommand({ resolution, context });
@@ -599,7 +521,7 @@ export const makeAgentGateway = Effect.gen(function* () {
         yield* context.assertCallerTurnActive();
         const result = yield* Effect.tryPromise({
           try: () =>
-            executePenkraExecCommand(command, {
+            executePenkraExecCommand(commandInput, {
               spaceId: callerSpaceId,
               threadId: caller.id,
               workingDirectory: caller.workingDirectory ?? null,
@@ -635,7 +557,31 @@ export const makeAgentGateway = Effect.gen(function* () {
     credentials,
     snapshotQuery,
     tools,
-    instructions: AGENT_GATEWAY_INSTRUCTIONS,
+    instructions: (context) =>
+      Effect.tryPromise({
+        try: async () => {
+          const caller = await Effect.runPromise(requireThreadShell(context.callerThreadId));
+          const spaceId = await Effect.runPromise(requireThreadSpaceId(snapshotQuery, caller));
+          const coreCommands = agentGatewayCommandCatalog(gatewayCommands);
+          if (!process.env.PENKRA_APP_COMMAND_PIPE) {
+            return penkraRootInstructions([], coreCommands);
+          }
+          const instructions = await executePenkraExecCommand(
+            { command: ["penkra", "--help"] },
+            {
+              spaceId,
+              threadId: caller.id,
+              workingDirectory: caller.workingDirectory ?? null,
+              additionalCoreCommands: coreCommands,
+            },
+          );
+          if (typeof instructions !== "string") {
+            throw new Error("Penkra root help did not return its instruction document.");
+          }
+          return instructions;
+        },
+        catch: (error) => new ToolInputError(errorText(error)),
+      }),
     requireThreadShell,
   });
   const invokeTool: AgentGatewayShape["invokeTool"] = (input) =>

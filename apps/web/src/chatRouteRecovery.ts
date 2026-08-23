@@ -8,8 +8,8 @@ import type { NativeApi, OrchestrationShellSnapshot } from "@penkra/contracts";
 import { EMPTY_ROUTE_RESTORE_FALLBACK_DELAY_MS } from "./chatRouteRestore";
 import { useStore } from "./store";
 
-function shellSnapshotHasProjectsOrThreads(snapshot: OrchestrationShellSnapshot): boolean {
-  return snapshot.projects.length > 0 || snapshot.threads.length > 0;
+function shellSnapshotHasFoldersOrThreads(snapshot: OrchestrationShellSnapshot): boolean {
+  return snapshot.folders.length > 0 || snapshot.threads.length > 0;
 }
 
 function shellSnapshotHasThreads(snapshot: OrchestrationShellSnapshot): boolean {
@@ -34,7 +34,7 @@ export async function refreshEmptyRouteRestoreSnapshot(
   }
 
   const shellSnapshot = await api.orchestration.getShellSnapshot();
-  if (shellSnapshotHasProjectsOrThreads(shellSnapshot)) {
+  if (shellSnapshotHasFoldersOrThreads(shellSnapshot)) {
     useStore.getState().syncServerShellSnapshot(shellSnapshot);
     if (shellSnapshotHasThreads(shellSnapshot)) {
       return true;

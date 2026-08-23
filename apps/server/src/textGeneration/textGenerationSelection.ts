@@ -7,9 +7,7 @@ export interface TextGenerationProviderInput {
 }
 
 export function hasDedicatedTextGenerationProvider(provider: ProviderKind | undefined): boolean {
-  return (
-    provider === "codex" || provider === "cursor" || provider === "kilo" || provider === "opencode"
-  );
+  return provider === "codex" || provider === "opencode";
 }
 
 export function resolveTextGenerationInputForSelection(

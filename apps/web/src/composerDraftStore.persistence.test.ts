@@ -1,4 +1,4 @@
-import { ContainerId, MessageId, ProviderConnectionId, ThreadId } from "@penkra/contracts";
+import { FolderId, MessageId, ProviderConnectionId, ThreadId } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { partializeComposerDraftStoreState, useComposerDraftStore } from "./composerDraftStore";
 import { normalizeCurrentPersistedComposerDraftStoreState } from "./composerDraftPersistence";
@@ -21,7 +21,7 @@ describe("composerDraftStore persisted-state hydration", () => {
     const emptyState = {
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: {},
+      projectDraftThreadIdByFolderId: {},
       stickyModelSelectionByProvider: {},
       stickyConnectionByProvider: {},
       stickyActiveProvider: null,
@@ -32,9 +32,9 @@ describe("composerDraftStore persisted-state hydration", () => {
   });
 
   it("hydrates project mappings, defaults, and persisted selections", () => {
-    const projectId = ContainerId.makeUnsafe("project-hydration");
+    const folderId = FolderId.makeUnsafe("project-hydration");
     const threadId = ThreadId.makeUnsafe("thread-hydration");
-    const mappingKey = `${projectId}::terminal`;
+    const mappingKey = `${folderId}::terminal`;
 
     const hydrated = normalizeCurrentPersistedComposerDraftStoreState({
       draftsByThreadId: {
@@ -60,12 +60,12 @@ describe("composerDraftStore persisted-state hydration", () => {
         },
       },
       draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: { [mappingKey]: threadId },
+      projectDraftThreadIdByFolderId: { [mappingKey]: threadId },
     });
 
-    expect(hydrated.projectDraftThreadIdByProjectId).toEqual({ [mappingKey]: threadId });
+    expect(hydrated.projectDraftThreadIdByFolderId).toEqual({ [mappingKey]: threadId });
     expect(hydrated.draftThreadsByThreadId[threadId]).toMatchObject({
-      projectId,
+      folderId,
       runtimeMode: "full-access",
       entryPoint: "terminal",
     });
@@ -92,7 +92,7 @@ describe("composerDraftStore persisted-state hydration", () => {
     const normalized = normalizeCurrentPersistedComposerDraftStoreState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: {},
+      projectDraftThreadIdByFolderId: {},
       stickyConnectionByProvider: { codex: connectionId },
     });
 
@@ -156,7 +156,7 @@ describe("composerDraftStore terminal contexts", () => {
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: {},
+      projectDraftThreadIdByFolderId: {},
       stickyModelSelectionByProvider: {},
       stickyConnectionByProvider: {},
       stickyActiveProvider: null,
@@ -273,7 +273,7 @@ describe("composerDraftStore terminal contexts", () => {
           },
         },
         draftThreadsByThreadId: {},
-        projectDraftThreadIdByProjectId: {},
+        projectDraftThreadIdByFolderId: {},
       },
       useComposerDraftStore.getInitialState(),
     );
@@ -311,47 +311,14 @@ describe("composerDraftStore terminal contexts", () => {
           },
         },
         draftThreadsByThreadId: "not-an-object",
-        projectDraftThreadIdByProjectId: "not-an-object",
+        projectDraftThreadIdByFolderId: "not-an-object",
       },
       useComposerDraftStore.getInitialState(),
     );
 
     expect(mergedState.draftsByThreadId[threadId]).toBeUndefined();
     expect(mergedState.draftThreadsByThreadId).toEqual({});
-    expect(mergedState.projectDraftThreadIdByProjectId).toEqual({});
-  });
-
-  it("drops unsupported restored Grok reasoning efforts from legacy draft storage", () => {
-    const persistApi = useComposerDraftStore.persist as unknown as {
-      getOptions: () => {
-        merge: (
-          persistedState: unknown,
-          currentState: ReturnType<typeof useComposerDraftStore.getState>,
-        ) => ReturnType<typeof useComposerDraftStore.getState>;
-      };
-    };
-    const mergedState = persistApi.getOptions().merge(
-      {
-        draftsByThreadId: {
-          [threadId]: {
-            provider: "grok",
-            model: "grok-build",
-            modelOptions: {
-              grok: {
-                reasoningEffort: "xhigh",
-              },
-            },
-          },
-        },
-        draftThreadsByThreadId: {},
-        projectDraftThreadIdByProjectId: {},
-      },
-      useComposerDraftStore.getInitialState(),
-    );
-
-    expect(mergedState.draftsByThreadId[threadId]?.modelSelectionByProvider.grok).toEqual(
-      modelSelection("grok", "grok-build"),
-    );
+    expect(mergedState.projectDraftThreadIdByFolderId).toEqual({});
   });
 
   it("trims a runtime-discovered Codex effort from legacy draft storage", () => {
@@ -373,7 +340,7 @@ describe("composerDraftStore terminal contexts", () => {
           },
         },
         draftThreadsByThreadId: {},
-        projectDraftThreadIdByProjectId: {},
+        projectDraftThreadIdByFolderId: {},
       },
       useComposerDraftStore.getInitialState(),
     );
@@ -395,7 +362,7 @@ describe("composerDraftStore terminal contexts", () => {
     const codexSelection = modelSelection("codex", "gpt-5.6-sol", {
       reasoningEffort: "ultra",
     });
-    const cursorSelection = modelSelection("cursor", "cursor-auto", {
+    const claudeSelection = modelSelection("claudeAgent", "claude-sonnet-5", {
       reasoningEffort: "high",
     });
     const mergedState = persistApi.getOptions().merge(
@@ -404,21 +371,21 @@ describe("composerDraftStore terminal contexts", () => {
           [threadId]: {
             modelSelectionByProvider: {
               codex: codexSelection,
-              cursor: cursorSelection,
+              claudeAgent: claudeSelection,
             },
-            activeProvider: "cursor",
+            activeProvider: "claudeAgent",
           },
         },
         draftThreadsByThreadId: {},
-        projectDraftThreadIdByProjectId: {},
+        projectDraftThreadIdByFolderId: {},
       },
       useComposerDraftStore.getInitialState(),
     );
 
     const draft = mergedState.draftsByThreadId[threadId];
     expect(draft?.modelSelectionByProvider.codex).toEqual(codexSelection);
-    expect(draft?.modelSelectionByProvider.cursor).toEqual(cursorSelection);
-    expect(draft?.activeProvider).toBe("cursor");
+    expect(draft?.modelSelectionByProvider.claudeAgent).toEqual(claudeSelection);
+    expect(draft?.activeProvider).toBe("claudeAgent");
   });
 });
 
@@ -612,7 +579,7 @@ describe("composerDraftStore queued follow-ups", () => {
     });
     const store = useComposerDraftStore.getState();
 
-    store.setProjectDraftThreadId(ContainerId.makeUnsafe("queue-project"), threadId);
+    store.setProjectDraftThreadId(FolderId.makeUnsafe("queue-project"), threadId);
     store.enqueueQueuedTurn(threadId, makeQueuedChatTurn("queued-chat-thread-clear", queuedImage));
     store.clearDraftThread(threadId);
 

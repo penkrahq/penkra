@@ -315,19 +315,6 @@ describe("composerSlashCommands", () => {
     ).not.toContain("compact");
   });
 
-  it("exposes shared app slash commands for Antigravity", () => {
-    expect(
-      getAvailableComposerSlashCommands({
-        provider: "antigravity",
-        supportsFastSlashCommand: false,
-        canOfferCompactCommand: false,
-        canOfferReviewCommand: true,
-        canOfferForkCommand: true,
-        canOfferExportCommand: true,
-      }),
-    ).toEqual(["clear", "model", "review", "fork", "status", "subagents", "export", "feedback"]);
-  });
-
   it("treats claude aliases like /fork as provider-native collisions", () => {
     expect(hasProviderNativeSlashCommand("claudeAgent", ["branch", "model"], "fork")).toBe(true);
     expect(hasProviderNativeSlashCommand("claudeAgent", ["clear"], "reset")).toBe(true);

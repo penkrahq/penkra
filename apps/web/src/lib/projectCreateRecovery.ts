@@ -1,48 +1,32 @@
 // FILE: projectCreateRecovery.ts
-// Purpose: Centralizes duplicate `project.create` error parsing and recovery helpers.
+// Purpose: Centralizes duplicate `folder.create` error parsing and recovery helpers.
 // Exports: duplicate-create error guards plus snapshot matching for import recovery.
 
 import type { OrchestrationReadModel } from "@penkra/contracts";
 import { workspaceRootsEqual } from "@penkra/shared/threadWorkspace";
 
 const DUPLICATE_PROJECT_CREATE_ERROR_PREFIX =
-  "Orchestration command invariant failed (project.create): Project '";
+  "Orchestration command invariant failed (folder.create): Project '";
 const DEFAULT_RECOVERY_MAX_ATTEMPTS = 6;
 const DEFAULT_RECOVERY_DELAY_MS = 50;
-const DEFAULT_RECOVERABLE_PROJECT_KINDS: ReadonlySet<string> = new Set(["project"]);
 
 export interface DuplicateProjectCreateRecoveryCandidate {
   readonly id: string;
-  readonly kind?: string | undefined;
   readonly workspaceRoot: string | null;
   readonly deletedAt?: string | null | undefined;
 }
 
-interface SnapshotWithProjects<T extends DuplicateProjectCreateRecoveryCandidate> {
-  readonly projects: readonly T[];
+interface SnapshotWithFolders<T extends DuplicateProjectCreateRecoveryCandidate> {
+  readonly folders: readonly T[];
 }
 
 interface ProjectLookupInput {
-  readonly projectId?: string | null | undefined;
+  readonly folderId?: string | null | undefined;
   readonly workspaceRoot?: string | null | undefined;
 }
 
-// Defaults to the original "project" kind so existing callers keep their current behavior;
-// other managed-container providers can opt into their own kind set.
-function isRecoverableProjectKind(
-  kind: string | undefined,
-  recoverableKinds: ReadonlySet<string> = DEFAULT_RECOVERABLE_PROJECT_KINDS,
-): boolean {
-  return recoverableKinds.has(kind ?? "project");
-}
-
-function isRecoverableActiveProject(
-  project: DuplicateProjectCreateRecoveryCandidate,
-  recoverableKinds?: ReadonlySet<string>,
-): boolean {
-  return (
-    (project.deletedAt ?? null) === null && isRecoverableProjectKind(project.kind, recoverableKinds)
-  );
+function isRecoverableActiveProject(project: DuplicateProjectCreateRecoveryCandidate): boolean {
+  return (project.deletedAt ?? null) === null;
 }
 
 function wait(ms: number): Promise<void> {
@@ -96,7 +80,7 @@ export async function waitForSnapshotMatch<TSnapshot, TMatch>(input: {
 
 // Shared machinery behind hidden-container candidate helpers used by home-chat
 // project recovery: normalizes the cwd/workspaceRoot field naming difference between local store
-// projects and shell-snapshot rows, and finds a candidate by id via a caller-supplied predicate.
+// folders and shell-snapshot rows, and finds a candidate by id via a caller-supplied predicate.
 export interface ContainerCandidateFields {
   readonly cwd?: string | null | undefined;
   readonly workspaceRoot?: string | null | undefined;
@@ -109,16 +93,16 @@ export function resolveContainerCandidateCwd(
 }
 
 export function findContainerCandidateById<T extends { readonly id?: string | undefined }>(
-  projects: readonly T[],
-  projectId: string,
+  folders: readonly T[],
+  folderId: string,
   isContainerCandidate: (project: T) => boolean,
 ): T | null {
   return (
-    projects.find((project) => project.id === projectId && isContainerCandidate(project)) ?? null
+    folders.find((project) => project.id === folderId && isContainerCandidate(project)) ?? null
   );
 }
 
-// Parses the invariant text so the UI can recover existing projects instead of failing imports.
+// Parses the invariant text so the UI can recover existing folders instead of failing imports.
 export function isDuplicateProjectCreateError(message: string): boolean {
   if (!message.startsWith(DUPLICATE_PROJECT_CREATE_ERROR_PREFIX)) {
     return false;
@@ -128,7 +112,7 @@ export function isDuplicateProjectCreateError(message: string): boolean {
   return duplicateMarkerIndex > DUPLICATE_PROJECT_CREATE_ERROR_PREFIX.length;
 }
 
-export function extractDuplicateProjectCreateProjectId(message: string): string | null {
+export function extractDuplicateProjectCreateFolderId(message: string): string | null {
   if (!isDuplicateProjectCreateError(message)) {
     return null;
   }
@@ -139,15 +123,12 @@ export function extractDuplicateProjectCreateProjectId(message: string): string 
 
 export function findRecoverableProject<T extends DuplicateProjectCreateRecoveryCandidate>(
   input: ProjectLookupInput & {
-    readonly projects: readonly T[];
-    readonly recoverableKinds?: ReadonlySet<string> | undefined;
+    readonly folders: readonly T[];
   },
 ): T | null {
-  if (input.projectId) {
-    const projectById = input.projects.find(
-      (project) =>
-        isRecoverableActiveProject(project, input.recoverableKinds) &&
-        project.id === input.projectId,
+  if (input.folderId) {
+    const projectById = input.folders.find(
+      (project) => isRecoverableActiveProject(project) && project.id === input.folderId,
     );
     if (projectById) {
       return projectById;
@@ -160,9 +141,9 @@ export function findRecoverableProject<T extends DuplicateProjectCreateRecoveryC
 
   const workspaceRoot = input.workspaceRoot;
   return (
-    input.projects.find(
+    input.folders.find(
       (project) =>
-        isRecoverableActiveProject(project, input.recoverableKinds) &&
+        isRecoverableActiveProject(project) &&
         project.workspaceRoot !== null &&
         workspaceRootsEqual(project.workspaceRoot, workspaceRoot),
     ) ?? null
@@ -174,24 +155,22 @@ export function findRecoverableProjectForDuplicateCreate<
   T extends DuplicateProjectCreateRecoveryCandidate,
 >(input: {
   readonly message: string;
-  readonly projects: readonly T[];
+  readonly folders: readonly T[];
   readonly workspaceRoot: string;
-  readonly recoverableKinds?: ReadonlySet<string> | undefined;
 }): T | null {
   if (!isDuplicateProjectCreateError(input.message)) {
     return null;
   }
 
   return findRecoverableProject({
-    projects: input.projects,
-    projectId: extractDuplicateProjectCreateProjectId(input.message),
+    folders: input.folders,
+    folderId: extractDuplicateProjectCreateFolderId(input.message),
     workspaceRoot: input.workspaceRoot,
-    recoverableKinds: input.recoverableKinds,
   });
 }
 
 export async function waitForRecoverableProjectInReadModel<
-  TSnapshot extends SnapshotWithProjects<DuplicateProjectCreateRecoveryCandidate> =
+  TSnapshot extends SnapshotWithFolders<DuplicateProjectCreateRecoveryCandidate> =
     OrchestrationReadModel,
 >(
   input: ProjectLookupInput & {
@@ -199,32 +178,30 @@ export async function waitForRecoverableProjectInReadModel<
     readonly repairSnapshot?: (() => Promise<TSnapshot | null>) | undefined;
     readonly maxAttempts?: number | undefined;
     readonly delayMs?: number | undefined;
-    readonly recoverableKinds?: ReadonlySet<string> | undefined;
   },
 ): Promise<{
-  project: TSnapshot["projects"][number] | null;
+  project: TSnapshot["folders"][number] | null;
   snapshot: TSnapshot | null;
 }> {
-  const { match, snapshot } = await waitForSnapshotMatch<TSnapshot, TSnapshot["projects"][number]>({
+  const { match, snapshot } = await waitForSnapshotMatch<TSnapshot, TSnapshot["folders"][number]>({
     loadSnapshot: input.loadSnapshot,
     repairSnapshot: input.repairSnapshot,
     maxAttempts: input.maxAttempts,
     delayMs: input.delayMs,
     findMatch: (candidateSnapshot) =>
       findRecoverableProject({
-        projects: candidateSnapshot.projects,
-        projectId: input.projectId,
+        folders: candidateSnapshot.folders,
+        folderId: input.folderId,
         workspaceRoot: input.workspaceRoot,
-        recoverableKinds: input.recoverableKinds,
-      }) as TSnapshot["projects"][number] | null,
+      }) as TSnapshot["folders"][number] | null,
   });
 
   return { project: match, snapshot };
 }
 
-// Retries snapshot reads briefly so freshly restored projects can be reused by the first-send flow.
+// Retries snapshot reads briefly so freshly restored folders can be reused by the first-send flow.
 export async function waitForRecoverableProjectForDuplicateCreate<
-  TSnapshot extends SnapshotWithProjects<DuplicateProjectCreateRecoveryCandidate>,
+  TSnapshot extends SnapshotWithFolders<DuplicateProjectCreateRecoveryCandidate>,
 >(input: {
   readonly message: string;
   readonly workspaceRoot: string;
@@ -232,12 +209,11 @@ export async function waitForRecoverableProjectForDuplicateCreate<
   readonly repairSnapshot?: (() => Promise<TSnapshot | null>) | undefined;
   readonly maxAttempts?: number | undefined;
   readonly delayMs?: number | undefined;
-  readonly recoverableKinds?: ReadonlySet<string> | undefined;
 }): Promise<{
-  project: TSnapshot["projects"][number] | null;
+  project: TSnapshot["folders"][number] | null;
   snapshot: TSnapshot | null;
 }> {
-  const { match, snapshot } = await waitForSnapshotMatch<TSnapshot, TSnapshot["projects"][number]>({
+  const { match, snapshot } = await waitForSnapshotMatch<TSnapshot, TSnapshot["folders"][number]>({
     loadSnapshot: input.loadSnapshot,
     repairSnapshot: input.repairSnapshot,
     maxAttempts: input.maxAttempts,
@@ -245,10 +221,9 @@ export async function waitForRecoverableProjectForDuplicateCreate<
     findMatch: (candidateSnapshot) =>
       findRecoverableProjectForDuplicateCreate({
         message: input.message,
-        projects: candidateSnapshot.projects,
+        folders: candidateSnapshot.folders,
         workspaceRoot: input.workspaceRoot,
-        recoverableKinds: input.recoverableKinds,
-      }) as TSnapshot["projects"][number] | null,
+      }) as TSnapshot["folders"][number] | null,
   });
 
   return { project: match, snapshot };

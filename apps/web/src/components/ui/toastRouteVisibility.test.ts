@@ -1,4 +1,4 @@
-import { ContainerId, ThreadId } from "@penkra/contracts";
+import { FolderId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,7 +7,7 @@ import {
 } from "./toastRouteVisibility";
 import type { SplitView } from "../../splitViewStore";
 
-const PROJECT_ID = ContainerId.makeUnsafe("project-1");
+const PROJECT_ID = FolderId.makeUnsafe("project-1");
 const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
 
@@ -39,7 +39,7 @@ function createSplitView(): SplitView {
   return {
     id: "split-1",
     sourceThreadId: THREAD_A,
-    ownerProjectId: PROJECT_ID,
+    ownerFolderId: PROJECT_ID,
     root: {
       kind: "split",
       id: "split-root",

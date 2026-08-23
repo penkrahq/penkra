@@ -11,7 +11,7 @@ import {
 } from "./workspaceWatcher";
 
 describe("deduplicateWorkspaceRoots", () => {
-  it("keeps one watcher for nested projects and preserves sibling roots", () => {
+  it("keeps one watcher for nested folders and preserves sibling roots", () => {
     const base = path.resolve("/tmp/workspaces");
     expect(
       deduplicateWorkspaceRoots([
@@ -67,7 +67,7 @@ describe("workspace watcher lifecycle", () => {
     expect(closeCount).toBe(1);
   });
 
-  it("ignores projects without a filesystem workspace root", async () => {
+  it("ignores folders without a filesystem workspace root", async () => {
     const watched: string[] = [];
     const manager = new WorkspaceWatcherManager(
       async () => [null, "/tmp/workspace"],

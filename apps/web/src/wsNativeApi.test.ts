@@ -11,7 +11,8 @@ import {
   ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
   type OrchestrationEvent,
-  ContainerId,
+  FolderId,
+  SpaceId,
   ThreadId,
   type WsPushChannel,
   type WsPushData,
@@ -144,7 +145,7 @@ describe("wsNativeApi", () => {
     const { createWsNativeApi } = await import("./wsNativeApi");
     const api = createWsNativeApi();
 
-    expect(api.projects.onWorkspaceChange).toBeTypeOf("function");
+    expect(api.folders.onWorkspaceChange).toBeTypeOf("function");
   });
 
   it("delivers and caches valid server.welcome payloads", async () => {
@@ -178,7 +179,7 @@ describe("wsNativeApi", () => {
       cwd: "/tmp/workspace",
       homeDir: "/Users/tester",
       projectName: "penkra-code",
-      bootstrapProjectId: ContainerId.makeUnsafe("project-1"),
+      bootstrapFolderId: FolderId.makeUnsafe("project-1"),
       bootstrapThreadId: ThreadId.makeUnsafe("thread-1"),
     });
 
@@ -188,7 +189,7 @@ describe("wsNativeApi", () => {
         cwd: "/tmp/workspace",
         homeDir: "/Users/tester",
         projectName: "penkra-code",
-        bootstrapProjectId: "project-1",
+        bootstrapFolderId: "project-1",
         bootstrapThreadId: "thread-1",
       }),
     );
@@ -308,28 +309,13 @@ describe("wsNativeApi", () => {
         addProjectBaseDirectory: "",
         textGenerationModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
         providers: {
-          codex: { enabled: true, binaryPath: "codex", homePath: "", customModels: [] },
-          claudeAgent: { enabled: true, binaryPath: "claude", launchArgs: "", customModels: [] },
-          cursor: { enabled: false, binaryPath: "agent", apiEndpoint: "", customModels: [] },
-          antigravity: { enabled: true, binaryPath: "agy", customModels: [] },
-          grok: { enabled: true, binaryPath: "grok", customModels: [] },
-          droid: { enabled: true, binaryPath: "droid", customModels: [] },
-          kilo: {
-            enabled: true,
-            binaryPath: "kilo",
-            serverUrl: "",
-            serverPasswordConfigured: false,
-            customModels: [],
-          },
+          codex: { enabled: true, customModels: [] },
+          claudeAgent: { enabled: true, customModels: [] },
           opencode: {
             enabled: true,
-            binaryPath: "opencode",
-            serverUrl: "",
-            serverPasswordConfigured: false,
             experimentalWebSockets: false,
             customModels: [],
           },
-          pi: { enabled: true, binaryPath: "pi", agentDir: "", customModels: [] },
         },
         skills: { disabled: [] },
       },
@@ -369,17 +355,17 @@ describe("wsNativeApi", () => {
     const orchestrationEvent = {
       sequence: 1,
       eventId: EventId.makeUnsafe("event-1"),
-      aggregateKind: "project",
-      aggregateId: ContainerId.makeUnsafe("project-1"),
+      aggregateKind: "folder",
+      aggregateId: FolderId.makeUnsafe("project-1"),
       occurredAt: "2026-02-24T00:00:00.000Z",
       commandId: null,
       causationEventId: null,
       correlationId: null,
       metadata: {},
-      type: "project.created",
+      type: "folder.created",
       payload: {
-        projectId: ContainerId.makeUnsafe("project-1"),
-        kind: "project",
+        folderId: FolderId.makeUnsafe("project-1"),
+        spaceId: SpaceId.makeUnsafe("space-test"),
         title: "Project",
         workspaceRoot: "/tmp/workspace",
         defaultModelSelection: null,
@@ -387,7 +373,7 @@ describe("wsNativeApi", () => {
         createdAt: "2026-02-24T00:00:00.000Z",
         updatedAt: "2026-02-24T00:00:00.000Z",
       },
-    } satisfies Extract<OrchestrationEvent, { type: "project.created" }>;
+    } satisfies Extract<OrchestrationEvent, { type: "folder.created" }>;
     emitPush(ORCHESTRATION_WS_CHANNELS.domainEvent, orchestrationEvent);
     expect(onTerminalEvent).toHaveBeenCalledTimes(1);
     expect(onTerminalEvent).toHaveBeenCalledWith(terminalEvent);
@@ -403,16 +389,17 @@ describe("wsNativeApi", () => {
 
     const api = createWsNativeApi();
     const command = {
-      type: "project.create",
+      type: "folder.create",
       commandId: CommandId.makeUnsafe("cmd-1"),
-      projectId: ContainerId.makeUnsafe("project-1"),
-      kind: "project",
+      folderId: FolderId.makeUnsafe("project-1"),
+      spaceId: SpaceId.makeUnsafe("space-test"),
       title: "Project",
       workspaceRoot: "/tmp/project",
       defaultModelSelection: {
         provider: "codex",
         model: "gpt-5-codex",
       },
+      scripts: [],
       createdAt: "2026-02-24T00:00:00.000Z",
     } as const;
     await api.orchestration.dispatchCommand(command);
@@ -473,7 +460,7 @@ describe("wsNativeApi", () => {
     const { createWsNativeApi } = await import("./wsNativeApi");
 
     const api = createWsNativeApi();
-    await api.projects.writeFile({
+    await api.folders.writeFile({
       cwd: "/tmp/project",
       relativePath: "plan.md",
       contents: "# Plan\n",
@@ -495,7 +482,7 @@ describe("wsNativeApi", () => {
     const { createWsNativeApi } = await import("./wsNativeApi");
 
     const api = createWsNativeApi();
-    await api.projects.readFile({
+    await api.folders.readFile({
       cwd: "/tmp/project",
       relativePath: "src/app.ts",
     });
@@ -514,7 +501,7 @@ describe("wsNativeApi", () => {
     const { createWsNativeApi } = await import("./wsNativeApi");
 
     const api = createWsNativeApi();
-    await api.projects.createLocalFilePreviewGrant({
+    await api.folders.createLocalFilePreviewGrant({
       path: "/Users/tester/Downloads/shot.png",
     });
 
@@ -528,7 +515,7 @@ describe("wsNativeApi", () => {
     const { createWsNativeApi } = await import("./wsNativeApi");
 
     const api = createWsNativeApi();
-    await api.projects.discoverScripts({
+    await api.folders.discoverScripts({
       cwd: "/tmp/project",
       depth: 2,
     });

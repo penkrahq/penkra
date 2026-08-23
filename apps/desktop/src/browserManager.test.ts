@@ -62,6 +62,9 @@ class FakeWebContents extends EventEmitter {
   isLoading = vi.fn(() => this.loading);
   canGoBack = vi.fn(() => false);
   canGoForward = vi.fn(() => false);
+  loadURL = vi.fn(async (url: string) => {
+    this.currentUrl = url;
+  });
 
   setWindowOpenHandler(handler: WindowOpenHandler): void {
     this.windowOpenHandler = handler;
@@ -95,6 +98,7 @@ interface BrowserManagerCharacterizationAccess {
     window: BrowserWindow;
     listenerDisposers: Array<() => void>;
   }): void;
+  syncRuntimeState(threadId: ThreadId, tabId: string): void;
 }
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
@@ -229,6 +233,173 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       lastError: null,
     });
     expect(onState).toHaveBeenCalledOnce();
+  });
+
+  it("recovers an initial WebView failure missed before attachment from chrome-error state", () => {
+    const manager = new DesktopBrowserManager();
+    const opened = manager.open({
+      threadId: THREAD_ID,
+      initialUrl: "http://127.0.0.1:41997/",
+    });
+    const tabId = opened.activeTabId;
+    expect(tabId).not.toBeNull();
+    if (!tabId) return;
+
+    const tabContents = new FakeWebContents();
+    tabContents.currentUrl = "chrome-error://chromewebdata/";
+    tabContents.currentTitle = "127.0.0.1";
+    tabContents.loading = false;
+    const runtime = {
+      key: `${THREAD_ID}:${tabId}`,
+      threadId: THREAD_ID,
+      tabId,
+      webContents: tabContents as unknown as WebContents,
+      view: null,
+      ownsWebContents: false as const,
+      listenerDisposers: [],
+    };
+    (
+      manager as unknown as {
+        runtimes: Map<string, typeof runtime>;
+      }
+    ).runtimes.set(runtime.key, runtime);
+
+    asCharacterizationAccess(manager).syncRuntimeState(THREAD_ID, tabId);
+
+    expect(manager.getState({ threadId: THREAD_ID }).tabs[0]).toMatchObject({
+      url: "http://127.0.0.1:41997/",
+      lastCommittedUrl: null,
+      lastError: "Couldn't open this page.",
+      isLoading: false,
+    });
+  });
+
+  it("records an initial renderer-owned WebView failure before main-process attachment", () => {
+    const reportLoadFailure = vi.fn();
+    const manager = new DesktopBrowserManager({ reportLoadFailure });
+    const opened = manager.open({
+      threadId: THREAD_ID,
+      initialUrl: "http://127.0.0.1:41996/",
+    });
+    const tabId = opened.activeTabId;
+    expect(tabId).not.toBeNull();
+    if (!tabId) return;
+
+    const failure = {
+      threadId: THREAD_ID,
+      tabId,
+      errorCode: -102,
+      errorDescription: "ERR_CONNECTION_REFUSED",
+      validatedUrl: "http://127.0.0.1:41996/",
+      isMainFrame: true,
+    } as const;
+    manager.reportRendererWebviewLoadFailure(failure);
+    manager.reportRendererWebviewLoadFailure(failure);
+
+    expect(manager.getState({ threadId: THREAD_ID }).tabs[0]).toMatchObject({
+      url: "http://127.0.0.1:41996/",
+      lastError: "Connection refused.",
+      isLoading: false,
+    });
+    expect(reportLoadFailure).toHaveBeenCalledWith({
+      source: "did-fail-load",
+      threadId: THREAD_ID,
+      tabId,
+      url: "http://127.0.0.1:41996/",
+      errorCode: -102,
+      errorDescription: "ERR_CONNECTION_REFUSED",
+    });
+    expect(reportLoadFailure).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a document that committed before loadURL rejected", async () => {
+    const reportLoadFailure = vi.fn();
+    const manager = new DesktopBrowserManager({ reportLoadFailure });
+    const opened = manager.open({ threadId: THREAD_ID });
+    const tabId = opened.activeTabId;
+    expect(tabId).not.toBeNull();
+    if (!tabId) return;
+
+    const tabContents = new FakeWebContents();
+    tabContents.currentUrl = "about:blank";
+    tabContents.currentTitle = "New tab";
+    tabContents.loadURL.mockImplementation(async () => {
+      tabContents.currentUrl = "https://mail.google.com/mail/u/0/#inbox";
+      tabContents.currentTitle = "Inbox - Gmail";
+      tabContents.emit("did-navigate", {}, tabContents.currentUrl);
+      throw new Error("ERR_FAILED (-2) loading 'https://gmail.com/'");
+    });
+    const runtime = {
+      key: `${THREAD_ID}:${tabId}`,
+      threadId: THREAD_ID,
+      tabId,
+      webContents: tabContents as unknown as WebContents,
+      view: null,
+      ownsWebContents: false as const,
+      listenerDisposers: [],
+    };
+    asCharacterizationAccess(manager).configureRuntimeWebContents(runtime);
+    (
+      manager as unknown as {
+        runtimes: Map<string, typeof runtime>;
+      }
+    ).runtimes.set(runtime.key, runtime);
+
+    manager.navigate({ threadId: THREAD_ID, tabId, url: "https://gmail.com" });
+
+    await vi.waitFor(() => {
+      expect(manager.getState({ threadId: THREAD_ID }).tabs[0]).toMatchObject({
+        url: "https://mail.google.com/mail/u/0/#inbox",
+        title: "Inbox - Gmail",
+        lastError: null,
+      });
+    });
+    expect(tabContents.loadURL).toHaveBeenCalledOnce();
+    expect(reportLoadFailure).not.toHaveBeenCalled();
+  });
+
+  it("retains the loadURL fallback when no document committed and no failure event arrived", async () => {
+    const reportLoadFailure = vi.fn();
+    const manager = new DesktopBrowserManager({ reportLoadFailure });
+    const opened = manager.open({ threadId: THREAD_ID });
+    const tabId = opened.activeTabId;
+    expect(tabId).not.toBeNull();
+    if (!tabId) return;
+
+    const tabContents = new FakeWebContents();
+    tabContents.currentUrl = "about:blank";
+    tabContents.currentTitle = "New tab";
+    tabContents.loadURL.mockRejectedValue(
+      new Error("ERR_FAILED (-2) loading 'https://unavailable.example/'"),
+    );
+    const runtime = {
+      key: `${THREAD_ID}:${tabId}`,
+      threadId: THREAD_ID,
+      tabId,
+      webContents: tabContents as unknown as WebContents,
+      view: null,
+      ownsWebContents: false as const,
+      listenerDisposers: [],
+    };
+    asCharacterizationAccess(manager).configureRuntimeWebContents(runtime);
+    (
+      manager as unknown as {
+        runtimes: Map<string, typeof runtime>;
+      }
+    ).runtimes.set(runtime.key, runtime);
+
+    manager.navigate({
+      threadId: THREAD_ID,
+      tabId,
+      url: "https://unavailable.example",
+    });
+
+    await vi.waitFor(() => {
+      expect(manager.getState({ threadId: THREAD_ID }).tabs[0]?.lastError).toBe(
+        "Couldn't open this page.",
+      );
+    });
+    expect(reportLoadFailure).toHaveBeenCalledOnce();
   });
 
   it("recovers a missed page favicon on attach and converts it to an App-safe data URL", async () => {

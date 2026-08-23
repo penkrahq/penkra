@@ -137,8 +137,7 @@ function normalizeSettings(
   );
 }
 
-const LEGACY_SERVER_PASSWORD_PROVIDERS = ["kilo", "opencode"] as const;
-const SETTINGS_SERVER_PASSWORD_PROVIDERS = ["kilo"] as const;
+const LEGACY_SERVER_PASSWORD_PROVIDERS = ["opencode"] as const;
 
 function readLegacyProviderPasswords(raw: string): ReadonlyMap<ExternalProviderServer, string> {
   try {
@@ -159,15 +158,7 @@ function readLegacyProviderPasswords(raw: string): ReadonlyMap<ExternalProviderS
 }
 
 function omitProviderPasswords(patch: ServerSettingsPatch): ServerSettingsPatch {
-  if (!patch.providers) return patch;
-  const { serverPassword: _kiloPassword, ...kilo } = patch.providers.kilo ?? {};
-  return {
-    ...patch,
-    providers: {
-      ...patch.providers,
-      ...(patch.providers.kilo ? { kilo } : {}),
-    },
-  };
+  return patch;
 }
 
 export function migratePersistedServerSettings(settings: unknown): unknown {
@@ -238,31 +229,7 @@ const makeServerSettings = Effect.gen(function* () {
   const emitChange = (settings: ServerSettings) =>
     PubSub.publish(changesPubSub, settings).pipe(Effect.asVoid);
 
-  const withCredentialState = (settings: ServerSettings) =>
-    Effect.all({
-      kilo: providerCredentials.isServerPasswordConfigured("kilo"),
-    }).pipe(
-      Effect.map(
-        (configured): ServerSettings => ({
-          ...settings,
-          providers: {
-            ...settings.providers,
-            kilo: {
-              ...settings.providers.kilo,
-              serverPasswordConfigured: configured.kilo,
-            },
-          },
-        }),
-      ),
-      Effect.mapError(
-        (cause) =>
-          new ServerSettingsError({
-            settingsPath,
-            detail: "failed to read provider credential state",
-            cause,
-          }),
-      ),
-    );
+  const withCredentialState = (settings: ServerSettings) => Effect.succeed(settings);
 
   const loadSettingsFromDisk = Effect.gen(function* () {
     const exists = yield* fs.exists(settingsPath).pipe(
@@ -394,21 +361,6 @@ const makeServerSettings = Effect.gen(function* () {
       Effect.gen(function* () {
         const disk = yield* loadSettingsFromDisk;
         const current = disk.settings;
-        for (const provider of SETTINGS_SERVER_PASSWORD_PROVIDERS) {
-          const password = patch.providers?.[provider]?.serverPassword;
-          if (password !== undefined) {
-            yield* providerCredentials.replaceServerPassword(provider, password).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ServerSettingsError({
-                    settingsPath,
-                    detail: `failed to update ${provider} server password`,
-                    cause,
-                  }),
-              ),
-            );
-          }
-        }
         const normalized = yield* normalizeSettings(
           settingsPath,
           current,

@@ -12,13 +12,7 @@ const harnesses: Array<{
 }> = [
   { label: "ChatGPT", provider: "codex" },
   { label: "Claude", provider: "claudeAgent" },
-  { disabled: true, label: "Cursor", provider: "cursor" },
-  { label: "Antigravity", provider: "antigravity" },
-  { label: "Grok", provider: "grok" },
-  { disabled: true, label: "Droid", provider: "droid" },
-  { disabled: true, label: "Kilo", provider: "kilo" },
   { label: "OpenCode", provider: "opencode" },
-  { label: "Pi", provider: "pi" },
 ];
 
 export interface MenuHarnessProps {

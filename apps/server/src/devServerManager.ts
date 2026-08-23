@@ -3,7 +3,7 @@
  *
  * Dev servers are first-class background processes keyed by project id, fully
  * decoupled from chat threads. Each runs in a managed PTY (via TerminalManager)
- * under a synthetic `dev-server:<projectId>` thread so its lifetime survives
+ * under a synthetic `dev-server:<folderId>` thread so its lifetime survives
  * WebSocket reconnects and never clutters the thread list. The manager keeps an
  * in-memory registry, broadcasts changes over a PubSub for the
  * `project.devServerEvent` push channel, and reaps entries when their PTY exits.
@@ -12,7 +12,7 @@
  */
 import {
   DEFAULT_TERMINAL_ID,
-  ContainerId,
+  FolderId,
   type ProjectDevServer,
   type ProjectDevServerEvent,
   type ProjectListDevServersResult,
@@ -33,15 +33,14 @@ const DEV_SERVER_THREAD_PREFIX = "dev-server:";
 const DEV_SERVER_TERMINAL_COLS = 120;
 const DEV_SERVER_TERMINAL_ROWS = 30;
 
-const devServerThreadId = (projectId: ContainerId): string =>
-  `${DEV_SERVER_THREAD_PREFIX}${projectId}`;
+const devServerThreadId = (folderId: FolderId): string => `${DEV_SERVER_THREAD_PREFIX}${folderId}`;
 
-const parseDevServerProjectId = (threadId: string): ContainerId | null => {
+const parseDevServerFolderId = (threadId: string): FolderId | null => {
   if (!threadId.startsWith(DEV_SERVER_THREAD_PREFIX)) {
     return null;
   }
   const raw = threadId.slice(DEV_SERVER_THREAD_PREFIX.length);
-  return raw.length > 0 ? ContainerId.makeUnsafe(raw) : null;
+  return raw.length > 0 ? FolderId.makeUnsafe(raw) : null;
 };
 
 export function findProjectDevServerForLocalServer(input: {
@@ -81,24 +80,24 @@ export const DevServerManagerLive = Layer.effect(
       PubSub.unbounded<ProjectDevServerEvent>(),
       PubSub.shutdown,
     );
-    const registry = yield* Ref.make<Record<ContainerId, ProjectDevServer>>({});
+    const registry = yield* Ref.make<Record<FolderId, ProjectDevServer>>({});
 
     const publish = (event: ProjectDevServerEvent) => PubSub.publish(pubsub, event);
 
     // Reap a tracked dev server whose PTY exited or errored. Guarded so that a
     // deliberate stop (which removes the entry first) cannot double-publish, and
     // so a stale exit for an already-replaced project is ignored.
-    const reapExited = (projectId: ContainerId) =>
+    const reapExited = (folderId: FolderId) =>
       Ref.modify(registry, (current) => {
-        if (!current[projectId]) {
+        if (!current[folderId]) {
           return [false, current] as const;
         }
         const next = { ...current };
-        delete next[projectId];
+        delete next[folderId];
         return [true, next] as const;
       }).pipe(
         Effect.flatMap((removed) =>
-          removed ? publish({ type: "removed", projectId, reason: "exited" }) : Effect.void,
+          removed ? publish({ type: "removed", folderId, reason: "exited" }) : Effect.void,
         ),
       );
 
@@ -106,22 +105,22 @@ export const DevServerManagerLive = Layer.effect(
       if (event.type !== "exited" && event.type !== "error") {
         return;
       }
-      const projectId = parseDevServerProjectId(event.threadId);
-      if (!projectId) {
+      const folderId = parseDevServerFolderId(event.threadId);
+      if (!folderId) {
         return;
       }
-      Effect.runFork(reapExited(projectId));
+      Effect.runFork(reapExited(folderId));
     });
     yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
 
     const run: DevServerManagerShape["run"] = (input) =>
       Effect.gen(function* () {
-        const threadId = devServerThreadId(input.projectId);
+        const threadId = devServerThreadId(input.folderId);
 
         // If a dev server is already tracked for this project, tear its PTY down
         // first so the command always lands in a fresh shell. A deliberate close
         // emits no exit event, so the reaper stays quiet during the swap.
-        const existing = (yield* Ref.get(registry))[input.projectId];
+        const existing = (yield* Ref.get(registry))[input.folderId];
         if (existing) {
           yield* terminalManager
             .close({ threadId, deleteHistory: true })
@@ -147,14 +146,14 @@ export const DevServerManagerLive = Layer.effect(
         });
 
         const server: ProjectDevServer = {
-          projectId: input.projectId,
+          folderId: input.folderId,
           command: input.command,
           cwd: input.cwd,
           pid: snapshot.pid,
           startedAt: new Date().toISOString(),
           status: "running",
         };
-        yield* Ref.update(registry, (current) => ({ ...current, [input.projectId]: server }));
+        yield* Ref.update(registry, (current) => ({ ...current, [input.folderId]: server }));
         yield* publish({ type: "upserted", server });
         return { server };
       });
@@ -164,19 +163,19 @@ export const DevServerManagerLive = Layer.effect(
         // Remove from the registry *before* closing so the PTY teardown cannot be
         // mistaken for a crash by the reaper.
         const removed = yield* Ref.modify(registry, (current) => {
-          if (!current[input.projectId]) {
+          if (!current[input.folderId]) {
             return [false, current] as const;
           }
           const next = { ...current };
-          delete next[input.projectId];
+          delete next[input.folderId];
           return [true, next] as const;
         });
         if (!removed) {
           return { stopped: false };
         }
-        yield* publish({ type: "removed", projectId: input.projectId, reason: "stopped" });
+        yield* publish({ type: "removed", folderId: input.folderId, reason: "stopped" });
         yield* terminalManager
-          .close({ threadId: devServerThreadId(input.projectId), deleteHistory: true })
+          .close({ threadId: devServerThreadId(input.folderId), deleteHistory: true })
           .pipe(Effect.catch(() => Effect.void));
         return { stopped: true };
       });

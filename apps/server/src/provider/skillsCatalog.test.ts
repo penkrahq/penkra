@@ -83,18 +83,10 @@ describe("discoverSkillsCatalog", () => {
       "Claude",
     );
     await writeSkill(
-      path.join(homeDir, ".cursor", "skills", "cursor-only"),
-      "cursor-only",
-      "Cursor",
-    );
-    await writeSkill(path.join(homeDir, ".grok", "skills", "grok-only"), "grok-only", "Grok");
-    await writeSkill(path.join(homeDir, ".kilo", "skills", "kilo-only"), "kilo-only", "Kilo");
-    await writeSkill(
       path.join(homeDir, ".config", "opencode", "skills", "opencode-only"),
       "opencode-only",
       "OpenCode",
     );
-    await writeSkill(path.join(homeDir, ".pi", "agent", "skills", "pi-only"), "pi-only", "Pi");
 
     const skills = await discoverSkillsCatalog({ homeDir, penkraBaseDir });
     const byName = new Map(skills.map((skill) => [skill.name, skill]));
@@ -102,11 +94,7 @@ describe("discoverSkillsCatalog", () => {
     expect(byName.get("portable")?.scope).toBe("penkra");
     expect(byName.get("codex-only")?.scope).toBe("codex");
     expect(byName.get("claude-only")?.scope).toBe("claude");
-    expect(byName.get("cursor-only")?.scope).toBe("cursor");
-    expect(byName.get("grok-only")?.scope).toBe("grok");
-    expect(byName.get("kilo-only")?.scope).toBe("kilo");
     expect(byName.get("opencode-only")?.scope).toBe("opencode");
-    expect(byName.get("pi-only")?.scope).toBe("pi");
   });
 
   it("follows symlinked skill directories from provider homes", async () => {
@@ -164,60 +152,6 @@ describe("discoverSkillsCatalog", () => {
     expect(claudeShared?.scope).toBe("penkra");
   });
 
-  it("uses documented provider alias roots before Penkra fallbacks", async () => {
-    await writeSkill(path.join(penkraBaseDir, "skills", "shared"), "shared", "Penkra copy");
-    await writeSkill(path.join(homeDir, ".agents", "skills", "shared"), "shared", "Agents alias");
-    const antigravityView = await discoverSkillsCatalog({
-      homeDir,
-      penkraBaseDir,
-      provider: "antigravity",
-    });
-
-    expect(antigravityView.find((skill) => skill.name === "shared")?.scope).toBe("agents");
-  });
-
-  it("uses provider-native roots before shared aliases for Grok and Pi", async () => {
-    await writeSkill(path.join(penkraBaseDir, "skills", "shared"), "shared", "Penkra copy");
-    await writeSkill(path.join(homeDir, ".agents", "skills", "shared"), "shared", "Agents alias");
-    await writeSkill(path.join(homeDir, ".grok", "skills", "shared"), "shared", "Grok copy");
-    await writeSkill(path.join(homeDir, ".pi", "agent", "skills", "shared"), "shared", "Pi copy");
-
-    const grokView = await discoverSkillsCatalog({
-      homeDir,
-      penkraBaseDir,
-      provider: "grok",
-    });
-    const piView = await discoverSkillsCatalog({
-      homeDir,
-      penkraBaseDir,
-      provider: "pi",
-    });
-
-    expect(grokView.find((skill) => skill.name === "shared")?.scope).toBe("grok");
-    expect(piView.find((skill) => skill.name === "shared")?.scope).toBe("pi");
-  });
-
-  it("discovers Pi direct markdown skills from Pi roots", async () => {
-    const piRoot = path.join(homeDir, ".pi", "agent", "skills");
-    await mkdir(piRoot, { recursive: true });
-    await writeFile(
-      path.join(piRoot, "direct-review.md"),
-      `---
-name: direct-review
-description: Direct Pi markdown skill
----
-
-# Direct Review
-`,
-    );
-
-    const skills = await discoverSkillsCatalog({ homeDir, penkraBaseDir });
-
-    const directSkill = skills.find((skill) => skill.name === "direct-review");
-    expect(directSkill?.scope).toBe("pi");
-    expect(directSkill?.path).toContain(path.join(".pi", "agent", "skills", "direct-review.md"));
-  });
-
   it("serves cached results within the TTL and rescans on forceReload", async () => {
     await writeSkill(path.join(penkraBaseDir, "skills", "first"), "first", "First skill");
 
@@ -250,7 +184,7 @@ description: Direct Pi markdown skill
   it("keeps home origins when the cwd lives under the home dir", async () => {
     // The home dir is an ancestor of the cwd here, so home skill folders are
     // reachable as "project" roots too; they must keep their true origin.
-    const cwd = path.join(homeDir, "projects", "app");
+    const cwd = path.join(homeDir, "folders", "app");
     await mkdir(cwd, { recursive: true });
     await writeSkill(path.join(homeDir, ".codex", "skills", "from-codex"), "from-codex", "Codex");
     await writeSkill(path.join(penkraBaseDir, "skills", "portable"), "portable", "Penkra");

@@ -3,8 +3,6 @@ import { Effect, Layer } from "effect";
 import { parseOpenCodeModelSlug } from "../../provider/opencodeRuntime.ts";
 import {
   CodexTextGeneration,
-  CursorTextGeneration,
-  KiloTextGeneration,
   OpenCodeTextGeneration,
   type TextGenerationShape,
   TextGeneration,
@@ -12,20 +10,12 @@ import {
 
 const makeProviderTextGeneration = Effect.gen(function* () {
   const codexTextGeneration = yield* CodexTextGeneration;
-  const cursorTextGeneration = yield* CursorTextGeneration;
-  const kiloTextGeneration = yield* KiloTextGeneration;
   const openCodeTextGeneration = yield* OpenCodeTextGeneration;
 
   const resolveImplementation = (input: {
     readonly model?: string;
     readonly modelSelection?: { provider: string };
   }): TextGenerationShape => {
-    if (input.modelSelection?.provider === "cursor") {
-      return cursorTextGeneration;
-    }
-    if (input.modelSelection?.provider === "kilo") {
-      return kiloTextGeneration;
-    }
     if (input.modelSelection?.provider === "opencode") {
       return openCodeTextGeneration;
     }

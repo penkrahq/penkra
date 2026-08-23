@@ -6,7 +6,7 @@ const threads = [
   { id: "main", label: "Main", provider: "codex" as const, state: "active" as const },
   { id: "metrics", label: "Analyze PostHog metrics", provider: "claudeAgent" as const },
   { id: "search", label: "Add user to Search Console", provider: "codex" as const },
-  { id: "discord", label: "Set up Penut Discord", provider: "cursor" as const },
+  { id: "discord", label: "Set up Penut Discord", provider: "codex" as const },
 ];
 
 const meta = {

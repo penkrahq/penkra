@@ -247,7 +247,7 @@ export function useComposerSlashCommands(input: {
       commandId: newCommandId(),
       threadId: nextThreadId,
       sourceThreadId: activeThread.id,
-      projectId: activeProject.id,
+      folderId: activeProject.id,
       title: activeThread.title,
       modelSelection: selectedModelSelection,
       runtimeMode,
@@ -297,7 +297,7 @@ export function useComposerSlashCommands(input: {
         type: "thread.create",
         commandId: newCommandId(),
         threadId: nextThreadId,
-        projectId: activeProject.id,
+        folderId: activeProject.id,
         title: nextThreadTitle,
         modelSelection: selectedModelSelection,
         runtimeMode,
@@ -452,7 +452,7 @@ export function useComposerSlashCommands(input: {
     openGlobalFeedbackDialog({
       provider: selectedProvider,
       model: selectedModelSelection.model,
-      projectKind: activeProject?.kind ?? null,
+      projectKind: activeProject ? "folder" : null,
       runtimeMode,
       sessionStatus: activeThread?.session?.status ?? null,
       latestTurnState: activeThread?.latestTurn?.state ?? null,
@@ -463,7 +463,7 @@ export function useComposerSlashCommands(input: {
       hasThreadError: Boolean(activeThread?.error),
     });
   }, [
-    activeProject?.kind,
+    activeProject,
     activeThread,
     openGlobalFeedbackDialog,
     runtimeMode,

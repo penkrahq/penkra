@@ -2,7 +2,7 @@
 // Purpose: Characterizes Sidebar pin races, archive serialization/undo, and batch deletion.
 // Layer: Web hook tests
 
-import { ContainerId, ThreadId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {
@@ -177,12 +177,12 @@ vi.mock("../threadDerivation", () => ({
 import type { Project, SidebarThreadSummary } from "../types";
 import { useSidebarThreadActions } from "./useSidebarThreadActions";
 
-const PROJECT_ID = ContainerId.makeUnsafe("project-actions");
+const PROJECT_ID = FolderId.makeUnsafe("project-actions");
 const THREAD_ID = ThreadId.makeUnsafe("thread-actions");
 const FALLBACK_ID = ThreadId.makeUnsafe("thread-fallback");
 const PROJECT = {
   id: PROJECT_ID,
-  kind: "project",
+  spaceId: SpaceId.makeUnsafe("space-test"),
   name: "Actions",
   remoteName: "Actions",
   folderName: "actions",
@@ -196,7 +196,7 @@ const PROJECT = {
 function makeThread(id: ThreadId, overrides: Partial<SidebarThreadSummary> = {}) {
   return {
     id,
-    projectId: PROJECT_ID,
+    folderId: PROJECT_ID,
     title: String(id),
     modelSelection: { provider: "codex", model: "gpt-5.6" },
     session: null,
@@ -286,12 +286,12 @@ beforeEach(() => {
     const action = input as {
       prepareForDelete?: () => unknown;
       onDeleted: (input: {
-        thread: { id: ThreadId; projectId: ContainerId };
+        thread: { id: ThreadId; folderId: FolderId };
         prepared?: unknown;
       }) => void;
     };
     const prepared = action.prepareForDelete?.();
-    action.onDeleted({ thread: { id: THREAD_ID, projectId: PROJECT_ID }, prepared });
+    action.onDeleted({ thread: { id: THREAD_ID, folderId: PROJECT_ID }, prepared });
   });
   vi.stubGlobal("window", {
     setTimeout: (callback: () => void) => {
@@ -313,7 +313,7 @@ describe("useSidebarThreadActions", () => {
     expect(harness.pinThread).toHaveBeenCalledWith(THREAD_ID);
     expect(harness.dispatchCommand).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "thread.meta.update",
+        type: "thread.update",
         threadId: THREAD_ID,
         isPinned: true,
       }),
@@ -439,9 +439,9 @@ describe("useSidebarThreadActions", () => {
       .mockRejectedValueOnce(new Error("first failed"))
       .mockImplementationOnce(async (input: unknown) => {
         const action = input as {
-          onDeleted: (input: { thread: { id: ThreadId; projectId: ContainerId } }) => void;
+          onDeleted: (input: { thread: { id: ThreadId; folderId: FolderId } }) => void;
         };
-        action.onDeleted({ thread: { id: thirdId, projectId: PROJECT_ID } });
+        action.onDeleted({ thread: { id: thirdId, folderId: PROJECT_ID } });
       });
 
     const result = await render().deleteProjectThreads(PROJECT_ID, { confirmMessage: null });

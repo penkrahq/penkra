@@ -7,7 +7,7 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   EventId,
   MessageId,
-  ContainerId,
+  FolderId,
   SpaceId,
   ProviderKind,
   ThreadId,
@@ -25,12 +25,12 @@ import {
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
-const asProjectId = (value: string): ContainerId => ContainerId.makeUnsafe(value);
+const asFolderId = (value: string): FolderId => FolderId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId =>
   ApprovalRequestId.makeUnsafe(value);
 
-const PROJECT_ID = asProjectId("project-1");
+const PROJECT_ID = asFolderId("project-1");
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
 const FIXTURE_TURN_ID = "fixture-turn";
 const APPROVAL_REQUEST_ID = asApprovalRequestId("req-approval-1");
@@ -103,9 +103,6 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
   Effect.gen(function* () {
     const createdAt = nowIso();
     const provider = harness.adapterHarness?.provider ?? "codex";
-    if (provider === "pi") {
-      throw new Error("Pi integration tests require an explicit model selection.");
-    }
     const defaultModel = DEFAULT_MODEL_BY_PROVIDER[provider];
     const personalSpaceId = SpaceId.makeUnsafe("penkra-personal");
 
@@ -119,9 +116,9 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
     });
 
     yield* harness.engine.dispatch({
-      type: "project.create",
+      type: "folder.create",
       commandId: CommandId.makeUnsafe("cmd-project-create"),
-      projectId: PROJECT_ID,
+      folderId: PROJECT_ID,
       title: "Integration Project",
       workspaceRoot: null,
       spaceId: personalSpaceId,
@@ -136,7 +133,7 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       type: "thread.create",
       commandId: CommandId.makeUnsafe("cmd-thread-create"),
       threadId: THREAD_ID,
-      projectId: PROJECT_ID,
+      folderId: PROJECT_ID,
       title: "Integration Thread",
       modelSelection: {
         provider,
@@ -239,13 +236,24 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
     withRealCodexHarness((harness) =>
       Effect.gen(function* () {
         const createdAt = nowIso();
+        const personalSpaceId = SpaceId.makeUnsafe("penkra-personal-real-codex");
 
         yield* harness.engine.dispatch({
-          type: "project.create",
+          type: "space.create",
+          commandId: CommandId.makeUnsafe("cmd-space-create-real-codex"),
+          spaceId: personalSpaceId,
+          name: "Personal",
+          icon: "home",
+          createdAt,
+        });
+
+        yield* harness.engine.dispatch({
+          type: "folder.create",
           commandId: CommandId.makeUnsafe("cmd-project-create-real-codex"),
-          projectId: PROJECT_ID,
+          folderId: PROJECT_ID,
           title: "Integration Project",
           workspaceRoot: null,
+          spaceId: personalSpaceId,
           defaultModelSelection: {
             provider: "codex",
             model: "gpt-5.3-codex",
@@ -257,7 +265,7 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           type: "thread.create",
           commandId: CommandId.makeUnsafe("cmd-thread-create-real-codex"),
           threadId: THREAD_ID,
-          projectId: PROJECT_ID,
+          folderId: PROJECT_ID,
           title: "Integration Thread",
           modelSelection: {
             provider: "codex",

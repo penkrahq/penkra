@@ -46,7 +46,7 @@ type CustomModelValidationResult =
   | { readonly model: string; readonly error?: never }
   | { readonly model?: never; readonly error: string };
 
-const THREAD_TITLE_DISCOVERY_PROVIDERS = ["codex", "kilo", "opencode"] as const;
+const THREAD_TITLE_DISCOVERY_PROVIDERS = ["codex", "opencode"] as const;
 
 export function validateCustomModelInput(input: {
   readonly provider: ProviderKind;
@@ -98,13 +98,8 @@ export function ModelsSettingsPanel({
     setShowAllCustomModels(false);
   });
 
-  const {
-    customCodexModels,
-    customKiloModels,
-    customOpenCodeModels,
-    textGenerationModel,
-    textGenerationProvider,
-  } = settings;
+  const { customCodexModels, customOpenCodeModels, textGenerationModel, textGenerationProvider } =
+    settings;
   const currentThreadTitleProvider = textGenerationProvider ?? "codex";
   const currentThreadTitleModel = textGenerationModel ?? DEFAULT_TEXT_GENERATION_MODEL;
   const threadTitleModelHintByProvider = useMemo<Partial<Record<ProviderKind, string | null>>>(
@@ -128,23 +123,19 @@ export function ModelsSettingsPanel({
       getGitTextGenerationModelOptions(
         {
           customCodexModels,
-          customKiloModels,
           customOpenCodeModels,
           textGenerationModel,
           textGenerationProvider,
         },
         {
           codex: threadTitleCatalogOptionsByProvider.codex,
-          kilo: threadTitleCatalogOptionsByProvider.kilo,
           opencode: threadTitleCatalogOptionsByProvider.opencode,
         },
       ),
     [
       customCodexModels,
-      customKiloModels,
       customOpenCodeModels,
       threadTitleCatalogOptionsByProvider.codex,
-      threadTitleCatalogOptionsByProvider.kilo,
       threadTitleCatalogOptionsByProvider.opencode,
       textGenerationModel,
       textGenerationProvider,

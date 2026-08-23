@@ -77,16 +77,6 @@ export const OPENCODE_CLI_SPEC: OpenCodeCompatibleCliSpec = {
   serverAuthUsername: "opencode",
 };
 
-export const KILO_CLI_SPEC: OpenCodeCompatibleCliSpec = {
-  defaultBinaryPath: "kilo",
-  displayName: "Kilo",
-  serverReadyPrefix: "kilo server listening",
-  managedServerArgs: [],
-  configContentEnvVar: "KILO_CONFIG_CONTENT",
-  dataDirectoryName: "kilo",
-  serverAuthUsername: "kilo",
-};
-
 export interface OpenCodeServerProcess {
   readonly url: string;
   readonly exitCode: Effect.Effect<number, never>;
@@ -807,8 +797,7 @@ export function buildOpenCodeServerProcessEnv(input: {
   readonly baseEnv?: NodeJS.ProcessEnv;
 }): NodeJS.ProcessEnv {
   return buildProviderChildEnvironment({
-    provider:
-      input.cliSpec?.dataDirectoryName === KILO_CLI_SPEC.dataDirectoryName ? "kilo" : "opencode",
+    provider: "opencode",
     baseEnv: input.baseEnv ?? process.env,
     overrides: input.experimentalWebSockets ? { OPENCODE_EXPERIMENTAL_WEBSOCKETS: "true" } : {},
   });

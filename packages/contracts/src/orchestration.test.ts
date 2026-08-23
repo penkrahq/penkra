@@ -10,24 +10,24 @@ import {
   OrchestrationEvent,
   OrchestrationLatestTurn,
   OrchestrationReadModel,
-  ProjectCreatedPayload,
-  ProjectMetaUpdatedPayload,
+  FolderCreatedPayload,
+  FolderUpdatedPayload,
   OrchestrationSession,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderStartOptions,
-  ProjectCreateCommand,
+  FolderCreateCommand,
   THREAD_NOTES_MAX_CHARS,
   THREAD_MARKER_LABEL_MAX_CHARS,
-  ThreadMetaUpdatedPayload,
+  ThreadUpdatedPayload,
   ThreadTurnStartCommand,
   ThreadCreatedPayload,
   ThreadTurnStartRequestedPayload,
 } from "./orchestration";
 
-const decodeProjectCreateCommand = Schema.decodeUnknownEffect(ProjectCreateCommand);
-const decodeProjectCreatedPayload = Schema.decodeUnknownEffect(ProjectCreatedPayload);
-const decodeProjectMetaUpdatedPayload = Schema.decodeUnknownEffect(ProjectMetaUpdatedPayload);
+const decodeFolderCreateCommand = Schema.decodeUnknownEffect(FolderCreateCommand);
+const decodeFolderCreatedPayload = Schema.decodeUnknownEffect(FolderCreatedPayload);
+const decodeFolderUpdatedPayload = Schema.decodeUnknownEffect(FolderUpdatedPayload);
 const decodeThreadTurnStartCommand = Schema.decodeUnknownEffect(ThreadTurnStartCommand);
 const decodeThreadTurnStartRequestedPayload = Schema.decodeUnknownEffect(
   ThreadTurnStartRequestedPayload,
@@ -35,12 +35,29 @@ const decodeThreadTurnStartRequestedPayload = Schema.decodeUnknownEffect(
 const decodeOrchestrationLatestTurn = Schema.decodeUnknownEffect(OrchestrationLatestTurn);
 const decodeOrchestrationSession = Schema.decodeUnknownEffect(OrchestrationSession);
 const decodeThreadCreatedPayload = Schema.decodeUnknownEffect(ThreadCreatedPayload);
-const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
+const decodeThreadUpdatedPayload = Schema.decodeUnknownEffect(ThreadUpdatedPayload);
 const decodeModelSelection = Schema.decodeUnknownEffect(ModelSelection);
 const decodeProviderStartOptions = Schema.decodeUnknownEffect(ProviderStartOptions);
 const decodeClientOrchestrationCommand = Schema.decodeUnknownEffect(ClientOrchestrationCommand);
 const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
+
+it.effect("preserves provider turn identity on projected latest turns", () =>
+  Effect.gen(function* () {
+    const latestTurn = yield* decodeOrchestrationLatestTurn({
+      turnId: "turn-request",
+      providerTurnId: "turn-provider",
+      state: "running",
+      requestedAt: "2026-08-22T00:00:00.000Z",
+      startedAt: "2026-08-22T00:00:01.000Z",
+      completedAt: null,
+      assistantMessageId: null,
+    });
+
+    assert.equal(latestTurn.providerTurnId, "turn-provider");
+  }),
+);
+
 it.effect("preserves thread activity payloads through the RPC JSON codec", () =>
   Effect.gen(function* () {
     const codec = Schema.toCodecJson(OrchestrationReadModel);
@@ -48,12 +65,12 @@ it.effect("preserves thread activity payloads through the RPC JSON codec", () =>
       snapshotSequence: 1,
       spaces: [],
       updatedAt: "2026-01-01T00:00:00.000Z",
-      projects: [],
+      folders: [],
       threads: [
         {
           id: "thread-1",
           codexThreadId: null,
-          projectId: "project-1",
+          folderId: "project-1",
           title: "Thread 1",
           modelSelection: {
             provider: "codex",
@@ -118,61 +135,9 @@ it.effect("preserves thread activity payloads through the RPC JSON codec", () =>
   }),
 );
 
-it.effect("preserves Pi model selections when decoding model selections", () =>
-  Effect.gen(function* () {
-    const parsed = yield* decodeModelSelection({
-      provider: "pi",
-      model: "openai/gpt-5.5",
-    });
-
-    assert.deepStrictEqual(parsed, {
-      provider: "pi",
-      model: "openai/gpt-5.5",
-    });
-  }),
-);
-
-it.effect("preserves Antigravity effort options separately from the model", () =>
-  Effect.gen(function* () {
-    const parsed = yield* decodeModelSelection({
-      provider: "antigravity",
-      model: "Gemini 3.5 Flash",
-      options: { reasoningEffort: "high" },
-    });
-
-    assert.deepStrictEqual(parsed, {
-      provider: "antigravity",
-      model: "Gemini 3.5 Flash",
-      options: { reasoningEffort: "high" },
-    });
-  }),
-);
-
-it.effect("preserves Pi model selections through the JSON codec", () =>
-  Effect.gen(function* () {
-    const codec = Schema.fromJsonString(ModelSelection);
-    const parsed = yield* Schema.decodeUnknownEffect(codec)(
-      JSON.stringify({
-        provider: "pi",
-        model: "openai/gpt-5.5",
-      }),
-    );
-
-    assert.deepStrictEqual(parsed, {
-      provider: "pi",
-      model: "openai/gpt-5.5",
-    });
-  }),
-);
-
 it.effect("drops legacy provider passwords from decoded provider options", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeProviderStartOptions({
-      kilo: {
-        binaryPath: "/custom/bin/kilo",
-        serverUrl: "http://127.0.0.1:4095",
-        serverPassword: "legacy-kilo-secret",
-      },
       opencode: {
         binaryPath: "/custom/bin/opencode",
         serverUrl: "http://127.0.0.1:4096",
@@ -181,10 +146,6 @@ it.effect("drops legacy provider passwords from decoded provider options", () =>
     });
 
     assert.deepStrictEqual(parsed, {
-      kilo: {
-        binaryPath: "/custom/bin/kilo",
-        serverUrl: "http://127.0.0.1:4095",
-      },
       opencode: {
         binaryPath: "/custom/bin/opencode",
         serverUrl: "http://127.0.0.1:4096",
@@ -215,10 +176,11 @@ it.effect("keeps generic conversation rollback internal-only", () =>
 
 it.effect("trims branded ids and command string fields at decode boundaries", () =>
   Effect.gen(function* () {
-    const parsed = yield* decodeProjectCreateCommand({
-      type: "project.create",
+    const parsed = yield* decodeFolderCreateCommand({
+      type: "folder.create",
       commandId: " cmd-1 ",
-      projectId: " project-1 ",
+      folderId: " project-1 ",
+      spaceId: " space-1 ",
       title: " Project Title ",
       workspaceRoot: " /tmp/workspace ",
       defaultModelSelection: {
@@ -228,7 +190,7 @@ it.effect("trims branded ids and command string fields at decode boundaries", ()
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.commandId, "cmd-1");
-    assert.strictEqual(parsed.projectId, "project-1");
+    assert.strictEqual(parsed.folderId, "project-1");
     assert.strictEqual(parsed.title, "Project Title");
     assert.strictEqual(parsed.workspaceRoot, "/tmp/workspace");
     assert.deepStrictEqual(parsed.defaultModelSelection, {
@@ -238,10 +200,11 @@ it.effect("trims branded ids and command string fields at decode boundaries", ()
   }),
 );
 
-it.effect("decodes historical project.created payloads with a default provider", () =>
+it.effect("decodes folder.created payloads with a default provider", () =>
   Effect.gen(function* () {
-    const parsed = yield* decodeProjectCreatedPayload({
-      projectId: "project-1",
+    const parsed = yield* decodeFolderCreatedPayload({
+      folderId: "project-1",
+      spaceId: "space-1",
       title: "Project Title",
       workspaceRoot: "/tmp/workspace",
       defaultModelSelection: {
@@ -257,10 +220,10 @@ it.effect("decodes historical project.created payloads with a default provider",
   }),
 );
 
-it.effect("decodes project.meta-updated payloads with explicit default provider", () =>
+it.effect("decodes folder.updated payloads with explicit default provider", () =>
   Effect.gen(function* () {
-    const parsed = yield* decodeProjectMetaUpdatedPayload({
-      projectId: "project-1",
+    const parsed = yield* decodeFolderUpdatedPayload({
+      folderId: "project-1",
       defaultModelSelection: {
         provider: "claudeAgent",
         model: "claude-opus-4-6",
@@ -276,16 +239,16 @@ it.effect("decodes project.meta-updated payloads with explicit default provider"
 it.effect("accepts bounded raster folder icons and rejects untrusted image data URLs", () =>
   Effect.gen(function* () {
     const iconDataUrl = "data:image/webp;base64,Y3VzdG9t";
-    const parsed = yield* decodeProjectMetaUpdatedPayload({
-      projectId: "project-1",
+    const parsed = yield* decodeFolderUpdatedPayload({
+      folderId: "project-1",
       iconDataUrl,
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.iconDataUrl, iconDataUrl);
 
     const svg = yield* Effect.exit(
-      decodeProjectMetaUpdatedPayload({
-        projectId: "project-1",
+      decodeFolderUpdatedPayload({
+        folderId: "project-1",
         iconDataUrl: "data:image/svg+xml;base64,PHN2Zy8+",
         updatedAt: "2026-01-01T00:00:00.000Z",
       }),
@@ -297,10 +260,10 @@ it.effect("accepts bounded raster folder icons and rejects untrusted image data 
 it.effect("rejects command fields that become empty after trim", () =>
   Effect.gen(function* () {
     const result = yield* Effect.exit(
-      decodeProjectCreateCommand({
-        type: "project.create",
+      decodeFolderCreateCommand({
+        type: "folder.create",
         commandId: "cmd-1",
-        projectId: "project-1",
+        folderId: "project-1",
         title: "  ",
         workspaceRoot: "/tmp/workspace",
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -396,7 +359,7 @@ it.effect("decodes thread.created runtime mode for historical events", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeThreadCreatedPayload({
       threadId: "thread-1",
-      projectId: "project-1",
+      folderId: "project-1",
       title: "Thread title",
       modelSelection: {
         provider: "codex",
@@ -474,9 +437,9 @@ it.effect("decodes thread archived and unarchived events", () =>
   }),
 );
 
-it.effect("decodes thread.meta-updated payloads with explicit provider", () =>
+it.effect("decodes thread.updated payloads with explicit provider", () =>
   Effect.gen(function* () {
-    const parsed = yield* decodeThreadMetaUpdatedPayload({
+    const parsed = yield* decodeThreadUpdatedPayload({
       threadId: "thread-1",
       modelSelection: {
         provider: "claudeAgent",
@@ -647,7 +610,7 @@ it.effect("decodes thread marker commands and events", () =>
 
 it.effect("rejects oversized thread notes payloads", () =>
   Effect.gen(function* () {
-    const failed = yield* decodeThreadMetaUpdatedPayload({
+    const failed = yield* decodeThreadUpdatedPayload({
       threadId: "thread-1",
       notes: "x".repeat(THREAD_NOTES_MAX_CHARS + 1),
       updatedAt: "2026-01-01T00:00:00.000Z",

@@ -7,7 +7,7 @@ import {
   OrchestrationAggregateKind,
   OrchestrationEvent,
   OrchestrationEventType,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
 } from "@penkra/contracts";
@@ -36,7 +36,7 @@ const UnknownFromJsonString = Schema.fromJsonString(Schema.Unknown);
 const AppendEventRequestSchema = Schema.Struct({
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  streamId: Schema.Union([SpaceId, ContainerId, ThreadId]),
+  streamId: Schema.Union([SpaceId, FolderId, ThreadId]),
   type: OrchestrationEventType,
   causationEventId: Schema.NullOr(EventId),
   correlationId: Schema.NullOr(CommandId),
@@ -86,7 +86,7 @@ const LEGACY_PERSISTED_EVENT_SCHEMA_VERSION = 0;
 const PERSISTED_EVENT_SCHEMA_VERSION_KEY = "persistedEventSchemaVersion";
 const LEGACY_MODEL_SELECTION_EVENT_TYPES = new Set([
   "thread.created",
-  "thread.meta-updated",
+  "thread.updated",
   "thread.turn-start-requested",
 ]);
 
@@ -122,7 +122,7 @@ function normalizeLegacyEventRow(row: ParsedPersistedEventRow): ParsedPersistedE
   };
 
   if (
-    (row.type === "project.created" || row.type === "project.meta-updated") &&
+    (row.type === "folder.created" || row.type === "folder.updated") &&
     originalPayload.defaultModelSelection !== undefined &&
     originalPayload.defaultModelSelection !== null
   ) {
@@ -141,7 +141,7 @@ function normalizeLegacyEventRow(row: ParsedPersistedEventRow): ParsedPersistedE
   }
 
   if (
-    (row.type === "project.created" || row.type === "project.meta-updated") &&
+    (row.type === "folder.created" || row.type === "folder.updated") &&
     originalPayload.defaultModelSelection === undefined
   ) {
     const nextPayload = payloadWithNormalizedModelSelection();

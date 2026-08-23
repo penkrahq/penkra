@@ -138,6 +138,7 @@ export const DESKTOP_IPC_CHANNELS = {
     frameReady: "desktop:app-tabs-frame-ready",
     frameHostMessage: "desktop:app-tabs-frame-host-message",
     browserWebviewAttach: "desktop:app-tabs-browser-webview-attach",
+    browserWebviewDidFailLoad: "desktop:app-tabs-browser-webview-did-fail-load",
     browserWebviewDetach: "desktop:app-tabs-browser-webview-detach",
     navigate: "desktop:app-tabs-navigate",
     close: "desktop:app-tabs-close",

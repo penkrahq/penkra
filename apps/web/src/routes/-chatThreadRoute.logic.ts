@@ -3,7 +3,7 @@
 // Layer: Route UI logic helpers.
 // Exports: Thread title fallback, working-directory resolution, and split-view decisions.
 
-import type { ContainerId, ThreadId } from "@penkra/contracts";
+import type { FolderId, ThreadId } from "@penkra/contracts";
 import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 
 export interface SplitPaneMaximizeDecision {
@@ -40,11 +40,11 @@ export function resolveThreadWorkingDirectory(input: {
   });
 }
 
-export function resolveSingleProjectId(input: {
-  threadProjectId: ContainerId | null;
-  draftProjectId: ContainerId | null;
-}): ContainerId | null {
-  return input.threadProjectId ?? input.draftProjectId ?? null;
+export function resolveSingleFolderId(input: {
+  threadFolderId: FolderId | null;
+  draftFolderId: FolderId | null;
+}): FolderId | null {
+  return input.threadFolderId ?? input.draftFolderId ?? null;
 }
 
 // Expanding a split pane exits split mode entirely; the selected chat becomes the single surface.

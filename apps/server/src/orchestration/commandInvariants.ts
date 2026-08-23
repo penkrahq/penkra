@@ -1,23 +1,17 @@
 import type {
   OrchestrationCommand,
   OrchestrationLatestTurn,
-  OrchestrationProject,
+  OrchestrationFolder,
   OrchestrationReadModel,
   OrchestrationSpace,
   OrchestrationSession,
   OrchestrationThread,
-  ContainerKind,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
 } from "@penkra/contracts";
 import { THREAD_NOT_ARCHIVED_INVARIANT_MARKER } from "@penkra/shared/errorMessages";
 import { normalizeEntityName } from "@penkra/shared/entityNames";
-import {
-  isLegacyHomeChatContainerRow as isSharedLegacyHomeChatContainerRow,
-  isOrdinaryProjectRow as isSharedOrdinaryProjectRow,
-} from "@penkra/shared/projectContainers";
-import { normalizeWorkspaceRootForComparison } from "@penkra/shared/threadWorkspace";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -57,11 +51,11 @@ export function findThreadById(
   return readModel.threads.find((thread) => thread.id === threadId);
 }
 
-export function findProjectById(
+export function findFolderById(
   readModel: OrchestrationReadModel,
-  projectId: ContainerId,
-): OrchestrationProject | undefined {
-  return readModel.projects.find((project) => project.id === projectId);
+  folderId: FolderId,
+): OrchestrationFolder | undefined {
+  return readModel.folders.find((folder) => folder.id === folderId);
 }
 
 export function findSpaceById(
@@ -144,16 +138,15 @@ export function requireFolderNameAvailable(input: {
   readonly command: OrchestrationCommand;
   readonly name: string;
   readonly spaceId: SpaceId;
-  readonly excludeProjectId?: ContainerId;
+  readonly excludeFolderId?: FolderId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
   const normalizedName = normalizeEntityName(input.name);
-  const conflict = input.readModel.projects.find(
-    (project) =>
-      project.deletedAt === null &&
-      (project.kind ?? "project") === "project" &&
-      project.spaceId === input.spaceId &&
-      project.id !== input.excludeProjectId &&
-      normalizeEntityName(project.title) === normalizedName,
+  const conflict = input.readModel.folders.find(
+    (folder) =>
+      folder.deletedAt === null &&
+      folder.spaceId === input.spaceId &&
+      folder.id !== input.excludeFolderId &&
+      normalizeEntityName(folder.title) === normalizedName,
   );
   if (!conflict) {
     return Effect.void;
@@ -166,168 +159,52 @@ export function requireFolderNameAvailable(input: {
   );
 }
 
-export interface SpaceAssignmentWorkspacePaths {
-  readonly homeDir: string;
-  readonly chatWorkspaceRoot: string;
-}
-
-/**
- * Server half of the web's `isOrdinarySpaceProject` membership rule. Managed chat
- * containers are excluded by kind alone, but legacy Home chat containers kept
- * `kind: "project"` — they are recognizable by the reserved home/chat workspace root plus
- * their canonical "Home" title. Those containers are reachable from every Space, so they
- * must never belong to one. The decider rejects renaming this legacy row so the signal cannot
- * drift through supported commands.
- */
-export function isLegacyHomeChatContainerRow(input: {
-  readonly projectTitle: string;
-  readonly projectWorkspaceRoot: string | null;
-  readonly workspacePaths: SpaceAssignmentWorkspacePaths | undefined;
-}): boolean {
-  return isSharedLegacyHomeChatContainerRow({
-    projectTitle: input.projectTitle,
-    projectWorkspaceRoot: input.projectWorkspaceRoot,
-    paths: {
-      homeDir: input.workspacePaths?.homeDir ?? null,
-      chatWorkspaceRoot: input.workspacePaths?.chatWorkspaceRoot ?? null,
-    },
-    comparisonOptions: { platform: process.platform },
-  });
-}
-
-/**
- * Server half of the web's project partitioning: ordinary projects are the user-visible
- * ones. Managed chat containers are excluded by kind alone; the legacy Home
- * chat container kept `kind: "project"` and is recognized by its row shape instead.
- */
-export function isOrdinaryProjectRow(input: {
-  readonly projectKind: ContainerKind | undefined;
-  readonly projectTitle: string;
-  readonly projectWorkspaceRoot: string | null;
-  readonly workspacePaths: SpaceAssignmentWorkspacePaths | undefined;
-}): boolean {
-  return isSharedOrdinaryProjectRow({
-    projectKind: input.projectKind,
-    projectTitle: input.projectTitle,
-    projectWorkspaceRoot: input.projectWorkspaceRoot,
-    paths: {
-      homeDir: input.workspacePaths?.homeDir ?? null,
-      chatWorkspaceRoot: input.workspacePaths?.chatWorkspaceRoot ?? null,
-    },
-    comparisonOptions: { platform: process.platform },
-  });
-}
-
-/** The rejecting form for explicit assignment commands, where a bad target is an error. */
-export function requireSpaceAssignableProject(input: {
-  readonly command: OrchestrationCommand;
-  readonly projectTitle: string;
-  readonly projectWorkspaceRoot: string | null;
-  readonly workspacePaths: SpaceAssignmentWorkspacePaths | undefined;
-}): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  if (!isLegacyHomeChatContainerRow(input)) {
-    return Effect.void;
-  }
-  return Effect.fail(
-    invariantError(
-      input.command.type,
-      "The Chats container is reachable from every space and cannot be assigned to one.",
-    ),
-  );
-}
-
-// Finds active projects by workspace root using the same comparison rules as import flows.
-export function listActiveProjectsByWorkspaceRoot(
+export function listThreadsByFolderId(
   readModel: OrchestrationReadModel,
-  workspaceRoot: string,
-  options?: { readonly kinds?: ReadonlySet<ContainerKind> },
-): ReadonlyArray<OrchestrationProject> {
-  const normalizedWorkspaceRoot = normalizeWorkspaceRootForComparison(workspaceRoot, {
-    platform: process.platform,
-  });
-  const acceptedKinds = options?.kinds ?? new Set<ContainerKind>(["project"]);
-  return readModel.projects.filter(
-    (project) =>
-      project.deletedAt === null &&
-      project.workspaceRoot !== null &&
-      acceptedKinds.has(project.kind ?? "project") &&
-      normalizeWorkspaceRootForComparison(project.workspaceRoot, {
-        platform: process.platform,
-      }) === normalizedWorkspaceRoot,
-  );
-}
-
-export function listThreadsByProjectId(
-  readModel: OrchestrationReadModel,
-  projectId: ContainerId,
+  folderId: FolderId,
 ): ReadonlyArray<OrchestrationThread> {
-  return readModel.threads.filter((thread) => thread.projectId === projectId);
+  return readModel.threads.filter((thread) => thread.folderId === folderId);
 }
 
-export function requireProject(input: {
+export function requireFolder(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
-  readonly projectId: ContainerId;
-}): Effect.Effect<OrchestrationProject, OrchestrationCommandInvariantError> {
-  const project = findProjectById(input.readModel, input.projectId);
-  if (project) {
-    return Effect.succeed(project);
+  readonly folderId: FolderId;
+}): Effect.Effect<OrchestrationFolder, OrchestrationCommandInvariantError> {
+  const folder = findFolderById(input.readModel, input.folderId);
+  if (folder) {
+    return Effect.succeed(folder);
   }
   return Effect.fail(
     invariantError(
       input.command.type,
-      `Project '${input.projectId}' does not exist for command '${input.command.type}'.`,
+      `Folder '${input.folderId}' does not exist for command '${input.command.type}'.`,
     ),
   );
 }
 
-export function requireProjectAbsent(input: {
+export function requireFolderAbsent(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
-  readonly projectId: ContainerId;
+  readonly folderId: FolderId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  if (!findProjectById(input.readModel, input.projectId)) {
+  if (!findFolderById(input.readModel, input.folderId)) {
     return Effect.void;
   }
   return Effect.fail(
     invariantError(
       input.command.type,
-      `Project '${input.projectId}' already exists and cannot be created twice.`,
+      `Folder '${input.folderId}' already exists and cannot be created twice.`,
     ),
   );
 }
 
-export function requireProjectWorkspaceRootAvailable(input: {
+export function requireFolderHasNoThreads(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
-  readonly workspaceRoot: string;
-  readonly excludeProjectId?: ContainerId;
-  readonly kinds?: ReadonlySet<ContainerKind>;
+  readonly folderId: FolderId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  // Skip the excluded project BEFORE picking, not after: if corrupt state ever leaves two
-  // active owners on one root, the project being updated must not mask the other owner.
-  const existingProject = listActiveProjectsByWorkspaceRoot(
-    input.readModel,
-    input.workspaceRoot,
-    input.kinds ? { kinds: input.kinds } : undefined,
-  ).find((project) => project.id !== input.excludeProjectId);
-  if (!existingProject) {
-    return Effect.void;
-  }
-  return Effect.fail(
-    invariantError(
-      input.command.type,
-      `Project '${existingProject.id}' already uses workspace root '${existingProject.workspaceRoot}'.`,
-    ),
-  );
-}
-
-export function requireProjectHasNoThreads(input: {
-  readonly readModel: OrchestrationReadModel;
-  readonly command: OrchestrationCommand;
-  readonly projectId: ContainerId;
-}): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  const remainingThreads = listThreadsByProjectId(input.readModel, input.projectId).filter(
+  const remainingThreads = listThreadsByFolderId(input.readModel, input.folderId).filter(
     (thread) => thread.deletedAt === null,
   );
   if (remainingThreads.length === 0) {
@@ -336,7 +213,7 @@ export function requireProjectHasNoThreads(input: {
   return Effect.fail(
     invariantError(
       input.command.type,
-      `Project '${input.projectId}' still has ${remainingThreads.length} thread${remainingThreads.length === 1 ? "" : "s"} and cannot be deleted.`,
+      `Folder '${input.folderId}' still has ${remainingThreads.length} thread${remainingThreads.length === 1 ? "" : "s"} and cannot be deleted.`,
     ),
   );
 }

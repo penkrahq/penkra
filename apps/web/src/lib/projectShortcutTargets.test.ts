@@ -1,4 +1,4 @@
-import type { ContainerId } from "@penkra/contracts";
+import { SpaceId, type FolderId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { Project } from "../types";
@@ -9,14 +9,14 @@ import {
   resolveNewThreadTarget,
 } from "./projectShortcutTargets";
 
-const CURRENT_PROJECT_ID = "project-current" as ContainerId;
-const LATEST_PROJECT_ID = "project-latest" as ContainerId;
-const HOME_PROJECT_ID = "project-home" as ContainerId;
+const CURRENT_PROJECT_ID = "project-current" as FolderId;
+const LATEST_PROJECT_ID = "project-latest" as FolderId;
+const HOME_PROJECT_ID = "project-home" as FolderId;
 
-function makeProject(id: ContainerId, kind: Project["kind"] = "project"): Project {
+function makeProject(id: FolderId): Project {
   return {
     id,
-    kind,
+    spaceId: SpaceId.makeUnsafe("space-test"),
     name: id,
     remoteName: id,
     folderName: id,
@@ -29,51 +29,48 @@ function makeProject(id: ContainerId, kind: Project["kind"] = "project"): Projec
 }
 
 describe("project shortcut targets", () => {
-  const projects = [
+  const folders = [
     makeProject(CURRENT_PROJECT_ID),
     makeProject(LATEST_PROJECT_ID),
-    makeProject(HOME_PROJECT_ID, "chat"),
+    makeProject(HOME_PROJECT_ID),
   ];
 
   it("prefers the focused ordinary project over the latest project", () => {
     expect(
       resolveNewThreadTarget({
-        currentProjectId: resolveCurrentProjectTargetId(projects, CURRENT_PROJECT_ID),
-        latestUsableProjectId: resolveLatestProjectTargetId(projects, LATEST_PROJECT_ID),
+        currentFolderId: resolveCurrentProjectTargetId(folders, CURRENT_PROJECT_ID),
+        latestUsableFolderId: resolveLatestProjectTargetId(folders, LATEST_PROJECT_ID),
       }),
-    ).toEqual({ projectId: CURRENT_PROJECT_ID, inheritContext: true });
+    ).toEqual({ folderId: CURRENT_PROJECT_ID, inheritContext: true });
   });
 
-  it("falls back to the latest ordinary project when Home is focused", () => {
+  it("uses the focused Chats folder like any other folder", () => {
     expect(
       resolveNewThreadTarget({
-        currentProjectId: resolveCurrentProjectTargetId(projects, HOME_PROJECT_ID),
-        latestUsableProjectId: resolveLatestProjectTargetId(projects, LATEST_PROJECT_ID),
+        currentFolderId: resolveCurrentProjectTargetId(folders, HOME_PROJECT_ID),
+        latestUsableFolderId: resolveLatestProjectTargetId(folders, LATEST_PROJECT_ID),
       }),
-    ).toEqual({ projectId: LATEST_PROJECT_ID, inheritContext: false });
+    ).toEqual({ folderId: HOME_PROJECT_ID, inheritContext: true });
   });
 
   it("falls back to the latest ordinary project when nothing is focused", () => {
     expect(
       resolveNewThreadTarget({
-        currentProjectId: resolveCurrentProjectTargetId(projects, null),
-        latestUsableProjectId: resolveLatestProjectTargetId(projects, LATEST_PROJECT_ID),
+        currentFolderId: resolveCurrentProjectTargetId(folders, null),
+        latestUsableFolderId: resolveLatestProjectTargetId(folders, LATEST_PROJECT_ID),
       }),
-    ).toEqual({ projectId: LATEST_PROJECT_ID, inheritContext: false });
+    ).toEqual({ folderId: LATEST_PROJECT_ID, inheritContext: false });
   });
 
-  it("rejects a managed-chat latest project target", () => {
-    expect(resolveLatestProjectTargetId(projects, HOME_PROJECT_ID)).toBeNull();
+  it("accepts a Chats folder as the latest target", () => {
+    expect(resolveLatestProjectTargetId(folders, HOME_PROJECT_ID)).toBe(HOME_PROJECT_ID);
   });
 
   it("returns no target for a stale latest project id", () => {
     expect(
       resolveNewThreadTarget({
-        currentProjectId: null,
-        latestUsableProjectId: resolveLatestProjectTargetId(
-          projects,
-          "project-deleted" as ContainerId,
-        ),
+        currentFolderId: null,
+        latestUsableFolderId: resolveLatestProjectTargetId(folders, "project-deleted" as FolderId),
       }),
     ).toBeNull();
   });
@@ -85,16 +82,16 @@ describe("project shortcut targets", () => {
     expect(
       resolveLatestProjectTargetIdWithFallback(
         [older, newer],
-        "project-from-another-space" as ContainerId,
+        "project-from-another-space" as FolderId,
       ),
     ).toBe(LATEST_PROJECT_ID);
   });
 
-  it("returns no target when no projects exist", () => {
+  it("returns no target when no folders exist", () => {
     expect(
       resolveNewThreadTarget({
-        currentProjectId: resolveCurrentProjectTargetId([], null),
-        latestUsableProjectId: resolveLatestProjectTargetId([], null),
+        currentFolderId: resolveCurrentProjectTargetId([], null),
+        latestUsableFolderId: resolveLatestProjectTargetId([], null),
       }),
     ).toBeNull();
   });

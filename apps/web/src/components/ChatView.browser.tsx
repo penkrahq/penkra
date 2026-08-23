@@ -7,7 +7,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   ProviderConnectionId,
   type OrchestrationReadModel,
-  type ContainerId,
+  type FolderId,
   type ServerConfig,
   SpaceId,
   ThreadId,
@@ -40,7 +40,6 @@ import {
 } from "../lib/terminalContext";
 import { isMacPlatform } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
-import { resetHomeChatProjectPrewarmStateForTests } from "../lib/chatProjects";
 import { getRouter } from "../router";
 import { useSplitViewStore } from "../splitViewStore";
 import { useSpacesUiStore } from "../spacesUiStore";
@@ -70,11 +69,11 @@ const OTHER_THREAD_ID = "thread-browser-test-other" as ThreadId;
 const DESTINATION_THREAD_ID = "thread-browser-test-destination" as ThreadId;
 const THREAD_TITLE = "Browser test thread";
 const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const PROJECT_ID = "project-1" as ContainerId;
-const OTHER_PROJECT_ID = "project-2" as ContainerId;
+const PROJECT_ID = "project-1" as FolderId;
+const OTHER_PROJECT_ID = "project-2" as FolderId;
 const TEST_SPACE_ID = SpaceId.makeUnsafe("space-browser-test");
 const TEST_CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-codex-browser");
-const HOME_PROJECT_ID = "project-home" as ContainerId;
+const INBOX_FOLDER_ID = "folder-inbox" as FolderId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
@@ -324,11 +323,10 @@ function createSnapshotForTargetUser(options: {
         deletedAt: null,
       },
     ],
-    projects: [
+    folders: [
       {
         id: PROJECT_ID,
         spaceId: TEST_SPACE_ID,
-        kind: "project",
         title: "Project",
         workspaceRoot: "/repo/project",
         defaultModelSelection: {
@@ -344,8 +342,7 @@ function createSnapshotForTargetUser(options: {
     threads: [
       {
         id: THREAD_ID,
-        projectId: PROJECT_ID,
-        spaceId: TEST_SPACE_ID,
+        folderId: PROJECT_ID,
         title: THREAD_TITLE,
         modelSelection: {
           provider: "codex",
@@ -470,7 +467,7 @@ function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
     welcome: {
       cwd: "/repo/project",
       projectName: "Project",
-      bootstrapProjectId: PROJECT_ID,
+      bootstrapFolderId: PROJECT_ID,
       bootstrapThreadId: THREAD_ID,
     },
   };
@@ -494,8 +491,7 @@ function addThreadToSnapshot(
       ...snapshot.threads,
       {
         id: threadId,
-        projectId: PROJECT_ID,
-        spaceId: TEST_SPACE_ID,
+        folderId: PROJECT_ID,
         title: options?.title ?? "New thread",
         modelSelection: {
           provider: "codex",
@@ -537,12 +533,11 @@ function withOpenProjectPickerFixtures(snapshot: OrchestrationReadModel): Orches
   const sourceThread = snapshot.threads[0];
   return {
     ...snapshot,
-    projects: [
-      ...snapshot.projects,
+    folders: [
+      ...snapshot.folders,
       {
         id: OTHER_PROJECT_ID,
-        spaceId: snapshot.projects[0]!.spaceId,
-        kind: "project",
+        spaceId: snapshot.folders[0]!.spaceId,
         title: "Other Project",
         workspaceRoot: "/repo/other",
         defaultModelSelection: {
@@ -574,15 +569,15 @@ function withOpenProjectPickerFixtures(snapshot: OrchestrationReadModel): Orches
   };
 }
 
-function withHomeChatProject(snapshot: OrchestrationReadModel): OrchestrationReadModel {
+function withInboxFolder(snapshot: OrchestrationReadModel): OrchestrationReadModel {
   return {
     ...snapshot,
-    projects: [
-      ...snapshot.projects,
+    folders: [
+      ...snapshot.folders,
       {
-        id: HOME_PROJECT_ID,
-        kind: "chat",
-        title: "Home",
+        id: INBOX_FOLDER_ID,
+        spaceId: TEST_SPACE_ID,
+        title: "Inbox",
         workspaceRoot: "/Users/tester",
         defaultModelSelection: {
           provider: "codex",
@@ -597,23 +592,23 @@ function withHomeChatProject(snapshot: OrchestrationReadModel): OrchestrationRea
   };
 }
 
-function withActiveHomeChatThread(snapshot: OrchestrationReadModel): OrchestrationReadModel {
-  const snapshotWithHomeProject = withHomeChatProject(snapshot);
+function withActiveInboxThread(snapshot: OrchestrationReadModel): OrchestrationReadModel {
+  const snapshotWithInboxFolder = withInboxFolder(snapshot);
   return {
-    ...snapshotWithHomeProject,
-    threads: snapshotWithHomeProject.threads.map((thread) =>
-      thread.id === THREAD_ID ? { ...thread, projectId: HOME_PROJECT_ID } : thread,
+    ...snapshotWithInboxFolder,
+    threads: snapshotWithInboxFolder.threads.map((thread) =>
+      thread.id === THREAD_ID ? { ...thread, folderId: INBOX_FOLDER_ID } : thread,
     ),
   };
 }
 
 function withProjectScripts(
   snapshot: OrchestrationReadModel,
-  scripts: OrchestrationReadModel["projects"][number]["scripts"],
+  scripts: OrchestrationReadModel["folders"][number]["scripts"],
 ): OrchestrationReadModel {
   return {
     ...snapshot,
-    projects: snapshot.projects.map((project) =>
+    folders: snapshot.folders.map((project) =>
       project.id === PROJECT_ID ? { ...project, scripts: Array.from(scripts) } : project,
     ),
   };
@@ -962,41 +957,40 @@ function createSnapshotWithInterruptedCommand(): OrchestrationReadModel {
   };
 }
 
-function recordProjectCreateCommand(command: unknown): boolean {
+function recordFolderCreateCommand(command: unknown): boolean {
   if (
     !command ||
     typeof command !== "object" ||
     !("type" in command) ||
-    command.type !== "project.create" ||
-    !("projectId" in command) ||
+    command.type !== "folder.create" ||
+    !("folderId" in command) ||
     !("workspaceRoot" in command) ||
     !("title" in command)
   ) {
     return false;
   }
 
-  const projectId = command.projectId as ContainerId;
+  const folderId = command.folderId as FolderId;
   fixture = {
     ...fixture,
     snapshot: {
       ...fixture.snapshot,
       snapshotSequence: fixture.snapshot.snapshotSequence + 1,
-      projects: [
-        ...fixture.snapshot.projects.filter((project) => project.id !== projectId),
+      folders: [
+        ...fixture.snapshot.folders.filter((project) => project.id !== folderId),
         {
-          id: projectId,
+          id: folderId,
           spaceId:
             "spaceId" in command && typeof command.spaceId === "string"
               ? SpaceId.makeUnsafe(command.spaceId)
               : TEST_SPACE_ID,
-          kind: "kind" in command && command.kind === "chat" ? command.kind : "project",
           title: String(command.title),
           workspaceRoot: command.workspaceRoot === null ? null : String(command.workspaceRoot),
           defaultModelSelection:
             "defaultModelSelection" in command &&
             command.defaultModelSelection &&
             typeof command.defaultModelSelection === "object"
-              ? (command.defaultModelSelection as OrchestrationReadModel["projects"][number]["defaultModelSelection"])
+              ? (command.defaultModelSelection as OrchestrationReadModel["folders"][number]["defaultModelSelection"])
               : {
                   provider: "codex" as const,
                   model: "gpt-5",
@@ -1063,7 +1057,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     return fixture.snapshot;
   }
   if (tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
-    if (recordSpaceCreateCommand(body.command) || recordProjectCreateCommand(body.command)) {
+    if (recordSpaceCreateCommand(body.command) || recordFolderCreateCommand(body.command)) {
       return { sequence: fixture.snapshot.snapshotSequence };
     }
     return { sequence: fixture.snapshot.snapshotSequence + 1 };
@@ -2003,18 +1997,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
   beforeEach(async () => {
     await resetWsNativeApiForTest();
     resetRetainedThreadDetailSubscriptionsForTests();
-    await resetHomeChatProjectPrewarmStateForTests();
     await setViewport(DEFAULT_VIEWPORT);
     attachmentResponseDelayMs = 0;
     attachmentUploadSequence = 0;
     localStorage.clear();
-    useLatestProjectStore.setState({ latestProjectId: null });
+    useLatestProjectStore.setState({ latestFolderId: null });
     document.body.innerHTML = "";
     wsRequests.length = 0;
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: {},
+      projectDraftThreadIdByFolderId: {},
       stickyModelSelectionByProvider: {},
       stickyConnectionByProvider: {},
       stickyActiveProvider: null,
@@ -2034,7 +2027,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   afterEach(async () => {
-    await resetHomeChatProjectPrewarmStateForTests();
     resetRetainedThreadDetailSubscriptionsForTests();
     document.body.innerHTML = "";
   });
@@ -2498,6 +2490,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expectLiveSendChrome();
 
       const turnId = TurnId.makeUnsafe("turn-send-handoff-running");
+      const providerTurnId = TurnId.makeUnsafe("provider-turn-send-handoff-running");
       // The durable turn request arrives before either the provider start
       // timestamp or the session's running projection. Once local dispatch is
       // acknowledged, this exact first-turn seam must keep Thinking visible.
@@ -2506,6 +2499,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         workStatus: "running",
         latestTurn: {
           turnId,
+          providerTurnId,
           state: "running",
           requestedAt: isoAt(2_103),
           startedAt: null,
@@ -2526,7 +2520,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           ? {
               ...thread.session,
               status: "running",
-              activeTurnId: turnId,
+              activeTurnId: providerTurnId,
               updatedAt: isoAt(2_106),
             }
           : null,
@@ -2924,10 +2918,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
     },
   );
 
-  it("names the parent Space on an empty direct Space thread", async () => {
+  it("names the parent folder on an empty thread", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      snapshot: withActiveHomeChatThread(addThreadToSnapshot(createDraftOnlySnapshot(), THREAD_ID)),
+      snapshot: addThreadToSnapshot(createDraftOnlySnapshot(), THREAD_ID),
       configureFixture: (nextFixture) => {
         nextFixture.welcome = {
           ...nextFixture.welcome,
@@ -2940,9 +2934,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await waitForServerConfigToApply();
       const heading = page.getByTestId("empty-landing-heading").element();
-      expect(heading.textContent).toContain("Personal");
+      expect(heading.textContent).toContain("Project");
       expect(heading.textContent).not.toContain("Home");
-      expect(heading.querySelector('[data-pencil-node="qNEBL"]')?.textContent).toBe("Personal");
+      expect(heading.querySelector('[data-pencil-node="qNEBL"]')?.textContent).toBe("Project");
     } finally {
       await mounted.cleanup();
     }
@@ -2952,13 +2946,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
         [THREAD_ID]: {
-          projectId: PROJECT_ID,
+          folderId: PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
         },
       },
-      projectDraftThreadIdByProjectId: {
+      projectDraftThreadIdByFolderId: {
         [PROJECT_ID]: THREAD_ID,
       },
     });
@@ -2989,13 +2983,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
         [THREAD_ID]: {
-          projectId: PROJECT_ID,
+          folderId: PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
         },
       },
-      projectDraftThreadIdByProjectId: {
+      projectDraftThreadIdByFolderId: {
         [PROJECT_ID]: THREAD_ID,
       },
     });
@@ -3030,13 +3024,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
         [THREAD_ID]: {
-          projectId: PROJECT_ID,
+          folderId: PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
         },
       },
-      projectDraftThreadIdByProjectId: {
+      projectDraftThreadIdByFolderId: {
         [PROJECT_ID]: THREAD_ID,
       },
     });
@@ -3079,13 +3073,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
         [THREAD_ID]: {
-          projectId: PROJECT_ID,
+          folderId: PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
         },
       },
-      projectDraftThreadIdByProjectId: {
+      projectDraftThreadIdByFolderId: {
         [PROJECT_ID]: THREAD_ID,
       },
     });
@@ -3738,7 +3732,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           deletedAt: null,
         },
       ],
-      projects: startingSnapshot.projects.map((project) => ({
+      folders: startingSnapshot.folders.map((project) => ({
         ...project,
         spaceId,
       })),
@@ -4089,7 +4083,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
     const snapshot: OrchestrationReadModel = {
       ...base,
-      projects: base.projects.map((project) => ({
+      folders: base.folders.map((project) => ({
         ...project,
         defaultModelSelection: {
           provider: "opencode",
@@ -4371,7 +4365,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(moveCommands[0]).toMatchObject({
             item: { kind: "thread", id: OTHER_THREAD_ID },
             position: { type: "before", item: { kind: "thread", id: THREAD_ID } },
-            target: { kind: "project", projectId: PROJECT_ID },
+            target: { kind: "folder", folderId: PROJECT_ID },
           });
         },
         { timeout: 8_000, interval: 16 },
@@ -4400,17 +4394,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const baseSnapshot = {
       ...snapshotWithThreads,
       threads: snapshotWithThreads.threads.map((thread) =>
-        thread.id === DESTINATION_THREAD_ID ? { ...thread, projectId: OTHER_PROJECT_ID } : thread,
+        thread.id === DESTINATION_THREAD_ID ? { ...thread, folderId: OTHER_PROJECT_ID } : thread,
       ),
     };
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: {
         ...baseSnapshot,
-        projects: [
-          ...baseSnapshot.projects,
+        folders: [
+          ...baseSnapshot.folders,
           {
-            ...baseSnapshot.projects[0]!,
+            ...baseSnapshot.folders[0]!,
             id: OTHER_PROJECT_ID,
             title: destinationFolderTitle,
             workspaceRoot: "/repo/other",
@@ -4458,7 +4452,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(moveCommands).toHaveLength(1);
           expect(moveCommands[0]).toMatchObject({
             item: { kind: "thread", id: OTHER_THREAD_ID },
-            target: { kind: "project", projectId: OTHER_PROJECT_ID },
+            target: { kind: "folder", folderId: OTHER_PROJECT_ID },
           });
           expect(
             page
@@ -4476,7 +4470,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ...fixture.snapshot,
         snapshotSequence: fixture.snapshot.snapshotSequence + 1,
         threads: fixture.snapshot.threads.map((thread) =>
-          thread.id === OTHER_THREAD_ID ? { ...thread, projectId: OTHER_PROJECT_ID } : thread,
+          thread.id === OTHER_THREAD_ID ? { ...thread, folderId: OTHER_PROJECT_ID } : thread,
         ),
       };
       fixture = { ...fixture, snapshot: currentSnapshot };
@@ -4510,7 +4504,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(moveCommands[1]).toMatchObject({
             item: { kind: "thread", id: OTHER_THREAD_ID },
             position: { type: "before", item: { kind: "thread", id: THREAD_ID } },
-            target: { kind: "project", projectId: PROJECT_ID },
+            target: { kind: "folder", folderId: PROJECT_ID },
           });
         },
         { timeout: 8_000, interval: 16 },
@@ -4520,7 +4514,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ...currentSnapshot,
         snapshotSequence: currentSnapshot.snapshotSequence + 1,
         threads: currentSnapshot.threads.map((thread) =>
-          thread.id === OTHER_THREAD_ID ? { ...thread, projectId: PROJECT_ID } : thread,
+          thread.id === OTHER_THREAD_ID ? { ...thread, folderId: PROJECT_ID } : thread,
         ),
       };
       fixture = { ...fixture, snapshot: currentSnapshot };
@@ -5013,11 +5007,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("uses the latest ordinary project from Home for the global new-thread shortcut", async () => {
-    useLatestProjectStore.setState({ latestProjectId: PROJECT_ID });
+  it("uses the active folder before the stored latest folder for the global new-thread shortcut", async () => {
+    useLatestProjectStore.setState({ latestFolderId: PROJECT_ID });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      snapshot: withActiveHomeChatThread(
+      snapshot: withActiveInboxThread(
         createSnapshotForTargetUser({
           targetMessageId: "msg-user-global-new-thread-latest-project" as MessageId,
           targetText: "global new thread latest project",
@@ -5028,10 +5022,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       const { path: newThreadPath, threadId: newThreadId } = await createProjectThreadWithShortcut(
         mounted,
-        "Global New thread should create a draft in the latest ordinary project.",
+        "Global New thread should create a draft in the active folder.",
       );
-      expect(useComposerDraftStore.getState().getDraftThread(newThreadId)?.projectId).toBe(
-        PROJECT_ID,
+      expect(useComposerDraftStore.getState().getDraftThread(newThreadId)?.folderId).toBe(
+        INBOX_FOLDER_ID,
       );
       await expect.element(page.getByText("Type path", { exact: true })).not.toBeInTheDocument();
     } finally {
@@ -5040,10 +5034,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("does not expose the removed global New thread action in the command palette", async () => {
-    useLatestProjectStore.setState({ latestProjectId: PROJECT_ID });
+    useLatestProjectStore.setState({ latestFolderId: PROJECT_ID });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      snapshot: withActiveHomeChatThread(
+      snapshot: withActiveInboxThread(
         createSnapshotForTargetUser({
           targetMessageId: "msg-user-palette-new-thread-latest-project" as MessageId,
           targetText: "palette new thread latest project",
@@ -5083,8 +5077,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("starts an inline folder when the global New thread action has no usable folder target", async () => {
-    useLatestProjectStore.setState({ latestProjectId: PROJECT_ID });
-    const snapshot = withActiveHomeChatThread(
+    useLatestProjectStore.setState({ latestFolderId: PROJECT_ID });
+    const snapshot = withActiveInboxThread(
       createSnapshotForTargetUser({
         targetMessageId: "msg-user-global-new-thread-no-project" as MessageId,
         targetText: "global new thread no project",
@@ -5094,7 +5088,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       viewport: DEFAULT_VIEWPORT,
       snapshot: {
         ...snapshot,
-        projects: snapshot.projects.filter((project) => project.kind !== "project"),
+        folders: [],
       },
     });
 
@@ -5113,10 +5107,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("does not start an inline folder before project hydration completes", async () => {
-    useLatestProjectStore.setState({ latestProjectId: PROJECT_ID });
+    useLatestProjectStore.setState({ latestFolderId: PROJECT_ID });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      snapshot: withActiveHomeChatThread(
+      snapshot: withActiveInboxThread(
         createSnapshotForTargetUser({
           targetMessageId: "msg-user-global-new-thread-before-hydration" as MessageId,
           targetText: "global new thread before hydration",
@@ -5125,7 +5119,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      useStore.setState({ projects: [], threadsHydrated: false });
+      useStore.setState({ folders: [], threadsHydrated: false });
       await waitForLayout();
       const initialPath = mounted.router.state.location.pathname;
       await waitForServerConfigToApply();
@@ -5177,7 +5171,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   it("can clear an empty draft's working directory before first send", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      snapshot: withHomeChatProject(
+      snapshot: withInboxFolder(
         createSnapshotForTargetUser({
           targetMessageId: "msg-user-project-picker-home-test" as MessageId,
           targetText: "project picker home test",
@@ -5212,7 +5206,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             useComposerDraftStore.getState().getDraftThread(newThreadId),
             `Project reset did not complete. Picker content: ${pickerText}`,
           ).toMatchObject({
-            projectId: PROJECT_ID,
+            folderId: PROJECT_ID,
             workingDirectory: null,
           });
         },
@@ -5224,22 +5218,22 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("moves a home draft into a recent folder without carrying branch", async () => {
+  it("moves an Inbox draft into a recent working folder without carrying branch", async () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
         [THREAD_ID]: {
-          projectId: HOME_PROJECT_ID,
+          folderId: INBOX_FOLDER_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
         },
       },
-      projectDraftThreadIdByProjectId: {
-        [HOME_PROJECT_ID]: THREAD_ID,
+      projectDraftThreadIdByFolderId: {
+        [INBOX_FOLDER_ID]: THREAD_ID,
       },
     });
 
-    const recentHomeSnapshot = withHomeChatProject(
+    const recentInboxSnapshot = withInboxFolder(
       createSnapshotForTargetUser({
         targetMessageId: "msg-user-home-recent-folder" as MessageId,
         targetText: "recent home folder",
@@ -5248,11 +5242,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: {
-        ...recentHomeSnapshot,
-        threads: recentHomeSnapshot.threads.map((thread) => ({
+        ...recentInboxSnapshot,
+        threads: recentInboxSnapshot.threads.map((thread) => ({
           ...thread,
           id: OTHER_THREAD_ID,
-          projectId: HOME_PROJECT_ID,
+          folderId: INBOX_FOLDER_ID,
           spaceId: TEST_SPACE_ID,
           workingDirectory: "/repo/project",
           session: thread.session ? { ...thread.session, threadId: OTHER_THREAD_ID } : null,
@@ -5290,14 +5284,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
           Array.from(document.querySelectorAll<HTMLElement>('[data-slot="combobox-item"]')).find(
             (item) => item.textContent?.trim() === "project",
           ) ?? null,
-        "Unable to find existing project option.",
+        "Unable to find the recent working folder option.",
       );
       projectOption.click();
 
       await vi.waitFor(
         () => {
           expect(useComposerDraftStore.getState().getDraftThread(THREAD_ID)).toMatchObject({
-            projectId: HOME_PROJECT_ID,
+            folderId: INBOX_FOLDER_ID,
             workingDirectory: "/repo/project",
           });
         },
@@ -5318,7 +5312,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const afterRect = controlsAfter!.getBoundingClientRect();
       const composerBlockAfterRect = composerBlockAfter!.getBoundingClientRect();
       // Guard against the empty-pane entry animation restarting with a vertical translate
-      // when Home selection turns into a project draft.
+      // when the recent working-folder selection updates the draft.
       expect(
         Math.round(Math.abs(afterRect.height - beforeRect.height)),
         `Composer controls changed height ${beforeRect.height}px -> ${afterRect.height}px`,
@@ -5349,7 +5343,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
         command,
       });
-      if (recordProjectCreateCommand(command)) {
+      if (recordFolderCreateCommand(command)) {
         return { sequence: fixture.snapshot.snapshotSequence };
       }
       return { sequence: fixture.snapshot.snapshotSequence + 1 };
@@ -5390,7 +5384,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
               request.command &&
               typeof request.command === "object" &&
               "type" in request.command &&
-              request.command.type === "project.create",
+              request.command.type === "folder.create",
           );
           expect(projectCreateRequest).toBeUndefined();
         },
@@ -5400,7 +5394,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
-            projectId: PROJECT_ID,
+            folderId: PROJECT_ID,
             workingDirectory: "/repo/new-project",
           });
         },
@@ -5446,7 +5440,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
               request.command &&
               typeof request.command === "object" &&
               "type" in request.command &&
-              request.command.type === "project.create" &&
+              request.command.type === "folder.create" &&
               "workspaceRoot" in request.command &&
               request.command.workspaceRoot === null &&
               "title" in request.command &&
@@ -5493,7 +5487,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             deletedAt: null,
           },
         ],
-        projects: baseSnapshot.projects.map((project) => ({
+        folders: baseSnapshot.folders.map((project) => ({
           ...project,
           spaceId: currentSpaceId,
         })),
@@ -5725,7 +5719,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
 
       expect(mounted.router.state.location.pathname).toBe(threadPath);
-      expect(useComposerDraftStore.getState().projectDraftThreadIdByProjectId[PROJECT_ID]).toBe(
+      expect(useComposerDraftStore.getState().projectDraftThreadIdByFolderId[PROJECT_ID]).toBe(
         threadId,
       );
     } finally {
@@ -6070,15 +6064,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
         () => {
           const visitCommands = wsRequests
             .map(readDispatchedCommand)
-            .filter(
-              (command) => command?.type === "thread.meta.update" && "lastVisitedAt" in command,
-            );
+            .filter((command) => command?.type === "thread.update" && "lastVisitedAt" in command);
           expect(visitCommands).toHaveLength(1);
           expect(visitCommands[0]).toMatchObject({
-            type: "thread.meta.update",
+            type: "thread.update",
             threadId: THREAD_ID,
           });
-          if (visitCommands[0]?.type !== "thread.meta.update") return;
+          if (visitCommands[0]?.type !== "thread.update") return;
           const lastVisitedAt = visitCommands[0].lastVisitedAt;
           expect(
             Date.parse(typeof lastVisitedAt === "string" ? lastVisitedAt : ""),

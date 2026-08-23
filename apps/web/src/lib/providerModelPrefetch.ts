@@ -17,18 +17,7 @@ import {
   providerModelsQueryOptions,
 } from "./providerDiscoveryReactQuery";
 
-export type ProviderModelPrefetchSettings = Pick<
-  AppSettings,
-  | "defaultProvider"
-  | "cursorBinaryPath"
-  | "cursorApiEndpoint"
-  | "antigravityBinaryPath"
-  | "grokBinaryPath"
-  | "droidBinaryPath"
-  | "kiloBinaryPath"
-  | "piBinaryPath"
-  | "piAgentDir"
->;
+export type ProviderModelPrefetchSettings = Pick<AppSettings, "defaultProvider">;
 
 export function resolveNewThreadModelPrefetchProvider(input: {
   draftActiveProvider?: ProviderKind | null | undefined;
@@ -66,7 +55,7 @@ export function providerModelsPrefetchQueryOptions(input: {
   settings: ProviderModelPrefetchSettings;
   cwd?: string | null;
 }) {
-  const { provider, settings } = input;
+  const { provider } = input;
   const cwd = input.cwd ?? null;
 
   switch (provider) {
@@ -74,45 +63,9 @@ export function providerModelsPrefetchQueryOptions(input: {
       return providerModelsQueryOptions({ provider: "claudeAgent" });
     case "codex":
       return providerModelsQueryOptions({ provider: "codex" });
-    case "cursor":
-      return providerModelsQueryOptions({
-        provider: "cursor",
-        binaryPath: settings.cursorBinaryPath || null,
-        apiEndpoint: settings.cursorApiEndpoint || null,
-      });
-    case "antigravity":
-      return providerModelsQueryOptions({
-        provider: "antigravity",
-        binaryPath: settings.antigravityBinaryPath || null,
-        cwd,
-      });
-    case "grok":
-      return providerModelsQueryOptions({
-        provider: "grok",
-        binaryPath: settings.grokBinaryPath || null,
-      });
-    case "droid":
-      return providerModelsQueryOptions({
-        provider: "droid",
-        binaryPath: settings.droidBinaryPath || null,
-        cwd,
-      });
-    case "kilo":
-      return providerModelsQueryOptions({
-        provider: "kilo",
-        binaryPath: settings.kiloBinaryPath || null,
-        cwd,
-      });
     case "opencode":
       return providerModelsQueryOptions({
         provider: "opencode",
-        cwd,
-      });
-    case "pi":
-      return providerModelsQueryOptions({
-        provider: "pi",
-        binaryPath: settings.piBinaryPath || null,
-        agentDir: settings.piAgentDir || null,
         cwd,
       });
   }
@@ -123,7 +76,7 @@ function providerAgentsPrefetchQueryOptions(input: {
   settings: ProviderModelPrefetchSettings;
   cwd?: string | null;
 }) {
-  const { provider, settings } = input;
+  const { provider } = input;
   const cwd = input.cwd ?? null;
 
   switch (provider) {
@@ -131,12 +84,6 @@ function providerAgentsPrefetchQueryOptions(input: {
       return providerAgentsQueryOptions({ provider: "claudeAgent" });
     case "codex":
       return providerAgentsQueryOptions({ provider: "codex" });
-    case "kilo":
-      return providerAgentsQueryOptions({
-        provider: "kilo",
-        binaryPath: settings.kiloBinaryPath || null,
-        cwd,
-      });
     case "opencode":
       return providerAgentsQueryOptions({
         provider: "opencode",

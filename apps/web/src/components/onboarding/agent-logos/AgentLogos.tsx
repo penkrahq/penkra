@@ -4,16 +4,7 @@ import type { HTMLAttributes } from "react";
 import { ProviderIcon } from "~/components/ProviderIcon";
 import { cn } from "~/lib/utils";
 
-const providers = [
-  "claudeAgent",
-  "codex",
-  "cursor",
-  "grok",
-  "droid",
-  "kilo",
-  "pi",
-  "opencode",
-] as const;
+const providers = ["claudeAgent", "codex", "opencode"] as const;
 
 export function AgentLogos({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (

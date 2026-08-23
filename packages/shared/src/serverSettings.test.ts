@@ -10,41 +10,10 @@ describe("providerStartOptionsFromServerSettings", () => {
     const settings = {
       ...DEFAULT_SERVER_SETTINGS,
       providers: {
-        codex: {
-          ...DEFAULT_SERVER_SETTINGS.providers.codex,
-        },
-        claudeAgent: {
-          ...DEFAULT_SERVER_SETTINGS.providers.claudeAgent,
-        },
-        cursor: {
-          ...DEFAULT_SERVER_SETTINGS.providers.cursor,
-          binaryPath: "",
-          apiEndpoint: "",
-        },
-        antigravity: {
-          ...DEFAULT_SERVER_SETTINGS.providers.antigravity,
-          binaryPath: "",
-        },
-        grok: {
-          ...DEFAULT_SERVER_SETTINGS.providers.grok,
-          binaryPath: "",
-        },
-        droid: {
-          ...DEFAULT_SERVER_SETTINGS.providers.droid,
-          binaryPath: "",
-        },
-        kilo: {
-          ...DEFAULT_SERVER_SETTINGS.providers.kilo,
-          binaryPath: "",
-          serverUrl: "",
-        },
+        codex: { ...DEFAULT_SERVER_SETTINGS.providers.codex },
+        claudeAgent: { ...DEFAULT_SERVER_SETTINGS.providers.claudeAgent },
         opencode: {
           ...DEFAULT_SERVER_SETTINGS.providers.opencode,
-        },
-        pi: {
-          ...DEFAULT_SERVER_SETTINGS.providers.pi,
-          binaryPath: "",
-          agentDir: "",
         },
       },
     };
@@ -61,13 +30,7 @@ describe("providerStartOptionsFromServerSettings", () => {
     ).not.toThrow();
     expect(providerOptions.codex).toEqual({});
     expect(providerOptions.claudeAgent).toEqual({});
-    expect(providerOptions.cursor).toEqual({});
-    expect(providerOptions.antigravity).toEqual({});
-    expect(providerOptions.grok).toEqual({});
-    expect(providerOptions.droid).toEqual({});
-    expect(providerOptions.kilo).toEqual({});
     expect(providerOptions.opencode).toEqual({ experimentalWebSockets: false });
-    expect(providerOptions.pi).toEqual({});
   });
 
   it("preserves supported launch settings without accepting external managed runtimes", () => {

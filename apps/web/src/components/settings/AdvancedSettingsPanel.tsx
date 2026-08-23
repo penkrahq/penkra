@@ -33,7 +33,7 @@ export function AdvancedSettingsPanel(props: {
   // Keep these subscriptions inside the only panel that uses recovery eligibility.
   const threadShells = useStore(useMemo(() => createThreadShellsSelector(), []));
   const allThreadsMessageless = useStore(useMemo(() => createAllThreadsMessagelessSelector(), []));
-  const projectCount = useStore((store) => store.projects.length);
+  const folderCount = useStore((store) => store.folders.length);
   const threadsHydrated = useStore((store) => store.threadsHydrated);
 
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
@@ -50,9 +50,9 @@ export function AdvancedSettingsPanel(props: {
   const keybindingsConfigPath = configQuery.data?.keybindingsConfigPath ?? null;
   const availableEditors = configQuery.data?.availableEditors;
   const shouldOfferRecoveryTools = useMemo(() => {
-    if (!threadsHydrated || projectCount === 0) return false;
+    if (!threadsHydrated || folderCount === 0) return false;
     return threadShells.length === 0 || allThreadsMessageless;
-  }, [allThreadsMessageless, projectCount, threadShells.length, threadsHydrated]);
+  }, [allThreadsMessageless, folderCount, threadShells.length, threadsHydrated]);
 
   const openKeybindingsFile = useCallback(() => {
     if (!keybindingsConfigPath) return;

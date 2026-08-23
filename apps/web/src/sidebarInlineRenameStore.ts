@@ -1,18 +1,18 @@
-import type { ContainerId, ThreadId } from "@penkra/contracts";
+import type { FolderId, ThreadId } from "@penkra/contracts";
 import { create } from "zustand";
 
 export type SidebarInlineRenameEditor =
-  | { kind: "folder"; projectId: ContainerId; value: string }
+  | { kind: "folder"; folderId: FolderId; value: string }
   | { kind: "thread"; threadId: ThreadId; value: string };
 export type SidebarInlineRenameTarget =
-  | { kind: "folder"; projectId: ContainerId }
+  | { kind: "folder"; folderId: FolderId }
   | { kind: "thread"; threadId: ThreadId };
 
 interface SidebarInlineRenameState {
   editor: SidebarInlineRenameEditor | null;
   cancel: () => void;
   finish: (target: SidebarInlineRenameTarget) => void;
-  startFolder: (projectId: ContainerId, value: string) => void;
+  startFolder: (folderId: FolderId, value: string) => void;
   startThread: (threadId: ThreadId, value: string) => void;
   updateValue: (value: string) => void;
 }
@@ -22,7 +22,7 @@ function isSameTarget(
   target: SidebarInlineRenameTarget,
 ): boolean {
   return editor.kind === "folder" && target.kind === "folder"
-    ? editor.projectId === target.projectId
+    ? editor.folderId === target.folderId
     : editor.kind === "thread" && target.kind === "thread"
       ? editor.threadId === target.threadId
       : false;
@@ -35,7 +35,7 @@ export const useSidebarInlineRenameStore = create<SidebarInlineRenameState>((set
     set((state) => ({
       editor: state.editor && isSameTarget(state.editor, target) ? null : state.editor,
     })),
-  startFolder: (projectId, value) => set({ editor: { kind: "folder", projectId, value } }),
+  startFolder: (folderId, value) => set({ editor: { kind: "folder", folderId, value } }),
   startThread: (threadId, value) => set({ editor: { kind: "thread", threadId, value } }),
   updateValue: (value) =>
     set((state) => ({ editor: state.editor ? { ...state.editor, value } : null })),

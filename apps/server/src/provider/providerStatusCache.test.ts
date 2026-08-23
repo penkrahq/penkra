@@ -75,68 +75,24 @@ describe("providerStatusCache", () => {
   });
 
   it("keeps provider ordering stable for transport consumers", () => {
-    expect(
-      orderProviderStatuses([
-        {
-          provider: "antigravity",
-          status: "ready",
-          available: true,
-          authStatus: "authenticated",
-          checkedAt: "2026-04-15T10:02:00.000Z",
-        },
-        {
-          provider: "claudeAgent",
-          status: "warning",
-          available: true,
-          authStatus: "unknown",
-          checkedAt: "2026-04-15T10:01:00.000Z",
-        },
-        {
-          provider: "cursor",
-          status: "ready",
-          available: true,
-          authStatus: "unknown",
-          checkedAt: "2026-04-15T10:03:00.000Z",
-        },
-        {
-          provider: "grok",
-          status: "ready",
-          available: true,
-          authStatus: "unknown",
-          checkedAt: "2026-04-15T10:04:00.000Z",
-        },
-        readyCodexStatus,
-      ]),
-    ).toEqual([
+    const claudeStatus = {
+      provider: "claudeAgent" as const,
+      status: "warning" as const,
+      available: true,
+      authStatus: "unknown" as const,
+      checkedAt: "2026-04-15T10:01:00.000Z",
+    };
+    const openCodeStatus = {
+      provider: "opencode" as const,
+      status: "ready" as const,
+      available: true,
+      authStatus: "authenticated" as const,
+      checkedAt: "2026-04-15T10:02:00.000Z",
+    };
+    expect(orderProviderStatuses([openCodeStatus, claudeStatus, readyCodexStatus])).toEqual([
       readyCodexStatus,
-      {
-        provider: "claudeAgent",
-        status: "warning",
-        available: true,
-        authStatus: "unknown",
-        checkedAt: "2026-04-15T10:01:00.000Z",
-      },
-      {
-        provider: "cursor",
-        status: "ready",
-        available: true,
-        authStatus: "unknown",
-        checkedAt: "2026-04-15T10:03:00.000Z",
-      },
-      {
-        provider: "antigravity",
-        status: "ready",
-        available: true,
-        authStatus: "authenticated",
-        checkedAt: "2026-04-15T10:02:00.000Z",
-      },
-      {
-        provider: "grok",
-        status: "ready",
-        available: true,
-        authStatus: "unknown",
-        checkedAt: "2026-04-15T10:04:00.000Z",
-      },
+      claudeStatus,
+      openCodeStatus,
     ]);
   });
 });

@@ -112,10 +112,6 @@
       "types": "./src/threadSummary.ts",
       "import": "./src/threadSummary.ts"
     },
-    "./projectContainers": {
-      "types": "./src/projectContainers.ts",
-      "import": "./src/projectContainers.ts"
-    },
     "./pinnedMessages": {
       "types": "./src/pinnedMessages.ts",
       "import": "./src/pinnedMessages.ts"

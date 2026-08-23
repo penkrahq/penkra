@@ -50,6 +50,7 @@ const BROWSER_INACTIVE_TAB_SUSPEND_DELAY_PRESSURED_MS = 400;
 const BROWSER_MAX_WARM_INACTIVE_RUNTIMES_PER_THREAD = 1;
 const BROWSER_THREAD_SUSPEND_DELAY_MS = 30_000;
 const BROWSER_ERROR_ABORTED = -3;
+const BROWSER_INTERNAL_ERROR_URL_PREFIX = "chrome-error://";
 const BROWSER_FAVICON_MAX_BYTES = 1024 * 1024;
 const BROWSER_FAVICON_MAX_DATA_URL_CHARACTERS =
   Math.ceil((BROWSER_FAVICON_MAX_BYTES * 4) / 3) + 128;
@@ -128,6 +129,13 @@ export interface BrowserHostedPanelBoundsInput {
   bounds: BrowserPanelBounds | null;
   hostBounds: BrowserPanelBounds | null;
   parentView: View | null;
+}
+
+export interface BrowserRendererLoadFailureInput extends BrowserTabInput {
+  errorCode: number;
+  errorDescription: string;
+  validatedUrl: string;
+  isMainFrame: boolean;
 }
 
 interface HostedBrowserContainer {
@@ -809,9 +817,8 @@ export class DesktopBrowserManager {
       this.attachRuntime(runtime, bounds);
     }
 
-    const didChange = tab.status !== LIVE_TAB_STATUS || tab.lastError !== null;
+    const didChange = tab.status !== LIVE_TAB_STATUS;
     tab.status = LIVE_TAB_STATUS;
-    tab.lastError = null;
     syncThreadLastError(state);
     if (didChange) {
       this.markThreadStateChanged(input.threadId);
@@ -819,6 +826,33 @@ export class DesktopBrowserManager {
     this.queueRuntimeStateSync(input.threadId, tab.id);
     this.emitState(input.threadId);
     return this.snapshotThreadState(input.threadId, state);
+  }
+
+  reportRendererWebviewLoadFailure(input: BrowserRendererLoadFailureInput): void {
+    if (!input.isMainFrame || input.errorCode === BROWSER_ERROR_ABORTED) return;
+    const state = this.states.get(input.threadId);
+    const tab = state ? this.getTab(state, input.tabId) : null;
+    if (!state || !tab) return;
+
+    const nextUrl = input.validatedUrl || tab.url;
+    const nextError = mapBrowserLoadError(input.errorCode);
+    if (tab.url === nextUrl && tab.lastError === nextError && !tab.isLoading) return;
+
+    tab.url = nextUrl;
+    tab.title = defaultTitleForUrl(tab.url);
+    tab.isLoading = false;
+    tab.lastError = nextError;
+    this.reportLoadFailure({
+      source: "did-fail-load",
+      threadId: input.threadId,
+      tabId: input.tabId,
+      url: input.validatedUrl || tab.url,
+      errorCode: input.errorCode,
+      errorDescription: input.errorDescription,
+    });
+    syncThreadLastError(state);
+    this.markThreadStateChanged(input.threadId);
+    this.emitState(input.threadId);
   }
 
   // Drops main-process ownership of a renderer-owned <webview> that React removed.
@@ -1717,6 +1751,12 @@ export class DesktopBrowserManager {
     });
 
     const didNavigate = () => {
+      const state = this.states.get(threadId);
+      const tab = state ? this.getTab(state, tabId) : null;
+      if (state && tab?.lastError) {
+        tab.lastError = null;
+        syncThreadLastError(state);
+      }
       this.queueRuntimeStateSync(threadId, tabId);
     };
     webContents.on("did-navigate", didNavigate);
@@ -1743,27 +1783,14 @@ export class DesktopBrowserManager {
         return;
       }
 
-      const state = this.states.get(threadId);
-      const tab = state ? this.getTab(state, tabId) : null;
-      if (!state || !tab) {
-        return;
-      }
-
-      tab.url = validatedURL || tab.url;
-      tab.title = defaultTitleForUrl(tab.url);
-      tab.isLoading = false;
-      tab.lastError = mapBrowserLoadError(errorCode);
-      this.reportLoadFailure({
-        source: "did-fail-load",
+      this.reportRendererWebviewLoadFailure({
         threadId,
         tabId,
-        url: validatedURL || tab.url,
         errorCode,
         errorDescription,
+        validatedUrl: validatedURL,
+        isMainFrame,
       });
-      syncThreadLastError(state);
-      this.markThreadStateChanged(threadId);
-      this.emitState(threadId);
     };
     webContents.on("did-fail-load", didFailLoad);
     runtime.listenerDisposers.push(() => {
@@ -1825,12 +1852,44 @@ export class DesktopBrowserManager {
     this.markThreadStateChanged(threadId);
     this.emitState(threadId);
 
+    let committedDuringLoad = false;
+    let failedMainFrameDuringLoad = false;
+    const didNavigateDuringLoad = () => {
+      committedDuringLoad = true;
+    };
+    const didFailDuringLoad = (
+      _event: Electron.Event,
+      errorCode: number,
+      _errorDescription: string,
+      _validatedURL: string,
+      isMainFrame: boolean,
+    ) => {
+      if (isMainFrame && errorCode !== BROWSER_ERROR_ABORTED) {
+        failedMainFrameDuringLoad = true;
+      }
+    };
+    webContents.on("did-navigate", didNavigateDuringLoad);
+    webContents.on("did-fail-load", didFailDuringLoad);
     try {
       await webContents.loadURL(nextUrl);
       this.queueRuntimeStateSync(threadId, tabId);
     } catch (error) {
       if (isAbortedNavigationError(error)) {
         this.queueRuntimeStateSync(threadId, tabId);
+        return;
+      }
+
+      // Some redirect-heavy sites (Gmail is one) commit a working document and then reject the
+      // original loadURL promise with ERR_FAILED. A committed main frame is authoritative unless
+      // Electron also reported a non-aborted main-frame failure for this attempt.
+      if (committedDuringLoad && !failedMainFrameDuringLoad) {
+        this.queueRuntimeStateSync(threadId, tabId);
+        return;
+      }
+
+      // The shared did-fail-load handler already retained the precise Electron failure. Avoid
+      // replacing it with the generic loadURL fallback or reporting the same failure twice.
+      if (failedMainFrameDuringLoad) {
         return;
       }
 
@@ -1846,6 +1905,9 @@ export class DesktopBrowserManager {
       syncThreadLastError(state);
       this.markThreadStateChanged(threadId);
       this.emitState(threadId);
+    } finally {
+      webContents.removeListener("did-navigate", didNavigateDuringLoad);
+      webContents.removeListener("did-fail-load", didFailDuringLoad);
     }
   }
 
@@ -2217,8 +2279,14 @@ function syncTabStateFromRuntime(
   faviconUrls?: string[],
 ): boolean {
   const currentUrl = webContents.getURL();
-  const nextUrl = currentUrl || tab.url;
-  const nextTitle = webContents.getTitle();
+  // Renderer-owned WebViews can finish their first failed navigation before main-process
+  // listeners attach. Chromium then exposes chrome-error://chromewebdata/ as the current URL.
+  // Treat that as failure evidence, never as the user's URL or a successful commit.
+  const isInternalErrorDocument = currentUrl.startsWith(BROWSER_INTERNAL_ERROR_URL_PREFIX);
+  const committedUrl = isInternalErrorDocument ? "" : currentUrl;
+  const nextUrl = committedUrl || tab.url;
+  const nextTitle = isInternalErrorDocument ? tab.title : webContents.getTitle();
+  const isLoading = webContents.isLoading();
   let didChange = false;
   didChange =
     setIfChanged(tab.status, LIVE_TAB_STATUS, (value) => {
@@ -2235,7 +2303,7 @@ function syncTabStateFromRuntime(
       tab.title = value;
     }) || didChange;
   didChange =
-    setIfChanged(tab.isLoading, webContents.isLoading(), (value) => {
+    setIfChanged(tab.isLoading, isLoading, (value) => {
       tab.isLoading = value;
     }) || didChange;
   didChange =
@@ -2247,7 +2315,7 @@ function syncTabStateFromRuntime(
       tab.canGoForward = value;
     }) || didChange;
   didChange =
-    setIfChanged(tab.lastCommittedUrl, currentUrl || tab.lastCommittedUrl, (value) => {
+    setIfChanged(tab.lastCommittedUrl, committedUrl || tab.lastCommittedUrl, (value) => {
       tab.lastCommittedUrl = value;
     }) || didChange;
   if (faviconUrls) {
@@ -2256,8 +2324,8 @@ function syncTabStateFromRuntime(
         tab.faviconUrl = value;
       }) || didChange;
   }
-  if (tab.lastError && !tab.isLoading) {
-    tab.lastError = null;
+  if (isInternalErrorDocument && !isLoading && !tab.lastError) {
+    tab.lastError = "Couldn't open this page.";
     didChange = true;
   }
   didChange = syncThreadLastError(state) || didChange;

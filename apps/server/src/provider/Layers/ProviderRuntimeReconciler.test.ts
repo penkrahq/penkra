@@ -1,5 +1,5 @@
 import {
-  ContainerId,
+  FolderId,
   ThreadId,
   TurnId,
   type OrchestrationCommand,
@@ -37,11 +37,11 @@ function staleShellSnapshot(): OrchestrationShellSnapshot {
   return {
     snapshotSequence: 1,
     spaces: [],
-    projects: [],
+    folders: [],
     threads: [
       {
         id: THREAD_ID,
-        projectId: ContainerId.makeUnsafe("project-runtime-reconciler"),
+        folderId: FolderId.makeUnsafe("project-runtime-reconciler"),
         runtimeMode: "full-access",
         updatedAt,
         latestTurn: {

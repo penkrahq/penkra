@@ -7,11 +7,13 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ServerConfig } from "../../config.ts";
 import { ProviderConnectionLoginRepositoryLive } from "../../persistence/Layers/ProviderConnectionLogins.ts";
 import { ProviderConnectionRepositoryLive } from "../../persistence/Layers/ProviderConnections.ts";
+import { ConnectionUsageFactRepositoryLive } from "../../persistence/Layers/ConnectionUsageFacts.ts";
 import { ProviderInstallationRepositoryLive } from "../../persistence/Layers/ProviderInstallations.ts";
 import { runMigrations } from "../../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { ProviderConnectionLoginRepository } from "../../persistence/Services/ProviderConnectionLogins.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
+import { ConnectionUsageFactRepository } from "../../persistence/Services/ConnectionUsageFacts.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import type {
   CodexManagedAccountSnapshot,
@@ -90,6 +92,7 @@ const repositories = Layer.mergeAll(
   ProviderConnectionLoginRepositoryLive.pipe(Layer.provide(sqlLayer)),
   ProviderConnectionRepositoryLive.pipe(Layer.provide(sqlLayer)),
   ProviderInstallationRepositoryLive.pipe(Layer.provide(sqlLayer)),
+  ConnectionUsageFactRepositoryLive.pipe(Layer.provide(sqlLayer)),
 );
 const dependencies = Layer.mergeAll(
   repositories,
@@ -245,6 +248,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       yield* activateCodex;
       const coordinator = yield* ProviderConnectionLoginCoordinator;
       const connections = yield* ProviderConnectionRepository;
+      const usageFacts = yield* ConnectionUsageFactRepository;
       const started = yield* coordinator.begin({
         harness: "codex",
         authenticationTargetId: "openai-first-party",
@@ -252,10 +256,20 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       });
       assert.strictEqual(started.state, "awaiting-user");
       assert.strictEqual(Option.isNone(yield* connections.getRecord(started.connectionId)), true);
-      pendingLogin?.resolve({ type: "chatgpt", email: "person@example.com", planType: "pro" });
+      pendingLogin?.resolve({
+        type: "chatgpt",
+        email: "person@example.com",
+        planType: "pro",
+        rateLimitsSnapshot: { rateLimits: { primary: { usedPercent: 12 } } },
+      });
       const completed = yield* waitForCompleted(started.operationId);
       assert.strictEqual(completed.connection?.label, "person@example.com");
       assert.strictEqual(completed.connection?.providerIdentityId, "person@example.com");
+      const usageFact = Option.getOrThrow(yield* usageFacts.getRateLimits(started.connectionId));
+      assert.strictEqual(usageFact.sourceEventId, `provider-login:${started.operationId}`);
+      assert.deepStrictEqual(JSON.parse(usageFact.limitsJson), {
+        rateLimits: { primary: { usedPercent: 12 } },
+      });
     }),
   );
 
@@ -283,7 +297,12 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         createdAt: timestamp,
         updatedAt: timestamp,
       });
-      probedAccount = { type: "chatgpt", email: "recovered@example.com", planType: "pro" };
+      probedAccount = {
+        type: "chatgpt",
+        email: "recovered@example.com",
+        planType: "pro",
+        rateLimitsSnapshot: null,
+      };
       yield* coordinator.recover;
       const recovered = Option.getOrThrow(yield* connections.getRecord(connectionId));
       assert.strictEqual(recovered.label, "recovered@example.com");
@@ -397,7 +416,12 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         authenticationTargetId: "openai-first-party",
         authenticationMethodId: "chatgpt",
       });
-      pendingLogin?.resolve({ type: "chatgpt", email: "same@example.com", planType: "pro" });
+      pendingLogin?.resolve({
+        type: "chatgpt",
+        email: "same@example.com",
+        planType: "pro",
+        rateLimitsSnapshot: null,
+      });
       yield* waitForCompleted(first.operationId);
 
       const duplicate = yield* coordinator.begin({
@@ -405,8 +429,18 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         authenticationTargetId: "openai-first-party",
         authenticationMethodId: "chatgpt",
       });
-      probedAccount = { type: "chatgpt", email: "same@example.com", planType: "pro" };
-      pendingLogin?.resolve({ type: "chatgpt", email: "same@example.com", planType: "pro" });
+      probedAccount = {
+        type: "chatgpt",
+        email: "same@example.com",
+        planType: "pro",
+        rateLimitsSnapshot: null,
+      };
+      pendingLogin?.resolve({
+        type: "chatgpt",
+        email: "same@example.com",
+        planType: "pro",
+        rateLimitsSnapshot: null,
+      });
       const completed = yield* waitForCompleted(duplicate.operationId);
 
       assert.strictEqual(completed.connectionId, first.connectionId);
@@ -468,7 +502,12 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         providerIdentityId: null,
         createdAt: timestamp,
       });
-      probedAccount = { type: "chatgpt", email: "active@example.com", planType: "pro" };
+      probedAccount = {
+        type: "chatgpt",
+        email: "active@example.com",
+        planType: "pro",
+        rateLimitsSnapshot: null,
+      };
       yield* coordinator.recover;
       const recovered = Option.getOrThrow(yield* connections.getRecord(connectionId));
       assert.strictEqual(recovered.lifecycle, "active");
@@ -490,7 +529,12 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         authenticationTargetId: "openai-first-party",
         authenticationMethodId: "chatgpt",
       });
-      pendingLogin?.resolve({ type: "chatgpt", email: "Same@Example.com", planType: "pro" });
+      pendingLogin?.resolve({
+        type: "chatgpt",
+        email: "Same@Example.com",
+        planType: "pro",
+        rateLimitsSnapshot: null,
+      });
       const completed = yield* waitForCompleted(first.operationId);
       assert.strictEqual(completed.connection?.providerIdentityId, "same@example.com");
       assert.strictEqual(completed.connection?.label, "same@example.com");
@@ -505,8 +549,18 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         authenticationTargetId: "openai-first-party",
         authenticationMethodId: "chatgpt",
       });
-      probedAccount = { type: "chatgpt", email: "same@example.com", planType: "pro" };
-      pendingLogin?.resolve({ type: "chatgpt", email: "same@example.com", planType: "pro" });
+      probedAccount = {
+        type: "chatgpt",
+        email: "same@example.com",
+        planType: "pro",
+        rateLimitsSnapshot: null,
+      };
+      pendingLogin?.resolve({
+        type: "chatgpt",
+        email: "same@example.com",
+        planType: "pro",
+        rateLimitsSnapshot: null,
+      });
       const reused = yield* waitForCompleted(reauthenticated.operationId);
       assert.strictEqual(reused.connectionId, completed.connectionId);
       assert.notStrictEqual(reauthenticated.connectionId, completed.connectionId);

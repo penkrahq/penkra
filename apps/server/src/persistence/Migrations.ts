@@ -152,6 +152,9 @@ import Migration0143 from "./Migrations/143_RemoveSpaceConnectionDefaults.ts";
 import Migration0144 from "./Migrations/144_CanonicalActivityLookupIndex.ts";
 import Migration0145 from "./Migrations/145_ProjectArchive.ts";
 import Migration0146 from "./Migrations/146_ProviderRuntimeInstallationMigration.ts";
+import Migration0147 from "./Migrations/147_RemoveAgentGatewayOperations.ts";
+import Migration0148 from "./Migrations/148_RemoveUnshippedProviders.ts";
+import Migration0149 from "./Migrations/149_FolderOnlyHierarchy.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -303,6 +306,9 @@ export const migrationEntries = [
   [144, "CanonicalActivityLookupIndex", Migration0144],
   [145, "ProjectArchive", Migration0145],
   [146, "ProviderRuntimeInstallationMigration", Migration0146],
+  [147, "RemoveAgentGatewayOperations", Migration0147],
+  [148, "RemoveUnshippedProviders", Migration0148],
+  [149, "FolderOnlyHierarchy", Migration0149],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

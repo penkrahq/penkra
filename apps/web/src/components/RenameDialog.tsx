@@ -1,5 +1,5 @@
 // FILE: RenameDialog.tsx
-// Purpose: Shared single-field rename dialog for threads and projects.
+// Purpose: Shared single-field rename dialog for threads and folders.
 // Layer: Shared UI component
 // Exports: RenameDialog
 
@@ -21,7 +21,7 @@ export interface RenameDialogProps {
   title: string;
   description?: string | undefined;
   initialValue: string;
-  /** Projects pass empty names to clear the local alias and fall back to folder name. */
+  /** Folders pass empty names to clear the local alias and fall back to folder name. */
   allowEmpty?: boolean | undefined;
   placeholder?: string | undefined;
   saveLabel?: string | undefined;

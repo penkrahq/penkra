@@ -8,29 +8,29 @@ import type { AppState } from "./storeState";
 import type { Project } from "./types";
 
 const PERSISTED_STATE_KEY = "penkra:renderer-state:v9";
-const persistedExpandedProjectIds = new Set<string>();
+const persistedExpandedFolderIds = new Set<string>();
 const persistedProjectOrderIds: string[] = [];
 const persistedProjectOrderById = new Map<string, number>();
 const persistedProjectNamesById = new Map<string, string>();
 
 export interface RememberedProjectUiState {
   expandedProjectCount: number;
-  isProjectExpanded: (projectId: string) => boolean;
+  isProjectExpanded: (folderId: string) => boolean;
   projectOrderCount: number;
-  projectOrderIndexForId: (projectId: string) => number | undefined;
-  projectNameForId: (projectId: string) => string | undefined;
+  projectOrderIndexForId: (folderId: string) => number | undefined;
+  projectNameForId: (folderId: string) => string | undefined;
 }
 
 const rememberedProjectUiState: RememberedProjectUiState = {
   get expandedProjectCount() {
-    return persistedExpandedProjectIds.size;
+    return persistedExpandedFolderIds.size;
   },
-  isProjectExpanded: (projectId) => persistedExpandedProjectIds.has(projectId),
+  isProjectExpanded: (folderId) => persistedExpandedFolderIds.has(folderId),
   get projectOrderCount() {
     return persistedProjectOrderIds.length;
   },
-  projectOrderIndexForId: (projectId) => persistedProjectOrderById.get(projectId),
-  projectNameForId: (projectId) => persistedProjectNamesById.get(projectId),
+  projectOrderIndexForId: (folderId) => persistedProjectOrderById.get(folderId),
+  projectNameForId: (folderId) => persistedProjectNamesById.get(folderId),
 };
 
 export function projectCwdKey(cwd: string): string {
@@ -42,32 +42,32 @@ export function getRememberedProjectUiState(): RememberedProjectUiState {
 }
 
 export function rememberProjectUiState(
-  projects: ReadonlyArray<Pick<Project, "id" | "expanded">>,
+  folders: ReadonlyArray<Pick<Project, "id" | "expanded">>,
 ): void {
-  for (const project of projects) {
-    const projectId = project.id;
+  for (const project of folders) {
+    const folderId = project.id;
     if (project.expanded) {
-      persistedExpandedProjectIds.add(projectId);
+      persistedExpandedFolderIds.add(folderId);
     } else {
-      persistedExpandedProjectIds.delete(projectId);
+      persistedExpandedFolderIds.delete(folderId);
     }
-    if (!persistedProjectOrderById.has(projectId)) {
-      persistedProjectOrderById.set(projectId, persistedProjectOrderIds.length);
-      persistedProjectOrderIds.push(projectId);
+    if (!persistedProjectOrderById.has(folderId)) {
+      persistedProjectOrderById.set(folderId, persistedProjectOrderIds.length);
+      persistedProjectOrderIds.push(folderId);
     }
   }
 }
 
 export function rememberProjectLocalNames(
-  projects: ReadonlyArray<Pick<Project, "id" | "localName">>,
+  folders: ReadonlyArray<Pick<Project, "id" | "localName">>,
 ): void {
-  for (const project of projects) {
-    const projectId = project.id;
+  for (const project of folders) {
+    const folderId = project.id;
     const localName = project.localName?.trim() ?? "";
     if (localName.length > 0) {
-      persistedProjectNamesById.set(projectId, localName);
+      persistedProjectNamesById.set(folderId, localName);
     } else {
-      persistedProjectNamesById.delete(projectId);
+      persistedProjectNamesById.delete(folderId);
     }
   }
 }
@@ -78,34 +78,34 @@ export function readPersistedState(initialState: AppState): AppState {
     const raw = window.localStorage.getItem(PERSISTED_STATE_KEY);
     if (!raw) return initialState;
     const parsed = JSON.parse(raw) as {
-      expandedProjectIds?: string[];
+      expandedFolderIds?: string[];
       projectOrderIds?: string[];
       projectNamesById?: Record<string, string>;
     };
-    persistedExpandedProjectIds.clear();
+    persistedExpandedFolderIds.clear();
     persistedProjectOrderIds.length = 0;
     persistedProjectOrderById.clear();
     persistedProjectNamesById.clear();
-    for (const projectId of parsed.expandedProjectIds ?? []) {
-      if (typeof projectId === "string" && projectId.length > 0) {
-        persistedExpandedProjectIds.add(projectId);
+    for (const folderId of parsed.expandedFolderIds ?? []) {
+      if (typeof folderId === "string" && folderId.length > 0) {
+        persistedExpandedFolderIds.add(folderId);
       }
     }
-    for (const projectId of parsed.projectOrderIds ?? []) {
+    for (const folderId of parsed.projectOrderIds ?? []) {
       if (
-        typeof projectId === "string" &&
-        projectId.length > 0 &&
-        !persistedProjectOrderById.has(projectId)
+        typeof folderId === "string" &&
+        folderId.length > 0 &&
+        !persistedProjectOrderById.has(folderId)
       ) {
-        persistedProjectOrderById.set(projectId, persistedProjectOrderIds.length);
-        persistedProjectOrderIds.push(projectId);
+        persistedProjectOrderById.set(folderId, persistedProjectOrderIds.length);
+        persistedProjectOrderIds.push(folderId);
       }
     }
-    for (const [projectId, name] of Object.entries(parsed.projectNamesById ?? {})) {
-      if (projectId.length === 0 || typeof name !== "string") continue;
+    for (const [folderId, name] of Object.entries(parsed.projectNamesById ?? {})) {
+      if (folderId.length === 0 || typeof name !== "string") continue;
       const trimmedName = name.trim();
       if (trimmedName.length === 0) continue;
-      persistedProjectNamesById.set(projectId, trimmedName);
+      persistedProjectNamesById.set(folderId, trimmedName);
     }
     return { ...initialState };
   } catch {
@@ -116,15 +116,15 @@ export function readPersistedState(initialState: AppState): AppState {
 export function persistState(state: AppState): void {
   if (typeof window === "undefined") return;
   try {
-    rememberProjectUiState(state.projects);
-    rememberProjectLocalNames(state.projects);
+    rememberProjectUiState(state.folders);
+    rememberProjectLocalNames(state.folders);
     window.localStorage.setItem(
       PERSISTED_STATE_KEY,
       JSON.stringify({
-        expandedProjectIds: state.projects
+        expandedFolderIds: state.folders
           .filter((project) => project.expanded)
           .map((project) => project.id),
-        projectOrderIds: state.projects.map((project) => project.id),
+        projectOrderIds: state.folders.map((project) => project.id),
         projectNamesById: Object.fromEntries(persistedProjectNamesById),
       }),
     );

@@ -1,5 +1,5 @@
 import { Schema, Struct } from "effect";
-import { NonNegativeInt, ContainerId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
+import { NonNegativeInt, FolderId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
 
 import {
   ClientOrchestrationCommand,
@@ -83,18 +83,18 @@ import {
 
 export const WS_METHODS = {
   // Project registry methods
-  projectsDiscoverScripts: "projects.discoverScripts",
-  projectsListDirectories: "projects.listDirectories",
-  projectsSearchEntries: "projects.searchEntries",
-  projectsSearchLocalEntries: "projects.searchLocalEntries",
-  projectsReadFile: "projects.readFile",
-  projectsCreateLocalFilePreviewGrant: "projects.createLocalFilePreviewGrant",
-  projectsWriteFile: "projects.writeFile",
-  projectsRunDevServer: "projects.runDevServer",
-  projectsStopDevServer: "projects.stopDevServer",
-  projectsListDevServers: "projects.listDevServers",
-  subscribeProjectDevServerEvents: "projects.subscribeDevServerEvents",
-  subscribeProjectWorkspaceChanges: "projects.subscribeWorkspaceChanges",
+  projectsDiscoverScripts: "folders.discoverScripts",
+  projectsListDirectories: "folders.listDirectories",
+  projectsSearchEntries: "folders.searchEntries",
+  projectsSearchLocalEntries: "folders.searchLocalEntries",
+  projectsReadFile: "folders.readFile",
+  projectsCreateLocalFilePreviewGrant: "folders.createLocalFilePreviewGrant",
+  projectsWriteFile: "folders.writeFile",
+  projectsRunDevServer: "folders.runDevServer",
+  projectsStopDevServer: "folders.stopDevServer",
+  projectsListDevServers: "folders.listDevServers",
+  subscribeProjectDevServerEvents: "folders.subscribeDevServerEvents",
+  subscribeProjectWorkspaceChanges: "folders.subscribeWorkspaceChanges",
 
   // Filesystem browse methods
   filesystemBrowse: "filesystem.browse",
@@ -298,7 +298,7 @@ export const WsWelcomePayload = Schema.Struct({
   homeDir: Schema.optional(TrimmedNonEmptyString),
   chatWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
   projectName: TrimmedNonEmptyString,
-  bootstrapProjectId: Schema.optional(ContainerId),
+  bootstrapFolderId: Schema.optional(FolderId),
   bootstrapThreadId: Schema.optional(ThreadId),
 });
 export type WsWelcomePayload = typeof WsWelcomePayload.Type;

@@ -238,7 +238,7 @@ describe("provider runtime activity projection", () => {
     expect(events.map(projectProviderRuntimeActivities)).toEqual([[], [], []]);
   });
 
-  it("projects only readable completed Codex-family reasoning summaries", () => {
+  it("folders only readable completed Codex-family reasoning summaries", () => {
     const absent = [
       runtimeEvent({
         type: "content.delta",
@@ -260,16 +260,16 @@ describe("provider runtime activity projection", () => {
       }),
       runtimeEvent({
         type: "item.completed",
-        eventId: "reasoning-cursor",
-        provider: "cursor",
+        eventId: "reasoning-opencode",
+        provider: "opencode",
         turnId: TURN_ID,
-        itemId: RuntimeItemId.makeUnsafe("reasoning-cursor"),
+        itemId: RuntimeItemId.makeUnsafe("reasoning-opencode"),
         payload: { itemType: "reasoning", status: "completed", detail: "Readable" },
       }),
     ];
     expect(absent.map(projectProviderRuntimeActivities)).toEqual([[], [], []]);
 
-    for (const provider of ["codex", "antigravity"] as const) {
+    for (const provider of ["codex"] as const) {
       const [activity] = projectProviderRuntimeActivities(
         runtimeEvent({
           type: "item.completed",

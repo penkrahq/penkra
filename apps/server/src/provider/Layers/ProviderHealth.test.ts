@@ -18,19 +18,12 @@ import {
 } from "../providerStatusCache";
 import {
   checkClaudeProviderStatus,
-  checkAntigravityProviderStatus,
   checkCodexProviderStatus,
-  checkCursorProviderStatus,
-  checkGrokProviderStatus,
   checkOpenCodeProviderStatus,
-  checkPiProviderStatus,
   hasCustomModelProvider,
   makeDisabledProviderStatus,
   makeCheckClaudeProviderStatus,
   makeCheckCodexProviderStatus,
-  makeCheckCursorProviderStatus,
-  makeCheckGrokProviderStatus,
-  makeCheckKiloProviderStatus,
   makeCheckOpenCodeProviderStatus,
   makeProviderHealthLive,
   parseAuthStatusFromOutput,
@@ -116,13 +109,7 @@ const allProvidersDisabledSettings = {
   providers: {
     codex: { enabled: false },
     claudeAgent: { enabled: false },
-    cursor: { enabled: false },
-    antigravity: { enabled: false },
-    grok: { enabled: false },
-    droid: { enabled: false },
-    kilo: { enabled: false },
     opencode: { enabled: false },
-    pi: { enabled: false },
   },
 } as const;
 
@@ -131,13 +118,7 @@ const allProvidersDisabledServerSettings = {
   providers: {
     codex: { ...DEFAULT_SERVER_SETTINGS.providers.codex, enabled: false },
     claudeAgent: { ...DEFAULT_SERVER_SETTINGS.providers.claudeAgent, enabled: false },
-    cursor: { ...DEFAULT_SERVER_SETTINGS.providers.cursor, enabled: false },
-    antigravity: { ...DEFAULT_SERVER_SETTINGS.providers.antigravity, enabled: false },
-    grok: { ...DEFAULT_SERVER_SETTINGS.providers.grok, enabled: false },
-    droid: { ...DEFAULT_SERVER_SETTINGS.providers.droid, enabled: false },
-    kilo: { ...DEFAULT_SERVER_SETTINGS.providers.kilo, enabled: false },
     opencode: { ...DEFAULT_SERVER_SETTINGS.providers.opencode, enabled: false },
-    pi: { ...DEFAULT_SERVER_SETTINGS.providers.pi, enabled: false },
   },
 } satisfies typeof DEFAULT_SERVER_SETTINGS;
 
@@ -215,8 +196,8 @@ function withTempCodexHome(configContent?: string) {
 it.layer(NodeServices.layer)("ProviderHealth", (it) => {
   describe("disabled provider handling", () => {
     it("builds an inert status for disabled providers", () => {
-      assert.deepStrictEqual(makeDisabledProviderStatus("kilo", "2026-06-16T12:00:00.000Z"), {
-        provider: "kilo",
+      assert.deepStrictEqual(makeDisabledProviderStatus("opencode", "2026-06-16T12:00:00.000Z"), {
+        provider: "opencode",
         status: "warning",
         available: false,
         authStatus: "unknown",
@@ -225,7 +206,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       });
     });
 
-    it("projects disabled settings over cached ready statuses", () => {
+    it("folders disabled settings over cached ready statuses", () => {
       const statuses = projectProviderStatusesForSettings(
         [cachedReadyCodexStatus],
         allProvidersDisabledServerSettings,
@@ -233,7 +214,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       );
       const codex = statuses.find((status) => status.provider === "codex");
 
-      assert.strictEqual(statuses.length, 9);
+      assert.strictEqual(statuses.length, 3);
       assert.strictEqual(codex?.available, false);
       assert.strictEqual(codex?.message, "Provider is disabled in Penkra settings.");
     });
@@ -301,7 +282,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       }),
     );
 
-    it.effect("projects cached ready status when a disabled provider is re-enabled", () =>
+    it.effect("folders cached ready status when a disabled provider is re-enabled", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
@@ -368,7 +349,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         const providerHealth = yield* ProviderHealth;
         const statuses = yield* providerHealth.refresh;
 
-        assert.strictEqual(statuses.length, 9);
+        assert.strictEqual(statuses.length, 3);
         for (const status of statuses) {
           assert.strictEqual(status.available, false);
           assert.strictEqual(status.message, "Provider is disabled in Penkra settings.");
@@ -382,10 +363,10 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
     it.effect("rejects one-click updates for disabled providers", () =>
       Effect.gen(function* () {
         const providerHealth = yield* ProviderHealth;
-        const error = yield* Effect.flip(providerHealth.updateProvider({ provider: "kilo" }));
+        const error = yield* Effect.flip(providerHealth.updateProvider({ provider: "opencode" }));
 
         assert.ok(error instanceof ServerProviderUpdateError);
-        assert.strictEqual(error.provider, "kilo");
+        assert.strictEqual(error.provider, "opencode");
         assert.strictEqual(error.reason, "Provider is disabled in Penkra settings.");
       }).pipe(Effect.provide(disabledProviderHealthLayer)),
     );
@@ -542,7 +523,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
 
   describe("providerStatusesEqual", () => {
     const readyCursor = {
-      provider: "cursor",
+      provider: "opencode",
       status: "ready",
       available: true,
       authStatus: "unknown",
@@ -1582,549 +1563,6 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       }).pipe(Effect.provide(failingSpawnerLayer("spawn opencode ENOENT"))),
     );
   });
-
-  describe("checkKiloProviderStatus", () => {
-    it.effect("uses configured Kilo binary for version probe", () =>
-      Effect.gen(function* () {
-        const status = yield* makeCheckKiloProviderStatus("/custom/bin/kilo");
-        assert.strictEqual(status.status, "ready");
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args, command) => {
-            assert.strictEqual(command, "/custom/bin/kilo");
-            const joined = args.join(" ");
-            if (joined === "--version") return { stdout: "kilo 7.2.52\n", stderr: "", code: 0 };
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-  });
-
-  describe("checkPiProviderStatus", () => {
-    it.effect("returns ready using only the Pi CLI version probe", () =>
-      Effect.gen(function* () {
-        const status = yield* checkPiProviderStatus();
-        assert.strictEqual(status.provider, "pi");
-        assert.strictEqual(status.status, "ready");
-        assert.strictEqual(status.available, true);
-        assert.strictEqual(status.authStatus, "unknown");
-        assert.strictEqual(
-          status.message,
-          "Pi CLI is installed. Configure provider credentials inside Pi as needed.",
-        );
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args, command) => {
-            assert.strictEqual(command, "pi");
-            const joined = args.join(" ");
-            if (joined === "--version") return { stdout: "pi 0.74.0\n", stderr: "", code: 0 };
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-
-    it.effect("uses configured Pi binary and agent dir without SDK registry reads", () =>
-      Effect.gen(function* () {
-        const status = yield* checkPiProviderStatus("/tmp/pi-agent", "/custom/bin/pi");
-        assert.strictEqual(status.status, "ready");
-        assert.strictEqual(
-          status.message,
-          "Pi CLI is installed. Penkra will use Pi agent dir /tmp/pi-agent.",
-        );
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args, command) => {
-            assert.strictEqual(command, "/custom/bin/pi");
-            const joined = args.join(" ");
-            if (joined === "--version") return { stdout: "pi 0.74.0\n", stderr: "", code: 0 };
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-
-    it.effect("keeps Pi usable when the advisory CLI probe is missing", () =>
-      Effect.gen(function* () {
-        const status = yield* checkPiProviderStatus();
-        assert.strictEqual(status.provider, "pi");
-        assert.strictEqual(status.status, "warning");
-        assert.strictEqual(status.available, true);
-        assert.strictEqual(status.authStatus, "unknown");
-        assert.strictEqual(
-          status.message,
-          "Pi SDK is bundled, but the Pi CLI (`pi`) is not on PATH, so Penkra could not verify the installed CLI version.",
-        );
-      }).pipe(Effect.provide(failingSpawnerLayer("spawn pi ENOENT"))),
-    );
-  });
-
-  describe("checkAntigravityProviderStatus", () => {
-    it.effect("rejects versions that predate --new-project support", () =>
-      Effect.gen(function* () {
-        const status = yield* checkAntigravityProviderStatus();
-        assert.strictEqual(status.status, "error");
-        assert.strictEqual(status.available, false);
-        assert.strictEqual(status.version, "1.0.11");
-        assert.strictEqual(
-          status.message,
-          "Antigravity CLI 1.0.11 is too old for Penkra. Upgrade to 1.0.12 or newer.",
-        );
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args) => {
-            const joined = args.join(" ");
-            if (joined === "--version") {
-              return { stdout: "Antigravity CLI 1.0.11\n", stderr: "", code: 0 };
-            }
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-
-    it.effect("returns ready when Antigravity lists authenticated models", () =>
-      Effect.gen(function* () {
-        const status = yield* checkAntigravityProviderStatus();
-        assert.strictEqual(status.provider, "antigravity");
-        assert.strictEqual(status.status, "ready");
-        assert.strictEqual(status.available, true);
-        assert.strictEqual(status.authStatus, "authenticated");
-        assert.strictEqual(status.version, "1.1.2");
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args, command) => {
-            assert.strictEqual(command, "agy");
-            const joined = args.join(" ");
-            if (joined === "--version") {
-              return { stdout: "Antigravity CLI 1.1.2\n", stderr: "", code: 0 };
-            }
-            if (joined === "models") {
-              return {
-                stdout: "Gemini 3.5 Flash (Medium)\nClaude Sonnet 4.6 (Thinking)\n",
-                stderr: "",
-                code: 0,
-              };
-            }
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-
-    it.effect("uses the configured Antigravity binary", () =>
-      Effect.gen(function* () {
-        const status = yield* checkAntigravityProviderStatus("/custom/bin/agy");
-        assert.strictEqual(status.status, "ready");
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args, command) => {
-            assert.strictEqual(command, "/custom/bin/agy");
-            return args.join(" ") === "--version"
-              ? { stdout: "1.1.2\n", stderr: "", code: 0 }
-              : { stdout: "GPT-OSS 120B (Medium)\n", stderr: "", code: 0 };
-          }),
-        ),
-      ),
-    );
-  });
-
-  describe("checkGrokProviderStatus", () => {
-    it.effect("returns ready when Grok CLI is installed", () => {
-      const previousXaiApiKey = process.env.XAI_API_KEY;
-      const previousApiKey = process.env.GROK_CODE_XAI_API_KEY;
-      delete process.env.XAI_API_KEY;
-      delete process.env.GROK_CODE_XAI_API_KEY;
-      return Effect.gen(function* () {
-        const status = yield* checkGrokProviderStatus;
-        assert.strictEqual(status.provider, "grok");
-        assert.strictEqual(status.status, "ready");
-        assert.strictEqual(status.available, true);
-        assert.strictEqual(status.authStatus, "unknown");
-        assert.strictEqual(status.version, "0.1.0");
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args) => {
-            const joined = args.join(" ");
-            if (joined === "--version") return { stdout: "grok 0.1.0\n", stderr: "", code: 0 };
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-        Effect.ensuring(
-          Effect.sync(() => {
-            if (previousXaiApiKey === undefined) {
-              delete process.env.XAI_API_KEY;
-            } else {
-              process.env.XAI_API_KEY = previousXaiApiKey;
-            }
-            if (previousApiKey === undefined) {
-              delete process.env.GROK_CODE_XAI_API_KEY;
-            } else {
-              process.env.GROK_CODE_XAI_API_KEY = previousApiKey;
-            }
-          }),
-        ),
-      );
-    });
-
-    it.effect("marks Grok authenticated when XAI_API_KEY is present", () => {
-      const previousXaiApiKey = process.env.XAI_API_KEY;
-      const previousApiKey = process.env.GROK_CODE_XAI_API_KEY;
-      process.env.XAI_API_KEY = "xai-test-key";
-      delete process.env.GROK_CODE_XAI_API_KEY;
-      return Effect.gen(function* () {
-        const status = yield* checkGrokProviderStatus;
-        assert.strictEqual(status.authStatus, "authenticated");
-        assert.strictEqual(status.authType, "apiKey");
-        assert.strictEqual(status.authLabel, "xAI API Key");
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args) => {
-            const joined = args.join(" ");
-            if (joined === "--version") return { stdout: "grok 0.1.0\n", stderr: "", code: 0 };
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-        Effect.ensuring(
-          Effect.sync(() => {
-            if (previousXaiApiKey === undefined) {
-              delete process.env.XAI_API_KEY;
-            } else {
-              process.env.XAI_API_KEY = previousXaiApiKey;
-            }
-            if (previousApiKey === undefined) {
-              delete process.env.GROK_CODE_XAI_API_KEY;
-            } else {
-              process.env.GROK_CODE_XAI_API_KEY = previousApiKey;
-            }
-          }),
-        ),
-      );
-    });
-
-    it.effect("uses configured Grok binary for version probe", () =>
-      Effect.gen(function* () {
-        const status = yield* makeCheckGrokProviderStatus("/custom/bin/grok");
-        assert.strictEqual(status.status, "ready");
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args, command) => {
-            assert.strictEqual(command, "/custom/bin/grok");
-            const joined = args.join(" ");
-            if (joined === "--version") return { stdout: "grok 0.1.0\n", stderr: "", code: 0 };
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-
-    it.effect("returns unavailable when Grok CLI is missing", () =>
-      Effect.gen(function* () {
-        const status = yield* checkGrokProviderStatus;
-        assert.strictEqual(status.provider, "grok");
-        assert.strictEqual(status.status, "error");
-        assert.strictEqual(status.available, false);
-        assert.strictEqual(status.authStatus, "unknown");
-        assert.strictEqual(status.message, "Grok CLI (`grok`) is not installed or not on PATH.");
-      }).pipe(Effect.provide(failingSpawnerLayer("spawn grok ENOENT"))),
-    );
-  });
-
-  describe("checkCursorProviderStatus", () => {
-    it.effect("returns ready when Cursor Agent is authenticated and has models", () =>
-      Effect.gen(function* () {
-        const status = yield* checkCursorProviderStatus;
-        assert.strictEqual(status.provider, "cursor");
-        assert.strictEqual(status.status, "ready");
-        assert.strictEqual(status.available, true);
-        assert.strictEqual(status.authStatus, "authenticated");
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args, command, env) => {
-            assert.strictEqual(command, "cursor-agent");
-            assert.strictEqual(env?.NO_BROWSER, "true");
-            assert.strictEqual(env?.BROWSER, "www-browser");
-            assert.strictEqual(env?.CI, "true");
-            assert.strictEqual(env?.DEBIAN_FRONTEND, "noninteractive");
-            const joined = args.join(" ");
-            if (joined === "--version") {
-              return { stdout: "agent 2026.04.27\n", stderr: "", code: 0 };
-            }
-            if (joined === "status") {
-              return { stdout: "Logged in as user@example.com\n", stderr: "", code: 0 };
-            }
-            if (joined === "models") {
-              return { stdout: "gpt-5 - GPT-5\n", stderr: "", code: 0 };
-            }
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-
-    it.effect("maps the old ambiguous agent default to cursor-agent", () =>
-      Effect.gen(function* () {
-        const status = yield* makeCheckCursorProviderStatus("agent");
-        assert.strictEqual(status.status, "ready");
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args, command) => {
-            assert.strictEqual(command, "cursor-agent");
-            const joined = args.join(" ");
-            if (joined === "--version") {
-              return { stdout: "agent 2026.04.27\n", stderr: "", code: 0 };
-            }
-            if (joined === "status") {
-              return { stdout: "Logged in as user@example.com\n", stderr: "", code: 0 };
-            }
-            if (joined === "models") {
-              return { stdout: "gpt-5 - GPT-5\n", stderr: "", code: 0 };
-            }
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-
-    it.effect("uses configured Cursor Agent binary for version probe", () =>
-      Effect.gen(function* () {
-        const status = yield* makeCheckCursorProviderStatus("/custom/bin/agent");
-        assert.strictEqual(status.status, "ready");
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args, command) => {
-            assert.strictEqual(command, "/custom/bin/agent");
-            const joined = args.join(" ");
-            if (joined === "--version") {
-              return { stdout: "agent 2026.04.27\n", stderr: "", code: 0 };
-            }
-            if (joined === "status") {
-              return { stdout: "Logged in as user@example.com\n", stderr: "", code: 0 };
-            }
-            if (joined === "models") {
-              return { stdout: "gpt-5 - GPT-5\n", stderr: "", code: 0 };
-            }
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-
-    it.effect(
-      "falls back through configured Cursor editors when no agent command is resolved",
-      () =>
-        Effect.gen(function* () {
-          const originalPath = process.env.PATH;
-          yield* Effect.acquireRelease(
-            Effect.sync(() => {
-              process.env.PATH = "";
-            }),
-            () =>
-              Effect.sync(() => {
-                if (originalPath !== undefined) {
-                  process.env.PATH = originalPath;
-                } else {
-                  delete process.env.PATH;
-                }
-              }),
-          );
-          const status = yield* makeCheckCursorProviderStatus("/custom/bin/cursor");
-          assert.strictEqual(status.status, "ready");
-        }).pipe(
-          Effect.provide(
-            mockSpawnerLayer((args, command) => {
-              assert.strictEqual(command, "/custom/bin/cursor");
-              const joined = args.join(" ");
-              if (joined === "agent --version") {
-                return { stdout: "cursor 2026.04.27\n", stderr: "", code: 0 };
-              }
-              if (joined === "agent status") {
-                return { stdout: "Logged in as user@example.com\n", stderr: "", code: 0 };
-              }
-              if (joined === "agent models") {
-                return { stdout: "gpt-5 - GPT-5\n", stderr: "", code: 0 };
-              }
-              throw new Error(`Unexpected args: ${joined}`);
-            }),
-          ),
-        ),
-    );
-
-    it.effect("returns unavailable when Cursor Agent is missing", () =>
-      Effect.gen(function* () {
-        const status = yield* checkCursorProviderStatus;
-        assert.strictEqual(status.provider, "cursor");
-        assert.strictEqual(status.status, "error");
-        assert.strictEqual(status.available, false);
-        assert.strictEqual(status.authStatus, "unknown");
-        assert.strictEqual(
-          status.message,
-          "Cursor Agent CLI (`cursor-agent`) is not installed or not on PATH.",
-        );
-      }).pipe(Effect.provide(failingSpawnerLayer("spawn cursor-agent ENOENT"))),
-    );
-
-    it.effect("returns unavailable when Cursor Agent exits with an error", () =>
-      Effect.gen(function* () {
-        const status = yield* checkCursorProviderStatus;
-        assert.strictEqual(status.provider, "cursor");
-        assert.strictEqual(status.status, "error");
-        assert.strictEqual(status.available, false);
-        assert.strictEqual(status.authStatus, "unknown");
-        assert.strictEqual(
-          status.message,
-          "Cursor Agent CLI is installed but failed to run. version failed",
-        );
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args, command) => {
-            assert.strictEqual(command, "cursor-agent");
-            const joined = args.join(" ");
-            if (joined === "--version") {
-              return { stdout: "", stderr: "version failed\n", code: 1 };
-            }
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-
-    it.effect("returns unauthenticated when Cursor Agent status requires login", () =>
-      Effect.gen(function* () {
-        const status = yield* checkCursorProviderStatus;
-        assert.strictEqual(status.provider, "cursor");
-        assert.strictEqual(status.status, "error");
-        assert.strictEqual(status.available, true);
-        assert.strictEqual(status.authStatus, "unauthenticated");
-        assert.strictEqual(
-          status.message,
-          "Cursor Agent is not authenticated. Run `cursor-agent login` and try again.",
-        );
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args, command) => {
-            assert.strictEqual(command, "cursor-agent");
-            const joined = args.join(" ");
-            if (joined === "--version") {
-              return { stdout: "agent 2026.04.27\n", stderr: "", code: 0 };
-            }
-            if (joined === "status") {
-              return {
-                stdout: "",
-                stderr:
-                  "Error: Authentication required. Please run 'agent login' first, or set CURSOR_API_KEY environment variable.\n",
-                code: 1,
-              };
-            }
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-
-    it.effect("returns unauthenticated when Cursor Agent says not authenticated", () =>
-      Effect.gen(function* () {
-        const status = yield* checkCursorProviderStatus;
-        assert.strictEqual(status.provider, "cursor");
-        assert.strictEqual(status.status, "error");
-        assert.strictEqual(status.available, true);
-        assert.strictEqual(status.authStatus, "unauthenticated");
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args, command) => {
-            assert.strictEqual(command, "cursor-agent");
-            const joined = args.join(" ");
-            if (joined === "--version") {
-              return { stdout: "agent 2026.04.27\n", stderr: "", code: 0 };
-            }
-            if (joined === "status") {
-              return { stdout: "Not authenticated\n", stderr: "", code: 1 };
-            }
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-
-    it.effect("returns unavailable when Cursor Agent has no account models", () =>
-      Effect.gen(function* () {
-        const status = yield* checkCursorProviderStatus;
-        assert.strictEqual(status.provider, "cursor");
-        assert.strictEqual(status.status, "error");
-        assert.strictEqual(status.available, false);
-        assert.strictEqual(status.authStatus, "authenticated");
-        assert.strictEqual(
-          status.message,
-          "Cursor Agent is authenticated, but it reports no models available for this account.",
-        );
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer((args, command) => {
-            assert.strictEqual(command, "cursor-agent");
-            const joined = args.join(" ");
-            if (joined === "--version") {
-              return { stdout: "agent 2026.04.27\n", stderr: "", code: 0 };
-            }
-            if (joined === "status") {
-              return { stdout: "Logged in (unable to fetch user details)\n", stderr: "", code: 0 };
-            }
-            if (joined === "models") {
-              return { stdout: "No models available for this account.\n", stderr: "", code: 0 };
-            }
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-
-    it.effect("returns warning when Cursor Agent model discovery fails to spawn", () =>
-      Effect.gen(function* () {
-        const status = yield* checkCursorProviderStatus;
-        assert.strictEqual(status.provider, "cursor");
-        assert.strictEqual(status.status, "warning");
-        assert.strictEqual(status.available, true);
-        assert.strictEqual(status.authStatus, "authenticated");
-      }).pipe(
-        Effect.provide(
-          Layer.succeed(
-            ChildProcessSpawner.ChildProcessSpawner,
-            ChildProcessSpawner.make((command) => {
-              const cmd = command as unknown as {
-                command: string;
-                args: ReadonlyArray<string>;
-              };
-              assert.strictEqual(cmd.command, "cursor-agent");
-              const joined = cmd.args.join(" ");
-              if (joined === "--version") {
-                return Effect.succeed(
-                  mockHandle({ stdout: "agent 2026.04.27\n", stderr: "", code: 0 }),
-                );
-              }
-              if (joined === "status") {
-                return Effect.succeed(
-                  mockHandle({ stdout: "Logged in as user@example.com\n", stderr: "", code: 0 }),
-                );
-              }
-              if (joined === "models") {
-                return Effect.fail(
-                  PlatformError.systemError({
-                    _tag: "Unknown",
-                    module: "ChildProcess",
-                    method: "spawn",
-                    description: "models probe failed",
-                  }),
-                );
-              }
-              throw new Error(`Unexpected args: ${joined}`);
-            }),
-          ),
-        ),
-      ),
-    );
-  });
-
-  // ── parseClaudeAuthStatusFromOutput pure tests ────────────────────
 
   describe("parseClaudeAuthStatusFromOutput", () => {
     it("exit code 0 with no auth markers is ready", () => {

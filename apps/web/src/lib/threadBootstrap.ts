@@ -1,7 +1,7 @@
 import {
   DEFAULT_RUNTIME_MODE,
   type ModelSelection,
-  type ContainerId,
+  type FolderId,
   type ProviderKind,
   type RuntimeMode,
   type SpaceId,
@@ -31,12 +31,9 @@ export function scopeNewThreadOptionsToParentSpace(
 
 export function scopeNewThreadOptionsToContainer(input: {
   options: NewThreadOptions | undefined;
-  containerKind: "chat" | "project";
   containerSpaceId: SpaceId | null;
 }): NewThreadOptions | undefined {
-  return input.containerKind === "project"
-    ? scopeNewThreadOptionsToParentSpace(input.options, input.containerSpaceId)
-    : input.options;
+  return scopeNewThreadOptionsToParentSpace(input.options, input.containerSpaceId);
 }
 
 export function requireNewThreadSpaceId(spaceId: SpaceId | null): SpaceId {
@@ -49,15 +46,12 @@ export interface InheritedThreadContext {
 }
 
 export function resolveRecentParentWorkingDirectory(input: {
-  projectId: ContainerId;
-  projectKind: "chat" | "project";
-  spaceId: SpaceId | null;
-  threads: ReadonlyArray<Pick<Thread, "projectId" | "spaceId" | "workingDirectory" | "createdAt">>;
+  folderId: FolderId;
+  threads: ReadonlyArray<Pick<Thread, "folderId" | "workingDirectory" | "createdAt">>;
 }): string | null {
-  const matching = input.threads.filter((thread) => {
-    if (thread.projectId !== input.projectId || !thread.workingDirectory?.trim()) return false;
-    return input.projectKind === "project" || (thread.spaceId ?? null) === input.spaceId;
-  });
+  const matching = input.threads.filter(
+    (thread) => thread.folderId === input.folderId && Boolean(thread.workingDirectory?.trim()),
+  );
   const latest = matching.reduce<(typeof matching)[number] | null>(
     (current, candidate) =>
       !current || candidate.createdAt.localeCompare(current.createdAt) > 0 ? candidate : current,
@@ -77,7 +71,7 @@ export function resolveInheritedThreadContext(input: {
 }
 
 interface ActiveThreadSnapshot {
-  projectId: ContainerId;
+  folderId: FolderId;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
 }
@@ -105,7 +99,7 @@ interface ResolveTerminalThreadCreationStateInput {
   draftThread: DraftThreadState | null;
   options: NewThreadOptions | undefined;
   projectDefaultModelSelection: ModelSelection | null;
-  projectId: ContainerId;
+  folderId: FolderId;
 }
 
 export interface TerminalThreadCreationState {
@@ -117,14 +111,14 @@ export interface TerminalThreadCreationState {
 
 export function createActiveThreadSnapshot(
   activeThread:
-    | { modelSelection: ModelSelection; projectId: ContainerId; runtimeMode: RuntimeMode }
+    | { modelSelection: ModelSelection; folderId: FolderId; runtimeMode: RuntimeMode }
     | null
     | undefined,
-  projectId: ContainerId,
+  folderId: FolderId,
 ): ActiveThreadSnapshot | null {
-  if (!activeThread || activeThread.projectId !== projectId) return null;
+  if (!activeThread || activeThread.folderId !== folderId) return null;
   return {
-    projectId: activeThread.projectId,
+    folderId: activeThread.folderId,
     modelSelection: activeThread.modelSelection,
     runtimeMode: activeThread.runtimeMode,
   };
@@ -132,16 +126,16 @@ export function createActiveThreadSnapshot(
 
 export function createActiveDraftThreadSnapshot(
   activeDraftThread: DraftThreadState | null | undefined,
-  projectId: ContainerId,
+  folderId: FolderId,
 ): DraftThreadState | null {
-  if (!activeDraftThread || activeDraftThread.projectId !== projectId) return null;
+  if (!activeDraftThread || activeDraftThread.folderId !== folderId) return null;
   return { ...activeDraftThread, workingDirectory: activeDraftThread.workingDirectory ?? null };
 }
 
 export function resolveThreadBootstrapPlan(input: {
   entryPoint: ThreadPrimarySurface;
   latestActiveDraftThread: DraftThreadState | null;
-  projectId: ContainerId;
+  folderId: FolderId;
   routeThreadId: ThreadId | null;
   storedDraftThread: ({ threadId: ThreadId } & DraftThreadState) | null;
 }): ThreadBootstrapPlan {
@@ -149,7 +143,7 @@ export function resolveThreadBootstrapPlan(input: {
     shouldReuseActiveDraftThread({
       draftThread: input.latestActiveDraftThread,
       entryPoint: input.entryPoint,
-      projectId: input.projectId,
+      folderId: input.folderId,
       routeThreadId: input.routeThreadId,
     })
   ) {
@@ -173,7 +167,7 @@ export function createFreshDraftThreadSeed(input: {
   createdAt: string;
   entryPoint: ThreadPrimarySurface;
   options: NewThreadOptions | undefined;
-}): Omit<DraftThreadState, "projectId"> {
+}): Omit<DraftThreadState, "folderId"> {
   return {
     createdAt: input.createdAt,
     spaceId: input.options?.spaceId ?? null,
@@ -208,18 +202,18 @@ export function buildDraftThreadContextPatch(
 export function shouldReuseActiveDraftThread(input: {
   draftThread: DraftThreadState | null;
   entryPoint: ThreadPrimarySurface;
-  projectId: ContainerId;
+  folderId: FolderId;
   routeThreadId: ThreadId | null;
 }): input is {
   draftThread: DraftThreadState;
   entryPoint: ThreadPrimarySurface;
-  projectId: ContainerId;
+  folderId: FolderId;
   routeThreadId: ThreadId;
 } {
   return Boolean(
     input.draftThread &&
     input.routeThreadId &&
-    input.draftThread.projectId === input.projectId &&
+    input.draftThread.folderId === input.folderId &&
     input.draftThread.entryPoint === input.entryPoint,
   );
 }
@@ -232,16 +226,14 @@ export function resolveTerminalThreadCreationState(
     modelSelection: resolvePreferredComposerModelSelection({
       draft: input.draftComposerState,
       threadModelSelection:
-        input.activeThread?.projectId === input.projectId
-          ? input.activeThread.modelSelection
-          : null,
+        input.activeThread?.folderId === input.folderId ? input.activeThread.modelSelection : null,
       projectModelSelection: input.projectDefaultModelSelection,
       defaultProvider: input.defaultProvider,
     }),
     runtimeMode:
       input.draftThread?.runtimeMode ??
-      (input.activeThread?.projectId === input.projectId ? input.activeThread.runtimeMode : null) ??
-      (input.activeDraftThread?.projectId === input.projectId
+      (input.activeThread?.folderId === input.folderId ? input.activeThread.runtimeMode : null) ??
+      (input.activeDraftThread?.folderId === input.folderId
         ? input.activeDraftThread.runtimeMode
         : null) ??
       DEFAULT_RUNTIME_MODE,

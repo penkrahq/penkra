@@ -4,10 +4,10 @@ const dispatchCommand = vi.fn<(command: unknown) => Promise<{ sequence: number }
 const getShellSnapshot = vi.fn(async () => ({
   snapshotSequence: 1,
   spaces: [],
-  projects: [
+  folders: [
     {
       id: "project-chat",
-      kind: "project" as const,
+      kind: "folder" as const,
       title: "Project",
       workspaceRoot: null,
       defaultModelSelection: null,
@@ -19,7 +19,7 @@ const getShellSnapshot = vi.fn(async () => ({
   threads: [
     {
       id: "thread-draft",
-      projectId: "project-chat",
+      folderId: "project-chat",
       title: "Inbox cleanup",
       modelSelection: { provider: "codex" as const, model: "gpt-5" },
       runtimeMode: "full-access" as const,
@@ -62,7 +62,7 @@ describe("dispatchThreadRename", () => {
     expect(outcome).toBe("renamed");
     expect(dispatchCommand).toHaveBeenCalledTimes(1);
     expect(dispatchCommand.mock.calls[0]?.[0]).toMatchObject({
-      type: "thread.meta.update",
+      type: "thread.update",
       threadId: "thread-server",
       title: "Renamed server thread",
     });
@@ -77,7 +77,7 @@ describe("dispatchThreadRename", () => {
       newTitle: "Inbox cleanup",
       unchangedTitles: ["New thread"],
       createIfMissing: {
-        projectId: "project-chat" as never,
+        folderId: "project-chat" as never,
         modelSelection: {
           provider: "codex",
           model: "gpt-5",
@@ -94,7 +94,7 @@ describe("dispatchThreadRename", () => {
     expect(dispatchCommand.mock.calls[0]?.[0]).toMatchObject({
       type: "thread.create",
       threadId: "thread-draft",
-      projectId: "project-chat",
+      folderId: "project-chat",
       title: "Inbox cleanup",
       createdAt: "2026-04-18T00:00:00.000Z",
     });

@@ -1,4 +1,4 @@
-import { CommandId, EventId, ContainerId, ThreadId } from "@penkra/contracts";
+import { CommandId, EventId, FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Schema, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -75,10 +75,10 @@ layer("OrchestrationEventStore", (it) => {
       const startSequence = yield* eventStore.getHighWaterSequence();
 
       const appended = yield* eventStore.append({
-        type: "project.created",
+        type: "folder.created",
         eventId: EventId.makeUnsafe("evt-store-roundtrip"),
-        aggregateKind: "project",
-        aggregateId: ContainerId.makeUnsafe("project-roundtrip"),
+        aggregateKind: "folder",
+        aggregateId: FolderId.makeUnsafe("project-roundtrip"),
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-store-roundtrip"),
         causationEventId: null,
@@ -87,7 +87,8 @@ layer("OrchestrationEventStore", (it) => {
           adapterKey: "codex",
         },
         payload: {
-          projectId: ContainerId.makeUnsafe("project-roundtrip"),
+          folderId: FolderId.makeUnsafe("project-roundtrip"),
+          spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Roundtrip Project",
           workspaceRoot: "/tmp/project-roundtrip",
           defaultModelSelection: null,
@@ -116,7 +117,7 @@ layer("OrchestrationEventStore", (it) => {
         eventStore.readFromSequence(startSequence, 10),
       ).pipe(Effect.map((chunk) => Array.from(chunk)));
       assert.equal(replayed.length, 1);
-      assert.equal(replayed[0]?.type, "project.created");
+      assert.equal(replayed[0]?.type, "folder.created");
       assert.equal(replayed[0]?.metadata.adapterKey, "codex");
     }),
   );
@@ -145,17 +146,18 @@ layer("OrchestrationEventStore", (it) => {
         VALUES
         (
           ${EventId.makeUnsafe("evt-import-project-created")},
-          ${"project"},
-          ${ContainerId.makeUnsafe("project-imported")},
+          ${"folder"},
+          ${FolderId.makeUnsafe("project-imported")},
           ${0},
-          ${"project.created"},
+          ${"folder.created"},
           ${now},
           ${CommandId.makeUnsafe("cmd-import-project-created")},
           ${null},
           ${null},
           ${"server"},
           ${JSON.stringify({
-            projectId: "project-imported",
+            folderId: "project-imported",
+            spaceId: "penkra-personal",
             title: "Imported Project",
             workspaceRoot: "/tmp/imported",
             defaultModelSelection: {
@@ -181,7 +183,7 @@ layer("OrchestrationEventStore", (it) => {
           ${"server"},
           ${JSON.stringify({
             threadId: "thread-imported",
-            projectId: "project-imported",
+            folderId: "project-imported",
             title: "Imported Thread",
             modelSelection: {
               provider: "codex",
@@ -239,7 +241,7 @@ layer("OrchestrationEventStore", (it) => {
       );
 
       assert.deepStrictEqual(
-        projectCreated?.type === "project.created"
+        projectCreated?.type === "folder.created"
           ? projectCreated.payload.defaultModelSelection
           : null,
         {
@@ -296,10 +298,10 @@ layer("OrchestrationEventStore", (it) => {
         )
         VALUES (
           ${EventId.makeUnsafe("evt-store-invalid-json")},
-          ${"project"},
-          ${ContainerId.makeUnsafe("project-invalid-json")},
+          ${"folder"},
+          ${FolderId.makeUnsafe("project-invalid-json")},
           ${0},
-          ${"project.created"},
+          ${"folder.created"},
           ${now},
           ${CommandId.makeUnsafe("cmd-store-invalid-json")},
           ${null},
@@ -318,7 +320,7 @@ layer("OrchestrationEventStore", (it) => {
         assert.ok(Schema.is(PersistenceDecodeError)(replayResult.failure));
         assert.match(
           replayResult.failure.operation,
-          /OrchestrationEventStore\.readFromSequence:rowToEvent\(sequence=\d+, type=project\.created\)/,
+          /OrchestrationEventStore\.readFromSequence:rowToEvent\(sequence=\d+, type=folder\.created\)/,
         );
       }
     }),
@@ -348,17 +350,17 @@ layer("OrchestrationEventStore", (it) => {
         )
         VALUES (
           ${EventId.makeUnsafe("evt-store-future-schema")},
-          ${"project"},
-          ${ContainerId.makeUnsafe("project-future-schema")},
+          ${"folder"},
+          ${FolderId.makeUnsafe("project-future-schema")},
           ${0},
-          ${"project.created"},
+          ${"folder.created"},
           ${now},
           ${CommandId.makeUnsafe("cmd-store-future-schema")},
           ${null},
           ${null},
           ${"server"},
           ${JSON.stringify({
-            projectId: "project-future-schema",
+            folderId: "project-future-schema",
             title: "Future schema",
             workspaceRoot: "/tmp/project-future-schema",
             defaultModelSelection: null,
@@ -376,7 +378,7 @@ layer("OrchestrationEventStore", (it) => {
       assert.equal(replayResult._tag, "Failure");
       if (replayResult._tag === "Failure") {
         assert.ok(Schema.is(PersistenceDecodeError)(replayResult.failure));
-        assert.match(replayResult.failure.operation, /sequence=\d+, type=project\.created/);
+        assert.match(replayResult.failure.operation, /sequence=\d+, type=folder\.created/);
         assert.ok(
           replayResult.failure.issue.includes("Unsupported persisted event schema version 2"),
           replayResult.failure.issue,

@@ -2,7 +2,7 @@
 // Purpose: Characterizes shared active-thread deletion ordering and failure boundaries.
 // Layer: Web orchestration helper tests
 
-import { ContainerId, ThreadId } from "@penkra/contracts";
+import { FolderId, ThreadId } from "@penkra/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const harness = vi.hoisted(() => ({
@@ -15,7 +15,7 @@ const harness = vi.hoisted(() => ({
   orphanedWorktreePath: null as string | null,
   threads: [] as Array<{
     id: ThreadId;
-    projectId: ContainerId;
+    folderId: FolderId;
     session: { status: string } | null;
   }>,
   orphanResolver: vi.fn(),
@@ -23,10 +23,10 @@ const harness = vi.hoisted(() => ({
 }));
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-delete");
-const PROJECT_ID = ContainerId.makeUnsafe("project-delete");
+const PROJECT_ID = FolderId.makeUnsafe("project-delete");
 const THREAD = {
   id: THREAD_ID,
-  projectId: PROJECT_ID,
+  folderId: PROJECT_ID,
   session: { status: "running" },
 };
 
@@ -40,7 +40,7 @@ vi.mock("../nativeApi", () => ({
 vi.mock("../store", () => ({
   useStore: {
     getState: () => ({
-      projects: [{ id: PROJECT_ID, cwd: "/repo" }],
+      folders: [{ id: PROJECT_ID, cwd: "/repo" }],
       removeDeletedThreadFromClientState: harness.removeDeletedThreadFromClientState,
     }),
   },

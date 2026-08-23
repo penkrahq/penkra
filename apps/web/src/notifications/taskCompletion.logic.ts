@@ -17,7 +17,7 @@ import {
 
 export interface CompletedThreadCandidate {
   threadId: Thread["id"];
-  projectId: Thread["projectId"];
+  folderId: Thread["folderId"];
   title: string;
   completedAt: string;
   assistantSummary: string | null;
@@ -26,7 +26,7 @@ export interface CompletedThreadCandidate {
 export interface ThreadAttentionCandidate {
   kind: "approval" | "user-input";
   threadId: Thread["id"];
-  projectId: Thread["projectId"];
+  folderId: Thread["folderId"];
   title: string;
   requestId: string;
   createdAt: string;
@@ -544,7 +544,7 @@ export function collectCompletedThreadCandidates(
 
     candidates.push({
       threadId: thread.id,
-      projectId: thread.projectId,
+      folderId: thread.folderId,
       title: thread.title,
       completedAt,
       assistantSummary: summarizeLatestAssistantMessage(thread),
@@ -661,7 +661,7 @@ export function collectThreadAttentionCandidates(
       candidates.push({
         kind: "approval",
         threadId: thread.id,
-        projectId: thread.projectId,
+        folderId: thread.folderId,
         title: thread.title,
         requestId: approval.requestId,
         createdAt: approval.createdAt,
@@ -676,7 +676,7 @@ export function collectThreadAttentionCandidates(
       candidates.push({
         kind: "user-input",
         threadId: thread.id,
-        projectId: thread.projectId,
+        folderId: thread.folderId,
         title: thread.title,
         requestId: request.requestId,
         createdAt: request.createdAt,

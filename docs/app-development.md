@@ -1,8 +1,16 @@
 # Build a Penkra App
 
-This is the public guide for humans and agents building Penkra Apps. All `penkra ...` examples are
+This is the public guide for humans and agents building Penkra [Apps](concepts.md#app). The shared
+product model—[Spaces](concepts.md#space), [Threads](concepts.md#thread),
+[folders](concepts.md#folder), [operations](concepts.md#operation),
+[controllers](concepts.md#controller), [tabs](concepts.md#tab),
+[installations](concepts.md#installation), [Skills](concepts.md#skill), and
+[sideloads](concepts.md#sideload)—is defined once in the [Penkra concepts](concepts.md) guide.
+
+All `penkra ...` examples are
 registered commands passed one at a time through Penkra's `penkra_exec_command` gateway; they are
-not shell commands or native executables. Start with `penkra app --help`. The public contract is
+not shell commands or native executables. Start with
+`{ "command": ["penkra", "app", "--help"] }`. The public contract is
 `penkra-app.json` plus `@penkra/sdk`. Private Electron, desktop IPC, database, internal development
 launchers, and host APIs are not App APIs.
 
@@ -10,8 +18,8 @@ This guide deliberately contains no Penkra product-development, local-service, t
 or release-operations instructions. Those belong to Penkra's contributor documentation and do not
 change the App-author contract. There is no public Penkra operation CLI or executable App shim.
 
-Supported Penkra installations expose the public `penkra app ...` author commands in `penkra
---help`. If an older installation does not list them, update Penkra; do not substitute shell
+Supported Penkra installations expose the public `penkra app ...` author operations in
+`["penkra", "--help"]`. If an older installation does not list them, update Penkra; do not substitute shell
 commands or internal product-development procedures.
 
 A Penkra App is an installed browser application with a visual entrypoint and an optional isolated
@@ -59,7 +67,7 @@ rejected. `README.md` and `INSTRUCTIONS.md` must be nonempty UTF-8 documents.
   ],
   "operations": [
     {
-      "key": "notes.open",
+      "key": "documents.open",
       "summary": "Open a note.",
       "input": {
         "type": "object",
@@ -68,7 +76,7 @@ rejected. `README.md` and `INSTRUCTIONS.md` must be nonempty UTF-8 documents.
         "additionalProperties": false
       },
       "output": { "type": "object" },
-      "handler": "notes.open"
+      "handler": "documents.open"
     }
   ]
 }
@@ -79,9 +87,10 @@ Required fields are `manifestVersion`, immutable reverse-domain `id`, globally u
 icon, and `entrypoints.app`. Declare `entrypoints.operations` when the App publishes operations.
 Compatibility restricts host versions; it grants no authority.
 
-Operation keys are App-local dotted names such as `notes.open`; never prefix them with the slug.
-Penkra presents the operation to an agent as `notes notes open`. Inputs and outputs are bounded JSON
-Schemas and are validated at the host boundary.
+Operation keys are App-local dotted names such as `documents.open`; never prefix them with the slug.
+Penkra presents the operation to an agent as `["notes", "documents", "open"]`. Inputs and outputs are
+bounded JSON Schemas and are validated at the host boundary. See [Naming operations](#naming-operations)
+for how to choose the key itself.
 
 Handler contributions declare resources an App can open through one of its public operations:
 
@@ -94,6 +103,124 @@ explicit `penkra open`, or another trusted host handoff. They never receive an a
 
 Settings and Skills are declarative contributions interpreted by the host. See the exported
 TypeScript declarations in `@penkra/sdk` for the authoritative field types and validators.
+
+## Naming operations
+
+Nothing below is validated. `penkra app test` will not reject a name for any reason in this section,
+because a naming rule strict enough to enforce would reject reasonable designs the platform has not
+seen yet. Treat this as the reasoning behind the names Penkra itself uses, so your App reads like
+part of the same system.
+
+An operation key becomes words an agent types. Write the key for the thing that changes, then name
+the change:
+
+```
+documents.create        canvas documents create
+documents.publish       canvas documents publish
+issues.assign           linear issues assign
+```
+
+Subject then verb, with everything else passed as `input` or `flags`. This is the shape agents see
+everywhere else on the surface — `penkra threads list`, `penkra tabs snapshot` — so an operation
+written this way needs no explanation.
+
+### Do not repeat the slug
+
+The slug is already the first word of every command. An App with slug `notes` declaring `notes.open`
+produces `notes notes open`, which reads like a mistake and makes an agent wonder whether it has
+mis-assembled the command. Name the key for the entity inside your App, not for your App:
+
+| Slug    | Key              | Agent types            |                 |
+| ------- | ---------------- | ---------------------- | --------------- |
+| `notes` | `notes.open`     | `notes notes open`     | stutters        |
+| `notes` | `documents.open` | `notes documents open` | reads correctly |
+
+If your App has exactly one kind of thing and the repetition seems unavoidable, that is a signal the
+key should be the bare verb: `notes open`.
+
+### When a nested segment is earned
+
+A middle segment is worth its word only when the child it names cannot be addressed without its
+parent. The test is whether an identifier alone is enough to find the thing.
+
+`documents.comments.add` can be earned. If a comment ID is meaningless on its own and every lookup
+needs the document that contains it, the nesting reflects how the data actually works, and an agent
+reading the name learns something true: it will need a document in hand.
+
+`documents.meta.update` is not earned. `meta` is not an entity in your App — there is no meta record,
+no meta ID, nothing to address. It is a label for fields the author decided were unimportant, and
+labels like that drift: the next field that seems unimportant lands there too, until the command
+updates several unrelated things and its name still says `meta`. Call it `documents.update`.
+
+`documents.list-for-space` is not earned either, for a related reason. It names a view rather than a
+resource. There is no collection stored anywhere that this addresses; there is a filter, and filters
+belong in `input`.
+
+Penkra's own surface has exactly one nested family — `penkra app access invite`, `list`, and
+`revoke` — and it qualifies on this test. An invitation exists only against a specific App, carries
+no meaning apart from it, and cannot be resolved from its own ID.
+
+### Why this matters at the call site
+
+An agent picks an operation from a list of names, usually before reading any help. The name is the
+only thing it has when deciding whether your operation is the one the user meant.
+
+Consider a user who says "share the Q3 doc with Priya." An agent scanning `documents.share`,
+`documents.access.invite`, and `documents.meta.update` can rule the third out immediately and has a
+real question about the first two — which is a good question, answerable by reading their summaries.
+Now give the same agent `documents.update`, `documents.meta.update`, and `documents.settings.update`
+and it has no way to choose except by trying one. The cost of a vague name is not confusion; it is a
+write to the wrong place.
+
+Write the `summary` for each operation to answer the question the name raises. Name the object acted
+on and the result, avoid store-listing language, and never promise behavior the operation cannot
+verify.
+
+## Agent-facing instructions
+
+Every App ships a nonempty root `INSTRUCTIONS.md`. If the App declares operations, packaging
+requires these five second-level sections in this order:
+
+1. `## What this App is` — what it operates on and where that data lives.
+2. `## Before you write anything` — required reads, permissions, versions, and other preconditions,
+   including what can break when they are skipped.
+3. `## How to do the common thing` — one complete worked flow using structured command input.
+4. `## Reference` — App-specific semantics that supplement the generated operation contracts.
+5. `## When things fail` — recognizable symptoms, likely causes, and safe recovery.
+
+`<slug> --help` combines this document with the operation list generated from the manifest; do not
+hand-copy that list into the prose. Operation-specific help renders the complete validated input and
+output schemas. Content loaded together belongs in this one document rather than in secondary
+guideline operations.
+
+The manifest's App `summary` appears in Penkra's live capability catalog, and each operation
+`summary` appears in generated help. Write both as concrete agent-facing descriptions: name the
+object acted on and the result, avoid store-listing slogans, and do not promise behavior the
+operation cannot verify.
+
+## Agent Skills
+
+An App contributes an Agent Skill by placing an Agent Skills-compatible `SKILL.md` under a
+package-relative directory and declaring that directory in `contributions.skills`:
+
+```json
+{
+  "contributions": {
+    "skills": [{ "path": "skills/create-issue" }]
+  }
+}
+```
+
+`penkra app package` requires the exact referenced `skills/create-issue/SKILL.md` to exist inside
+the package; missing, duplicate, absolute, or escaping paths are rejected. Keep each Skill focused
+on a procedure for this App: the operations to call, their order, and the checks between them. A
+Skill cannot grant permissions or prove another capability is installed.
+
+Contributed Skills are enabled by default with their App in one Space. The user can disable an
+individual Skill for that App and Space; the host stores this per-Space override. At load time
+Penkra attributes the Skill to `app:<slug>` and rejects paths that escape the immutable package, so
+one App cannot contribute a Skill on another App's behalf. See [Skill](concepts.md#skill) for the
+agent-facing trust model; this section defines only the authoring and packaging contract.
 
 ## Runtime and isolation
 
@@ -201,8 +328,8 @@ subject while the user is signed in and an opaque App/Space scope. Neither value
 Account credential. With the reviewed `account-data` permission, the host can make a request or
 realtime subscription inside that App's own backend namespace using the current Account session;
 the credential never enters the App renderer. The backend also verifies that the Account installed
-the calling registry App. A Space ID is context an App may use, not a claim that App data is
-automatically Space-owned or shared with Space members.
+the calling registry App. A Space ID is isolation context an App may use, not a claim that App data
+is automatically owned by the Space or shared with anyone else.
 
 For a backend outside Penkra's Account-data namespace, declare the high-risk `account-identity`
 permission with one lowercase DNS audience:
@@ -395,43 +522,47 @@ fallbacks. The host selects the first usable model and returns it. Staging never
 atomically with `COMPOSER_NOT_EMPTY` when the operator already has visible draft content or queued
 turns, so an App cannot silently overwrite work.
 
-Agents call the single registered `penkra_exec_command` host tool. Core commands start with
-`penkra`; App commands start with the enabled App's slug:
+Agents call the single registered `penkra_exec_command` host tool. Its `command` field is an array
+of exact words, not a shell string. Structured operation data goes in `input`; short named scalar
+options may go in `flags`; `tabId` is a separate field. Core commands start with `penkra`; App
+commands start with the enabled App's slug:
 
-```text
-penkra --help
-penkra apps list
-penkra open --path /absolute/path/to/file
-notes notes open --id note-123
-notes notes open --help
+```json
+{ "command": ["penkra", "--help"] }
+{ "command": ["penkra", "apps", "list"] }
+{ "command": ["penkra", "open"], "flags": { "path": "/absolute/path/to/file" } }
+{ "command": ["notes", "notes", "open"], "input": { "id": "note-123" } }
+{ "command": ["notes", "notes", "open", "--help"] }
 ```
 
 Operation help includes the complete validated input and output JSON Schemas. App commands do not
 have a separate schema mode.
 
-These are registered commands, not shell strings. An agent must establish enabled Apps with
-`penkra apps list` rather than infer installation from source code or a similarly named tool.
+These are registered operations, not shell strings. There is no quoting, escaping, substitution,
+or JSON-inside-JSON serialization. An agent must establish enabled Apps with
+`["penkra", "apps", "list"]` rather than infer installation from source code or a similarly named
+tool.
 
 ## Agent observation and interaction
 
 Penkra core—not the public SDK—lets the trusted agent harness inspect visible App tabs for visual
 state, accessibility, and manual QA:
 
-```text
-penkra tabs current
-penkra tabs list
-penkra tabs snapshot --tab-id <tab-id> [--expand true]
-penkra tabs extract --tab-id <tab-id>
-penkra tabs screenshot --tab-id <tab-id>
-penkra tabs click --tab-id <tab-id> --ref a17 [--observe true]
-penkra tabs hover --tab-id <tab-id> --ref a17
-penkra tabs type --tab-id <tab-id> --ref a18 --text "Updated copy"
-penkra tabs press --tab-id <tab-id> --key Enter
-penkra tabs select --tab-id <tab-id> --ref a19 --value done
-penkra tabs scroll --tab-id <tab-id> --delta-y 640
-penkra tabs wait --tab-id <tab-id> --text "Saved"
-penkra tabs handle-dialog --tab-id <tab-id> --accept true
-penkra tabs upload --tab-id <tab-id> --ref a20 --paths '["/absolute/app-storage/file.pdf"]'
+```json
+{ "command": ["penkra", "tabs", "current"] }
+{ "command": ["penkra", "tabs", "list"] }
+{ "command": ["penkra", "tabs", "snapshot"], "tabId": "<tab-id>", "flags": { "expand": true } }
+{ "command": ["penkra", "tabs", "extract"], "tabId": "<tab-id>" }
+{ "command": ["penkra", "tabs", "screenshot"], "tabId": "<tab-id>" }
+{ "command": ["penkra", "tabs", "click"], "tabId": "<tab-id>", "flags": { "ref": "a17", "observe": true } }
+{ "command": ["penkra", "tabs", "hover"], "tabId": "<tab-id>", "flags": { "ref": "a17" } }
+{ "command": ["penkra", "tabs", "type"], "tabId": "<tab-id>", "flags": { "ref": "a18", "text": "Updated copy" } }
+{ "command": ["penkra", "tabs", "press"], "tabId": "<tab-id>", "flags": { "key": "Enter" } }
+{ "command": ["penkra", "tabs", "select"], "tabId": "<tab-id>", "flags": { "ref": "a19", "value": "done" } }
+{ "command": ["penkra", "tabs", "scroll"], "tabId": "<tab-id>", "flags": { "delta-y": 640 } }
+{ "command": ["penkra", "tabs", "wait"], "tabId": "<tab-id>", "flags": { "text": "Saved" } }
+{ "command": ["penkra", "tabs", "handle-dialog"], "tabId": "<tab-id>", "flags": { "accept": true } }
+{ "command": ["penkra", "tabs", "upload"], "tabId": "<tab-id>", "flags": { "ref": "a20" }, "input": { "paths": ["/absolute/app-storage/file.pdf"] } }
 ```
 
 Take a fresh snapshot before using an element reference. References belong to one tab and document
@@ -462,10 +593,10 @@ through `@penkra/sdk` or inspect one another.
 
 Pass each command as one registered `penkra_exec_command` invocation:
 
-```text
-penkra app sideload ./dist
-penkra app test ./dist
-penkra app package ./dist --output ./artifacts/my-app.penkra
+```json
+{ "command": ["penkra", "app", "sideload", "./dist"] }
+{ "command": ["penkra", "app", "test", "./dist"] }
+{ "command": ["penkra", "app", "package", "./dist"], "flags": { "output": "./artifacts/my-app.penkra" } }
 ```
 
 Relative paths resolve from the caller Thread's working directory. `package` requires an explicit
@@ -491,14 +622,14 @@ then creates a deterministic `.penkra` archive and returns evidence including al
 
 Use the registered App-author commands:
 
-```text
-penkra app status
-penkra app status --app-id <app-id>
-penkra app publish ./dist --visibility private
-penkra app publish ./dist --visibility public
-penkra app access invite --app-id <app-id> --email person@example.com
-penkra app access list --app-id <app-id>
-penkra app access revoke --app-id <app-id> --invitation-id <invitation-id>
+```json
+{ "command": ["penkra", "app", "status"] }
+{ "command": ["penkra", "app", "status"], "flags": { "app-id": "<app-id>" } }
+{ "command": ["penkra", "app", "publish", "./dist"], "flags": { "visibility": "private" } }
+{ "command": ["penkra", "app", "publish", "./dist"], "flags": { "visibility": "public" } }
+{ "command": ["penkra", "app", "access", "invite"], "flags": { "app-id": "<app-id>", "email": "person@example.com" } }
+{ "command": ["penkra", "app", "access", "list"], "flags": { "app-id": "<app-id>" } }
+{ "command": ["penkra", "app", "access", "revoke"], "flags": { "app-id": "<app-id>", "invitation-id": "<invitation-id>" } }
 ```
 
 For `status`, `--app-id` accepts either the manifest identifier such as `com.example.my-app` or the

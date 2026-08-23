@@ -16,7 +16,7 @@ afterEach(() => {
 const CONTEXT: FeedbackThreadContext = {
   provider: "codex",
   model: "gpt-5.6-sol",
-  projectKind: "project",
+  projectKind: "folder",
   runtimeMode: "full-access",
   sessionStatus: "running",
   latestTurnState: "error",
@@ -52,7 +52,7 @@ describe("formatFeedbackSummary", () => {
         "App version: 0.5.1",
         "Provider: codex",
         "Model: gpt-5.6-sol",
-        "Project kind: project",
+        "Project kind: folder",
         "Runtime mode: full-access",
         "Session status: running",
         "Latest turn state: error",

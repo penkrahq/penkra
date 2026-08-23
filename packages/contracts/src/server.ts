@@ -4,7 +4,7 @@ import {
   NonNegativeInt,
   ProviderConnectionId,
   PositiveInt,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
   TrimmedNonEmptyString,
@@ -247,7 +247,7 @@ export const ServerDiagnosticsResult = Schema.Struct({
   childProcessTotalCount: NonNegativeInt,
   childProcessTotalRssBytes: NonNegativeInt,
   projection: Schema.Struct({
-    projectCount: NonNegativeInt,
+    folderCount: NonNegativeInt,
     threadCount: NonNegativeInt,
   }),
 });
@@ -302,7 +302,7 @@ export const ServerLifecycleWelcomePayload = Schema.Struct({
   homeDir: Schema.optional(TrimmedNonEmptyString),
   chatWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
   projectName: TrimmedNonEmptyString,
-  bootstrapProjectId: Schema.optional(ContainerId),
+  bootstrapFolderId: Schema.optional(FolderId),
   bootstrapThreadId: Schema.optional(ThreadId),
 });
 export type ServerLifecycleWelcomePayload = typeof ServerLifecycleWelcomePayload.Type;
@@ -390,7 +390,7 @@ export type ServerUpdateSettingsResult = typeof ServerUpdateSettingsResult.Type;
 export const ServerSpaceNavigationState = Schema.Struct({
   activeSpaceId: Schema.NullOr(SpaceId),
   lastThreadIdBySpace: Schema.Record(Schema.String, ThreadId),
-  lastProjectIdBySpace: Schema.Record(Schema.String, ContainerId),
+  lastFolderIdBySpace: Schema.Record(Schema.String, FolderId),
   updatedAt: Schema.NullOr(IsoDateTime),
 });
 export type ServerSpaceNavigationState = typeof ServerSpaceNavigationState.Type;
@@ -398,7 +398,7 @@ export type ServerSpaceNavigationState = typeof ServerSpaceNavigationState.Type;
 export const ServerUpdateSpaceNavigationStateInput = Schema.Struct({
   activeSpaceId: Schema.NullOr(SpaceId),
   lastThreadIdBySpace: Schema.Record(Schema.String, ThreadId),
-  lastProjectIdBySpace: Schema.Record(Schema.String, ContainerId),
+  lastFolderIdBySpace: Schema.Record(Schema.String, FolderId),
 });
 export type ServerUpdateSpaceNavigationStateInput =
   typeof ServerUpdateSpaceNavigationStateInput.Type;

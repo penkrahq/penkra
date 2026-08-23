@@ -1,5 +1,5 @@
 // FILE: types.ts
-// Purpose: Shared web-app view models for threads, projects, terminal layout, and sidebar rows.
+// Purpose: Shared web-app view models for threads, folders, terminal layout, and sidebar rows.
 // Exports: Runtime UI types consumed across store, routes, and components.
 
 import type {
@@ -16,7 +16,7 @@ import type {
   OrchestrationThreadActivity,
   ProjectScript as ContractProjectScript,
   ThreadId,
-  ContainerId,
+  FolderId,
   SpaceId,
   SpaceIconName,
   TurnId,
@@ -24,7 +24,6 @@ import type {
   ProviderMentionReference,
   ProviderSkillReference,
   ProviderKind,
-  ContainerKind,
   RuntimeMode,
   ThreadCreationSource,
 } from "@penkra/contracts";
@@ -114,8 +113,7 @@ export interface ChatMessage {
 }
 
 export interface Project {
-  id: ContainerId;
-  kind: ContainerKind;
+  id: FolderId;
   name: string;
   remoteName: string;
   folderName: string;
@@ -125,8 +123,7 @@ export interface Project {
   iconDataUrl?: string | null;
   expanded: boolean;
   isPinned?: boolean;
-  /** Missing on renderer state written before Spaces; normalized snapshots always set it. */
-  spaceId?: SpaceId | null;
+  spaceId: SpaceId;
   sidebarSortOrder?: number;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
@@ -155,7 +152,7 @@ export interface ThreadWorkspacePatch {
 export interface Thread extends ThreadWorkspaceState {
   id: ThreadId;
   codexThreadId: string | null;
-  projectId: ContainerId;
+  folderId: FolderId;
   spaceId?: SpaceId | null;
   sidebarSortOrder?: number;
   title: string;
@@ -195,7 +192,7 @@ export interface Thread extends ThreadWorkspaceState {
 export interface ThreadShell extends ThreadWorkspaceState {
   id: ThreadId;
   codexThreadId: string | null;
-  projectId: ContainerId;
+  folderId: FolderId;
   spaceId?: SpaceId | null;
   sidebarSortOrder?: number;
   title: string;
@@ -238,7 +235,7 @@ export interface ThreadTurnState {
 
 export interface SidebarThreadSummary {
   id: ThreadId;
-  projectId: ContainerId;
+  folderId: FolderId;
   spaceId?: SpaceId | null;
   sidebarSortOrder?: number;
   title: string;
@@ -267,7 +264,7 @@ export interface SidebarThreadSummary {
 /** Lightweight composer identity that ignores live turn/status churn. */
 export interface ComposerThreadMentionSource {
   id: ThreadId;
-  projectId: ContainerId;
+  folderId: FolderId;
   title: string;
   provider: ProviderKind;
   createdAt: string;

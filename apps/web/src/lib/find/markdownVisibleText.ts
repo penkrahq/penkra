@@ -1,5 +1,5 @@
 // FILE: markdownVisibleText.ts
-// Purpose: Projects markdown source into the same textual content rendered to the transcript.
+// Purpose: Folders markdown source into the same textual content rendered to the transcript.
 // Layer: Web application infrastructure
 // Exports: markdownVisibleText
 

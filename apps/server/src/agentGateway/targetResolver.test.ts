@@ -85,15 +85,15 @@ describe("agent gateway target resolver", () => {
         codexGuidance.exampleTarget,
       );
 
-      const antigravityGuidance = agentGatewayTargetOptionGuidance({
-        provider: "antigravity",
-        defaultModel: "Gemini 3.5 Flash",
+      const claudeGuidance = agentGatewayTargetOptionGuidance({
+        provider: "claudeAgent",
+        defaultModel: "claude-opus-4-6",
         enabled: true,
         available: true,
         models: [
           {
-            slug: "Gemini 3.5 Flash",
-            name: "Gemini 3.5 Flash",
+            slug: "claude-opus-4-6",
+            name: "Claude Opus 4.6",
             supportedReasoningEfforts: [
               { value: "low", label: "Low" },
               { value: "high", label: "High" },
@@ -101,28 +101,24 @@ describe("agent gateway target resolver", () => {
           },
         ],
       });
-      assert.deepEqual(antigravityGuidance.exampleTarget?.options, {
-        reasoningEffort: "low",
+      assert.deepEqual(claudeGuidance.exampleTarget?.options, {
+        effort: "low",
       });
-      const reasoningEffort = antigravityGuidance.providerOptions.find(
-        (option) => option.key === "reasoningEffort",
-      );
-      assert.equal(reasoningEffort?.valueType, "string");
-      assert.deepEqual(reasoningEffort?.allowedValues, []);
+      const effort = claudeGuidance.providerOptions.find((option) => option.key === "effort");
+      assert.equal(effort?.valueType, "string");
       assert.deepEqual(
-        antigravityGuidance.optionsByModel["Gemini 3.5 Flash"]?.find(
-          (option) => option.key === "reasoningEffort",
-        )?.allowedValues,
+        claudeGuidance.optionsByModel["claude-opus-4-6"]?.find((option) => option.key === "effort")
+          ?.allowedValues,
         ["low", "high"],
       );
-      const antigravityDiscovery = {
+      const claudeDiscovery = {
         listModels: () =>
           Effect.succeed({
             source: "test",
             models: [
               {
-                slug: "Gemini 3.5 Flash",
-                name: "Gemini 3.5 Flash",
+                slug: "claude-opus-4-6",
+                name: "Claude Opus 4.6",
                 supportedReasoningEfforts: [
                   { value: "low", label: "Low" },
                   { value: "high", label: "High" },
@@ -133,10 +129,10 @@ describe("agent gateway target resolver", () => {
       } as unknown as ProviderDiscoveryServiceShape;
       assert.deepEqual(
         yield* resolveAgentGatewayTarget({
-          target: antigravityGuidance.exampleTarget!,
-          discovery: antigravityDiscovery,
+          target: claudeGuidance.exampleTarget!,
+          discovery: claudeDiscovery,
         }),
-        antigravityGuidance.exampleTarget,
+        claudeGuidance.exampleTarget,
       );
     }),
   );
@@ -182,7 +178,7 @@ describe("agent gateway target resolver", () => {
     }),
   );
 
-  it.effect("accepts the advertised OpenCode/Kilo agent key without accepting arbitrary keys", () =>
+  it.effect("accepts the advertised OpenCode agent key without accepting arbitrary keys", () =>
     Effect.gen(function* () {
       const optionDiscovery = {
         listModels: () =>
@@ -208,7 +204,7 @@ describe("agent gateway target resolver", () => {
         provider: "opencode" as const,
         model: "openai/gpt-5",
         options: { variant: "high" },
-      };
+      } satisfies ModelSelection;
       assert.deepEqual(
         yield* resolveAgentGatewayTarget({ target: accepted, discovery: optionDiscovery }),
         accepted,
@@ -221,15 +217,6 @@ describe("agent gateway target resolver", () => {
       assert.deepEqual(
         yield* resolveAgentGatewayTarget({ target: explicitAgent, discovery: optionDiscovery }),
         explicitAgent,
-      );
-      const kiloAgent = {
-        provider: "kilo" as const,
-        model: "openai/gpt-5",
-        options: { agent: "plan" },
-      };
-      assert.deepEqual(
-        yield* resolveAgentGatewayTarget({ target: kiloAgent, discovery: optionDiscovery }),
-        kiloAgent,
       );
       const result = yield* resolveAgentGatewayTarget({
         target: {
@@ -272,44 +259,9 @@ describe("agent gateway target resolver", () => {
           rejectedValue: "invented",
         },
         {
-          provider: "cursor",
-          descriptor: makeEffortDescriptor("cursor-model", "low"),
-          optionKey: "reasoningEffort",
-          acceptedValue: "low",
-          rejectedValue: "invented",
-        },
-        {
-          provider: "grok",
-          descriptor: makeEffortDescriptor("grok-model", "low"),
-          optionKey: "reasoningEffort",
-          acceptedValue: "low",
-          rejectedValue: "invented",
-        },
-        {
-          provider: "droid",
-          descriptor: makeEffortDescriptor("droid-model", "low"),
-          optionKey: "reasoningEffort",
-          acceptedValue: "low",
-          rejectedValue: "invented",
-        },
-        {
           provider: "claudeAgent",
           descriptor: makeEffortDescriptor("claude-model", "low"),
           optionKey: "effort",
-          acceptedValue: "low",
-          rejectedValue: "invented",
-        },
-        {
-          provider: "pi",
-          descriptor: makeEffortDescriptor("pi-model", "low"),
-          optionKey: "thinkingLevel",
-          acceptedValue: "low",
-          rejectedValue: "invented",
-        },
-        {
-          provider: "antigravity",
-          descriptor: makeEffortDescriptor("antigravity-model", "low"),
-          optionKey: "reasoningEffort",
           acceptedValue: "low",
           rejectedValue: "invented",
         },
@@ -325,20 +277,6 @@ describe("agent gateway target resolver", () => {
           descriptor: makeVariantDescriptor("opencode-model"),
           optionKey: "agent",
           acceptedValue: "build",
-          rejectedValue: "",
-        },
-        {
-          provider: "kilo",
-          descriptor: makeVariantDescriptor("kilo-model"),
-          optionKey: "variant",
-          acceptedValue: "high",
-          rejectedValue: "invented",
-        },
-        {
-          provider: "kilo",
-          descriptor: makeVariantDescriptor("kilo-model"),
-          optionKey: "agent",
-          acceptedValue: "plan",
           rejectedValue: "",
         },
       ];
@@ -392,8 +330,8 @@ describe("agent gateway target resolver", () => {
   it.effect("uses registry rules for model capability and context-window options", () =>
     Effect.gen(function* () {
       const descriptor: ProviderModelDescriptor = {
-        slug: "cursor-model",
-        name: "Cursor model",
+        slug: "claude-model",
+        name: "Claude model",
         supportedReasoningEfforts: [{ value: "low", label: "Low" }],
         supportsFastMode: true,
         supportsThinkingToggle: true,
@@ -403,15 +341,15 @@ describe("agent gateway target resolver", () => {
         listModels: () => Effect.succeed({ source: "test", models: [descriptor] }),
       } as unknown as ProviderDiscoveryServiceShape;
       const accepted = {
-        provider: "cursor" as const,
+        provider: "claudeAgent" as const,
         model: descriptor.slug,
         options: {
-          reasoningEffort: "low",
+          effort: "low",
           fastMode: true,
           thinking: true,
           contextWindow: "wide",
         },
-      };
+      } satisfies ModelSelection;
       assert.deepEqual(
         yield* resolveAgentGatewayTarget({ target: accepted, discovery: capabilityDiscovery }),
         accepted,
@@ -432,7 +370,7 @@ describe("agent gateway target resolver", () => {
           listModels: () => Effect.succeed({ source: "test", models: [unavailableDescriptor] }),
         } as unknown as ProviderDiscoveryServiceShape;
         const result = yield* resolveAgentGatewayTarget({
-          target: { provider: "cursor", model: descriptor.slug, options },
+          target: { provider: "claudeAgent", model: descriptor.slug, options },
           discovery: unavailableDiscovery,
         }).pipe(
           Effect.map(() => ({ code: "unexpected-success" })),

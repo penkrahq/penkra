@@ -419,7 +419,7 @@ describe("deriveComposerSubagentStripItems", () => {
       return {
         id: localSubagentThreadId(parentThreadId, providerThreadId),
         codexThreadId: null,
-        projectId: "project-1" as Thread["projectId"],
+        folderId: "project-1" as Thread["folderId"],
         title: "Subagent task",
         modelSelection: { provider: "claudeAgent", model: "sonnet" },
         runtimeMode: "full-access",
@@ -549,7 +549,7 @@ describe("deriveComposerSubagentStripItems", () => {
     const subagentThread: Thread = {
       id: localSubagentThreadId(parentThreadId, "toolu_x"),
       codexThreadId: null,
-      projectId: "project-1" as Thread["projectId"],
+      folderId: "project-1" as Thread["folderId"],
       title: "Subagent task",
       modelSelection: { provider: "claudeAgent", model: "sonnet" },
       runtimeMode: "full-access",

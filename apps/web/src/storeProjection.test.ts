@@ -4,7 +4,7 @@
 import {
   EventId,
   MessageId,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
   ThreadMarkerId,
@@ -124,19 +124,19 @@ describe("store projection", () => {
   });
 
   it("keeps a confirmed project deletion hidden from stale snapshots", () => {
-    const projectId = ContainerId.makeUnsafe("project-1");
+    const folderId = FolderId.makeUnsafe("project-1");
     const threadId = ThreadId.makeUnsafe("thread-1");
     const initialState = syncServerReadModel(
-      makeState(makeThread({ id: threadId, projectId })),
-      makeReadModel(makeReadModelThread({ id: threadId, projectId })),
+      makeState(makeThread({ id: threadId, folderId })),
+      makeReadModel(makeReadModelThread({ id: threadId, folderId })),
     );
 
-    const deletedState = removeDeletedProjectFromClientState(initialState, projectId);
+    const deletedState = removeDeletedProjectFromClientState(initialState, folderId);
     const afterStaleShellSnapshot = syncServerShellSnapshot(
       deletedState,
       makeShellSnapshot({
         id: threadId,
-        projectId,
+        folderId,
         title: "Stale project thread",
         modelSelection: {
           provider: "codex",
@@ -152,15 +152,15 @@ describe("store projection", () => {
     );
     const afterStaleReadModel = syncServerReadModel(
       deletedState,
-      makeReadModel(makeReadModelThread({ id: threadId, projectId })),
+      makeReadModel(makeReadModelThread({ id: threadId, folderId })),
     );
 
-    expect(deletedState.deletedProjectIdsById?.[projectId]).toEqual(expect.any(Number));
-    expect(deletedState.projects).toEqual([]);
+    expect(deletedState.deletedFolderIdsById?.[folderId]).toEqual(expect.any(Number));
+    expect(deletedState.folders).toEqual([]);
     expect(threadsOf(deletedState)).toEqual([]);
-    expect(afterStaleShellSnapshot.projects).toEqual([]);
+    expect(afterStaleShellSnapshot.folders).toEqual([]);
     expect(threadsOf(afterStaleShellSnapshot)).toEqual([]);
-    expect(afterStaleReadModel.projects).toEqual([]);
+    expect(afterStaleReadModel.folders).toEqual([]);
     expect(threadsOf(afterStaleReadModel)).toEqual([]);
   });
 
@@ -168,25 +168,26 @@ describe("store projection", () => {
     const initialState: AppState = {
       spaces: [],
       archivedSpaces: [],
-      projects: [
+      folders: [
         makeProject({
-          id: ContainerId.makeUnsafe("project-old"),
+          id: FolderId.makeUnsafe("project-old"),
           name: "Local Name",
           remoteName: "Old Name",
           localName: "Local Name",
           cwd: "/tmp/shared-root",
         }),
       ],
-      archivedProjects: [],
+      archivedFolders: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
 
     const next = applyShellEvent(initialState, {
-      kind: "project-upserted",
+      kind: "folder-upserted",
       sequence: 2,
-      project: {
-        id: ContainerId.makeUnsafe("project-new"),
+      folder: {
+        spaceId: SpaceId.makeUnsafe("space-test"),
+        id: FolderId.makeUnsafe("project-new"),
         title: "Server Name",
         workspaceRoot: "/tmp/shared-root",
         defaultModelSelection: null,
@@ -196,13 +197,13 @@ describe("store projection", () => {
       },
     } satisfies OrchestrationShellStreamEvent);
 
-    expect(next.projects).toHaveLength(2);
-    expect(next.projects[0]).toMatchObject({
-      id: ContainerId.makeUnsafe("project-old"),
+    expect(next.folders).toHaveLength(2);
+    expect(next.folders[0]).toMatchObject({
+      id: FolderId.makeUnsafe("project-old"),
       name: "Local Name",
     });
-    expect(next.projects[1]).toMatchObject({
-      id: ContainerId.makeUnsafe("project-new"),
+    expect(next.folders[1]).toMatchObject({
+      id: FolderId.makeUnsafe("project-new"),
       name: "Server Name",
       remoteName: "Server Name",
       localName: null,
@@ -211,25 +212,25 @@ describe("store projection", () => {
   });
 
   it("moves an archived folder out of the active project collection", () => {
-    const projectId = ContainerId.makeUnsafe("project-archive");
+    const folderId = FolderId.makeUnsafe("project-archive");
     const initialState: AppState = {
-      ...makeState(makeThread({ projectId })),
-      projects: [makeProject({ id: projectId })],
-      archivedProjects: [],
+      ...makeState(makeThread({ folderId })),
+      folders: [makeProject({ id: folderId })],
+      archivedFolders: [],
     };
-    const project = makeReadModelProject({ id: projectId });
+    const project = makeReadModelProject({ id: folderId });
 
     const next = applyShellEvent(initialState, {
-      kind: "project-upserted",
+      kind: "folder-upserted",
       sequence: 4,
-      project: {
+      folder: {
         ...project,
         archivedAt: "2026-08-21T00:00:00.000Z",
       },
     } satisfies OrchestrationShellStreamEvent);
 
-    expect(next.projects).toEqual([]);
-    expect(next.archivedProjects.map((entry) => entry.id)).toEqual([projectId]);
+    expect(next.folders).toEqual([]);
+    expect(next.archivedFolders.map((entry) => entry.id)).toEqual([folderId]);
     expect(next.shellSnapshotSequence).toBe(4);
   });
 
@@ -247,14 +248,14 @@ describe("store projection", () => {
         },
       ],
       archivedSpaces: [],
-      projects: [
+      folders: [
         makeProject({
-          id: ContainerId.makeUnsafe("project-shell-space"),
+          id: FolderId.makeUnsafe("project-shell-space"),
           spaceId,
           updatedAt: "2026-07-15T10:00:01.000Z",
         }),
       ],
-      archivedProjects: [],
+      archivedFolders: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -267,7 +268,7 @@ describe("store projection", () => {
     } satisfies OrchestrationShellStreamEvent);
 
     expect(next.spaces).toEqual([]);
-    expect(next.projects[0]).toMatchObject({
+    expect(next.folders[0]).toMatchObject({
       spaceId,
       updatedAt: "2026-07-15T10:00:01.000Z",
     });
@@ -286,8 +287,8 @@ describe("store projection", () => {
     const initialState: AppState = {
       spaces: [space],
       archivedSpaces: [],
-      projects: [makeProject({ spaceId })],
-      archivedProjects: [],
+      folders: [makeProject({ spaceId })],
+      archivedFolders: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -302,7 +303,7 @@ describe("store projection", () => {
 
     expect(archived.spaces).toEqual([]);
     expect(archived.archivedSpaces).toEqual([space]);
-    expect(archived.projects[0]?.spaceId).toBe(spaceId);
+    expect(archived.folders[0]?.spaceId).toBe(spaceId);
 
     const restored = applyShellEvent(archived, {
       kind: "space-upserted",
@@ -312,7 +313,7 @@ describe("store projection", () => {
 
     expect(restored.spaces).toEqual([{ ...space, updatedAt: "2026-07-15T10:00:02.000Z" }]);
     expect(restored.archivedSpaces).toEqual([]);
-    expect(restored.projects[0]?.spaceId).toBe(spaceId);
+    expect(restored.folders[0]?.spaceId).toBe(spaceId);
   });
 
   it("permanently removes an archived Space without synthesizing assignment changes", () => {
@@ -329,8 +330,8 @@ describe("store projection", () => {
           updatedAt: "2026-07-15T10:00:01.000Z",
         },
       ],
-      projects: [makeProject({ spaceId })],
-      archivedProjects: [],
+      folders: [makeProject({ spaceId })],
+      archivedFolders: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -343,7 +344,7 @@ describe("store projection", () => {
     });
 
     expect(next.archivedSpaces).toEqual([]);
-    expect(next.projects[0]).toMatchObject({
+    expect(next.folders[0]).toMatchObject({
       spaceId,
     });
   });
@@ -353,17 +354,17 @@ describe("store projection", () => {
       {
         spaces: [],
         archivedSpaces: [],
-        projects: [
+        folders: [
           makeProject({
-            id: ContainerId.makeUnsafe("project-shell"),
+            id: FolderId.makeUnsafe("project-shell"),
             cwd: "/tmp/project-shell",
           }),
           makeProject({
-            id: ContainerId.makeUnsafe("project-other"),
+            id: FolderId.makeUnsafe("project-other"),
             cwd: "/tmp/project-other",
           }),
         ],
-        archivedProjects: [],
+        archivedFolders: [],
         sidebarThreadSummaryById: {},
         threadsHydrated: true,
       },
@@ -371,37 +372,37 @@ describe("store projection", () => {
         snapshotSequence: 1,
         updatedAt: "2026-02-27T00:00:00.000Z",
         spaces: [],
-        projects: [
+        folders: [
           makeReadModelProject({
-            id: ContainerId.makeUnsafe("project-shell"),
+            id: FolderId.makeUnsafe("project-shell"),
             workspaceRoot: "/tmp/project-shell",
           }),
           makeReadModelProject({
-            id: ContainerId.makeUnsafe("project-other"),
+            id: FolderId.makeUnsafe("project-other"),
             workspaceRoot: "/tmp/project-other",
           }),
         ],
         threads: [
           makeReadModelThread({
             id: ThreadId.makeUnsafe("thread-project-1"),
-            projectId: ContainerId.makeUnsafe("project-shell"),
+            folderId: FolderId.makeUnsafe("project-shell"),
           }),
           makeReadModelThread({
             id: ThreadId.makeUnsafe("thread-project-2"),
-            projectId: ContainerId.makeUnsafe("project-other"),
+            folderId: FolderId.makeUnsafe("project-other"),
           }),
         ],
       },
     );
 
     const next = applyShellEvent(initialState, {
-      kind: "project-removed",
+      kind: "folder-removed",
       sequence: 2,
-      projectId: ContainerId.makeUnsafe("project-shell"),
+      folderId: FolderId.makeUnsafe("project-shell"),
     } satisfies OrchestrationShellStreamEvent);
 
-    expect(next.projects.map((project) => project.id)).toEqual([
-      ContainerId.makeUnsafe("project-other"),
+    expect(next.folders.map((project) => project.id)).toEqual([
+      FolderId.makeUnsafe("project-other"),
     ]);
     expect(threadsOf(next).map((thread) => thread.id)).toEqual([
       ThreadId.makeUnsafe("thread-project-2"),
@@ -483,7 +484,7 @@ describe("store projection", () => {
       sequence: 2,
       thread: {
         id: threadId,
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         title: "Thread",
         modelSelection: {
           provider: "codex",
@@ -705,32 +706,6 @@ describe("store projection", () => {
     expect(threadsOf(next)[0]?.session?.provider).toBe("opencode");
   });
 
-  it("preserves Pi as the active session provider", () => {
-    const initialState = makeState(makeThread());
-    const readModel = makeReadModel(
-      makeReadModelThread({
-        modelSelection: {
-          provider: "pi",
-          model: "anthropic/claude-sonnet-4-5",
-        },
-        session: {
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          status: "ready",
-          providerName: "pi",
-          runtimeMode: "approval-required",
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: "2026-02-27T00:00:00.000Z",
-        },
-      }),
-    );
-
-    const next = syncServerReadModel(initialState, readModel);
-
-    expect(threadsOf(next)[0]?.modelSelection.provider).toBe("pi");
-    expect(threadsOf(next)[0]?.session?.provider).toBe("pi");
-  });
-
   it("preserves exact OpenCode thread model slugs from the read model", () => {
     const initialState = makeState(makeThread());
     const readModel = makeReadModel(
@@ -751,7 +726,7 @@ describe("store projection", () => {
     const initialState = makeState(makeThread());
     const readModel = {
       ...makeReadModel(makeReadModelThread({})),
-      projects: [
+      folders: [
         makeReadModelProject({
           defaultModelSelection: {
             provider: "opencode",
@@ -763,7 +738,7 @@ describe("store projection", () => {
 
     const next = syncServerReadModel(initialState, readModel);
 
-    expect(next.projects[0]?.defaultModelSelection?.model).toBe("openai/gpt-5.4");
+    expect(next.folders[0]?.defaultModelSelection?.model).toBe("openai/gpt-5.4");
   });
 
   it("preserves project and thread updatedAt timestamps from the read model", () => {
@@ -776,7 +751,7 @@ describe("store projection", () => {
 
     const next = syncServerReadModel(initialState, readModel);
 
-    expect(next.projects[0]?.updatedAt).toBe("2026-02-27T00:00:00.000Z");
+    expect(next.folders[0]?.updatedAt).toBe("2026-02-27T00:00:00.000Z");
     expect(threadsOf(next)[0]?.updatedAt).toBe("2026-02-27T00:05:00.000Z");
   });
 
@@ -1821,7 +1796,7 @@ describe("store projection", () => {
       deletedState,
       makeShellSnapshot({
         id: threadId,
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         title: "Stale resurrected thread",
         modelSelection: {
           provider: "codex",
@@ -1863,7 +1838,7 @@ describe("store projection", () => {
     const next = syncServerShellSnapshot(removedState, {
       ...makeShellSnapshot({
         id: threadId,
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         title: "Rehydrated shell removed thread",
         modelSelection: {
           provider: "codex",
@@ -1890,7 +1865,7 @@ describe("store projection", () => {
       snapshotSequence: 1,
       updatedAt: "2026-02-28T00:00:00.000Z",
       spaces: [],
-      projects: [
+      folders: [
         makeReadModelProject({
           defaultModelSelection: {
             provider: "codex",
@@ -1983,7 +1958,7 @@ describe("thread detail sync state", () => {
 });
 
 describe("deletion tombstone retirement", () => {
-  const projectId = ContainerId.makeUnsafe("project-1");
+  const folderId = FolderId.makeUnsafe("project-1");
   const deletedThreadId = ThreadId.makeUnsafe("thread-1");
 
   function makeEmptyShellSnapshot(snapshotSequence: number) {
@@ -1991,7 +1966,7 @@ describe("deletion tombstone retirement", () => {
       snapshotSequence,
       updatedAt: "2026-02-27T00:10:00.000Z",
       spaces: [],
-      projects: [],
+      folders: [],
       threads: [],
     };
   }
@@ -2000,7 +1975,7 @@ describe("deletion tombstone retirement", () => {
     return {
       ...makeShellSnapshot({
         id: deletedThreadId,
-        projectId,
+        folderId,
         title,
         modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
         runtimeMode: DEFAULT_RUNTIME_MODE,
@@ -2016,8 +1991,8 @@ describe("deletion tombstone retirement", () => {
 
   function makeDeletedThreadState(deletedAtSequence: number): AppState {
     const hydrated = syncServerReadModel(
-      makeState(makeThread({ id: deletedThreadId, projectId })),
-      makeReadModel(makeReadModelThread({ id: deletedThreadId, projectId })),
+      makeState(makeThread({ id: deletedThreadId, folderId })),
+      makeReadModel(makeReadModelThread({ id: deletedThreadId, folderId })),
     );
     return removeDeletedThreadFromClientState(hydrated, deletedThreadId, deletedAtSequence);
   }
@@ -2056,44 +2031,44 @@ describe("deletion tombstone retirement", () => {
 
   it("retires a project tombstone once the read model reports the project soft-deleted", () => {
     const hydrated = syncServerReadModel(
-      makeState(makeThread({ id: deletedThreadId, projectId })),
-      makeReadModel(makeReadModelThread({ id: deletedThreadId, projectId })),
+      makeState(makeThread({ id: deletedThreadId, folderId })),
+      makeReadModel(makeReadModelThread({ id: deletedThreadId, folderId })),
     );
-    const deletedState = removeDeletedProjectFromClientState(hydrated, projectId, 5);
-    expect(deletedState.deletedProjectIdsById?.[projectId]).toBe(5);
+    const deletedState = removeDeletedProjectFromClientState(hydrated, folderId, 5);
+    expect(deletedState.deletedFolderIdsById?.[folderId]).toBe(5);
 
     const next = syncServerReadModel(deletedState, {
       ...makeReadModel(
         makeReadModelThread({
           id: deletedThreadId,
-          projectId,
+          folderId,
           deletedAt: "2026-02-27T00:09:00.000Z",
         }),
       ),
       snapshotSequence: 9,
-      projects: [makeReadModelProject({ deletedAt: "2026-02-27T00:09:00.000Z" })],
+      folders: [makeReadModelProject({ deletedAt: "2026-02-27T00:09:00.000Z" })],
     });
 
-    expect(next.deletedProjectIdsById?.[projectId]).toBeUndefined();
+    expect(next.deletedFolderIdsById?.[folderId]).toBeUndefined();
     expect(next.deletedThreadIdsById?.[deletedThreadId]).toBeUndefined();
-    expect(next.projects).toEqual([]);
+    expect(next.folders).toEqual([]);
     expect(threadsOf(next)).toHaveLength(0);
   });
 
   it("keeps a project tombstone while the read model still lists the project as live", () => {
     const hydrated = syncServerReadModel(
-      makeState(makeThread({ id: deletedThreadId, projectId })),
-      makeReadModel(makeReadModelThread({ id: deletedThreadId, projectId })),
+      makeState(makeThread({ id: deletedThreadId, folderId })),
+      makeReadModel(makeReadModelThread({ id: deletedThreadId, folderId })),
     );
-    const deletedState = removeDeletedProjectFromClientState(hydrated, projectId, 5);
+    const deletedState = removeDeletedProjectFromClientState(hydrated, folderId, 5);
 
     const next = syncServerReadModel(deletedState, {
-      ...makeReadModel(makeReadModelThread({ id: deletedThreadId, projectId })),
+      ...makeReadModel(makeReadModelThread({ id: deletedThreadId, folderId })),
       snapshotSequence: 9,
     });
 
-    expect(next.deletedProjectIdsById?.[projectId]).toBe(5);
-    expect(next.projects).toEqual([]);
+    expect(next.deletedFolderIdsById?.[folderId]).toBe(5);
+    expect(next.folders).toEqual([]);
     expect(threadsOf(next)).toHaveLength(0);
   });
 
@@ -2136,7 +2111,7 @@ describe("deletion tombstone retirement", () => {
     const deletedState = makeDeletedThreadState(5);
 
     const retired = syncServerReadModel(deletedState, {
-      ...makeReadModel(makeReadModelThread({ id: deletedThreadId, projectId })),
+      ...makeReadModel(makeReadModelThread({ id: deletedThreadId, folderId })),
       snapshotSequence: 9,
       threads: [],
     });
@@ -2144,7 +2119,7 @@ describe("deletion tombstone retirement", () => {
     expect(retired.shellSnapshotSequence).toBe(9);
 
     const next = syncServerReadModel(retired, {
-      ...makeReadModel(makeReadModelThread({ id: deletedThreadId, projectId })),
+      ...makeReadModel(makeReadModelThread({ id: deletedThreadId, folderId })),
       snapshotSequence: 4,
     });
 
@@ -2155,13 +2130,13 @@ describe("deletion tombstone retirement", () => {
 
   it("keeps the thread id registry stable across a read model resync that changes nothing", () => {
     const hydrated = syncServerReadModel(
-      makeState(makeThread({ id: deletedThreadId, projectId })),
-      makeReadModel(makeReadModelThread({ id: deletedThreadId, projectId })),
+      makeState(makeThread({ id: deletedThreadId, folderId })),
+      makeReadModel(makeReadModelThread({ id: deletedThreadId, folderId })),
     );
 
     const resynced = syncServerReadModel(
       hydrated,
-      makeReadModel(makeReadModelThread({ id: deletedThreadId, projectId })),
+      makeReadModel(makeReadModelThread({ id: deletedThreadId, folderId })),
     );
 
     // Identity, not just equality: consumers memoize on this array, and the "nothing changed"
@@ -2172,7 +2147,7 @@ describe("deletion tombstone retirement", () => {
 
   it("keeps the thread id registry stable across a shell snapshot that changes nothing", () => {
     const hydrated = syncServerShellSnapshot(
-      makeState(makeThread({ id: deletedThreadId, projectId })),
+      makeState(makeThread({ id: deletedThreadId, folderId })),
       makeShellSnapshotListingDeletedThread(4, "Stable"),
     );
 
@@ -2186,7 +2161,7 @@ describe("deletion tombstone retirement", () => {
 
   it("rebuilds the thread id registry when the snapshot drops a thread", () => {
     const hydrated = syncServerShellSnapshot(
-      makeState(makeThread({ id: deletedThreadId, projectId })),
+      makeState(makeThread({ id: deletedThreadId, folderId })),
       makeShellSnapshotListingDeletedThread(4, "Stable"),
     );
 
@@ -2201,7 +2176,7 @@ describe("deletion tombstone retirement", () => {
   ) {
     const base = makeShellSnapshot({
       id: deletedThreadId,
-      projectId,
+      folderId,
       title: "Base",
       modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
       runtimeMode: DEFAULT_RUNTIME_MODE,
@@ -2224,7 +2199,7 @@ describe("deletion tombstone retirement", () => {
 
   it("reuses the shell record references when a snapshot changes nothing", () => {
     const hydrated = syncServerShellSnapshot(
-      makeState(makeThread({ id: deletedThreadId, projectId })),
+      makeState(makeThread({ id: deletedThreadId, folderId })),
       makeShellSnapshotListingDeletedThread(4, "Stable"),
     );
 
@@ -2242,7 +2217,7 @@ describe("deletion tombstone retirement", () => {
 
   it("keeps untouched thread entries stable when one thread changes", () => {
     const hydrated = syncServerShellSnapshot(
-      makeState(makeThread({ id: deletedThreadId, projectId })),
+      makeState(makeThread({ id: deletedThreadId, folderId })),
       makeMultiThreadShellSnapshot(4, [
         { id: "thread-a", title: "A" },
         { id: "thread-b", title: "B" },
@@ -2268,7 +2243,7 @@ describe("deletion tombstone retirement", () => {
 
   it("stores a missing session as an absent key rather than an explicit null", () => {
     const hydrated = syncServerShellSnapshot(
-      makeState(makeThread({ id: deletedThreadId, projectId })),
+      makeState(makeThread({ id: deletedThreadId, folderId })),
       makeShellSnapshotListingDeletedThread(4, "Stable"),
     );
 
@@ -2301,7 +2276,7 @@ describe("deletion tombstone retirement", () => {
       sequence: 2,
       thread: {
         id: threadId,
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         title: "Thread",
         modelSelection: {
           provider: "codex",
@@ -2328,12 +2303,12 @@ describe("deletion tombstone retirement", () => {
 
   it("advances the snapshot sequence when a newer read model carries the same content", () => {
     const hydrated = syncServerReadModel(
-      makeState(makeThread({ id: deletedThreadId, projectId })),
-      makeReadModel(makeReadModelThread({ id: deletedThreadId, projectId })),
+      makeState(makeThread({ id: deletedThreadId, folderId })),
+      makeReadModel(makeReadModelThread({ id: deletedThreadId, folderId })),
     );
 
     const next = syncServerReadModel(hydrated, {
-      ...makeReadModel(makeReadModelThread({ id: deletedThreadId, projectId })),
+      ...makeReadModel(makeReadModelThread({ id: deletedThreadId, folderId })),
       snapshotSequence: 30,
     });
 

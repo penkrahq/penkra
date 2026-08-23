@@ -54,10 +54,6 @@ describe("Codex Penkra harness policy", () => {
     expect(
       CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS.split(PENKRA_HARNESS_POLICY_MARKER),
     ).toHaveLength(2);
-    expect(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS).toContain("Penkra is the host and harness");
-    expect(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS).toContain(
-      "one exact `penkra threads create-many` command",
-    );
   });
 
   it("keeps the Penkra host tool out of Codex MCP configuration", async () => {
@@ -102,7 +98,7 @@ describe("Codex Penkra harness policy", () => {
           description: "Execute one registered Penkra command.",
           inputSchema: {
             type: "object",
-            properties: { command: { type: "string" } },
+            properties: { command: { type: "array", items: { type: "string" } } },
             required: ["command"],
           },
         },
@@ -114,7 +110,7 @@ describe("Codex Penkra harness policy", () => {
         description: "Execute one registered Penkra command.",
         inputSchema: {
           type: "object",
-          properties: { command: { type: "string" } },
+          properties: { command: { type: "array", items: { type: "string" } } },
           required: ["command"],
         },
         deferLoading: false,
@@ -181,14 +177,14 @@ describe("Codex Penkra harness policy", () => {
         callId: "call-native",
         namespace: null,
         tool: "penkra_exec_command",
-        arguments: { command: "penkra apps list" },
+        arguments: { command: ["penkra", "apps", "list"] },
       },
     });
 
     expect(invoke).toHaveBeenCalledWith({
       bearerToken: "thread-token",
       name: "penkra_exec_command",
-      arguments: { command: "penkra apps list" },
+      arguments: { command: ["penkra", "apps", "list"] },
     });
     expect(writeMessage).toHaveBeenCalledWith(context, {
       id: 71,

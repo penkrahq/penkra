@@ -4,8 +4,9 @@ import {
   ORCHESTRATION_WS_METHODS,
   type MessageId,
   type OrchestrationReadModel,
-  type ContainerId,
+  type FolderId,
   type ServerConfig,
+  SpaceId,
   type ThreadId,
   type WsWelcomePayload,
   WS_METHODS,
@@ -31,7 +32,7 @@ import { createBrowserTestServerConfig, createFullscreenTestHost } from "../test
 import { resetWsNativeApiForTest } from "../wsNativeApi";
 
 const THREAD_ID = "thread-kb-toast-test" as ThreadId;
-const PROJECT_ID = "project-1" as ContainerId;
+const PROJECT_ID = "project-1" as FolderId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 
 interface TestFixture {
@@ -54,10 +55,10 @@ function createMinimalSnapshot(): OrchestrationReadModel {
   return {
     snapshotSequence: 1,
     spaces: [],
-    projects: [
+    folders: [
       {
         id: PROJECT_ID,
-        kind: "project",
+        spaceId: SpaceId.makeUnsafe("space-test"),
         title: "Project",
         workspaceRoot: "/repo/project",
         defaultModelSelection: {
@@ -73,7 +74,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
     threads: [
       {
         id: THREAD_ID,
-        projectId: PROJECT_ID,
+        folderId: PROJECT_ID,
         title: "Test thread",
         modelSelection: {
           provider: "codex",
@@ -119,7 +120,7 @@ function buildFixture(): TestFixture {
     welcome: {
       cwd: "/repo/project",
       projectName: "Project",
-      bootstrapProjectId: PROJECT_ID,
+      bootstrapFolderId: PROJECT_ID,
       bootstrapThreadId: THREAD_ID,
     },
   };
@@ -317,10 +318,10 @@ describe("Keybindings update toast", () => {
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: {},
+      projectDraftThreadIdByFolderId: {},
     });
     useStore.setState({
-      projects: [],
+      folders: [],
       threadIds: [],
       threadShellById: {},
       threadSessionById: {},

@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { appendProviderReferencesPromptBlock } from "./promptReferenceProjection.ts";
 
 describe("appendProviderReferencesPromptBlock", () => {
-  it("projects Factory plugin and local path mentions without changing the user text", () => {
+  it("folders Factory plugin and local path mentions without changing the user text", () => {
     const result = appendProviderReferencesPromptBlock({
       text: "Review this",
       mentions: [

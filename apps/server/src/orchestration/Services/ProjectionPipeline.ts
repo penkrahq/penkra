@@ -11,11 +11,11 @@ import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../../persistence/Errors.ts";
-import type { ProjectMetadataOrchestrationEvent } from "../projectMetadataProjection.ts";
+import type { FolderMetadataOrchestrationEvent } from "../folderMetadataProjection.ts";
 import type { SpaceMetadataOrchestrationEvent } from "../spaceMetadataProjection.ts";
 
 export type ShellMetadataOrchestrationEvent =
-  | ProjectMetadataOrchestrationEvent
+  | FolderMetadataOrchestrationEvent
   | SpaceMetadataOrchestrationEvent
   | Extract<OrchestrationEvent, { type: "sidebar.layout-updated" }>;
 
@@ -62,10 +62,10 @@ export interface OrchestrationProjectionPipelineShape {
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 
   /**
-   * Project a single project metadata event while the caller already owns the
+   * Project a single folder metadata event while the caller already owns the
    * surrounding transaction.
    */
-  readonly projectMetadataEvent: (
+  readonly folderMetadataEvent: (
     event: ShellMetadataOrchestrationEvent,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }

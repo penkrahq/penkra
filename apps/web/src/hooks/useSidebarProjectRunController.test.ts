@@ -2,7 +2,7 @@
 // Purpose: Characterizes Sidebar project-run lifecycle, attribution, and dialog behavior.
 // Layer: Web hook tests
 
-import { ContainerId } from "@penkra/contracts";
+import { FolderId, SpaceId } from "@penkra/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {
@@ -76,7 +76,7 @@ const reactHarness = vi.hoisted(() => {
 });
 
 const harness = vi.hoisted(() => ({
-  runsByProjectId: {} as Record<string, unknown>,
+  runsByFolderId: {} as Record<string, unknown>,
   upsertRun: vi.fn(),
   removeRun: vi.fn(),
   replaceAll: vi.fn(),
@@ -114,7 +114,7 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("../projectRunStore", () => {
   const useProjectRunStore = (selector: (state: unknown) => unknown) =>
     selector({
-      runsByProjectId: harness.runsByProjectId,
+      runsByFolderId: harness.runsByFolderId,
       upsertRun: harness.upsertRun,
       removeRun: harness.removeRun,
     });
@@ -124,7 +124,7 @@ vi.mock("../projectRunStore", () => {
 
 vi.mock("../nativeApi", () => ({
   readNativeApi: () => ({
-    projects: {
+    folders: {
       runDevServer: harness.runDevServer,
       stopDevServer: harness.stopDevServer,
       listDevServers: harness.listDevServers,
@@ -135,7 +135,7 @@ vi.mock("../nativeApi", () => ({
 }));
 
 vi.mock("../components/ui/toast", () => ({ toastManager: { add: harness.toast } }));
-vi.mock("../lib/chatProjects", () => ({ isHomeChatContainerProject: () => false }));
+vi.mock("../lib/chatFolders", () => ({ isHomeChatContainerProject: () => false }));
 vi.mock("../lib/projectReactQuery", () => ({
   projectDiscoverScriptsQueryOptions: (input: unknown) => input,
 }));
@@ -151,10 +151,10 @@ vi.mock("../projectScripts", async (importOriginal) => ({
 import type { Project } from "../types";
 import { useSidebarProjectRunController } from "./useSidebarProjectRunController";
 
-const PROJECT_ID = ContainerId.makeUnsafe("project-run");
+const PROJECT_ID = FolderId.makeUnsafe("project-run");
 const PROJECT: Project = {
   id: PROJECT_ID,
-  kind: "project",
+  spaceId: SpaceId.makeUnsafe("space-test"),
   name: "Project Run",
   remoteName: "Project Run",
   folderName: "repo",
@@ -176,7 +176,7 @@ const projectById = new Map([[PROJECT_ID, PROJECT]]);
 function render() {
   reactHarness.beginRender();
   return useSidebarProjectRunController({
-    projects: [PROJECT],
+    folders: [PROJECT],
     projectById,
     homeDir: "/Users/test",
     chatWorkspaceRoot: "/Users/test/.penkra/chats",
@@ -195,7 +195,7 @@ function confirmRun(command: string) {
 
 beforeEach(() => {
   reactHarness.reset();
-  harness.runsByProjectId = {};
+  harness.runsByFolderId = {};
   harness.localServers = [];
   harness.discoveredTargetsByQuery = [[]];
   harness.discoveryQueryCount = 0;
@@ -215,7 +215,7 @@ beforeEach(() => {
   }
   harness.runDevServer.mockResolvedValue({
     server: {
-      projectId: PROJECT_ID,
+      folderId: PROJECT_ID,
       command: "bun custom",
       cwd: "/repo",
       pid: 42,
@@ -236,15 +236,15 @@ beforeEach(() => {
 });
 
 describe("useSidebarProjectRunController", () => {
-  it("deduplicates script discovery for projects sharing a working directory", () => {
+  it("deduplicates script discovery for folders sharing a working directory", () => {
     const duplicateProject = {
       ...PROJECT,
-      id: ContainerId.makeUnsafe("project-run-duplicate"),
+      id: FolderId.makeUnsafe("project-run-duplicate"),
       scripts: [],
     };
     reactHarness.beginRender();
     useSidebarProjectRunController({
-      projects: [PROJECT, duplicateProject],
+      folders: [PROJECT, duplicateProject],
       projectById: new Map([
         [PROJECT.id, PROJECT],
         [duplicateProject.id, duplicateProject],
@@ -263,14 +263,14 @@ describe("useSidebarProjectRunController", () => {
     expect(harness.upsertRun).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        projectId: PROJECT_ID,
+        folderId: PROJECT_ID,
         command: "bun custom",
         cwd: "/repo",
         status: "starting",
       }),
     );
     expect(harness.runDevServer).toHaveBeenCalledWith({
-      projectId: PROJECT_ID,
+      folderId: PROJECT_ID,
       command: "bun custom",
       cwd: "/repo",
       env: { PENKRA_PROJECT_ROOT: "/repo" },
@@ -299,7 +299,7 @@ describe("useSidebarProjectRunController", () => {
 
   it("restores authoritative state after a failed stop and always invalidates", async () => {
     harness.stopDevServer.mockRejectedValue(new Error("still running"));
-    const authoritative = [{ projectId: PROJECT_ID, status: "running" }];
+    const authoritative = [{ folderId: PROJECT_ID, status: "running" }];
     harness.listDevServers.mockResolvedValue({ servers: authoritative });
 
     await render().handleStopProjectRun(PROJECT_ID);
@@ -312,7 +312,7 @@ describe("useSidebarProjectRunController", () => {
   });
 
   it("attributes unmatched servers to the deepest project cwd", () => {
-    const nestedId = ContainerId.makeUnsafe("project-nested");
+    const nestedId = FolderId.makeUnsafe("project-nested");
     const nested = { ...PROJECT, id: nestedId, cwd: "/repo/apps/web", name: "Web" };
     harness.localServers = [
       {
@@ -323,7 +323,7 @@ describe("useSidebarProjectRunController", () => {
     ];
     reactHarness.beginRender();
     const controller = useSidebarProjectRunController({
-      projects: [PROJECT, nested],
+      folders: [PROJECT, nested],
       projectById: new Map([
         [PROJECT_ID, PROJECT],
         [nestedId, nested],
@@ -332,18 +332,18 @@ describe("useSidebarProjectRunController", () => {
       chatWorkspaceRoot: "/Users/test/.penkra/chats",
     });
 
-    expect(controller.projectRunServerByProjectId.get(nestedId)).toMatchObject({
+    expect(controller.projectRunServerByFolderId.get(nestedId)).toMatchObject({
       id: "server-web",
     });
-    expect(controller.projectRunServerByProjectId.has(PROJECT_ID)).toBe(false);
+    expect(controller.projectRunServerByFolderId.has(PROJECT_ID)).toBe(false);
   });
 
   it("keeps tracked pid attribution authoritative before cwd fallback", () => {
-    const nestedId = ContainerId.makeUnsafe("project-tracked-nested");
+    const nestedId = FolderId.makeUnsafe("project-tracked-nested");
     const nested = { ...PROJECT, id: nestedId, cwd: "/repo/apps/web", name: "Web" };
-    harness.runsByProjectId = {
+    harness.runsByFolderId = {
       [PROJECT_ID]: {
-        projectId: PROJECT_ID,
+        folderId: PROJECT_ID,
         command: "bun dev",
         cwd: "/repo",
         pid: 700,
@@ -369,7 +369,7 @@ describe("useSidebarProjectRunController", () => {
     ];
     reactHarness.beginRender();
     const controller = useSidebarProjectRunController({
-      projects: [PROJECT, nested],
+      folders: [PROJECT, nested],
       projectById: new Map([
         [PROJECT_ID, PROJECT],
         [nestedId, nested],
@@ -378,10 +378,10 @@ describe("useSidebarProjectRunController", () => {
       chatWorkspaceRoot: "/Users/test/.penkra/chats",
     });
 
-    expect(controller.projectRunServerByProjectId.get(PROJECT_ID)).toMatchObject({
+    expect(controller.projectRunServerByFolderId.get(PROJECT_ID)).toMatchObject({
       id: "tracked-root",
     });
-    expect(controller.projectRunServerByProjectId.get(nestedId)).toMatchObject({
+    expect(controller.projectRunServerByFolderId.get(nestedId)).toMatchObject({
       id: "fallback-nested",
     });
   });
@@ -427,7 +427,7 @@ describe("useSidebarProjectRunController", () => {
     await vi.waitFor(() => expect(harness.runDevServer).toHaveBeenCalled());
 
     expect(harness.dispatchCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "project.meta.update", projectId: PROJECT_ID }),
+      expect.objectContaining({ type: "folder.update", folderId: PROJECT_ID }),
     );
     expect(harness.runDevServer).toHaveBeenCalledWith(
       expect.objectContaining({ command: "bun custom" }),
@@ -435,7 +435,7 @@ describe("useSidebarProjectRunController", () => {
   });
 
   it("keeps discovered commands aligned with their project query", () => {
-    const secondId = ContainerId.makeUnsafe("project-run-second");
+    const secondId = FolderId.makeUnsafe("project-run-second");
     const secondProject: Project = {
       ...PROJECT,
       id: secondId,
@@ -465,7 +465,7 @@ describe("useSidebarProjectRunController", () => {
 
     reactHarness.beginRender();
     let controller = useSidebarProjectRunController({
-      projects: [firstProject, secondProject],
+      folders: [firstProject, secondProject],
       projectById: new Map([
         [PROJECT_ID, firstProject],
         [secondId, secondProject],
@@ -476,7 +476,7 @@ describe("useSidebarProjectRunController", () => {
     controller.openProjectRunDialog(secondId);
     reactHarness.beginRender();
     useSidebarProjectRunController({
-      projects: [firstProject, secondProject],
+      folders: [firstProject, secondProject],
       projectById: new Map([
         [PROJECT_ID, firstProject],
         [secondId, secondProject],
@@ -486,7 +486,7 @@ describe("useSidebarProjectRunController", () => {
     });
     reactHarness.beginRender();
     controller = useSidebarProjectRunController({
-      projects: [firstProject, secondProject],
+      folders: [firstProject, secondProject],
       projectById: new Map([
         [PROJECT_ID, firstProject],
         [secondId, secondProject],

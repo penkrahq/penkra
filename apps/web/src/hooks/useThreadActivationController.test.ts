@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ContainerId, ThreadId } from "@penkra/contracts";
+import { FolderId, ThreadId } from "@penkra/contracts";
 import type { SplitView } from "../splitViewStore";
 import {
   activateThreadFromSidebarIntent,
@@ -10,7 +10,7 @@ import {
 const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
 const THREAD_C = ThreadId.makeUnsafe("thread-c");
-const PROJECT_ID = ContainerId.makeUnsafe("project-1");
+const PROJECT_ID = FolderId.makeUnsafe("project-1");
 
 function makeSplitViewFixture(input: {
   id: string;
@@ -24,7 +24,7 @@ function makeSplitViewFixture(input: {
   return {
     id: input.id,
     sourceThreadId: input.sourceThreadId,
-    ownerProjectId: PROJECT_ID,
+    ownerFolderId: PROJECT_ID,
     focusedPaneId: input.focusOn === "first" ? firstId : secondId,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -67,9 +67,9 @@ function makeControllerInput(
     setSelectionAnchor: vi.fn(),
     setSplitFocusedPane: vi.fn(),
     sidebarThreadSummaryById: {
-      [THREAD_A]: { id: THREAD_A, projectId: PROJECT_ID },
-      [THREAD_B]: { id: THREAD_B, projectId: PROJECT_ID },
-      [THREAD_C]: { id: THREAD_C, projectId: PROJECT_ID },
+      [THREAD_A]: { id: THREAD_A, folderId: PROJECT_ID },
+      [THREAD_B]: { id: THREAD_B, folderId: PROJECT_ID },
+      [THREAD_C]: { id: THREAD_C, folderId: PROJECT_ID },
     },
     splitViewsById: {},
     terminalStateByThreadId: {},

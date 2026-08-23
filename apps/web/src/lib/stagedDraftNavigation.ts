@@ -5,8 +5,8 @@
 
 const inFlightDraftNavigationBySlot = new Map<string, Promise<unknown>>();
 
-export function draftNavigationSlotKey(projectId: string, entryPoint: string): string {
-  return `${projectId}\u0000${entryPoint}`;
+export function draftNavigationSlotKey(folderId: string, entryPoint: string): string {
+  return `${folderId}\u0000${entryPoint}`;
 }
 
 /** Coalesces repeated clicks/shortcuts that target the same project + entry-point slot. */

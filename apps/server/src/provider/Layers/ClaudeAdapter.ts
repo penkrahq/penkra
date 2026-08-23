@@ -90,8 +90,14 @@ import {
 } from "effect";
 
 import { renderPenkraHarnessPolicy } from "../../agentGateway/harnessPolicy.ts";
-import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
-import { AgentGatewayToolBridge } from "../../agentGateway/Services/AgentGatewayToolBridge.ts";
+import {
+  AgentGatewayCredentials,
+  type AgentGatewayCredentialsShape,
+} from "../../agentGateway/Services/AgentGatewayCredentials.ts";
+import {
+  AgentGatewayToolBridge,
+  type AgentGatewayToolBridgeShape,
+} from "../../agentGateway/Services/AgentGatewayToolBridge.ts";
 import {
   PENKRA_EXEC_COMMAND_ANNOTATIONS,
   PENKRA_EXEC_COMMAND_DESCRIPTION,
@@ -446,6 +452,8 @@ export interface ClaudeAdapterLiveOptions {
     readonly options: ClaudeQueryOptions;
     readonly initializeTimeoutMs: number;
   }) => ClaudeWarmQueryRuntime | Promise<ClaudeWarmQueryRuntime>;
+  readonly agentGatewayCredentials?: AgentGatewayCredentialsShape;
+  readonly agentGatewayToolBridge?: AgentGatewayToolBridgeShape;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
   // Interval for polling a live workflow's transcript directory. Tests shrink it.
@@ -856,7 +864,12 @@ function classifyRequestType(toolName: string): CanonicalRequestType {
 
 function summarizeToolRequest(toolName: string, input: Record<string, unknown>): string {
   const commandValue = input.command ?? input.cmd;
-  const command = typeof commandValue === "string" ? commandValue : undefined;
+  const command =
+    typeof commandValue === "string"
+      ? commandValue
+      : Array.isArray(commandValue) && commandValue.every((word) => typeof word === "string")
+        ? commandValue.join(" ")
+        : undefined;
   if (command && command.trim().length > 0) {
     return `${toolName}: ${command.trim().slice(0, 400)}`;
   }
@@ -959,16 +972,7 @@ const CLAUDE_NATIVE_RESUME_VERIFICATION_THREAD_ID = ThreadId.makeUnsafe(
 // The SDK's interrupt resolves only once the CLI acknowledges it; a wedged CLI
 // would otherwise stall the caller (and the provider command reactor) forever.
 const CLAUDE_INTERRUPT_TIMEOUT = Duration.seconds(10);
-export const buildEmbeddedClaudeSystemPromptAppend = (gatewayControlAvailable: boolean) =>
-  [
-    "You are running inside Penkra, a coding app that embeds the Claude Agent SDK.",
-    "Do not present the host app as Claude Code unless the user is explicitly asking about Claude Code.",
-    "Treat the current working directory as the active workspace for the task.",
-    "When the user asks about the current project, codebase, or repository, proactively inspect files in the current working directory before asking the user where to look.",
-    "When spawning subagents, set the Agent tool's `model` parameter and pick reasoning effort by choosing a worker-<tier> subagent type (worker-low, worker-medium, worker-high, worker-xhigh).",
-    "Honor explicit user instructions about a subagent's model or effort verbatim; otherwise match task complexity: mechanical work → haiku or worker-low, standard work → sonnet or worker-medium, hard reasoning → opus or fable with worker-high and above.",
-    renderPenkraHarnessPolicy({ gatewayControlAvailable }),
-  ].join("\n");
+export const PENKRA_SYSTEM_PROMPT = renderPenkraHarnessPolicy();
 
 const CLAUDE_WORKER_EFFORT_TIERS = ["low", "medium", "high", "xhigh"] as const;
 const CLAUDE_WORKER_PROMPT =
@@ -1554,12 +1558,12 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const serverConfig = yield* ServerConfig;
     // Optional so adapter tests can run without the gateway layer; when
     // present, every session gets the single penkra_exec_command gateway tool.
-    const agentGatewayCredentials = Option.getOrUndefined(
-      yield* Effect.serviceOption(AgentGatewayCredentials),
-    );
-    const agentGatewayToolBridge = Option.getOrUndefined(
-      yield* Effect.serviceOption(AgentGatewayToolBridge),
-    );
+    const agentGatewayCredentials =
+      Option.getOrUndefined(yield* Effect.serviceOption(AgentGatewayCredentials)) ??
+      options?.agentGatewayCredentials;
+    const agentGatewayToolBridge =
+      Option.getOrUndefined(yield* Effect.serviceOption(AgentGatewayToolBridge)) ??
+      options?.agentGatewayToolBridge;
     if ((agentGatewayCredentials === undefined) !== (agentGatewayToolBridge === undefined)) {
       return yield* Effect.die(
         new Error(
@@ -4642,55 +4646,62 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           threadId,
           PROVIDER,
         );
-        const penkraMcpServers =
-          gatewaySessionLease && agentGatewayToolBridge
-            ? yield* Effect.tryPromise({
-                try: async () => {
-                  const surface = agentGatewayToolBridge.requireSurface();
-                  const definition = surface.definitions.find(
-                    (candidate) => candidate.name === PENKRA_EXEC_COMMAND_NAME,
-                  );
-                  if (!definition || surface.definitions.length !== 1) {
-                    throw new Error("Penkra's canonical host-tool catalog is invalid.");
-                  }
-                  const { createSdkMcpServer, tool } = await loadClaudeAgentSdk();
-                  return {
-                    penkra: createSdkMcpServer({
-                      name: "penkra",
-                      version: "1.0.0",
-                      instructions: renderPenkraHarnessPolicy({ gatewayControlAvailable: true }),
-                      alwaysLoad: true,
-                      tools: [
-                        tool(
-                          PENKRA_EXEC_COMMAND_NAME,
-                          PENKRA_EXEC_COMMAND_DESCRIPTION,
-                          PENKRA_EXEC_COMMAND_ZOD_SHAPE,
-                          async (args) => {
-                            const result = await surface.invoke({
-                              bearerToken: gatewaySessionLease.connection.bearerToken,
-                              name: PENKRA_EXEC_COMMAND_NAME,
-                              arguments: args,
-                            });
-                            return {
-                              content: result.content.map((item) => ({ ...item })),
-                              ...(result.isError === undefined ? {} : { isError: result.isError }),
-                            };
-                          },
-                          { annotations: PENKRA_EXEC_COMMAND_ANNOTATIONS, alwaysLoad: true },
-                        ),
-                      ],
-                    }),
-                  } satisfies NonNullable<ClaudeQueryOptions["mcpServers"]>;
-                },
-                catch: (cause) =>
-                  new ProviderAdapterProcessError({
-                    provider: PROVIDER,
-                    threadId,
-                    detail: toMessage(cause, "Failed to bind Penkra's in-process host tool."),
-                    cause,
-                  }),
-              })
-            : undefined;
+        if (!gatewaySessionLease || !agentGatewayToolBridge) {
+          return yield* Effect.fail(
+            new ProviderAdapterProcessError({
+              provider: PROVIDER,
+              threadId,
+              detail:
+                "Claude session start operation agentGateway.setup requires gateway credentials and the canonical host-tool bridge.",
+            }),
+          );
+        }
+        const penkraMcpServers = yield* Effect.tryPromise({
+          try: async () => {
+            const surface = agentGatewayToolBridge.requireSurface();
+            const definition = surface.definitions.find(
+              (candidate) => candidate.name === PENKRA_EXEC_COMMAND_NAME,
+            );
+            if (!definition || surface.definitions.length !== 1) {
+              throw new Error("Penkra's canonical host-tool catalog is invalid.");
+            }
+            const { createSdkMcpServer, tool } = await loadClaudeAgentSdk();
+            return {
+              penkra: createSdkMcpServer({
+                name: "penkra",
+                version: "1.0.0",
+                instructions: PENKRA_SYSTEM_PROMPT,
+                alwaysLoad: true,
+                tools: [
+                  tool(
+                    PENKRA_EXEC_COMMAND_NAME,
+                    PENKRA_EXEC_COMMAND_DESCRIPTION,
+                    PENKRA_EXEC_COMMAND_ZOD_SHAPE,
+                    async (args) => {
+                      const result = await surface.invoke({
+                        bearerToken: gatewaySessionLease.connection.bearerToken,
+                        name: PENKRA_EXEC_COMMAND_NAME,
+                        arguments: args,
+                      });
+                      return {
+                        content: result.content.map((item) => ({ ...item })),
+                        ...(result.isError === undefined ? {} : { isError: result.isError }),
+                      };
+                    },
+                    { annotations: PENKRA_EXEC_COMMAND_ANNOTATIONS, alwaysLoad: true },
+                  ),
+                ],
+              }),
+            } satisfies NonNullable<ClaudeQueryOptions["mcpServers"]>;
+          },
+          catch: (cause) =>
+            new ProviderAdapterProcessError({
+              provider: PROVIDER,
+              threadId,
+              detail: toMessage(cause, "Failed to bind Penkra's in-process host tool."),
+              cause,
+            }),
+        });
         const queryOptions: ClaudeQueryOptions = {
           ...(input.cwd ? { cwd: input.cwd } : {}),
           // Keep Claude context-window selection model-driven so session start
@@ -4702,16 +4713,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           // and MCP servers. The thread-scoped Penkra gateway below is added
           // to that provider-native surface rather than replacing it.
           settingSources: [...CLAUDE_SETTING_SOURCES],
-          systemPrompt: {
-            type: "preset",
-            preset: "claude_code",
-            append: buildEmbeddedClaudeSystemPromptAppend(agentGatewayCredentials !== undefined),
-            // Strip per-user dynamic sections (working directory, auto-memory
-            // path) into the first user message so the cached system-prompt
-            // prefix stays static across sessions and users. Tradeoff: that
-            // context steers marginally less authoritatively from a user turn.
-            excludeDynamicSections: true,
-          },
+          systemPrompt: PENKRA_SYSTEM_PROMPT,
           ...(Object.keys(claudeSubagents).length > 0 ? { agents: claudeSubagents } : {}),
           // Only `max` effort is spawn-fixed; every other level rides in
           // `settings.effortLevel` so it can change live mid-session.

@@ -1,5 +1,5 @@
 // FILE: threadWorkspace.test.ts
-// Purpose: Verifies workspace-root containment used to attribute dev servers to projects.
+// Purpose: Verifies workspace-root containment used to attribute dev servers to folders.
 // Layer: Shared runtime utility tests
 // Depends on: Vitest and threadWorkspace helpers
 

@@ -5,7 +5,6 @@ import * as SchemaGetter from "effect/SchemaGetter";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
-  ClearProjectionThreadSpaceAssignmentsInput,
   DeleteProjectionThreadInput,
   GetProjectionThreadInput,
   ListProjectionThreadsByProjectInput,
@@ -77,8 +76,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         )
         VALUES (
           ${row.threadId},
-          ${row.projectId},
-          ${row.spaceId ?? null},
+          ${row.folderId},
+          NULL,
           ${row.title},
           ${JSON.stringify(row.modelSelection)},
           ${row.runtimeMode},
@@ -153,8 +152,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
-          project_id AS "projectId",
-          space_id AS "spaceId",
+          project_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -194,12 +192,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
   const listProjectionThreadRows = SqlSchema.findAll({
     Request: ListProjectionThreadsByProjectInput,
     Result: ProjectionThreadDbRow,
-    execute: ({ projectId }) =>
+    execute: ({ folderId }) =>
       sql`
         SELECT
           thread_id AS "threadId",
-          project_id AS "projectId",
-          space_id AS "spaceId",
+          project_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -232,7 +229,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           archived_at AS "archivedAt",
           deleted_at AS "deletedAt"
         FROM projection_threads
-        WHERE project_id = ${projectId}
+        WHERE project_id = ${folderId}
         ORDER BY created_at ASC, thread_id ASC
       `,
   });
@@ -246,16 +243,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
       `,
   });
 
-  const clearSpaceAssignmentsRows = SqlSchema.void({
-    Request: ClearProjectionThreadSpaceAssignmentsInput,
-    execute: ({ spaceId, updatedAt }) => sql`
-      UPDATE projection_threads
-      SET space_id = NULL,
-          updated_at = CASE WHEN updated_at > ${updatedAt} THEN updated_at ELSE ${updatedAt} END
-      WHERE space_id = ${spaceId}
-    `,
-  });
-
   const upsert: ProjectionThreadRepositoryShape["upsert"] = (row) =>
     upsertProjectionThreadRow(row).pipe(
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.upsert:query")),
@@ -266,9 +253,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.getById:query")),
     );
 
-  const listByProjectId: ProjectionThreadRepositoryShape["listByProjectId"] = (input) =>
+  const listByFolderId: ProjectionThreadRepositoryShape["listByFolderId"] = (input) =>
     listProjectionThreadRows(input).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.listByProjectId:query")),
+      Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.listByFolderId:query")),
     );
 
   const deleteById: ProjectionThreadRepositoryShape["deleteById"] = (input) =>
@@ -277,15 +264,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
     );
 
   return {
-    clearSpaceAssignments: (input) =>
-      clearSpaceAssignmentsRows(input).pipe(
-        Effect.mapError(
-          toPersistenceSqlError("ProjectionThreadRepository.clearSpaceAssignments:query"),
-        ),
-      ),
     upsert,
     getById,
-    listByProjectId,
+    listByFolderId,
     deleteById,
   } satisfies ProjectionThreadRepositoryShape;
 });

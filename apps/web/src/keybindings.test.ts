@@ -328,7 +328,7 @@ const DEFAULT_BINDINGS = compile([
   },
   {
     shortcut: modShortcut("r", { altKey: true }),
-    command: "chat.newCursor",
+    command: "chat.newOpenCode",
     whenAst: whenCreationAllowed,
   },
   {
@@ -1091,7 +1091,7 @@ describe("chat/editor shortcuts", () => {
         platform: "MacIntel",
         context: { terminalFocus: false },
       }),
-      "chat.newCursor",
+      "chat.newOpenCode",
     );
     assert.strictEqual(
       resolveShortcutCommand(
@@ -1124,7 +1124,7 @@ describe("chat/editor shortcuts", () => {
           context: { terminalFocus: false },
         },
       ),
-      "chat.newCursor",
+      "chat.newOpenCode",
     );
   });
 
@@ -1539,7 +1539,7 @@ describe("resolveShortcutCommand", () => {
       (binding) =>
         binding.command !== "chat.newClaude" &&
         binding.command !== "chat.newCodex" &&
-        binding.command !== "chat.newCursor",
+        binding.command !== "chat.newOpenCode",
     );
 
     assert.strictEqual(
@@ -1561,7 +1561,7 @@ describe("resolveShortcutCommand", () => {
         platform: "MacIntel",
         context: { terminalFocus: false },
       }),
-      "chat.newCursor",
+      "chat.newOpenCode",
     );
     assert.strictEqual(
       resolveShortcutCommand(
@@ -1594,7 +1594,7 @@ describe("resolveShortcutCommand", () => {
           context: { terminalFocus: false },
         },
       ),
-      "chat.newCursor",
+      "chat.newOpenCode",
     );
   });
 });

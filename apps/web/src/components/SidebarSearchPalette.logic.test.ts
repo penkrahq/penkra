@@ -2,7 +2,7 @@ import { assert, describe, it } from "vitest";
 
 import {
   matchSidebarSearchActions,
-  matchSidebarSearchProjects,
+  matchSidebarSearchFolders,
   matchSidebarSearchThemes,
   matchSidebarSearchThreads,
   type SidebarSearchAction,
@@ -39,7 +39,7 @@ const actions: SidebarSearchAction[] = [
   },
 ];
 
-const projects: SidebarSearchProject[] = [
+const folders: SidebarSearchProject[] = [
   {
     id: "project-alpha",
     name: "Alpha Repo",
@@ -107,7 +107,7 @@ const threads: SidebarSearchThread[] = [
   {
     id: "thread-alpha-composer",
     title: "Composer refactor",
-    projectId: "project-alpha",
+    folderId: "project-alpha",
     projectName: "Alpha Repo",
     projectRemoteName: "Alpha Repo",
     spaceName: "Work",
@@ -123,7 +123,7 @@ const threads: SidebarSearchThread[] = [
   {
     id: "thread-alpha-compose-prompt",
     title: "composePrompt follow-up",
-    projectId: "project-alpha",
+    folderId: "project-alpha",
     projectName: "Alpha Repo",
     projectRemoteName: "Alpha Repo",
     spaceName: "Work",
@@ -142,7 +142,7 @@ const threads: SidebarSearchThread[] = [
   {
     id: "thread-beta-settings",
     title: "Settings cleanup",
-    projectId: "project-beta",
+    folderId: "project-beta",
     projectName: "Docs",
     projectRemoteName: "Beta Repo",
     spaceName: "Personal",
@@ -228,23 +228,23 @@ describe("SidebarSearchPalette.logic", () => {
     );
   });
 
-  it("matches projects by repo name before cwd fragments", () => {
-    const result = matchSidebarSearchProjects(projects, "alpha");
+  it("matches folders by repo name before cwd fragments", () => {
+    const result = matchSidebarSearchFolders(folders, "alpha");
 
     assert.lengthOf(result, 1);
     assert.equal(result[0]?.project.id, "project-alpha");
   });
 
-  it("matches projects by original name when a local name override exists", () => {
-    const result = matchSidebarSearchProjects(projects, "beta");
+  it("matches folders by original name when a local name override exists", () => {
+    const result = matchSidebarSearchFolders(folders, "beta");
 
     assert.lengthOf(result, 1);
     assert.equal(result[0]?.project.id, "project-beta");
   });
 
-  it("matches projects and threads through their space label", () => {
+  it("matches folders and threads through their space label", () => {
     assert.deepEqual(
-      matchSidebarSearchProjects(projects, "work").map((match) => match.project.id),
+      matchSidebarSearchFolders(folders, "work").map((match) => match.project.id),
       ["project-alpha"],
     );
     assert.deepEqual(
@@ -269,7 +269,7 @@ describe("SidebarSearchPalette.logic", () => {
       result.map((match) => match.thread.id),
       ["thread-beta-settings"],
     );
-    assert.equal(result[0]?.matchKind, "project");
+    assert.equal(result[0]?.matchKind, "folder");
   });
 
   it("can match threads through the original project name", () => {
@@ -279,7 +279,7 @@ describe("SidebarSearchPalette.logic", () => {
       result.map((match) => match.thread.id),
       ["thread-beta-settings"],
     );
-    assert.equal(result[0]?.matchKind, "project");
+    assert.equal(result[0]?.matchKind, "folder");
   });
 
   it("can match message content and returns a snippet", () => {

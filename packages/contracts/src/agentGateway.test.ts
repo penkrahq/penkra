@@ -3,14 +3,14 @@ import { Schema } from "effect";
 
 import {
   PenkraCapabilitiesResult,
-  PenkraCreateThreadsInput,
-  PenkraCreateThreadsResult,
+  PenkraCreateThreadInput,
+  PenkraCreateThreadResult,
   PenkraGatewayErrorResult,
   PenkraWaitForThreadsInput,
   PenkraWaitForThreadsResult,
 } from "./agentGateway";
 
-const decodeCreate = Schema.decodeUnknownSync(PenkraCreateThreadsInput);
+const decodeCreate = Schema.decodeUnknownSync(PenkraCreateThreadInput);
 const decodeWait = Schema.decodeUnknownSync(PenkraWaitForThreadsInput);
 
 const thread = {
@@ -23,52 +23,38 @@ const thread = {
 } as const;
 
 describe("agent gateway contracts", () => {
-  it("accepts one through twenty exact creation entries", () => {
-    assert.equal(decodeCreate({ requestId: "request-1", threads: [thread] }).threads.length, 1);
-    assert.equal(
-      decodeCreate({ requestId: "request-20", threads: Array.from({ length: 20 }, () => thread) })
-        .threads.length,
-      20,
-    );
-  });
-
-  it("rejects empty and oversized creation plans", () => {
-    assert.throws(() => decodeCreate({ requestId: "empty", threads: [] }));
-    assert.throws(() =>
-      decodeCreate({ requestId: "too-many", threads: Array.from({ length: 21 }, () => thread) }),
-    );
+  it("accepts one exact creation request", () => {
+    assert.deepEqual(decodeCreate({ requestId: "request-1", ...thread }).target, thread.target);
   });
 
   it("requires a bounded request id", () => {
-    assert.throws(() => decodeCreate({ requestId: "", threads: [thread] }));
-    assert.throws(() => decodeCreate({ requestId: "x".repeat(257), threads: [thread] }));
+    assert.throws(() => decodeCreate({ requestId: "", ...thread }));
+    assert.throws(() => decodeCreate({ requestId: "x".repeat(257), ...thread }));
   });
 
   it("rejects removed Git environment creation fields", () => {
     assert.throws(() =>
       decodeCreate({
         requestId: "removed-git-fields",
-        threads: [{ ...thread, environment: "worktree", baseRef: "0123456789abcdef" }],
+        ...thread,
+        environment: "worktree",
+        baseRef: "0123456789abcdef",
       }),
     );
   });
 
   it("decodes provider-specific model options without folding them into the slug", () => {
-    const decoded = decodeCreate({ requestId: "terra-low", threads: [thread] });
-    assert.deepEqual(decoded.threads[0]?.target, thread.target);
+    const decoded = decodeCreate({ requestId: "terra-low", ...thread });
+    assert.deepEqual(decoded.target, thread.target);
     assert.throws(() =>
       decodeCreate({
         requestId: "cross-provider-options",
-        threads: [
-          {
-            prompt: "invalid",
-            target: {
-              provider: "claudeAgent",
-              model: "claude-sonnet-5",
-              options: { reasoningEffort: "low" },
-            },
-          },
-        ],
+        prompt: "invalid",
+        target: {
+          provider: "claudeAgent",
+          model: "claude-sonnet-5",
+          options: { reasoningEffort: "low" },
+        },
       }),
     );
   });
@@ -124,32 +110,23 @@ describe("agent gateway contracts", () => {
           },
         ],
         limits: {
-          maxThreadsPerOperation: 20,
+          maxThreadsPerWait: 20,
           maxWaitMs: 60_000,
-          oneCreationPlanPerActiveTurn: true,
         },
       }),
     );
     assert.doesNotThrow(() =>
-      Schema.decodeUnknownSync(PenkraCreateThreadsResult)({
+      Schema.decodeUnknownSync(PenkraCreateThreadResult)({
         operationId: "gateway:create:1",
         requestId: "request-1",
-        requestedCount: 1,
-        createdCount: 1,
-        threadIds: ["thread-1"],
-        threads: [
-          {
-            index: 0,
-            threadId: "thread-1",
-            projectId: "project-1",
-            title: "Worker",
-            target: thread.target,
-            provider: "codex",
-            model: "gpt-5.6-terra",
-            runtimeMode: "approval-required",
-            status: "task_dispatched",
-          },
-        ],
+        threadId: "thread-1",
+        folderId: "project-1",
+        title: "Worker",
+        target: thread.target,
+        provider: "codex",
+        model: "gpt-5.6-terra",
+        runtimeMode: "approval-required",
+        status: "task_dispatched",
       }),
     );
     assert.doesNotThrow(() =>
@@ -178,7 +155,7 @@ describe("agent gateway contracts", () => {
     );
     assert.doesNotThrow(() =>
       Schema.decodeUnknownSync(PenkraGatewayErrorResult)({
-        error: { code: "creation_plan_locked", message: "A plan already exists." },
+        error: { code: "operation_failed", message: "Creation failed." },
       }),
     );
   });

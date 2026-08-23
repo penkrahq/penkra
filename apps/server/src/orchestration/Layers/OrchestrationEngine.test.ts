@@ -1,7 +1,7 @@
 import {
   CommandId,
   MessageId,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
   TurnId,
@@ -53,7 +53,7 @@ vi.mock("../commandFingerprint.ts", async (importOriginal) => {
   };
 });
 
-const asProjectId = (value: string): ContainerId => ContainerId.makeUnsafe(value);
+const asFolderId = (value: string): FolderId => FolderId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 
 const makeThreadEventReadMethods = (
@@ -135,10 +135,9 @@ describe("OrchestrationEngine", () => {
 
     await system.run(
       system.engine.dispatch({
-        type: "project.create",
-        kind: "project",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-engine-quiesce-project"),
-        projectId: asProjectId("project-engine-quiesce"),
+        folderId: asFolderId("project-engine-quiesce"),
         spaceId: TEST_SPACE_ID,
         title: "Engine quiesce",
         workspaceRoot: null,
@@ -151,7 +150,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-engine-quiesce-thread"),
         threadId,
-        projectId: asProjectId("project-engine-quiesce"),
+        folderId: asFolderId("project-engine-quiesce"),
         title: "Engine quiesce thread",
         modelSelection: {
           provider: "codex",
@@ -166,7 +165,7 @@ describe("OrchestrationEngine", () => {
     await expect(
       system.run(
         system.engine.dispatch({
-          type: "thread.meta.update",
+          type: "thread.update",
           commandId: CommandId.makeUnsafe("cmd-engine-quiesce-normal"),
           threadId,
           title: "Rejected after quiesce",
@@ -235,10 +234,10 @@ describe("OrchestrationEngine", () => {
   it("returns the original result for an equal retry and rejects unequal command-ID reuse", async () => {
     const system = await createOrchestrationSystem();
     const command = {
-      type: "project.create" as const,
-      kind: "project" as const,
+      type: "folder.create" as const,
+      kind: "folder" as const,
       commandId: CommandId.makeUnsafe("cmd-fingerprint-retry"),
-      projectId: asProjectId("project-fingerprint-retry"),
+      folderId: asFolderId("project-fingerprint-retry"),
       spaceId: TEST_SPACE_ID,
       title: "Fingerprint project",
       workspaceRoot: null,
@@ -274,10 +273,9 @@ describe("OrchestrationEngine", () => {
 
     await system.run(
       engine.dispatch({
-        type: "project.create",
-        kind: "project",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-project-1-create"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         spaceId: TEST_SPACE_ID,
         title: "Project 1",
         workspaceRoot: null,
@@ -293,7 +291,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-1-create"),
         threadId: ThreadId.makeUnsafe("thread-1"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Thread",
         modelSelection: {
           provider: "codex",
@@ -331,10 +329,10 @@ describe("OrchestrationEngine", () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;
     const command = {
-      type: "project.create" as const,
-      kind: "project" as const,
+      type: "folder.create" as const,
+      kind: "folder" as const,
       commandId: CommandId.makeUnsafe("cmd-project-command-identity"),
-      projectId: asProjectId("project-command-identity"),
+      folderId: asFolderId("project-command-identity"),
       spaceId: TEST_SPACE_ID,
       title: "Original identity",
       workspaceRoot: null,
@@ -352,7 +350,7 @@ describe("OrchestrationEngine", () => {
       Stream.runCollect(engine.readEvents(0)).pipe(Effect.map((chunk) => Array.from(chunk))),
     );
     expect(events).toHaveLength(2);
-    expect((await system.run(engine.getReadModel())).projects[0]?.title).toBe("Original identity");
+    expect((await system.run(engine.getReadModel())).folders[0]?.title).toBe("Original identity");
     await system.dispose();
   });
 
@@ -367,10 +365,9 @@ describe("OrchestrationEngine", () => {
 
     await system.run(
       engine.dispatch({
-        type: "project.create",
-        kind: "project",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-managed-attachment-project"),
-        projectId: asProjectId("project-managed-attachment"),
+        folderId: asFolderId("project-managed-attachment"),
         spaceId: TEST_SPACE_ID,
         title: "Managed attachment project",
         workspaceRoot: null,
@@ -383,7 +380,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-managed-attachment-thread"),
         threadId,
-        projectId: asProjectId("project-managed-attachment"),
+        folderId: asFolderId("project-managed-attachment"),
         title: "Managed attachment thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
@@ -495,10 +492,9 @@ describe("OrchestrationEngine", () => {
 
     await system.run(
       engine.dispatch({
-        type: "project.create",
-        kind: "project",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-project-replay-create"),
-        projectId: asProjectId("project-replay"),
+        folderId: asFolderId("project-replay"),
         spaceId: TEST_SPACE_ID,
         title: "Replay Project",
         workspaceRoot: null,
@@ -514,7 +510,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-replay-create"),
         threadId: ThreadId.makeUnsafe("thread-replay"),
-        projectId: asProjectId("project-replay"),
+        folderId: asFolderId("project-replay"),
         title: "replay",
         modelSelection: {
           provider: "codex",
@@ -539,7 +535,7 @@ describe("OrchestrationEngine", () => {
     );
     expect(events.map((event) => event.type)).toEqual([
       "space.created",
-      "project.created",
+      "folder.created",
       "thread.created",
       "thread.deleted",
     ]);
@@ -553,10 +549,9 @@ describe("OrchestrationEngine", () => {
 
     await system.run(
       engine.dispatch({
-        type: "project.create",
-        kind: "project",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-project-stream-create"),
-        projectId: asProjectId("project-stream"),
+        folderId: asFolderId("project-stream"),
         spaceId: TEST_SPACE_ID,
         title: "Stream Project",
         workspaceRoot: null,
@@ -582,7 +577,7 @@ describe("OrchestrationEngine", () => {
           type: "thread.create",
           commandId: CommandId.makeUnsafe("cmd-stream-thread-create"),
           threadId: ThreadId.makeUnsafe("thread-stream"),
-          projectId: asProjectId("project-stream"),
+          folderId: asFolderId("project-stream"),
           title: "domain-stream",
           modelSelection: {
             provider: "codex",
@@ -592,7 +587,7 @@ describe("OrchestrationEngine", () => {
           createdAt,
         });
         yield* engine.dispatch({
-          type: "thread.meta.update",
+          type: "thread.update",
           commandId: CommandId.makeUnsafe("cmd-stream-thread-update"),
           threadId: ThreadId.makeUnsafe("thread-stream"),
           title: "domain-stream-updated",
@@ -602,7 +597,7 @@ describe("OrchestrationEngine", () => {
       }).pipe(Effect.scoped),
     );
 
-    expect(eventTypes).toEqual(["thread.created", "thread.meta-updated"]);
+    expect(eventTypes).toEqual(["thread.created", "thread.updated"]);
     await system.dispose();
   });
 
@@ -663,10 +658,9 @@ describe("OrchestrationEngine", () => {
 
     await runtime.runPromise(
       engine.dispatch({
-        type: "project.create",
-        kind: "project",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-project-flaky-create"),
-        projectId: asProjectId("project-flaky"),
+        folderId: asFolderId("project-flaky"),
         spaceId: TEST_SPACE_ID,
         title: "Flaky Project",
         workspaceRoot: null,
@@ -684,7 +678,7 @@ describe("OrchestrationEngine", () => {
           type: "thread.create",
           commandId: CommandId.makeUnsafe("cmd-flaky-1"),
           threadId: ThreadId.makeUnsafe("thread-flaky-fail"),
-          projectId: asProjectId("project-flaky"),
+          folderId: asFolderId("project-flaky"),
           title: "flaky-fail",
           modelSelection: {
             provider: "codex",
@@ -701,7 +695,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-flaky-2"),
         threadId: ThreadId.makeUnsafe("thread-flaky-ok"),
-        projectId: asProjectId("project-flaky"),
+        folderId: asFolderId("project-flaky"),
         title: "flaky-ok",
         modelSelection: {
           provider: "codex",
@@ -721,7 +715,7 @@ describe("OrchestrationEngine", () => {
     let shouldFailRequestedProjection = true;
     const flakyProjectionPipeline: OrchestrationProjectionPipelineShape = {
       bootstrap: Effect.void,
-      projectMetadataEvent: () => Effect.void,
+      folderMetadataEvent: () => Effect.void,
       projectEvent: () => Effect.void,
       projectHotEventInCurrentTransaction: (event) => {
         if (
@@ -759,10 +753,9 @@ describe("OrchestrationEngine", () => {
 
     await runtime.runPromise(
       engine.dispatch({
-        type: "project.create",
-        kind: "project",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-project-atomic-create"),
-        projectId: asProjectId("project-atomic"),
+        folderId: asFolderId("project-atomic"),
         spaceId: TEST_SPACE_ID,
         title: "Atomic Project",
         workspaceRoot: null,
@@ -778,7 +771,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-atomic-create"),
         threadId: ThreadId.makeUnsafe("thread-atomic"),
-        projectId: asProjectId("project-atomic"),
+        folderId: asFolderId("project-atomic"),
         title: "atomic",
         modelSelection: {
           provider: "codex",
@@ -814,7 +807,7 @@ describe("OrchestrationEngine", () => {
     );
     expect(eventsAfterFailure.map((event) => event.type)).toEqual([
       "space.created",
-      "project.created",
+      "folder.created",
       "thread.created",
     ]);
     // The failed command must not advance the in-memory model past the last
@@ -832,7 +825,7 @@ describe("OrchestrationEngine", () => {
     );
     expect(eventsAfterRetry.map((event) => event.type)).toEqual([
       "space.created",
-      "project.created",
+      "folder.created",
       "thread.created",
       "thread.message-sent",
       "thread.turn-start-requested",
@@ -877,7 +870,7 @@ describe("OrchestrationEngine", () => {
     let shouldDieProjection = true;
     const defectiveProjectionPipeline: OrchestrationProjectionPipelineShape = {
       bootstrap: Effect.void,
-      projectMetadataEvent: (event) => {
+      folderMetadataEvent: (event) => {
         if (
           shouldDieProjection &&
           event.commandId === CommandId.makeUnsafe("cmd-project-defect-1")
@@ -910,10 +903,9 @@ describe("OrchestrationEngine", () => {
     await expect(
       runtime.runPromise(
         engine.dispatch({
-          type: "project.create",
-          kind: "project",
+          type: "folder.create",
           commandId: CommandId.makeUnsafe("cmd-project-defect-1"),
-          projectId: asProjectId("project-defect-1"),
+          folderId: asFolderId("project-defect-1"),
           spaceId: TEST_SPACE_ID,
           title: "Defective Project",
           workspaceRoot: null,
@@ -929,10 +921,9 @@ describe("OrchestrationEngine", () => {
     await expect(
       runtime.runPromise(
         engine.dispatch({
-          type: "project.create",
-          kind: "project",
+          type: "folder.create",
           commandId: CommandId.makeUnsafe("cmd-project-defect-2"),
-          projectId: asProjectId("project-defect-2"),
+          folderId: asFolderId("project-defect-2"),
           spaceId: TEST_SPACE_ID,
           title: "Recovered Project",
           workspaceRoot: null,
@@ -959,7 +950,7 @@ describe("OrchestrationEngine", () => {
       CommandId.makeUnsafe("cmd-project-defect-1"),
       CommandId.makeUnsafe("cmd-project-defect-2"),
     ]);
-    expect(eventsAfterRecovery.slice(1).every((event) => event.type === "project.created")).toBe(
+    expect(eventsAfterRecovery.slice(1).every((event) => event.type === "folder.created")).toBe(
       true,
     );
 
@@ -999,7 +990,7 @@ describe("OrchestrationEngine", () => {
     let shouldFailProjection = true;
     const flakyProjectionPipeline: OrchestrationProjectionPipelineShape = {
       bootstrap: Effect.void,
-      projectMetadataEvent: () => Effect.void,
+      folderMetadataEvent: () => Effect.void,
       projectEvent: () => Effect.void,
       projectHotEventInCurrentTransaction: (event) => {
         if (
@@ -1036,10 +1027,9 @@ describe("OrchestrationEngine", () => {
 
     await runtime.runPromise(
       engine.dispatch({
-        type: "project.create",
-        kind: "project",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-project-sync-create"),
-        projectId: asProjectId("project-sync"),
+        folderId: asFolderId("project-sync"),
         spaceId: TEST_SPACE_ID,
         title: "Sync Project",
         workspaceRoot: null,
@@ -1055,7 +1045,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-sync-create"),
         threadId: ThreadId.makeUnsafe("thread-sync"),
-        projectId: asProjectId("project-sync"),
+        folderId: asFolderId("project-sync"),
         title: "sync-before",
         modelSelection: {
           provider: "codex",
@@ -1069,7 +1059,7 @@ describe("OrchestrationEngine", () => {
     await expect(
       runtime.runPromise(
         engine.dispatch({
-          type: "thread.meta.update",
+          type: "thread.update",
           commandId: CommandId.makeUnsafe("cmd-thread-meta-sync-fail"),
           threadId: ThreadId.makeUnsafe("thread-sync"),
           title: "sync-after-failed-projection",
@@ -1082,7 +1072,7 @@ describe("OrchestrationEngine", () => {
         Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)),
       ),
     );
-    expect(eventsAfterFailure.at(-1)?.type).toBe("thread.meta-updated");
+    expect(eventsAfterFailure.at(-1)?.type).toBe("thread.updated");
     expect(eventsAfterFailure.at(-1)?.sequence).toBe(4);
 
     await runtime.dispose();
@@ -1137,7 +1127,7 @@ describe("OrchestrationEngine", () => {
         }
         return Effect.void;
       }),
-      projectMetadataEvent: () => Effect.void,
+      folderMetadataEvent: () => Effect.void,
       projectEvent: () => Effect.void,
       projectHotEventInCurrentTransaction: () => Effect.void,
       projectDeferredEvent: () => {
@@ -1171,10 +1161,9 @@ describe("OrchestrationEngine", () => {
 
     await runtime.runPromise(
       engine.dispatch({
-        type: "project.create",
-        kind: "project",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-project-deferred-recovery"),
-        projectId: asProjectId("project-deferred-recovery"),
+        folderId: asFolderId("project-deferred-recovery"),
         spaceId: TEST_SPACE_ID,
         title: "Deferred Recovery Project",
         workspaceRoot: null,
@@ -1190,7 +1179,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-deferred-recovery"),
         threadId: ThreadId.makeUnsafe("thread-deferred-recovery"),
-        projectId: asProjectId("project-deferred-recovery"),
+        folderId: asFolderId("project-deferred-recovery"),
         title: "deferred-recovery",
         modelSelection: {
           provider: "codex",
@@ -1237,7 +1226,7 @@ describe("OrchestrationEngine", () => {
   it("restores the repair backup when rebuilt projectors do not reach the captured fence", async () => {
     const nonAdvancingProjectionPipeline: OrchestrationProjectionPipelineShape = {
       bootstrap: Effect.void,
-      projectMetadataEvent: () => Effect.void,
+      folderMetadataEvent: () => Effect.void,
       projectEvent: () => Effect.void,
       projectHotEventInCurrentTransaction: () => Effect.void,
       projectDeferredEvent: () => Effect.void,
@@ -1261,10 +1250,9 @@ describe("OrchestrationEngine", () => {
 
     await runtime.runPromise(
       engine.dispatch({
-        type: "project.create",
-        kind: "project",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-project-repair-fence"),
-        projectId: asProjectId("project-repair-fence"),
+        folderId: asFolderId("project-repair-fence"),
         spaceId: TEST_SPACE_ID,
         title: "Repair Fence Project",
         workspaceRoot: null,
@@ -1290,11 +1278,10 @@ describe("OrchestrationEngine", () => {
     await expect(
       system.run(
         engine.dispatch({
-          type: "project.create",
+          type: "folder.create",
           commandId: CommandId.makeUnsafe("cmd-folder-with-root"),
-          projectId: asProjectId("folder-with-root"),
+          folderId: asFolderId("folder-with-root"),
           spaceId: TEST_SPACE_ID,
-          kind: "project",
           title: "Folder",
           workspaceRoot: "/tmp/folder-root",
           defaultModelSelection: null,
@@ -1313,10 +1300,9 @@ describe("OrchestrationEngine", () => {
 
     await system.run(
       engine.dispatch({
-        type: "project.create",
-        kind: "project",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-project-duplicate-create"),
-        projectId: asProjectId("project-duplicate"),
+        folderId: asFolderId("project-duplicate"),
         spaceId: TEST_SPACE_ID,
         title: "Duplicate Project",
         workspaceRoot: null,
@@ -1333,7 +1319,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-duplicate-1"),
         threadId: ThreadId.makeUnsafe("thread-duplicate"),
-        projectId: asProjectId("project-duplicate"),
+        folderId: asFolderId("project-duplicate"),
         title: "duplicate",
         modelSelection: {
           provider: "codex",
@@ -1350,7 +1336,7 @@ describe("OrchestrationEngine", () => {
           type: "thread.create",
           commandId: CommandId.makeUnsafe("cmd-thread-duplicate-2"),
           threadId: ThreadId.makeUnsafe("thread-duplicate"),
-          projectId: asProjectId("project-duplicate"),
+          folderId: asFolderId("project-duplicate"),
           title: "duplicate",
           modelSelection: {
             provider: "codex",
@@ -1375,10 +1361,9 @@ describe("OrchestrationEngine", () => {
       const poisonedOutcome = await system.run(
         Effect.result(
           system.engine.dispatch({
-            type: "project.create",
-            kind: "project",
+            type: "folder.create",
             commandId: poisonedCommandId,
-            projectId: asProjectId("project-engine-poison"),
+            folderId: asFolderId("project-engine-poison"),
             spaceId: TEST_SPACE_ID,
             title: "Poisoned",
             workspaceRoot: null,
@@ -1401,10 +1386,9 @@ describe("OrchestrationEngine", () => {
       await expect(
         system.run(
           system.engine.dispatch({
-            type: "project.create",
-            kind: "project",
+            type: "folder.create",
             commandId: CommandId.makeUnsafe("cmd-engine-poison-next"),
-            projectId: asProjectId("project-engine-poison-next"),
+            folderId: asFolderId("project-engine-poison-next"),
             spaceId: TEST_SPACE_ID,
             title: "After poison",
             workspaceRoot: null,

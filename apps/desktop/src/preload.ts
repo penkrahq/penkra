@@ -206,6 +206,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     frameMessage: (input) => ipcRenderer.invoke(IPC.appTabs.frameMessage, input),
     frameReady: (input) => ipcRenderer.invoke(IPC.appTabs.frameReady, input),
     browserWebviewAttach: (input) => ipcRenderer.invoke(IPC.appTabs.browserWebviewAttach, input),
+    browserWebviewDidFailLoad: (input) =>
+      ipcRenderer.invoke(IPC.appTabs.browserWebviewDidFailLoad, input),
     browserWebviewDetach: (input) => ipcRenderer.invoke(IPC.appTabs.browserWebviewDetach, input),
     navigate: (input) => ipcRenderer.invoke(IPC.appTabs.navigate, input),
     close: (input) => ipcRenderer.invoke(IPC.appTabs.close, input),

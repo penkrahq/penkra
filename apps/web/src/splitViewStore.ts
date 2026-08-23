@@ -3,7 +3,7 @@
 // Layer: UI state store
 // Exports: pane/split types, tree-aware selectors, and id-based mutation helpers used by sidebar and route surfaces
 
-import { type ContainerId, type ThreadId } from "@penkra/contracts";
+import { type FolderId, type ThreadId } from "@penkra/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -46,7 +46,7 @@ export type Pane = LeafPane | SplitNode;
 export interface SplitView {
   id: SplitViewId;
   sourceThreadId: ThreadId;
-  ownerProjectId: ContainerId;
+  ownerFolderId: FolderId;
   root: Pane;
   focusedPaneId: PaneId;
   createdAt: string;
@@ -55,12 +55,12 @@ export interface SplitView {
 
 interface CreateFromThreadInput {
   sourceThreadId: ThreadId;
-  ownerProjectId: ContainerId;
+  ownerFolderId: FolderId;
 }
 
 interface CreateFromDropInput {
   sourceThreadId: ThreadId;
-  ownerProjectId: ContainerId;
+  ownerFolderId: FolderId;
   droppedThreadId: ThreadId;
   direction: SplitDirection;
   side: SplitDropSide;
@@ -141,7 +141,7 @@ function buildSplitViewFromThread(input: CreateFromThreadInput): SplitView {
   return {
     id: randomUUID(),
     sourceThreadId: input.sourceThreadId,
-    ownerProjectId: input.ownerProjectId,
+    ownerFolderId: input.ownerFolderId,
     root,
     focusedPaneId: emptyLeaf.id,
     createdAt: now,
@@ -164,7 +164,7 @@ function buildSplitViewFromDrop(
   return {
     id: existing?.id ?? randomUUID(),
     sourceThreadId: input.sourceThreadId,
-    ownerProjectId: input.ownerProjectId,
+    ownerFolderId: input.ownerFolderId,
     root,
     focusedPaneId: droppedLeaf.id,
     createdAt: existing?.createdAt ?? now,

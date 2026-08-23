@@ -24,7 +24,10 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect, Exit, Fiber, Layer, Random, Stream } from "effect";
 
 import { attachmentRelativePath } from "../../attachmentStore.ts";
-import { PENKRA_HARNESS_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
+import {
+  PENKRA_HARNESS_POLICY_MARKER,
+  renderPenkraHarnessPolicy,
+} from "../../agentGateway/harnessPolicy.ts";
 import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
@@ -41,11 +44,32 @@ import { ServerConfig } from "../../config.ts";
 import { ProviderAdapterRequestError, ProviderAdapterValidationError } from "../Errors.ts";
 import { ClaudeAdapter } from "../Services/ClaudeAdapter.ts";
 import {
-  buildEmbeddedClaudeSystemPromptAppend,
-  makeClaudeAdapterLive,
+  PENKRA_SYSTEM_PROMPT,
+  makeClaudeAdapterLive as makeClaudeAdapterLiveBase,
   type ClaudeAdapterLiveOptions,
   type ClaudeOwnedProcess,
 } from "./ClaudeAdapter.ts";
+
+function makeClaudeAdapterLive(options?: ClaudeAdapterLiveOptions) {
+  const gateway = makeGatewayCredentialsHarness();
+  const bridge = makeAgentGatewayToolBridge();
+  bridge.install({
+    definitions: [
+      {
+        name: PENKRA_EXEC_COMMAND_NAME,
+        description: PENKRA_EXEC_COMMAND_DESCRIPTION,
+        inputSchema: PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
+        annotations: PENKRA_EXEC_COMMAND_ANNOTATIONS,
+      },
+    ],
+    invoke: async () => ({ content: [{ type: "text", text: "ok" }] }),
+  });
+  return makeClaudeAdapterLiveBase({
+    ...options,
+    agentGatewayCredentials: options?.agentGatewayCredentials ?? gateway.credentials,
+    agentGatewayToolBridge: options?.agentGatewayToolBridge ?? bridge,
+  });
+}
 
 class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   private readonly queue: Array<SDKMessage> = [];
@@ -246,6 +270,19 @@ function makeHarness(config?: {
       : {}),
   };
 
+  const gateway = makeGatewayCredentialsHarness();
+  const bridge = makeAgentGatewayToolBridge();
+  bridge.install({
+    definitions: [
+      {
+        name: PENKRA_EXEC_COMMAND_NAME,
+        description: PENKRA_EXEC_COMMAND_DESCRIPTION,
+        inputSchema: PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
+        annotations: PENKRA_EXEC_COMMAND_ANNOTATIONS,
+      },
+    ],
+    invoke: async () => ({ content: [{ type: "text", text: "ok" }] }),
+  });
   return {
     layer: makeClaudeAdapterLive(adapterOptions).pipe(
       Layer.provideMerge(
@@ -255,6 +292,8 @@ function makeHarness(config?: {
         ),
       ),
       Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(Layer.succeed(AgentGatewayCredentials, gateway.credentials)),
+      Layer.provideMerge(Layer.succeed(AgentGatewayToolBridge, bridge)),
     ),
     query,
     getLastCreateQueryInput: () => createInput,
@@ -284,7 +323,9 @@ function makeMultiQueryHarness(config?: {
     Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
     Layer.provideMerge(NodeServices.layer),
   );
-  if (config?.gatewayCredentials) {
+  {
+    const gatewayCredentials =
+      config?.gatewayCredentials ?? makeGatewayCredentialsHarness().credentials;
     const bridge = makeAgentGatewayToolBridge();
     bridge.install({
       definitions: [
@@ -298,7 +339,7 @@ function makeMultiQueryHarness(config?: {
       invoke: async () => ({ content: [{ type: "text", text: "ok" }] }),
     });
     layer = layer.pipe(
-      Layer.provideMerge(Layer.succeed(AgentGatewayCredentials, config.gatewayCredentials)),
+      Layer.provideMerge(Layer.succeed(AgentGatewayCredentials, gatewayCredentials)),
       Layer.provideMerge(Layer.succeed(AgentGatewayToolBridge, bridge)),
     );
   }
@@ -399,17 +440,12 @@ const THREAD_ID = ThreadId.makeUnsafe("thread-claude-1");
 const RESUME_THREAD_ID = ThreadId.makeUnsafe("thread-claude-resume");
 
 describe("Claude Penkra harness policy", () => {
-  it("advertises scoped MCP additively when credentials are available", () => {
-    const text = buildEmbeddedClaudeSystemPromptAppend(true);
-    assert.include(text, PENKRA_HARNESS_POLICY_MARKER);
-    assert.include(text, "Use `penkra_exec_command` for every Penkra operation");
-    assert.notInclude(text, "Penkra MCP control is unavailable");
-  });
-
-  it("stays truthful when scoped MCP credentials are absent", () => {
-    const text = buildEmbeddedClaudeSystemPromptAppend(false);
-    assert.include(text, PENKRA_HARNESS_POLICY_MARKER);
-    assert.include(text, "Penkra MCP control is unavailable");
+  it("uses the canonical Penkra system prompt", () => {
+    // Assert delivery, not phrasing: the document is owned by
+    // agentGateway/instructions/INSTRUCTIONS.md and is meant to be rewritten.
+    assert.include(PENKRA_SYSTEM_PROMPT, PENKRA_HARNESS_POLICY_MARKER);
+    assert.include(PENKRA_SYSTEM_PROMPT, "penkra_exec_command");
+    assert.strictEqual(PENKRA_SYSTEM_PROMPT, renderPenkraHarnessPolicy());
   });
 });
 
@@ -555,22 +591,7 @@ describe("ClaudeAdapterLive", () => {
       assert.equal(createInput?.options.permissionMode, undefined);
       assert.equal(createInput?.options.allowDangerouslySkipPermissions, undefined);
       const systemPrompt = createInput?.options.systemPrompt;
-      if (
-        systemPrompt === undefined ||
-        typeof systemPrompt === "string" ||
-        Array.isArray(systemPrompt) ||
-        systemPrompt.type !== "preset"
-      ) {
-        return assert.fail("Expected Claude preset system prompt.");
-      }
-      assert.equal(systemPrompt.preset, "claude_code");
-      assert.equal(systemPrompt.excludeDynamicSections, true);
-      assert.include(systemPrompt.append ?? "", "When spawning subagents");
-      assert.include(systemPrompt.append ?? "", "worker-<tier>");
-      assert.include(systemPrompt.append ?? "", PENKRA_HARNESS_POLICY_MARKER);
-      assert.include(systemPrompt.append ?? "", "Penkra is the host and harness");
-      // This characterization harness intentionally omits gateway credentials.
-      assert.include(systemPrompt.append ?? "", "Penkra MCP control is unavailable");
+      assert.equal(systemPrompt, PENKRA_SYSTEM_PROMPT);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -1203,7 +1224,7 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("projects unsupported Claude image types as readable file attachments", () => {
+  it.effect("folders unsupported Claude image types as readable file attachments", () => {
     const baseDir = mkdtempSync(path.join(os.tmpdir(), "claude-svg-attachments-"));
     const harness = makeHarness({
       cwd: "/tmp/project-claude-svg-attachments",
@@ -1992,7 +2013,7 @@ describe("ClaudeAdapterLive", () => {
   // Subagent conversations arrive as complete assistant/user messages only — the CLI
   // forwards no stream events for them — so every message after the first, and every
   // tool call, must project from the snapshots alone.
-  it.effect("projects a complete-message subagent conversation onto the child thread", () => {
+  it.effect("folders a complete-message subagent conversation onto the child thread", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -2115,7 +2136,7 @@ describe("ClaudeAdapterLive", () => {
         true,
       );
 
-      // Every assistant message's text projects — not just the first one.
+      // Every assistant message's text folders — not just the first one.
       const childDeltaText = childEvents
         .filter((event) => event.type === "content.delta")
         .map((event) => (event.type === "content.delta" ? event.payload.delta : ""))
@@ -2606,7 +2627,7 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("projects attachment-only steer messages as disk-path references", () => {
+  it.effect("folders attachment-only steer messages as disk-path references", () => {
     const baseDir = mkdtempSync(path.join(os.tmpdir(), "claude-steer-attachments-"));
     const harness = makeHarness({ baseDir });
     return Effect.gen(function* () {
@@ -6429,19 +6450,11 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         "worker-xhigh",
       ]);
 
-      // Worker tiers carry only an effort override (model inherits so the Agent
-      // tool's `model` input composes), and the system prompt teaches the model
-      // to pick them per task complexity.
+      // Worker tiers carry only an effort override so the Agent tool's model
+      // input composes with the selected tier.
       const workerHigh = createInput?.options.agents?.["worker-high"];
       assert.equal(workerHigh?.effort, "high");
       assert.equal(workerHigh?.model, undefined);
-      const systemPrompt = createInput?.options.systemPrompt;
-      const append =
-        systemPrompt && !Array.isArray(systemPrompt) && typeof systemPrompt === "object"
-          ? systemPrompt.append
-          : undefined;
-      assert.include(append ?? "", "worker-xhigh");
-      assert.include(append ?? "", "`model` parameter");
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

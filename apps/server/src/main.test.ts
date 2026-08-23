@@ -751,7 +751,7 @@ it.layer(testLayer)("server CLI command", (it) => {
       const getCounts = vi.fn(() =>
         Effect.succeed({
           threadCount: 2,
-          projectCount: 1,
+          folderCount: 1,
         }),
       );
 
@@ -761,7 +761,7 @@ it.layer(testLayer)("server CLI command", (it) => {
             Effect.succeed({
               snapshotSequence: 0,
               spaces: [],
-              projects: [] as OrchestrationReadModel["projects"],
+              folders: [] as OrchestrationReadModel["folders"],
               threads: [] as OrchestrationReadModel["threads"],
               updatedAt: new Date(0).toISOString(),
             }),
@@ -769,7 +769,7 @@ it.layer(testLayer)("server CLI command", (it) => {
             Effect.succeed({
               snapshotSequence: 0,
               spaces: [],
-              projects: [] as OrchestrationReadModel["projects"],
+              folders: [] as OrchestrationReadModel["folders"],
               threads: [] as OrchestrationReadModel["threads"],
               updatedAt: new Date(0).toISOString(),
             }),
@@ -778,10 +778,10 @@ it.layer(testLayer)("server CLI command", (it) => {
           listStaleInFlightThreadIds: () => Effect.die("unused"),
           listOpenTurnCounts: () => Effect.succeed([]),
           getShellSnapshot: () => Effect.die("unused"),
-          getActiveProjectByWorkspaceRoot: () => Effect.die("unused"),
-          getProjectShellById: () => Effect.die("unused"),
+          getActiveFolderByWorkspaceRoot: () => Effect.die("unused"),
+          getFolderShellById: () => Effect.die("unused"),
           getSpaceShellById: () => Effect.die("unused"),
-          getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
+          getFirstActiveThreadIdByFolderId: () => Effect.die("unused"),
           listGeneratedImageActivitiesByTurn: () => Effect.die("unused"),
           getThreadShellById: () => Effect.die("unused"),
           findSyntheticSubagentParentThread: () => Effect.die("unused"),
@@ -799,7 +799,7 @@ it.layer(testLayer)("server CLI command", (it) => {
         "server.boot.heartbeat",
         {
           threadCount: 2,
-          projectCount: 1,
+          folderCount: 1,
         },
       ]);
     }),

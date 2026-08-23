@@ -6,7 +6,7 @@ import {
   CommandId,
   EventId,
   MessageId,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
   ThreadMarkerId,
@@ -46,15 +46,15 @@ describe("store event reducer", () => {
         createdAt: "2026-07-15T10:00:00.000Z",
         updatedAt: "2026-07-15T10:00:00.000Z",
       }),
-      makeDomainEvent("project.meta-updated", {
-        projectId: ContainerId.makeUnsafe("project-1"),
+      makeDomainEvent("folder.moved", {
+        folderId: FolderId.makeUnsafe("project-1"),
         spaceId,
         updatedAt: "2026-07-15T10:00:01.000Z",
       }),
     ]);
 
     expect(state.spaces.map((space) => space.id)).toEqual([spaceId]);
-    expect(state.projects[0]?.spaceId).toBe(spaceId);
+    expect(state.folders[0]?.spaceId).toBe(spaceId);
 
     state = applyOrchestrationEvents(state, [
       makeDomainEvent("space.deleted", {
@@ -64,8 +64,8 @@ describe("store event reducer", () => {
     ]);
 
     expect(state.spaces).toEqual([]);
-    expect(state.projects[0]?.spaceId).toBe(spaceId);
-    expect(state.projects[0]?.updatedAt).toBe("2026-07-15T10:00:01.000Z");
+    expect(state.folders[0]?.spaceId).toBe(spaceId);
+    expect(state.folders[0]?.updatedAt).toBe("2026-07-15T10:00:01.000Z");
   });
 
   it("preserves plugin mention references from live thread.message-sent events", () => {
@@ -295,6 +295,45 @@ describe("store event reducer", () => {
     });
   });
 
+  it("preserves the canonical latest turn when the running session uses its provider ID", () => {
+    const canonicalTurnId = TurnId.makeUnsafe("turn-request");
+    const providerTurnId = TurnId.makeUnsafe("turn-provider");
+    const initialState = makeState(
+      makeThread({
+        latestTurn: {
+          turnId: canonicalTurnId,
+          providerTurnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:01:00.000Z",
+          startedAt: "2026-02-27T00:01:05.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvents(initialState, [
+      makeDomainEvent("thread.session-set", {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: providerTurnId,
+          lastError: null,
+          updatedAt: "2026-02-27T00:02:00.000Z",
+        },
+      }),
+    ]);
+
+    expect(threadsOf(next)[0]?.latestTurn).toMatchObject({
+      turnId: canonicalTurnId,
+      providerTurnId,
+      state: "running",
+    });
+  });
+
   it.each([
     { status: "ready", expectedState: "completed" },
     { status: "interrupted", expectedState: "interrupted" },
@@ -338,21 +377,22 @@ describe("store event reducer", () => {
     },
   );
 
-  it("adds projects immediately from live project.created events", () => {
+  it("adds folders immediately from live folder.created events", () => {
     const next = applyOrchestrationEvents(
       {
         spaces: [],
         archivedSpaces: [],
-        projects: [],
-        archivedProjects: [],
+        folders: [],
+        archivedFolders: [],
         sidebarThreadSummaryById: {},
         threadsHydrated: false,
       },
       [
         makeDomainEvent(
-          "project.created",
+          "folder.created",
           {
-            projectId: ContainerId.makeUnsafe("project-live"),
+            folderId: FolderId.makeUnsafe("project-live"),
+            spaceId: SpaceId.makeUnsafe("space-test"),
             title: "Live Project",
             workspaceRoot: "/tmp/live-project",
             defaultModelSelection: {
@@ -363,14 +403,14 @@ describe("store event reducer", () => {
             createdAt: "2026-02-27T00:00:00.000Z",
             updatedAt: "2026-02-27T00:00:00.000Z",
           },
-          { aggregateKind: "project" },
+          { aggregateKind: "folder" },
         ),
       ],
     );
 
-    expect(next.projects).toHaveLength(1);
-    expect(next.projects[0]).toMatchObject({
-      id: ContainerId.makeUnsafe("project-live"),
+    expect(next.folders).toHaveLength(1);
+    expect(next.folders[0]).toMatchObject({
+      id: FolderId.makeUnsafe("project-live"),
       name: "Live Project",
       remoteName: "Live Project",
       folderName: "live-project",
@@ -385,17 +425,17 @@ describe("store event reducer", () => {
       {
         spaces: [],
         archivedSpaces: [],
-        projects: [],
-        archivedProjects: [],
+        folders: [],
+        archivedFolders: [],
         sidebarThreadSummaryById: {},
         threadsHydrated: false,
       },
       [
         makeDomainEvent(
-          "project.created",
+          "folder.created",
           {
-            projectId: ContainerId.makeUnsafe("folder-virtual"),
-            kind: "project",
+            folderId: FolderId.makeUnsafe("folder-virtual"),
+            spaceId: SpaceId.makeUnsafe("space-test"),
             title: "Ideas",
             workspaceRoot: null,
             defaultModelSelection: null,
@@ -403,25 +443,25 @@ describe("store event reducer", () => {
             createdAt: "2026-08-02T00:00:00.000Z",
             updatedAt: "2026-08-02T00:00:00.000Z",
           },
-          { aggregateKind: "project" },
+          { aggregateKind: "folder" },
         ),
       ],
     );
 
-    expect(next.projects[0]).toMatchObject({
+    expect(next.folders[0]).toMatchObject({
       name: "Ideas",
       folderName: "Ideas",
       cwd: "",
     });
   });
 
-  it("adopts authoritative folder titles from live project.meta-updated events", () => {
+  it("adopts authoritative folder titles from live folder.updated events", () => {
     const initialState: AppState = {
       spaces: [],
       archivedSpaces: [],
-      projects: [
+      folders: [
         makeProject({
-          id: ContainerId.makeUnsafe("project-live"),
+          id: FolderId.makeUnsafe("project-live"),
           name: "Local Name",
           remoteName: "Original Name",
           localName: "Local Name",
@@ -431,16 +471,16 @@ describe("store event reducer", () => {
           updatedAt: "2026-02-27T00:00:00.000Z",
         }),
       ],
-      archivedProjects: [],
+      archivedFolders: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
 
     const next = applyOrchestrationEvents(initialState, [
       makeDomainEvent(
-        "project.meta-updated",
+        "folder.updated",
         {
-          projectId: ContainerId.makeUnsafe("project-live"),
+          folderId: FolderId.makeUnsafe("project-live"),
           title: "Renamed Remotely",
           workspaceRoot: "/tmp/renamed-project",
           defaultModelSelection: null,
@@ -454,12 +494,12 @@ describe("store event reducer", () => {
           ],
           updatedAt: "2026-02-27T00:05:00.000Z",
         },
-        { aggregateKind: "project" },
+        { aggregateKind: "folder" },
       ),
     ]);
 
-    expect(next.projects[0]).toMatchObject({
-      id: ContainerId.makeUnsafe("project-live"),
+    expect(next.folders[0]).toMatchObject({
+      id: FolderId.makeUnsafe("project-live"),
       name: "Renamed Remotely",
       remoteName: "Renamed Remotely",
       folderName: "renamed-project",
@@ -478,30 +518,30 @@ describe("store event reducer", () => {
     });
   });
 
-  it("removes projects immediately from live project.deleted events", () => {
+  it("removes folders immediately from live folder.deleted events", () => {
     const next = applyOrchestrationEvents(
       {
         spaces: [],
         archivedSpaces: [],
-        projects: [makeProject({ id: ContainerId.makeUnsafe("project-live") })],
-        archivedProjects: [],
+        folders: [makeProject({ id: FolderId.makeUnsafe("project-live") })],
+        archivedFolders: [],
         sidebarThreadSummaryById: {},
         threadsHydrated: true,
       },
       [
         makeDomainEvent(
-          "project.deleted",
+          "folder.deleted",
           {
-            projectId: ContainerId.makeUnsafe("project-live"),
+            folderId: FolderId.makeUnsafe("project-live"),
             deletedAt: "2026-02-27T00:06:00.000Z",
           },
-          { aggregateKind: "project" },
+          { aggregateKind: "folder" },
         ),
       ],
     );
 
-    expect(next.projects).toEqual([]);
-    expect(next.deletedProjectIdsById?.[ContainerId.makeUnsafe("project-live")]).toEqual(
+    expect(next.folders).toEqual([]);
+    expect(next.deletedFolderIdsById?.[FolderId.makeUnsafe("project-live")]).toEqual(
       expect.any(Number),
     );
   });
@@ -709,7 +749,7 @@ describe("store event reducer", () => {
     );
 
     const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent("thread.meta-updated", {
+      makeDomainEvent("thread.updated", {
         threadId: ThreadId.makeUnsafe("thread-1"),
         title: "New title",
         updatedAt: "2026-02-27T00:01:00.000Z",
@@ -722,7 +762,7 @@ describe("store event reducer", () => {
     });
   });
 
-  it("surfaces pinnedMessages and notes from a live thread.meta-updated event", () => {
+  it("surfaces pinnedMessages and notes from a live thread.updated event", () => {
     const initialState = makeState(makeThread());
     const messageId = MessageId.makeUnsafe("assistant-pin-2");
     const pinnedMessages = [
@@ -735,7 +775,7 @@ describe("store event reducer", () => {
     ];
 
     const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent("thread.meta-updated", {
+      makeDomainEvent("thread.updated", {
         threadId: ThreadId.makeUnsafe("thread-1"),
         pinnedMessages,
         notes: "scratch",
@@ -1554,7 +1594,7 @@ describe("store event reducer", () => {
       next,
       makeShellSnapshot({
         id: threadId,
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         title: "Stale archived thread",
         modelSelection: {
           provider: "codex",
@@ -1587,7 +1627,7 @@ describe("store event reducer", () => {
     const next = applyOrchestrationEventsHotPath(
       initialState,
       [
-        makeDomainEvent("thread.meta-updated", {
+        makeDomainEvent("thread.updated", {
           threadId,
           title: "Renamed title",
           updatedAt: "2026-02-27T00:03:00.000Z",
@@ -1686,7 +1726,7 @@ describe("store event reducer", () => {
       makeReadModel(makeReadModelThread({ title: "Thread" })),
     );
     const next = applyOrchestrationEvents(state, [
-      makeDomainEvent("thread.meta-updated", {
+      makeDomainEvent("thread.updated", {
         threadId: ThreadId.makeUnsafe("missing-thread"),
         title: "Ignored",
         updatedAt: "2026-02-27T00:00:00.000Z",

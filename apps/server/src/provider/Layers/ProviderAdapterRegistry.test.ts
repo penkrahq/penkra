@@ -1,29 +1,20 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { ProviderKind } from "@penkra/contracts";
-import { it, assert, vi } from "@effect/vitest";
+import { assert, it, vi } from "@effect/vitest";
 import { assertFailure } from "@effect/vitest/utils";
-
 import { Effect, Layer, Stream } from "effect";
 
-import { ClaudeAdapter, ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
-import { CodexAdapter, CodexAdapterShape } from "../Services/CodexAdapter.ts";
-import { CursorAdapter, CursorAdapterShape } from "../Services/CursorAdapter.ts";
-import { DroidAdapter, DroidAdapterShape } from "../Services/DroidAdapter.ts";
-import { GrokAdapter, GrokAdapterShape } from "../Services/GrokAdapter.ts";
-import { KiloAdapter, KiloAdapterShape } from "../Services/KiloAdapter.ts";
-import { OpenCodeAdapter, OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
-import { PiAdapter, PiAdapterShape } from "../Services/PiAdapter.ts";
-import { AntigravityAdapter, AntigravityAdapterShape } from "../Services/AntigravityAdapter.ts";
+import { ProviderUnsupportedError } from "../Errors.ts";
+import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
+import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import { OpenCodeAdapter, type OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderAdapterRegistryLive } from "./ProviderAdapterRegistry.ts";
-import { ProviderUnsupportedError } from "../Errors.ts";
-import * as NodeServices from "@effect/platform-node/NodeServices";
 
-const fakeCodexAdapter: CodexAdapterShape = {
-  provider: "codex",
-  capabilities: { sessionModelSwitch: "in-session" },
+const baseAdapter = {
+  capabilities: { sessionModelSwitch: "in-session" as const },
   startSession: vi.fn(),
   sendTurn: vi.fn(),
-  steerTurn: vi.fn(),
   interruptTurn: vi.fn(),
   respondToRequest: vi.fn(),
   respondToUserInput: vi.fn(),
@@ -37,152 +28,22 @@ const fakeCodexAdapter: CodexAdapterShape = {
   streamEvents: Stream.empty,
 };
 
-const fakeClaudeAdapter: ClaudeAdapterShape = {
-  provider: "claudeAgent",
-  capabilities: { sessionModelSwitch: "in-session" },
-  startSession: vi.fn(),
-  sendTurn: vi.fn(),
+const fakeCodexAdapter: CodexAdapterShape = {
+  ...baseAdapter,
+  provider: "codex",
   steerTurn: vi.fn(),
-  interruptTurn: vi.fn(),
+};
+const fakeClaudeAdapter: ClaudeAdapterShape = {
+  ...baseAdapter,
+  provider: "claudeAgent",
+  steerTurn: vi.fn(),
   stopTask: vi.fn(),
   backgroundTask: vi.fn(),
   steerSubagent: vi.fn(),
-  respondToRequest: vi.fn(),
-  respondToUserInput: vi.fn(),
-  stopSession: vi.fn(),
-  listSessions: vi.fn(),
-  hasSession: vi.fn(),
-  readThread: vi.fn(),
-  rollbackThread: vi.fn(),
-  stopAll: vi.fn(),
-  drainRuntimeEvents: Effect.void,
-  streamEvents: Stream.empty,
 };
-
-const fakeCursorAdapter: CursorAdapterShape = {
-  provider: "cursor",
-  capabilities: { sessionModelSwitch: "in-session" },
-  startSession: vi.fn(),
-  sendTurn: vi.fn(),
-  interruptTurn: vi.fn(),
-  respondToRequest: vi.fn(),
-  respondToUserInput: vi.fn(),
-  stopSession: vi.fn(),
-  listSessions: vi.fn(),
-  hasSession: vi.fn(),
-  readThread: vi.fn(),
-  rollbackThread: vi.fn(),
-  stopAll: vi.fn(),
-  drainRuntimeEvents: Effect.void,
-  streamEvents: Stream.empty,
-};
-
-const fakeGrokAdapter: GrokAdapterShape = {
-  provider: "grok",
-  capabilities: { sessionModelSwitch: "restart-session" },
-  startSession: vi.fn(),
-  sendTurn: vi.fn(),
-  interruptTurn: vi.fn(),
-  respondToRequest: vi.fn(),
-  respondToUserInput: vi.fn(),
-  stopSession: vi.fn(),
-  listSessions: vi.fn(),
-  hasSession: vi.fn(),
-  readThread: vi.fn(),
-  rollbackThread: vi.fn(),
-  stopAll: vi.fn(),
-  drainRuntimeEvents: Effect.void,
-  streamEvents: Stream.empty,
-};
-
-const fakeDroidAdapter: DroidAdapterShape = {
-  provider: "droid",
-  capabilities: { sessionModelSwitch: "restart-session" },
-  startSession: vi.fn(),
-  sendTurn: vi.fn(),
-  interruptTurn: vi.fn(),
-  respondToRequest: vi.fn(),
-  respondToUserInput: vi.fn(),
-  stopSession: vi.fn(),
-  listSessions: vi.fn(),
-  hasSession: vi.fn(),
-  readThread: vi.fn(),
-  rollbackThread: vi.fn(),
-  stopAll: vi.fn(),
-  drainRuntimeEvents: Effect.void,
-  streamEvents: Stream.empty,
-};
-
 const fakeOpenCodeAdapter: OpenCodeAdapterShape = {
+  ...baseAdapter,
   provider: "opencode",
-  capabilities: { sessionModelSwitch: "in-session" },
-  startSession: vi.fn(),
-  sendTurn: vi.fn(),
-  interruptTurn: vi.fn(),
-  respondToRequest: vi.fn(),
-  respondToUserInput: vi.fn(),
-  stopSession: vi.fn(),
-  listSessions: vi.fn(),
-  hasSession: vi.fn(),
-  readThread: vi.fn(),
-  rollbackThread: vi.fn(),
-  stopAll: vi.fn(),
-  drainRuntimeEvents: Effect.void,
-  streamEvents: Stream.empty,
-};
-
-const fakeKiloAdapter: KiloAdapterShape = {
-  provider: "kilo",
-  capabilities: { sessionModelSwitch: "in-session" },
-  startSession: vi.fn(),
-  sendTurn: vi.fn(),
-  interruptTurn: vi.fn(),
-  respondToRequest: vi.fn(),
-  respondToUserInput: vi.fn(),
-  stopSession: vi.fn(),
-  listSessions: vi.fn(),
-  hasSession: vi.fn(),
-  readThread: vi.fn(),
-  rollbackThread: vi.fn(),
-  stopAll: vi.fn(),
-  drainRuntimeEvents: Effect.void,
-  streamEvents: Stream.empty,
-};
-
-const fakePiAdapter: PiAdapterShape = {
-  provider: "pi",
-  capabilities: { sessionModelSwitch: "in-session" },
-  startSession: vi.fn(),
-  sendTurn: vi.fn(),
-  interruptTurn: vi.fn(),
-  respondToRequest: vi.fn(),
-  respondToUserInput: vi.fn(),
-  stopSession: vi.fn(),
-  listSessions: vi.fn(),
-  hasSession: vi.fn(),
-  readThread: vi.fn(),
-  rollbackThread: vi.fn(),
-  stopAll: vi.fn(),
-  drainRuntimeEvents: Effect.void,
-  streamEvents: Stream.empty,
-};
-
-const fakeAntigravityAdapter: AntigravityAdapterShape = {
-  provider: "antigravity",
-  capabilities: { sessionModelSwitch: "restart-session" },
-  startSession: vi.fn(),
-  sendTurn: vi.fn(),
-  interruptTurn: vi.fn(),
-  respondToRequest: vi.fn(),
-  respondToUserInput: vi.fn(),
-  stopSession: vi.fn(),
-  listSessions: vi.fn(),
-  hasSession: vi.fn(),
-  readThread: vi.fn(),
-  rollbackThread: vi.fn(),
-  stopAll: vi.fn(),
-  drainRuntimeEvents: Effect.void,
-  streamEvents: Stream.empty,
 };
 
 const layer = it.layer(
@@ -192,13 +53,7 @@ const layer = it.layer(
       Layer.mergeAll(
         Layer.succeed(CodexAdapter, fakeCodexAdapter),
         Layer.succeed(ClaudeAdapter, fakeClaudeAdapter),
-        Layer.succeed(CursorAdapter, fakeCursorAdapter),
-        Layer.succeed(AntigravityAdapter, fakeAntigravityAdapter),
-        Layer.succeed(GrokAdapter, fakeGrokAdapter),
-        Layer.succeed(DroidAdapter, fakeDroidAdapter),
-        Layer.succeed(KiloAdapter, fakeKiloAdapter),
         Layer.succeed(OpenCodeAdapter, fakeOpenCodeAdapter),
-        Layer.succeed(PiAdapter, fakePiAdapter),
       ),
     ),
     NodeServices.layer,
@@ -206,40 +61,13 @@ const layer = it.layer(
 );
 
 layer("ProviderAdapterRegistryLive", (it) => {
-  it.effect("resolves a registered provider adapter", () =>
+  it.effect("resolves exactly the three implemented provider adapters", () =>
     Effect.gen(function* () {
       const registry = yield* ProviderAdapterRegistry;
-      const codex = yield* registry.getByProvider("codex");
-      const claude = yield* registry.getByProvider("claudeAgent");
-      const cursor = yield* registry.getByProvider("cursor");
-      const antigravity = yield* registry.getByProvider("antigravity");
-      const grok = yield* registry.getByProvider("grok");
-      const droid = yield* registry.getByProvider("droid");
-      const kilo = yield* registry.getByProvider("kilo");
-      const opencode = yield* registry.getByProvider("opencode");
-      const pi = yield* registry.getByProvider("pi");
-      assert.equal(codex, fakeCodexAdapter);
-      assert.equal(claude, fakeClaudeAdapter);
-      assert.equal(cursor, fakeCursorAdapter);
-      assert.equal(antigravity, fakeAntigravityAdapter);
-      assert.equal(grok, fakeGrokAdapter);
-      assert.equal(droid, fakeDroidAdapter);
-      assert.equal(kilo, fakeKiloAdapter);
-      assert.equal(opencode, fakeOpenCodeAdapter);
-      assert.equal(pi, fakePiAdapter);
-
-      const providers = yield* registry.listProviders();
-      assert.deepEqual(providers, [
-        "codex",
-        "claudeAgent",
-        "cursor",
-        "antigravity",
-        "grok",
-        "droid",
-        "kilo",
-        "opencode",
-        "pi",
-      ]);
+      assert.equal(yield* registry.getByProvider("codex"), fakeCodexAdapter);
+      assert.equal(yield* registry.getByProvider("claudeAgent"), fakeClaudeAdapter);
+      assert.equal(yield* registry.getByProvider("opencode"), fakeOpenCodeAdapter);
+      assert.deepEqual(yield* registry.listProviders(), ["codex", "claudeAgent", "opencode"]);
     }),
   );
 

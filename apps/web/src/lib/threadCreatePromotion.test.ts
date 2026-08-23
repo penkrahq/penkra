@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CommandId,
-  ContainerId,
+  FolderId,
+  SpaceId,
   ThreadId,
   type ClientOrchestrationCommand,
   type NativeApi,
@@ -37,7 +38,7 @@ function makeThreadCreateCommand(threadId = "thread-promote") {
     type: "thread.create",
     commandId: CommandId.makeUnsafe(`cmd-${threadId}`),
     threadId: ThreadId.makeUnsafe(threadId),
-    projectId: ContainerId.makeUnsafe("project-promote"),
+    folderId: FolderId.makeUnsafe("project-promote"),
     title: "Promoted thread",
     modelSelection: {
       provider: "codex",
@@ -49,14 +50,14 @@ function makeThreadCreateCommand(threadId = "thread-promote") {
 }
 
 function makeShellSnapshot(threadId: ThreadId, snapshotSequence = 1) {
-  const projectId = ContainerId.makeUnsafe("project-promote");
+  const folderId = FolderId.makeUnsafe("project-promote");
   return {
     snapshotSequence,
     spaces: [],
-    projects: [
+    folders: [
       {
-        id: projectId,
-        kind: "project" as const,
+        id: folderId,
+        spaceId: SpaceId.makeUnsafe("space-test"),
         title: "Project",
         workspaceRoot: "/tmp/project",
         defaultModelSelection: null,
@@ -68,7 +69,7 @@ function makeShellSnapshot(threadId: ThreadId, snapshotSequence = 1) {
     threads: [
       {
         id: threadId,
-        projectId,
+        folderId,
         title: "Promoted thread",
         modelSelection: {
           provider: "codex" as const,
@@ -116,7 +117,7 @@ describe("threadCreatePromotion", () => {
     );
     const api = makeApi({ dispatchCommand, getShellSnapshot });
     const command = makeThreadCreateCommand("thread-concurrent");
-    useComposerDraftStore.getState().setProjectDraftThreadId(command.projectId, command.threadId);
+    useComposerDraftStore.getState().setProjectDraftThreadId(command.folderId, command.threadId);
 
     const first = promoteThreadCreate(command, api);
     const second = promoteThreadCreate(
@@ -135,8 +136,8 @@ describe("threadCreatePromotion", () => {
 
   it("installs the exact accepted thread before provider admission", async () => {
     const threadId = ThreadId.makeUnsafe("thread-created-installed");
-    const projectId = ContainerId.makeUnsafe("project-promote");
-    useComposerDraftStore.getState().setProjectDraftThreadId(projectId, threadId);
+    const folderId = FolderId.makeUnsafe("project-promote");
+    useComposerDraftStore.getState().setProjectDraftThreadId(folderId, threadId);
     const dispatchCommand = vi.fn().mockResolvedValue({ sequence: 7 });
     const getShellSnapshot = vi.fn().mockResolvedValue(makeShellSnapshot(threadId, 7));
     const api = makeApi({ dispatchCommand, getShellSnapshot });
@@ -152,8 +153,8 @@ describe("threadCreatePromotion", () => {
 
   it("accepts an exact created thread even when the global snapshot sequence lags", async () => {
     const threadId = ThreadId.makeUnsafe("thread-stale-snapshot");
-    const projectId = ContainerId.makeUnsafe("project-promote");
-    useComposerDraftStore.getState().setProjectDraftThreadId(projectId, threadId);
+    const folderId = FolderId.makeUnsafe("project-promote");
+    useComposerDraftStore.getState().setProjectDraftThreadId(folderId, threadId);
     const api = makeApi({
       dispatchCommand: vi.fn().mockResolvedValue({ sequence: 8 }),
       getShellSnapshot: vi.fn().mockResolvedValue(makeShellSnapshot(threadId, 7)),
@@ -182,15 +183,15 @@ describe("threadCreatePromotion", () => {
 
   it("marks the draft as promoted when the thread already exists locally", async () => {
     const threadId = ThreadId.makeUnsafe("thread-existing-local");
-    const projectId = ContainerId.makeUnsafe("project-promote");
-    useComposerDraftStore.getState().setProjectDraftThreadId(projectId, threadId);
+    const folderId = FolderId.makeUnsafe("project-promote");
+    useComposerDraftStore.getState().setProjectDraftThreadId(folderId, threadId);
     useStore.getState().syncServerShellSnapshot({
       snapshotSequence: 1,
       spaces: [],
-      projects: [
+      folders: [
         {
-          id: projectId,
-          kind: "project",
+          id: folderId,
+          spaceId: SpaceId.makeUnsafe("space-test"),
           title: "Project",
           workspaceRoot: "/tmp/project",
           defaultModelSelection: null,
@@ -202,7 +203,7 @@ describe("threadCreatePromotion", () => {
       threads: [
         {
           id: threadId,
-          projectId,
+          folderId,
           title: "Promoted thread",
           modelSelection: {
             provider: "codex",
@@ -234,8 +235,8 @@ describe("threadCreatePromotion", () => {
 
   it("recreates a React-known local draft even when stale client state still has the deleted id", async () => {
     const threadId = ThreadId.makeUnsafe("thread-retry-after-rollback");
-    const projectId = ContainerId.makeUnsafe("project-promote");
-    useComposerDraftStore.getState().setProjectDraftThreadId(projectId, threadId);
+    const folderId = FolderId.makeUnsafe("project-promote");
+    useComposerDraftStore.getState().setProjectDraftThreadId(folderId, threadId);
     useStore.getState().syncServerShellSnapshot(makeShellSnapshot(threadId));
     const dispatchCommand = vi.fn().mockResolvedValue({ sequence: 10 });
     const getShellSnapshot = vi.fn().mockResolvedValue(makeShellSnapshot(threadId, 10));
@@ -251,7 +252,7 @@ describe("threadCreatePromotion", () => {
 
   it("recovers duplicate promotions by syncing the shell snapshot", async () => {
     const threadId = ThreadId.makeUnsafe("thread-duplicate-recovered");
-    const projectId = ContainerId.makeUnsafe("project-promote");
+    const folderId = FolderId.makeUnsafe("project-promote");
     const dispatchCommand = vi.fn(() =>
       Promise.reject(
         new Error(
@@ -263,10 +264,9 @@ describe("threadCreatePromotion", () => {
       Promise.resolve({
         snapshotSequence: 1,
         spaces: [],
-        projects: [
+        folders: [
           {
-            id: projectId,
-            kind: "project",
+            id: folderId,
             title: "Project",
             workspaceRoot: "/tmp/project",
             defaultModelSelection: null,
@@ -278,7 +278,7 @@ describe("threadCreatePromotion", () => {
         threads: [
           {
             id: threadId,
-            projectId,
+            folderId,
             title: "Promoted thread",
             modelSelection: {
               provider: "codex",

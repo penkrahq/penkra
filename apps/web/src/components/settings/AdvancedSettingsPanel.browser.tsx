@@ -16,7 +16,7 @@ const harness = vi.hoisted(() => ({
   auth: { authenticated: true, role: "client" },
   threadShells: [] as unknown[],
   allThreadsMessageless: false,
-  projects: [{ id: "project-1" }],
+  folders: [{ id: "project-1" }],
   threadsHydrated: true,
   syncServerReadModel: vi.fn(),
 }));
@@ -40,7 +40,7 @@ vi.mock("~/storeSelectors", () => ({
 vi.mock("~/store", () => ({
   useStore: (selector: (store: Record<string, unknown>) => unknown) =>
     selector({
-      projects: harness.projects,
+      folders: harness.folders,
       threadsHydrated: harness.threadsHydrated,
       syncServerReadModel: harness.syncServerReadModel,
     }),

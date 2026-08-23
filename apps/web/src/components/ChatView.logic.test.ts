@@ -682,16 +682,16 @@ describe("resolveCommittedProviderModel", () => {
   it("preserves the exact runtime-discovered slug when the picker selected it", () => {
     expect(
       resolveCommittedProviderModel({
-        selectedModel: "grok-code-fast-1-0825" as ModelSlug,
+        selectedModel: "openai/gpt-custom-preview" as ModelSlug,
         availableOptions: [
           {
-            slug: "grok-code-fast-1-0825" as ModelSlug,
-            name: "Grok Code Fast 1 0825",
+            slug: "openai/gpt-custom-preview" as ModelSlug,
+            name: "GPT Custom Preview",
           },
         ],
-        fallback: () => "grok-build-0.1",
+        fallback: () => "openai/gpt-5",
       }),
-    ).toBe("grok-code-fast-1-0825");
+    ).toBe("openai/gpt-custom-preview");
   });
 
   it("falls back to static alias resolution when the selected slug is not in the options", () => {
@@ -699,9 +699,9 @@ describe("resolveCommittedProviderModel", () => {
       resolveCommittedProviderModel({
         selectedModel: "code-fast" as ModelSlug,
         availableOptions: [],
-        fallback: () => "grok-build-0.1",
+        fallback: () => "openai/gpt-5",
       }),
-    ).toBe("grok-build-0.1");
+    ).toBe("openai/gpt-5");
   });
 });
 

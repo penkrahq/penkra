@@ -307,7 +307,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         connectionId,
         installationId: activeInstallation.id,
         modelId: modelSelection.model,
-        spaceId: thread.value.spaceId ?? null,
+        folderId: thread.value.folderId,
       });
 
       const selection = {

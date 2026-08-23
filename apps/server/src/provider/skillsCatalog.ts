@@ -319,18 +319,7 @@ export interface SkillsCatalogRootInput extends SkillsCatalogDiscoveryInput {
   readonly includePenkraRoot?: boolean;
 }
 
-const HOME_ORIGIN_ORDER = [
-  "penkra",
-  "codex",
-  "claude",
-  "cursor",
-  "grok",
-  "factory",
-  "kilo",
-  "opencode",
-  "pi",
-  "agents",
-] as const;
+const HOME_ORIGIN_ORDER = ["penkra", "codex", "claude", "opencode", "agents"] as const;
 export type SkillsCatalogOrigin = (typeof HOME_ORIGIN_ORDER)[number] | "project";
 
 // Composer skill pickers refetch aggressively (per keystroke, per provider); a
@@ -394,32 +383,9 @@ const SKILL_ORIGIN_ROOTS = {
     homeRoots: (input) => [nodePath.join(input.homeDir, ".claude", "skills")],
     projectRootNames: [".claude"],
   },
-  cursor: {
-    homeRoots: (input) => [
-      nodePath.join(input.homeDir, ".cursor", "skills-cursor"),
-      nodePath.join(input.homeDir, ".cursor", "skills"),
-    ],
-    projectRootNames: [".cursor"],
-  },
-  grok: {
-    homeRoots: (input) => [nodePath.join(input.homeDir, ".grok", "skills")],
-    projectRootNames: [".grok"],
-  },
-  factory: {
-    homeRoots: (input) => [nodePath.join(input.homeDir, ".factory", "skills")],
-    projectRootNames: [".factory"],
-  },
-  kilo: {
-    homeRoots: (input) => [nodePath.join(input.homeDir, ".kilo", "skills")],
-    projectRootNames: [".kilo"],
-  },
   opencode: {
     homeRoots: (input) => [nodePath.join(input.homeDir, ".config", "opencode", "skills")],
     projectRootNames: [".opencode"],
-  },
-  pi: {
-    homeRoots: (input) => [nodePath.join(input.homeDir, ".pi", "agent", "skills")],
-    projectRootNames: [".pi"],
   },
   agents: {
     homeRoots: (input) => [nodePath.join(input.homeDir, ".agents", "skills")],
@@ -430,13 +396,7 @@ const SKILL_ORIGIN_ROOTS = {
 const PROVIDER_SKILL_ORIGIN_PREFERENCES = {
   codex: ["codex", "agents"],
   claudeAgent: ["claude"],
-  cursor: ["cursor", "agents", "claude", "codex"],
-  antigravity: ["agents"],
-  grok: ["grok", "claude", "agents"],
-  droid: ["factory", "agents", "claude", "codex"],
-  kilo: ["kilo", "agents", "claude"],
   opencode: ["opencode", "claude", "agents"],
-  pi: ["pi", "agents"],
 } as const satisfies Partial<Record<ProviderKind, readonly SkillsHomeOrigin[]>>;
 
 function homeRootsForOrigin(
@@ -490,7 +450,6 @@ function rootsForOrderedOrigins(
     homeRootsForOrigin(origin, input).map((path) => ({
       path,
       scope: origin,
-      ...(origin === "pi" ? { includeMarkdownFiles: true } : {}),
     })),
   );
   const homeRootPaths = new Set(homeRoots.map((root) => nodePath.resolve(root.path)));
@@ -517,7 +476,6 @@ function rootsForOrderedOrigins(
           projectRoots.push({
             path: rootPath,
             scope: "project",
-            ...(origin === "pi" ? { includeMarkdownFiles: true } : {}),
           });
         }
       }

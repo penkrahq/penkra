@@ -12,7 +12,7 @@ const THREAD_SHELL_SUMMARY_ACTIVITY_KINDS = new Set([
 const THREAD_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "sidebar.layout-updated",
   "thread.created",
-  "thread.meta-updated",
+  "thread.updated",
   "thread.pinned-message-added",
   "thread.pinned-message-removed",
   "thread.pinned-message-done-set",

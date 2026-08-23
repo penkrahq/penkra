@@ -97,13 +97,6 @@ describe("composer mention reference filtering", () => {
       filterPromptSkillReferences("Use $check-code", [checkCode, refactorCode], "codex"),
     ).toEqual([checkCode]);
   });
-
-  it("uses pi's explicit skill prefix when filtering pi skill references", () => {
-    const skill = { name: "planner", path: "/skills/planner/SKILL.md" };
-
-    expect(filterPromptSkillReferences("Use /planner", [skill], "pi")).toEqual([]);
-    expect(filterPromptSkillReferences("Use /skill:planner", [skill], "pi")).toEqual([skill]);
-  });
 });
 
 describe("formatComposerMentionToken", () => {
@@ -112,8 +105,8 @@ describe("formatComposerMentionToken", () => {
   });
 
   it("quotes paths with parentheses so they stay one mention token (#351)", () => {
-    expect(formatComposerMentionToken("/Users/me/Mac (2)/Projects")).toBe(
-      '@"/Users/me/Mac (2)/Projects"',
+    expect(formatComposerMentionToken("/Users/me/Mac (2)/Folders")).toBe(
+      '@"/Users/me/Mac (2)/Folders"',
     );
     expect(formatComposerMentionToken("/Users/me/Happy Dropbox/Mac (2)/app")).toBe(
       '@"/Users/me/Happy Dropbox/Mac (2)/app"',
@@ -121,7 +114,7 @@ describe("formatComposerMentionToken", () => {
   });
 
   it("leaves simple paths unquoted", () => {
-    expect(formatComposerMentionToken("/Users/me/projects/app")).toBe("@/Users/me/projects/app");
+    expect(formatComposerMentionToken("/Users/me/folders/app")).toBe("@/Users/me/folders/app");
   });
 
   it.each([

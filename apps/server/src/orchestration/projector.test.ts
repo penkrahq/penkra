@@ -1,7 +1,7 @@
 import {
   CommandId,
   EventId,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
   type OrchestrationEvent,
@@ -28,8 +28,8 @@ function makeEvent(input: {
     aggregateId:
       input.aggregateKind === "space"
         ? SpaceId.makeUnsafe(input.aggregateId)
-        : input.aggregateKind === "project"
-          ? ContainerId.makeUnsafe(input.aggregateId)
+        : input.aggregateKind === "folder"
+          ? FolderId.makeUnsafe(input.aggregateId)
           : ThreadId.makeUnsafe(input.aggregateId),
     occurredAt: input.occurredAt,
     commandId: input.commandId === null ? null : CommandId.makeUnsafe(input.commandId),
@@ -73,7 +73,7 @@ function makeSessionSetEvent(input: {
   });
 }
 
-// Projects "thread-1" through creation and a running session on "turn-1".
+// Folders "thread-1" through creation and a running session on "turn-1".
 async function projectThreadWithRunningTurn(input: { createdAt: string; startedAt: string }) {
   const afterCreate = await Effect.runPromise(
     projectEvent(
@@ -87,7 +87,7 @@ async function projectThreadWithRunningTurn(input: { createdAt: string; startedA
         commandId: "cmd-create",
         payload: {
           threadId: "thread-1",
-          projectId: "project-1",
+          folderId: "project-1",
           title: "demo",
           modelSelection: {
             provider: "codex",
@@ -134,7 +134,7 @@ describe("orchestration projector", () => {
           commandId: "cmd-thread-create",
           payload: {
             threadId: "thread-1",
-            projectId: "project-1",
+            folderId: "project-1",
             title: "demo",
             modelSelection: {
               provider: "codex",
@@ -152,8 +152,7 @@ describe("orchestration projector", () => {
     expect(next.threads).toEqual([
       {
         id: "thread-1",
-        projectId: "project-1",
-        spaceId: null,
+        folderId: "project-1",
         sidebarSortOrder: 0,
         title: "demo",
         modelSelection: {
@@ -204,11 +203,11 @@ describe("orchestration projector", () => {
           commandId: "cmd-create",
           payload: {
             threadId: "thread-1",
-            projectId: "project-1",
+            folderId: "project-1",
             title: "demo",
             modelSelection: {
-              provider: "pi",
-              model: "openai/gpt-5.1",
+              provider: "opencode",
+              model: "openai/gpt-5",
             },
             runtimeMode: "full-access",
             createdAt,
@@ -232,8 +231,8 @@ describe("orchestration projector", () => {
             threadId: "thread-1",
             messageId: "message-1",
             modelSelection: {
-              provider: "pi",
-              model: "openai/gpt-5.5",
+              provider: "opencode",
+              model: "openrouter/gpt-5.5",
             },
             runtimeMode: "approval-required",
             createdAt: turnRequestedAt,
@@ -243,8 +242,8 @@ describe("orchestration projector", () => {
     );
 
     expect(next.threads[0]?.modelSelection).toEqual({
-      provider: "pi",
-      model: "openai/gpt-5.5",
+      provider: "opencode",
+      model: "openrouter/gpt-5.5",
     });
     expect(next.threads[0]?.runtimeMode).toBe("approval-required");
     expect(next.threads[0]?.pendingTurnStartMessageId).toBe("message-1");
@@ -252,7 +251,7 @@ describe("orchestration projector", () => {
     expect(next.threads[0]?.session).toEqual({
       threadId: "thread-1",
       status: "starting",
-      providerName: "pi",
+      providerName: "opencode",
       runtimeMode: "approval-required",
       activeTurnId: null,
       lastError: null,
@@ -277,7 +276,7 @@ describe("orchestration projector", () => {
           commandId: "cmd-create",
           payload: {
             threadId: "thread-1",
-            projectId: "project-1",
+            folderId: "project-1",
             title: "demo",
             modelSelection: {
               provider: "codex",
@@ -342,7 +341,7 @@ describe("orchestration projector", () => {
             commandId: "cmd-invalid",
             payload: {
               // missing required threadId
-              projectId: "project-1",
+              folderId: "project-1",
               title: "demo",
               modelSelection: {
                 provider: "codex",
@@ -403,7 +402,7 @@ describe("orchestration projector", () => {
           commandId: "cmd-create",
           payload: {
             threadId: "thread-1",
-            projectId: "project-1",
+            folderId: "project-1",
             title: "demo",
             modelSelection: {
               provider: "codex",
@@ -548,7 +547,7 @@ describe("orchestration projector", () => {
           commandId: "cmd-create",
           payload: {
             threadId: "thread-1",
-            projectId: "project-1",
+            folderId: "project-1",
             title: "demo",
             modelSelection: {
               provider: "codex",
@@ -603,7 +602,7 @@ describe("orchestration projector", () => {
           commandId: "cmd-create",
           payload: {
             threadId: "thread-1",
-            projectId: "project-1",
+            folderId: "project-1",
             title: "demo",
             modelSelection: {
               provider: "codex",
@@ -686,7 +685,7 @@ describe("orchestration projector", () => {
           commandId: "cmd-thread-activity-order",
           payload: {
             threadId: "thread-activity-order",
-            projectId: "project-1",
+            folderId: "project-1",
             title: "Activity order",
             modelSelection: { provider: "codex", model: "gpt-5-codex" },
             runtimeMode: "full-access",
@@ -761,7 +760,7 @@ describe("orchestration projector", () => {
           commandId: "cmd-create-capped",
           payload: {
             threadId: "thread-capped",
-            projectId: "project-1",
+            folderId: "project-1",
             title: "capped",
             modelSelection: {
               provider: "codex",
@@ -826,7 +825,7 @@ describe("orchestration projector", () => {
           commandId: "cmd-create-stream",
           payload: {
             threadId: "thread-stream",
-            projectId: "project-1",
+            folderId: "project-1",
             title: "Streaming",
             modelSelection: { provider: "codex", model: "gpt-5-codex" },
             runtimeMode: "full-access",

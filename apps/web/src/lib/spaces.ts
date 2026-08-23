@@ -1,24 +1,23 @@
 // FILE: spaces.ts
-// Purpose: The Spaces domain for the web client — which projects Spaces organize, plus the
+// Purpose: The Spaces domain for the web client — which folders Spaces organize, plus the
 //          durable commands that move them around.
 // Layer: Web domain helper
 
 import {
-  SPACE_PROJECTS_ASSIGN_MAX_COUNT,
+  FOLDER_MOVE_MAX_COUNT,
   type NativeApi,
-  type ContainerId,
+  type FolderId,
   type SpaceIconName,
   type SpaceId,
 } from "@penkra/contracts";
 
 import type { Project } from "~/types";
-import { isHomeChatContainerProject } from "~/lib/chatProjects";
 import type { ServerWorkspacePaths } from "~/lib/serverWorkspacePaths";
 import { newCommandId, newSpaceId } from "~/lib/utils";
 import { dispatchShellCommand } from "~/lib/shellMutation";
 
 /**
- * Spaces organize ordinary projects only: managed chat containers are reachable
+ * Spaces organize ordinary folders only: managed chat containers are reachable
  * from every Space and so belong to none. This is the membership rule the whole feature
  * turns on — the sidebar list, the tab activity dots, the pickers, and the shortcut
  * targets all have to agree on it, so it lives here rather than being spelled out again
@@ -26,9 +25,9 @@ import { dispatchShellCommand } from "~/lib/shellMutation";
  */
 export function isOrdinarySpaceProject(
   project: Project | null | undefined,
-  paths: ServerWorkspacePaths,
+  _paths: ServerWorkspacePaths,
 ): project is Project {
-  return project?.kind === "project" && !isHomeChatContainerProject(project, paths);
+  return project !== null && project !== undefined;
 }
 
 export async function createSpace(input: {
@@ -60,7 +59,7 @@ export async function updateSpace(input: {
   icon?: SpaceIconName | undefined;
 }): Promise<void> {
   await dispatchShellCommand(input.api, {
-    type: "space.meta.update",
+    type: "space.update",
     commandId: newCommandId(),
     spaceId: input.spaceId,
     ...(input.name !== undefined ? { name: input.name } : {}),
@@ -103,80 +102,69 @@ export async function reorderSpaces(input: {
   orderedSpaceIds: ReadonlyArray<SpaceId>;
 }): Promise<void> {
   const movedIndex = input.orderedSpaceIds.indexOf(input.movedSpaceId);
-  const previousSpaceId = movedIndex > 0 ? input.orderedSpaceIds[movedIndex - 1] : undefined;
-  const nextSpaceId = movedIndex >= 0 ? input.orderedSpaceIds[movedIndex + 1] : undefined;
-  const position = previousSpaceId
-    ? { type: "after" as const, spaceId: previousSpaceId }
-    : nextSpaceId
-      ? { type: "before" as const, spaceId: nextSpaceId }
-      : null;
-  if (!position) return;
+  if (movedIndex < 0) return;
   await dispatchShellCommand(input.api, {
-    type: "space.reorder",
+    type: "space.update",
     commandId: newCommandId(),
     spaceId: input.movedSpaceId,
-    position,
+    sortOrder: movedIndex,
   });
 }
 
 export async function moveProjectToSpace(input: {
   api: NativeApi;
-  projectId: ContainerId;
+  folderId: FolderId;
   spaceId: SpaceId;
 }): Promise<void> {
   await dispatchShellCommand(input.api, {
-    type: "project.meta.update",
+    type: "folder.move",
     commandId: newCommandId(),
-    projectId: input.projectId,
+    folderIds: [input.folderId],
     spaceId: input.spaceId,
   });
 }
 
 /**
- * Files projects into a space as one atomic command per chunk (the command payload is
+ * Files folders into a space as one atomic command per chunk (the command payload is
  * capped, so oversized selections split). A chunk either fully applies or fully fails;
  * on the first failure the remaining chunks are not attempted and everything not yet
- * processed is reported back for retry. The server may skip projects that are already
+ * processed is reported back for retry. The server may skip folders that are already
  * settled (assigned to the target or deleted), so a successful chunk must not be used
- * to infer an exact count of projects whose assignment changed.
+ * to infer an exact count of folders whose assignment changed.
  */
-export async function moveProjectsToSpace(input: {
+export async function moveFoldersToSpace(input: {
   api: NativeApi;
-  projectIds: ReadonlyArray<ContainerId>;
+  folderIds: ReadonlyArray<FolderId>;
   spaceId: SpaceId;
-}): Promise<{ failedProjectIds: ContainerId[] }> {
-  for (
-    let offset = 0;
-    offset < input.projectIds.length;
-    offset += SPACE_PROJECTS_ASSIGN_MAX_COUNT
-  ) {
-    const chunk = input.projectIds.slice(offset, offset + SPACE_PROJECTS_ASSIGN_MAX_COUNT);
+}): Promise<{ failedFolderIds: FolderId[] }> {
+  for (let offset = 0; offset < input.folderIds.length; offset += FOLDER_MOVE_MAX_COUNT) {
+    const chunk = input.folderIds.slice(offset, offset + FOLDER_MOVE_MAX_COUNT);
     try {
       await input.api.orchestration.dispatchCommand({
-        type: "space.projects.assign",
+        type: "folder.move",
         commandId: newCommandId(),
         spaceId: input.spaceId,
-        projectIds: chunk,
+        folderIds: chunk,
       });
     } catch {
-      const remainingProjectIds = input.projectIds.slice(offset);
+      const remainingFolderIds = input.folderIds.slice(offset);
       // A transport error can race a committed command. Re-read the authoritative shell
-      // before offering a retry so we do not report projects that already reached the target.
+      // before offering a retry so we do not report folders that already reached the target.
       try {
         const snapshot = await input.api.orchestration.getShellSnapshot();
-        const projectById = new Map(snapshot.projects.map((project) => [project.id, project]));
+        const projectById = new Map(snapshot.folders.map((project) => [project.id, project]));
         return {
-          failedProjectIds: remainingProjectIds.filter((projectId) => {
-            const project = projectById.get(projectId);
+          failedFolderIds: remainingFolderIds.filter((folderId) => {
+            const project = projectById.get(folderId);
             // Missing shell rows were deleted concurrently and are settled just like rows
             // already assigned to the target; neither should be offered for a doomed retry.
             return project !== undefined && project.spaceId !== input.spaceId;
           }),
         };
       } catch {
-        return { failedProjectIds: remainingProjectIds };
+        return { failedFolderIds: remainingFolderIds };
       }
     }
   }
-  return { failedProjectIds: [] };
+  return { failedFolderIds: [] };
 }

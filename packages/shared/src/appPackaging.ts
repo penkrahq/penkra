@@ -78,6 +78,7 @@ export async function packageAppDirectory(input: {
   const files = await readPackageFiles(root);
   const documents = requiredDocuments(files);
   const manifest = parseManifest(documents.manifest);
+  assertAgentInstructionsContract(manifest, documents.instructions);
   assertReferencedFiles(manifest, files);
 
   const temporary = `${output}.${randomUUID()}.tmp`;
@@ -207,8 +208,39 @@ function parseManifest(bytes: Buffer): PenkraAppManifest {
   return manifest;
 }
 
+const REQUIRED_AGENT_INSTRUCTION_SECTIONS = [
+  "What this App is",
+  "Before you write anything",
+  "How to do the common thing",
+  "Reference",
+  "When things fail",
+] as const;
+
+function assertAgentInstructionsContract(manifest: PenkraAppManifest, instructions: Buffer): void {
+  if ((manifest.operations?.length ?? 0) === 0) return;
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(instructions);
+  const lines = new Set(text.split(/\r?\n/).map((line) => line.trim()));
+  const missing = REQUIRED_AGENT_INSTRUCTION_SECTIONS.filter(
+    (section) => !lines.has(`## ${section}`),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `INSTRUCTIONS.md for an App with operations is missing required sections: ${missing.map((section) => `## ${section}`).join(", ")}. Add all five sections in the documented order.`,
+    );
+  }
+  const positions = REQUIRED_AGENT_INSTRUCTION_SECTIONS.map((section) =>
+    text.indexOf(`## ${section}`),
+  );
+  if (positions.some((position, index) => index > 0 && position < positions[index - 1]!)) {
+    throw new Error(
+      "INSTRUCTIONS.md must place the five required sections in the documented order: what it is, preconditions, common workflow, reference, then failures.",
+    );
+  }
+}
+
 function assertReferencedFiles(manifest: PenkraAppManifest, files: PackageFile[]): void {
   const paths = new Set(files.map((file) => file.path));
+  const bytesByPath = new Map(files.map((file) => [file.path, file.bytes]));
   const references = [
     manifest.entrypoints.app,
     manifest.entrypoints.operations,
@@ -218,6 +250,21 @@ function assertReferencedFiles(manifest: PenkraAppManifest, files: PackageFile[]
   for (const reference of references) {
     if (!paths.has(reference))
       throw new Error(`Manifest reference is missing from the package: ${reference}`);
+  }
+  for (const skill of manifest.contributions?.skills ?? []) {
+    const skillPath = `${skill.path}/SKILL.md`;
+    const bytes = bytesByPath.get(skillPath)!;
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch (error) {
+      throw new Error(
+        `${skillPath} must be UTF-8 text: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (text.includes("\0") || !text.trim()) {
+      throw new Error(`${skillPath} must contain nonempty Agent Skill instructions.`);
+    }
   }
 }
 

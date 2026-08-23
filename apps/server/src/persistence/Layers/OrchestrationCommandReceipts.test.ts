@@ -1,4 +1,4 @@
-import { CommandId, ContainerId } from "@penkra/contracts";
+import { CommandId, FolderId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -20,8 +20,8 @@ layer("OrchestrationCommandReceiptRepository", (it) => {
 
       const receipt = {
         commandId: CommandId.makeUnsafe("command-receipt-immutable"),
-        aggregateKind: "project" as const,
-        aggregateId: ContainerId.makeUnsafe("project-receipt-immutable"),
+        aggregateKind: "folder" as const,
+        aggregateId: FolderId.makeUnsafe("project-receipt-immutable"),
         acceptedAt: "2026-07-14T00:00:00.000Z",
         resultSequence: 41,
         status: "accepted" as const,
@@ -56,7 +56,7 @@ layer("OrchestrationCommandReceiptRepository", (it) => {
           command_id, aggregate_kind, aggregate_id, accepted_at,
           result_sequence, status, error, fingerprint_version, command_fingerprint
         ) VALUES (
-          'legacy-command-receipt', 'project', 'legacy-project',
+          'legacy-command-receipt', 'folder', 'legacy-project',
           '2026-07-14T00:00:00.000Z', 7, 'accepted', NULL, NULL, NULL
         )
       `;

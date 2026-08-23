@@ -1,4 +1,4 @@
-import { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useSpacesUiStore } from "./spacesUiStore";
@@ -11,7 +11,7 @@ describe("spacesUiStore", () => {
       serverHydrated: false,
       pendingActiveSpace: null,
       lastThreadIdBySpace: {},
-      lastProjectIdBySpace: {},
+      lastFolderIdBySpace: {},
     });
   });
 
@@ -26,7 +26,7 @@ describe("spacesUiStore", () => {
           getSpaceNavigationState: vi.fn(async () => ({
             activeSpaceId: personal,
             lastThreadIdBySpace: { [personal]: threadId },
-            lastProjectIdBySpace: {},
+            lastFolderIdBySpace: {},
             updatedAt: "now",
           })),
           updateSpaceNavigationState: vi.fn(),
@@ -79,16 +79,16 @@ describe("spacesUiStore", () => {
 
   it("keeps only the most recent folder-or-thread target per Space", () => {
     const work = SpaceId.makeUnsafe("work");
-    const folderId = ContainerId.makeUnsafe("folder-work");
+    const folderId = FolderId.makeUnsafe("folder-work");
     const threadId = ThreadId.makeUnsafe("thread-work");
 
     useSpacesUiStore.getState().rememberThread(work, threadId);
     useSpacesUiStore.getState().rememberProject(work, folderId);
     expect(useSpacesUiStore.getState().getLastThreadId(work)).toBeNull();
-    expect(useSpacesUiStore.getState().getLastProjectId(work)).toBe(folderId);
+    expect(useSpacesUiStore.getState().getLastFolderId(work)).toBe(folderId);
 
     useSpacesUiStore.getState().rememberThread(work, threadId);
-    expect(useSpacesUiStore.getState().getLastProjectId(work)).toBeNull();
+    expect(useSpacesUiStore.getState().getLastFolderId(work)).toBeNull();
     expect(useSpacesUiStore.getState().getLastThreadId(work)).toBe(threadId);
   });
 });

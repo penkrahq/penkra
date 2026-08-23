@@ -1,16 +1,16 @@
 import {
   SpaceCreatedPayload as ContractsSpaceCreatedPayloadSchema,
-  SpaceMetaUpdatedPayload as ContractsSpaceMetaUpdatedPayloadSchema,
-  SpaceOrderUpdatedPayload as ContractsSpaceOrderUpdatedPayloadSchema,
+  SpaceUpdatedPayload as ContractsSpaceUpdatedPayloadSchema,
   SpaceArchivedPayload as ContractsSpaceArchivedPayloadSchema,
   SpaceRestoredPayload as ContractsSpaceRestoredPayloadSchema,
   SpaceDeletedPayload as ContractsSpaceDeletedPayloadSchema,
-  ProjectCreatedPayload as ContractsProjectCreatedPayloadSchema,
-  ProjectMetaUpdatedPayload as ContractsProjectMetaUpdatedPayloadSchema,
-  ProjectDeletedPayload as ContractsProjectDeletedPayloadSchema,
+  FolderCreatedPayload as ContractsFolderCreatedPayloadSchema,
+  FolderUpdatedPayload as ContractsFolderUpdatedPayloadSchema,
+  FolderMovedPayload as ContractsFolderMovedPayloadSchema,
+  FolderDeletedPayload as ContractsFolderDeletedPayloadSchema,
   ThreadCreatedPayload as ContractsThreadCreatedPayloadSchema,
   ThreadArchivedPayload as ContractsThreadArchivedPayloadSchema,
-  ThreadMetaUpdatedPayload as ContractsThreadMetaUpdatedPayloadSchema,
+  ThreadUpdatedPayload as ContractsThreadUpdatedPayloadSchema,
   ThreadPinnedMessageAddedPayload as ContractsThreadPinnedMessageAddedPayloadSchema,
   ThreadPinnedMessageRemovedPayload as ContractsThreadPinnedMessageRemovedPayloadSchema,
   ThreadPinnedMessageDoneSetPayload as ContractsThreadPinnedMessageDoneSetPayloadSchema,
@@ -37,18 +37,18 @@ import {
 
 // Server-internal alias surface, backed by contract schemas as the source of truth.
 export const SpaceCreatedPayload = ContractsSpaceCreatedPayloadSchema;
-export const SpaceMetaUpdatedPayload = ContractsSpaceMetaUpdatedPayloadSchema;
-export const SpaceOrderUpdatedPayload = ContractsSpaceOrderUpdatedPayloadSchema;
+export const SpaceUpdatedPayload = ContractsSpaceUpdatedPayloadSchema;
 export const SpaceArchivedPayload = ContractsSpaceArchivedPayloadSchema;
 export const SpaceRestoredPayload = ContractsSpaceRestoredPayloadSchema;
 export const SpaceDeletedPayload = ContractsSpaceDeletedPayloadSchema;
-export const ProjectCreatedPayload = ContractsProjectCreatedPayloadSchema;
-export const ProjectMetaUpdatedPayload = ContractsProjectMetaUpdatedPayloadSchema;
-export const ProjectDeletedPayload = ContractsProjectDeletedPayloadSchema;
+export const FolderCreatedPayload = ContractsFolderCreatedPayloadSchema;
+export const FolderUpdatedPayload = ContractsFolderUpdatedPayloadSchema;
+export const FolderMovedPayload = ContractsFolderMovedPayloadSchema;
+export const FolderDeletedPayload = ContractsFolderDeletedPayloadSchema;
 
 export const ThreadCreatedPayload = ContractsThreadCreatedPayloadSchema;
 export const ThreadArchivedPayload = ContractsThreadArchivedPayloadSchema;
-export const ThreadMetaUpdatedPayload = ContractsThreadMetaUpdatedPayloadSchema;
+export const ThreadUpdatedPayload = ContractsThreadUpdatedPayloadSchema;
 export const ThreadPinnedMessageAddedPayload = ContractsThreadPinnedMessageAddedPayloadSchema;
 export const ThreadPinnedMessageRemovedPayload = ContractsThreadPinnedMessageRemovedPayloadSchema;
 export const ThreadPinnedMessageDoneSetPayload = ContractsThreadPinnedMessageDoneSetPayloadSchema;

@@ -4,7 +4,7 @@
 // Layer: Route UI logic helpers
 // Exports: home-chat restore-route resolution.
 
-import type { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
+import type { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 
 import { resolveRestorableThreadRoute, type LastThreadRoute } from "../chatRouteRestore";
 import type { ServerWorkspacePaths } from "../lib/serverWorkspacePaths";
@@ -20,7 +20,7 @@ import type { Project } from "../types";
  */
 export interface ChatIndexLandingSpace {
   readonly spaceId: SpaceId | null;
-  readonly projectById: ReadonlyMap<ContainerId, Project>;
+  readonly projectById: ReadonlyMap<FolderId, Project>;
   readonly workspacePaths: ServerWorkspacePaths;
 }
 
@@ -29,14 +29,14 @@ export function resolveChatIndexRestoreRoute(input: {
   readonly availableSplitViewIds: ReadonlySet<string>;
   readonly threadIds: readonly ThreadId[];
   readonly sidebarThreadSummaryById: Readonly<
-    Record<string, { readonly projectId: ContainerId } | undefined>
+    Record<string, { readonly folderId: FolderId } | undefined>
   >;
   /**
    * Still-unsent chat drafts. They have a route id but no sidebar summary yet, so the summary
    * lookup below never matches them, so a cold
    * start on "/" can reopen an unsent draft instead of always minting a new one.
    */
-  readonly draftProjectIdByThreadId: ReadonlyMap<string, ContainerId>;
+  readonly draftFolderIdByThreadId: ReadonlyMap<string, FolderId>;
   /**
    * Populated panes from the split named by `lastThreadRoute`. `undefined` means the current
    * client state could not resolve that split, so a Space-scoped restore must fail closed.
@@ -44,20 +44,20 @@ export function resolveChatIndexRestoreRoute(input: {
   readonly rememberedSplitViewThreadIds: readonly ThreadId[] | undefined;
   readonly landingSpace: ChatIndexLandingSpace | null;
 }): LastThreadRoute | null {
-  const { draftProjectIdByThreadId, landingSpace, sidebarThreadSummaryById } = input;
+  const { draftFolderIdByThreadId, landingSpace, sidebarThreadSummaryById } = input;
 
   const availableThreadIds = new Set<string>();
-  for (const threadId of [...input.threadIds, ...draftProjectIdByThreadId.keys()]) {
+  for (const threadId of [...input.threadIds, ...draftFolderIdByThreadId.keys()]) {
     // Fail closed: a thread we can't classify is not restorable from "/". Summaries are built
     // from the same snapshot as threadIds, so this only ever excludes a thread if that invariant
     // breaks — and then a fresh draft beats restoring into the wrong segment.
-    const projectId =
-      sidebarThreadSummaryById[threadId]?.projectId ?? draftProjectIdByThreadId.get(threadId);
-    if (projectId === undefined) continue;
+    const folderId =
+      sidebarThreadSummaryById[threadId]?.folderId ?? draftFolderIdByThreadId.get(threadId);
+    if (folderId === undefined) continue;
     if (
       landingSpace &&
       !isThreadReachableFromSpace({
-        project: landingSpace.projectById.get(projectId),
+        project: landingSpace.projectById.get(folderId),
         spaceId: landingSpace.spaceId,
         paths: landingSpace.workspacePaths,
       })

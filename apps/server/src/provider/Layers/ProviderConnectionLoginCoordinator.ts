@@ -14,6 +14,7 @@ import { ServerConfig } from "../../config.ts";
 import { prepareManagedCodexProfileConfig } from "../../codexProcessEnv.ts";
 import { ProviderConnectionLoginRepository } from "../../persistence/Services/ProviderConnectionLogins.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
+import { ConnectionUsageFactRepository } from "../../persistence/Services/ConnectionUsageFacts.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
 import {
@@ -72,6 +73,14 @@ const providerIdentityFromSnapshot = (snapshot: unknown): string | null => {
   return typeof email === "string" && email.trim().length > 0 ? email.trim().toLowerCase() : null;
 };
 
+const rateLimitsFromCodexSnapshot = (snapshot: unknown): unknown | null =>
+  typeof snapshot === "object" &&
+  snapshot !== null &&
+  "rateLimitsSnapshot" in snapshot &&
+  snapshot.rateLimitsSnapshot != null
+    ? snapshot.rateLimitsSnapshot
+    : null;
+
 export function makeProviderConnectionLoginCoordinator(
   options: {
     readonly newId?: () => string;
@@ -89,6 +98,7 @@ export function makeProviderConnectionLoginCoordinator(
     const config = yield* ServerConfig;
     const logins = yield* ProviderConnectionLoginRepository;
     const connections = yield* ProviderConnectionRepository;
+    const usageFacts = yield* ConnectionUsageFactRepository;
     const installations = yield* ProviderInstallationRepository;
     const credentials = yield* ProviderCredentialBroker;
     const handles = new Map<
@@ -118,6 +128,41 @@ export function makeProviderConnectionLoginCoordinator(
           windowsHide: true,
         });
       });
+
+    const persistCodexRateLimits = (input: {
+      readonly connectionId: ProviderConnectionId;
+      readonly operationId: string;
+      readonly snapshot: unknown;
+    }) => {
+      const rateLimitsSnapshot = rateLimitsFromCodexSnapshot(input.snapshot);
+      if (rateLimitsSnapshot === null) return Effect.void;
+      return Effect.try({
+        try: () => JSON.stringify(rateLimitsSnapshot),
+        catch: (cause) =>
+          new ProviderConnectionLoginError({
+            detail: "Could not serialize the provider usage snapshot.",
+            cause,
+          }),
+      }).pipe(
+        Effect.flatMap((limitsJson) =>
+          usageFacts.putRateLimits({
+            connectionId: input.connectionId,
+            provider: "codex",
+            limitsJson,
+            status: null,
+            sourceEventId: input.operationId,
+            updatedAt: now(),
+          }),
+        ),
+        Effect.catch((cause) =>
+          Effect.logWarning("provider.connection_login.usage_snapshot_persist_failed", {
+            operationId: input.operationId,
+            connectionId: input.connectionId,
+            cause,
+          }),
+        ),
+      );
+    };
 
     const probeManagedAccount = async (input: {
       readonly harness: Parameters<typeof getProviderConnectionManifest>[0];
@@ -291,6 +336,7 @@ export function makeProviderConnectionLoginCoordinator(
       readonly providerLoginId: string | null;
       readonly providerIdentityId: string | null;
       readonly createdAt: string;
+      readonly accountSnapshot?: unknown;
     }) =>
       Effect.gen(function* () {
         const method = findManagedLoginMethod({
@@ -347,6 +393,13 @@ export function makeProviderConnectionLoginCoordinator(
               }),
             ),
           );
+        if (record.harness === "codex") {
+          yield* persistCodexRateLimits({
+            connectionId: committed.connection.id,
+            operationId: `provider-login:${record.operationId}`,
+            snapshot: record.accountSnapshot,
+          });
+        }
         yield* transition({
           operationId: record.operationId,
           state: "completed",
@@ -630,6 +683,7 @@ export function makeProviderConnectionLoginCoordinator(
                     providerLoginId: handle.loginId,
                     providerIdentityId,
                     createdAt,
+                    accountSnapshot: snapshot,
                   }),
                 );
                 await Effect.runPromise(
@@ -983,6 +1037,13 @@ export function makeProviderConnectionLoginCoordinator(
                         }),
                     });
                     if (account !== null) {
+                      if (record.harness === "codex") {
+                        yield* persistCodexRateLimits({
+                          connectionId: record.id,
+                          operationId: `provider-recovery:${record.id}`,
+                          snapshot: account,
+                        });
+                      }
                       const method = findManagedLoginMethod(record);
                       if (method?.displayIdentity.kind === "account-email") {
                         const providerIdentityId = providerIdentityFromSnapshot(account);
@@ -1258,7 +1319,7 @@ export function makeProviderConnectionLoginCoordinator(
                       failureReason: null,
                       updatedAt: now(),
                     });
-                    yield* commitVerified(verified);
+                    yield* commitVerified({ ...verified, accountSnapshot: account });
                   }),
             { concurrency: 1 },
           ),

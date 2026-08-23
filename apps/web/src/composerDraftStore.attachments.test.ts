@@ -447,7 +447,7 @@ describe("composerDraftStore prompt history saved draft", () => {
             },
           },
           draftThreadsByThreadId: {},
-          projectDraftThreadIdByProjectId: {},
+          projectDraftThreadIdByFolderId: {},
         },
       },
       Schema.Unknown,
@@ -641,7 +641,7 @@ describe("composerDraftStore syncPersistedAttachments", () => {
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: {},
+      projectDraftThreadIdByFolderId: {},
       stickyModelSelectionByProvider: {},
       stickyConnectionByProvider: {},
       stickyActiveProvider: null,

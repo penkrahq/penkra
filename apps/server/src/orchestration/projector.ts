@@ -26,17 +26,17 @@ import {
   SpaceCreatedPayload,
   SpaceArchivedPayload,
   SpaceDeletedPayload,
-  SpaceMetaUpdatedPayload,
-  SpaceOrderUpdatedPayload,
+  SpaceUpdatedPayload,
   SpaceRestoredPayload,
-  ProjectCreatedPayload,
-  ProjectDeletedPayload,
-  ProjectMetaUpdatedPayload,
+  FolderCreatedPayload,
+  FolderDeletedPayload,
+  FolderMovedPayload,
+  FolderUpdatedPayload,
   ThreadArchivedPayload,
   ThreadActivityAppendedPayload,
   ThreadCreatedPayload,
   ThreadDeletedPayload,
-  ThreadMetaUpdatedPayload,
+  ThreadUpdatedPayload,
   ThreadPinnedMessageAddedPayload,
   ThreadPinnedMessageDoneSetPayload,
   ThreadPinnedMessageLabelSetPayload,
@@ -56,7 +56,7 @@ import { resolveStableMessageTurnId } from "./messageTurnId.ts";
 import { settleTurnStateFromSession } from "./turnLifecycle.ts";
 import { deriveTurnStartModelSelection, deriveTurnStartSession } from "./turnStartSession.ts";
 
-type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
+type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "folderId">>;
 const MAX_THREAD_MESSAGES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.messages;
 const MAX_THREAD_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.summaryActivities;
 
@@ -227,7 +227,7 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
   return {
     snapshotSequence: 0,
     spaces: [],
-    projects: [],
+    folders: [],
     threads: [],
     updatedAt: nowIso,
   };
@@ -267,35 +267,25 @@ export function projectEvent(
         }),
       );
 
-    case "space.meta-updated":
-      return decodeForEvent(SpaceMetaUpdatedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          spaces: nextBase.spaces.map((space) =>
-            space.id === payload.spaceId
-              ? {
-                  ...space,
-                  ...(payload.name !== undefined ? { name: payload.name } : {}),
-                  ...(payload.icon !== undefined ? { icon: payload.icon } : {}),
-                  updatedAt: payload.updatedAt,
-                }
-              : space,
-          ),
-        })),
-      );
-
-    case "space.order-updated":
-      return decodeForEvent(SpaceOrderUpdatedPayload, event.payload, event.type, "payload").pipe(
+    case "space.updated":
+      return decodeForEvent(SpaceUpdatedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
           const orderBySpaceId = new Map(
-            payload.orderedSpaceIds.map((spaceId, index) => [spaceId, index] as const),
+            (payload.orderedSpaceIds ?? []).map((spaceId, index) => [spaceId, index] as const),
           );
           return {
             ...nextBase,
             spaces: nextBase.spaces.map((space) => {
               const sortOrder = orderBySpaceId.get(space.id);
-              // A listed space whose position did not move is not a change; skipping it keeps
-              // this read model, the SQL projection, and the client store byte-identical.
+              if (space.id === payload.spaceId) {
+                return {
+                  ...space,
+                  ...(payload.name !== undefined ? { name: payload.name } : {}),
+                  ...(payload.icon !== undefined ? { icon: payload.icon } : {}),
+                  ...(sortOrder !== undefined ? { sortOrder } : {}),
+                  updatedAt: payload.updatedAt,
+                };
+              }
               return sortOrder === undefined || sortOrder === space.sortOrder
                 ? space
                 : { ...space, sortOrder, updatedAt: payload.updatedAt };
@@ -346,34 +336,32 @@ export function projectEvent(
       );
 
     case "sidebar.layout-updated": {
-      const projectUpdates = new Map(
-        event.payload.projectUpdates.map((update) => [update.projectId, update] as const),
+      const folderUpdates = new Map(
+        event.payload.folderUpdates.map((update) => [update.folderId, update] as const),
       );
       const threadUpdates = new Map(
         event.payload.threadUpdates.map((update) => [update.threadId, update] as const),
       );
       return Effect.succeed({
         ...nextBase,
-        projects: nextBase.projects.map((project) => {
-          const update = projectUpdates.get(project.id);
+        folders: nextBase.folders.map((folder) => {
+          const update = folderUpdates.get(folder.id);
           return update
             ? {
-                ...project,
-                ...(update.spaceId !== undefined ? { spaceId: update.spaceId } : {}),
+                ...folder,
                 ...(update.sidebarSortOrder !== undefined
                   ? { sidebarSortOrder: update.sidebarSortOrder }
                   : {}),
                 updatedAt: event.payload.updatedAt,
               }
-            : project;
+            : folder;
         }),
         threads: nextBase.threads.map((thread) => {
           const update = threadUpdates.get(thread.id);
           return update
             ? {
                 ...thread,
-                ...(update.projectId !== undefined ? { projectId: update.projectId } : {}),
-                ...(update.spaceId !== undefined ? { spaceId: update.spaceId } : {}),
+                ...(update.folderId !== undefined ? { folderId: update.folderId } : {}),
                 ...(update.sidebarSortOrder !== undefined
                   ? { sidebarSortOrder: update.sidebarSortOrder }
                   : {}),
@@ -384,20 +372,19 @@ export function projectEvent(
       });
     }
 
-    case "project.created":
-      return decodeForEvent(ProjectCreatedPayload, event.payload, event.type, "payload").pipe(
+    case "folder.created":
+      return decodeForEvent(FolderCreatedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
-          const existing = nextBase.projects.find((entry) => entry.id === payload.projectId);
+          const existing = nextBase.folders.find((entry) => entry.id === payload.folderId);
           const nextProject = {
-            id: payload.projectId,
-            kind: payload.kind,
+            id: payload.folderId,
             title: payload.title,
             workspaceRoot: payload.workspaceRoot,
             defaultModelSelection: payload.defaultModelSelection,
             scripts: payload.scripts,
             iconDataUrl: payload.iconDataUrl ?? null,
             isPinned: payload.isPinned ?? false,
-            spaceId: payload.spaceId ?? null,
+            spaceId: payload.spaceId,
             sidebarSortOrder: payload.sidebarSortOrder ?? 0,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -407,24 +394,23 @@ export function projectEvent(
 
           return {
             ...nextBase,
-            projects: existing
-              ? nextBase.projects.map((entry) =>
-                  entry.id === payload.projectId ? nextProject : entry,
+            folders: existing
+              ? nextBase.folders.map((entry) =>
+                  entry.id === payload.folderId ? nextProject : entry,
                 )
-              : [...nextBase.projects, nextProject],
+              : [...nextBase.folders, nextProject],
           };
         }),
       );
 
-    case "project.meta-updated":
-      return decodeForEvent(ProjectMetaUpdatedPayload, event.payload, event.type, "payload").pipe(
+    case "folder.updated":
+      return decodeForEvent(FolderUpdatedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          projects: nextBase.projects.map((project) =>
-            project.id === payload.projectId
+          folders: nextBase.folders.map((folder) =>
+            folder.id === payload.folderId
               ? {
-                  ...project,
-                  ...(payload.kind !== undefined ? { kind: payload.kind } : {}),
+                  ...folder,
                   ...(payload.title !== undefined ? { title: payload.title } : {}),
                   ...(payload.workspaceRoot !== undefined
                     ? { workspaceRoot: payload.workspaceRoot }
@@ -437,30 +423,41 @@ export function projectEvent(
                     ? { iconDataUrl: payload.iconDataUrl }
                     : {}),
                   ...(payload.isPinned !== undefined ? { isPinned: payload.isPinned } : {}),
-                  ...(payload.spaceId !== undefined ? { spaceId: payload.spaceId } : {}),
                   ...(payload.sidebarSortOrder !== undefined
                     ? { sidebarSortOrder: payload.sidebarSortOrder }
                     : {}),
                   ...(payload.archivedAt !== undefined ? { archivedAt: payload.archivedAt } : {}),
                   updatedAt: payload.updatedAt,
                 }
-              : project,
+              : folder,
           ),
         })),
       );
 
-    case "project.deleted":
-      return decodeForEvent(ProjectDeletedPayload, event.payload, event.type, "payload").pipe(
+    case "folder.moved":
+      return decodeForEvent(FolderMovedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          projects: nextBase.projects.map((project) =>
-            project.id === payload.projectId
+          folders: nextBase.folders.map((folder) =>
+            folder.id === payload.folderId
+              ? { ...folder, spaceId: payload.spaceId, updatedAt: payload.updatedAt }
+              : folder,
+          ),
+        })),
+      );
+
+    case "folder.deleted":
+      return decodeForEvent(FolderDeletedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          folders: nextBase.folders.map((folder) =>
+            folder.id === payload.folderId
               ? {
-                  ...project,
+                  ...folder,
                   deletedAt: payload.deletedAt,
                   updatedAt: payload.deletedAt,
                 }
-              : project,
+              : folder,
           ),
         })),
       );
@@ -477,8 +474,7 @@ export function projectEvent(
           OrchestrationThread,
           {
             id: payload.threadId,
-            projectId: payload.projectId,
-            spaceId: payload.spaceId ?? null,
+            folderId: payload.folderId,
             sidebarSortOrder: payload.sidebarSortOrder ?? 0,
             title: payload.title,
             modelSelection: payload.modelSelection,
@@ -555,13 +551,12 @@ export function projectEvent(
         }),
       );
 
-    case "thread.meta-updated":
-      return decodeForEvent(ThreadMetaUpdatedPayload, event.payload, event.type, "payload").pipe(
+    case "thread.updated":
+      return decodeForEvent(ThreadUpdatedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
-              ...(payload.spaceId !== undefined ? { spaceId: payload.spaceId } : {}),
               ...(payload.title !== undefined ? { title: payload.title } : {}),
               ...(payload.modelSelection !== undefined
                 ? { modelSelection: payload.modelSelection }

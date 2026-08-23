@@ -7,7 +7,7 @@
  */
 import { Schema } from "effect";
 
-import { ContainerId, ThreadId, TurnId } from "./baseSchemas";
+import { FolderId, ThreadId, TurnId } from "./baseSchemas";
 import { ModelSelection, ProviderKind } from "./orchestration";
 import { ProviderModelDescriptor } from "./providerDiscovery";
 import { ServerProviderAuthStatus } from "./server";
@@ -23,8 +23,6 @@ export const PenkraGatewayErrorCode = Schema.Literals([
   "provider_unavailable",
   "model_unavailable",
   "model_option_unavailable",
-  "idempotency_conflict",
-  "creation_plan_locked",
   "creation_limit_exceeded",
   "thread_not_found",
   "wait_timed_out",
@@ -53,7 +51,7 @@ export const PenkraContextResult = Schema.Struct({
     threadId: ThreadId,
     turnId: Schema.NullOr(TurnId),
     provider: ProviderKind,
-    projectId: ContainerId,
+    folderId: FolderId,
   }),
   capabilities: Schema.Struct({
     threadRead: Schema.Boolean,
@@ -67,7 +65,7 @@ export const PenkraCreateThreadSpec = Schema.Struct({
   prompt: Schema.String.check(Schema.isNonEmpty()),
   title: Schema.optional(Schema.String.check(Schema.isNonEmpty())),
   target: ModelSelection,
-  projectId: Schema.optional(ContainerId),
+  folderId: Schema.optional(FolderId),
   runtimeMode: Schema.optional(Schema.Literals(["approval-required", "full-access"])),
 });
 export type PenkraCreateThreadSpec = typeof PenkraCreateThreadSpec.Type;
@@ -76,13 +74,11 @@ const PenkraGatewayRequestId = Schema.String.check(Schema.isNonEmpty()).check(
   Schema.isMaxLength(PENKRA_GATEWAY_MAX_REQUEST_ID_LENGTH),
 );
 
-export const PenkraCreateThreadsInput = Schema.Struct({
+export const PenkraCreateThreadInput = Schema.Struct({
   requestId: PenkraGatewayRequestId,
-  threads: Schema.Array(PenkraCreateThreadSpec)
-    .check(Schema.isMinLength(1))
-    .check(Schema.isMaxLength(PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION)),
+  ...PenkraCreateThreadSpec.fields,
 }).annotate({ parseOptions: { onExcessProperty: "error" } });
-export type PenkraCreateThreadsInput = typeof PenkraCreateThreadsInput.Type;
+export type PenkraCreateThreadInput = typeof PenkraCreateThreadInput.Type;
 
 export const PenkraProviderCatalog = Schema.Struct({
   provider: ProviderKind,
@@ -126,9 +122,8 @@ export const PenkraCapabilitiesResult = Schema.Struct({
   targetConstruction: Schema.Record(Schema.String, PenkraGatewayTargetConstruction),
   providers: Schema.Array(PenkraProviderCatalog),
   limits: Schema.Struct({
-    maxThreadsPerOperation: Schema.Int,
+    maxThreadsPerWait: Schema.Int,
     maxWaitMs: Schema.Int,
-    oneCreationPlanPerActiveTurn: Schema.Boolean,
   }),
 });
 export type PenkraCapabilitiesResult = typeof PenkraCapabilitiesResult.Type;
@@ -136,7 +131,7 @@ export type PenkraCapabilitiesResult = typeof PenkraCapabilitiesResult.Type;
 export const PenkraCreatedThreadResult = Schema.Struct({
   index: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   threadId: ThreadId,
-  projectId: ContainerId,
+  folderId: FolderId,
   title: Schema.String,
   target: ModelSelection,
   provider: ProviderKind,
@@ -146,15 +141,19 @@ export const PenkraCreatedThreadResult = Schema.Struct({
 });
 export type PenkraCreatedThreadResult = typeof PenkraCreatedThreadResult.Type;
 
-export const PenkraCreateThreadsResult = Schema.Struct({
+export const PenkraCreateThreadResult = Schema.Struct({
   operationId: Schema.String,
   requestId: PenkraGatewayRequestId,
-  requestedCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
-  createdCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  threadIds: Schema.Array(ThreadId),
-  threads: Schema.Array(PenkraCreatedThreadResult),
+  threadId: ThreadId,
+  folderId: FolderId,
+  title: Schema.String,
+  target: ModelSelection,
+  provider: ProviderKind,
+  model: Schema.String,
+  runtimeMode: Schema.Literals(["approval-required", "full-access"]),
+  status: Schema.Literal("task_dispatched"),
 });
-export type PenkraCreateThreadsResult = typeof PenkraCreateThreadsResult.Type;
+export type PenkraCreateThreadResult = typeof PenkraCreateThreadResult.Type;
 
 export const PenkraWaitForThreadsInput = Schema.Struct({
   threadIds: Schema.Array(ThreadId)

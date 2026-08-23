@@ -25,14 +25,6 @@ function makeSettings(
 ): ProviderModelPrefetchSettings {
   return {
     defaultProvider: "codex",
-    cursorBinaryPath: "",
-    cursorApiEndpoint: "",
-    antigravityBinaryPath: "",
-    grokBinaryPath: "",
-    droidBinaryPath: "",
-    kiloBinaryPath: "",
-    piBinaryPath: "",
-    piAgentDir: "",
     ...overrides,
   };
 }
@@ -41,21 +33,21 @@ describe("resolveNewThreadModelPrefetchProvider", () => {
   it("prefers draft, then sticky, then project default, then app default", () => {
     expect(
       resolveNewThreadModelPrefetchProvider({
-        draftActiveProvider: "cursor",
-        stickyActiveProvider: "pi",
+        draftActiveProvider: "claudeAgent",
+        stickyActiveProvider: "codex",
         projectDefaultProvider: "opencode",
         defaultProvider: "codex",
       }),
-    ).toBe("cursor");
+    ).toBe("claudeAgent");
 
     expect(
       resolveNewThreadModelPrefetchProvider({
         draftActiveProvider: null,
-        stickyActiveProvider: "pi",
+        stickyActiveProvider: "codex",
         projectDefaultProvider: "opencode",
         defaultProvider: "codex",
       }),
-    ).toBe("pi");
+    ).toBe("codex");
 
     expect(
       resolveNewThreadModelPrefetchProvider({
@@ -101,22 +93,8 @@ describe("resolveNewThreadModelPrefetchCwd", () => {
 });
 
 describe("providerModelsPrefetchQueryOptions", () => {
-  it("matches ChatView cache keys for cwd-scoped and binary-scoped providers", () => {
-    const settings = makeSettings({
-      cursorBinaryPath: "/bin/agent",
-      cursorApiEndpoint: "https://api.example",
-      antigravityBinaryPath: "/bin/antigravity",
-      piBinaryPath: "/bin/pi",
-      piAgentDir: "/tmp/pi-agent",
-    });
-
-    const cursorOptions = providerModelsPrefetchQueryOptions({
-      provider: "cursor",
-      settings,
-    });
-    expect(cursorOptions.queryKey).toEqual(
-      providerDiscoveryQueryKeys.models("cursor", "/bin/agent", "https://api.example", null, null),
-    );
+  it("matches ChatView cache keys for live providers", () => {
+    const settings = makeSettings();
 
     const openCodeOptions = providerModelsPrefetchQueryOptions({
       provider: "opencode",
@@ -125,30 +103,6 @@ describe("providerModelsPrefetchQueryOptions", () => {
     });
     expect(openCodeOptions.queryKey).toEqual(
       providerDiscoveryQueryKeys.models("opencode", null, null, null, "/tmp/project"),
-    );
-
-    const piOptions = providerModelsPrefetchQueryOptions({
-      provider: "pi",
-      settings,
-      cwd: "/tmp/project",
-    });
-    expect(piOptions.queryKey).toEqual(
-      providerDiscoveryQueryKeys.models("pi", "/bin/pi", null, "/tmp/pi-agent", "/tmp/project"),
-    );
-
-    const antigravityOptions = providerModelsPrefetchQueryOptions({
-      provider: "antigravity",
-      settings,
-      cwd: "/tmp/project",
-    });
-    expect(antigravityOptions.queryKey).toEqual(
-      providerDiscoveryQueryKeys.models(
-        "antigravity",
-        "/bin/antigravity",
-        null,
-        null,
-        "/tmp/project",
-      ),
     );
 
     const codexOptions = providerModelsPrefetchQueryOptions({
@@ -167,40 +121,41 @@ describe("prefetchProviderModelsForNewThread", () => {
     const prefetchQuery = vi.spyOn(queryClient, "prefetchQuery").mockResolvedValue(undefined);
 
     prefetchProviderModelsForNewThread(queryClient, {
-      provider: "kilo" satisfies ProviderKind,
-      settings: makeSettings({
-        kiloBinaryPath: "/bin/kilo",
-      }),
+      provider: "opencode" satisfies ProviderKind,
+      settings: makeSettings(),
       cwd: "/tmp/project",
     });
 
     expect(prefetchQuery).toHaveBeenCalledTimes(3);
     expect(prefetchQuery.mock.calls[0]?.[0].queryKey).toEqual(
-      providerDiscoveryQueryKeys.models("kilo", "/bin/kilo", null, null, "/tmp/project"),
+      providerDiscoveryQueryKeys.models("opencode", null, null, null, "/tmp/project"),
     );
     expect(prefetchQuery.mock.calls[1]?.[0].queryKey).toEqual(
-      providerDiscoveryQueryKeys.agents("kilo", "/bin/kilo", "/tmp/project"),
+      providerDiscoveryQueryKeys.agents("opencode", null, "/tmp/project"),
     );
     expect(prefetchQuery.mock.calls[2]?.[0].queryKey).toEqual(
-      providerDiscoveryQueryKeys.composerCapabilities("kilo"),
+      providerDiscoveryQueryKeys.composerCapabilities("opencode"),
     );
   });
 
-  it("prefetches only models for providers without agent discovery", async () => {
+  it("prefetches models, agents, and capabilities for Codex", async () => {
     const queryClient = new QueryClient();
     const prefetchQuery = vi.spyOn(queryClient, "prefetchQuery").mockResolvedValue(undefined);
 
     prefetchProviderModelsForNewThread(queryClient, {
-      provider: "cursor",
-      settings: makeSettings({ cursorBinaryPath: "/bin/agent" }),
+      provider: "codex",
+      settings: makeSettings(),
     });
 
-    expect(prefetchQuery).toHaveBeenCalledTimes(2);
+    expect(prefetchQuery).toHaveBeenCalledTimes(3);
     expect(prefetchQuery.mock.calls[0]?.[0].queryKey).toEqual(
-      providerDiscoveryQueryKeys.models("cursor", "/bin/agent", null, null, null),
+      providerDiscoveryQueryKeys.models("codex", null, null, null, null),
     );
     expect(prefetchQuery.mock.calls[1]?.[0].queryKey).toEqual(
-      providerDiscoveryQueryKeys.composerCapabilities("cursor"),
+      providerDiscoveryQueryKeys.agents("codex", null, null),
+    );
+    expect(prefetchQuery.mock.calls[2]?.[0].queryKey).toEqual(
+      providerDiscoveryQueryKeys.composerCapabilities("codex"),
     );
   });
 });

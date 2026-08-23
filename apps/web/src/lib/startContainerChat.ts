@@ -4,7 +4,7 @@
 // Layer: Web orchestration helper
 // Exports: Container-chat startup plus segment-aware fresh-chat dispatch.
 
-import type { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
+import type { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import type { NewThreadOptions } from "./threadBootstrap";
 
 export type StartContainerChatResult =
@@ -27,9 +27,9 @@ export function startFreshChatForActiveSurface(input: {
  * The container resolver and user-facing failure label are supplied by the caller.
  */
 export async function startContainerChat(input: {
-  readonly ensureProjectId: () => Promise<ContainerId | null>;
+  readonly ensureFolderId: () => Promise<FolderId | null>;
   readonly handleNewThread: (
-    projectId: ContainerId,
+    folderId: FolderId,
     options?: NewThreadOptions,
   ) => Promise<ThreadId | null>;
   readonly fresh?: boolean | undefined;
@@ -37,8 +37,8 @@ export async function startContainerChat(input: {
   readonly errorLabel: string;
 }): Promise<StartContainerChatResult> {
   try {
-    const projectId = await input.ensureProjectId();
-    if (!projectId) {
+    const folderId = await input.ensureFolderId();
+    if (!folderId) {
       return { ok: false, error: input.errorLabel };
     }
     const threadOptions: NewThreadOptions | undefined =
@@ -48,7 +48,7 @@ export async function startContainerChat(input: {
             ...(input.spaceId !== undefined ? { spaceId: input.spaceId } : {}),
           }
         : undefined;
-    const threadId = await input.handleNewThread(projectId, threadOptions);
+    const threadId = await input.handleNewThread(folderId, threadOptions);
     return { ok: true, threadId };
   } catch (error) {
     return {

@@ -126,7 +126,7 @@ export interface OrchestrationEngineShape {
   ) => Effect.Effect<{ sequence: number }, OrchestrationDispatchError, never>;
 
   /**
-   * Repair project-facing projection state for older installs without clearing
+   * Repair folder-facing projection state for older installs without clearing
    * existing chat rows.
    *
    * Replays the snapshot-related projector cursors and refreshes the in-memory

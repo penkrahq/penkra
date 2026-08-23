@@ -3,7 +3,7 @@
 // Layer: Web UI state
 // Exports: useProjectRunStore plus helpers for syncing dev-server lifecycle events.
 
-import type { ProjectDevServer, ContainerId } from "@penkra/contracts";
+import type { ProjectDevServer, FolderId } from "@penkra/contracts";
 
 /**
  * A tracked dev server as projected from the server. This mirrors the
@@ -13,47 +13,47 @@ import type { ProjectDevServer, ContainerId } from "@penkra/contracts";
 export type ProjectRunState = ProjectDevServer;
 
 interface ProjectRunStoreState {
-  runsByProjectId: Record<ContainerId, ProjectRunState>;
+  runsByFolderId: Record<FolderId, ProjectRunState>;
   /** Replace the entire registry from an authoritative server snapshot. */
   replaceAll: (servers: ReadonlyArray<ProjectDevServer>) => void;
   /** Insert or update a single tracked dev server. */
   upsertRun: (server: ProjectDevServer) => void;
   /** Drop a tracked dev server by project id. */
-  removeRun: (projectId: ContainerId) => void;
+  removeRun: (folderId: FolderId) => void;
 }
 
 import { create } from "zustand";
 
-function indexByProjectId(
+function indexByFolderId(
   servers: ReadonlyArray<ProjectDevServer>,
-): Record<ContainerId, ProjectRunState> {
-  const next: Record<ContainerId, ProjectRunState> = {};
+): Record<FolderId, ProjectRunState> {
+  const next: Record<FolderId, ProjectRunState> = {};
   for (const server of servers) {
-    next[server.projectId] = server;
+    next[server.folderId] = server;
   }
   return next;
 }
 
 export const useProjectRunStore = create<ProjectRunStoreState>((set) => ({
-  runsByProjectId: {},
+  runsByFolderId: {},
   replaceAll: (servers) =>
     set(() => ({
-      runsByProjectId: indexByProjectId(servers),
+      runsByFolderId: indexByFolderId(servers),
     })),
   upsertRun: (server) =>
     set((state) => ({
-      runsByProjectId: {
-        ...state.runsByProjectId,
-        [server.projectId]: server,
+      runsByFolderId: {
+        ...state.runsByFolderId,
+        [server.folderId]: server,
       },
     })),
-  removeRun: (projectId) =>
+  removeRun: (folderId) =>
     set((state) => {
-      if (!state.runsByProjectId[projectId]) {
+      if (!state.runsByFolderId[folderId]) {
         return state;
       }
-      const nextRunsByProjectId = { ...state.runsByProjectId };
-      delete nextRunsByProjectId[projectId];
-      return { runsByProjectId: nextRunsByProjectId };
+      const nextRunsByFolderId = { ...state.runsByFolderId };
+      delete nextRunsByFolderId[folderId];
+      return { runsByFolderId: nextRunsByFolderId };
     }),
 }));

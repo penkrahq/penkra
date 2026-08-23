@@ -114,7 +114,7 @@ describe("groupCommandItems", () => {
           description: "Review recent code changes",
           path: "/workspace/.codex/skills/check-code/SKILL.md",
           enabled: true,
-          scope: "project",
+          scope: "folder",
         },
         label: "check-code",
         description: "Review recent code changes",

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   WsBootstrapRpcGroup,
   WsFeatureRpcGroup,
-  WsProjectsDiscoverScriptsRpc,
+  WsFoldersDiscoverScriptsRpc,
   WsRpcError,
   WsRpcGroup,
 } from "./rpc";
@@ -31,6 +31,6 @@ describe("WS RPC contracts", () => {
   });
 
   it("exports the project script discovery RPC", () => {
-    expect(WsProjectsDiscoverScriptsRpc).toBeDefined();
+    expect(WsFoldersDiscoverScriptsRpc).toBeDefined();
   });
 });

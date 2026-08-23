@@ -620,7 +620,7 @@ function toCodexUserInputAnswers(
  * Canonical parse of an `item/tool/requestUserInput` payload into renderable
  * questions. This is the single source of truth shared by the manager (which
  * must refuse — and answer — requests it cannot surface) and `CodexAdapter`
- * (which projects them into `user-input.requested`); if the two ever disagree,
+ * (which folders them into `user-input.requested`); if the two ever disagree,
  * codex parks forever on a question nobody can see.
  *
  * Deliberately lenient: an option carries its label as its description when

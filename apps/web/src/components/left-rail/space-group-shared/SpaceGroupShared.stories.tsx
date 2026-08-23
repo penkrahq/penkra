@@ -27,13 +27,13 @@ export const Open: Story = {
   },
 };
 export const Closed: Story = {
-  args: { defaultExpanded: false, label: "Work", children: <FolderGroupShared label="Projects" /> },
+  args: { defaultExpanded: false, label: "Work", children: <FolderGroupShared label="Folders" /> },
 };
 export const HeaderHover: Story = {
   args: {
     headerState: "hover",
     label: "Work",
     onHeaderAction: () => undefined,
-    children: <FolderGroupShared label="Projects" />,
+    children: <FolderGroupShared label="Folders" />,
   },
 };

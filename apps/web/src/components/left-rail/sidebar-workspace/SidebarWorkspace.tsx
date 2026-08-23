@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { AccountControlShared } from "../account-control-shared/AccountControlShared";
 import { SidebarHeaderShared } from "../sidebar-header-shared/SidebarHeaderShared";
-import { SidebarProjects } from "../sidebar-projects/SidebarProjects";
+import { SidebarFolders } from "../sidebar-folders/SidebarFolders";
 import { SidebarTopNavigation } from "../sidebar-top-navigation/SidebarTopNavigation";
 
 export interface SidebarWorkspaceProps {
@@ -29,7 +29,7 @@ export function SidebarWorkspace({
         {...(activeNavigationItemId === undefined ? {} : { activeItemId: activeNavigationItemId })}
         {...(onNavigationSelect === undefined ? {} : { onSelect: onNavigationSelect })}
       />
-      <SidebarProjects>{children}</SidebarProjects>
+      <SidebarFolders>{children}</SidebarFolders>
       <AccountControlShared accountName={accountName} />
     </aside>
   );

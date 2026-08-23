@@ -619,7 +619,7 @@ function GlobalShortcutsDialog() {
       open={open}
       onOpenChange={setOpen}
       keybindings={keybindings}
-      projectScripts={activeProject?.kind === "project" ? activeProject.scripts : []}
+      projectScripts={activeProject?.scripts ?? []}
       platform={platform}
       context={{
         terminalFocus: isTerminalFocused(),
@@ -638,7 +638,7 @@ function GlobalFeedbackDialog() {
   const context: FeedbackThreadContext = requestedContext ?? {
     provider: activeThread?.modelSelection.provider ?? null,
     model: activeThread?.modelSelection.model ?? null,
-    projectKind: activeProject?.kind ?? null,
+    projectKind: activeProject ? "folder" : null,
     runtimeMode: activeThread?.runtimeMode ?? null,
     sessionStatus: activeThread?.session?.status ?? null,
     latestTurnState: activeThread?.latestTurn?.state ?? null,
@@ -864,7 +864,7 @@ function isThreadDetailEventForThread(event: OrchestrationEvent, threadId: Threa
     event.type === "thread.activity-read-model-updated" ||
     event.type === "thread.conversation-rolled-back" ||
     event.type === "thread.session-set" ||
-    event.type === "thread.meta-updated" ||
+    event.type === "thread.updated" ||
     event.type === "thread.pinned-message-added" ||
     event.type === "thread.pinned-message-removed" ||
     event.type === "thread.pinned-message-done-set" ||
@@ -1564,18 +1564,18 @@ function EventRouter() {
         queryKey: serverQueryKeys.localServers(),
       });
     };
-    const unsubDevServerEvent = api.projects.onDevServerEvent((event) => {
+    const unsubDevServerEvent = api.folders.onDevServerEvent((event) => {
       const store = useProjectRunStore.getState();
       if (event.type === "snapshot") {
         store.replaceAll(event.servers);
       } else if (event.type === "upserted") {
         store.upsertRun(event.server);
       } else {
-        store.removeRun(event.projectId);
+        store.removeRun(event.folderId);
       }
       invalidateLocalServers();
     });
-    const unsubWorkspaceChange = api.projects.onWorkspaceChange((event) => {
+    const unsubWorkspaceChange = api.folders.onWorkspaceChange((event) => {
       if (event.lostSync) {
         void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
         return;
@@ -1587,7 +1587,7 @@ function EventRouter() {
     });
     // The channel's initial snapshot may have arrived before this listener was
     // registered, so seed from the authoritative registry on mount.
-    void api.projects
+    void api.folders
       .listDevServers()
       .then(({ servers }) => {
         if (disposed) {
@@ -1606,10 +1606,10 @@ function EventRouter() {
         if (disposed) return;
         await loadShellSnapshotOnce();
 
-        if (!payload.bootstrapProjectId || !payload.bootstrapThreadId) {
+        if (!payload.bootstrapFolderId || !payload.bootstrapThreadId) {
           return;
         }
-        setProjectExpanded(payload.bootstrapProjectId, true);
+        setProjectExpanded(payload.bootstrapFolderId, true);
 
         if (pathnameRef.current !== "/") {
           return;
@@ -1687,16 +1687,7 @@ function EventRouter() {
         // Model and agent discovery can depend on auth, availability, and installed versions,
         // but not on every provider-status timestamp replay.
         void queryClient.invalidateQueries({
-          queryKey: ["provider-discovery", "models", "kilo"],
-        });
-        void queryClient.invalidateQueries({
           queryKey: ["provider-discovery", "models", "opencode"],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["provider-discovery", "models", "cursor"],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: providerDiscoveryQueryKeys.agentsForProvider("kilo"),
         });
         void queryClient.invalidateQueries({
           queryKey: providerDiscoveryQueryKeys.agentsForProvider("opencode"),

@@ -231,7 +231,7 @@ export const WorkspaceWatcherLive = Layer.effect(
             .getCommandReadModel()
             .pipe(
               Effect.map((model) =>
-                model.projects
+                model.folders
                   .filter((project) => project.deletedAt === null)
                   .map((project) => project.workspaceRoot),
               ),

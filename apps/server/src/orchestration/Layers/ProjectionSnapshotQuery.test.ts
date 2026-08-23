@@ -3,7 +3,7 @@ import {
   CommandId,
   EventId,
   MessageId,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
   TurnId,
@@ -17,7 +17,7 @@ import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 
-const asProjectId = (value: string): ContainerId => ContainerId.makeUnsafe(value);
+const asFolderId = (value: string): FolderId => FolderId.makeUnsafe(value);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
@@ -69,13 +69,13 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const full = yield* snapshotQuery.getSnapshot();
       assert.equal(shell.spaces[0]?.id, SpaceId.makeUnsafe("space-snapshot"));
       assert.equal(shell.archivedSpaces?.[0]?.id, SpaceId.makeUnsafe("space-archived-snapshot"));
-      assert.equal(shell.projects[0]?.spaceId, SpaceId.makeUnsafe("space-snapshot"));
+      assert.equal(shell.folders[0]?.spaceId, SpaceId.makeUnsafe("space-snapshot"));
       assert.equal(full.spaces[0]?.id, SpaceId.makeUnsafe("space-snapshot"));
       assert.equal(
         full.spaces.find((space) => space.id === "space-archived-snapshot")?.archivedAt,
         "2026-07-20T00:00:02.000Z",
       );
-      assert.equal(full.projects[0]?.spaceId, SpaceId.makeUnsafe("space-snapshot"));
+      assert.equal(full.folders[0]?.spaceId, SpaceId.makeUnsafe("space-snapshot"));
 
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_spaces`;
@@ -246,6 +246,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         INSERT INTO projection_turns (
           thread_id,
           turn_id,
+          provider_turn_id,
           pending_message_id,
           assistant_message_id,
           state,
@@ -257,6 +258,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           (
             'thread-1',
             'turn-1',
+            'provider-turn-1',
             NULL,
             'message-1',
             'completed',
@@ -267,6 +269,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           (
             'thread-1',
             'turn-placeholder',
+            NULL,
             NULL,
             NULL,
             'running',
@@ -297,11 +300,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       assert.equal(snapshot.snapshotSequence, 5);
       assert.equal(snapshot.updatedAt, "2026-02-24T00:00:09.000Z");
-      assert.deepEqual(snapshot.projects, [
+      assert.deepEqual(snapshot.folders, [
         {
-          id: asProjectId("project-1"),
-          kind: "project",
-          spaceId: null,
+          id: asFolderId("project-1"),
+          spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Project 1",
           workspaceRoot: "/tmp/project-1",
           defaultModelSelection: {
@@ -328,8 +330,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.deepEqual(snapshot.threads, [
         {
           id: ThreadId.makeUnsafe("thread-1"),
-          projectId: asProjectId("project-1"),
-          spaceId: null,
+          folderId: asFolderId("project-1"),
           title: "Thread 1",
           modelSelection: {
             provider: "codex",
@@ -357,6 +358,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           lastActivityAt: "2026-02-24T00:00:06.750Z",
           latestTurn: {
             turnId: asTurnId("turn-1"),
+            providerTurnId: asTurnId("provider-turn-1"),
             state: "completed",
             requestedAt: "2026-02-24T00:00:08.000Z",
             startedAt: "2026-02-24T00:00:08.000Z",
@@ -1254,9 +1256,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshot = yield* snapshotQuery.getSnapshot();
       const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
       const activeProject =
-        yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/tmp/imported-shape");
-      const projectShell = yield* snapshotQuery.getProjectShellById(
-        asProjectId("project-imported-shape"),
+        yield* snapshotQuery.getActiveFolderByWorkspaceRoot("/tmp/imported-shape");
+      const projectShell = yield* snapshotQuery.getFolderShellById(
+        asFolderId("project-imported-shape"),
       );
       const threadShell = yield* snapshotQuery.getThreadShellById(
         asThreadId("thread-imported-shape"),
@@ -1269,7 +1271,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       );
 
       assert.deepStrictEqual(
-        snapshot.projects.find((project) => project.id === "project-imported-shape")
+        snapshot.folders.find((project) => project.id === "project-imported-shape")
           ?.defaultModelSelection,
         expectedProjectSelection,
       );
@@ -1278,7 +1280,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         expectedThreadSelection,
       );
       assert.deepStrictEqual(
-        shellSnapshot.projects.find((project) => project.id === "project-imported-shape")
+        shellSnapshot.folders.find((project) => project.id === "project-imported-shape")
           ?.defaultModelSelection,
         expectedProjectSelection,
       );
@@ -1309,85 +1311,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         Option.getOrNull(threadDetailSnapshot)?.thread.modelSelection,
         expectedThreadSelection,
       );
-    }),
-  );
-
-  it.effect("preserves project kind in read and shell snapshots", () =>
-    Effect.gen(function* () {
-      const snapshotQuery = yield* ProjectionSnapshotQuery;
-      const sql = yield* SqlClient.SqlClient;
-
-      yield* sql`DELETE FROM projection_projects`;
-      yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_state`;
-
-      yield* sql`
-        INSERT INTO projection_projects (
-          project_id,
-          kind,
-          title,
-          workspace_root,
-          default_model_selection_json,
-          scripts_json,
-          created_at,
-          updated_at,
-          deleted_at
-        )
-        VALUES
-          (
-            'project-folder',
-            'project',
-            'Folder Project',
-            '/tmp/folder-project',
-            '{"provider":"codex","model":"gpt-5-codex"}',
-            '[]',
-            '2026-02-25T00:00:00.000Z',
-            '2026-02-25T00:00:01.000Z',
-            NULL
-          ),
-          (
-            'project-chat',
-            'chat',
-            'Home',
-            '/Users/tester',
-            '{"provider":"codex","model":"gpt-5-codex"}',
-            '[]',
-            '2026-02-25T00:00:02.000Z',
-            '2026-02-25T00:00:03.000Z',
-            NULL
-          )
-      `;
-
-      const snapshot = yield* snapshotQuery.getSnapshot();
-      assert.deepEqual(
-        snapshot.projects.map((project) => ({ id: project.id, kind: project.kind })),
-        [
-          { id: asProjectId("project-folder"), kind: "project" },
-          { id: asProjectId("project-chat"), kind: "chat" },
-        ],
-      );
-
-      const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
-      assert.deepEqual(
-        shellSnapshot.projects.map((project) => ({ id: project.id, kind: project.kind })),
-        [
-          { id: asProjectId("project-folder"), kind: "project" },
-          { id: asProjectId("project-chat"), kind: "chat" },
-        ],
-      );
-
-      const chatProject = yield* snapshotQuery.getProjectShellById(asProjectId("project-chat"));
-      assert.equal(chatProject._tag, "Some");
-      if (chatProject._tag === "Some") {
-        assert.equal(chatProject.value.kind, "chat");
-      }
-
-      const activeByWorkspaceRoot =
-        yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/Users/tester");
-      assert.equal(activeByWorkspaceRoot._tag, "Some");
-      if (activeByWorkspaceRoot._tag === "Some") {
-        assert.equal(activeByWorkspaceRoot.value.kind, "chat");
-      }
     }),
   );
 
@@ -1491,21 +1414,21 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       const counts = yield* snapshotQuery.getCounts();
       assert.deepEqual(counts, {
-        projectCount: 2,
+        folderCount: 2,
         threadCount: 3,
       });
 
-      const project = yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/tmp/workspace");
+      const project = yield* snapshotQuery.getActiveFolderByWorkspaceRoot("/tmp/workspace");
       assert.equal(project._tag, "Some");
       if (project._tag === "Some") {
-        assert.equal(project.value.id, asProjectId("project-active"));
+        assert.equal(project.value.id, asFolderId("project-active"));
       }
 
-      const missingProject = yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/tmp/missing");
+      const missingProject = yield* snapshotQuery.getActiveFolderByWorkspaceRoot("/tmp/missing");
       assert.equal(missingProject._tag, "None");
 
-      const firstThreadId = yield* snapshotQuery.getFirstActiveThreadIdByProjectId(
-        asProjectId("project-active"),
+      const firstThreadId = yield* snapshotQuery.getFirstActiveThreadIdByFolderId(
+        asFolderId("project-active"),
       );
       assert.equal(firstThreadId._tag, "Some");
       if (firstThreadId._tag === "Some") {
@@ -1654,8 +1577,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.deepEqual(shellSnapshot.threads, [
         {
           id: ThreadId.makeUnsafe("thread-shell"),
-          projectId: asProjectId("project-shell"),
-          spaceId: null,
+          folderId: asFolderId("project-shell"),
           title: "Shell Thread",
           modelSelection: {
             provider: "codex",

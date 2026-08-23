@@ -163,6 +163,41 @@ describe("App developer packaging", () => {
     ).rejects.toThrow("Manifest reference is missing");
   });
 
+  it("requires the five-section instruction contract when an App declares operations", async () => {
+    const root = await fixture();
+    const manifestPath = join(root, "penkra-app.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.entrypoints.operations = "app.html";
+    manifest.operations = [
+      {
+        key: "documents.list",
+        summary: "List documents.",
+        input: { type: "object", additionalProperties: false },
+        output: { type: "object", additionalProperties: true },
+        handler: "documents.list",
+      },
+    ];
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    await expect(
+      packageAppDirectory({ directory: root, output: join(root, "..", "bad.penkra") }),
+    ).rejects.toThrow("missing required sections");
+
+    await writeFile(
+      join(root, "INSTRUCTIONS.md"),
+      [
+        "## What this App is",
+        "## Before you write anything",
+        "## How to do the common thing",
+        "## Reference",
+        "## When things fail",
+      ].join("\n"),
+    );
+    await expect(
+      packageAppDirectory({ directory: root, output: join(root, "..", "first.penkra") }),
+    ).resolves.toMatchObject({ slug: "canvas" });
+  });
+
   it("rejects symlinks and output paths inside the package root", async () => {
     const root = await fixture();
     await expect(

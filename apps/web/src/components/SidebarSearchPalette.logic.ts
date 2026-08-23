@@ -1,4 +1,4 @@
-// Purpose: Scores sidebar palette results for actions, themes, projects, and chat threads.
+// Purpose: Scores sidebar palette results for actions, themes, folders, and chat threads.
 // Keeps search local and deterministic so the palette can rank title hits above
 // message-content hits while still surfacing a useful snippet for chat matches.
 import type { ReactNode } from "react";
@@ -19,7 +19,7 @@ export interface SidebarSearchAction {
   icon?: (props: { className?: string }) => ReactNode;
   /**
    * Type-to-jump targets (one per space) only appear once the user types; listing them
-   * all in the empty palette would push threads and projects below the fold.
+   * all in the empty palette would push threads and folders below the fold.
    */
   requiresQuery?: boolean;
 }
@@ -56,7 +56,7 @@ export interface SidebarSearchProjectMatch {
 export interface SidebarSearchThread {
   id: string;
   title: string;
-  projectId: string;
+  folderId: string;
   projectName: string;
   projectRemoteName: string;
   spaceName: string;
@@ -71,7 +71,7 @@ export interface SidebarSearchThread {
 export interface SidebarSearchThreadMatch {
   id: string;
   thread: SidebarSearchThread;
-  matchKind: "message" | "project" | "title";
+  matchKind: "message" | "folder" | "title";
   snippet: string | null;
   messageMatchCount: number;
 }
@@ -293,15 +293,15 @@ export function matchSidebarSearchThemes(
     .map((candidate) => candidate.theme);
 }
 
-export function matchSidebarSearchProjects(
-  projects: readonly SidebarSearchProject[],
+export function matchSidebarSearchFolders(
+  folders: readonly SidebarSearchProject[],
   query: string,
   limit = 6,
 ): SidebarSearchProjectMatch[] {
   const normalizedQuery = normalizeText(query);
   if (!normalizedQuery) return [];
 
-  return projects
+  return folders
     .map((project) => ({
       id: `project:${project.id}`,
       project,
@@ -376,16 +376,16 @@ export function matchSidebarSearchThreads(
         projectRemoteName.startsWith(normalizedQuery)
       ) {
         score = 80;
-        matchKind = "project";
+        matchKind = "folder";
       } else if (
         projectName.includes(normalizedQuery) ||
         projectRemoteName.includes(normalizedQuery)
       ) {
         score = 65;
-        matchKind = "project";
+        matchKind = "folder";
       } else if (spaceName.includes(normalizedQuery)) {
         score = 55;
-        matchKind = "project";
+        matchKind = "folder";
       }
 
       return {

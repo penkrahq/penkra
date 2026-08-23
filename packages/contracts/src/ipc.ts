@@ -667,6 +667,15 @@ export interface DesktopAppTabsBridge {
     pageId: string;
     webContentsId: number;
   }) => Promise<void>;
+  browserWebviewDidFailLoad: (input: {
+    tabId: string;
+    rendererId: number;
+    pageId: string;
+    errorCode: number;
+    errorDescription: string;
+    validatedUrl: string;
+    isMainFrame: boolean;
+  }) => Promise<void>;
   browserWebviewDetach: (input: {
     tabId: string;
     rendererId: number;
@@ -974,7 +983,7 @@ export interface NativeApi {
     close: (input: TerminalCloseInput) => Promise<void>;
     onEvent: (callback: (event: TerminalEvent) => void) => () => void;
   };
-  projects: {
+  folders: {
     discoverScripts: (input: ProjectDiscoverScriptsInput) => Promise<ProjectDiscoverScriptsResult>;
     listDirectories: (input: ProjectListDirectoriesInput) => Promise<ProjectListDirectoriesResult>;
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;

@@ -55,7 +55,7 @@ export default Effect.gen(function* () {
       return true;
     });
 
-  const ensureProjectionProjectsColumn = (columnName: string, definition: string) =>
+  const ensureProjectionFoldersColumn = (columnName: string, definition: string) =>
     Effect.gen(function* () {
       const exists = yield* sql<{ readonly exists: number }>`
         SELECT EXISTS(
@@ -181,7 +181,7 @@ export default Effect.gen(function* () {
     yield* BackfillProjectionThreadShellSummary;
   }
 
-  yield* ensureProjectionProjectsColumn("kind", "kind TEXT NOT NULL DEFAULT 'project'");
+  yield* ensureProjectionFoldersColumn("kind", "kind TEXT NOT NULL DEFAULT 'project'");
   yield* ensureProjectionThreadsColumn("last_known_pr_json", "last_known_pr_json TEXT");
   yield* ensureProjectionThreadMessagesColumn("dispatch_mode", "dispatch_mode TEXT");
   yield* ensureProjectionThreadsColumn(

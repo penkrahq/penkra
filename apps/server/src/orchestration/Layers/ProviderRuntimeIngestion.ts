@@ -65,7 +65,7 @@ import {
 } from "../providerRuntimeActivityProjection.ts";
 
 // FILE: ProviderRuntimeIngestion.ts
-// Purpose: Projects provider runtime events into orchestration read-model updates and thread activity.
+// Purpose: Folders provider runtime events into orchestration read-model updates and thread activity.
 // Layer: Server orchestration ingestion
 // Exports: ProviderRuntimeIngestionLive
 // Depends on: ProviderRuntimeEvent contracts, OrchestrationEngine, Projection repositories
@@ -327,14 +327,10 @@ function reasoningSummaryBufferKey(
   event: ProviderRuntimeEvent,
   threadId = event.threadId,
 ): string | null {
-  if ((event.provider !== "codex" && event.provider !== "antigravity") || !event.itemId) {
+  if (event.provider !== "codex" || !event.itemId) {
     return null;
   }
-  if (
-    event.type === "content.delta" &&
-    (event.payload.streamKind === "reasoning_summary_text" ||
-      (event.provider === "antigravity" && event.payload.streamKind === "reasoning_text"))
-  ) {
+  if (event.type === "content.delta" && event.payload.streamKind === "reasoning_summary_text") {
     return [threadId, event.turnId ?? "no-turn", event.itemId].join(":");
   }
   if (
@@ -367,7 +363,7 @@ function withBufferedReasoningSummary(
 ): ProviderRuntimeEvent {
   if (
     event.type !== "item.completed" ||
-    (event.provider !== "codex" && event.provider !== "antigravity") ||
+    event.provider !== "codex" ||
     event.payload.itemType !== "reasoning" ||
     readableReasoningDetail(event.payload.detail)
   ) {
@@ -1744,7 +1740,7 @@ const make = Effect.gen(function* () {
               type: "thread.create",
               commandId: providerCommandId(event, "subagent-thread-create", childThreadId),
               threadId: childThreadId,
-              projectId: parentThread.projectId,
+              folderId: parentThread.folderId,
               title: subagentThreadTitle({
                 nickname: identity?.nickname,
                 role: identity?.role,
@@ -1771,7 +1767,7 @@ const make = Effect.gen(function* () {
               (identity?.model !== undefined && identity.modelIsRequestedHint !== true)
             ) {
               yield* dispatchProviderCommandOnce({
-                type: "thread.meta.update",
+                type: "thread.update",
                 commandId: providerCommandId(event, "subagent-thread-meta-update", childThreadId),
                 threadId: childThreadId,
                 ...(identity?.nickname !== undefined || identity?.role !== undefined
@@ -2052,8 +2048,7 @@ const make = Effect.gen(function* () {
       if (
         reasoningSummaryKey &&
         event.type === "content.delta" &&
-        (event.payload.streamKind === "reasoning_summary_text" ||
-          (event.provider === "antigravity" && event.payload.streamKind === "reasoning_text")) &&
+        event.payload.streamKind === "reasoning_summary_text" &&
         event.payload.delta.length > 0
       ) {
         yield* appendBufferedReasoningSummary(reasoningSummaryKey, event);
@@ -2281,7 +2276,7 @@ const make = Effect.gen(function* () {
 
       if (event.type === "thread.metadata.updated" && event.payload.name) {
         yield* dispatchProviderCommandOnce({
-          type: "thread.meta.update",
+          type: "thread.update",
           commandId: providerCommandId(event, "thread-meta-update", thread.id),
           threadId: thread.id,
           title: event.payload.name,

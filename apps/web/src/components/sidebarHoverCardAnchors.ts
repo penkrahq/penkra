@@ -27,8 +27,8 @@ export function createThreadHoverCardAnchor(anchorId: string) {
   return createSidebarEdgeRowAnchor(`[data-thread-hover-anchor="${anchorId}"]`);
 }
 
-export function createProjectHoverCardAnchor(projectId: string) {
-  return createSidebarEdgeRowAnchor(`[data-project-hover-anchor="${projectId}"]`);
+export function createProjectHoverCardAnchor(folderId: string) {
+  return createSidebarEdgeRowAnchor(`[data-project-hover-anchor="${folderId}"]`);
 }
 
 export function abbreviateHomePath(cwd: string, homeDir: string | null): string {

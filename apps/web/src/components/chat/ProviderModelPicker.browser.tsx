@@ -22,30 +22,6 @@ const MODEL_OPTIONS_BY_PROVIDER = {
     { slug: "gpt-5-codex", name: "GPT-5 Codex" },
     { slug: "gpt-5.3-codex", name: "GPT-5.3 Codex" },
   ],
-  cursor: [
-    { slug: "auto", name: "Auto" },
-    { slug: "composer-2", name: "Composer 2" },
-  ],
-  grok: [
-    { slug: "grok-build-0.1", name: "Grok Build 0.1" },
-    { slug: "grok-build", name: "Grok 4.3" },
-  ],
-  droid: [
-    {
-      slug: "gpt-5.6-luna",
-      name: "GPT-5.6 Luna",
-      description: "0.4x Factory token rate",
-    },
-    { slug: "custom:GPT-5.6-Luna-0", name: "Custom GPT-5.6 Luna" },
-  ],
-  kilo: [
-    {
-      slug: "kilo/kilo-auto/free",
-      name: "Kilo Auto Free",
-      upstreamProviderId: "kilo",
-      upstreamProviderName: "Kilo",
-    },
-  ],
   opencode: [
     {
       slug: "opencode/nemotron-3-super-free",
@@ -58,20 +34,6 @@ const MODEL_OPTIONS_BY_PROVIDER = {
       name: "GPT-5",
       upstreamProviderId: "openai",
       upstreamProviderName: "OpenAI",
-    },
-  ],
-  pi: [
-    {
-      slug: "anthropic/claude-sonnet-4-5",
-      name: "Claude Sonnet 4.5",
-      upstreamProviderId: "anthropic",
-      upstreamProviderName: "Anthropic",
-    },
-  ],
-  antigravity: [
-    {
-      slug: "Gemini 3.5 Flash",
-      name: "Gemini 3.5 Flash",
     },
   ],
 } as const satisfies Record<ProviderKind, ReadonlyArray<ProviderModelOption & { slug: ModelSlug }>>;
@@ -98,43 +60,6 @@ const OPENCODE_FAVORITE_SORT_MODELS = [
   {
     slug: "openai/gpt-favorite-sort" as ModelSlug,
     name: "GPT Favorite Sort",
-    upstreamProviderId: "openai",
-    upstreamProviderName: "OpenAI",
-  },
-] satisfies ReadonlyArray<ProviderModelOption & { slug: ModelSlug }>;
-
-const MANY_CURSOR_MODELS = Array.from({ length: 16 }, (_, index) => ({
-  slug: `cursor-model-${index + 1}` as ModelSlug,
-  name: `${index % 2 === 0 ? "GPT" : "Claude"} Cursor ${index + 1}`,
-  upstreamProviderId: index % 2 === 0 ? "openai" : "anthropic",
-  upstreamProviderName: index % 2 === 0 ? "OpenAI" : "Anthropic",
-})) satisfies ReadonlyArray<ProviderModelOption & { slug: ModelSlug }>;
-
-const CURSOR_FAVORITE_SORT_MODELS = [
-  {
-    slug: "cursor-claude-favorite-sort" as ModelSlug,
-    name: "Claude Cursor Favorite Sort",
-    upstreamProviderId: "anthropic",
-    upstreamProviderName: "Anthropic",
-  },
-  {
-    slug: "cursor-gpt-favorite-sort" as ModelSlug,
-    name: "GPT Cursor Favorite Sort",
-    upstreamProviderId: "openai",
-    upstreamProviderName: "OpenAI",
-  },
-] satisfies ReadonlyArray<ProviderModelOption & { slug: ModelSlug }>;
-
-const PI_FAVORITE_SORT_MODELS = [
-  {
-    slug: "anthropic/claude-pi-favorite-sort" as ModelSlug,
-    name: "Claude Pi Favorite Sort",
-    upstreamProviderId: "anthropic",
-    upstreamProviderName: "Anthropic",
-  },
-  {
-    slug: "openai/gpt-pi-favorite-sort" as ModelSlug,
-    name: "GPT Pi Favorite Sort",
     upstreamProviderId: "openai",
     upstreamProviderName: "OpenAI",
   },
@@ -264,40 +189,18 @@ describe("ProviderModelPicker", () => {
     }
   });
 
-  it("shows live Droid cost multipliers without adding one to BYOK models", async () => {
-    const mounted = await mountPicker({
-      provider: "droid",
-      model: "gpt-5.6-luna",
-      lockedProvider: "droid",
-    });
-
-    try {
-      await page.getByRole("button").click();
-
-      const rows = Array.from(document.querySelectorAll('[role="menuitemradio"]'));
-      const pricedRow = rows.find((row) => row.textContent?.includes("GPT-5.6 Luna"));
-      const byokRow = rows.find((row) => row.textContent?.includes("Custom GPT-5.6 Luna"));
-
-      expect(pricedRow?.textContent).toContain("0.4×");
-      expect(pricedRow?.querySelector('[title="0.4x Factory token rate"]')).not.toBeNull();
-      expect(byokRow?.textContent).not.toContain("×");
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
   it("notifies after a model selection commits so the composer can refocus", async () => {
     const onSelectionCommitted = vi.fn();
     const mounted = await mountPicker({
-      provider: "grok",
-      model: "grok-build",
-      lockedProvider: "grok",
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+      lockedProvider: "claudeAgent",
       onSelectionCommitted,
     });
 
     try {
       await page.getByRole("button").click();
-      await page.getByRole("menuitemradio", { name: "Grok 4.3" }).click();
+      await page.getByRole("menuitemradio", { name: "Claude Sonnet 4.6" }).click();
 
       await vi.waitFor(() => {
         expect(onSelectionCommitted).toHaveBeenCalledTimes(1);
@@ -439,126 +342,12 @@ describe("ProviderModelPicker", () => {
     }
   });
 
-  it("filters Cursor models by upstream provider name", async () => {
-    const mounted = await mountPicker({
-      provider: "cursor",
-      model: MANY_CURSOR_MODELS[0]!.slug,
-      lockedProvider: "cursor",
-      modelOptionsByProvider: {
-        ...MODEL_OPTIONS_BY_PROVIDER,
-        cursor: MANY_CURSOR_MODELS,
-      },
-    });
-
-    try {
-      await page.getByRole("button").click();
-      await page.getByPlaceholder("Search models or providers").fill("Anthropic");
-
-      await vi.waitFor(() => {
-        expect(document.body.textContent ?? "").toContain("Claude Cursor 2");
-      });
-
-      await expect
-        .element(page.getByRole("menuitemradio", { name: "Claude Cursor 2" }))
-        .toBeInTheDocument();
-      await expect
-        .element(page.getByRole("menuitemradio", { name: "GPT Cursor 1" }))
-        .not.toBeInTheDocument();
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("shows favourited Cursor models in their own top category", async () => {
-    const mounted = await mountPicker({
-      provider: "cursor",
-      model: "cursor-claude-favorite-sort",
-      lockedProvider: "cursor",
-      modelOptionsByProvider: {
-        ...MODEL_OPTIONS_BY_PROVIDER,
-        cursor: CURSOR_FAVORITE_SORT_MODELS,
-      },
-    });
-
-    try {
-      await page.getByRole("button").click();
-
-      await vi.waitFor(() => {
-        const text = document.body.textContent ?? "";
-        expect(text.indexOf("Anthropic")).toBeLessThan(text.indexOf("OpenAI"));
-      });
-
-      await page
-        .getByRole("button", { name: "Add GPT Cursor Favorite Sort to favourites" })
-        .click();
-
-      await vi.waitFor(() => {
-        const text = document.body.textContent ?? "";
-        expect(text.indexOf("Favourites")).toBeLessThan(text.indexOf("Anthropic"));
-        expect(text.indexOf("GPT Cursor Favorite Sort")).toBeGreaterThan(
-          text.indexOf("Favourites"),
-        );
-        expect(text.indexOf("GPT Cursor Favorite Sort")).toBeLessThan(text.indexOf("Anthropic"));
-      });
-      await expect
-        .element(page.getByRole("menuitemradio", { name: "GPT Cursor Favorite Sort" }))
-        .toBeInTheDocument();
-      expect(
-        Array.from(document.querySelectorAll('[role="menuitemradio"]')).filter((element) =>
-          element.textContent?.includes("GPT Cursor Favorite Sort"),
-        ),
-      ).toHaveLength(1);
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("shows favourited Pi models in their own top category", async () => {
-    const mounted = await mountPicker({
-      provider: "pi",
-      model: "anthropic/claude-pi-favorite-sort",
-      lockedProvider: "pi",
-      modelOptionsByProvider: {
-        ...MODEL_OPTIONS_BY_PROVIDER,
-        pi: PI_FAVORITE_SORT_MODELS,
-      },
-    });
-
-    try {
-      await page.getByRole("button").click();
-
-      await vi.waitFor(() => {
-        const text = document.body.textContent ?? "";
-        expect(text.indexOf("Anthropic")).toBeLessThan(text.indexOf("OpenAI"));
-      });
-
-      await page.getByRole("button", { name: "Add GPT Pi Favorite Sort to favourites" }).click();
-
-      await vi.waitFor(() => {
-        const text = document.body.textContent ?? "";
-        expect(text.indexOf("Favourites")).toBeLessThan(text.indexOf("Anthropic"));
-        expect(text.indexOf("GPT Pi Favorite Sort")).toBeGreaterThan(text.indexOf("Favourites"));
-        expect(text.indexOf("GPT Pi Favorite Sort")).toBeLessThan(text.indexOf("Anthropic"));
-      });
-      await expect
-        .element(page.getByRole("menuitemradio", { name: "GPT Pi Favorite Sort" }))
-        .toBeInTheDocument();
-      expect(
-        Array.from(document.querySelectorAll('[role="menuitemradio"]')).filter((element) =>
-          element.textContent?.includes("GPT Pi Favorite Sort"),
-        ),
-      ).toHaveLength(1);
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
   it("shows a loading skeleton instead of fallback models for loading providers", async () => {
     const mounted = await mountPicker({
-      provider: "cursor",
-      model: "auto",
-      lockedProvider: "cursor",
-      loadingModelProviders: { cursor: true },
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      loadingModelProviders: { codex: true },
     });
 
     try {
@@ -566,10 +355,7 @@ describe("ProviderModelPicker", () => {
 
       await expect.element(page.getByLabelText("Loading models")).toBeInTheDocument();
       await expect
-        .element(page.getByRole("menuitemradio", { name: "Auto" }))
-        .not.toBeInTheDocument();
-      await expect
-        .element(page.getByRole("menuitemradio", { name: "Composer 2" }))
+        .element(page.getByRole("menuitemradio", { name: "GPT-5 Codex" }))
         .not.toBeInTheDocument();
     } finally {
       await mounted.cleanup();

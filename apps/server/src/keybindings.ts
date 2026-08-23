@@ -132,7 +132,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+t", command: "chat.newTerminal", when: "!terminalFocus || isMac" },
   { key: "mod+alt+c", command: "chat.newClaude", when: "!terminalFocus || isMac" },
   { key: "mod+alt+x", command: "chat.newCodex", when: "!terminalFocus || isMac" },
-  { key: "mod+alt+r", command: "chat.newCursor", when: "!terminalFocus || isMac" },
+  { key: "mod+alt+r", command: "chat.newOpenCode", when: "!terminalFocus || isMac" },
   { key: "mod+\\", command: "chat.split", when: "!terminalFocus || isMac" },
   // Recent-view switcher (Ctrl+Tab) is an installed-app feature only: Electron and
   // standalone PWA windows have no tab strip, so the chord reaches the page. It remains
@@ -585,6 +585,7 @@ function invalidEntryIssue(index: number, detail: string): ServerConfigIssue {
 }
 
 const LEGACY_KEYBINDING_COMMAND_ALIASES = {
+  "chat.newCursor": "chat.newOpenCode",
   "commandPalette.toggle": "sidebar.search",
   "composer.effortPicker.toggle": "traitsPicker.toggle",
   "composer.modelPicker.toggle": "modelPicker.toggle",
@@ -620,7 +621,7 @@ const CREATION_COMMANDS_WITH_TERMINAL_ESCAPE = new Set<KeybindingRule["command"]
   "chat.newTerminal",
   "chat.newClaude",
   "chat.newCodex",
-  "chat.newCursor",
+  "chat.newOpenCode",
   "chat.split",
 ]);
 

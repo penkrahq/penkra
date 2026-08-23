@@ -134,7 +134,7 @@ layer("ProviderNativeStateMaterializer", (it) => {
       const sourceProfile = providerConnectionProfileRoot(config.stateDir, sourceConnectionId);
       const targetProfile = providerConnectionProfileRoot(config.stateDir, targetConnectionId);
       const sessionId = "550e8400-e29b-41d4-a716-446655440000";
-      const projectRoot = `${sourceProfile}/claude-config/projects/-workspace`;
+      const projectRoot = `${sourceProfile}/claude-config/folders/-workspace`;
       yield* Effect.promise(() => mkdir(projectRoot, { recursive: true, mode: 0o700 }));
       yield* Effect.promise(() => writeFile(`${projectRoot}/${sessionId}.jsonl`, "session"));
       yield* Effect.promise(() =>
@@ -152,7 +152,7 @@ layer("ProviderNativeStateMaterializer", (it) => {
       });
       assert.strictEqual(
         yield* Effect.promise(() =>
-          readFile(`${targetProfile}/claude-config/projects/-workspace/${sessionId}.jsonl`, "utf8"),
+          readFile(`${targetProfile}/claude-config/folders/-workspace/${sessionId}.jsonl`, "utf8"),
         ),
         "session",
       );
@@ -184,7 +184,7 @@ layer("ProviderNativeStateMaterializer", (it) => {
       const sourceProfile = providerConnectionProfileRoot(config.stateDir, sourceConnectionId);
       const targetProfile = providerConnectionProfileRoot(config.stateDir, targetConnectionId);
       const sessionId = "550e8400-e29b-41d4-a716-446655440010";
-      const relativeSession = `claude-config/projects/-workspace/${sessionId}.jsonl`;
+      const relativeSession = `claude-config/folders/-workspace/${sessionId}.jsonl`;
       const sourceSession = `${sourceProfile}/${relativeSession}`;
       const targetSession = `${targetProfile}/${relativeSession}`;
       yield* Effect.promise(() =>
@@ -252,7 +252,7 @@ layer("ProviderNativeStateMaterializer", (it) => {
       const sourceRoot = providerNativeStateRoot(config.stateDir, source);
       const targetProfile = providerConnectionProfileRoot(config.stateDir, targetConnectionId);
       const sessionId = "550e8400-e29b-41d4-a716-446655440001";
-      const sourceProjectRoot = `${sourceRoot}/claude-config/projects/-legacy-workspace`;
+      const sourceProjectRoot = `${sourceRoot}/claude-config/folders/-legacy-workspace`;
       yield* Effect.promise(() => mkdir(sourceProjectRoot, { recursive: true, mode: 0o700 }));
       yield* Effect.promise(() => writeFile(`${sourceProjectRoot}/${sessionId}.jsonl`, "legacy"));
       yield* Effect.promise(() =>
@@ -272,7 +272,7 @@ layer("ProviderNativeStateMaterializer", (it) => {
       assert.strictEqual(
         yield* Effect.promise(() =>
           readFile(
-            `${targetProfile}/claude-config/projects/-legacy-workspace/${sessionId}.jsonl`,
+            `${targetProfile}/claude-config/folders/-legacy-workspace/${sessionId}.jsonl`,
             "utf8",
           ),
         ),

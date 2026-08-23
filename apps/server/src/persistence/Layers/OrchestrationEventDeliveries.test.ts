@@ -134,7 +134,7 @@ layer("OrchestrationEventDeliveryRepository", (it) => {
           occurred_at, command_id, causation_event_id, correlation_id,
           actor_kind, payload_json, metadata_json
         ) VALUES (
-          'evt-delivery-later', 'project', 'project-delivery-later', 0, 'project.created',
+          'evt-delivery-later', 'project', 'project-delivery-later', 0, 'folder.created',
           ${now}, 'cmd-delivery-later', NULL, NULL, 'user', '{}', '{}'
         )
         RETURNING sequence

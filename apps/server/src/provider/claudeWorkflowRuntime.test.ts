@@ -18,7 +18,7 @@ import {
 } from "./claudeWorkflowRuntime.ts";
 
 // Line shapes mirror a real run's transcript directory
-// (~/.claude/projects/<session>/subagents/workflows/wf_*/): journal.jsonl
+// (~/.claude/folders/<session>/subagents/workflows/wf_*/): journal.jsonl
 // records {type, key, agentId}; agent-<id>.jsonl is the session-jsonl shape
 // whose assistant lines carry message.model/usage and tool_use blocks plus a
 // top-level `effort` field (sibling of `message`).

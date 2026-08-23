@@ -10,7 +10,7 @@ import {
 import { makeActivity } from "./storeTestFixtures";
 
 describe("deriveWorkLogEntries", () => {
-  it("keeps started tool entries so pending Cursor calls appear immediately", () => {
+  it("keeps started tool entries so pending dynamic calls appear immediately", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "tool-start",
@@ -582,10 +582,10 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.toolTitle).toBe("Searched");
   });
 
-  it("recovers Cursor tool details from stored rawOutput when rawInput is empty", () => {
+  it("recovers dynamic tool details from stored rawOutput when rawInput is empty", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
-        id: "cursor-find",
+        id: "dynamic-find",
         kind: "tool.completed",
         summary: "Find",
         payload: {
@@ -602,7 +602,7 @@ describe("deriveWorkLogEntries", () => {
         },
       }),
       makeActivity({
-        id: "cursor-read",
+        id: "dynamic-read",
         kind: "tool.completed",
         summary: "Read File",
         payload: {
@@ -623,22 +623,22 @@ describe("deriveWorkLogEntries", () => {
 
     expect(entries).toMatchObject([
       {
-        id: "cursor-find",
+        id: "dynamic-find",
         toolTitle: "Search",
         detail: "33 files found",
       },
       {
-        id: "cursor-read",
+        id: "dynamic-read",
         toolTitle: "Read",
         detail: "Read 2 lines",
       },
     ]);
   });
 
-  it("recovers readable Cursor labels from older generic Tool projections", () => {
+  it("recovers readable dynamic labels from older generic Tool projections", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
-        id: "cursor-tool-find",
+        id: "dynamic-tool-find",
         kind: "tool.updated",
         summary: "Tool",
         payload: {
@@ -652,7 +652,7 @@ describe("deriveWorkLogEntries", () => {
         },
       }),
       makeActivity({
-        id: "cursor-tool-read",
+        id: "dynamic-tool-read",
         kind: "tool.completed",
         summary: "Tool",
         payload: {
@@ -671,11 +671,11 @@ describe("deriveWorkLogEntries", () => {
 
     expect(deriveWorkLogEntries(activities, undefined)).toMatchObject([
       {
-        id: "cursor-tool-find",
+        id: "dynamic-tool-find",
         toolTitle: "Search",
       },
       {
-        id: "cursor-tool-read",
+        id: "dynamic-tool-read",
         toolTitle: "Read",
         detail: "Read 2 lines",
       },
@@ -1166,10 +1166,10 @@ describe("deriveWorkLogEntries", () => {
     expect(isProviderFileEditWorkLogEntry({ requestKind: "file-change" })).toBe(false);
   });
 
-  it("extracts Cursor read targets from rawInput and ACP locations", () => {
+  it("extracts dynamic read targets from rawInput and ACP locations", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
-        id: "cursor-read-raw-input",
+        id: "dynamic-read-raw-input",
         kind: "tool.completed",
         summary: "Read",
         payload: {
@@ -1184,7 +1184,7 @@ describe("deriveWorkLogEntries", () => {
         },
       }),
       makeActivity({
-        id: "cursor-read-location",
+        id: "dynamic-read-location",
         kind: "tool.completed",
         summary: "Read",
         payload: {
@@ -1201,10 +1201,10 @@ describe("deriveWorkLogEntries", () => {
     const entriesById = new Map(
       deriveWorkLogEntries(activities, undefined).map((entry) => [entry.id, entry]),
     );
-    expect(entriesById.get("cursor-read-raw-input")?.changedFiles).toEqual([
+    expect(entriesById.get("dynamic-read-raw-input")?.changedFiles).toEqual([
       "apps/web/src/session-logic.ts",
     ]);
-    expect(entriesById.get("cursor-read-location")?.changedFiles).toEqual([
+    expect(entriesById.get("dynamic-read-location")?.changedFiles).toEqual([
       "apps/server/src/provider/acp/AcpRuntimeModel.ts",
     ]);
   });
@@ -1212,7 +1212,7 @@ describe("deriveWorkLogEntries", () => {
   it("does not treat arbitrary rawOutput file strings as changed files", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
-        id: "cursor-search-output",
+        id: "dynamic-search-output",
         kind: "tool.completed",
         summary: "Searched",
         payload: {

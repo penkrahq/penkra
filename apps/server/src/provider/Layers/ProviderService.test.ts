@@ -399,39 +399,17 @@ const waitUntilEffect = <E = never, R = never>(
     }
   });
 
-function makeProviderServiceLayer(
-  options?: Parameters<typeof makeProviderServiceLive>[0],
-  providers?: {
-    readonly includeRestartRollbackDroid?: boolean;
-    readonly includePi?: boolean;
-  },
-) {
+function makeProviderServiceLayer(options?: Parameters<typeof makeProviderServiceLive>[0]) {
   const codex = makeFakeCodexAdapter();
   const claude = makeFakeCodexAdapter("claudeAgent");
-  const antigravity = makeFakeCodexAdapter("antigravity");
-  const droid = makeFakeCodexAdapter("droid", { conversationRollback: "unsupported" });
-  const pi = makeFakeCodexAdapter("pi");
   const registry: typeof ProviderAdapterRegistry.Service = {
     getByProvider: (provider) =>
       provider === "codex"
         ? Effect.succeed(codex.adapter)
         : provider === "claudeAgent"
           ? Effect.succeed(claude.adapter)
-          : provider === "antigravity"
-            ? Effect.succeed(antigravity.adapter)
-            : provider === "droid" && providers?.includeRestartRollbackDroid === true
-              ? Effect.succeed(droid.adapter)
-              : provider === "pi" && providers?.includePi === true
-                ? Effect.succeed(pi.adapter)
-                : Effect.fail(new ProviderUnsupportedError({ provider })),
-    listProviders: () =>
-      Effect.succeed([
-        "codex",
-        "claudeAgent",
-        "antigravity",
-        ...(providers?.includeRestartRollbackDroid === true ? (["droid"] as const) : []),
-        ...(providers?.includePi === true ? (["pi"] as const) : []),
-      ] as const),
+          : Effect.fail(new ProviderUnsupportedError({ provider })),
+    listProviders: () => Effect.succeed(["codex", "claudeAgent"] as const),
   };
 
   const providerAdapterLayer = Layer.succeed(ProviderAdapterRegistry, registry);
@@ -455,9 +433,6 @@ function makeProviderServiceLayer(
   return {
     codex,
     claude,
-    antigravity,
-    droid,
-    pi,
     layer,
     rawLayer,
   };
@@ -473,10 +448,6 @@ const managedLaunch = {
 };
 const resolveManagedLaunch = vi.fn(() => Effect.succeed(managedLaunch));
 const managedRouting = makeProviderServiceLayer({ resolveManagedLaunch });
-const restartRollbackRouting = makeProviderServiceLayer(undefined, {
-  includeRestartRollbackDroid: true,
-});
-const piInteractionRouting = makeProviderServiceLayer(undefined, { includePi: true });
 it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", () =>
   Effect.gen(function* () {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-service-"));
@@ -1121,55 +1092,6 @@ routing.layer("ProviderServiceLive routing", (it) => {
       routing.claude.respondToRequest.mockClear();
       routing.claude.respondToUserInput.mockClear();
       routing.claude.stopSession.mockClear();
-    }),
-  );
-
-  it.effect("requires the source lifecycle generation for modern Antigravity approvals", () =>
-    Effect.gen(function* () {
-      const provider = yield* ProviderService;
-      const directory = yield* ProviderSessionDirectory;
-      const threadId = asThreadId("thread-antigravity-interaction-generation");
-
-      yield* provider.startSession(threadId, {
-        provider: "antigravity",
-        threadId,
-        cwd: "/tmp/project",
-        runtimeMode: "approval-required",
-      });
-      const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
-      const lifecycleGeneration = binding?.lifecycleGeneration;
-      assert.equal(typeof lifecycleGeneration, "string");
-
-      const responseCallCount = routing.antigravity.respondToRequest.mock.calls.length;
-      const missingGeneration = yield* Effect.result(
-        provider.respondToRequest({
-          threadId,
-          requestId: asRequestId("antigravity-approval-without-generation"),
-          decision: "accept",
-        }),
-      );
-      assertFailure(
-        missingGeneration,
-        new ProviderValidationError({
-          operation: "ProviderService.respondToRequest",
-          issue:
-            "Cannot respond to request 'antigravity-approval-without-generation' without its provider lifecycle generation.",
-        }),
-      );
-      assert.equal(routing.antigravity.respondToRequest.mock.calls.length, responseCallCount);
-
-      yield* provider.respondToRequest({
-        threadId,
-        requestId: asRequestId("antigravity-approval-current-generation"),
-        lifecycleGeneration,
-        decision: "accept",
-      });
-      assert.equal(routing.antigravity.respondToRequest.mock.calls.length, responseCallCount + 1);
-
-      yield* provider.stopSession({ threadId });
-      routing.antigravity.startSession.mockClear();
-      routing.antigravity.respondToRequest.mockClear();
-      routing.antigravity.stopSession.mockClear();
     }),
   );
 
@@ -2633,151 +2555,6 @@ managedRouting.layer("ProviderService managed launch enforcement", (it) => {
           .managedLaunch,
         managedLaunch,
       );
-    }),
-  );
-});
-
-restartRollbackRouting.layer("ProviderServiceLive restart-based rollback", (it) => {
-  it.effect("requires the source lifecycle generation for modern ACP interactions", () =>
-    Effect.gen(function* () {
-      const provider = yield* ProviderService;
-      const directory = yield* ProviderSessionDirectory;
-      const threadId = asThreadId("thread-droid-interaction-generation");
-
-      yield* provider.startSession(threadId, {
-        provider: "droid",
-        threadId,
-        cwd: "/tmp/project",
-        runtimeMode: "approval-required",
-      });
-      const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
-      const lifecycleGeneration = binding?.lifecycleGeneration;
-      assert.equal(typeof lifecycleGeneration, "string");
-
-      const responseCallCount = restartRollbackRouting.droid.respondToRequest.mock.calls.length;
-      const missingGeneration = yield* Effect.result(
-        provider.respondToRequest({
-          threadId,
-          requestId: asRequestId("droid-approval-without-generation"),
-          decision: "accept",
-        }),
-      );
-      assertFailure(
-        missingGeneration,
-        new ProviderValidationError({
-          operation: "ProviderService.respondToRequest",
-          issue:
-            "Cannot respond to request 'droid-approval-without-generation' without its provider lifecycle generation.",
-        }),
-      );
-      assert.equal(
-        restartRollbackRouting.droid.respondToRequest.mock.calls.length,
-        responseCallCount,
-      );
-
-      yield* provider.respondToRequest({
-        threadId,
-        requestId: asRequestId("droid-approval-current-generation"),
-        lifecycleGeneration,
-        decision: "accept",
-      });
-      assert.equal(
-        restartRollbackRouting.droid.respondToRequest.mock.calls.length,
-        responseCallCount + 1,
-      );
-
-      yield* provider.stopSession({ threadId });
-      restartRollbackRouting.droid.startSession.mockClear();
-      restartRollbackRouting.droid.respondToRequest.mockClear();
-      restartRollbackRouting.droid.stopSession.mockClear();
-    }),
-  );
-
-  it.effect("rejects rollback when Droid cannot rewind exact native state", () =>
-    Effect.gen(function* () {
-      const provider = yield* ProviderService;
-      const directory = yield* ProviderSessionDirectory;
-      const threadId = asThreadId("thread-droid-restart-rollback");
-      yield* provider.startSession(threadId, {
-        provider: "droid",
-        threadId,
-        cwd: "/tmp/project",
-        runtimeMode: "full-access",
-      });
-
-      const rollback = yield* Effect.result(
-        provider.rollbackConversation({ threadId, numTurns: 1 }),
-      );
-      assertFailure(
-        rollback,
-        new ProviderValidationError({
-          operation: "ProviderService.rollbackConversation",
-          issue: "Provider 'droid' cannot rewind exact native session state.",
-        }),
-      );
-
-      assert.equal(restartRollbackRouting.droid.rollbackThread.mock.calls.length, 0);
-      assert.equal(restartRollbackRouting.droid.stopSession.mock.calls.length, 0);
-      const binding = yield* directory.getBinding(threadId);
-      assert.equal(Option.isSome(binding), true);
-      if (Option.isSome(binding)) {
-        assert.equal(binding.value.status, "running");
-        assert.notEqual(binding.value.resumeCursor, null);
-      }
-    }),
-  );
-});
-
-piInteractionRouting.layer("ProviderServiceLive Pi interaction generation", (it) => {
-  it.effect("requires the source lifecycle generation for modern Pi user input", () =>
-    Effect.gen(function* () {
-      const provider = yield* ProviderService;
-      const directory = yield* ProviderSessionDirectory;
-      const threadId = asThreadId("thread-pi-interaction-generation");
-
-      yield* provider.startSession(threadId, {
-        provider: "pi",
-        threadId,
-        cwd: "/tmp/project",
-        runtimeMode: "approval-required",
-      });
-      const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
-      const lifecycleGeneration = binding?.lifecycleGeneration;
-      assert.equal(typeof lifecycleGeneration, "string");
-
-      const responseCallCount = piInteractionRouting.pi.respondToUserInput.mock.calls.length;
-      const missingGeneration = yield* Effect.result(
-        provider.respondToUserInput({
-          threadId,
-          requestId: asRequestId("pi-user-input-without-generation"),
-          answers: { answer: "continue" },
-        }),
-      );
-      assertFailure(
-        missingGeneration,
-        new ProviderValidationError({
-          operation: "ProviderService.respondToUserInput",
-          issue:
-            "Cannot respond to request 'pi-user-input-without-generation' without its provider lifecycle generation.",
-        }),
-      );
-      assert.equal(piInteractionRouting.pi.respondToUserInput.mock.calls.length, responseCallCount);
-
-      yield* provider.respondToUserInput({
-        threadId,
-        requestId: asRequestId("pi-user-input-current-generation"),
-        lifecycleGeneration,
-        answers: { answer: "continue" },
-      });
-      assert.equal(
-        piInteractionRouting.pi.respondToUserInput.mock.calls.length,
-        responseCallCount + 1,
-      );
-
-      yield* provider.stopSession({ threadId });
-      piInteractionRouting.pi.startSession.mockClear();
-      piInteractionRouting.pi.respondToUserInput.mockClear();
-      piInteractionRouting.pi.stopSession.mockClear();
     }),
   );
 });

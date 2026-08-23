@@ -6,10 +6,7 @@ import type { ProviderKind } from "@penkra/contracts";
 import { Schema } from "effect";
 
 export const FAVORITE_MODEL_STORAGE_KEYS = {
-  cursor: "penkra:cursor-favourite-models:v1",
-  kilo: "penkra:kilo-favourite-models:v1",
   opencode: "penkra:opencode-favourite-models:v1",
-  pi: "penkra:pi-favourite-models:v1",
 } as const;
 
 export type FavoriteModelProvider = keyof typeof FAVORITE_MODEL_STORAGE_KEYS;
@@ -17,9 +14,7 @@ export type FavoriteModelProvider = keyof typeof FAVORITE_MODEL_STORAGE_KEYS;
 const FavoriteModelSlugsSchema = Schema.Array(Schema.String);
 
 export function supportsModelFavorites(provider: ProviderKind): provider is FavoriteModelProvider {
-  return (
-    provider === "cursor" || provider === "kilo" || provider === "opencode" || provider === "pi"
-  );
+  return provider === "opencode";
 }
 
 // Read favorite slugs for cycle order. Failures (SSR, parse errors) return [].

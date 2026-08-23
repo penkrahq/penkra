@@ -25,7 +25,7 @@ const makeSession = (
 ): NonNullable<ReconcilableThread["session"]> => ({
   threadId: ThreadId.makeUnsafe(threadId),
   status: "running",
-  providerName: "grok",
+  providerName: "opencode",
   runtimeMode: "approval-required",
   activeTurnId: TurnId.makeUnsafe(`${threadId}-turn`),
   lastError: null,
@@ -123,7 +123,7 @@ describe("planRestartTurnReconciliation", () => {
         session: {
           threadId: "errored",
           status: "error",
-          providerName: "grok",
+          providerName: "opencode",
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: "runtime exploded",
@@ -198,7 +198,7 @@ describe("planRestartTurnReconciliation", () => {
       session: {
         threadId: "errored-with-requests",
         status: "error",
-        providerName: "grok",
+        providerName: "opencode",
         runtimeMode: "approval-required",
         activeTurnId: null,
         lastError: "runtime exploded",
@@ -229,7 +229,7 @@ describe("planRestartTurnReconciliation", () => {
       session: {
         threadId: "stuck",
         status: "interrupted",
-        providerName: "grok",
+        providerName: "opencode",
         runtimeMode: "approval-required",
         activeTurnId: null,
         lastError: null,
@@ -262,7 +262,7 @@ describe("planRestartTurnReconciliation", () => {
         session: {
           threadId: "completed-with-stale-session",
           status: "ready",
-          providerName: "grok",
+          providerName: "opencode",
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,

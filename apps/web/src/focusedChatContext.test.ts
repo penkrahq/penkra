@@ -1,4 +1,4 @@
-import { ContainerId, ThreadId, TurnId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { type DraftThreadState } from "./composerDraftStore";
@@ -6,22 +6,21 @@ import { resolveFocusedChatContext } from "./focusedChatContext";
 import type { Project, Thread } from "./types";
 import type { SplitView } from "./splitViewStore";
 
-const PROJECT_ID = ContainerId.makeUnsafe("project-1");
+const PROJECT_ID = FolderId.makeUnsafe("project-1");
 const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
 
 function makeProject(): Project {
   return {
     id: PROJECT_ID,
-    kind: "project",
     name: "Project",
     remoteName: "Project",
-    folderName: "project",
+    folderName: "folder",
     localName: null,
     cwd: "/tmp/project",
     defaultModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
     expanded: true,
-    spaceId: null,
+    spaceId: SpaceId.makeUnsafe("space-test"),
     scripts: [],
   };
 }
@@ -30,7 +29,7 @@ function makeThread(threadId: ThreadId, overrides: Partial<Thread> = {}): Thread
   return {
     id: threadId,
     codexThreadId: null,
-    projectId: PROJECT_ID,
+    folderId: PROJECT_ID,
     title: `Thread ${threadId}`,
     modelSelection: { provider: "codex", model: "gpt-5.4-mini" },
     runtimeMode: "full-access",
@@ -55,7 +54,7 @@ function makeThread(threadId: ThreadId, overrides: Partial<Thread> = {}): Thread
 
 function makeDraftThread(overrides: Partial<DraftThreadState> = {}): DraftThreadState {
   return {
-    projectId: PROJECT_ID,
+    folderId: PROJECT_ID,
     createdAt: "2026-04-07T10:00:00.000Z",
     runtimeMode: "full-access",
     entryPoint: "chat",
@@ -98,7 +97,7 @@ function makeSplitView(overrides: SplitViewLayoutOverrides = {}): SplitView {
   return {
     id: "split-1",
     sourceThreadId: THREAD_A,
-    ownerProjectId: PROJECT_ID,
+    ownerFolderId: PROJECT_ID,
     root: {
       kind: "split",
       id: "split-root",
@@ -119,13 +118,13 @@ describe("resolveFocusedChatContext", () => {
       routeThreadId: THREAD_A,
       splitView: makeSplitView(),
       threads: [makeThread(THREAD_A), makeThread(THREAD_B)],
-      projects: [makeProject()],
+      folders: [makeProject()],
       draftThreadsByThreadId: {},
     });
 
     expect(context.focusedThreadId).toBe(THREAD_B);
     expect(context.activeThread?.id).toBe(THREAD_B);
-    expect(context.activeProjectId).toBe(PROJECT_ID);
+    expect(context.activeFolderId).toBe(PROJECT_ID);
   });
 
   it("falls back to the split owner project when the focused pane is empty", () => {
@@ -136,13 +135,13 @@ describe("resolveFocusedChatContext", () => {
         focusedSide: "second",
       }),
       threads: [makeThread(THREAD_A)],
-      projects: [makeProject()],
+      folders: [makeProject()],
       draftThreadsByThreadId: {},
     });
 
     expect(context.focusedThreadId).toBeNull();
     expect(context.activeThread).toBeNull();
-    expect(context.activeProjectId).toBe(PROJECT_ID);
+    expect(context.activeFolderId).toBe(PROJECT_ID);
   });
 
   it("prefers the focused draft thread when the pane points at a draft-only thread", () => {
@@ -154,7 +153,7 @@ describe("resolveFocusedChatContext", () => {
         focusedSide: "second",
       }),
       threads: [makeThread(THREAD_A)],
-      projects: [makeProject()],
+      folders: [makeProject()],
       draftThreadsByThreadId: {
         [draftThreadId]: makeDraftThread({}),
       },
@@ -162,6 +161,6 @@ describe("resolveFocusedChatContext", () => {
 
     expect(context.focusedThreadId).toBe(draftThreadId);
     expect(context.activeDraftThread).toBeDefined();
-    expect(context.activeProjectId).toBe(PROJECT_ID);
+    expect(context.activeFolderId).toBe(PROJECT_ID);
   });
 });

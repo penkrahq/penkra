@@ -3,8 +3,6 @@
 // Layer: Web domain helper
 // Exports: ServerWorkspacePaths plus normalization and fallback helpers.
 
-import { resolveChatContainerWorkspaceRoot } from "@penkra/shared/projectContainers";
-
 export interface ServerWorkspacePaths {
   readonly homeDir: string | null | undefined;
   readonly chatWorkspaceRoot?: string | null | undefined;
@@ -22,8 +20,4 @@ export function normalizeServerWorkspacePaths(
     homeDir: paths.homeDir?.trim() || null,
     chatWorkspaceRoot: paths.chatWorkspaceRoot?.trim() || null,
   };
-}
-
-export function resolveServerChatWorkspaceRoot(paths: ServerWorkspacePaths): string | null {
-  return resolveChatContainerWorkspaceRoot(paths);
 }

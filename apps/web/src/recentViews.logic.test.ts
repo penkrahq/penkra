@@ -3,7 +3,7 @@
 // Layer: UI state logic test
 
 import { describe, expect, it } from "vitest";
-import { ContainerId, ThreadId } from "@penkra/contracts";
+import { FolderId, ThreadId } from "@penkra/contracts";
 import {
   buildRecentViewDisplayEntries,
   deriveCurrentRecentView,
@@ -19,8 +19,8 @@ function threadId(value: string): ThreadId {
   return ThreadId.makeUnsafe(value);
 }
 
-function projectId(value: string): ContainerId {
-  return ContainerId.makeUnsafe(value);
+function folderId(value: string): FolderId {
+  return FolderId.makeUnsafe(value);
 }
 
 describe("recent view MRU logic", () => {
@@ -134,10 +134,10 @@ describe("recent view MRU logic", () => {
 
   it("uses the thread provider for display icons", () => {
     const terminalThreadId = threadId("thread-terminal");
-    const project = { id: projectId("project-1"), name: "Penkra" } as Project;
+    const project = { id: folderId("project-1"), name: "Penkra" } as Project;
     const threadSummary = {
       id: terminalThreadId,
-      projectId: project.id,
+      folderId: project.id,
       title: "Dev server",
       modelSelection: { provider: "codex", model: "gpt-5" },
     } as SidebarThreadSummary;
@@ -146,7 +146,7 @@ describe("recent view MRU logic", () => {
       recentViews: [{ kind: "thread", threadId: terminalThreadId }],
       currentView: null,
       threadsById: { [terminalThreadId]: threadSummary },
-      projects: [project],
+      folders: [project],
       pinnedThreadIds: [],
     });
 

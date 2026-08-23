@@ -196,7 +196,7 @@ export function ComposerLocalDirectoryMenu(props: {
       }
 
       setLoadingPaths((current) => new Set(current).add(expandedDirectory));
-      void api.projects
+      void api.folders
         .listDirectories({
           cwd: expandedDirectory,
           includeFiles: true,

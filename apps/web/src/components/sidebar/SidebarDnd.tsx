@@ -6,7 +6,7 @@ import { useDragDropManager, useDragDropMonitor, useDroppable } from "@dnd-kit/r
 import { useSortable } from "@dnd-kit/react/sortable";
 import type { DragEndEvent, DragOverEvent } from "@dnd-kit/react";
 import type { ProviderKind, SidebarItemParent, SidebarItemReference } from "@penkra/contracts";
-import { ContainerId, SpaceId } from "@penkra/contracts";
+import { FolderId, SpaceId } from "@penkra/contracts";
 import {
   createContext,
   useCallback,
@@ -33,14 +33,14 @@ export const SIDEBAR_THREAD_DRAG_TYPE = "penkra/sidebar-thread";
 
 export type SidebarDropPlacement = "before" | "after";
 
-function sidebarItemDragType(kind: "project" | "thread", pinned: boolean): string {
-  const base = kind === "project" ? SIDEBAR_PROJECT_DRAG_TYPE : SIDEBAR_THREAD_DRAG_TYPE;
+function sidebarItemDragType(kind: "folder" | "thread", pinned: boolean): string {
+  const base = kind === "folder" ? SIDEBAR_PROJECT_DRAG_TYPE : SIDEBAR_THREAD_DRAG_TYPE;
   return `${base}:${pinned ? "pinned" : "unpinned"}`;
 }
 
 export const SIDEBAR_PROJECT_DRAG_TYPES = [
-  sidebarItemDragType("project", true),
-  sidebarItemDragType("project", false),
+  sidebarItemDragType("folder", true),
+  sidebarItemDragType("folder", false),
 ];
 export const SIDEBAR_THREAD_DRAG_TYPES = [
   sidebarItemDragType("thread", true),
@@ -58,7 +58,7 @@ export type SidebarDndPreview =
       expanded: boolean;
     }
   | {
-      kind: "project";
+      kind: "folder";
       label: string;
       expanded: boolean;
       pinned: boolean;
@@ -104,7 +104,7 @@ export function sidebarItemDndId(item: SidebarItemReference): string {
 export function sidebarParentDndGroup(parent: SidebarItemParent): string {
   return parent.kind === "space"
     ? `sidebar-parent:space:${parent.spaceId}`
-    : `sidebar-parent:project:${parent.projectId}`;
+    : `sidebar-parent:project:${parent.folderId}`;
 }
 
 export function sidebarParentFromDndGroup(group: unknown): SidebarItemParent | null {
@@ -116,8 +116,8 @@ export function sidebarParentFromDndGroup(group: unknown): SidebarItemParent | n
   }
   const projectPrefix = "sidebar-parent:project:";
   if (group.startsWith(projectPrefix)) {
-    const projectId = group.slice(projectPrefix.length);
-    return projectId ? { kind: "project", projectId: ContainerId.makeUnsafe(projectId) } : null;
+    const folderId = group.slice(projectPrefix.length);
+    return folderId ? { kind: "folder", folderId: FolderId.makeUnsafe(folderId) } : null;
   }
   return null;
 }
@@ -130,8 +130,8 @@ export function readSidebarDndData(value: unknown): SidebarDndData | null {
 
 export function dragTypeForData(data: SidebarDndData): string {
   if (data.type === "space") return SIDEBAR_SPACE_DRAG_TYPE;
-  if (data.type === "item" && data.item.kind === "project") {
-    return sidebarItemDragType("project", data.preview.pinned);
+  if (data.type === "item" && data.item.kind === "folder") {
+    return sidebarItemDragType("folder", data.preview.pinned);
   }
   if (data.type === "item") {
     return sidebarItemDragType("thread", data.preview.pinned);
@@ -143,7 +143,7 @@ export function canMoveSidebarItemToParent(
   item: SidebarItemReference,
   parent: SidebarItemParent,
 ): boolean {
-  return item.kind === "project" ? parent.kind === "space" : parent.kind === "project";
+  return item.kind === "folder" ? parent.kind === "space" : parent.kind === "folder";
 }
 
 export type SidebarItemDropTarget =
@@ -253,8 +253,8 @@ export function acceptedTypesForData(data: SidebarDndData): string[] {
       : [...SIDEBAR_THREAD_DRAG_TYPES];
   }
   const pinned = data.preview.pinned;
-  return data.item.kind === "project"
-    ? [sidebarItemDragType("project", pinned)]
+  return data.item.kind === "folder"
+    ? [sidebarItemDragType("folder", pinned)]
     : [sidebarItemDragType("thread", pinned)];
 }
 
@@ -265,7 +265,7 @@ export function areSidebarItemParentsEqual(
   if (left.kind !== right.kind) return false;
   return left.kind === "space"
     ? left.spaceId === (right.kind === "space" ? right.spaceId : null)
-    : left.projectId === (right.kind === "project" ? right.projectId : null);
+    : left.folderId === (right.kind === "folder" ? right.folderId : null);
 }
 
 export function canUseSidebarSortableTarget(
@@ -386,7 +386,7 @@ export function SidebarDragPreview(props: { preview: SidebarDndPreview }) {
       </SpaceHeaderShared>
     );
   }
-  if (preview.kind === "project") {
+  if (preview.kind === "folder") {
     return (
       <FolderRowShared
         aria-hidden="true"
@@ -538,7 +538,7 @@ export function SidebarContainerDropTarget(props: {
     id: props.id,
     type: `penkra/sidebar-container:${props.data.parent.kind}`,
     accept: acceptedTypesForData(props.data),
-    ...(props.data.parent.kind === "project"
+    ...(props.data.parent.kind === "folder"
       ? { collisionPriority: SIDEBAR_FOLDER_CONTAINER_COLLISION_PRIORITY }
       : {}),
     data: props.data,

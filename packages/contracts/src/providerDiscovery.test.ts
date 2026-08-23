@@ -19,7 +19,7 @@ describe("ProviderListModelsResult", () => {
           name: "GPT-5.6 Luna",
         },
       ],
-      source: "droid-acp",
+      source: "codex-app-server",
     });
 
     expect(result.models[0]?.description).toBe("0.4x Factory token rate");

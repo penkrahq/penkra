@@ -4,11 +4,10 @@ import {
   type ModelSelection,
   ClaudeModelOptions,
   CodexModelOptions,
-  type CursorModelOptions,
   DEFAULT_MODEL_BY_PROVIDER,
   type OpenCodeModelOptions,
   type ProviderModelDescriptor,
-  ContainerId,
+  FolderId,
   ThreadId,
 } from "@penkra/contracts";
 import { page } from "vitest/browser";
@@ -42,13 +41,7 @@ function ClaudeTraitsPickerHarness(props: {
     customModelsByProvider: {
       codex: [],
       claudeAgent: [],
-      cursor: [],
-      antigravity: [],
-      grok: [],
-      droid: [],
-      kilo: [],
       opencode: [],
-      pi: [],
     },
   });
   const handlePromptChange = (nextPrompt: string) => {
@@ -116,7 +109,7 @@ async function mountClaudePicker(props?: {
   useComposerDraftStore.setState({
     draftsByThreadId,
     draftThreadsByThreadId: {},
-    projectDraftThreadIdByProjectId: {},
+    projectDraftThreadIdByFolderId: {},
   });
   const host = document.createElement("div");
   document.body.append(host);
@@ -150,7 +143,7 @@ describe("TraitsPicker (Claude)", () => {
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: {},
+      projectDraftThreadIdByFolderId: {},
       stickyModelSelectionByProvider: {},
       stickyConnectionByProvider: {},
     });
@@ -363,8 +356,8 @@ async function mountCodexPicker(props: { model?: string; options?: CodexModelOpt
   useComposerDraftStore.setState({
     draftsByThreadId,
     draftThreadsByThreadId: {},
-    projectDraftThreadIdByProjectId: {
-      [ContainerId.makeUnsafe("project-codex-traits")]: threadId,
+    projectDraftThreadIdByFolderId: {
+      [FolderId.makeUnsafe("project-codex-traits")]: threadId,
     },
   });
   const host = document.createElement("div");
@@ -399,7 +392,7 @@ describe("TraitsPicker (Codex)", () => {
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: {},
+      projectDraftThreadIdByFolderId: {},
       stickyModelSelectionByProvider: {},
       stickyConnectionByProvider: {},
     });
@@ -487,117 +480,6 @@ describe("TraitsPicker (Codex)", () => {
   });
 });
 
-// ── Cursor TraitsPicker tests ─────────────────────────────────────────
-
-async function mountCursorPicker(props: {
-  runtimeModel: ProviderModelDescriptor;
-  options?: CursorModelOptions;
-}) {
-  const threadId = ThreadId.makeUnsafe("thread-cursor-traits");
-  const host = document.createElement("div");
-  document.body.append(host);
-  const screen = await render(
-    <TraitsPicker
-      provider="cursor"
-      threadId={threadId}
-      model={props.runtimeModel.slug}
-      runtimeModel={props.runtimeModel}
-      prompt=""
-      modelOptions={props.options}
-      onPromptChange={() => {}}
-    />,
-    { container: host },
-  );
-
-  const cleanup = async () => {
-    await screen.unmount();
-    host.remove();
-  };
-
-  return {
-    [Symbol.asyncDispose]: cleanup,
-    cleanup,
-  };
-}
-
-describe("TraitsPicker (Cursor)", () => {
-  afterEach(() => {
-    document.body.innerHTML = "";
-  });
-
-  const fastOnlyComposerRuntimeModel: ProviderModelDescriptor = {
-    slug: "composer-2[fast=false]",
-    name: "Composer 2",
-    supportsFastMode: true,
-  };
-
-  it("shows Default instead of an empty trigger for fast-only models", async () => {
-    await using _ = await mountCursorPicker({
-      runtimeModel: fastOnlyComposerRuntimeModel,
-      options: { fastMode: false },
-    });
-
-    await vi.waitFor(() => {
-      expect(document.body.textContent ?? "").toContain("Default");
-    });
-  });
-
-  it("shows only fast mode labels for fast-only models", async () => {
-    await using _ = await mountCursorPicker({
-      runtimeModel: fastOnlyComposerRuntimeModel,
-      options: { fastMode: false },
-    });
-
-    await page.getByRole("button").click();
-
-    await vi.waitFor(() => {
-      const text = document.body.textContent ?? "";
-      expect(text).toContain("Speed");
-      expect(text).toContain("Default");
-      expect(text).toContain("Fast");
-      expect(text).not.toMatch(/\bThinking\b/u);
-      expect(text).not.toContain("Effort");
-    });
-  });
-
-  it("shows thinking, context, and effort controls together for Fable-style models", async () => {
-    await using _ = await mountCursorPicker({
-      runtimeModel: {
-        slug: "claude-fable-5",
-        name: "Fable 5",
-        supportsThinkingToggle: true,
-        supportedReasoningEfforts: [
-          { value: "low", label: "Low" },
-          { value: "medium", label: "Medium" },
-          { value: "high", label: "High" },
-          { value: "xhigh", label: "Extra High" },
-          { value: "max", label: "Max" },
-        ],
-        defaultReasoningEffort: "high",
-        contextWindowOptions: [
-          { value: "300k", label: "300K", isDefault: true },
-          { value: "1m", label: "1M" },
-        ],
-        defaultContextWindow: "300k",
-      },
-      options: { thinking: true, reasoningEffort: "high", contextWindow: "300k" },
-    });
-
-    await page.getByRole("button").click();
-
-    await vi.waitFor(() => {
-      const text = document.body.textContent ?? "";
-      expect(text).toContain("Thinking");
-      expect(text).toContain("Context");
-      expect(text).toContain("Effort");
-      expect(text).toContain("300K");
-      expect(text).toContain("1M");
-      expect(text).toContain("Extra High");
-      expect(text).toContain("Max");
-    });
-  });
-});
-
 // ── OpenCode TraitsPicker tests ───────────────────────────────────────
 
 const OPENCODE_THREAD_ID = ThreadId.makeUnsafe("thread-opencode-traits");
@@ -644,13 +526,7 @@ function OpenCodeTraitsPickerHarness(props: {
     customModelsByProvider: {
       codex: [],
       claudeAgent: [],
-      cursor: [],
-      antigravity: [],
-      grok: [],
-      droid: [],
-      kilo: [],
       opencode: [],
-      pi: [],
     },
   });
   const handlePromptChange = (nextPrompt: string) => {
@@ -708,7 +584,7 @@ async function mountOpenCodePicker(props?: {
   useComposerDraftStore.setState({
     draftsByThreadId,
     draftThreadsByThreadId: {},
-    projectDraftThreadIdByProjectId: {},
+    projectDraftThreadIdByFolderId: {},
   });
   const host = document.createElement("div");
   document.body.append(host);
@@ -745,7 +621,7 @@ describe("TraitsPicker (OpenCode)", () => {
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: {},
+      projectDraftThreadIdByFolderId: {},
       stickyModelSelectionByProvider: {},
       stickyConnectionByProvider: {},
     });

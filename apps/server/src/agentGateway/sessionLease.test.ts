@@ -19,7 +19,7 @@ describe("AgentGatewaySessionLease", () => {
     const lease = acquireAgentGatewaySessionLease(
       { connectionForThread, revokeSessionToken },
       ThreadId.makeUnsafe("thread-1"),
-      "cursor",
+      "opencode",
     );
 
     expect(lease?.connection).toEqual({
@@ -27,7 +27,7 @@ describe("AgentGatewaySessionLease", () => {
       bearerToken: "gateway-token",
     });
     expect(connectionForThread).toHaveBeenCalledOnce();
-    expect(connectionForThread).toHaveBeenCalledWith("thread-1", "cursor");
+    expect(connectionForThread).toHaveBeenCalledWith("thread-1", "opencode");
 
     lease?.release();
     lease?.release();
@@ -46,8 +46,8 @@ describe("AgentGatewaySessionLease", () => {
     const credentials = { connectionForThread, revokeSessionToken };
     const threadId = ThreadId.makeUnsafe("thread-1");
 
-    const previous = acquireAgentGatewaySessionLease(credentials, threadId, "grok");
-    const replacement = acquireAgentGatewaySessionLease(credentials, threadId, "grok");
+    const previous = acquireAgentGatewaySessionLease(credentials, threadId, "opencode");
+    const replacement = acquireAgentGatewaySessionLease(credentials, threadId, "opencode");
 
     previous?.release();
     expect(revokeSessionToken).toHaveBeenLastCalledWith("gateway-token-1");
@@ -60,7 +60,7 @@ describe("AgentGatewaySessionLease", () => {
 
   it("does not acquire a credential when the gateway layer is absent", () => {
     expect(
-      acquireAgentGatewaySessionLease(undefined, ThreadId.makeUnsafe("thread-1"), "droid"),
+      acquireAgentGatewaySessionLease(undefined, ThreadId.makeUnsafe("thread-1"), "codex"),
     ).toBeUndefined();
   });
 
@@ -97,7 +97,7 @@ describe("AgentGatewaySessionLease", () => {
         revokeSessionToken,
       },
       ThreadId.makeUnsafe("thread-1"),
-      "cursor",
+      "codex",
     );
 
     await Effect.runPromise(
@@ -140,7 +140,7 @@ describe("AgentGatewaySessionLease", () => {
         revokeSessionToken,
       },
       ThreadId.makeUnsafe("thread-1"),
-      "pi",
+      "claudeAgent",
     );
 
     await Effect.runPromise(

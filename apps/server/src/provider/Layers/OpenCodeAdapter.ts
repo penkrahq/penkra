@@ -39,13 +39,15 @@ import {
 } from "../Errors.ts";
 import { takePenkraHarnessPolicyForProviderSession } from "../../agentGateway/harnessPolicy.ts";
 import { buildOpenCodeMcpServer, PENKRA_MCP_SERVER_NAME } from "../../agentGateway/mcpInjection.ts";
-import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
+import {
+  AgentGatewayCredentials,
+  type AgentGatewayCredentialsShape,
+} from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { loadOpenCodeSharedMcpConfig } from "../openCodeSharedMcpConfig.ts";
 import {
   acquireAgentGatewaySessionLease,
   type AgentGatewaySessionLease,
 } from "../../agentGateway/sessionLease.ts";
-import { KiloAdapter, type KiloAdapterShape } from "../Services/KiloAdapter.ts";
 import { OpenCodeAdapter, type OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
 import {
   awaitProviderRuntimeEventsDrained,
@@ -54,7 +56,6 @@ import {
 } from "../Services/ProviderAdapter.ts";
 import {
   buildOpenCodePermissionRules,
-  KILO_CLI_SPEC,
   type OpenCodeCliModelDescriptor,
   type OpenCodeCompatibleCliSpec,
   type OpenCodeInventory,
@@ -89,14 +90,14 @@ import { nonNegativeFiniteNumber, nonNegativeInteger, positiveInteger } from "..
 
 export { flattenOpenCodeCliModels, flattenOpenCodeModels, resolvePreferredOpenCodeModelProviders };
 
-type OpenCodeCompatibleProvider = Extract<ProviderKind, "opencode" | "kilo">;
+type OpenCodeCompatibleProvider = Extract<ProviderKind, "opencode">;
 
 interface OpenCodeCompatibleAdapterConfig {
   readonly provider: OpenCodeCompatibleProvider;
   readonly displayName: string;
   readonly defaultBinaryPath: string;
   readonly providerOptionsKey: OpenCodeCompatibleProvider;
-  readonly runtimeEventSource: "opencode.sdk.event" | "kilo.sdk.event";
+  readonly runtimeEventSource: "opencode.sdk.event";
   readonly turnIdPrefix: string;
   readonly cliModelSource: string;
   readonly nativeApiSource: string;
@@ -117,20 +118,6 @@ const OPENCODE_ADAPTER_CONFIG: OpenCodeCompatibleAdapterConfig = {
   defaultAgent: "build",
   planAgent: "plan",
   cliSpec: OPENCODE_CLI_SPEC,
-};
-
-const KILO_ADAPTER_CONFIG: OpenCodeCompatibleAdapterConfig = {
-  provider: "kilo",
-  displayName: "Kilo",
-  defaultBinaryPath: "kilo",
-  providerOptionsKey: "kilo",
-  runtimeEventSource: "kilo.sdk.event",
-  turnIdPrefix: "kilo-turn",
-  cliModelSource: "kilo-cli",
-  nativeApiSource: "kilo",
-  defaultAgent: "code",
-  planAgent: "plan",
-  cliSpec: KILO_CLI_SPEC,
 };
 
 const OPENCODE_PROMPT_ACCEPTED_ACTIVITY_TIMEOUT_MS = 60_000;
@@ -155,7 +142,6 @@ interface OpenCodeTurnSnapshot {
 
 interface OpenCodeSessionContext {
   harnessPolicyDelivered?: boolean;
-  readonly gatewayControlAvailable: boolean;
   gatewaySessionLease?: AgentGatewaySessionLease;
   session: ProviderSession;
   readonly lifecycleGeneration?: string;
@@ -218,6 +204,7 @@ export interface OpenCodeAdapterLiveOptions {
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
   readonly runtime?: OpenCodeRuntimeShape;
+  readonly agentGatewayCredentials?: AgentGatewayCredentialsShape;
   readonly adapterConfig?: OpenCodeCompatibleAdapterConfig;
   readonly promptAcceptedActivityTimeoutMs?: number;
   readonly promptAcceptedRecoveryDelaysMs?: ReadonlyArray<number>;
@@ -265,7 +252,7 @@ function asRuntimeItemId(value: string) {
 
 function buildProviderEventBase(input: {
   readonly provider: OpenCodeCompatibleProvider;
-  readonly runtimeEventSource: "opencode.sdk.event" | "kilo.sdk.event";
+  readonly runtimeEventSource: "opencode.sdk.event";
   readonly threadId: ThreadId;
   readonly turnId?: TurnId | undefined;
   readonly itemId?: string | undefined;
@@ -518,7 +505,7 @@ function resolveTextStreamKind(part: Part | undefined): "assistant_text" | "reas
 }
 
 function shouldProjectOpenCodeTextPart(part: Part): boolean {
-  // Kilo uses synthetic/ignored text parts for local UI progress such as snapshot setup.
+  // Synthetic/ignored text parts are local runtime progress, not assistant transcript.
   return part.type !== "text" || (!part.synthetic && !part.ignored);
 }
 
@@ -1153,9 +1140,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
     Effect.gen(function* () {
       const serverConfig = yield* ServerConfig;
       const openCodeRuntime = yield* OpenCodeRuntime;
-      const agentGatewayCredentials = Option.getOrUndefined(
-        yield* Effect.serviceOption(AgentGatewayCredentials),
-      );
+      const agentGatewayCredentials =
+        Option.getOrUndefined(yield* Effect.serviceOption(AgentGatewayCredentials)) ??
+        options?.agentGatewayCredentials;
       const provider = adapterConfig.provider;
       const buildEventBase = (
         input: Omit<
@@ -3156,7 +3143,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
       // polls session status and, once the session looks idle with a fresh final
       // assistant message, synthesizes the idle event so the turn completes.
       //
-      // `pollMessagesWhileBusy` trades load for liveness: Kilo pulls the full message
+      // `pollMessagesWhileBusy` trades load for liveness by pulling the full message
       // list every tick to also act as a live transcript catch-up; plain OpenCode
       // keeps it cheap by only pulling messages once the session is no longer busy
       // (fetching a large transcript every 500ms would be wasteful on big turns).
@@ -3372,10 +3359,19 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           const agentGatewaySessionLease = serverUrl
             ? undefined
             : acquireAgentGatewaySessionLease(agentGatewayCredentials, input.threadId, provider);
-          const agentGatewayConnection = agentGatewaySessionLease?.connection;
-          const poolIsolationKey =
-            input.managedLaunch?.isolationKey ??
-            (agentGatewayConnection ? randomUUID() : undefined);
+          if (!agentGatewaySessionLease) {
+            return yield* Effect.fail(
+              toAdapterProcessError(
+                input.threadId,
+                new OpenCodeRuntimeError({
+                  operation: "agentGateway.setup",
+                  detail: `${adapterConfig.displayName} session start requires an isolated, thread-scoped Penkra gateway connection; external servers and missing gateway credentials are unsupported.`,
+                }),
+              ),
+            );
+          }
+          const agentGatewayConnection = agentGatewaySessionLease.connection;
+          const poolIsolationKey = input.managedLaunch?.isolationKey ?? randomUUID();
           const managedProcessEnv = input.managedLaunch?.childEnvironment(process.env);
           if (managedProcessEnv) {
             const sharedMcpConfig = yield* Effect.tryPromise({
@@ -3411,59 +3407,43 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                       cliSpec: adapterConfig.cliSpec,
                       ...(server.external && serverPassword ? { serverPassword } : {}),
                     });
-                    // OpenCode/Kilo retain their normal provider capabilities.
+                    // OpenCode retains its normal provider capabilities.
                     // Only a copied entry occupying Penkra's reserved gateway
                     // name is disconnected before the authenticated gateway is
                     // installed for this isolated thread runtime.
-                    if (agentGatewayConnection) {
-                      const configuredMcpServers = yield* runOpenCodeSdk("mcp.status", () =>
-                        client.mcp.status({ directory }),
+                    const configuredMcpServers = yield* runOpenCodeSdk("mcp.status", () =>
+                      client.mcp.status({ directory }),
+                    );
+                    if (configuredMcpServers.data?.[PENKRA_MCP_SERVER_NAME]) {
+                      yield* runOpenCodeSdk("mcp.disconnect", () =>
+                        client.mcp.disconnect({
+                          directory,
+                          name: PENKRA_MCP_SERVER_NAME,
+                        }),
                       );
-                      if (configuredMcpServers.data?.[PENKRA_MCP_SERVER_NAME]) {
-                        yield* runOpenCodeSdk("mcp.disconnect", () =>
-                          client.mcp.disconnect({
-                            directory,
-                            name: PENKRA_MCP_SERVER_NAME,
-                          }),
-                        );
-                      }
                     }
-                    const gatewayControlAvailable = agentGatewayConnection
-                      ? yield* runOpenCodeSdk("mcp.add", () =>
-                          client.mcp.add({
-                            directory,
-                            name: PENKRA_MCP_SERVER_NAME,
-                            config: buildOpenCodeMcpServer(agentGatewayConnection),
-                          }),
-                        ).pipe(
-                          Effect.flatMap((result) => {
-                            const status = result.data?.[PENKRA_MCP_SERVER_NAME];
-                            return status?.status === "connected"
-                              ? Effect.void
-                              : Effect.fail(
-                                  new OpenCodeRuntimeError({
-                                    operation: "mcp.add",
-                                    detail:
-                                      status?.status === "failed"
-                                        ? `${adapterConfig.displayName} Penkra MCP connection failed: ${status.error}`
-                                        : `${adapterConfig.displayName} Penkra MCP connection did not become ready.`,
-                                  }),
-                                );
-                          }),
-                          Effect.as(true),
-                          Effect.catchCause((cause) =>
-                            Effect.sync(() => agentGatewaySessionLease?.release()).pipe(
-                              Effect.andThen(
-                                Effect.logWarning(
-                                  `${adapterConfig.displayName} could not install thread-scoped Penkra MCP control`,
-                                  Cause.squash(cause),
-                                ),
-                              ),
-                              Effect.as(false),
-                            ),
-                          ),
-                        )
-                      : false;
+                    yield* runOpenCodeSdk("mcp.add", () =>
+                      client.mcp.add({
+                        directory,
+                        name: PENKRA_MCP_SERVER_NAME,
+                        config: buildOpenCodeMcpServer(agentGatewayConnection),
+                      }),
+                    ).pipe(
+                      Effect.flatMap((result) => {
+                        const status = result.data?.[PENKRA_MCP_SERVER_NAME];
+                        return status?.status === "connected"
+                          ? Effect.void
+                          : Effect.fail(
+                              new OpenCodeRuntimeError({
+                                operation: "mcp.add",
+                                detail:
+                                  status?.status === "failed"
+                                    ? `${adapterConfig.displayName} Penkra MCP connection failed: ${status.error}`
+                                    : `${adapterConfig.displayName} Penkra MCP connection did not become ready.`,
+                              }),
+                            );
+                      }),
+                    );
                     const createSessionId = resumedSessionId
                       ? runOpenCodeSdk("session.update", () =>
                           client.session.update({
@@ -3530,7 +3510,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                       client,
                       openCodeSessionId,
                       modelContextLimitBySlug,
-                      gatewayControlAvailable,
                     };
                   }).pipe(Effect.provideService(Scope.Scope, sessionScope)),
                 );
@@ -3577,12 +3556,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
 
                 const context: OpenCodeSessionContext = {
                   session,
-                  gatewayControlAvailable: started.gatewayControlAvailable,
-                  ...(started.gatewayControlAvailable && agentGatewaySessionLease
-                    ? {
-                        gatewaySessionLease: agentGatewaySessionLease,
-                      }
-                    : {}),
+                  gatewaySessionLease: agentGatewaySessionLease,
                   ...(input.lifecycleGeneration !== undefined
                     ? { lifecycleGeneration: input.lifecycleGeneration }
                     : {}),
@@ -3758,10 +3732,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             issue: `${adapterConfig.displayName} turns require text input or at least one attachment.`,
           });
         }
-        const harnessPolicy = takePenkraHarnessPolicyForProviderSession(context, {
-          provider,
-          scopedGatewayConnectionAvailable: context.gatewayControlAvailable,
-        });
+        const harnessPolicy = takePenkraHarnessPolicyForProviderSession(context);
         const providerText = [harnessPolicy, text].filter(Boolean).join("\n\n");
 
         const requestedAgent =
@@ -3808,54 +3779,24 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         });
 
         const providerMessageId = `msg_${randomUUID()}`;
-        if (provider === "kilo") {
-          const recoveryBaselineMessageIds = yield* captureOpenCodeRecoveryBaseline(context);
-          const providerActivitySerial = context.activeTurnProviderActivitySerial;
-          yield* schedulePromptAcceptedWatchdog(context, {
-            turnId,
-            providerActivitySerial,
-            excludedMessageIds: recoveryBaselineMessageIds,
-          });
-          yield* submitOpenCodePrompt(context, {
-            turnId,
-            promptInput: {
-              sessionID: context.openCodeSessionId,
-              messageID: providerMessageId,
-              model: parsedModel,
-              ...(context.activeAgent ? { agent: context.activeAgent } : {}),
-              ...(context.activeVariant ? { variant: context.activeVariant } : {}),
-              noReply: false,
-              parts: [
-                ...(providerText ? [{ type: "text" as const, text: providerText }] : []),
-                ...fileParts,
-              ],
-            },
-          });
-          yield* startTurnSnapshotWatchdog(context, turnId, providerMessageId, {
-            pollMessagesWhileBusy: true,
-          });
-        } else {
-          yield* submitOpenCodePromptAsync(context, {
-            turnId,
-            promptInput: {
-              sessionID: context.openCodeSessionId,
-              messageID: providerMessageId,
-              model: parsedModel,
-              ...(context.activeAgent ? { agent: context.activeAgent } : {}),
-              ...(context.activeVariant ? { variant: context.activeVariant } : {}),
-              parts: [
-                ...(providerText ? [{ type: "text" as const, text: providerText }] : []),
-                ...fileParts,
-              ],
-            },
-          });
-          // OpenCode lacks Kilo's prompt-accepted hard-fail watchdog, but it still
-          // needs a completion backstop for dropped/delayed idle events. Keep the
-          // poll cheap (status-first) so large turns are not penalized.
-          yield* startTurnSnapshotWatchdog(context, turnId, providerMessageId, {
-            pollMessagesWhileBusy: false,
-          });
-        }
+        yield* submitOpenCodePromptAsync(context, {
+          turnId,
+          promptInput: {
+            sessionID: context.openCodeSessionId,
+            messageID: providerMessageId,
+            model: parsedModel,
+            ...(context.activeAgent ? { agent: context.activeAgent } : {}),
+            ...(context.activeVariant ? { variant: context.activeVariant } : {}),
+            parts: [
+              ...(providerText ? [{ type: "text" as const, text: providerText }] : []),
+              ...fileParts,
+            ],
+          },
+        });
+        // Poll status as a completion backstop for dropped or delayed idle events.
+        yield* startTurnSnapshotWatchdog(context, turnId, providerMessageId, {
+          pollMessagesWhileBusy: false,
+        });
 
         return {
           threadId: input.threadId,
@@ -4308,13 +4249,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         const freeOnlyProviderID =
           routeProviderID === "opencode" && input.managedLaunch?.connectionId === null
             ? "opencode"
-            : routeProviderID === "kilo"
-              ? "kilo"
-              : routeProviderID === undefined && adapterConfig.provider === "kilo"
-                ? "kilo"
-                : routeProviderID === undefined && adapterConfig.provider === "opencode"
-                  ? "opencode"
-                  : undefined;
+            : routeProviderID === undefined
+              ? "opencode"
+              : undefined;
         const restrictToRoute = (
           models: readonly ProviderModelDescriptor[],
         ): readonly ProviderModelDescriptor[] =>
@@ -4555,19 +4492,3 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
 }
 
 export const OpenCodeAdapterLive = makeOpenCodeAdapterLive();
-
-export function makeKiloAdapterLive(options?: Omit<OpenCodeAdapterLiveOptions, "adapterConfig">) {
-  const kiloOpenCodeCompatibleLayer = makeOpenCodeAdapterLive({
-    ...options,
-    adapterConfig: KILO_ADAPTER_CONFIG,
-  });
-  return Layer.effect(
-    KiloAdapter,
-    Effect.gen(function* () {
-      const adapter = yield* OpenCodeAdapter;
-      return adapter as unknown as KiloAdapterShape;
-    }),
-  ).pipe(Layer.provide(kiloOpenCodeCompatibleLayer));
-}
-
-export const KiloAdapterLive = makeKiloAdapterLive();

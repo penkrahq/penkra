@@ -1,21 +1,21 @@
-import { ContainerId, SpaceId, ThreadId, TurnId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId, TurnId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
-import { ProjectionProjectRepositoryLive } from "./ProjectionProjects.ts";
+import { ProjectionFolderRepositoryLive } from "./ProjectionFolders.ts";
 import { ProjectionThreadRepositoryLive } from "./ProjectionThreads.ts";
 import { ProjectionStateRepositoryLive } from "./ProjectionState.ts";
 import { ProjectionTurnRepositoryLive } from "./ProjectionTurns.ts";
-import { ProjectionProjectRepository } from "../Services/ProjectionProjects.ts";
+import { ProjectionFolderRepository } from "../Services/ProjectionFolders.ts";
 import { ProjectionThreadRepository } from "../Services/ProjectionThreads.ts";
 import { ProjectionStateRepository } from "../Services/ProjectionState.ts";
 import { ProjectionTurnRepository } from "../Services/ProjectionTurns.ts";
 
 const projectionRepositoriesLayer = it.layer(
   Layer.mergeAll(
-    ProjectionProjectRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
+    ProjectionFolderRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
     ProjectionThreadRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
     ProjectionStateRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
     ProjectionTurnRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
@@ -24,68 +24,13 @@ const projectionRepositoriesLayer = it.layer(
 );
 
 projectionRepositoriesLayer("Projection repositories", (it) => {
-  it.effect("clears active and soft-deleted project assignments for a deleted space", () =>
-    Effect.gen(function* () {
-      const projects = yield* ProjectionProjectRepository;
-      const spaceId = SpaceId.makeUnsafe("space-delete-bulk");
-      const makeProject = (projectId: string, updatedAt: string, deletedAt: string | null) => ({
-        projectId: ContainerId.makeUnsafe(projectId),
-        kind: "project" as const,
-        title: projectId,
-        workspaceRoot: `/tmp/${projectId}`,
-        defaultModelSelection: null,
-        scripts: [],
-        isPinned: false,
-        spaceId,
-        createdAt: "2026-07-20T00:00:00.000Z",
-        updatedAt,
-        deletedAt,
-      });
-      yield* projects.upsert(makeProject("project-space-active", "2026-07-20T00:00:01.000Z", null));
-      yield* projects.upsert(
-        makeProject(
-          "project-space-deleted",
-          "2026-07-20T00:00:03.000Z",
-          "2026-07-20T00:00:02.000Z",
-        ),
-      );
-
-      yield* projects.clearSpaceAssignments({
-        spaceId,
-        updatedAt: "2026-07-20T00:00:02.000Z",
-      });
-
-      const rows = yield* projects.listAll();
-      assert.deepStrictEqual(
-        rows.map(({ projectId, spaceId: assignedSpaceId, updatedAt }) => ({
-          projectId,
-          assignedSpaceId,
-          updatedAt,
-        })),
-        [
-          {
-            projectId: ContainerId.makeUnsafe("project-space-active"),
-            assignedSpaceId: null,
-            updatedAt: "2026-07-20T00:00:02.000Z",
-          },
-          {
-            projectId: ContainerId.makeUnsafe("project-space-deleted"),
-            assignedSpaceId: null,
-            updatedAt: "2026-07-20T00:00:03.000Z",
-          },
-        ],
-      );
-    }),
-  );
-
   it.effect("stores SQL NULL for missing project model options", () =>
     Effect.gen(function* () {
-      const projects = yield* ProjectionProjectRepository;
+      const folders = yield* ProjectionFolderRepository;
       const sql = yield* SqlClient.SqlClient;
 
-      yield* projects.upsert({
-        projectId: ContainerId.makeUnsafe("project-null-options"),
-        kind: "project",
+      yield* folders.upsert({
+        folderId: FolderId.makeUnsafe("project-null-options"),
         title: "Null options project",
         workspaceRoot: "/tmp/project-null-options",
         defaultModelSelection: {
@@ -94,7 +39,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         },
         scripts: [],
         isPinned: false,
-        spaceId: null,
+        spaceId: SpaceId.makeUnsafe("penkra-personal"),
         createdAt: "2026-03-24T00:00:00.000Z",
         updatedAt: "2026-03-24T00:00:00.000Z",
         deletedAt: null,
@@ -120,8 +65,8 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         }),
       );
 
-      const persisted = yield* projects.getById({
-        projectId: ContainerId.makeUnsafe("project-null-options"),
+      const persisted = yield* folders.getById({
+        folderId: FolderId.makeUnsafe("project-null-options"),
       });
       assert.deepStrictEqual(Option.getOrNull(persisted)?.defaultModelSelection, {
         provider: "codex",
@@ -137,7 +82,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
 
       yield* threads.upsert({
         threadId: ThreadId.makeUnsafe("thread-null-options"),
-        projectId: ContainerId.makeUnsafe("project-null-options"),
+        folderId: FolderId.makeUnsafe("project-null-options"),
         title: "Null options thread",
         modelSelection: {
           provider: "claudeAgent",
@@ -217,7 +162,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       const now = "2026-07-19T00:00:00.000Z";
       const makeThread = (threadId: string, deletedAt: string | null) => ({
         threadId: ThreadId.makeUnsafe(threadId),
-        projectId: ContainerId.makeUnsafe("project-wait-snapshot"),
+        folderId: FolderId.makeUnsafe("project-wait-snapshot"),
         title: threadId,
         modelSelection: { provider: "codex" as const, model: "gpt-5.5" },
         runtimeMode: "approval-required" as const,

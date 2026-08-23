@@ -16,7 +16,7 @@ const meta = {
             { id: "main", label: "Main", provider: "codex", state: "active" },
             { id: "metrics", label: "Analyze PostHog metrics", provider: "claudeAgent" },
             { id: "search", label: "Add user to Search Console", provider: "codex" },
-            { id: "discord", label: "Set up Penut Discord", provider: "cursor" },
+            { id: "discord", label: "Set up Penut Discord", provider: "codex" },
           ]}
         />
         <FolderGroupShared

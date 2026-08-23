@@ -15,7 +15,7 @@ import {
 
 type Navigate = ReturnType<typeof useNavigate>;
 type ThreadTerminalStateById = Parameters<typeof selectThreadTerminalState>[0];
-type SidebarThreadActivationSummary = Pick<SidebarThreadSummary, "id" | "projectId">;
+type SidebarThreadActivationSummary = Pick<SidebarThreadSummary, "id" | "folderId">;
 
 export type ThreadActivationControllerInput = {
   activeSplitView: SplitView | null;

@@ -70,29 +70,17 @@ describe("isInitialModelDiscoveryPending", () => {
 });
 
 describe("providerModelsQueryOptions", () => {
-  it("fails fast for Cursor so a missing CLI settles instead of spinning (#103)", async () => {
-    const listModels = mockListModels(
-      vi.fn().mockRejectedValue(new Error("Cursor CLI is not installed or not on PATH")),
-    );
-    const options = providerModelsQueryOptions({ provider: "cursor", enabled: true });
-    expect(options.retry).toBe(0);
-
-    const queryClient = new QueryClient();
-    await expect(queryClient.fetchQuery(options)).rejects.toThrow(
-      "Cursor CLI is not installed or not on PATH",
-    );
-    expect(listModels).toHaveBeenCalledTimes(1);
-    expect(queryClient.getQueryState(options.queryKey)?.status).toBe("error");
-  });
-
   it("keeps retrying transient failures for other providers", () => {
     expect(providerModelsQueryOptions({ provider: "codex" }).retry).toBe(3);
-    expect(providerModelsQueryOptions({ provider: "droid" }).retry).toBe(0);
+    expect(providerModelsQueryOptions({ provider: "opencode" }).retry).toBe(3);
   });
 
   it("surfaces real errors instead of masking them as empty catalogs", async () => {
     mockListModels(vi.fn().mockRejectedValue(new Error("discovery exploded")));
-    const options = providerModelsQueryOptions({ provider: "cursor", enabled: true });
+    const options = {
+      ...providerModelsQueryOptions({ provider: "opencode", enabled: true }),
+      retry: false as const,
+    };
 
     const queryClient = new QueryClient();
     await expect(queryClient.fetchQuery(options)).rejects.toThrow("discovery exploded");
@@ -102,13 +90,16 @@ describe("providerModelsQueryOptions", () => {
   it("preserves the cached catalog when a background refetch fails", async () => {
     const catalog = {
       models: [{ slug: "auto", name: "Auto" }],
-      source: "cursor.cli",
+      source: "managed-connections",
       cached: false,
     };
     const listModels = mockListModels(
-      vi.fn().mockResolvedValueOnce(catalog).mockRejectedValue(new Error("cursor went away")),
+      vi.fn().mockResolvedValueOnce(catalog).mockRejectedValue(new Error("provider went away")),
     );
-    const options = providerModelsQueryOptions({ provider: "cursor", enabled: true });
+    const options = {
+      ...providerModelsQueryOptions({ provider: "opencode", enabled: true }),
+      retry: false as const,
+    };
 
     const queryClient = new QueryClient();
     await expect(queryClient.fetchQuery(options)).resolves.toEqual(catalog);

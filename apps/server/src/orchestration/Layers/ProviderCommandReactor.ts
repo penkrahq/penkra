@@ -19,7 +19,7 @@ import {
   type ProviderSkillReference,
   type ProviderTurnStartResult,
   type OrchestrationSession,
-  type OrchestrationProjectShell,
+  type OrchestrationFolderShell,
   type OrchestrationThread,
   ThreadId,
   type ProviderSession,
@@ -437,17 +437,17 @@ const make = Effect.gen(function* () {
   );
 
   const resolveThreadWorkspaceProject = Effect.fnUntraced(function* (
-    thread: Pick<OrchestrationThread, "projectId">,
-  ): Effect.fn.Return<OrchestrationProjectShell | undefined> {
+    thread: Pick<OrchestrationThread, "folderId">,
+  ): Effect.fn.Return<OrchestrationFolderShell | undefined> {
     return Option.getOrUndefined(
       yield* projectionSnapshotQuery
-        .getProjectShellById(thread.projectId)
+        .getFolderShellById(thread.folderId)
         .pipe(Effect.catch(() => Effect.succeed(Option.none()))),
     );
   });
 
   const resolveProjectedThreadWorkspaceCwd = Effect.fnUntraced(function* (
-    thread: Pick<OrchestrationThread, "projectId" | "workingDirectory">,
+    thread: Pick<OrchestrationThread, "folderId" | "workingDirectory">,
   ): Effect.fn.Return<string | undefined> {
     const project = yield* resolveThreadWorkspaceProject(thread);
     if (!project) {
@@ -1091,8 +1091,7 @@ const make = Effect.gen(function* () {
               previousModelSelection ?? thread.modelSelection,
               requestedModelSelection,
             )
-          : (currentProvider === "droid" || currentProvider === "grok") &&
-            !Equal.equals(previousModelSelection, requestedModelSelection));
+          : false);
       const managedBindingChanged =
         options?.bindingRevision !== undefined &&
         threadManagedBindingRevisions.get(threadId) !== options.bindingRevision;
@@ -1649,7 +1648,7 @@ const make = Effect.gen(function* () {
     }
 
     yield* orchestrationEngine.dispatch({
-      type: "thread.meta.update",
+      type: "thread.update",
       commandId: serverCommandId("thread-title-rename"),
       threadId: input.threadId,
       title: nextTitle,
@@ -2071,7 +2070,7 @@ const make = Effect.gen(function* () {
         const cwd = resolveThreadWorkspaceCwd({
           workingDirectory: thread.workingDirectory,
           projectCwd:
-            readModel.projects.find((project) => project.id === thread.projectId)?.workspaceRoot ??
+            readModel.folders.find((project) => project.id === thread.folderId)?.workspaceRoot ??
             null,
         });
         const providerName = thread.session?.providerName ?? thread.modelSelection.provider;
@@ -2844,7 +2843,7 @@ const make = Effect.gen(function* () {
     const cwd = resolveThreadWorkspaceCwd({
       workingDirectory: originalThread.workingDirectory,
       projectCwd:
-        readModel.projects.find((project) => project.id === originalThread.projectId)
+        readModel.folders.find((project) => project.id === originalThread.folderId)
           ?.workspaceRoot ?? null,
     });
     editResendTurnStartKeys.add(editResendTurnStartKey(payload.threadId, payload.messageId));
@@ -3212,7 +3211,7 @@ const make = Effect.gen(function* () {
             createdAt: event.payload.archivedAt ?? event.payload.updatedAt ?? event.occurredAt,
           });
           return;
-        case "thread.meta-updated": {
+        case "thread.updated": {
           if (event.payload.modelSelection === undefined) {
             return;
           }

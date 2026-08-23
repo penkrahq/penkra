@@ -146,7 +146,7 @@ describe("providerRuntimeEventIdFromNative", () => {
     expect(
       new Set([
         make("claude", "claude.sdk.message", "thread-1"),
-        make("kilo", "kilo.sdk.event", "thread-1"),
+        make("opencode", "opencode.sdk.event", "thread-1"),
         make("claude", "other.source", "thread-1"),
         make("claude", "claude.sdk.message", "thread-2"),
       ]).size,

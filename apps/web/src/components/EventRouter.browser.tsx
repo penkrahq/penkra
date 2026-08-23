@@ -4,7 +4,8 @@ import {
   EventId,
   MessageId,
   ORCHESTRATION_WS_METHODS,
-  ContainerId,
+  FolderId,
+  SpaceId,
   ThreadId,
   TurnId,
   type OrchestrationEvent,
@@ -40,7 +41,7 @@ import { resetWsNativeApiForTest } from "../wsNativeApi";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-root-browser-test");
 const OTHER_THREAD_ID = ThreadId.makeUnsafe("thread-other-browser-test");
-const PROJECT_ID = ContainerId.makeUnsafe("project-root-browser-test");
+const PROJECT_ID = FolderId.makeUnsafe("project-root-browser-test");
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 
 interface TestFixture {
@@ -69,6 +70,7 @@ let pendingThreadDetailSnapshotResponse: {
 } | null = null;
 
 const wsLink = ws.link(/ws(s)?:\/\/.*/);
+const TEST_SPACE_ID = SpaceId.makeUnsafe("space-test");
 
 function createBaseServerConfig(): ServerConfig {
   return createBrowserTestServerConfig(NOW_ISO);
@@ -78,10 +80,10 @@ function createSnapshot(overrides?: Partial<OrchestrationReadModel["threads"][nu
   return {
     snapshotSequence: 1,
     spaces: [],
-    projects: [
+    folders: [
       {
         id: PROJECT_ID,
-        kind: "project",
+        spaceId: TEST_SPACE_ID,
         title: "Project",
         workspaceRoot: "/repo/project",
         defaultModelSelection: {
@@ -97,7 +99,7 @@ function createSnapshot(overrides?: Partial<OrchestrationReadModel["threads"][nu
     threads: [
       {
         id: THREAD_ID,
-        projectId: PROJECT_ID,
+        folderId: PROJECT_ID,
         title: "Root test thread",
         modelSelection: {
           provider: "codex",
@@ -144,7 +146,7 @@ function buildFixture(): TestFixture {
     welcome: {
       cwd: "/repo/project",
       projectName: "Project",
-      bootstrapProjectId: PROJECT_ID,
+      bootstrapFolderId: PROJECT_ID,
       bootstrapThreadId: THREAD_ID,
     },
   };
@@ -416,7 +418,7 @@ describe("EventRouter scoped orchestration sync", () => {
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: {},
+      projectDraftThreadIdByFolderId: {},
     });
     useStore.setState({ ...initialState });
     useWorkspacePathsStore.setState({
@@ -1470,13 +1472,13 @@ describe("EventRouter scoped orchestration sync", () => {
       draftsByThreadId: {},
       draftThreadsByThreadId: {
         [draftThreadId]: {
-          projectId: PROJECT_ID,
+          folderId: PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
         },
       },
-      projectDraftThreadIdByProjectId: {
+      projectDraftThreadIdByFolderId: {
         [PROJECT_ID]: draftThreadId,
       },
     });

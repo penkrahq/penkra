@@ -7,7 +7,7 @@ import type { ProviderMentionReference, ProviderSkillReference } from "@penkra/c
 import { isThreadMentionPath, threadIdFromThreadMentionPath } from "@penkra/shared/threadMentions";
 
 export function skillMentionPrefix(provider: string): string {
-  return provider === "pi" ? "/skill:" : "/";
+  return "/";
 }
 
 // The alternation must be unambiguous — a backslash may only match the escape
@@ -79,8 +79,7 @@ export function promptIncludesSkillMention(
   provider: string,
 ): boolean {
   const escapedSkillName = escapeRegExp(skillName);
-  const prefixes =
-    provider === "pi" ? [skillMentionPrefix(provider)] : [skillMentionPrefix(provider), "$"];
+  const prefixes = [skillMentionPrefix(provider), "$"];
   return prefixes.some((prefix) => {
     const pattern = new RegExp(`(^|\\s)${escapeRegExp(prefix)}${escapedSkillName}(?=\\s|$)`, "i");
     return pattern.test(prompt);

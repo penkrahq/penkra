@@ -18,6 +18,10 @@ import {
   ProviderConnectionRepository,
   type ProviderConnectionRecord,
 } from "../persistence/Services/ProviderConnections";
+import {
+  ConnectionUsageFactRepository,
+  type ConnectionRateLimitFactRecord,
+} from "../persistence/Services/ConnectionUsageFacts";
 import { buildProviderChildEnvironment, type ProviderChildKind } from "../providerChildEnvironment";
 import {
   providerConnectionProfileRoot,
@@ -31,6 +35,7 @@ import {
 import { loadLocalProviderUsageLines } from "../providerUsageSnapshot";
 import { errorSnapshot, unsupportedSnapshot } from "./parse";
 import { PROVIDER_USAGE_FETCHERS } from "./registry";
+import { snapshotFromConnectionRateLimitFact } from "./runtimeFacts";
 import type { ProviderUsageContext } from "./types";
 
 // Providers whose live snapshot is enriched with on-disk token-total lines (24h/7d/30d).
@@ -135,6 +140,23 @@ async function fetchConnectionUsage(input: {
     );
   }
 
+  // Managed Codex credentials are provider-owned and may live in the OS keychain.
+  // The legacy fetcher can only inspect auth.json, so absence there is not evidence
+  // that this already-verified Connection needs to reconnect. Login/runtime events
+  // hydrate provider-owned rate-limit facts; until then the honest state is pending.
+  if (input.connection.harness === "codex") {
+    return {
+      provider: "codex",
+      connectionId: input.connection.id,
+      updatedAt: new Date(input.base.nowMs).toISOString(),
+      limits: [],
+      usageLines: [],
+      source: "provider-runtime-awaiting-rate-limits",
+      status: "ok",
+      detail: "Usage hasn’t been reported for this account yet.",
+    };
+  }
+
   const context = buildManagedConnectionContext(input);
   const fetcher = PROVIDER_USAGE_FETCHERS[input.connection.harness];
   if (!context || !fetcher) {
@@ -210,16 +232,20 @@ export async function collectProviderConnectionUsageSnapshots(input: {
   stateDir: string;
   ctx: ProviderUsageContext;
   forceRefresh?: boolean;
+  rateLimitFacts?: ReadonlyMap<ProviderConnectionId, ConnectionRateLimitFactRecord>;
 }): Promise<ServerProviderUsageSnapshot[]> {
   return Promise.all(
-    input.connections.map((connection) =>
-      cachedConnectionUsage({
+    input.connections.map((connection) => {
+      const fact = input.rateLimitFacts?.get(connection.id);
+      const runtimeSnapshot = fact ? snapshotFromConnectionRateLimitFact(fact) : null;
+      if (runtimeSnapshot) return Promise.resolve(runtimeSnapshot);
+      return cachedConnectionUsage({
         connection,
         stateDir: input.stateDir,
         base: input.ctx,
         forceRefresh: input.forceRefresh === true,
-      }),
-    ),
+      });
+    }),
   );
 }
 
@@ -293,6 +319,7 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
   const serverConfig = yield* ServerConfig;
   if (input.connectionIds !== undefined) {
     const connections = yield* ProviderConnectionRepository;
+    const usageFacts = yield* ConnectionUsageFactRepository;
     const uniqueConnectionIds = [...new Set(input.connectionIds)];
     const records = yield* Effect.forEach(uniqueConnectionIds, (connectionId) =>
       connections.getRecord(connectionId).pipe(Effect.map(Option.getOrNull)),
@@ -303,6 +330,17 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
         record.lifecycle === "active" &&
         (input.provider === undefined || record.harness === input.provider),
     );
+    const facts = yield* Effect.forEach(activeRecords, (record) =>
+      usageFacts
+        .getRateLimits(record.id)
+        .pipe(Effect.map((fact) => [record.id, Option.getOrNull(fact)] as const)),
+    );
+    const rateLimitFacts = new Map(
+      facts.filter(
+        (entry): entry is readonly [ProviderConnectionId, ConnectionRateLimitFactRecord] =>
+          entry[1] !== null,
+      ),
+    );
     return yield* Effect.tryPromise({
       try: () =>
         collectProviderConnectionUsageSnapshots({
@@ -310,6 +348,7 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
           stateDir: serverConfig.stateDir,
           ctx: { ...buildContext(), homeDir: serverConfig.homeDir },
           forceRefresh: input.forceRefresh === true,
+          rateLimitFacts,
         }),
       catch: () => [] as unknown as ServerListProviderUsageResult,
     });

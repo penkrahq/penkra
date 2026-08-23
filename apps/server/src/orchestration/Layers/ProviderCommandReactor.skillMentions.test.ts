@@ -24,7 +24,7 @@ describe("normalizeSkillMentionTextForProvider", () => {
   it("leaves non-Codex slash skills untouched", () => {
     expect(
       normalizeSkillMentionTextForProvider({
-        provider: "cursor",
+        provider: "opencode",
         messageText: "Use /check-code please",
         skills: [{ name: "check-code", path: "/skills/check-code/SKILL.md" }],
       }),

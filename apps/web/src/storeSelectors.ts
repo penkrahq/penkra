@@ -2,7 +2,7 @@
 // Purpose: Stable Zustand selectors for entity lookups and lightweight sidebar projections.
 // Exports: Selector factories used by routes and sidebar-heavy components.
 
-import type { ContainerId, ThreadId } from "@penkra/contracts";
+import type { FolderId, ThreadId } from "@penkra/contracts";
 
 import type { AppState } from "./storeState";
 import { resolveThreadDisplayProvider } from "./lib/threadDisplayProvider";
@@ -49,9 +49,9 @@ function createStableEntitySelector<T extends { id: string }>(
 }
 
 export function createProjectSelector(
-  projectId: ContainerId | null | undefined,
+  folderId: FolderId | null | undefined,
 ): (state: AppState) => Project | undefined {
-  return createStableEntitySelector((state) => state.projects, projectId);
+  return createStableEntitySelector((state) => state.folders, folderId);
 }
 
 export function createThreadSelector(
@@ -139,14 +139,14 @@ export function createAllThreadsMessagelessSelector(): (state: AppState) => bool
   };
 }
 
-export function createThreadProjectIdSelector(
+export function createThreadFolderIdSelector(
   threadId: ThreadId | null | undefined,
-): (state: AppState) => ContainerId | null {
+): (state: AppState) => FolderId | null {
   return (state) => {
     if (!threadId) {
       return null;
     }
-    return state.threadShellById?.[threadId]?.projectId ?? null;
+    return state.threadShellById?.[threadId]?.folderId ?? null;
   };
 }
 
@@ -226,7 +226,7 @@ export function createComposerThreadMentionSourcesSelector(): (
         ? [
             {
               id: thread.id,
-              projectId: thread.projectId,
+              folderId: thread.folderId,
               title: thread.title,
               provider: resolveThreadDisplayProvider(thread),
               createdAt: thread.createdAt,
@@ -245,7 +245,7 @@ export function createComposerThreadMentionSourcesSelector(): (
         const previous = previousSources[index];
         return (
           source.id === previous?.id &&
-          source.projectId === previous.projectId &&
+          source.folderId === previous.folderId &&
           source.title === previous.title &&
           source.provider === previous.provider &&
           source.createdAt === previous.createdAt &&
@@ -307,16 +307,16 @@ export function createSidebarTreeThreadsSelector(): (
 }
 
 export function createFirstProjectSelector(): (state: AppState) => Project | undefined {
-  let previousProjects: readonly Project[] | undefined;
+  let previousFolders: readonly Project[] | undefined;
   let previousFirstProject: Project | undefined;
 
   return (state) => {
-    if (state.projects === previousProjects) {
+    if (state.folders === previousFolders) {
       return previousFirstProject;
     }
 
-    previousProjects = state.projects;
-    previousFirstProject = state.projects.find((project) => project.kind === "project");
+    previousFolders = state.folders;
+    previousFirstProject = state.folders[0];
     return previousFirstProject;
   };
 }

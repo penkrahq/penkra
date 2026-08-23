@@ -20,7 +20,7 @@ import {
   setThreadMarkerLabel,
 } from "@penkra/shared/threadMarkers";
 
-import { isSessionRunningTurn } from "./session-logic";
+import { isSessionRunningTurn, latestTurnMatchesTurnId } from "./session-logic";
 import {
   MAX_THREAD_MESSAGES,
   arraysShallowEqual,
@@ -236,8 +236,11 @@ function buildLatestTurn(params: {
   completedAt: string | null;
   assistantMessageId: NonNullable<Thread["latestTurn"]>["assistantMessageId"];
 }): NonNullable<Thread["latestTurn"]> {
+  const providerTurnId =
+    params.previous?.turnId === params.turnId ? params.previous.providerTurnId : undefined;
   return {
     turnId: params.turnId,
+    ...(providerTurnId !== undefined ? { providerTurnId } : {}),
     state: params.state,
     requestedAt: params.requestedAt,
     startedAt: params.startedAt,
@@ -252,23 +255,20 @@ function reconcileLatestTurnFromSession(
   error: string | null,
 ): Thread["latestTurn"] {
   if (isSessionRunningTurn(session)) {
+    const matchedLatestTurn = latestTurnMatchesTurnId(thread.latestTurn, session.activeTurnId)
+      ? thread.latestTurn
+      : null;
     return buildLatestTurn({
       previous: thread.latestTurn,
-      turnId: session.activeTurnId,
+      turnId: matchedLatestTurn?.turnId ?? session.activeTurnId,
       state: "running",
-      requestedAt:
-        thread.latestTurn?.turnId === session.activeTurnId
-          ? thread.latestTurn.requestedAt
-          : session.updatedAt,
+      requestedAt: matchedLatestTurn?.requestedAt ?? session.updatedAt,
       startedAt:
-        thread.latestTurn?.turnId === session.activeTurnId
-          ? (thread.latestTurn.startedAt ?? session.updatedAt)
+        matchedLatestTurn !== null
+          ? (matchedLatestTurn.startedAt ?? session.updatedAt)
           : session.updatedAt,
       completedAt: null,
-      assistantMessageId:
-        thread.latestTurn?.turnId === session.activeTurnId
-          ? thread.latestTurn.assistantMessageId
-          : null,
+      assistantMessageId: matchedLatestTurn?.assistantMessageId ?? null,
     });
   }
 
@@ -454,12 +454,12 @@ function applyThreadMessageSentEvent(thread: Thread, event: ThreadMessageSentEve
   if (
     payload.role === "assistant" &&
     payload.turnId !== null &&
-    (thread.latestTurn === null || thread.latestTurn.turnId === payload.turnId)
+    (thread.latestTurn === null || latestTurnMatchesTurnId(thread.latestTurn, payload.turnId))
   ) {
     const previousTurn = thread.latestTurn;
     latestTurn = buildLatestTurn({
       previous: previousTurn,
-      turnId: payload.turnId,
+      turnId: previousTurn?.turnId ?? payload.turnId,
       state: payload.streaming
         ? "running"
         : previousTurn?.state === "interrupted"
@@ -508,9 +508,9 @@ function applyOrchestrationEvent(
         updatedAt: event.payload.updatedAt,
       });
 
-    case "space.meta-updated": {
+    case "space.updated": {
       const existing = state.spaces.find((space) => space.id === event.payload.spaceId);
-      return existing
+      const updatedState = existing
         ? upsertSpace(state, {
             ...existing,
             name: event.payload.name ?? existing.name,
@@ -518,10 +518,10 @@ function applyOrchestrationEvent(
             updatedAt: event.payload.updatedAt,
           })
         : state;
+      return event.payload.orderedSpaceIds === undefined
+        ? updatedState
+        : applySpaceOrder(updatedState, event.payload.orderedSpaceIds, event.payload.updatedAt);
     }
-
-    case "space.order-updated":
-      return applySpaceOrder(state, event.payload.orderedSpaceIds, event.payload.updatedAt);
 
     case "space.archived":
       return removeSpace(state, event.payload.spaceId, event.payload.archivedAt, true);
@@ -533,28 +533,27 @@ function applyOrchestrationEvent(
     case "space.deleted":
       return removeSpace(state, event.payload.spaceId, event.payload.deletedAt);
 
-    case "project.created":
+    case "folder.created":
       return upsertProject(
         state,
         {
-          id: event.payload.projectId,
-          kind: event.payload.kind,
+          id: event.payload.folderId,
           title: event.payload.title,
           workspaceRoot: event.payload.workspaceRoot,
           defaultModelSelection: event.payload.defaultModelSelection,
           scripts: event.payload.scripts,
           iconDataUrl: event.payload.iconDataUrl ?? null,
           isPinned: event.payload.isPinned ?? false,
-          spaceId: event.payload.spaceId ?? null,
+          spaceId: event.payload.spaceId,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
         },
         "id-only",
       );
 
-    case "project.meta-updated": {
-      const existingProject = state.projects.find(
-        (project) => project.id === event.payload.projectId,
+    case "folder.updated": {
+      const existingProject = state.folders.find(
+        (project) => project.id === event.payload.folderId,
       );
       if (!existingProject) {
         return state;
@@ -563,7 +562,6 @@ function applyOrchestrationEvent(
         state,
         {
           id: existingProject.id,
-          kind: event.payload.kind ?? existingProject.kind,
           title: event.payload.title ?? existingProject.remoteName,
           workspaceRoot:
             event.payload.workspaceRoot !== undefined
@@ -579,10 +577,7 @@ function applyOrchestrationEvent(
               ? event.payload.iconDataUrl
               : existingProject.iconDataUrl,
           isPinned: event.payload.isPinned ?? existingProject.isPinned ?? false,
-          spaceId:
-            event.payload.spaceId !== undefined
-              ? event.payload.spaceId
-              : (existingProject.spaceId ?? null),
+          spaceId: existingProject.spaceId,
           createdAt: existingProject.createdAt ?? event.payload.updatedAt,
           updatedAt: event.payload.updatedAt,
         },
@@ -590,15 +585,39 @@ function applyOrchestrationEvent(
       );
     }
 
-    case "project.deleted": {
-      return removeDeletedProjectFromClientState(state, event.payload.projectId, event.sequence);
+    case "folder.moved": {
+      const existingFolder = state.folders.find((folder) => folder.id === event.payload.folderId);
+      return existingFolder
+        ? upsertProject(
+            state,
+            {
+              id: existingFolder.id,
+              title: existingFolder.remoteName,
+              workspaceRoot: existingFolder.cwd || null,
+              defaultModelSelection: existingFolder.defaultModelSelection,
+              scripts: existingFolder.scripts,
+              iconDataUrl: existingFolder.iconDataUrl,
+              isPinned: existingFolder.isPinned ?? false,
+              spaceId: event.payload.spaceId,
+              sidebarSortOrder: existingFolder.sidebarSortOrder,
+              createdAt: existingFolder.createdAt ?? event.payload.updatedAt,
+              updatedAt: event.payload.updatedAt,
+              archivedAt: existingFolder.archivedAt ?? null,
+            },
+            "id-only",
+          )
+        : state;
+    }
+
+    case "folder.deleted": {
+      return removeDeletedProjectFromClientState(state, event.payload.folderId, event.sequence);
     }
 
     case "thread.deleted":
       // Deletion is terminal for both active sidebar rows and archived settings rows.
       return removeDeletedThreadFromClientState(state, event.payload.threadId, event.sequence);
 
-    case "thread.meta-updated":
+    case "thread.updated":
       return applyThreadUpdate(
         state,
         event.payload.threadId,
@@ -618,7 +637,6 @@ function applyOrchestrationEvent(
           const cwdChanged = (thread.workingDirectory ?? null) !== nextWorkingDirectory;
 
           if (
-            (event.payload.spaceId === undefined || event.payload.spaceId === thread.spaceId) &&
             (event.payload.title === undefined || event.payload.title === thread.title) &&
             modelSelection === thread.modelSelection &&
             nextWorkingDirectory === (thread.workingDirectory ?? null) &&
@@ -644,7 +662,6 @@ function applyOrchestrationEvent(
 
           return {
             ...thread,
-            ...(event.payload.spaceId !== undefined ? { spaceId: event.payload.spaceId } : {}),
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
             modelSelection,
             workingDirectory: nextWorkingDirectory,

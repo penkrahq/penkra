@@ -8,14 +8,13 @@ import { describe, expect, it } from "vitest";
 import { providerModelDiscoveryInvalidationFingerprint } from "./providerDiscoveryInvalidation";
 
 const BASE_PROVIDER_STATUS = {
-  provider: "cursor",
+  provider: "opencode",
   status: "ready",
   available: true,
   authStatus: "unknown",
   version: "2026.06.04-8f81907",
   checkedAt: "2026-06-04T10:00:00.000Z",
-  message:
-    "Cursor Agent CLI is installed. Sign in with Cursor if a session prompts for authentication.",
+  message: "OpenCode is installed and ready.",
   versionAdvisory: {
     status: "current",
     currentVersion: "2026.06.04-8f81907",

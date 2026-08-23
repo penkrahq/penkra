@@ -2,21 +2,22 @@
 // Purpose: Verifies desktop startup detects snapshots where threads outlive visible project rows.
 
 import {
-  ContainerId,
+  FolderId,
+  SpaceId,
   ThreadId,
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
 } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
-import { hasLiveThreadsWithMissingProjects } from "./desktopProjectRecovery";
+import { hasLiveThreadsWithMissingFolders } from "./desktopProjectRecovery";
 
 function makeProject(
-  overrides: Partial<OrchestrationReadModel["projects"][number]> = {},
-): OrchestrationReadModel["projects"][number] {
+  overrides: Partial<OrchestrationReadModel["folders"][number]> = {},
+): OrchestrationReadModel["folders"][number] {
   return {
-    id: ContainerId.makeUnsafe("project-1"),
-    kind: "project",
+    id: FolderId.makeUnsafe("project-1"),
+    spaceId: SpaceId.makeUnsafe("space-test"),
     title: "Project",
     workspaceRoot: "/tmp/project",
     defaultModelSelection: {
@@ -36,7 +37,7 @@ function makeThread(
 ): OrchestrationReadModel["threads"][number] {
   return {
     id: ThreadId.makeUnsafe("thread-1"),
-    projectId: ContainerId.makeUnsafe("project-1"),
+    folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
       provider: "codex",
@@ -68,7 +69,7 @@ function makeSnapshot(overrides: Partial<OrchestrationReadModel> = {}): Orchestr
     snapshotSequence: 1,
     spaces: [],
     updatedAt: "2026-04-20T08:00:00.000Z",
-    projects: [makeProject()],
+    folders: [makeProject()],
     threads: [makeThread()],
     ...overrides,
   };
@@ -83,10 +84,10 @@ function makeShellSnapshot(
     snapshotSequence: 1,
     spaces: [],
     updatedAt: "2026-04-20T08:00:00.000Z",
-    projects: [
+    folders: [
       {
         id: project.id,
-        kind: project.kind,
+        spaceId: project.spaceId,
         title: project.title,
         workspaceRoot: project.workspaceRoot,
         defaultModelSelection: project.defaultModelSelection,
@@ -98,7 +99,7 @@ function makeShellSnapshot(
     threads: [
       {
         id: thread.id,
-        projectId: thread.projectId,
+        folderId: thread.folderId,
         title: thread.title,
         modelSelection: thread.modelSelection,
         runtimeMode: thread.runtimeMode,
@@ -125,36 +126,36 @@ describe("desktopProjectRecovery", () => {
   it("returns false when live threads still have live project rows", () => {
     const snapshot = makeSnapshot();
 
-    expect(hasLiveThreadsWithMissingProjects(snapshot)).toBe(false);
+    expect(hasLiveThreadsWithMissingFolders(snapshot)).toBe(false);
   });
 
   it("returns true when a live thread references a missing project row", () => {
     const snapshot = makeSnapshot({
-      projects: [],
+      folders: [],
     });
 
-    expect(hasLiveThreadsWithMissingProjects(snapshot)).toBe(true);
+    expect(hasLiveThreadsWithMissingFolders(snapshot)).toBe(true);
   });
 
   it("returns true when a live thread references a deleted project row", () => {
     const snapshot = makeSnapshot({
-      projects: [makeProject({ deletedAt: "2026-04-20T09:00:00.000Z" })],
+      folders: [makeProject({ deletedAt: "2026-04-20T09:00:00.000Z" })],
     });
 
-    expect(hasLiveThreadsWithMissingProjects(snapshot)).toBe(true);
+    expect(hasLiveThreadsWithMissingFolders(snapshot)).toBe(true);
   });
 
   it("ignores deleted threads when deciding whether repair is needed", () => {
     const snapshot = makeSnapshot({
-      projects: [],
+      folders: [],
       threads: [makeThread({ deletedAt: "2026-04-20T09:00:00.000Z" })],
     });
 
-    expect(hasLiveThreadsWithMissingProjects(snapshot)).toBe(false);
+    expect(hasLiveThreadsWithMissingFolders(snapshot)).toBe(false);
   });
 
   it("accepts shell snapshots that do not carry deleted markers", () => {
-    expect(hasLiveThreadsWithMissingProjects(makeShellSnapshot())).toBe(false);
-    expect(hasLiveThreadsWithMissingProjects(makeShellSnapshot({ projects: [] }))).toBe(true);
+    expect(hasLiveThreadsWithMissingFolders(makeShellSnapshot())).toBe(false);
+    expect(hasLiveThreadsWithMissingFolders(makeShellSnapshot({ folders: [] }))).toBe(true);
   });
 });

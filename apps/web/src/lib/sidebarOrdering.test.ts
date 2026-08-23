@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { resolveSidebarInsertionIndex, resolveSidebarMovePosition } from "./sidebarOrdering";
 
-const project = (id: string): SidebarItemReference => ({ kind: "project", id: id as never });
+const project = (id: string): SidebarItemReference => ({ kind: "folder", id: id as never });
 
 describe("resolveSidebarMovePosition", () => {
   const pinnedIds = new Set(["pin-a", "pin-b"]);

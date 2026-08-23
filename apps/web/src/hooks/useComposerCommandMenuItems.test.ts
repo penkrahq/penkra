@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import { SpaceId } from "@penkra/contracts";
 import type { ComposerThreadMentionSource, Project } from "../types";
 import { buildThreadMentionComposerItems } from "./useComposerCommandMenuItems";
 
-function project(id: string, kind: Project["kind"], name: string): Project {
+function project(id: string, name: string): Project {
   return {
     id,
-    kind,
+    spaceId: SpaceId.makeUnsafe("space-test"),
     name,
     remoteName: name,
     folderName: name,
@@ -20,7 +21,7 @@ function project(id: string, kind: Project["kind"], name: string): Project {
 
 function thread(input: {
   id: string;
-  projectId: string;
+  folderId: string;
   title: string;
   provider?: "codex" | "claudeAgent";
   updatedAt?: string;
@@ -28,7 +29,7 @@ function thread(input: {
 }): ComposerThreadMentionSource {
   return {
     id: input.id,
-    projectId: input.projectId,
+    folderId: input.folderId,
     title: input.title,
     provider: input.provider ?? "codex",
     createdAt: input.updatedAt ?? "2026-01-01T00:00:00.000Z",
@@ -39,28 +40,28 @@ function thread(input: {
 }
 
 describe("buildThreadMentionComposerItems", () => {
-  const projects = [
-    project("project", "project", "Penkra"),
-    project("chats", "chat", "Home"),
-    project("artwork", "project", "Artwork"),
+  const folders = [
+    project("folder", "Penkra"),
+    project("chats", "Chats"),
+    project("artwork", "Artwork"),
   ];
 
   it("searches titles across project and chat sections and excludes the current thread", () => {
     const items = buildThreadMentionComposerItems({
-      projects,
+      folders,
       currentThreadId: "current",
       query: "release",
       threads: [
-        thread({ id: "current", projectId: "project", title: "Release current" }),
-        thread({ id: "project-thread", projectId: "project", title: "Release Penkra" }),
-        thread({ id: "chat-thread", projectId: "chats", title: "Release notes" }),
+        thread({ id: "current", folderId: "folder", title: "Release current" }),
+        thread({ id: "project-thread", folderId: "folder", title: "Release Penkra" }),
+        thread({ id: "chat-thread", folderId: "chats", title: "Release notes" }),
         thread({
           id: "artwork-thread",
-          projectId: "artwork",
+          folderId: "artwork",
           title: "Release artwork",
           provider: "claudeAgent",
         }),
-        thread({ id: "unrelated", projectId: "project", title: "Bug triage" }),
+        thread({ id: "unrelated", folderId: "folder", title: "Bug triage" }),
       ],
     });
 
@@ -84,14 +85,14 @@ describe("buildThreadMentionComposerItems", () => {
     const threads = Array.from({ length: 24 }, (_, index) =>
       thread({
         id: `thread-${index}`,
-        projectId: "project",
+        folderId: "folder",
         title: index === 23 ? "" : `Thread ${index}`,
         updatedAt: `2026-01-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
         archivedAt: index === 22 ? "2026-02-01T00:00:00.000Z" : null,
       }),
     );
     const items = buildThreadMentionComposerItems({
-      projects,
+      folders,
       currentThreadId: null,
       query: "",
       threads,
@@ -105,10 +106,10 @@ describe("buildThreadMentionComposerItems", () => {
 
   it("caps query-filtered results to the suggestion limit", () => {
     const threads = Array.from({ length: 30 }, (_, index) =>
-      thread({ id: `thread-${index}`, projectId: "project", title: `Release ${index}` }),
+      thread({ id: `thread-${index}`, folderId: "folder", title: `Release ${index}` }),
     );
     const items = buildThreadMentionComposerItems({
-      projects,
+      folders,
       currentThreadId: null,
       query: "release",
       threads,
@@ -119,13 +120,13 @@ describe("buildThreadMentionComposerItems", () => {
 
   it("disambiguates duplicate titles with the project name so mention tokens stay unique", () => {
     const items = buildThreadMentionComposerItems({
-      projects,
+      folders,
       currentThreadId: null,
       query: "planning",
       threads: [
-        thread({ id: "in-project", projectId: "project", title: "Planning" }),
-        thread({ id: "in-chats", projectId: "chats", title: "Planning" }),
-        thread({ id: "unique", projectId: "project", title: "Planning extras" }),
+        thread({ id: "in-project", folderId: "folder", title: "Planning" }),
+        thread({ id: "in-chats", folderId: "chats", title: "Planning" }),
+        thread({ id: "unique", folderId: "folder", title: "Planning extras" }),
       ],
     });
 
@@ -140,12 +141,12 @@ describe("buildThreadMentionComposerItems", () => {
 
   it("falls back to a thread-id suffix for duplicate titles inside the same project", () => {
     const items = buildThreadMentionComposerItems({
-      projects,
+      folders,
       currentThreadId: null,
       query: "planning",
       threads: [
-        thread({ id: "thread-aaa111", projectId: "project", title: "Planning" }),
-        thread({ id: "thread-bbb222", projectId: "project", title: "Planning" }),
+        thread({ id: "thread-aaa111", folderId: "folder", title: "Planning" }),
+        thread({ id: "thread-bbb222", folderId: "folder", title: "Planning" }),
       ],
     });
 
@@ -155,15 +156,15 @@ describe("buildThreadMentionComposerItems", () => {
 
   it("keeps generated names unique when a qualified name matches another real title", () => {
     const items = buildThreadMentionComposerItems({
-      projects,
+      folders,
       currentThreadId: null,
       query: "planning",
       threads: [
-        thread({ id: "thread-111111", projectId: "project", title: "Planning" }),
-        thread({ id: "thread-222222", projectId: "chats", title: "Planning" }),
+        thread({ id: "thread-111111", folderId: "folder", title: "Planning" }),
+        thread({ id: "thread-222222", folderId: "chats", title: "Planning" }),
         thread({
           id: "thread-333333",
-          projectId: "project",
+          folderId: "folder",
           title: "Planning (Penkra)",
         }),
       ],
@@ -177,12 +178,12 @@ describe("buildThreadMentionComposerItems", () => {
 
   it("treats casing-only title differences as the same mention token", () => {
     const items = buildThreadMentionComposerItems({
-      projects,
+      folders,
       currentThreadId: null,
       query: "release",
       threads: [
-        thread({ id: "thread-aaaaaa", projectId: "project", title: "Release" }),
-        thread({ id: "thread-bbbbbb", projectId: "project", title: "release" }),
+        thread({ id: "thread-aaaaaa", folderId: "folder", title: "Release" }),
+        thread({ id: "thread-bbbbbb", folderId: "folder", title: "release" }),
       ],
     });
 

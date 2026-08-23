@@ -22,7 +22,7 @@ function derive(currentSession: OrchestrationSession | null) {
   return deriveTurnStartSession({
     threadId: THREAD_ID,
     currentSession,
-    providerName: "pi",
+    providerName: "opencode",
     requestedRuntimeMode: "full-access",
     requestedAt: REQUESTED_AT,
   });
@@ -33,7 +33,7 @@ describe("deriveTurnStartSession", () => {
     expect(
       deriveTurnStartModelSelection({
         currentModelSelection: { provider: "codex", model: "gpt-5-codex" },
-        requestedModelSelection: { provider: "pi", model: "openai/gpt-5" },
+        requestedModelSelection: { provider: "opencode", model: "openai/gpt-5" },
         canAdoptRequestedProvider: false,
       }),
     ).toEqual({ provider: "codex", model: "gpt-5-codex" });
@@ -43,17 +43,17 @@ describe("deriveTurnStartSession", () => {
     expect(
       deriveTurnStartModelSelection({
         currentModelSelection: { provider: "codex", model: "gpt-5-codex" },
-        requestedModelSelection: { provider: "pi", model: "openai/gpt-5" },
+        requestedModelSelection: { provider: "opencode", model: "openai/gpt-5" },
         canAdoptRequestedProvider: true,
       }),
-    ).toEqual({ provider: "pi", model: "openai/gpt-5" });
+    ).toEqual({ provider: "opencode", model: "openai/gpt-5" });
   });
 
   it("creates a starting session when no session exists", () => {
     expect(derive(null)).toEqual({
       threadId: THREAD_ID,
       status: "starting",
-      providerName: "pi",
+      providerName: "opencode",
       runtimeMode: "full-access",
       activeTurnId: null,
       lastError: null,

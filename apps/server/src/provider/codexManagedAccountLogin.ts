@@ -14,6 +14,7 @@ export interface CodexManagedAccountSnapshot {
   readonly type: "chatgpt";
   readonly email: string | null;
   readonly planType: string | null;
+  readonly rateLimitsSnapshot: unknown | null;
 }
 
 export interface CodexManagedLoginHandle {
@@ -81,6 +82,15 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+async function readRateLimits(request: (method: string, params: unknown) => Promise<unknown>) {
+  try {
+    return await request("account/rateLimits/read", {});
+  } catch {
+    // Usage hydration must never turn an otherwise verified login into a failed login.
+    return null;
+  }
+}
+
 export async function readCodexManagedAccount(
   input: CodexManagedLoginProcessFactoryInput,
   processFactory: CodexManagedLoginProcessFactory = defaultProcessFactory,
@@ -139,6 +149,7 @@ export async function readCodexManagedAccount(
       type: "chatgpt",
       email: optionalString(account.email),
       planType: optionalString(account.planType),
+      rateLimitsSnapshot: await readRateLimits(request),
     };
   } finally {
     writer.close();
@@ -191,11 +202,13 @@ export async function startCodexManagedAccountLogin(
           record(await request("account/read", { refreshToken: false }))?.account,
         );
         if (account?.type === "chatgpt") {
+          const rateLimitsSnapshot = await readRateLimits(request);
           settled = true;
           resolveCompletion({
             type: "chatgpt",
             email: optionalString(account.email),
             planType: optionalString(account.planType),
+            rateLimitsSnapshot,
           });
           return;
         }

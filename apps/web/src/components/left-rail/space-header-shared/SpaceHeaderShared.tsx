@@ -4,6 +4,7 @@ import { ChevronDownIcon, ChevronRightIcon, NewFolderIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 
 import { LeftRailRow } from "../row-shared/LeftRailRow";
+import { WorkStatusShared, type WorkStatus } from "../work-status-shared/WorkStatusShared";
 
 export interface SpaceHeaderSharedProps extends Omit<
   ComponentProps<typeof LeftRailRow>,
@@ -12,6 +13,7 @@ export interface SpaceHeaderSharedProps extends Omit<
   actionLabel?: string;
   expanded?: boolean;
   onAction?: (event: MouseEvent<HTMLButtonElement>) => void;
+  workStatus?: WorkStatus;
 }
 
 export function SpaceHeaderShared({
@@ -20,10 +22,12 @@ export function SpaceHeaderShared({
   expanded = true,
   onAction,
   state = "default",
+  workStatus = "idle",
   ...props
 }: SpaceHeaderSharedProps) {
   const Chevron = expanded ? ChevronDownIcon : ChevronRightIcon;
   const showAffordances = state === "hover" || state === "focus";
+  const showAggregateStatus = !expanded && workStatus !== "idle";
   const label = typeof children === "string" ? children : "this space";
 
   return (
@@ -42,8 +46,10 @@ export function SpaceHeaderShared({
           "group-hover/space-header:mr-3 group-hover/space-header:w-3.5 group-hover/space-header:opacity-100",
           showAffordances && "mr-3 w-3.5 opacity-100",
         )}
+        data-work-status={workStatus}
         {...props}
         state={state}
+        trailing={showAggregateStatus ? <WorkStatusShared status={workStatus} /> : null}
       >
         <span
           className={cn(

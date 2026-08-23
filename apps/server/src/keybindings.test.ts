@@ -423,6 +423,41 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
+  it.effect("migrates legacy Cursor thread keybindings to OpenCode", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const { keybindingsConfigPath } = yield* ServerConfig;
+      yield* fs.writeFileString(
+        keybindingsConfigPath,
+        JSON.stringify([{ key: "mod+alt+r", command: "chat.newCursor" }]),
+      );
+
+      const configState = yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        return yield* keybindings.loadConfigState;
+      });
+
+      assert.deepEqual(configState.issues, []);
+      assert.isTrue(
+        configState.keybindings.some(
+          (entry) => entry.command === "chat.newOpenCode" && entry.shortcut.key === "r",
+        ),
+      );
+
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(
+        persisted.some(
+          (entry) => entry.key === "mod+alt+r" && entry.command === "chat.newOpenCode",
+        ),
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
   it.effect("migrates old recent-view defaults to work with terminal focus", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig;

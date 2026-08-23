@@ -12,6 +12,78 @@ import SpacesMigration from "./Migrations/079_Spaces.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
+layer("removed provider data migration", (it) => {
+  it.effect("deletes removed-provider threads and connections while retaining live providers", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 147 });
+      const now = "2026-08-22T00:00:00.000Z";
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, kind, title, workspace_root, default_model_selection_json,
+          scripts_json, created_at, updated_at
+        ) VALUES (
+          'folder-removed-default', 'folder', 'Folder', NULL,
+          '{"provider":"cursor","model":"auto"}', '[]', ${now}, ${now}
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, title, model_selection_json, runtime_mode, created_at, updated_at
+        ) VALUES
+          ('thread-removed', 'folder-removed-default', 'Removed',
+           '{"provider":"grok","model":"grok-build"}', 'full-access', ${now}, ${now}),
+          ('thread-live', 'folder-removed-default', 'Live',
+           '{"provider":"opencode","model":"openai/gpt-5"}', 'full-access', ${now}, ${now})
+      `;
+      yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id, thread_id, role, text, is_streaming, applied_len, source, created_at, updated_at
+        ) VALUES
+          ('message-removed', 'thread-removed', 'user', 'remove me', 0, 9, 'user', ${now}, ${now}),
+          ('message-live', 'thread-live', 'user', 'keep me', 0, 7, 'user', ${now}, ${now})
+      `;
+      yield* sql`
+        INSERT INTO provider_connections (
+          connection_id, harness_kind, authentication_target_id, authentication_method_id,
+          label, credential_ref, created_at, updated_at
+        ) VALUES
+          ('connection-removed', 'kilo', 'kilo', 'password', 'Kilo', 'secret:kilo', ${now}, ${now}),
+          ('connection-live', 'codex', 'openai-first-party', 'chatgpt', 'ChatGPT',
+           'secret:codex', ${now}, ${now})
+      `;
+
+      const executed = yield* runMigrations();
+      assert.deepStrictEqual(executed, [
+        [148, "RemoveUnshippedProviders"],
+        [149, "FolderOnlyHierarchy"],
+      ]);
+
+      const threads = yield* sql<{ readonly threadId: string }>`
+        SELECT thread_id AS "threadId" FROM projection_threads ORDER BY thread_id
+      `;
+      assert.deepStrictEqual(threads, [{ threadId: "thread-live" }]);
+      const messages = yield* sql<{ readonly messageId: string }>`
+        SELECT message_id AS "messageId" FROM projection_thread_messages ORDER BY message_id
+      `;
+      assert.deepStrictEqual(messages, [{ messageId: "message-live" }]);
+      const connections = yield* sql<{ readonly connectionId: string }>`
+        SELECT connection_id AS "connectionId" FROM provider_connections ORDER BY connection_id
+      `;
+      assert.deepStrictEqual(connections, [{ connectionId: "connection-live" }]);
+      const folders = yield* sql<{ readonly selection: string }>`
+        SELECT default_model_selection_json AS selection FROM projection_projects
+        WHERE project_id = 'folder-removed-default'
+      `;
+      assert.deepStrictEqual(JSON.parse(folders[0]!.selection), {
+        provider: "codex",
+        model: "gpt-5.5",
+      });
+    }),
+  );
+});
+
 layer("provider credential profile generation migration", (it) => {
   it.effect("preserves released profile addresses and inventories unfinished profiles", () =>
     Effect.gen(function* () {
@@ -549,7 +621,7 @@ const agentGatewayRetentionLegacyLayer = it.layer(Layer.mergeAll(NodeSqliteClien
 agentGatewayRetentionLegacyLayer(
   "agent gateway retention migration after legacy migration 71",
   (it) => {
-    it.effect("adds caller purge tracking without losing legacy operation rows", () =>
+    it.effect("removes legacy agent gateway operation rows", () =>
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
         yield* runMigrations({ toMigrationInclusive: 69 });
@@ -640,37 +712,11 @@ agentGatewayRetentionLegacyLayer(
           [121, "FolderIcons"],
         ]);
 
-        const columns = yield* sql<{ readonly name: string }>`
-        SELECT name FROM pragma_table_info('agent_gateway_operations')
-      `;
-        assert.include(
-          columns.map(({ name }) => name),
-          "caller_purged_at",
-        );
-        const rows = yield* sql<{
-          readonly operationId: string;
-          readonly callerThreadId: string;
-          readonly callerTurnId: string;
-          readonly planJson: string;
-          readonly status: string;
-          readonly callerPurgedAt: string | null;
-        }>`
-        SELECT
-          operation_id AS "operationId", caller_thread_id AS "callerThreadId",
-          caller_turn_id AS "callerTurnId", plan_json AS "planJson", status,
-          caller_purged_at AS "callerPurgedAt"
-        FROM agent_gateway_operations
-      `;
-        assert.deepStrictEqual(rows, [
-          {
-            operationId: "legacy-operation",
-            callerThreadId: "legacy-thread",
-            callerTurnId: "legacy-turn",
-            planJson: '[{"legacy":true}]',
-            status: "dispatching",
-            callerPurgedAt: null,
-          },
-        ]);
+        const tables = yield* sql<{ readonly name: string }>`
+          SELECT name FROM sqlite_master
+          WHERE type = 'table' AND name = 'agent_gateway_operations'
+        `;
+        assert.deepStrictEqual(tables, []);
       }),
     );
   },
@@ -823,16 +869,9 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
       `;
       assert.deepStrictEqual(
         tables.map((row) => row.name),
-        ["agent_gateway_operations", "operational_diagnostics", "projection_spaces"],
+        ["operational_diagnostics", "projection_spaces"],
       );
       assert.include(yield* projectionThreadsColumnNames(sql), "gateway_operation_id");
-      const gatewayColumns = yield* sql<{ readonly name: string }>`
-        SELECT name FROM pragma_table_info('agent_gateway_operations')
-      `;
-      assert.include(
-        gatewayColumns.map((row) => row.name),
-        "caller_purged_at",
-      );
     }),
   );
 
@@ -979,19 +1018,19 @@ penkraMigrationCompatibilityLayer("Penkra migration compatibility", (it) => {
       yield* runMigrations();
 
       const pins = yield* sql<{
-        readonly projectId: string;
+        readonly folderId: string;
         readonly repositoryKey: string;
         readonly pullRequestNumber: number;
       }>`
         SELECT
-          project_id AS "projectId",
+          project_id AS "folderId",
           repository_key AS "repositoryKey",
           pull_request_number AS "pullRequestNumber"
         FROM project_pull_request_pins
       `;
       assert.deepStrictEqual(pins, [
         {
-          projectId: "project-penkra",
+          folderId: "project-penkra",
           repositoryKey: "penkrahq/penkra-console",
           pullRequestNumber: 42,
         },

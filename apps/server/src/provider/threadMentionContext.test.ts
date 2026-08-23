@@ -15,7 +15,7 @@ import {
 function thread(messages: ReadonlyArray<{ role: "user" | "assistant"; text: string }>) {
   return {
     id: "mentioned-thread",
-    projectId: "project-1",
+    folderId: "project-1",
     title: "Release planning",
     modelSelection: { provider: "codex", model: "gpt-test" },
     messages: messages.map((message, index) => ({

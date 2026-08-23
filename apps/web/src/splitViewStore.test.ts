@@ -2,7 +2,7 @@
 // Purpose: Verify tree-aware split view state operations: drop creation, perpendicular subdivision,
 // pane focus/ratio mutations and deleted-thread collapse semantics.
 
-import { ContainerId, ThreadId } from "@penkra/contracts";
+import { FolderId, ThreadId } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { collectLeaves, findParentSplitNode } from "./splitView.logic";
@@ -17,7 +17,7 @@ import {
   type SplitView,
 } from "./splitViewStore";
 
-const PROJECT_ID = ContainerId.makeUnsafe("project-1");
+const PROJECT_ID = FolderId.makeUnsafe("project-1");
 const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
 const THREAD_C = ThreadId.makeUnsafe("thread-c");
@@ -87,7 +87,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitViewId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "horizontal",
       side: "first",
@@ -110,7 +110,7 @@ describe("splitViewStore", () => {
 
     freshSplitViewStore.getState().createFromThread({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
     });
 
     const persisted = globalThis.localStorage.getItem("penkra:split-threads:v1");
@@ -123,12 +123,12 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const firstSplitId = store.createFromThread({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
     });
 
     const secondSplitId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "vertical",
       side: "first",
@@ -148,7 +148,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitViewId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "horizontal",
       side: "second",
@@ -181,7 +181,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitViewId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "horizontal",
       side: "second",
@@ -206,7 +206,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitViewId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "horizontal",
       side: "first",
@@ -230,7 +230,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitViewId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "horizontal",
       side: "first",
@@ -267,7 +267,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitViewId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "horizontal",
       side: "first",
@@ -304,7 +304,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitViewId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "horizontal",
       side: "first",
@@ -322,7 +322,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitViewId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "horizontal",
       side: "first",
@@ -341,7 +341,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitViewId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "horizontal",
       side: "second",
@@ -362,7 +362,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitViewId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "horizontal",
       side: "second",
@@ -388,14 +388,14 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitViewId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "horizontal",
       side: "second",
     });
     const otherSplitId = store.createFromThread({
       sourceThreadId: THREAD_C,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
     });
     const sourcePaneId = findLeafIdForThread(snapshot(splitViewId), THREAD_A);
 
@@ -416,7 +416,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitViewId = store.createFromThread({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
     });
     const sourcePaneId = findLeafIdForThread(snapshot(splitViewId), THREAD_A);
 
@@ -431,13 +431,13 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const firstSplitId = store.createFromThread({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
     });
     const firstEmptyId = findEmptyLeafId(snapshot(firstSplitId));
     store.replacePaneThread(firstSplitId, firstEmptyId, THREAD_B);
     const secondSplitId = store.createFromThread({
       sourceThreadId: THREAD_C,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
     });
     const secondEmptyId = findEmptyLeafId(snapshot(secondSplitId));
     store.replacePaneThread(secondSplitId, secondEmptyId, THREAD_A);
@@ -471,7 +471,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitViewId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "horizontal",
       side: "second",
@@ -509,7 +509,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitId = store.createFromDrop({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
       droppedThreadId: THREAD_B,
       direction: "horizontal",
       side: "first",
@@ -527,7 +527,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitId = store.createFromThread({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
     });
 
     useSplitViewStore.getState().removeThreadFromSplitViews(THREAD_A);
@@ -541,11 +541,11 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const sourceSplitId = store.createFromThread({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
     });
     const otherSplitId = store.createFromThread({
       sourceThreadId: THREAD_C,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
     });
     const otherEmptyId = findEmptyLeafId(snapshot(otherSplitId));
     store.replacePaneThread(otherSplitId, otherEmptyId, THREAD_A);
@@ -563,7 +563,7 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const splitId = store.createFromThread({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
     });
     const emptyId = findEmptyLeafId(snapshot(splitId));
     store.replacePaneThread(splitId, emptyId, THREAD_B);
@@ -581,14 +581,14 @@ describe("splitViewStore", () => {
     const store = useSplitViewStore.getState();
     const olderSplitId = store.createFromThread({
       sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
     });
     const olderEmptyId = findEmptyLeafId(snapshot(olderSplitId));
     store.replacePaneThread(olderSplitId, olderEmptyId, THREAD_B);
 
     const newerSplitId = store.createFromThread({
       sourceThreadId: THREAD_C,
-      ownerProjectId: PROJECT_ID,
+      ownerFolderId: PROJECT_ID,
     });
     const newerEmptyId = findEmptyLeafId(snapshot(newerSplitId));
     store.replacePaneThread(newerSplitId, newerEmptyId, THREAD_B);

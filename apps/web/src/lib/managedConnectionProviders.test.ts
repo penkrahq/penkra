@@ -36,8 +36,8 @@ describe("managed Connection providers", () => {
               retiredAt: null,
             },
             {
-              id: ProviderInstallationId.makeUnsafe("installation-pi"),
-              harness: "pi",
+              id: ProviderInstallationId.makeUnsafe("installation-opencode"),
+              harness: "opencode",
               version: "1.0.0",
               platform: "darwin",
               architecture: "arm64",
@@ -60,16 +60,16 @@ describe("managed Connection providers", () => {
               internalProviderIds: [null],
             },
             {
-              harness: "pi",
-              authenticationTargetId: "pi-first-party",
+              harness: "opencode",
+              authenticationTargetId: "opencode-first-party",
               authenticationMethodId: "account",
               kind: "managed-login",
-              label: "Pi account",
+              label: "OpenCode account",
               internalProviderIds: [null],
             },
           ],
         }),
       ),
-    ).toEqual(["codex", "pi"]);
+    ).toEqual(["codex", "opencode"]);
   });
 });

@@ -372,7 +372,7 @@ export function createWsNativeApi(): NativeApi {
       close: (input) => transport.request(WS_METHODS.terminalClose, input),
       onEvent: terminalEventListeners.subscribe,
     },
-    projects: {
+    folders: {
       discoverScripts: (input) => transport.request(WS_METHODS.projectsDiscoverScripts, input),
       listDirectories: (input) => transport.request(WS_METHODS.projectsListDirectories, input),
       searchEntries: (input) => transport.request(WS_METHODS.projectsSearchEntries, input),

@@ -7,13 +7,7 @@ import type { ProjectionSpaceRepositoryShape } from "../persistence/Services/Pro
 export type SpaceMetadataOrchestrationEvent = Extract<
   OrchestrationEvent,
   {
-    type:
-      | "space.created"
-      | "space.meta-updated"
-      | "space.order-updated"
-      | "space.archived"
-      | "space.restored"
-      | "space.deleted";
+    type: "space.created" | "space.updated" | "space.archived" | "space.restored" | "space.deleted";
   }
 >;
 
@@ -36,7 +30,8 @@ export const applySpaceMetadataProjection = (input: {
         });
         return;
 
-      case "space.meta-updated": {
+      case "space.updated": {
+        const updatedAt = input.event.payload.updatedAt;
         const existing = yield* input.projectionSpaceRepository.getById({
           spaceId: input.event.payload.spaceId,
         });
@@ -45,34 +40,29 @@ export const applySpaceMetadataProjection = (input: {
             ...existing.value,
             ...(input.event.payload.name !== undefined ? { name: input.event.payload.name } : {}),
             ...(input.event.payload.icon !== undefined ? { icon: input.event.payload.icon } : {}),
-            updatedAt: input.event.payload.updatedAt,
+            updatedAt,
           });
         }
-        return;
-      }
-
-      case "space.order-updated": {
-        const updatedAt = input.event.payload.updatedAt;
-        const rows = yield* input.projectionSpaceRepository.listAll();
-        const orderBySpaceId = new Map(
-          input.event.payload.orderedSpaceIds.map((spaceId, index) => [spaceId, index] as const),
-        );
-        yield* Effect.forEach(
-          rows,
-          (row) => {
-            const sortOrder = orderBySpaceId.get(row.spaceId);
-            // Unmoved rows are skipped so a reorder writes only the rows that changed and
-            // stays in lockstep with the in-memory read model's identity-preserving update.
-            return sortOrder === undefined || sortOrder === row.sortOrder
-              ? Effect.void
-              : input.projectionSpaceRepository.upsert({
-                  ...row,
-                  sortOrder,
-                  updatedAt,
-                });
-          },
-          { concurrency: 1 },
-        );
+        if (input.event.payload.orderedSpaceIds !== undefined) {
+          const rows = yield* input.projectionSpaceRepository.listAll();
+          const orderBySpaceId = new Map(
+            input.event.payload.orderedSpaceIds.map((spaceId, index) => [spaceId, index] as const),
+          );
+          yield* Effect.forEach(
+            rows,
+            (row) => {
+              const sortOrder = orderBySpaceId.get(row.spaceId);
+              return sortOrder === undefined || sortOrder === row.sortOrder
+                ? Effect.void
+                : input.projectionSpaceRepository.upsert({
+                    ...row,
+                    sortOrder,
+                    updatedAt,
+                  });
+            },
+            { concurrency: 1 },
+          );
+        }
         return;
       }
 

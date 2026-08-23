@@ -3,7 +3,6 @@ import type {
   OrchestrationEvent,
   OrchestrationReadModel,
   OrchestrationThread,
-  ContainerKind,
   ThreadMarker,
 } from "@penkra/contracts";
 import {
@@ -14,7 +13,6 @@ import {
   THREAD_MARKERS_MAX_COUNT,
   TurnId,
 } from "@penkra/contracts";
-import { workspaceRootsEqual } from "@penkra/shared/threadWorkspace";
 import { doThreadMarkerRangesOverlap } from "@penkra/shared/threadMarkers";
 import {
   collectTailTurnIds,
@@ -28,20 +26,15 @@ import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import { resolveStableMessageTurnId } from "./messageTurnId.ts";
 import {
   findSpaceById,
-  isLegacyHomeChatContainerRow,
-  listActiveProjectsByWorkspaceRoot,
   listActiveSpaces,
-  listThreadsByProjectId,
-  requireProject,
-  requireProjectAbsent,
-  requireProjectHasNoThreads,
-  requireProjectWorkspaceRootAvailable,
+  listThreadsByFolderId,
+  requireFolder,
+  requireFolderAbsent,
+  requireFolderHasNoThreads,
   requireFolderNameAvailable,
   requireSpace,
   requireSpaceAbsent,
-  requireSpaceAssignableProject,
   requireSpaceNameAvailable,
-  type SpaceAssignmentWorkspacePaths,
   requireThread,
   requireThreadAbsent,
   requireThreadArchived,
@@ -67,10 +60,6 @@ export interface AcceptedConnectionChange {
   readonly modelId: string;
   readonly modelLabel: string;
 }
-// Kinds that claim exclusive ownership of a workspace root. Chat containers are excluded: they
-// use placeholder roots (e.g. the home dir) that legitimately coexist with real projects.
-const WORKSPACE_OWNING_PROJECT_KIND_SET = new Set<ContainerKind>(["project"]);
-
 const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload"> = {
   eventId: crypto.randomUUID() as OrchestrationEvent["eventId"],
   aggregateKind: "thread",
@@ -110,44 +99,26 @@ function omitNullUserInputAnswers(
   );
 }
 
-function countPinnedProjects(
+function countPinnedFolders(
   readModel: OrchestrationReadModel,
-  options?: { readonly excludeProjectIds?: ReadonlySet<string> },
+  options?: { readonly excludeFolderIds?: ReadonlySet<string> },
 ): number {
-  return readModel.projects.filter(
-    (project) =>
-      project.deletedAt === null &&
-      project.kind === "project" &&
-      project.isPinned === true &&
-      !options?.excludeProjectIds?.has(project.id),
+  return readModel.folders.filter(
+    (folder) =>
+      folder.deletedAt === null &&
+      folder.isPinned === true &&
+      !options?.excludeFolderIds?.has(folder.id),
   ).length;
 }
 
 function validateProjectPinLimit(input: {
-  readonly command: Extract<
-    OrchestrationCommand,
-    { type: "project.create" | "project.meta.update" }
-  >;
+  readonly command: Extract<OrchestrationCommand, { type: "folder.create" | "folder.update" }>;
   readonly readModel: OrchestrationReadModel;
-  readonly projectId: OrchestrationEvent["aggregateId"];
-  readonly nextKind: ContainerKind;
+  readonly folderId: OrchestrationEvent["aggregateId"];
   readonly nextDeletedAt?: string | null;
   readonly wasPinned?: boolean;
-  readonly staleProjectIds?: ReadonlySet<string>;
+  readonly staleFolderIds?: ReadonlySet<string>;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  // The kind invariant must hold for the EFFECTIVE pin state, not only when the command sets
-  // isPinned: a kind-only update would otherwise carry an existing pin
-  // onto a kind that can never be pinned.
-  const nextIsPinned = input.command.isPinned ?? input.wasPinned ?? false;
-  if (nextIsPinned && input.nextKind !== "project") {
-    return Effect.fail(
-      new OrchestrationCommandInvariantError({
-        commandType: input.command.type,
-        detail: `Only projects can be pinned.`,
-      }),
-    );
-  }
-
   if (input.command.isPinned !== true) {
     return Effect.void;
   }
@@ -156,7 +127,7 @@ function validateProjectPinLimit(input: {
     return Effect.fail(
       new OrchestrationCommandInvariantError({
         commandType: input.command.type,
-        detail: `Deleted project '${input.projectId}' cannot be pinned.`,
+        detail: `Deleted folder '${input.folderId}' cannot be pinned.`,
       }),
     );
   }
@@ -165,8 +136,8 @@ function validateProjectPinLimit(input: {
     return Effect.void;
   }
 
-  const excludeProjectIds = new Set<string>([input.projectId, ...(input.staleProjectIds ?? [])]);
-  const pinnedProjectCount = countPinnedProjects(input.readModel, { excludeProjectIds });
+  const excludeFolderIds = new Set<string>([input.folderId, ...(input.staleFolderIds ?? [])]);
+  const pinnedProjectCount = countPinnedFolders(input.readModel, { excludeFolderIds });
   if (pinnedProjectCount < MAX_PINNED_PROJECTS) {
     return Effect.void;
   }
@@ -174,7 +145,7 @@ function validateProjectPinLimit(input: {
   return Effect.fail(
     new OrchestrationCommandInvariantError({
       commandType: input.command.type,
-      detail: `Only ${MAX_PINNED_PROJECTS} projects can be pinned at once.`,
+      detail: `Only ${MAX_PINNED_PROJECTS} folders can be pinned at once.`,
     }),
   );
 }
@@ -207,17 +178,12 @@ type CreatedThreadWorkspaceCommand = Pick<
   "workingDirectory"
 >;
 
-function resolveCreatedThreadWorkspaceMetadata(
-  _projectKind: ContainerKind | undefined,
-  command: CreatedThreadWorkspaceCommand,
-) {
+function resolveCreatedThreadWorkspaceMetadata(command: CreatedThreadWorkspaceCommand) {
   return { workingDirectory: command.workingDirectory ?? null };
 }
 
 function resolveThreadWorkspaceMetadataPatch(
-  _projectKind: ContainerKind | undefined,
-  command: Extract<OrchestrationCommand, { type: "thread.meta.update" }>,
-  _currentThread: OrchestrationThread,
+  command: Extract<OrchestrationCommand, { type: "thread.update" }>,
 ) {
   return {
     ...(command.workingDirectory !== undefined
@@ -247,13 +213,14 @@ function deriveConversationRollbackTarget(
 export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(function* ({
   command,
   readModel,
-  workspacePaths,
+  workspacePaths: _workspacePaths,
   acceptedConnectionChange,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
-  /** Reserved container roots; when provided, space assignment rejects legacy chat containers. */
-  readonly workspacePaths?: SpaceAssignmentWorkspacePaths | undefined;
+  readonly workspacePaths?:
+    | { readonly homeDir: string; readonly chatWorkspaceRoot: string }
+    | undefined;
   readonly acceptedConnectionChange?: AcceptedConnectionChange | undefined;
 }): Effect.fn.Return<
   Omit<OrchestrationEvent, "sequence"> | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
@@ -293,7 +260,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "space.meta.update": {
+    case "space.update": {
       const existingSpace = yield* requireSpace({ readModel, command, spaceId: command.spaceId });
       // Fields equal to the current value are not changes: a Save with nothing edited (or a
       // rename that resends the icon) must not append an event or bump updatedAt.
@@ -305,10 +272,21 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command.icon !== undefined && command.icon !== existingSpace.icon
           ? command.icon
           : undefined;
-      if (nextName === undefined && nextIcon === undefined) {
+      const activeSpaces = listActiveSpaces(readModel);
+      const currentIndex = activeSpaces.findIndex((space) => space.id === command.spaceId);
+      const targetIndex =
+        command.sortOrder === undefined
+          ? currentIndex
+          : Math.min(command.sortOrder, Math.max(activeSpaces.length - 1, 0));
+      const orderedSpaceIds = activeSpaces.map((space) => space.id);
+      if (targetIndex !== currentIndex) {
+        orderedSpaceIds.splice(currentIndex, 1);
+        orderedSpaceIds.splice(targetIndex, 0, command.spaceId);
+      }
+      if (nextName === undefined && nextIcon === undefined && targetIndex === currentIndex) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: "Space metadata update must change a name or icon.",
+          detail: "Space update must change a name, icon, or sort order.",
         });
       }
       if (nextName !== undefined) {
@@ -327,50 +305,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           occurredAt,
           commandId: command.commandId,
         }),
-        type: "space.meta-updated",
+        type: "space.updated",
         payload: {
           spaceId: command.spaceId,
           ...(nextName !== undefined ? { name: nextName } : {}),
           ...(nextIcon !== undefined ? { icon: nextIcon } : {}),
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "space.reorder": {
-      yield* requireSpace({ readModel, command, spaceId: command.spaceId });
-      const anchorSpace = yield* requireSpace({
-        readModel,
-        command,
-        spaceId: command.position.spaceId,
-      });
-      if (anchorSpace.id === command.spaceId) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "A Space cannot be positioned relative to itself.",
-        });
-      }
-      const orderedSpaceIds = listActiveSpaces(readModel)
-        .map((space) => space.id)
-        .filter((spaceId) => spaceId !== command.spaceId);
-      const anchorIndex = orderedSpaceIds.indexOf(anchorSpace.id);
-      orderedSpaceIds.splice(
-        anchorIndex + (command.position.type === "after" ? 1 : 0),
-        0,
-        command.spaceId,
-      );
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "space",
-          aggregateId: command.spaceId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "space.order-updated",
-        payload: {
-          spaceId: command.spaceId,
-          orderedSpaceIds,
+          ...(targetIndex !== currentIndex ? { orderedSpaceIds } : {}),
           updatedAt: occurredAt,
         },
       };
@@ -450,19 +390,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       if (
-        readModel.projects.some(
-          (project) =>
-            project.kind === "project" &&
-            project.deletedAt === null &&
-            project.spaceId === command.spaceId,
-        ) ||
-        readModel.threads.some(
-          (thread) => thread.deletedAt === null && thread.spaceId === command.spaceId,
+        readModel.folders.some(
+          (folder) => folder.deletedAt === null && folder.spaceId === command.spaceId,
         )
       ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: "Move every folder and chat thread out of this Space before deleting it.",
+          detail: "Move every folder out of this Space before deleting it.",
         });
       }
       const occurredAt = nowIso();
@@ -478,58 +412,41 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "space.projects.assign": {
+    case "folder.move": {
       yield* requireSpace({ readModel, command, spaceId: command.spaceId });
       const occurredAt = nowIso();
-      const seenProjectIds = new Set<string>();
+      const seenFolderIds = new Set<string>();
       const destinationFolderNames = new Set(
-        readModel.projects
-          .filter(
-            (project) =>
-              project.deletedAt === null &&
-              (project.kind ?? "project") === "project" &&
-              project.spaceId === command.spaceId,
-          )
-          .map((project) => normalizeEntityName(project.title)),
+        readModel.folders
+          .filter((folder) => folder.deletedAt === null && folder.spaceId === command.spaceId)
+          .map((folder) => normalizeEntityName(folder.title)),
       );
       const events: Array<Omit<OrchestrationEvent, "sequence">> = [];
-      for (const projectId of command.projectIds) {
-        if (seenProjectIds.has(projectId)) continue;
-        seenProjectIds.add(projectId);
-        const project = yield* requireProject({ readModel, command, projectId });
-        // Already-filed and concurrently-deleted projects are settled, not errors: the
+      for (const folderId of command.folderIds) {
+        if (seenFolderIds.has(folderId)) continue;
+        seenFolderIds.add(folderId);
+        const folder = yield* requireFolder({ readModel, command, folderId });
+        // Already-filed and concurrently-deleted folders are settled, not errors: the
         // batch stays atomic for real failures without rejecting a raced retry.
-        if (project.deletedAt !== null || project.spaceId === command.spaceId) continue;
-        if ((project.kind ?? "project") !== "project") {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: "Only ordinary projects can be assigned to a space.",
-          });
-        }
-        yield* requireSpaceAssignableProject({
-          command,
-          projectTitle: project.title,
-          projectWorkspaceRoot: project.workspaceRoot,
-          workspacePaths,
-        });
-        const normalizedFolderName = normalizeEntityName(project.title);
+        if (folder.deletedAt !== null || folder.spaceId === command.spaceId) continue;
+        const normalizedFolderName = normalizeEntityName(folder.title);
         if (destinationFolderNames.has(normalizedFolderName)) {
           return yield* new OrchestrationCommandInvariantError({
             commandType: command.type,
-            detail: `A folder named '${project.title}' already exists in this Space.`,
+            detail: `A folder named '${folder.title}' already exists in this Space.`,
           });
         }
         destinationFolderNames.add(normalizedFolderName);
         events.push({
           ...withEventBase({
-            aggregateKind: "project",
-            aggregateId: project.id,
+            aggregateKind: "folder",
+            aggregateId: folder.id,
             occurredAt,
             commandId: command.commandId,
           }),
-          type: "project.meta-updated" as const,
+          type: "folder.moved" as const,
           payload: {
-            projectId: project.id,
+            folderId: folder.id,
             spaceId: command.spaceId,
             updatedAt: occurredAt,
           },
@@ -538,7 +455,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       if (events.length === 0) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: "None of the selected projects need to be assigned to this space.",
+          detail: "None of the selected folders need to be assigned to this space.",
         });
       }
       return events;
@@ -546,52 +463,41 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
     case "sidebar.item.move": {
       const targetProject =
-        command.target.kind === "project"
-          ? yield* requireProject({
+        command.target.kind === "folder"
+          ? yield* requireFolder({
               readModel,
               command,
-              projectId: command.target.projectId,
+              folderId: command.target.folderId,
             })
           : null;
-      if (targetProject && (targetProject.kind ?? "project") !== "project") {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Threads can only be dropped into ordinary folders.",
-        });
-      }
-      if (targetProject && targetProject.spaceId === null) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "The destination folder is not assigned to a Space.",
-        });
-      }
       const targetSpace =
         command.target.kind === "space"
           ? yield* requireSpace({ readModel, command, spaceId: command.target.spaceId })
           : yield* requireSpace({
               readModel,
               command,
-              spaceId: targetProject!.spaceId!,
+              spaceId: targetProject!.spaceId,
             });
 
       const movedProject =
-        command.item.kind === "project"
-          ? yield* requireProject({ readModel, command, projectId: command.item.id })
+        command.item.kind === "folder"
+          ? yield* requireFolder({ readModel, command, folderId: command.item.id })
           : null;
       const movedThread =
         command.item.kind === "thread"
           ? yield* requireThread({ readModel, command, threadId: command.item.id })
           : null;
-      if (movedProject && (movedProject.kind ?? "project") !== "project") {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Only ordinary folders can be reordered in Spaces.",
-        });
-      }
       if (movedProject && command.target.kind !== "space") {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: "Folders cannot be nested inside other folders.",
+        });
+      }
+      if (movedProject && movedProject.spaceId !== targetSpace.id) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "Move the folder with 'folder.move' before reordering it in the destination Space.",
         });
       }
       if (movedProject) {
@@ -600,7 +506,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           command,
           name: movedProject.title,
           spaceId: targetSpace.id,
-          excludeProjectId: movedProject.id,
+          excludeFolderId: movedProject.id,
         });
       }
       if (movedThread && movedThread.parentThreadId !== null) {
@@ -625,34 +531,18 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       const destinationItems = (
         command.target.kind === "space"
           ? [
-              ...readModel.projects
+              ...readModel.folders
                 .filter(
-                  (project) =>
-                    project.deletedAt === null &&
-                    (project.kind ?? "project") === "project" &&
-                    project.spaceId === targetSpace.id &&
-                    project.id !== movedProject?.id,
+                  (folder) =>
+                    folder.deletedAt === null &&
+                    folder.spaceId === targetSpace.id &&
+                    folder.id !== movedProject?.id,
                 )
-                .map((project) => ({
-                  item: { kind: "project" as const, id: project.id },
-                  pinned: project.isPinned === true,
-                  sidebarSortOrder: project.sidebarSortOrder ?? 0,
-                  createdAt: project.createdAt,
-                })),
-              ...readModel.threads
-                .filter((thread) => {
-                  if (!isLiveSidebarThread(thread) || thread.parentThreadId !== null) return false;
-                  if (thread.id === movedThread?.id) return false;
-                  const project = readModel.projects.find(
-                    (candidate) => candidate.id === thread.projectId,
-                  );
-                  return project?.kind === "chat" && thread.spaceId === targetSpace.id;
-                })
-                .map((thread) => ({
-                  item: { kind: "thread" as const, id: thread.id },
-                  pinned: thread.isPinned === true,
-                  sidebarSortOrder: thread.sidebarSortOrder ?? 0,
-                  createdAt: thread.createdAt,
+                .map((folder) => ({
+                  item: { kind: "folder" as const, id: folder.id },
+                  pinned: folder.isPinned === true,
+                  sidebarSortOrder: folder.sidebarSortOrder ?? 0,
+                  createdAt: folder.createdAt,
                 })),
             ]
           : readModel.threads
@@ -660,7 +550,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                 (thread) =>
                   isLiveSidebarThread(thread) &&
                   thread.parentThreadId === null &&
-                  thread.projectId === targetProject!.id &&
+                  thread.folderId === targetProject!.id &&
                   thread.id !== movedThread?.id,
               )
               .map((thread) => ({
@@ -702,11 +592,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       }
       orderedItems.splice(insertionIndex, 0, command.item);
 
-      const projectUpdates = new Map<
+      const folderUpdates = new Map<
         string,
         {
-          projectId: OrchestrationReadModel["projects"][number]["id"];
-          spaceId?: typeof targetSpace.id;
+          folderId: OrchestrationReadModel["folders"][number]["id"];
           sidebarSortOrder?: number;
         }
       >();
@@ -714,46 +603,26 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         string,
         {
           threadId: OrchestrationThread["id"];
-          projectId?: OrchestrationReadModel["projects"][number]["id"];
-          spaceId?: typeof targetSpace.id | null;
+          folderId?: OrchestrationReadModel["folders"][number]["id"];
           sidebarSortOrder?: number;
         }
       >();
       orderedItems.forEach((item, sidebarSortOrder) => {
-        if (item.kind === "project") {
-          projectUpdates.set(item.id, { projectId: item.id, sidebarSortOrder });
+        if (item.kind === "folder") {
+          folderUpdates.set(item.id, { folderId: item.id, sidebarSortOrder });
         } else {
           threadUpdates.set(item.id, { threadId: item.id, sidebarSortOrder });
         }
       });
 
-      if (movedProject) {
-        projectUpdates.set(movedProject.id, {
-          ...projectUpdates.get(movedProject.id),
-          projectId: movedProject.id,
-          spaceId: targetSpace.id,
-        });
-      }
       if (movedThread) {
-        const destinationProject =
-          targetProject ??
-          readModel.projects.find(
-            (project) => project.deletedAt === null && project.kind === "chat",
-          ) ??
-          null;
-        if (!destinationProject) {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: "No managed chat container is available for a loose Space thread.",
-          });
-        }
+        const destinationProject = targetProject!;
         const treeIds = collectThreadTreeIds(readModel, movedThread.id);
         for (const threadId of treeIds) {
           threadUpdates.set(threadId, {
             ...threadUpdates.get(threadId),
             threadId,
-            projectId: destinationProject.id,
-            spaceId: targetProject ? null : targetSpace.id,
+            folderId: destinationProject.id,
           });
         }
       }
@@ -768,28 +637,20 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         }),
         type: "sidebar.layout-updated",
         payload: {
-          projectUpdates: [...projectUpdates.values()],
+          folderUpdates: [...folderUpdates.values()],
           threadUpdates: [...threadUpdates.values()],
           updatedAt: occurredAt,
         },
       };
     }
 
-    case "project.create": {
-      yield* requireProjectAbsent({
+    case "folder.create": {
+      yield* requireFolderAbsent({
         readModel,
         command,
-        projectId: command.projectId,
+        folderId: command.folderId,
       });
-      const events: Array<Omit<OrchestrationEvent, "sequence">> = [];
-      const nextProjectKind = command.kind ?? "project";
-      if (nextProjectKind !== "project" && command.workspaceRoot === null) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Managed chat containers require a workspace root.",
-        });
-      }
-      if (nextProjectKind === "project" && command.workspaceRoot !== null) {
+      if (command.workspaceRoot !== null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail:
@@ -799,239 +660,78 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       yield* validateProjectPinLimit({
         command,
         readModel,
-        projectId: command.projectId,
-        nextKind: nextProjectKind,
+        folderId: command.folderId,
       });
-
-      let creationSpaceId = null;
-      if (nextProjectKind === "project") {
-        if (command.spaceId == null) {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: "Every folder must be created in a persisted Space.",
-          });
-        }
-        yield* requireSpace({ readModel, command, spaceId: command.spaceId });
-        creationSpaceId = command.spaceId;
-        yield* requireFolderNameAvailable({
-          readModel,
-          command,
-          name: command.title,
-          spaceId: command.spaceId,
-        });
-      } else if (command.spaceId != null) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Managed chat containers do not belong to a Space.",
-        });
-      }
-
-      events.push({
+      yield* requireSpace({ readModel, command, spaceId: command.spaceId });
+      yield* requireFolderNameAvailable({
+        readModel,
+        command,
+        name: command.title,
+        spaceId: command.spaceId,
+      });
+      return {
         ...withEventBase({
-          aggregateKind: "project",
-          aggregateId: command.projectId,
+          aggregateKind: "folder",
+          aggregateId: command.folderId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "project.created",
+        type: "folder.created",
         payload: {
-          projectId: command.projectId,
-          kind: nextProjectKind,
+          folderId: command.folderId,
           title: command.title,
-          workspaceRoot: command.workspaceRoot,
+          workspaceRoot: null,
           defaultModelSelection: command.defaultModelSelection ?? null,
           scripts: [],
           iconDataUrl: null,
           isPinned: command.isPinned,
-          spaceId: creationSpaceId,
+          spaceId: command.spaceId,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
-      });
-      return events.length === 1 ? events[0]! : events;
+      };
     }
 
-    case "project.meta.update": {
-      const existingProject = yield* requireProject({
+    case "folder.update": {
+      const existingProject = yield* requireFolder({
         readModel,
         command,
-        projectId: command.projectId,
+        folderId: command.folderId,
       });
-      const nextProjectKind = command.kind ?? existingProject.kind ?? "project";
-      const effectiveWorkspaceRoot =
-        command.workspaceRoot !== undefined ? command.workspaceRoot : existingProject.workspaceRoot;
-      if (
-        nextProjectKind === "project" &&
-        command.workspaceRoot !== undefined &&
-        command.workspaceRoot !== null
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail:
-            "Folders are virtual containers. Set the physical directory on the thread instead.",
-        });
-      }
-      const requestedSpaceId =
-        command.spaceId !== undefined
-          ? command.spaceId
-          : nextProjectKind !== "project" && existingProject.spaceId !== null
-            ? null
-            : undefined;
-      const effectiveSpaceId =
-        requestedSpaceId !== undefined ? requestedSpaceId : existingProject.spaceId;
-      if (nextProjectKind === "project" && effectiveSpaceId == null) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Every folder must remain assigned to a persisted Space.",
-        });
-      }
-      if (nextProjectKind !== "project" && effectiveSpaceId !== null) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Managed chat containers do not belong to a Space.",
-        });
-      }
-      const changedSpaceId =
-        requestedSpaceId !== undefined && requestedSpaceId !== existingProject.spaceId
-          ? requestedSpaceId
-          : undefined;
-      const hasOtherMetadataInput =
-        command.kind !== undefined ||
-        command.title !== undefined ||
-        command.workspaceRoot !== undefined ||
-        command.defaultModelSelection !== undefined ||
-        command.scripts !== undefined ||
-        command.isPinned !== undefined ||
-        command.archivedAt !== undefined;
-      if (command.archivedAt !== undefined && nextProjectKind !== "project") {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Only ordinary folders can be archived.",
-        });
-      }
       if (command.archivedAt !== undefined && existingProject.deletedAt !== null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: "Deleted folders cannot be archived or restored.",
         });
       }
-      const isLegacyHomeChatContainer = isLegacyHomeChatContainerRow({
-        projectTitle: existingProject.title,
-        projectWorkspaceRoot: existingProject.workspaceRoot,
-        workspacePaths,
-      });
-      if (
-        command.title !== undefined &&
-        command.title !== existingProject.title &&
-        isLegacyHomeChatContainer
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "The legacy Chats container cannot be renamed.",
-        });
-      }
-      if (
-        command.workspaceRoot !== undefined &&
-        command.workspaceRoot !== null &&
-        existingProject.workspaceRoot !== null &&
-        !workspaceRootsEqual(command.workspaceRoot, existingProject.workspaceRoot, {
-          platform: process.platform,
-        }) &&
-        isLegacyHomeChatContainer
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "The legacy Chats container workspace root cannot be changed.",
-        });
-      }
-      if (effectiveSpaceId !== null) {
-        // Assignability is an invariant of the resulting row, not only of commands that
-        // explicitly set spaceId. Metadata-only updates must not turn an already-filed
-        // project into the legacy Home/Chats container while retaining its space.
-        yield* requireSpaceAssignableProject({
-          command,
-          projectTitle: command.title ?? existingProject.title,
-          projectWorkspaceRoot: effectiveWorkspaceRoot,
-          workspacePaths,
-        });
-      }
-      if (command.spaceId !== undefined && command.spaceId !== null) {
-        if (existingProject.deletedAt !== null) {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: "Deleted projects cannot be assigned to a space.",
-          });
-        }
-        if (nextProjectKind !== "project") {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: "Only ordinary projects can be assigned to a space.",
-          });
-        }
-        yield* requireSpace({ readModel, command, spaceId: command.spaceId });
-      }
-      if (nextProjectKind === "project" && effectiveSpaceId != null) {
+      if (command.title !== undefined) {
         yield* requireFolderNameAvailable({
           readModel,
           command,
           name: command.title ?? existingProject.title,
-          spaceId: effectiveSpaceId,
-          excludeProjectId: command.projectId,
-        });
-      }
-      if (
-        requestedSpaceId !== undefined &&
-        changedSpaceId === undefined &&
-        !hasOtherMetadataInput
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Project is already assigned to this space.",
-        });
-      }
-      // Ownership must hold for the project's *effective* root, not only when the root field is
-      // present on the command: a kind-only update can otherwise bypass the same ownership
-      // rule project.create enforces.
-      const ownershipMayChange =
-        command.workspaceRoot !== undefined ||
-        (command.kind !== undefined && command.kind !== (existingProject.kind ?? "project"));
-      if (nextProjectKind !== "project" && effectiveWorkspaceRoot === null) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Managed chat containers require a workspace root.",
-        });
-      }
-      if (ownershipMayChange && nextProjectKind !== "chat" && effectiveWorkspaceRoot !== null) {
-        yield* requireProjectWorkspaceRootAvailable({
-          readModel,
-          command,
-          workspaceRoot: effectiveWorkspaceRoot,
-          excludeProjectId: command.projectId,
-          kinds: WORKSPACE_OWNING_PROJECT_KIND_SET,
+          spaceId: existingProject.spaceId,
+          excludeFolderId: command.folderId,
         });
       }
       yield* validateProjectPinLimit({
         command,
         readModel,
-        projectId: command.projectId,
-        nextKind: nextProjectKind,
+        folderId: command.folderId,
         nextDeletedAt: existingProject.deletedAt,
         wasPinned: existingProject.isPinned === true,
       });
       const occurredAt = nowIso();
       return {
         ...withEventBase({
-          aggregateKind: "project",
-          aggregateId: command.projectId,
+          aggregateKind: "folder",
+          aggregateId: command.folderId,
           occurredAt,
           commandId: command.commandId,
         }),
-        type: "project.meta-updated",
+        type: "folder.updated",
         payload: {
-          projectId: command.projectId,
-          ...(command.kind !== undefined ? { kind: command.kind } : {}),
+          folderId: command.folderId,
           ...(command.title !== undefined ? { title: command.title } : {}),
-          ...(command.workspaceRoot !== undefined ? { workspaceRoot: command.workspaceRoot } : {}),
           ...(command.defaultModelSelection !== undefined
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
@@ -1041,58 +741,50 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.isPinned !== undefined && command.isPinned !== existingProject.isPinned
             ? { sidebarSortOrder: 0 }
             : {}),
-          ...(changedSpaceId !== undefined ? { spaceId: changedSpaceId } : {}),
           ...(command.archivedAt !== undefined ? { archivedAt: command.archivedAt } : {}),
           updatedAt: occurredAt,
         },
       };
     }
 
-    case "project.delete": {
-      yield* requireProject({
+    case "folder.delete": {
+      yield* requireFolder({
         readModel,
         command,
-        projectId: command.projectId,
+        folderId: command.folderId,
       });
-      yield* requireProjectHasNoThreads({
+      yield* requireFolderHasNoThreads({
         readModel,
         command,
-        projectId: command.projectId,
+        folderId: command.folderId,
       });
       const occurredAt = nowIso();
       return {
         ...withEventBase({
-          aggregateKind: "project",
-          aggregateId: command.projectId,
+          aggregateKind: "folder",
+          aggregateId: command.folderId,
           occurredAt,
           commandId: command.commandId,
         }),
-        type: "project.deleted",
+        type: "folder.deleted",
         payload: {
-          projectId: command.projectId,
+          folderId: command.folderId,
           deletedAt: occurredAt,
         },
       };
     }
 
     case "thread.create": {
-      const project = yield* requireProject({
+      yield* requireFolder({
         readModel,
         command,
-        projectId: command.projectId,
+        folderId: command.folderId,
       });
-      if (project.kind === "chat") {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Threads must be created inside a folder.",
-        });
-      }
       yield* requireThreadAbsent({
         readModel,
         command,
         threadId: command.threadId,
       });
-      const directSpaceId = null;
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -1103,12 +795,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.created",
         payload: {
           threadId: command.threadId,
-          projectId: command.projectId,
-          spaceId: directSpaceId,
+          folderId: command.folderId,
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
-          ...resolveCreatedThreadWorkspaceMetadata(project.kind, command),
+          ...resolveCreatedThreadWorkspaceMetadata(command),
           isPinned: command.isPinned,
           parentThreadId: command.parentThreadId,
           ...(command.creationSource !== undefined
@@ -1131,10 +822,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.fork.create": {
-      const project = yield* requireProject({
+      yield* requireFolder({
         readModel,
         command,
-        projectId: command.projectId,
+        folderId: command.folderId,
       });
       yield* requireThread({
         readModel,
@@ -1152,10 +843,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.sourceThreadId,
       });
-      if (sourceThread.projectId !== command.projectId) {
+      if (sourceThread.folderId !== command.folderId) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: `Source thread '${command.sourceThreadId}' belongs to a different project.`,
+          detail: `Source thread '${command.sourceThreadId}' belongs to a different folder.`,
         });
       }
 
@@ -1169,12 +860,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.created",
         payload: {
           threadId: command.threadId,
-          projectId: command.projectId,
-          spaceId: project.kind === "chat" ? sourceThread.spaceId : null,
+          folderId: command.folderId,
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
-          ...resolveCreatedThreadWorkspaceMetadata(project.kind, command),
+          ...resolveCreatedThreadWorkspaceMetadata(command),
           isPinned: false,
           parentThreadId: null,
           subagentAgentId: null,
@@ -1284,22 +974,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.meta.update": {
+    case "thread.update": {
       const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
-      const project = readModel.projects.find((candidate) => candidate.id === thread.projectId);
-      if (command.spaceId !== undefined) {
-        if (project?.kind !== "chat") {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: "Only threads directly under a Space can change Space ownership.",
-          });
-        }
-        yield* requireSpace({ readModel, command, spaceId: command.spaceId });
-      }
       if (
         command.workingDirectory !== undefined &&
         command.workingDirectory !== thread.workingDirectory &&
@@ -1321,15 +1001,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           occurredAt,
           commandId: command.commandId,
         }),
-        type: "thread.meta-updated",
+        type: "thread.updated",
         payload: {
           threadId: command.threadId,
-          ...(command.spaceId !== undefined ? { spaceId: command.spaceId } : {}),
           ...(command.title !== undefined ? { title: command.title } : {}),
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
-          ...resolveThreadWorkspaceMetadataPatch(project?.kind, command, thread),
+          ...resolveThreadWorkspaceMetadataPatch(command),
           ...(command.isPinned !== undefined ? { isPinned: command.isPinned } : {}),
           ...(command.isPinned !== undefined && command.isPinned !== thread.isPinned
             ? { sidebarSortOrder: 0 }
@@ -1697,7 +1376,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                 occurredAt: command.createdAt,
                 commandId: command.commandId,
               }),
-              type: "thread.meta-updated",
+              type: "thread.updated",
               payload: {
                 threadId: command.threadId,
                 modelSelection: command.modelSelection,

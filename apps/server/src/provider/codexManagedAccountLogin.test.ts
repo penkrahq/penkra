@@ -48,6 +48,10 @@ function fakeCodexLoginProcess(
       } else if (message.method === "account/read") {
         const account = accountResponses.shift() ?? null;
         child.stdout.write(`${JSON.stringify({ id: message.id, result: { account } })}\n`);
+      } else if (message.method === "account/rateLimits/read") {
+        child.stdout.write(
+          `${JSON.stringify({ id: message.id, result: { rateLimits: { primary: { usedPercent: 12 } } } })}\n`,
+        );
       }
     }
   });
@@ -79,6 +83,7 @@ describe("Codex managed account login", () => {
       type: "chatgpt",
       email: "person@example.com",
       planType: "pro",
+      rateLimitsSnapshot: { rateLimits: { primary: { usedPercent: 12 } } },
     });
   });
 
@@ -97,6 +102,7 @@ describe("Codex managed account login", () => {
       type: "chatgpt",
       email: "person@example.com",
       planType: "pro",
+      rateLimitsSnapshot: { rateLimits: { primary: { usedPercent: 12 } } },
     });
   });
 
@@ -111,6 +117,7 @@ describe("Codex managed account login", () => {
       type: "chatgpt",
       email: "person@example.com",
       planType: "pro",
+      rateLimitsSnapshot: { rateLimits: { primary: { usedPercent: 12 } } },
     });
   });
 
@@ -128,6 +135,7 @@ describe("Codex managed account login", () => {
       type: "chatgpt",
       email: "person@example.com",
       planType: "pro",
+      rateLimitsSnapshot: { rateLimits: { primary: { usedPercent: 12 } } },
     });
     expect(child.requests.filter((request) => request.method === "account/read")).toHaveLength(2);
   });

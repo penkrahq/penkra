@@ -39,7 +39,7 @@ describe("windowsProcess", () => {
     expect(
       resolveWindowsCommandPath("codex", {
         platform: "win32",
-        cwd: "C:\\projects\\penkra",
+        cwd: "C:\\folders\\penkra",
         env: { SystemRoot: "C:\\Windows" },
         spawnSync,
       }),
@@ -63,7 +63,7 @@ describe("windowsProcess", () => {
     expect(
       resolveWindowsCommandPath("codex", {
         platform: "win32",
-        cwd: "C:\\projects\\penkra",
+        cwd: "C:\\folders\\penkra",
         env: { SystemRoot: "C:\\Windows" },
         spawnSync,
       }),
@@ -73,7 +73,7 @@ describe("windowsProcess", () => {
   it("skips current-directory command hits from where.exe", () => {
     const spawnSync = vi.fn(() => ({
       stdout: [
-        "C:\\projects\\penkra\\codex.cmd",
+        "C:\\folders\\penkra\\codex.cmd",
         "C:\\Users\\test\\AppData\\Roaming\\npm\\codex.cmd",
       ].join("\r\n"),
       status: 0,
@@ -82,7 +82,7 @@ describe("windowsProcess", () => {
     expect(
       resolveWindowsCommandPath("codex", {
         platform: "win32",
-        cwd: "C:\\projects\\penkra",
+        cwd: "C:\\folders\\penkra",
         env: { SystemRoot: "C:\\Windows" },
         spawnSync,
       }),
@@ -92,7 +92,7 @@ describe("windowsProcess", () => {
   it("filters current-directory hits before preferring spawn-safe candidates", () => {
     const spawnSync = vi.fn(() => ({
       stdout: [
-        "C:\\projects\\penkra\\codex.cmd",
+        "C:\\folders\\penkra\\codex.cmd",
         "C:\\Users\\test\\AppData\\Roaming\\npm\\codex",
         "C:\\Users\\test\\AppData\\Roaming\\npm\\codex.cmd",
       ].join("\r\n"),
@@ -102,7 +102,7 @@ describe("windowsProcess", () => {
     expect(
       resolveWindowsCommandPath("codex", {
         platform: "win32",
-        cwd: "C:\\projects\\penkra",
+        cwd: "C:\\folders\\penkra",
         env: { SystemRoot: "C:\\Windows" },
         spawnSync,
       }),
@@ -110,10 +110,10 @@ describe("windowsProcess", () => {
   });
 
   it("uses process.cwd for current-directory filtering when cwd is omitted", () => {
-    vi.spyOn(process, "cwd").mockReturnValue("C:\\projects\\penkra");
+    vi.spyOn(process, "cwd").mockReturnValue("C:\\folders\\penkra");
     const spawnSync = vi.fn(() => ({
       stdout: [
-        "C:\\projects\\penkra\\codex.cmd",
+        "C:\\folders\\penkra\\codex.cmd",
         "C:\\Users\\test\\AppData\\Roaming\\npm\\codex.cmd",
       ].join("\r\n"),
       status: 0,
@@ -129,7 +129,7 @@ describe("windowsProcess", () => {
     expect(spawnSync).toHaveBeenCalledWith(
       "C:\\Windows\\System32\\where.exe",
       ["codex"],
-      expect.objectContaining({ cwd: "C:\\projects\\penkra" }),
+      expect.objectContaining({ cwd: "C:\\folders\\penkra" }),
     );
   });
 
@@ -145,7 +145,7 @@ describe("windowsProcess", () => {
     expect(
       resolveWindowsCommandPath("C:\\Users\\test\\AppData\\Roaming\\npm\\codex", {
         platform: "win32",
-        cwd: "C:\\projects\\penkra",
+        cwd: "C:\\folders\\penkra",
         env: { SystemRoot: "C:\\Windows" },
         spawnSync,
       }),
@@ -163,7 +163,7 @@ describe("windowsProcess", () => {
     expect(
       resolveWindowsCommandPath("C:\\Users\\test\\AppData\\Roaming\\npm\\codex.cmd", {
         platform: "win32",
-        cwd: "C:\\projects\\penkra",
+        cwd: "C:\\folders\\penkra",
         env: { SystemRoot: "C:\\Windows" },
         spawnSync,
       }),
@@ -171,7 +171,7 @@ describe("windowsProcess", () => {
     expect(
       resolveWindowsCommandPath("C:\\Program Files\\Codex\\codex.exe", {
         platform: "win32",
-        cwd: "C:\\projects\\penkra",
+        cwd: "C:\\folders\\penkra",
         env: { SystemRoot: "C:\\Windows" },
         spawnSync,
       }),
@@ -188,7 +188,7 @@ describe("windowsProcess", () => {
     expect(
       prepareWindowsSafeProcess("codex", ["app-server"], {
         platform: "win32",
-        cwd: "C:\\projects\\penkra",
+        cwd: "C:\\folders\\penkra",
         env: { ComSpec: "C:\\Windows\\System32\\cmd.exe", SystemRoot: "C:\\Windows" },
         spawnSync,
       }),
@@ -219,7 +219,7 @@ describe("windowsProcess", () => {
     expect(
       prepareWindowsSafeProcess("C:\\Users\\test\\AppData\\Roaming\\npm\\codex", ["app-server"], {
         platform: "win32",
-        cwd: "C:\\projects\\penkra",
+        cwd: "C:\\folders\\penkra",
         env: { ComSpec: "C:\\Windows\\System32\\cmd.exe", SystemRoot: "C:\\Windows" },
         spawnSync,
       }),
@@ -245,7 +245,7 @@ describe("windowsProcess", () => {
     expect(
       prepareWindowsSafeProcess(customPath, ["app-server"], {
         platform: "win32",
-        cwd: "C:\\projects\\penkra",
+        cwd: "C:\\folders\\penkra",
         env: { ComSpec: "C:\\Windows\\System32\\cmd.exe", SystemRoot: "C:\\Windows" },
         spawnSync,
       }),
@@ -384,7 +384,7 @@ describe("windowsProcess", () => {
     expect(
       prepareWindowsSafeProcess("codex", ["--version"], {
         platform: "win32",
-        cwd: "C:\\projects\\penkra",
+        cwd: "C:\\folders\\penkra",
         env: { SystemRoot: "C:\\Windows" },
         spawnSync,
       }),
@@ -405,7 +405,7 @@ describe("windowsProcess", () => {
         ["app-server"],
         {
           platform: "win32",
-          cwd: "C:\\projects\\penkra",
+          cwd: "C:\\folders\\penkra",
           env: { SystemRoot: "C:\\Windows" },
           spawnSync,
         },

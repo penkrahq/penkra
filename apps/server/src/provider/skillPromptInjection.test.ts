@@ -18,8 +18,6 @@ import {
 const penkraSkillPath = "/Users/me/.penkra/skills/reviewer/SKILL.md";
 const codexSkillPath = "/Users/me/.codex/skills/reviewer/SKILL.md";
 const claudeSkillPath = "/Users/me/.claude/skills/reviewer/SKILL.md";
-const cursorSkillPath = "/Users/me/.cursor/skills/reviewer/SKILL.md";
-const piSkillPath = "/Users/me/.pi/agent/skills/reviewer/SKILL.md";
 
 describe("shouldInlineSkillForProvider", () => {
   it("skips codex-native and penkra roots for codex but inlines foreign provider roots", () => {
@@ -28,13 +26,6 @@ describe("shouldInlineSkillForProvider", () => {
     expect(shouldInlineSkillForProvider("codex", penkraSkillPath)).toBe(false);
     expect(shouldInlineSkillForProvider("codex", codexSkillPath)).toBe(false);
     expect(shouldInlineSkillForProvider("codex", claudeSkillPath)).toBe(true);
-    expect(shouldInlineSkillForProvider("codex", cursorSkillPath)).toBe(true);
-  });
-
-  it("inlines only Penkra-owned paths for cursor", () => {
-    expect(shouldInlineSkillForProvider("cursor", penkraSkillPath)).toBe(true);
-    expect(shouldInlineSkillForProvider("cursor", cursorSkillPath)).toBe(false);
-    expect(shouldInlineSkillForProvider("cursor", codexSkillPath)).toBe(false);
   });
 
   it("inlines everything except .claude paths for claudeAgent", () => {
@@ -43,17 +34,9 @@ describe("shouldInlineSkillForProvider", () => {
     expect(shouldInlineSkillForProvider("claudeAgent", codexSkillPath)).toBe(true);
   });
 
-  it("inlines cross-provider paths for pi but not pi-native skills", () => {
-    expect(shouldInlineSkillForProvider("pi", penkraSkillPath)).toBe(true);
-    expect(shouldInlineSkillForProvider("pi", claudeSkillPath)).toBe(true);
-    expect(shouldInlineSkillForProvider("pi", piSkillPath)).toBe(false);
-  });
-
-  it("always inlines for providers without native skill support", () => {
-    for (const provider of ["antigravity", "grok", "kilo", "opencode"] as const) {
-      expect(shouldInlineSkillForProvider(provider, penkraSkillPath)).toBe(true);
-      expect(shouldInlineSkillForProvider(provider, claudeSkillPath)).toBe(true);
-    }
+  it("always inlines for OpenCode", () => {
+    expect(shouldInlineSkillForProvider("opencode", penkraSkillPath)).toBe(true);
+    expect(shouldInlineSkillForProvider("opencode", claudeSkillPath)).toBe(true);
   });
 });
 
@@ -67,7 +50,7 @@ describe("buildInlineSkillInstructions", () => {
       await writeFile(skillPath, "# Reviewer\n\nAlways review carefully.");
 
       const text = await buildInlineSkillInstructions({
-        provider: "antigravity",
+        provider: "opencode",
         skills: [
           { name: "reviewer", path: skillPath },
           { name: "missing", path: path.join(root, ".penkra", "skills", "missing", "SKILL.md") },
@@ -92,7 +75,7 @@ describe("buildInlineSkillInstructions", () => {
       await writeFile(skillPath, "content".repeat(100));
 
       const text = await buildInlineSkillInstructions({
-        provider: "antigravity",
+        provider: "opencode",
         skills: [{ name: "reviewer", path: skillPath }],
         maxChars: 50,
       });

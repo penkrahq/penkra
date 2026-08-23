@@ -10,6 +10,8 @@ import {
   hasLiveLatestTurn,
   hasLiveTurnTailWork,
   isLatestTurnSettled,
+  isSessionActiveLatestTurn,
+  latestTurnMatchesTurnId,
   PROVIDER_OPTIONS,
 } from "./session-logic";
 import { makeActivity } from "./storeTestFixtures";
@@ -28,6 +30,27 @@ describe("formatElapsed", () => {
 
   it("carries rounded seconds into the next hour", () => {
     expect(formatElapsed(start, "2026-01-01T00:59:59.600Z")).toBe("1h");
+  });
+});
+
+describe("latest turn identity", () => {
+  const latestTurn = {
+    turnId: TurnId.makeUnsafe("turn-request"),
+    providerTurnId: TurnId.makeUnsafe("turn-provider"),
+  };
+
+  it("matches canonical and provider turn IDs", () => {
+    expect(latestTurnMatchesTurnId(latestTurn, TurnId.makeUnsafe("turn-request"))).toBe(true);
+    expect(latestTurnMatchesTurnId(latestTurn, TurnId.makeUnsafe("turn-provider"))).toBe(true);
+    expect(latestTurnMatchesTurnId(latestTurn, TurnId.makeUnsafe("turn-other"))).toBe(false);
+  });
+
+  it("correlates a provider-active session with its canonical latest turn", () => {
+    expect(
+      isSessionActiveLatestTurn(latestTurn, {
+        activeTurnId: TurnId.makeUnsafe("turn-provider"),
+      }),
+    ).toBe(true);
   });
 });
 
@@ -442,6 +465,22 @@ describe("deriveActiveWorkStartedAt", () => {
     ).toBe("2026-02-27T21:10:00.000Z");
   });
 
+  it("uses the latest-turn start when the session points at its provider turn ID", () => {
+    expect(
+      deriveActiveWorkStartedAt(
+        {
+          ...latestTurn,
+          providerTurnId: TurnId.makeUnsafe("turn-provider-1"),
+        },
+        {
+          orchestrationStatus: "running",
+          activeTurnId: TurnId.makeUnsafe("turn-provider-1"),
+        },
+        null,
+      ),
+    ).toBe("2026-02-27T21:10:00.000Z");
+  });
+
   it("falls back to sendStartedAt when a different turn is currently running", () => {
     expect(
       deriveActiveWorkStartedAt(
@@ -663,56 +702,20 @@ describe("hasLiveTurnTailWork", () => {
 describe("PROVIDER_OPTIONS", () => {
   it("lists available providers", () => {
     const claude = PROVIDER_OPTIONS.find((option) => option.value === "claudeAgent");
-    const cursor = PROVIDER_OPTIONS.find((option) => option.value === "cursor");
-    const grok = PROVIDER_OPTIONS.find((option) => option.value === "grok");
-    const droid = PROVIDER_OPTIONS.find((option) => option.value === "droid");
-    const kilo = PROVIDER_OPTIONS.find((option) => option.value === "kilo");
     const opencode = PROVIDER_OPTIONS.find((option) => option.value === "opencode");
-    const pi = PROVIDER_OPTIONS.find((option) => option.value === "pi");
     expect(PROVIDER_OPTIONS).toEqual([
       { value: "codex", label: "ChatGPT", available: true },
       { value: "claudeAgent", label: "Claude", available: true },
-      { value: "cursor", label: "Cursor", available: true },
-      { value: "antigravity", label: "Antigravity", available: true },
-      { value: "grok", label: "Grok", available: true },
-      { value: "droid", label: "Droid", available: true },
-      { value: "kilo", label: "Kilo", available: true },
       { value: "opencode", label: "OpenCode", available: true },
-      { value: "pi", label: "Pi", available: true },
     ]);
     expect(claude).toEqual({
       value: "claudeAgent",
       label: "Claude",
       available: true,
     });
-    expect(cursor).toEqual({
-      value: "cursor",
-      label: "Cursor",
-      available: true,
-    });
-    expect(grok).toEqual({
-      value: "grok",
-      label: "Grok",
-      available: true,
-    });
-    expect(droid).toEqual({
-      value: "droid",
-      label: "Droid",
-      available: true,
-    });
-    expect(kilo).toEqual({
-      value: "kilo",
-      label: "Kilo",
-      available: true,
-    });
     expect(opencode).toEqual({
       value: "opencode",
       label: "OpenCode",
-      available: true,
-    });
-    expect(pi).toEqual({
-      value: "pi",
-      label: "Pi",
       available: true,
     });
   });

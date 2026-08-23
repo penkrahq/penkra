@@ -25,7 +25,7 @@ import {
   ProviderInstallationId,
   ProviderNativeStateGenerationId,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
   TurnId,
@@ -98,7 +98,7 @@ import { ThreadProviderBindingRepository } from "../../persistence/Services/Thre
 const TEST_CONNECTION_ID = ProviderConnectionId.makeUnsafe("test-managed-connection");
 const TEST_INSTALLATION_ID = ProviderInstallationId.makeUnsafe("test-managed-installation");
 
-const asProjectId = (value: string): ContainerId => ContainerId.makeUnsafe(value);
+const asFolderId = (value: string): FolderId => FolderId.makeUnsafe(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId =>
   ApprovalRequestId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
@@ -578,9 +578,9 @@ describe("ProviderCommandReactor", () => {
     );
     await Effect.runPromise(
       engine.dispatch({
-        type: "project.create",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-project-create"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Provider Project",
         workspaceRoot: null,
         spaceId: SpaceId.makeUnsafe("space-personal"),
@@ -593,7 +593,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-create"),
         threadId: ThreadId.makeUnsafe("thread-1"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Thread",
         modelSelection: modelSelection,
         runtimeMode: "approval-required",
@@ -1178,7 +1178,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-durable-unrelated-thread"),
         threadId: ThreadId.makeUnsafe("thread-2"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Unrelated thread",
         modelSelection: {
           provider: "codex",
@@ -1935,7 +1935,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    // Soft-delete the thread while the reactor is down (this projects deleted_at
+    // Soft-delete the thread while the reactor is down (this folders deleted_at
     // on the thread row so it resolves to undefined).
     await Effect.runPromise(
       harness.engine.dispatch({
@@ -2006,25 +2006,25 @@ describe("ProviderCommandReactor", () => {
     expect(input?.mentions).toBeUndefined();
   });
 
-  it("does not rebootstrap an empty Droid fork after its first native turn", async () => {
+  it("does not rebootstrap an empty OpenCode fork after its first native turn", async () => {
     const harness = await createHarness({
       forkThreadResult: {
-        threadId: ThreadId.makeUnsafe("thread-empty-droid-fork"),
-        resumeCursor: "native-empty-droid-fork",
+        threadId: ThreadId.makeUnsafe("thread-empty-opencode-fork"),
+        resumeCursor: "native-empty-opencode-fork",
       },
     });
     const now = new Date().toISOString();
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.fork.create",
-        commandId: CommandId.makeUnsafe("cmd-empty-droid-fork-create"),
-        threadId: ThreadId.makeUnsafe("thread-empty-droid-fork"),
+        commandId: CommandId.makeUnsafe("cmd-empty-opencode-fork-create"),
+        threadId: ThreadId.makeUnsafe("thread-empty-opencode-fork"),
         sourceThreadId: ThreadId.makeUnsafe("thread-1"),
-        projectId: asProjectId("project-1"),
-        title: "Empty Droid fork",
+        folderId: asFolderId("project-1"),
+        title: "Empty OpenCode fork",
         modelSelection: {
-          provider: "droid",
-          model: "claude-sonnet-4-6",
+          provider: "opencode",
+          model: "openai/gpt-5",
         },
         runtimeMode: "approval-required",
         importedMessages: [],
@@ -2037,10 +2037,10 @@ describe("ProviderCommandReactor", () => {
         type: "thread.turn.start",
         connectionId: TEST_CONNECTION_ID,
         bindingRevision: 0,
-        commandId: CommandId.makeUnsafe("cmd-empty-droid-fork-first-turn"),
-        threadId: ThreadId.makeUnsafe("thread-empty-droid-fork"),
+        commandId: CommandId.makeUnsafe("cmd-empty-opencode-fork-first-turn"),
+        threadId: ThreadId.makeUnsafe("thread-empty-opencode-fork"),
         message: {
-          messageId: asMessageId("empty-droid-fork-first-user"),
+          messageId: asMessageId("empty-opencode-fork-first-user"),
           role: "user",
           text: "First message without prior context",
           attachments: [],
@@ -2059,10 +2059,10 @@ describe("ProviderCommandReactor", () => {
         type: "thread.turn.start",
         connectionId: TEST_CONNECTION_ID,
         bindingRevision: 0,
-        commandId: CommandId.makeUnsafe("cmd-empty-droid-fork-second-turn"),
-        threadId: ThreadId.makeUnsafe("thread-empty-droid-fork"),
+        commandId: CommandId.makeUnsafe("cmd-empty-opencode-fork-second-turn"),
+        threadId: ThreadId.makeUnsafe("thread-empty-opencode-fork"),
         message: {
-          messageId: asMessageId("empty-droid-fork-second-user"),
+          messageId: asMessageId("empty-opencode-fork-second-user"),
           role: "user",
           text: "Second message continues the native session",
           attachments: [],
@@ -2267,7 +2267,7 @@ describe("ProviderCommandReactor", () => {
     const storagePath = await harness.stageAttachment(imageAttachment);
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
+        type: "thread.update",
         commandId: CommandId.makeUnsafe("cmd-managed-object-path-generic-title"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         title: "New thread",
@@ -2813,7 +2813,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-subagent-thread-create"),
         threadId: ThreadId.makeUnsafe("subagent:thread-1:tool-steer-1"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Subagent",
         modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-5" },
         runtimeMode: "approval-required",
@@ -3629,9 +3629,9 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "project.create",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-home-project-create"),
-        projectId: asProjectId("project-home"),
+        folderId: asFolderId("project-home"),
         title: "Home",
         workspaceRoot: null,
         spaceId: SpaceId.makeUnsafe("space-personal"),
@@ -3648,7 +3648,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-home-thread-create"),
         threadId: ThreadId.makeUnsafe("thread-home"),
-        projectId: asProjectId("project-home"),
+        folderId: asFolderId("project-home"),
         title: "Home thread",
         modelSelection: {
           provider: "codex",
@@ -3699,7 +3699,7 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
+        type: "thread.update",
         commandId: CommandId.makeUnsafe("cmd-thread-title-generic"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         title: "New thread",
@@ -3741,15 +3741,15 @@ describe("ProviderCommandReactor", () => {
   it("does not route title generation through another provider", async () => {
     const harness = await createHarness({
       threadModelSelection: {
-        provider: "antigravity",
-        model: "Gemini 3.5 Flash",
+        provider: "claudeAgent",
+        model: "claude-sonnet-4-6",
       },
     });
     const now = new Date().toISOString();
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
-        commandId: CommandId.makeUnsafe("cmd-thread-title-antigravity-generated"),
+        type: "thread.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-title-opencode-generated"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         title: "Summarize provider startup failures without Codex",
       }),
@@ -3760,17 +3760,17 @@ describe("ProviderCommandReactor", () => {
         type: "thread.turn.start",
         connectionId: TEST_CONNECTION_ID,
         bindingRevision: 0,
-        commandId: CommandId.makeUnsafe("cmd-turn-start-antigravity-generated-title"),
+        commandId: CommandId.makeUnsafe("cmd-turn-start-opencode-generated-title"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         message: {
-          messageId: asMessageId("user-message-antigravity-generated-title-1"),
+          messageId: asMessageId("user-message-opencode-generated-title-1"),
           role: "user",
           text: "Summarize provider startup failures without Codex",
           attachments: [],
         },
         modelSelection: {
-          provider: "antigravity",
-          model: "Gemini 3.5 Flash",
+          provider: "claudeAgent",
+          model: "claude-sonnet-4-6",
         },
         runtimeMode: "approval-required",
         createdAt: now,
@@ -3787,16 +3787,16 @@ describe("ProviderCommandReactor", () => {
   it("keeps the existing title when the thread provider has no title generator", async () => {
     const harness = await createHarness({
       threadModelSelection: {
-        provider: "antigravity",
-        model: "Gemini 3.5 Flash",
+        provider: "claudeAgent",
+        model: "claude-sonnet-4-6",
       },
     });
     const now = new Date().toISOString();
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
-        commandId: CommandId.makeUnsafe("cmd-thread-title-antigravity"),
+        type: "thread.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-title-opencode"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         title: "New thread",
       }),
@@ -3807,17 +3807,17 @@ describe("ProviderCommandReactor", () => {
         type: "thread.turn.start",
         connectionId: TEST_CONNECTION_ID,
         bindingRevision: 0,
-        commandId: CommandId.makeUnsafe("cmd-turn-start-antigravity-title"),
+        commandId: CommandId.makeUnsafe("cmd-turn-start-opencode-title"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         message: {
-          messageId: asMessageId("user-message-antigravity-title-1"),
+          messageId: asMessageId("user-message-opencode-title-1"),
           role: "user",
           text: "Summarize provider startup failures without Codex",
           attachments: [],
         },
         modelSelection: {
-          provider: "antigravity",
-          model: "Gemini 3.5 Flash",
+          provider: "claudeAgent",
+          model: "claude-sonnet-4-6",
         },
         runtimeMode: "approval-required",
         createdAt: now,
@@ -3849,7 +3849,7 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
+        type: "thread.update",
         commandId: CommandId.makeUnsafe("cmd-thread-title-opencode"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         title: "New thread",
@@ -4917,7 +4917,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-child-thread-create"),
         threadId: ThreadId.makeUnsafe("thread-child"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         parentThreadId: ThreadId.makeUnsafe("thread-1"),
         title: "Child",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
@@ -4987,7 +4987,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-child-thread-create-before-parent-stop"),
         threadId: ThreadId.makeUnsafe("thread-child-before-parent-stop"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         parentThreadId: ThreadId.makeUnsafe("thread-1"),
         title: "Queued child",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
@@ -5076,7 +5076,7 @@ describe("ProviderCommandReactor", () => {
           type: "thread.create",
           commandId: CommandId.makeUnsafe(`cmd-${childId}-create`),
           threadId: ThreadId.makeUnsafe(childId),
-          projectId: asProjectId("project-1"),
+          folderId: asFolderId("project-1"),
           parentThreadId: ThreadId.makeUnsafe("thread-1"),
           title: childId,
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
@@ -5158,7 +5158,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-direct-failure-child-create"),
         threadId: ThreadId.makeUnsafe("thread-direct-failure-child"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         parentThreadId: ThreadId.makeUnsafe("thread-1"),
         title: "Queued child",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
@@ -5865,7 +5865,7 @@ describe("ProviderCommandReactor", () => {
     // as uncached input tokens.
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
+        type: "thread.update",
         commandId: CommandId.makeUnsafe("cmd-thread-meta-update-claude-1m"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         modelSelection: {
@@ -5881,7 +5881,7 @@ describe("ProviderCommandReactor", () => {
     // Effort is fixed at subprocess spawn, so an effort change still restarts.
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
+        type: "thread.update",
         commandId: CommandId.makeUnsafe("cmd-thread-meta-update-claude-effort"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         modelSelection: {
@@ -5938,7 +5938,7 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
+        type: "thread.update",
         commandId: CommandId.makeUnsafe("cmd-direct-claude-effort-update"),
         threadId,
         modelSelection: {
@@ -6002,7 +6002,7 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
+        type: "thread.update",
         commandId: CommandId.makeUnsafe("cmd-active-selection-effort"),
         threadId,
         modelSelection: {
@@ -6038,7 +6038,7 @@ describe("ProviderCommandReactor", () => {
     // selection with the profile that is actually live.
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
+        type: "thread.update",
         commandId: CommandId.makeUnsafe("cmd-active-selection-context"),
         threadId,
         modelSelection: {
@@ -6053,12 +6053,12 @@ describe("ProviderCommandReactor", () => {
     expect(harness.startSession).not.toHaveBeenCalled();
   });
 
-  it("seeds imported Droid selection before handling idle metadata updates", async () => {
+  it("seeds imported Claude selection before handling idle metadata updates", async () => {
     const harness = await createHarness({
       threadModelSelection: {
-        provider: "droid",
+        provider: "claudeAgent",
         model: "claude-sonnet-4-6",
-        options: { reasoningEffort: "medium" },
+        options: { effort: "medium" },
       },
     });
     const now = new Date().toISOString();
@@ -6067,12 +6067,12 @@ describe("ProviderCommandReactor", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-set-imported-droid"),
+        commandId: CommandId.makeUnsafe("cmd-session-set-imported-opencode"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
-          providerName: "droid",
+          providerName: "claudeAgent",
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
@@ -6085,13 +6085,13 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
-        commandId: CommandId.makeUnsafe("cmd-thread-meta-update-droid-same-effort"),
+        type: "thread.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-meta-update-opencode-same-effort"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         modelSelection: {
-          provider: "droid",
+          provider: "claudeAgent",
           model: "claude-sonnet-4-6",
-          options: { reasoningEffort: "medium" },
+          options: { effort: "medium" },
         },
       }),
     );
@@ -6100,13 +6100,13 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
-        commandId: CommandId.makeUnsafe("cmd-thread-meta-update-droid-effort"),
+        type: "thread.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-meta-update-opencode-effort"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         modelSelection: {
-          provider: "droid",
+          provider: "claudeAgent",
           model: "claude-sonnet-4-6",
-          options: { reasoningEffort: "high" },
+          options: { effort: "high" },
         },
       }),
     );
@@ -6921,7 +6921,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-create-subagent"),
         threadId: ThreadId.makeUnsafe("subagent:thread-1:child-provider-1"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Halley [explorer]",
         modelSelection: {
           provider: "codex",
@@ -6995,7 +6995,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-create-subagent-sessionless"),
         threadId: ThreadId.makeUnsafe("subagent:thread-1:child-provider-2"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Halley [explorer]",
         modelSelection: {
           provider: "codex",
@@ -7050,7 +7050,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-create-subagent-fallback"),
         threadId: ThreadId.makeUnsafe("subagent:thread-1:child-provider-1"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Agent",
         modelSelection: {
           provider: "codex",
@@ -7129,7 +7129,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-create-synthetic-steer-child"),
         threadId: ThreadId.makeUnsafe("subagent:thread-1:child-provider-steer"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Synthetic child",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
@@ -7982,7 +7982,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-create-subagent-for-stop"),
         threadId: ThreadId.makeUnsafe("subagent:thread-1:child-provider-1"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Agent",
         modelSelection: {
           provider: "codex",

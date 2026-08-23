@@ -12,22 +12,22 @@ import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
 
 export const projectQueryKeys = {
-  all: ["projects"] as const,
+  all: ["folders"] as const,
   listDirectories: (cwd: string | null, relativePath: string | null, includeFiles: boolean) =>
-    ["projects", "list-directories", cwd, relativePath, includeFiles] as const,
+    ["folders", "list-directories", cwd, relativePath, includeFiles] as const,
   readFile: (cwd: string | null, relativePath: string | null) =>
-    ["projects", "read-file", cwd, relativePath] as const,
-  localPreviewGrant: (path: string | null) => ["projects", "local-preview-grant", path] as const,
+    ["folders", "read-file", cwd, relativePath] as const,
+  localPreviewGrant: (path: string | null) => ["folders", "local-preview-grant", path] as const,
   discoverScripts: (cwd: string | null, depth: number) =>
-    ["projects", "discover-scripts", cwd, depth] as const,
+    ["folders", "discover-scripts", cwd, depth] as const,
   searchEntries: (
     cwd: string | null,
     query: string,
     limit: number,
     kind: ProjectEntry["kind"] | null = null,
-  ) => ["projects", "search-entries", cwd, query, limit, kind] as const,
+  ) => ["folders", "search-entries", cwd, query, limit, kind] as const,
   searchLocalEntries: (rootPath: string | null, query: string, limit: number) =>
-    ["projects", "search-local-entries", rootPath, query, limit] as const,
+    ["folders", "search-local-entries", rootPath, query, limit] as const,
 };
 
 // Scope live file-change invalidations to one workspace so unrelated
@@ -39,9 +39,9 @@ export function invalidateProjectFileQueriesForCwds(
   const uniqueCwds = [...new Set([...cwds].filter((cwd) => cwd.length > 0))];
   return Promise.all(
     uniqueCwds.flatMap((cwd) => [
-      queryClient.invalidateQueries({ queryKey: ["projects", "list-directories", cwd] as const }),
-      queryClient.invalidateQueries({ queryKey: ["projects", "read-file", cwd] as const }),
-      queryClient.invalidateQueries({ queryKey: ["projects", "search-entries", cwd] as const }),
+      queryClient.invalidateQueries({ queryKey: ["folders", "list-directories", cwd] as const }),
+      queryClient.invalidateQueries({ queryKey: ["folders", "read-file", cwd] as const }),
+      queryClient.invalidateQueries({ queryKey: ["folders", "search-entries", cwd] as const }),
     ]),
   );
 }
@@ -117,7 +117,7 @@ export function projectListDirectoriesQueryOptions(input: {
       if (!input.cwd) {
         throw new Error("Workspace directory listing is unavailable.");
       }
-      return api.projects.listDirectories({
+      return api.folders.listDirectories({
         cwd: input.cwd,
         includeFiles,
         ...(relativePath ? { relativePath } : {}),
@@ -148,7 +148,7 @@ export function projectReadFileQueryOptions(input: {
       if (!effectiveCwd || !input.relativePath) {
         throw new Error("Workspace file read is unavailable.");
       }
-      return api.projects.readFile({
+      return api.folders.readFile({
         cwd: effectiveCwd,
         relativePath: input.relativePath,
         ...(input.previewGrant ? { previewGrant: input.previewGrant } : {}),
@@ -171,7 +171,7 @@ export function projectLocalPreviewGrantQueryOptions(input: {
       if (!input.path) {
         throw new Error("Local file preview grant is unavailable.");
       }
-      return api.projects.createLocalFilePreviewGrant({ path: input.path });
+      return api.folders.createLocalFilePreviewGrant({ path: input.path });
     },
     enabled: (input.enabled ?? true) && input.path !== null,
     staleTime: input.staleTime ?? 60_000,
@@ -193,7 +193,7 @@ export function projectDiscoverScriptsQueryOptions(input: {
       if (!input.cwd) {
         throw new Error("Project script discovery is unavailable.");
       }
-      return api.projects.discoverScripts({
+      return api.folders.discoverScripts({
         cwd: input.cwd,
         depth,
       });
@@ -220,7 +220,7 @@ export function projectSearchEntriesQueryOptions(input: {
       if (!input.cwd) {
         throw new Error("Workspace entry search is unavailable.");
       }
-      return api.projects.searchEntries({
+      return api.folders.searchEntries({
         cwd: input.cwd,
         query: input.query,
         limit,
@@ -250,7 +250,7 @@ export function projectSearchLocalEntriesQueryOptions(input: {
       if (!input.rootPath) {
         throw new Error("Local entry search is unavailable.");
       }
-      return api.projects.searchLocalEntries({
+      return api.folders.searchLocalEntries({
         rootPath: input.rootPath,
         query: trimmedQuery,
         limit,

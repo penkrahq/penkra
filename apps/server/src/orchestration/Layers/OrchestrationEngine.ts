@@ -2,7 +2,7 @@ import type {
   ChatAttachment,
   OrchestrationEvent,
   OrchestrationReadModel,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
 } from "@penkra/contracts";
@@ -67,7 +67,7 @@ import {
   usesReservedCommandAdmission,
 } from "../orchestrationAdmission.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
-import { PROJECT_METADATA_SNAPSHOT_PROJECTORS } from "../projectMetadataProjection.ts";
+import { FOLDER_METADATA_SNAPSHOT_PROJECTORS } from "../folderMetadataProjection.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import {
   OrchestrationProjectionPipeline,
@@ -115,17 +115,16 @@ type CommittedCommandResult = {
 };
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "space" | "project" | "thread";
-  readonly aggregateId: SpaceId | ContainerId | ThreadId;
+  readonly aggregateKind: "space" | "folder" | "thread";
+  readonly aggregateId: SpaceId | FolderId | ThreadId;
 } {
   switch (command.type) {
     case "space.create":
-    case "space.meta.update":
-    case "space.reorder":
+    case "space.update":
     case "space.archive":
     case "space.restore":
     case "space.delete":
-    case "space.projects.assign":
+    case "folder.move":
       return {
         aggregateKind: "space",
         aggregateId: command.spaceId,
@@ -137,15 +136,15 @@ function commandToAggregateRef(command: OrchestrationCommand): {
             aggregateId: command.target.spaceId,
           }
         : {
-            aggregateKind: "project",
-            aggregateId: command.target.projectId,
+            aggregateKind: "folder",
+            aggregateId: command.target.folderId,
           };
-    case "project.create":
-    case "project.meta.update":
-    case "project.delete":
+    case "folder.create":
+    case "folder.update":
+    case "folder.delete":
       return {
-        aggregateKind: "project",
-        aggregateId: command.projectId,
+        aggregateKind: "folder",
+        aggregateId: command.folderId,
       };
     default:
       return {
@@ -155,20 +154,20 @@ function commandToAggregateRef(command: OrchestrationCommand): {
   }
 }
 
-// Space and project metadata events share the synchronous "shell" projection path: they
+// Space and folder metadata events share the synchronous "shell" projection path: they
 // are cheap, sidebar-visible rows that must be queryable the moment the command commits.
 function isShellMetadataEvent(event: OrchestrationEvent): event is ShellMetadataOrchestrationEvent {
   return (
     event.type === "space.created" ||
-    event.type === "space.meta-updated" ||
-    event.type === "space.order-updated" ||
+    event.type === "space.updated" ||
     event.type === "space.archived" ||
     event.type === "space.restored" ||
     event.type === "space.deleted" ||
     event.type === "sidebar.layout-updated" ||
-    event.type === "project.created" ||
-    event.type === "project.meta-updated" ||
-    event.type === "project.deleted"
+    event.type === "folder.created" ||
+    event.type === "folder.updated" ||
+    event.type === "folder.moved" ||
+    event.type === "folder.deleted"
   );
 }
 
@@ -493,7 +492,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     }
   };
 
-  // Rebuild only the project/space projection rows and snapshot cursors.
+  // Rebuild only the folder/space projection rows and snapshot cursors.
   // Existing thread/chat projection rows stay in place so older installs do not
   // lose history that is no longer fully represented in orchestration_events.
   const resetDerivedProjectionState = sql.withTransaction(
@@ -502,7 +501,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`
         DELETE FROM projection_state
-        WHERE projector IN ${sql.in(PROJECT_METADATA_SNAPSHOT_PROJECTORS)}
+        WHERE projector IN ${sql.in(FOLDER_METADATA_SNAPSHOT_PROJECTORS)}
       `;
     }),
   );
@@ -874,7 +873,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           const savedEvent = yield* eventStore.append(nextEvent);
           nextCommandReadModel = yield* projectEvent(nextCommandReadModel, savedEvent);
           if (isShellMetadataEvent(savedEvent)) {
-            yield* projectionPipeline.projectMetadataEvent(savedEvent);
+            yield* projectionPipeline.folderMetadataEvent(savedEvent);
           } else {
             yield* projectionPipeline.projectHotEventInCurrentTransaction(savedEvent);
           }

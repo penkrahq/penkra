@@ -30,7 +30,9 @@ export function makeAgentGatewayMcpTransport(input: {
   readonly credentials: AgentGatewayCredentialsShape;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
   readonly tools: ReadonlyArray<ToolEntry>;
-  readonly instructions: string;
+  readonly instructions:
+    | string
+    | ((context: Omit<ToolContext, "jsonRpcRequestId">) => Effect.Effect<string, unknown>);
   readonly requireThreadShell: (
     threadId: string,
   ) => Effect.Effect<OrchestrationThreadShell, unknown>;
@@ -41,12 +43,16 @@ export function makeAgentGatewayMcpTransport(input: {
     Effect.gen(function* () {
       switch (request.method) {
         case "initialize":
+          const instructions =
+            typeof input.instructions === "string"
+              ? input.instructions
+              : yield* input.instructions(context);
           return jsonRpcResult(
             request.id,
             buildMcpInitializeResult({
               requestedProtocolVersion: request.params.protocolVersion,
               serverVersion: "1.0.0",
-              instructions: input.instructions,
+              instructions,
             }),
           );
         case "ping":

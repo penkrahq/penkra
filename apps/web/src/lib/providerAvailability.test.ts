@@ -9,12 +9,12 @@ import {
 } from "./providerAvailability";
 
 const BASE_STATUS: ServerProviderStatus = {
-  provider: "antigravity",
+  provider: "opencode",
   status: "error",
   available: false,
   authStatus: "unknown",
   checkedAt: "2026-04-17T10:00:00.000Z",
-  message: "Antigravity CLI (`agy`) is not installed or not on PATH.",
+  message: "OpenCode is not available.",
 };
 
 const READY_STATUS: ServerProviderStatus = {
@@ -25,22 +25,6 @@ const READY_STATUS: ServerProviderStatus = {
 };
 
 describe("normalizeProviderStatusForLocalConfig", () => {
-  it("keeps Antigravity interactive when a custom binary path is configured locally", () => {
-    expect(
-      normalizeProviderStatusForLocalConfig({
-        provider: "antigravity",
-        status: BASE_STATUS,
-        customBinaryPath: "/opt/homebrew/bin/agy",
-      }),
-    ).toEqual({
-      ...BASE_STATUS,
-      available: true,
-      status: "warning",
-      message:
-        "Antigravity uses a custom local binary path in this app. Availability will be confirmed when you start a session.",
-    });
-  });
-
   it("applies the same custom-path fallback to Claude", () => {
     expect(
       normalizeProviderStatusForLocalConfig({
@@ -108,7 +92,7 @@ describe("normalizeProviderStatusForLocalConfig", () => {
   it("preserves authenticated and unauthenticated statuses", () => {
     expect(
       normalizeProviderStatusForLocalConfig({
-        provider: "antigravity",
+        provider: "opencode",
         status: { ...BASE_STATUS, available: true, status: "ready", authStatus: "authenticated" },
         customBinaryPath: "/opt/homebrew/bin/agy",
       }),
@@ -116,7 +100,7 @@ describe("normalizeProviderStatusForLocalConfig", () => {
 
     expect(
       normalizeProviderStatusForLocalConfig({
-        provider: "antigravity",
+        provider: "opencode",
         status: { ...BASE_STATUS, authStatus: "unauthenticated" },
         customBinaryPath: "/opt/homebrew/bin/agy",
       }),
@@ -144,7 +128,7 @@ describe("resolveProviderSendAvailabilityWithRefresh", () => {
 
     await expect(
       resolveProviderSendAvailabilityWithRefresh({
-        provider: "antigravity",
+        provider: "opencode",
         statuses: [READY_STATUS],
         refreshStatuses,
       }),
@@ -157,7 +141,7 @@ describe("resolveProviderSendAvailabilityWithRefresh", () => {
 
     await expect(
       resolveProviderSendAvailabilityWithRefresh({
-        provider: "antigravity",
+        provider: "opencode",
         statuses: [],
         refreshStatuses,
       }),
@@ -170,7 +154,7 @@ describe("resolveProviderSendAvailabilityWithRefresh", () => {
 
     await expect(
       resolveProviderSendAvailabilityWithRefresh({
-        provider: "antigravity",
+        provider: "opencode",
         statuses: [
           { ...BASE_STATUS, available: true, status: "error", authStatus: "unauthenticated" },
         ],
@@ -183,7 +167,7 @@ describe("resolveProviderSendAvailabilityWithRefresh", () => {
   it("keeps the original blocked reason when refresh fails", async () => {
     await expect(
       resolveProviderSendAvailabilityWithRefresh({
-        provider: "antigravity",
+        provider: "opencode",
         statuses: [{ ...BASE_STATUS, authStatus: "unauthenticated" }],
         refreshStatuses: vi.fn(async () => {
           throw new Error("refresh failed");
@@ -191,7 +175,7 @@ describe("resolveProviderSendAvailabilityWithRefresh", () => {
       }),
     ).resolves.toMatchObject({
       usable: false,
-      unavailableReason: "Antigravity is not authenticated yet.",
+      unavailableReason: "OpenCode is not authenticated yet.",
     });
   });
 });
@@ -199,7 +183,7 @@ describe("resolveProviderSendAvailabilityWithRefresh", () => {
 describe("providerUnavailableReason", () => {
   it("returns provider-specific guidance", () => {
     expect(providerUnavailableReason({ ...BASE_STATUS, authStatus: "unauthenticated" })).toBe(
-      "Antigravity is not authenticated yet.",
+      "OpenCode is not authenticated yet.",
     );
     expect(providerUnavailableReason(BASE_STATUS)).toBe(BASE_STATUS.message);
   });

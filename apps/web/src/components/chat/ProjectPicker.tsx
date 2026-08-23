@@ -4,7 +4,7 @@
 // Layer: Chat / empty-state entrypoint
 
 import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
-import type { ContainerId, SpaceId } from "@penkra/contracts";
+import type { FolderId, SpaceId } from "@penkra/contracts";
 
 import { readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";
@@ -25,7 +25,7 @@ import { PickerTriggerButton } from "./PickerTriggerButton";
 interface ProjectPickerProps {
   align?: "start" | "center" | "end";
   side?: "top" | "bottom";
-  recentProjectId: ContainerId;
+  recentFolderId: FolderId;
   recentSpaceId?: SpaceId | null;
   selectedWorkspaceRoot?: string | null;
   onSelectWorkspaceRoot: (workspaceRoot: string) => void;
@@ -73,7 +73,7 @@ function normalizePathKey(path: string): string {
 export const ProjectPicker = memo(function ProjectPicker({
   align: alignProp,
   side: sideProp,
-  recentProjectId,
+  recentFolderId,
   recentSpaceId: recentSpaceIdProp,
   selectedWorkspaceRoot: selectedWorkspaceRootProp,
   onSelectWorkspaceRoot,
@@ -103,7 +103,7 @@ export const ProjectPicker = memo(function ProjectPicker({
     return sidebarThreads
       .filter(
         (thread) =>
-          thread.projectId === recentProjectId &&
+          thread.folderId === recentFolderId &&
           (thread.spaceId ?? null) === recentSpaceId &&
           Boolean(thread.workingDirectory),
       )
@@ -116,7 +116,7 @@ export const ProjectPicker = memo(function ProjectPicker({
         seen.add(key);
         return [{ path, label }];
       });
-  }, [recentProjectId, recentSpaceId, sidebarThreads]);
+  }, [recentFolderId, recentSpaceId, sidebarThreads]);
   const recentPaths = useMemo(() => recentFolders.map((folder) => folder.path), [recentFolders]);
   const selectedLabel = basenameOfPath(selectedWorkspaceRoot);
 

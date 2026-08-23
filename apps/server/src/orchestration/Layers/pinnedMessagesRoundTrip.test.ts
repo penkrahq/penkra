@@ -1,7 +1,7 @@
 import {
   CommandId,
   MessageId,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
   ThreadMarkerId,
@@ -60,7 +60,7 @@ describe("pinned messages round-trip", () => {
   it("persists pinned-message commands into projected thread detail and snapshots", async () => {
     const system = await createSystem();
     const createdAt = "2026-06-06T00:00:00.000Z";
-    const projectId = ContainerId.makeUnsafe("project-pins");
+    const folderId = FolderId.makeUnsafe("project-pins");
     const threadId = ThreadId.makeUnsafe("thread-pins");
     const messageId = MessageId.makeUnsafe("assistant-msg-1");
     const secondMessageId = MessageId.makeUnsafe("assistant-msg-2");
@@ -68,10 +68,9 @@ describe("pinned messages round-trip", () => {
     try {
       await system.run(
         system.engine.dispatch({
-          type: "project.create",
-          kind: "project",
+          type: "folder.create",
           commandId: CommandId.makeUnsafe("cmd-project-pins"),
-          projectId,
+          folderId,
           spaceId: system.spaceId,
           title: "Pins project",
           workspaceRoot: null,
@@ -84,7 +83,7 @@ describe("pinned messages round-trip", () => {
           type: "thread.create",
           commandId: CommandId.makeUnsafe("cmd-thread-pins"),
           threadId,
-          projectId,
+          folderId,
           title: "Pins thread",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "approval-required",
@@ -163,7 +162,7 @@ describe("pinned messages round-trip", () => {
   it("persists thread marker commands into projected thread detail and snapshots", async () => {
     const system = await createSystem();
     const createdAt = "2026-06-06T00:00:00.000Z";
-    const projectId = ContainerId.makeUnsafe("project-markers");
+    const folderId = FolderId.makeUnsafe("project-markers");
     const threadId = ThreadId.makeUnsafe("thread-markers");
     const messageId = MessageId.makeUnsafe("assistant-marker-msg-1");
     const firstMarkerId = ThreadMarkerId.makeUnsafe("marker-1");
@@ -172,10 +171,9 @@ describe("pinned messages round-trip", () => {
     try {
       await system.run(
         system.engine.dispatch({
-          type: "project.create",
-          kind: "project",
+          type: "folder.create",
           commandId: CommandId.makeUnsafe("cmd-project-markers"),
-          projectId,
+          folderId,
           spaceId: system.spaceId,
           title: "Markers project",
           workspaceRoot: null,
@@ -188,7 +186,7 @@ describe("pinned messages round-trip", () => {
           type: "thread.create",
           commandId: CommandId.makeUnsafe("cmd-thread-markers"),
           threadId,
-          projectId,
+          folderId,
           title: "Markers thread",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "approval-required",

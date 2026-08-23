@@ -44,7 +44,7 @@ export const PROVIDER_OPTIONS: Array<{
 }> = PROVIDER_DESCRIPTORS.map((descriptor) => ({
   value: descriptor.kind,
   label: descriptor.displayName,
-  available: descriptor.available,
+  available: descriptor.adapterImplemented,
 }));
 
 export interface ActiveTaskListState {
@@ -111,9 +111,26 @@ export function formatElapsed(startIso: string, endIso: string | undefined): str
 
 type LatestTurnTiming = Pick<
   OrchestrationLatestTurn,
-  "turnId" | "state" | "startedAt" | "completedAt"
+  "turnId" | "providerTurnId" | "state" | "startedAt" | "completedAt"
 >;
 type SessionActivityState = Pick<ThreadSession, "orchestrationStatus" | "activeTurnId">;
+
+type LatestTurnIdentity = Pick<OrchestrationLatestTurn, "turnId" | "providerTurnId">;
+
+export function latestTurnMatchesTurnId(
+  latestTurn: LatestTurnIdentity | null,
+  turnId: TurnId | null | undefined,
+): boolean {
+  if (!latestTurn || !turnId) return false;
+  return latestTurn.turnId === turnId || latestTurn.providerTurnId === turnId;
+}
+
+export function isSessionActiveLatestTurn(
+  latestTurn: LatestTurnIdentity | null,
+  session: Pick<ThreadSession, "activeTurnId"> | null,
+): boolean {
+  return latestTurnMatchesTurnId(latestTurn, session?.activeTurnId);
+}
 
 export function isLatestTurnSettled(
   latestTurn: LatestTurnTiming | null,
@@ -193,7 +210,7 @@ export function deriveActiveWorkStartedAt(
 ): string | null {
   const runningTurnId =
     session?.orchestrationStatus === "running" ? (session.activeTurnId ?? null) : null;
-  if (runningTurnId !== null && runningTurnId === latestTurn?.turnId) {
+  if (latestTurnMatchesTurnId(latestTurn, runningTurnId)) {
     return latestTurn?.startedAt ?? sendStartedAt;
   }
   if (runningTurnId !== null) {

@@ -1,4 +1,4 @@
-import { ContainerId, type ModelSelection, SpaceId, ThreadId } from "@penkra/contracts";
+import { FolderId, type ModelSelection, SpaceId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import { type ComposerThreadDraftState, type DraftThreadState } from "../composerDraftStore";
 import {
@@ -17,7 +17,7 @@ import {
   shouldReuseActiveDraftThread,
 } from "./threadBootstrap";
 
-const PROJECT_ID = ContainerId.makeUnsafe("project-bootstrap");
+const PROJECT_ID = FolderId.makeUnsafe("project-bootstrap");
 const THREAD_ID = ThreadId.makeUnsafe("thread-bootstrap");
 
 function modelSelection(
@@ -34,7 +34,7 @@ function modelSelection(
 
 function makeDraftThread(partial?: Partial<DraftThreadState>): DraftThreadState {
   return {
-    projectId: PROJECT_ID,
+    folderId: PROJECT_ID,
     spaceId: null,
     createdAt: "2026-04-05T10:00:00.000Z",
     runtimeMode: "approval-required",
@@ -89,54 +89,34 @@ describe("threadBootstrap", () => {
     ).toEqual({ spaceId: personalId });
   });
 
-  it("preserves the selected Space for the shared chat container", () => {
+  it("uses the Folder's owning Space through container scoping", () => {
     const personalId = SpaceId.makeUnsafe("personal");
     const workId = SpaceId.makeUnsafe("work");
     expect(
       scopeNewThreadOptionsToContainer({
         options: { spaceId: workId },
-        containerKind: "chat",
-        containerSpaceId: personalId,
-      }),
-    ).toEqual({ spaceId: workId });
-  });
-
-  it("uses the virtual Folder's owning Space through container scoping", () => {
-    const personalId = SpaceId.makeUnsafe("personal");
-    const workId = SpaceId.makeUnsafe("work");
-    expect(
-      scopeNewThreadOptionsToContainer({
-        options: { spaceId: workId },
-        containerKind: "project",
         containerSpaceId: personalId,
       }),
     ).toEqual({ spaceId: personalId });
   });
 
-  it("inherits the newest physical folder used directly in the same Space", () => {
-    const personalId = SpaceId.makeUnsafe("personal");
-    const workId = SpaceId.makeUnsafe("work");
+  it("inherits the newest working directory used in the same Folder", () => {
     expect(
       resolveRecentParentWorkingDirectory({
-        projectId: PROJECT_ID,
-        projectKind: "chat",
-        spaceId: personalId,
+        folderId: PROJECT_ID,
         threads: [
           {
-            projectId: PROJECT_ID,
-            spaceId: personalId,
+            folderId: PROJECT_ID,
             workingDirectory: "/repo/older",
             createdAt: "2026-04-05T10:00:00.000Z",
           },
           {
-            projectId: PROJECT_ID,
-            spaceId: workId,
+            folderId: FolderId.makeUnsafe("other-folder"),
             workingDirectory: "/repo/other-space",
             createdAt: "2026-04-05T12:00:00.000Z",
           },
           {
-            projectId: PROJECT_ID,
-            spaceId: personalId,
+            folderId: PROJECT_ID,
             workingDirectory: "/repo/newer",
             createdAt: "2026-04-05T11:00:00.000Z",
           },
@@ -145,16 +125,13 @@ describe("threadBootstrap", () => {
     ).toBe("/repo/newer");
   });
 
-  it("inherits across every thread in the same virtual folder", () => {
+  it("inherits across every thread in the Folder", () => {
     expect(
       resolveRecentParentWorkingDirectory({
-        projectId: PROJECT_ID,
-        projectKind: "project",
-        spaceId: SpaceId.makeUnsafe("ignored-for-folder-parent"),
+        folderId: PROJECT_ID,
         threads: [
           {
-            projectId: PROJECT_ID,
-            spaceId: null,
+            folderId: PROJECT_ID,
             workingDirectory: "/repo/folder-parent",
             createdAt: "2026-04-05T10:00:00.000Z",
           },
@@ -182,7 +159,7 @@ describe("threadBootstrap", () => {
       shouldReuseActiveDraftThread({
         draftThread: makeDraftThread(),
         entryPoint: "terminal",
-        projectId: PROJECT_ID,
+        folderId: PROJECT_ID,
         routeThreadId: THREAD_ID,
       }),
     ).toBe(true);
@@ -190,7 +167,7 @@ describe("threadBootstrap", () => {
       shouldReuseActiveDraftThread({
         draftThread: makeDraftThread({ entryPoint: "chat" }),
         entryPoint: "terminal",
-        projectId: PROJECT_ID,
+        folderId: PROJECT_ID,
         routeThreadId: THREAD_ID,
       }),
     ).toBe(false);
@@ -202,7 +179,7 @@ describe("threadBootstrap", () => {
         storedDraftThread: { threadId: ThreadId.makeUnsafe("stored-thread"), ...makeDraftThread() },
         latestActiveDraftThread: makeDraftThread({}),
         entryPoint: "terminal",
-        projectId: PROJECT_ID,
+        folderId: PROJECT_ID,
         routeThreadId: THREAD_ID,
       }),
     ).toMatchObject({ kind: "route", threadId: THREAD_ID });
@@ -211,7 +188,7 @@ describe("threadBootstrap", () => {
         storedDraftThread: { threadId: THREAD_ID, ...makeDraftThread() },
         latestActiveDraftThread: null,
         entryPoint: "terminal",
-        projectId: PROJECT_ID,
+        folderId: PROJECT_ID,
         routeThreadId: null,
       }),
     ).toMatchObject({ kind: "stored", threadId: THREAD_ID });
@@ -220,7 +197,7 @@ describe("threadBootstrap", () => {
         storedDraftThread: null,
         latestActiveDraftThread: null,
         entryPoint: "terminal",
-        projectId: PROJECT_ID,
+        folderId: PROJECT_ID,
         routeThreadId: null,
       }),
     ).toEqual({ kind: "fresh" });
@@ -230,14 +207,14 @@ describe("threadBootstrap", () => {
     expect(
       createActiveThreadSnapshot(
         {
-          projectId: PROJECT_ID,
+          folderId: PROJECT_ID,
           modelSelection: modelSelection("codex", "gpt-5"),
           runtimeMode: "full-access",
         },
         PROJECT_ID,
       ),
     ).toEqual({
-      projectId: PROJECT_ID,
+      folderId: PROJECT_ID,
       modelSelection: modelSelection("codex", "gpt-5"),
       runtimeMode: "full-access",
     });
@@ -301,7 +278,7 @@ describe("threadBootstrap", () => {
       resolveTerminalThreadCreationState({
         activeDraftThread: null,
         activeThread: {
-          projectId: PROJECT_ID,
+          folderId: PROJECT_ID,
           modelSelection: modelSelection("codex", "gpt-5"),
           runtimeMode: "full-access",
         },
@@ -309,7 +286,7 @@ describe("threadBootstrap", () => {
         draftThread: makeDraftThread(),
         options: undefined,
         projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
-        projectId: PROJECT_ID,
+        folderId: PROJECT_ID,
       }),
     ).toEqual({
       spaceId: null,
@@ -326,7 +303,7 @@ describe("threadBootstrap", () => {
       resolveTerminalThreadCreationState({
         activeDraftThread: null,
         activeThread: {
-          projectId: PROJECT_ID,
+          folderId: PROJECT_ID,
           modelSelection: modelSelection("codex", "gpt-5"),
           runtimeMode: "full-access",
         },
@@ -334,7 +311,7 @@ describe("threadBootstrap", () => {
         draftThread: makeDraftThread(),
         options: {},
         projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
-        projectId: PROJECT_ID,
+        folderId: PROJECT_ID,
       }),
     ).toMatchObject({});
   });

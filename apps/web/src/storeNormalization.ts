@@ -1,5 +1,5 @@
 // FILE: storeNormalization.ts
-// Purpose: Normalizes orchestration projects, threads, messages, and activities with stable identity.
+// Purpose: Normalizes orchestration folders, threads, messages, and activities with stable identity.
 // Exports: Pure normalization and equality helpers consumed by projection and event reduction.
 
 import {
@@ -19,6 +19,7 @@ import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
 
 import { isStalePendingRequestFailureDetail } from "./lib/pendingInteraction";
 import { toAttachmentPreviewUrl } from "./lib/wsHttpUrl";
+import { latestTurnMatchesTurnId } from "./session-logic";
 import { getRememberedProjectUiState } from "./storePersistence";
 import type {
   ChatAttachment,
@@ -32,7 +33,7 @@ import type {
   ThreadTurnState,
 } from "./types";
 
-type ReadModelProject = OrchestrationReadModel["projects"][number];
+type ReadModelProject = OrchestrationReadModel["folders"][number];
 type ReadModelSpace = OrchestrationReadModel["spaces"][number];
 type ReadModelThread = OrchestrationReadModel["threads"][number];
 type ReadModelMessage = ReadModelThread["messages"][number];
@@ -40,7 +41,6 @@ type ShellSnapshotThread = OrchestrationShellSnapshot["threads"][number];
 export type ProjectNormalizationInput = Pick<
   ReadModelProject,
   | "id"
-  | "kind"
   | "title"
   | "workspaceRoot"
   | "defaultModelSelection"
@@ -100,8 +100,7 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     left !== undefined &&
     left.id === right.id &&
     left.codexThreadId === right.codexThreadId &&
-    left.projectId === right.projectId &&
-    (left.spaceId ?? null) === (right.spaceId ?? null) &&
+    left.folderId === right.folderId &&
     (left.sidebarSortOrder ?? 0) === (right.sidebarSortOrder ?? 0) &&
     left.title === right.title &&
     left.modelSelection === right.modelSelection &&
@@ -309,7 +308,6 @@ export function normalizeProject(
   if (
     previous &&
     previous.id === incoming.id &&
-    previous.kind === incoming.kind &&
     previous.name === (localName ?? incoming.title) &&
     previous.remoteName === incoming.title &&
     previous.folderName === folderName &&
@@ -319,7 +317,7 @@ export function normalizeProject(
     previous.iconDataUrl === (incoming.iconDataUrl ?? null) &&
     previous.expanded === expanded &&
     (previous.isPinned ?? false) === (incoming.isPinned ?? false) &&
-    (previous.spaceId ?? null) === (incoming.spaceId ?? null) &&
+    previous.spaceId === incoming.spaceId &&
     (previous.sidebarSortOrder ?? 0) === (incoming.sidebarSortOrder ?? 0) &&
     previous.createdAt === incoming.createdAt &&
     previous.updatedAt === incoming.updatedAt &&
@@ -331,7 +329,6 @@ export function normalizeProject(
 
   return {
     id: incoming.id,
-    kind: incoming.kind ?? "project",
     name: localName ?? incoming.title,
     remoteName: incoming.title,
     folderName,
@@ -341,7 +338,7 @@ export function normalizeProject(
     iconDataUrl: incoming.iconDataUrl ?? null,
     expanded,
     isPinned: incoming.isPinned ?? false,
-    spaceId: incoming.spaceId ?? null,
+    spaceId: incoming.spaceId,
     sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     createdAt: incoming.createdAt,
     updatedAt: incoming.updatedAt,
@@ -585,7 +582,7 @@ function shouldRetainLiveAssistantMessageForHotPath(
   return (
     previousThread.session?.orchestrationStatus === "running" &&
     message.turnId !== undefined &&
-    latestTurn.turnId === message.turnId
+    latestTurnMatchesTurnId(latestTurn, message.turnId)
   );
 }
 
@@ -601,7 +598,7 @@ function shouldRetainLiveUserMessageForHotPath(
   message: ChatMessage,
 ): boolean {
   const latestTurn = previousThread.latestTurn;
-  if (latestTurn && message.turnId != null && message.turnId === latestTurn.turnId) {
+  if (latestTurn && latestTurnMatchesTurnId(latestTurn, message.turnId)) {
     return (
       latestTurn.state === "running" || previousThread.session?.orchestrationStatus === "running"
     );
@@ -733,7 +730,7 @@ function hasLiveAssistantIntro(previousThread: Thread | undefined): boolean {
   return previousThread.messages.some(
     (message) =>
       message.role === "assistant" &&
-      message.turnId === latestTurn.turnId &&
+      latestTurnMatchesTurnId(latestTurn, message.turnId) &&
       (message.streaming || message.id === latestTurn.assistantMessageId),
   );
 }
@@ -1325,6 +1322,7 @@ function normalizeLatestTurn(
   if (
     previous &&
     previous.turnId === incoming.turnId &&
+    previous.providerTurnId === incoming.providerTurnId &&
     previous.state === incoming.state &&
     previous.requestedAt === incoming.requestedAt &&
     previous.startedAt === incoming.startedAt &&
@@ -1336,6 +1334,7 @@ function normalizeLatestTurn(
 
   return {
     turnId: incoming.turnId,
+    ...(incoming.providerTurnId !== undefined ? { providerTurnId: incoming.providerTurnId } : {}),
     state: incoming.state,
     requestedAt: incoming.requestedAt,
     startedAt: incoming.startedAt,
@@ -1474,8 +1473,7 @@ export function normalizeThreadFromReadModel(
 
   if (
     previous &&
-    previous.projectId === incoming.projectId &&
-    (previous.spaceId ?? null) === (incoming.spaceId ?? null) &&
+    previous.folderId === incoming.folderId &&
     (previous.sidebarSortOrder ?? 0) === (incoming.sidebarSortOrder ?? 0) &&
     previous.title === incoming.title &&
     previous.modelSelection === modelSelection &&
@@ -1517,8 +1515,8 @@ export function normalizeThreadFromReadModel(
   return {
     id: incoming.id,
     codexThreadId: null,
-    projectId: incoming.projectId,
-    spaceId: incoming.spaceId ?? null,
+    folderId: incoming.folderId,
+    spaceId: previous?.spaceId ?? null,
     sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     title: incoming.title,
     modelSelection,
@@ -1577,8 +1575,8 @@ export function normalizeThreadShellSnapshot(
   const shell: ThreadShell = {
     id: incoming.id,
     codexThreadId: previous?.codexThreadId ?? null,
-    projectId: incoming.projectId,
-    spaceId: incoming.spaceId ?? null,
+    folderId: incoming.folderId,
+    spaceId: previous?.spaceId ?? null,
     sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     title: incoming.title,
     modelSelection,
@@ -1627,7 +1625,7 @@ export function normalizeThreadShellSnapshot(
   };
 }
 
-export function mapProjects(
+export function mapFolders(
   incoming: ReadonlyArray<ProjectNormalizationInput>,
   previous: Project[],
 ): Project[] {
@@ -1636,7 +1634,7 @@ export function mapProjects(
   const previousOrderById = new Map(previous.map((project, index) => [project.id, index] as const));
   const usePersistedOrder = previous.length === 0;
 
-  const mappedProjects = incoming
+  const mappedFolders = incoming
     .map((project) => {
       const existing = previousById.get(project.id);
       return normalizeProject(project, existing);
@@ -1659,7 +1657,7 @@ export function mapProjects(
     })
     .map((entry) => entry.project);
 
-  return arraysShallowEqual(previous, mappedProjects) ? previous : mappedProjects;
+  return arraysShallowEqual(previous, mappedFolders) ? previous : mappedFolders;
 }
 
 function toLegacySessionStatus(
@@ -1682,17 +1680,7 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (
-    providerName === "codex" ||
-    providerName === "claudeAgent" ||
-    providerName === "cursor" ||
-    providerName === "antigravity" ||
-    providerName === "grok" ||
-    providerName === "droid" ||
-    providerName === "kilo" ||
-    providerName === "opencode" ||
-    providerName === "pi"
-  ) {
+  if (providerName === "codex" || providerName === "claudeAgent" || providerName === "opencode") {
     return providerName;
   }
   return "codex";

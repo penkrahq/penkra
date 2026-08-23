@@ -18,7 +18,7 @@ import {
   capThreadActivities,
   dedupeActivitiesById,
   deepEqualJson,
-  mapProjects,
+  mapFolders,
   mapSpaces,
   mergeReadModelThreadDetailWithLiveHotPath,
   normalizeProject,
@@ -63,7 +63,7 @@ function toThreadShell(thread: Thread): ThreadShell {
   return {
     id: thread.id,
     codexThreadId: thread.codexThreadId,
-    projectId: thread.projectId,
+    folderId: thread.folderId,
     spaceId: thread.spaceId ?? null,
     sidebarSortOrder: thread.sidebarSortOrder ?? 0,
     title: thread.title,
@@ -194,34 +194,33 @@ export function upsertProject(
   incoming: ProjectNormalizationInput,
   _matchPolicy: ProjectMatchPolicy,
 ): AppState {
-  if (state.deletedProjectIdsById?.[incoming.id] !== undefined) {
+  if (state.deletedFolderIdsById?.[incoming.id] !== undefined) {
     return state;
   }
   const existingProject =
-    state.projects.find((project) => project.id === incoming.id) ??
-    (state.archivedProjects ?? []).find((project) => project.id === incoming.id);
+    state.folders.find((project) => project.id === incoming.id) ??
+    (state.archivedFolders ?? []).find((project) => project.id === incoming.id);
   const nextProject = normalizeProject(incoming, existingProject);
   const belongsInArchive = nextProject.archivedAt != null;
-  const projects = belongsInArchive
-    ? state.projects.filter((project) => project.id !== incoming.id)
-    : existingProject && state.projects.some((project) => project.id === incoming.id)
-      ? state.projects.map((project) => (project.id === incoming.id ? nextProject : project))
-      : [...state.projects, nextProject];
-  const archivedProjects = belongsInArchive
-    ? existingProject &&
-      (state.archivedProjects ?? []).some((project) => project.id === incoming.id)
-      ? (state.archivedProjects ?? []).map((project) =>
+  const folders = belongsInArchive
+    ? state.folders.filter((project) => project.id !== incoming.id)
+    : existingProject && state.folders.some((project) => project.id === incoming.id)
+      ? state.folders.map((project) => (project.id === incoming.id ? nextProject : project))
+      : [...state.folders, nextProject];
+  const archivedFolders = belongsInArchive
+    ? existingProject && (state.archivedFolders ?? []).some((project) => project.id === incoming.id)
+      ? (state.archivedFolders ?? []).map((project) =>
           project.id === incoming.id ? nextProject : project,
         )
-      : [...(state.archivedProjects ?? []), nextProject]
-    : (state.archivedProjects ?? []).filter((project) => project.id !== incoming.id);
-  if (projects === state.projects && archivedProjects === (state.archivedProjects ?? [])) {
+      : [...(state.archivedFolders ?? []), nextProject]
+    : (state.archivedFolders ?? []).filter((project) => project.id !== incoming.id);
+  if (folders === state.folders && archivedFolders === (state.archivedFolders ?? [])) {
     return state;
   }
   return {
     ...state,
-    projects,
-    archivedProjects,
+    folders,
+    archivedFolders,
   };
 }
 
@@ -314,7 +313,7 @@ function sidebarThreadSummariesEqual(
   return (
     left !== undefined &&
     left.id === right.id &&
-    left.projectId === right.projectId &&
+    left.folderId === right.folderId &&
     (left.spaceId ?? null) === (right.spaceId ?? null) &&
     (left.sidebarSortOrder ?? 0) === (right.sidebarSortOrder ?? 0) &&
     left.title === right.title &&
@@ -348,7 +347,7 @@ function buildSidebarThreadSummary(
   const metadata = resolveThreadSidebarMetadata(thread);
   const nextSummary: SidebarThreadSummary = {
     id: thread.id,
-    projectId: thread.projectId,
+    folderId: thread.folderId,
     spaceId: thread.spaceId ?? null,
     sidebarSortOrder: thread.sidebarSortOrder ?? 0,
     title: thread.title,
@@ -887,7 +886,7 @@ function retireConfirmedDeletionTombstones(
   state: AppState,
   snapshotSequence: number,
   presentThreadIds: ReadonlySet<string>,
-  presentProjectIds: ReadonlySet<string>,
+  presentFolderIds: ReadonlySet<string>,
 ): AppState {
   if (snapshotSequence < (state.shellSnapshotSequence ?? 0)) {
     return state;
@@ -897,21 +896,21 @@ function retireConfirmedDeletionTombstones(
     snapshotSequence,
     presentThreadIds,
   );
-  const deletedProjectIdsById = retireDeletionTombstones(
-    state.deletedProjectIdsById,
+  const deletedFolderIdsById = retireDeletionTombstones(
+    state.deletedFolderIdsById,
     snapshotSequence,
-    presentProjectIds,
+    presentFolderIds,
   );
   if (
     deletedThreadIdsById === state.deletedThreadIdsById &&
-    deletedProjectIdsById === state.deletedProjectIdsById
+    deletedFolderIdsById === state.deletedFolderIdsById
   ) {
     return state;
   }
   return {
     ...state,
     ...(deletedThreadIdsById !== undefined ? { deletedThreadIdsById } : {}),
-    ...(deletedProjectIdsById !== undefined ? { deletedProjectIdsById } : {}),
+    ...(deletedFolderIdsById !== undefined ? { deletedFolderIdsById } : {}),
   };
 }
 
@@ -942,63 +941,63 @@ export function removeDeletedThreadFromClientState(
       };
 }
 
-function removeProjectState(state: AppState, projectId: Project["id"]): AppState {
+function removeProjectState(state: AppState, folderId: Project["id"]): AppState {
   const threadIds = new Set<ThreadId>();
   for (const shell of Object.values(state.threadShellById ?? EMPTY_THREAD_SHELL_BY_ID)) {
-    if (shell.projectId === projectId) {
+    if (shell.folderId === folderId) {
       threadIds.add(shell.id);
     }
   }
 
-  const nextProjects = state.projects.some((project) => project.id === projectId)
-    ? state.projects.filter((project) => project.id !== projectId)
-    : state.projects;
-  const currentArchivedProjects = state.archivedProjects ?? [];
-  const nextArchivedProjects = currentArchivedProjects.some((project) => project.id === projectId)
-    ? currentArchivedProjects.filter((project) => project.id !== projectId)
-    : currentArchivedProjects;
+  const nextFolders = state.folders.some((project) => project.id === folderId)
+    ? state.folders.filter((project) => project.id !== folderId)
+    : state.folders;
+  const currentArchivedFolders = state.archivedFolders ?? [];
+  const nextArchivedFolders = currentArchivedFolders.some((project) => project.id === folderId)
+    ? currentArchivedFolders.filter((project) => project.id !== folderId)
+    : currentArchivedFolders;
   const nextState = [...threadIds].reduce((currentState, threadId) => {
     return removeThreadState(currentState, threadId);
   }, state);
 
   if (
-    nextProjects === state.projects &&
-    nextArchivedProjects === currentArchivedProjects &&
+    nextFolders === state.folders &&
+    nextArchivedFolders === currentArchivedFolders &&
     nextState === state
   ) {
     return state;
   }
   return {
     ...nextState,
-    projects: nextProjects,
-    archivedProjects: nextArchivedProjects,
+    folders: nextFolders,
+    archivedFolders: nextArchivedFolders,
   };
 }
 
 export function removeDeletedProjectFromClientState(
   state: AppState,
-  projectId: Project["id"],
+  folderId: Project["id"],
   deletedAtSequence?: number,
 ): AppState {
   const sequence = nextTombstoneSequence(
-    state.deletedProjectIdsById,
-    projectId,
+    state.deletedFolderIdsById,
+    folderId,
     state,
     deletedAtSequence,
   );
-  const deletedProjectIdsById =
-    state.deletedProjectIdsById?.[projectId] === sequence
-      ? state.deletedProjectIdsById
+  const deletedFolderIdsById =
+    state.deletedFolderIdsById?.[folderId] === sequence
+      ? state.deletedFolderIdsById
       : {
-          ...(state.deletedProjectIdsById ?? {}),
-          [projectId]: sequence,
+          ...(state.deletedFolderIdsById ?? {}),
+          [folderId]: sequence,
         };
-  const nextState = removeProjectState(state, projectId);
-  return nextState.deletedProjectIdsById === deletedProjectIdsById
+  const nextState = removeProjectState(state, folderId);
+  return nextState.deletedFolderIdsById === deletedFolderIdsById
     ? nextState
     : {
         ...nextState,
-        deletedProjectIdsById,
+        deletedFolderIdsById,
       };
 }
 
@@ -1106,25 +1105,25 @@ export function syncServerShellSnapshot(
   if (isStaleSnapshot(state, snapshot.snapshotSequence)) {
     return state;
   }
-  rememberProjectUiState(state.projects);
-  rememberProjectLocalNames(state.projects);
-  const deletedProjectIdsById = state.deletedProjectIdsById ?? {};
+  rememberProjectUiState(state.folders);
+  rememberProjectLocalNames(state.folders);
+  const deletedFolderIdsById = state.deletedFolderIdsById ?? {};
   const deletedThreadIdsById = state.deletedThreadIdsById ?? {};
   const snapshotThreads = snapshot.threads.filter(
     (thread) =>
-      deletedProjectIdsById[thread.projectId] === undefined &&
+      deletedFolderIdsById[thread.folderId] === undefined &&
       deletedThreadIdsById[thread.id] === undefined,
   );
-  const snapshotProjects = snapshot.projects.filter(
-    (project) => deletedProjectIdsById[project.id] === undefined,
+  const snapshotFolders = snapshot.folders.filter(
+    (project) => deletedFolderIdsById[project.id] === undefined,
   );
-  const snapshotArchivedProjects = (snapshot.archivedProjects ?? []).filter(
-    (project) => deletedProjectIdsById[project.id] === undefined,
+  const snapshotArchivedFolders = (snapshot.archivedFolders ?? []).filter(
+    (project) => deletedFolderIdsById[project.id] === undefined,
   );
   const spaces = mapSpaces(snapshot.spaces ?? [], state.spaces ?? []);
   const archivedSpaces = mapSpaces(snapshot.archivedSpaces ?? [], state.archivedSpaces ?? []);
-  const projects = mapProjects(snapshotProjects, state.projects);
-  const archivedProjects = mapProjects(snapshotArchivedProjects, state.archivedProjects ?? []);
+  const folders = mapFolders(snapshotFolders, state.folders);
+  const archivedFolders = mapFolders(snapshotArchivedFolders, state.archivedFolders ?? []);
   const nextThreadIds = new Set(snapshotThreads.map((thread) => thread.id));
 
   const normalizedState: AppState = {
@@ -1158,14 +1157,14 @@ export function syncServerShellSnapshot(
       shellSnapshotSequence: Math.max(state.shellSnapshotSequence ?? 0, snapshot.snapshotSequence),
       spaces,
       archivedSpaces,
-      projects,
-      archivedProjects,
+      folders,
+      archivedFolders,
       sidebarThreadSummaryById,
       threadsHydrated: true,
     },
     snapshot.snapshotSequence,
     new Set(snapshot.threads.map((thread) => thread.id)),
-    new Set(snapshot.projects.map((project) => project.id)),
+    new Set(snapshot.folders.map((project) => project.id)),
   );
 }
 
@@ -1200,7 +1199,7 @@ function syncServerThreadDetailWithOptions(
 
 export function syncServerThreadDetail(state: AppState, thread: ReadModelThread): AppState {
   if (
-    state.deletedProjectIdsById?.[thread.projectId] !== undefined ||
+    state.deletedFolderIdsById?.[thread.folderId] !== undefined ||
     state.deletedThreadIdsById?.[thread.id] !== undefined
   ) {
     return removeThreadState(state, thread.id);
@@ -1210,7 +1209,7 @@ export function syncServerThreadDetail(state: AppState, thread: ReadModelThread)
 
 export function syncServerThreadDetailHotPath(state: AppState, thread: ReadModelThread): AppState {
   if (
-    state.deletedProjectIdsById?.[thread.projectId] !== undefined ||
+    state.deletedFolderIdsById?.[thread.folderId] !== undefined ||
     state.deletedThreadIdsById?.[thread.id] !== undefined
   ) {
     return removeThreadState(state, thread.id);
@@ -1239,12 +1238,12 @@ export function applyShellEvent(state: AppState, event: OrchestrationShellStream
       break;
     case "sidebar-layout-updated": {
       nextState = state;
-      for (const project of event.projects) {
+      for (const project of event.folders) {
         nextState = upsertProject(nextState, project, "id-only");
       }
       for (const thread of event.threads) {
         if (
-          nextState.deletedProjectIdsById?.[thread.projectId] !== undefined ||
+          nextState.deletedFolderIdsById?.[thread.folderId] !== undefined ||
           nextState.deletedThreadIdsById?.[thread.id] !== undefined
         ) {
           nextState = removeThreadState(nextState, thread.id);
@@ -1260,15 +1259,15 @@ export function applyShellEvent(state: AppState, event: OrchestrationShellStream
       }
       break;
     }
-    case "project-upserted":
-      nextState = upsertProject(state, event.project, "id-only");
+    case "folder-upserted":
+      nextState = upsertProject(state, event.folder, "id-only");
       break;
-    case "project-removed":
-      nextState = removeDeletedProjectFromClientState(state, event.projectId, event.sequence);
+    case "folder-removed":
+      nextState = removeDeletedProjectFromClientState(state, event.folderId, event.sequence);
       break;
     case "thread-upserted": {
       if (
-        state.deletedProjectIdsById?.[event.thread.projectId] !== undefined ||
+        state.deletedFolderIdsById?.[event.thread.folderId] !== undefined ||
         state.deletedThreadIdsById?.[event.thread.id] !== undefined
       ) {
         nextState = removeThreadState(state, event.thread.id);
@@ -1296,17 +1295,17 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
   if (isStaleSnapshot(state, readModel.snapshotSequence)) {
     return state;
   }
-  rememberProjectUiState(state.projects);
-  rememberProjectLocalNames(state.projects);
-  const deletedProjectIdsById = state.deletedProjectIdsById ?? {};
+  rememberProjectUiState(state.folders);
+  rememberProjectLocalNames(state.folders);
+  const deletedFolderIdsById = state.deletedFolderIdsById ?? {};
   const deletedThreadIdsById = state.deletedThreadIdsById ?? {};
   // Ids the server still reports as live at this snapshot sequence; anything else is either
   // absent or server-side soft-deleted, which is what lets a tombstone retire safely.
   const livePresentThreadIds = new Set<string>(
     readModel.threads.filter((thread) => thread.deletedAt === null).map((thread) => thread.id),
   );
-  const livePresentProjectIds = new Set<string>(
-    readModel.projects.filter((project) => project.deletedAt === null).map((project) => project.id),
+  const livePresentFolderIds = new Set<string>(
+    readModel.folders.filter((project) => project.deletedAt === null).map((project) => project.id),
   );
   const spaces = mapSpaces(
     (readModel.spaces ?? []).filter(
@@ -1320,29 +1319,29 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     ),
     state.archivedSpaces ?? [],
   );
-  const projects = mapProjects(
-    readModel.projects.filter(
+  const folders = mapFolders(
+    readModel.folders.filter(
       (project) =>
         project.deletedAt === null &&
         project.archivedAt == null &&
-        deletedProjectIdsById[project.id] === undefined,
+        deletedFolderIdsById[project.id] === undefined,
     ),
-    state.projects,
+    state.folders,
   );
-  const archivedProjects = mapProjects(
-    readModel.projects.filter(
+  const archivedFolders = mapFolders(
+    readModel.folders.filter(
       (project) =>
         project.deletedAt === null &&
         project.archivedAt != null &&
-        deletedProjectIdsById[project.id] === undefined,
+        deletedFolderIdsById[project.id] === undefined,
     ),
-    state.archivedProjects ?? [],
+    state.archivedFolders ?? [],
   );
   const nextThreads = readModel.threads
     .filter(
       (thread) =>
         thread.deletedAt === null &&
-        deletedProjectIdsById[thread.projectId] === undefined &&
+        deletedFolderIdsById[thread.folderId] === undefined &&
         deletedThreadIdsById[thread.id] === undefined,
     )
     .map((thread) => {
@@ -1388,8 +1387,8 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
   if (
     spaces === state.spaces &&
     archivedSpaces === state.archivedSpaces &&
-    projects === state.projects &&
-    archivedProjects === (state.archivedProjects ?? []) &&
+    folders === state.folders &&
+    archivedFolders === (state.archivedFolders ?? []) &&
     sidebarThreadSummaryById === state.sidebarThreadSummaryById &&
     normalizedState.threadIds === state.threadIds &&
     normalizedState.threadShellById === state.threadShellById &&
@@ -1414,7 +1413,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
       advanced,
       readModel.snapshotSequence,
       livePresentThreadIds,
-      livePresentProjectIds,
+      livePresentFolderIds,
     );
   }
   return retireConfirmedDeletionTombstones(
@@ -1423,13 +1422,13 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
       shellSnapshotSequence: Math.max(state.shellSnapshotSequence ?? 0, readModel.snapshotSequence),
       spaces,
       archivedSpaces,
-      projects,
-      archivedProjects,
+      folders,
+      archivedFolders,
       sidebarThreadSummaryById,
       threadsHydrated: true,
     },
     readModel.snapshotSequence,
     livePresentThreadIds,
-    livePresentProjectIds,
+    livePresentFolderIds,
   );
 }

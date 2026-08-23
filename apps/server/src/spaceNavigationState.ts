@@ -1,7 +1,7 @@
 // Purpose: Durable SQLite storage for the left-rail Space navigation cursor.
 
 import {
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
   type ServerSpaceNavigationState,
@@ -50,17 +50,14 @@ export function getSpaceNavigationState(sql: SqlClient.SqlClient) {
       return {
         activeSpaceId: null,
         lastThreadIdBySpace: {},
-        lastProjectIdBySpace: {},
+        lastFolderIdBySpace: {},
         updatedAt: null,
       } satisfies ServerSpaceNavigationState;
     }
     return {
       activeSpaceId: row.active_space_id ? SpaceId.makeUnsafe(row.active_space_id) : null,
       lastThreadIdBySpace: parseIdRecord(row.last_thread_id_by_space_json, ThreadId.makeUnsafe),
-      lastProjectIdBySpace: parseIdRecord(
-        row.last_project_id_by_space_json,
-        ContainerId.makeUnsafe,
-      ),
+      lastFolderIdBySpace: parseIdRecord(row.last_project_id_by_space_json, FolderId.makeUnsafe),
       updatedAt: row.updated_at,
     } satisfies ServerSpaceNavigationState;
   });
@@ -83,7 +80,7 @@ export function updateSpaceNavigationState(
         1,
         ${input.activeSpaceId},
         ${JSON.stringify(input.lastThreadIdBySpace)},
-        ${JSON.stringify(input.lastProjectIdBySpace)},
+        ${JSON.stringify(input.lastFolderIdBySpace)},
         ${updatedAt}
       )
       ON CONFLICT (singleton_id) DO UPDATE SET

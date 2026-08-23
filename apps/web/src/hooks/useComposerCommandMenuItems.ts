@@ -75,7 +75,6 @@ function threadSuggestionTitle(title: string): string {
 
 function threadSuggestionContainerName(project: Project | undefined): string {
   if (!project) return "Unknown folder";
-  if (project.kind === "chat") return "Chats";
   return project.name.trim() || project.folderName.trim() || "Untitled folder";
 }
 
@@ -181,11 +180,11 @@ function withDisambiguatedMentionNames(
 
 export function buildThreadMentionComposerItems(input: {
   readonly threads: readonly ComposerThreadMentionSource[];
-  readonly projects: readonly Project[];
+  readonly folders: readonly Project[];
   readonly currentThreadId: string | null;
   readonly query: string;
 }): ComposerCommandItem[] {
-  const projectById = new Map(input.projects.map((project) => [project.id, project]));
+  const projectById = new Map(input.folders.map((project) => [project.id, project]));
   const candidates = withDisambiguatedMentionNames(
     input.threads
       .filter(
@@ -194,7 +193,7 @@ export function buildThreadMentionComposerItems(input: {
       .map((thread) => ({
         thread,
         title: threadSuggestionTitle(thread.title),
-        projectName: threadSuggestionContainerName(projectById.get(thread.projectId)),
+        projectName: threadSuggestionContainerName(projectById.get(thread.folderId)),
       })),
   );
   const query = normalizeProviderDiscoveryText(input.query);
@@ -269,7 +268,7 @@ export function useComposerCommandMenuItems(input: {
   dynamicAgents: readonly ProviderAgentDescriptor[];
   threadMentionSources?: {
     readonly threads: readonly ComposerThreadMentionSource[];
-    readonly projects: readonly Project[];
+    readonly folders: readonly Project[];
     readonly currentThreadId: string | null;
   };
 }): ComposerCommandItem[] {

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { projectPickerProjectLabels } from "./ProjectPicker";
 
 describe("projectPickerProjectLabels", () => {
-  it("preserves local-name and folder labels for ordinary projects", () => {
+  it("preserves local-name and folder labels for ordinary folders", () => {
     expect(
       projectPickerProjectLabels({
         id: "project-1",

@@ -41,7 +41,7 @@ function childThread(id: string, activities: OrchestrationThreadActivity[]): Thr
   return {
     id: ThreadId.makeUnsafe(id),
     codexThreadId: null,
-    projectId: "project-1" as Thread["projectId"],
+    folderId: "project-1" as Thread["folderId"],
     title: "Subagent task",
     modelSelection: { provider: "claudeAgent", model: "sonnet" },
     runtimeMode: "full-access",

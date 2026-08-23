@@ -22,14 +22,6 @@ describe("ProviderIcon", () => {
     expect(markup).not.toContain("tabler-icon-brand-openai");
   });
 
-  it("uses Antigravity branding", () => {
-    expect(PROVIDER_ICON_COMPONENT_BY_PROVIDER).not.toHaveProperty("gemini");
-
-    const markup = renderToStaticMarkup(<ProviderIcon provider="antigravity" />);
-    expect(markup).toContain('viewBox="0 0 16 15"');
-    expect(markup).toContain("#FFE432");
-  });
-
   it("uses the reversed Central icon for opencode in dark mode", () => {
     const markup = renderToStaticMarkup(
       <ProviderIcon provider="opencode" className="size-4 text-muted-foreground" />,

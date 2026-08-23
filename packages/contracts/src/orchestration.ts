@@ -1,16 +1,6 @@
 import { Option, Schema, SchemaIssue } from "effect";
-import {
-  AntigravityModelOptions,
-  ClaudeModelOptions,
-  CodexModelOptions,
-  CursorModelOptions,
-  DroidModelOptions,
-  GrokModelOptions,
-  OpenCodeModelOptions,
-  PiModelOptions,
-} from "./model";
+import { ClaudeModelOptions, CodexModelOptions, OpenCodeModelOptions } from "./model";
 import { ProviderMentionReference, ProviderSkillReference } from "./providerDiscovery";
-import { ContainerKind } from "./project";
 import {
   ApprovalRequestId,
   CommandId,
@@ -19,7 +9,7 @@ import {
   MessageId,
   NonNegativeInt,
   PositiveInt,
-  ContainerId,
+  FolderId,
   SpaceId,
   ProviderItemId,
   ProviderConnectionId,
@@ -51,17 +41,7 @@ export const ORCHESTRATION_WS_CHANNELS = {
   threadEvent: "orchestration.threadEvent",
 } as const;
 
-export const ProviderKind = Schema.Literals([
-  "codex",
-  "claudeAgent",
-  "cursor",
-  "antigravity",
-  "grok",
-  "droid",
-  "kilo",
-  "opencode",
-  "pi",
-]);
+export const ProviderKind = Schema.Literals(["codex", "claudeAgent", "opencode"]);
 export type ProviderKind = typeof ProviderKind.Type;
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
@@ -97,34 +77,6 @@ export const ClaudeModelSelection = Schema.Struct({
 });
 export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
 
-export const CursorModelSelection = Schema.Struct({
-  provider: Schema.Literal("cursor"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(CursorModelOptions),
-});
-export type CursorModelSelection = typeof CursorModelSelection.Type;
-
-export const AntigravityModelSelection = Schema.Struct({
-  provider: Schema.Literal("antigravity"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(AntigravityModelOptions),
-});
-export type AntigravityModelSelection = typeof AntigravityModelSelection.Type;
-
-export const GrokModelSelection = Schema.Struct({
-  provider: Schema.Literal("grok"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(GrokModelOptions),
-});
-export type GrokModelSelection = typeof GrokModelSelection.Type;
-
-export const DroidModelSelection = Schema.Struct({
-  provider: Schema.Literal("droid"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(DroidModelOptions),
-});
-export type DroidModelSelection = typeof DroidModelSelection.Type;
-
 export const OpenCodeModelSelection = Schema.Struct({
   provider: Schema.Literal("opencode"),
   model: TrimmedNonEmptyString,
@@ -132,30 +84,10 @@ export const OpenCodeModelSelection = Schema.Struct({
 });
 export type OpenCodeModelSelection = typeof OpenCodeModelSelection.Type;
 
-export const KiloModelSelection = Schema.Struct({
-  provider: Schema.Literal("kilo"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(OpenCodeModelOptions),
-});
-export type KiloModelSelection = typeof KiloModelSelection.Type;
-
-export const PiModelSelection = Schema.Struct({
-  provider: Schema.Literal("pi"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(PiModelOptions),
-});
-export type PiModelSelection = typeof PiModelSelection.Type;
-
 export const ModelSelection = Schema.Union([
   CodexModelSelection,
   ClaudeModelSelection,
-  CursorModelSelection,
-  AntigravityModelSelection,
-  GrokModelSelection,
-  DroidModelSelection,
-  KiloModelSelection,
   OpenCodeModelSelection,
-  PiModelSelection,
 ]);
 export type ModelSelection = typeof ModelSelection.Type;
 
@@ -172,49 +104,16 @@ export const ClaudeProviderStartOptions = Schema.Struct({
   maxThinkingTokens: Schema.optional(NonNegativeInt),
 });
 
-export const AntigravityProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyString),
-});
-
-export const CursorProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyString),
-  apiEndpoint: Schema.optional(TrimmedNonEmptyString),
-});
-
-export const GrokProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyString),
-});
-
-export const DroidProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyString),
-});
-
 export const OpenCodeProviderStartOptions = Schema.Struct({
   binaryPath: Schema.optional(TrimmedNonEmptyString),
   serverUrl: Schema.optional(TrimmedNonEmptyString),
   experimentalWebSockets: Schema.optional(Schema.Boolean),
 });
 
-export const KiloProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyString),
-  serverUrl: Schema.optional(TrimmedNonEmptyString),
-});
-
-export const PiProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyString),
-  agentDir: Schema.optional(TrimmedNonEmptyString),
-});
-
 export const ProviderStartOptions = Schema.Struct({
   codex: Schema.optional(CodexProviderStartOptions),
   claudeAgent: Schema.optional(ClaudeProviderStartOptions),
-  cursor: Schema.optional(CursorProviderStartOptions),
-  antigravity: Schema.optional(AntigravityProviderStartOptions),
-  grok: Schema.optional(GrokProviderStartOptions),
-  droid: Schema.optional(DroidProviderStartOptions),
-  kilo: Schema.optional(KiloProviderStartOptions),
   opencode: Schema.optional(OpenCodeProviderStartOptions),
-  pi: Schema.optional(PiProviderStartOptions),
 });
 export type ProviderStartOptions = typeof ProviderStartOptions.Type;
 
@@ -405,7 +304,7 @@ export type ProjectScript = typeof ProjectScript.Type;
 export const SPACE_NAME_MAX_LENGTH = 32;
 export const SPACES_MAX_COUNT = 50;
 /** Per-command cap for bulk assignment; clients chunk larger selections. */
-export const SPACE_PROJECTS_ASSIGN_MAX_COUNT = 200;
+export const FOLDER_MOVE_MAX_COUNT = 200;
 export const SIDEBAR_ITEMS_MAX_COUNT = 10_000;
 export const SPACE_ICON_NAMES = [
   "bag",
@@ -461,16 +360,15 @@ export const OrchestrationSpaceShell = Schema.Struct({
 });
 export type OrchestrationSpaceShell = typeof OrchestrationSpaceShell.Type;
 
-export const OrchestrationProject = Schema.Struct({
-  id: ContainerId,
-  kind: Schema.optional(ContainerKind).pipe(Schema.withDecodingDefault(() => "project")),
+export const OrchestrationFolder = Schema.Struct({
+  id: FolderId,
   title: TrimmedNonEmptyString,
   workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
-  spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
+  spaceId: SpaceId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -479,18 +377,17 @@ export const OrchestrationProject = Schema.Struct({
   ),
   deletedAt: Schema.NullOr(IsoDateTime),
 });
-export type OrchestrationProject = typeof OrchestrationProject.Type;
+export type OrchestrationFolder = typeof OrchestrationFolder.Type;
 
-export const OrchestrationProjectShell = Schema.Struct({
-  id: ContainerId,
-  kind: Schema.optional(ContainerKind).pipe(Schema.withDecodingDefault(() => "project")),
+export const OrchestrationFolderShell = Schema.Struct({
+  id: FolderId,
   title: TrimmedNonEmptyString,
   workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
-  spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
+  spaceId: SpaceId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -498,7 +395,7 @@ export const OrchestrationProjectShell = Schema.Struct({
     Schema.withDecodingDefault(() => null),
   ),
 });
-export type OrchestrationProjectShell = typeof OrchestrationProjectShell.Type;
+export type OrchestrationFolderShell = typeof OrchestrationFolderShell.Type;
 
 export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system"]);
 export type OrchestrationMessageRole = typeof OrchestrationMessageRole.Type;
@@ -573,6 +470,7 @@ export type OrchestrationLatestTurnState = typeof OrchestrationLatestTurnState.T
 
 export const OrchestrationLatestTurn = Schema.Struct({
   turnId: TurnId,
+  providerTurnId: Schema.optional(Schema.NullOr(TurnId)),
   state: OrchestrationLatestTurnState,
   requestedAt: IsoDateTime,
   startedAt: Schema.NullOr(IsoDateTime),
@@ -670,8 +568,7 @@ export type OrchestrationPendingInteraction = typeof OrchestrationPendingInterac
 
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
-  projectId: ContainerId,
-  spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
+  folderId: FolderId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
@@ -740,8 +637,7 @@ export type OrchestrationThread = typeof OrchestrationThread.Type;
 
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
-  projectId: ContainerId,
-  spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
+  folderId: FolderId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
@@ -798,7 +694,7 @@ export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   spaces: Schema.Array(OrchestrationSpace),
-  projects: Schema.Array(OrchestrationProject),
+  folders: Schema.Array(OrchestrationFolder),
   threads: Schema.Array(OrchestrationThread),
   updatedAt: IsoDateTime,
 });
@@ -810,8 +706,8 @@ export const OrchestrationShellSnapshot = Schema.Struct({
   archivedSpaces: Schema.optional(Schema.Array(OrchestrationSpaceShell)).pipe(
     Schema.withDecodingDefault(() => []),
   ),
-  projects: Schema.Array(OrchestrationProjectShell),
-  archivedProjects: Schema.optional(Schema.Array(OrchestrationProjectShell)).pipe(
+  folders: Schema.Array(OrchestrationFolderShell),
+  archivedFolders: Schema.optional(Schema.Array(OrchestrationFolderShell)).pipe(
     Schema.withDecodingDefault(() => []),
   ),
   threads: Schema.Array(OrchestrationThreadShell),
@@ -842,18 +738,18 @@ export const OrchestrationShellStreamEvent = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("sidebar-layout-updated"),
     sequence: NonNegativeInt,
-    projects: Schema.Array(OrchestrationProjectShell),
+    folders: Schema.Array(OrchestrationFolderShell),
     threads: Schema.Array(OrchestrationThreadShell),
   }),
   Schema.Struct({
-    kind: Schema.Literal("project-upserted"),
+    kind: Schema.Literal("folder-upserted"),
     sequence: NonNegativeInt,
-    project: OrchestrationProjectShell,
+    folder: OrchestrationFolderShell,
   }),
   Schema.Struct({
-    kind: Schema.Literal("project-removed"),
+    kind: Schema.Literal("folder-removed"),
     sequence: NonNegativeInt,
-    projectId: ContainerId,
+    folderId: FolderId,
   }),
   Schema.Struct({
     kind: Schema.Literal("thread-upserted"),
@@ -886,22 +782,13 @@ export const SpaceCreateCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-export const SpaceMetaUpdateCommand = Schema.Struct({
-  type: Schema.Literal("space.meta.update"),
+export const SpaceUpdateCommand = Schema.Struct({
+  type: Schema.Literal("space.update"),
   commandId: CommandId,
   spaceId: SpaceId,
   name: Schema.optional(SpaceName),
   icon: Schema.optional(SpaceIconName),
-});
-
-export const SpaceReorderCommand = Schema.Struct({
-  type: Schema.Literal("space.reorder"),
-  commandId: CommandId,
-  spaceId: SpaceId,
-  position: Schema.Union([
-    Schema.Struct({ type: Schema.Literal("before"), spaceId: SpaceId }),
-    Schema.Struct({ type: Schema.Literal("after"), spaceId: SpaceId }),
-  ]),
+  sortOrder: Schema.optional(NonNegativeInt),
 });
 
 export const SpaceDeleteCommand = Schema.Struct({
@@ -924,25 +811,25 @@ export const SpaceRestoreCommand = Schema.Struct({
 });
 
 /** Bulk assignment into one persisted target Space, applied atomically. */
-export const SpaceProjectsAssignCommand = Schema.Struct({
-  type: Schema.Literal("space.projects.assign"),
+export const FolderMoveCommand = Schema.Struct({
+  type: Schema.Literal("folder.move"),
   commandId: CommandId,
   spaceId: SpaceId,
-  projectIds: Schema.Array(ContainerId).check(
+  folderIds: Schema.Array(FolderId).check(
     Schema.isMinLength(1),
-    Schema.isMaxLength(SPACE_PROJECTS_ASSIGN_MAX_COUNT),
+    Schema.isMaxLength(FOLDER_MOVE_MAX_COUNT),
   ),
 });
 
 export const SidebarItemReference = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("project"), id: ContainerId }),
+  Schema.Struct({ kind: Schema.Literal("folder"), id: FolderId }),
   Schema.Struct({ kind: Schema.Literal("thread"), id: ThreadId }),
 ]);
 export type SidebarItemReference = typeof SidebarItemReference.Type;
 
 export const SidebarItemParent = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("space"), spaceId: SpaceId }),
-  Schema.Struct({ kind: Schema.Literal("project"), projectId: ContainerId }),
+  Schema.Struct({ kind: Schema.Literal("folder"), folderId: FolderId }),
 ]);
 export type SidebarItemParent = typeof SidebarItemParent.Type;
 
@@ -961,54 +848,46 @@ export const SidebarItemMoveCommand = Schema.Struct({
   position: SidebarItemMovePosition,
 });
 
-export const ProjectCreateCommand = Schema.Struct({
-  type: Schema.Literal("project.create"),
+export const FolderCreateCommand = Schema.Struct({
+  type: Schema.Literal("folder.create"),
   commandId: CommandId,
-  projectId: ContainerId,
-  kind: Schema.optional(ContainerKind).pipe(Schema.withDecodingDefault(() => "project")),
+  folderId: FolderId,
   title: TrimmedNonEmptyString,
-  workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
+  workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean).pipe(
     Schema.withDecodingDefault(() => false),
   ),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
-  /** Required for ordinary folders and absent for managed chat containers. */
-  spaceId: Schema.optional(Schema.NullOr(SpaceId)),
+  spaceId: SpaceId,
   createdAt: IsoDateTime,
 });
 
-const ProjectMetaUpdateCommand = Schema.Struct({
-  type: Schema.Literal("project.meta.update"),
+const FolderUpdateCommand = Schema.Struct({
+  type: Schema.Literal("folder.update"),
   commandId: CommandId,
-  projectId: ContainerId,
-  kind: Schema.optional(ContainerKind),
+  folderId: FolderId,
   title: Schema.optional(TrimmedNonEmptyString),
-  workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean).pipe(
-    Schema.withDecodingDefault(() => false),
-  ),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   isPinned: Schema.optional(Schema.Boolean),
-  spaceId: Schema.optional(Schema.NullOr(SpaceId)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
 });
 
-const ProjectDeleteCommand = Schema.Struct({
-  type: Schema.Literal("project.delete"),
+const FolderDeleteCommand = Schema.Struct({
+  type: Schema.Literal("folder.delete"),
   commandId: CommandId,
-  projectId: ContainerId,
+  folderId: FolderId,
 });
 
 const ThreadCreateCommand = Schema.Struct({
   type: Schema.Literal("thread.create"),
   commandId: CommandId,
   threadId: ThreadId,
-  projectId: ContainerId,
-  /** Direct Space ownership for loose chats. Project-backed threads inherit their project. */
-  spaceId: Schema.optional(Schema.NullOr(SpaceId)),
+  folderId: FolderId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -1049,7 +928,7 @@ const ThreadForkCreateCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   sourceThreadId: ThreadId,
-  projectId: ContainerId,
+  folderId: FolderId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -1076,11 +955,10 @@ const ThreadUnarchiveCommand = Schema.Struct({
   threadId: ThreadId,
 });
 
-const ThreadMetaUpdateCommand = Schema.Struct({
-  type: Schema.Literal("thread.meta.update"),
+const ThreadUpdateCommand = Schema.Struct({
+  type: Schema.Literal("thread.update"),
   commandId: CommandId,
   threadId: ThreadId,
-  spaceId: Schema.optional(SpaceId),
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -1370,22 +1248,21 @@ const ThreadActivityReadModelTouchCommand = Schema.Struct({
 
 const DispatchableClientOrchestrationCommand = Schema.Union([
   SpaceCreateCommand,
-  SpaceMetaUpdateCommand,
-  SpaceReorderCommand,
+  SpaceUpdateCommand,
   SpaceArchiveCommand,
   SpaceRestoreCommand,
   SpaceDeleteCommand,
-  SpaceProjectsAssignCommand,
+  FolderMoveCommand,
   SidebarItemMoveCommand,
-  ProjectCreateCommand,
-  ProjectMetaUpdateCommand,
-  ProjectDeleteCommand,
+  FolderCreateCommand,
+  FolderUpdateCommand,
+  FolderDeleteCommand,
   ThreadCreateCommand,
   ThreadForkCreateCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
-  ThreadMetaUpdateCommand,
+  ThreadUpdateCommand,
   ThreadPinnedMessageAddCommand,
   ThreadPinnedMessageRemoveCommand,
   ThreadPinnedMessageDoneSetCommand,
@@ -1412,22 +1289,21 @@ export type DispatchableClientOrchestrationCommand =
 
 export const ClientOrchestrationCommand = Schema.Union([
   SpaceCreateCommand,
-  SpaceMetaUpdateCommand,
-  SpaceReorderCommand,
+  SpaceUpdateCommand,
   SpaceArchiveCommand,
   SpaceRestoreCommand,
   SpaceDeleteCommand,
-  SpaceProjectsAssignCommand,
+  FolderMoveCommand,
   SidebarItemMoveCommand,
-  ProjectCreateCommand,
-  ProjectMetaUpdateCommand,
-  ProjectDeleteCommand,
+  FolderCreateCommand,
+  FolderUpdateCommand,
+  FolderDeleteCommand,
   ThreadCreateCommand,
   ThreadForkCreateCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
-  ThreadMetaUpdateCommand,
+  ThreadUpdateCommand,
   ThreadPinnedMessageAddCommand,
   ThreadPinnedMessageRemoveCommand,
   ThreadPinnedMessageDoneSetCommand,
@@ -1544,21 +1420,21 @@ export type OrchestrationCommand = typeof OrchestrationCommand.Type;
 
 export const OrchestrationEventType = Schema.Literals([
   "space.created",
-  "space.meta-updated",
-  "space.order-updated",
+  "space.updated",
   "space.archived",
   "space.restored",
   "space.deleted",
   "sidebar.layout-updated",
-  "project.created",
-  "project.meta-updated",
-  "project.deleted",
+  "folder.created",
+  "folder.updated",
+  "folder.moved",
+  "folder.deleted",
   "thread.created",
   "thread.deleted",
   // Legacy desktop installs can still contain these rows in orchestration_events.
   "thread.archived",
   "thread.unarchived",
-  "thread.meta-updated",
+  "thread.updated",
   "thread.pinned-message-added",
   "thread.pinned-message-removed",
   "thread.pinned-message-done-set",
@@ -1590,7 +1466,7 @@ export const OrchestrationEventType = Schema.Literals([
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["space", "project", "thread"]);
+export const OrchestrationAggregateKind = Schema.Literals(["space", "folder", "thread"]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -1603,16 +1479,13 @@ export const SpaceCreatedPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
-export const SpaceMetaUpdatedPayload = Schema.Struct({
+export const SpaceUpdatedPayload = Schema.Struct({
   spaceId: SpaceId,
   name: Schema.optional(SpaceName),
   icon: Schema.optional(SpaceIconName),
-  updatedAt: IsoDateTime,
-});
-
-export const SpaceOrderUpdatedPayload = Schema.Struct({
-  spaceId: SpaceId,
-  orderedSpaceIds: Schema.Array(SpaceId).check(Schema.isMaxLength(SPACES_MAX_COUNT)),
+  orderedSpaceIds: Schema.optional(
+    Schema.Array(SpaceId).check(Schema.isMaxLength(SPACES_MAX_COUNT)),
+  ),
   updatedAt: IsoDateTime,
 });
 
@@ -1632,54 +1505,55 @@ export const SpaceRestoredPayload = Schema.Struct({
   restoredAt: IsoDateTime,
 });
 
-export const ProjectCreatedPayload = Schema.Struct({
-  projectId: ContainerId,
-  kind: Schema.optional(ContainerKind).pipe(Schema.withDecodingDefault(() => "project")),
+export const FolderCreatedPayload = Schema.Struct({
+  folderId: FolderId,
   title: TrimmedNonEmptyString,
   workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
-  spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
+  spaceId: SpaceId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
 
-export const ProjectMetaUpdatedPayload = Schema.Struct({
-  projectId: ContainerId,
-  kind: Schema.optional(ContainerKind),
+export const FolderUpdatedPayload = Schema.Struct({
+  folderId: FolderId,
   title: Schema.optional(TrimmedNonEmptyString),
   workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   isPinned: Schema.optional(Schema.Boolean),
-  spaceId: Schema.optional(Schema.NullOr(SpaceId)),
   sidebarSortOrder: Schema.optional(NonNegativeInt),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   updatedAt: IsoDateTime,
 });
 
-export const ProjectDeletedPayload = Schema.Struct({
-  projectId: ContainerId,
+export const FolderDeletedPayload = Schema.Struct({
+  folderId: FolderId,
   deletedAt: IsoDateTime,
 });
 
+export const FolderMovedPayload = Schema.Struct({
+  folderId: FolderId,
+  spaceId: SpaceId,
+  updatedAt: IsoDateTime,
+});
+
 export const SidebarLayoutUpdatedPayload = Schema.Struct({
-  projectUpdates: Schema.Array(
+  folderUpdates: Schema.Array(
     Schema.Struct({
-      projectId: ContainerId,
-      spaceId: Schema.optional(SpaceId),
+      folderId: FolderId,
       sidebarSortOrder: Schema.optional(NonNegativeInt),
     }),
   ).check(Schema.isMaxLength(SIDEBAR_ITEMS_MAX_COUNT)),
   threadUpdates: Schema.Array(
     Schema.Struct({
       threadId: ThreadId,
-      projectId: Schema.optional(ContainerId),
-      spaceId: Schema.optional(Schema.NullOr(SpaceId)),
+      folderId: Schema.optional(FolderId),
       sidebarSortOrder: Schema.optional(NonNegativeInt),
     }),
   ).check(Schema.isMaxLength(SIDEBAR_ITEMS_MAX_COUNT)),
@@ -1688,8 +1562,7 @@ export const SidebarLayoutUpdatedPayload = Schema.Struct({
 
 export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
-  projectId: ContainerId,
-  spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
+  folderId: FolderId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
@@ -1742,9 +1615,8 @@ export const ThreadUnarchivedPayload = Schema.Struct({
   updatedAt: Schema.optional(IsoDateTime),
 });
 
-export const ThreadMetaUpdatedPayload = Schema.Struct({
+export const ThreadUpdatedPayload = Schema.Struct({
   threadId: ThreadId,
-  spaceId: Schema.optional(SpaceId),
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -1980,7 +1852,7 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([SpaceId, ContainerId, ThreadId]),
+  aggregateId: Schema.Union([SpaceId, FolderId, ThreadId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -1996,13 +1868,8 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("space.meta-updated"),
-    payload: SpaceMetaUpdatedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("space.order-updated"),
-    payload: SpaceOrderUpdatedPayload,
+    type: Schema.Literal("space.updated"),
+    payload: SpaceUpdatedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
@@ -2026,18 +1893,23 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("project.created"),
-    payload: ProjectCreatedPayload,
+    type: Schema.Literal("folder.created"),
+    payload: FolderCreatedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("project.meta-updated"),
-    payload: ProjectMetaUpdatedPayload,
+    type: Schema.Literal("folder.updated"),
+    payload: FolderUpdatedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("project.deleted"),
-    payload: ProjectDeletedPayload,
+    type: Schema.Literal("folder.moved"),
+    payload: FolderMovedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("folder.deleted"),
+    payload: FolderDeletedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
@@ -2061,8 +1933,8 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("thread.meta-updated"),
-    payload: ThreadMetaUpdatedPayload,
+    type: Schema.Literal("thread.updated"),
+    payload: ThreadUpdatedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

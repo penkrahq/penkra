@@ -26,8 +26,8 @@ export interface AppState {
   shellSnapshotSequence?: number;
   spaces: Space[];
   archivedSpaces: Space[];
-  projects: Project[];
-  archivedProjects: Project[];
+  folders: Project[];
+  archivedFolders: Project[];
   sidebarThreadSummaryById: Record<string, SidebarThreadSummary>;
   threadsHydrated: boolean;
   threadIds?: ThreadId[];
@@ -46,7 +46,7 @@ export interface AppState {
    * entry once an authoritative snapshot at or after that sequence no longer lists the id, so the
    * maps cannot grow for the lifetime of the tab.
    */
-  deletedProjectIdsById?: Record<Project["id"], number>;
+  deletedFolderIdsById?: Record<Project["id"], number>;
   deletedThreadIdsById?: Record<ThreadId, number>;
 }
 
@@ -68,8 +68,8 @@ export const initialState: AppState = {
   shellSnapshotSequence: 0,
   spaces: [],
   archivedSpaces: [],
-  projects: [],
-  archivedProjects: [],
+  folders: [],
+  archivedFolders: [],
   sidebarThreadSummaryById: {},
   threadsHydrated: false,
   threadIds: [],
@@ -81,6 +81,6 @@ export const initialState: AppState = {
   activityIdsByThreadId: {},
   activityByThreadId: {},
   threadDetailSyncById: {},
-  deletedProjectIdsById: {},
+  deletedFolderIdsById: {},
   deletedThreadIdsById: {},
 };

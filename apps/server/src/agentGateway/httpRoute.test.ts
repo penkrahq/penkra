@@ -37,7 +37,7 @@ async function withGatewayServer(
           ? {
               sessionKey: "session-http-route-test",
               threadId,
-              provider: "cursor",
+              provider: "opencode",
               issuedAt: 1,
               capabilities: new Set(["thread:read", "thread:write", "diagnostics:read"]),
             }
@@ -47,7 +47,7 @@ async function withGatewayServer(
           ? {
               sessionKey: "session-http-route-test",
               threadId,
-              provider: "cursor",
+              provider: "opencode",
               turnId,
             }
           : null,

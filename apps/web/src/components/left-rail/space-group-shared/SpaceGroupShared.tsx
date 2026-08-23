@@ -4,6 +4,7 @@ import { DisclosureSection } from "~/components/ui/DisclosureRegion";
 
 import type { LeftRailRowState } from "../row-shared/LeftRailRow";
 import { SpaceHeaderShared } from "../space-header-shared/SpaceHeaderShared";
+import type { WorkStatus } from "../work-status-shared/WorkStatusShared";
 
 export interface SpaceGroupSharedProps {
   children?: ReactNode;
@@ -16,6 +17,7 @@ export interface SpaceGroupSharedProps {
   onExpandedChange?: (expanded: boolean) => void;
   onHeaderAction?: (event: MouseEvent<HTMLButtonElement>) => void;
   onHeaderContextMenu?: (event: MouseEvent<HTMLButtonElement>) => void;
+  workStatus?: WorkStatus;
 }
 
 export function SpaceGroupShared({
@@ -29,6 +31,7 @@ export function SpaceGroupShared({
   onExpandedChange,
   onHeaderAction,
   onHeaderContextMenu,
+  workStatus = "idle",
 }: SpaceGroupSharedProps) {
   const [uncontrolledExpanded, setUncontrolledExpanded] = useState(defaultExpanded);
   const hasContent = hasContentProp ?? children != null;
@@ -55,6 +58,7 @@ export function SpaceGroupShared({
             {...(onHeaderContextMenu ? { onContextMenu: onHeaderContextMenu } : {})}
             onClick={() => setExpanded(!expanded)}
             state={headerState}
+            workStatus={workStatus}
           >
             {label}
           </SpaceHeaderShared>

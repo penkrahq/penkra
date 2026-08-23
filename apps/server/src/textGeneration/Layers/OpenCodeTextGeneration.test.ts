@@ -220,7 +220,7 @@ it.layer(OpenCodeTextGenerationTestLayer)("OpenCodeTextGenerationServiceLive", (
     }),
   );
 
-  it.effect("projects generic attachments into text-generation prompts", () =>
+  it.effect("folders generic attachments into text-generation prompts", () =>
     Effect.gen(function* () {
       runtimeMock.state.promptResult = {
         data: {

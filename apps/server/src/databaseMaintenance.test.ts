@@ -142,7 +142,7 @@ describe("offline database maintenance CLI", () => {
           (1, 'thread-1', 'thread.message-sent', '{"messageId":"message-1","streaming":true}', '{}'),
           (2, 'thread-1', 'thread.message-sent', '{"messageId":"message-1","streaming":false}', '{}'),
           (3, 'thread-1', 'thread.activity-appended', '{"activity":{"id":"activity-1"}}', '{}'),
-          (10004, 'thread-1', 'thread.meta-updated', '{}', '{}');
+          (10004, 'thread-1', 'thread.updated', '{}', '{}');
         INSERT INTO orchestration_command_receipts VALUES
           ('provider:event-1:delta', 1), ('provider:event-3:activity', 3), ('user-command', 2);
         INSERT INTO orchestration_consumer_state VALUES ('provider-command-reactor.v1', 10004);
@@ -196,7 +196,7 @@ describe("offline database maintenance CLI", () => {
         INSERT INTO orchestration_events VALUES
           (1, 'thread-1', 'thread.message-sent', '{"messageId":"message-1","streaming":true}', '{}'),
           (2, 'thread-1', 'thread.message-sent', '{"messageId":"message-1","streaming":false}', '{}'),
-          (10003, 'thread-1', 'thread.meta-updated', '{}', '{}');
+          (10003, 'thread-1', 'thread.updated', '{}', '{}');
         INSERT INTO orchestration_command_receipts VALUES ('provider:event-1:delta', 1);
         INSERT INTO orchestration_consumer_state VALUES ('provider-command-reactor.v1', 10003);
         INSERT INTO projection_state VALUES ('threads', 10003);

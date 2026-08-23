@@ -8,6 +8,7 @@ import * as Path from "node:path";
 
 import { appPublicationStatus, publishAppDirectory } from "./appDeveloperLifecycle";
 import { packageAppDirectory, testAppDirectory } from "./appDeveloperTools";
+import { assemblePenkraInstructions } from "./agentGateway/instructions/assemble";
 
 const PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
 const TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
@@ -25,6 +26,7 @@ interface BridgeResponse {
 
 interface CatalogEntry {
   slug: string;
+  summary?: string;
   operations: ReadonlyArray<{
     key: string;
     input: Readonly<Record<string, unknown>>;
@@ -45,6 +47,15 @@ export interface AppDeveloperOperations {
   status: typeof appPublicationStatus;
 }
 
+export type PenkraExecFlagValue = string | number | boolean;
+
+export interface PenkraExecCommandInput {
+  command: ReadonlyArray<string>;
+  input?: unknown;
+  flags?: Readonly<Record<string, PenkraExecFlagValue>>;
+  tabId?: string;
+}
+
 const defaultAppDeveloperOperations: AppDeveloperOperations = {
   test: testAppDirectory,
   package: packageAppDirectory,
@@ -54,7 +65,7 @@ const defaultAppDeveloperOperations: AppDeveloperOperations = {
 
 /** Executes exactly one registered Penkra/App command without invoking a shell or consulting PATH. */
 export async function executePenkraExecCommand(
-  command: string,
+  requestInput: PenkraExecCommandInput,
   context: PenkraExecContext,
   env: NodeJS.ProcessEnv = process.env,
   bridgeRequest: (
@@ -64,8 +75,11 @@ export async function executePenkraExecCommand(
   ) => Promise<unknown> = request,
   developerOperations: AppDeveloperOperations = defaultAppDeveloperOperations,
 ): Promise<unknown> {
-  const args = tokenizeRegisteredCommand(command);
+  const args = [...requestInput.command];
   if (args.length === 0) throw new Error("command must not be empty.");
+  if (args.some((word) => typeof word !== "string" || !word)) {
+    throw new Error("command words must be non-empty strings.");
+  }
   const scope = {
     spaceId: requireContextText(context.spaceId, "spaceId"),
     threadId: requireContextText(context.threadId, "threadId"),
@@ -80,6 +94,7 @@ export async function executePenkraExecCommand(
     if (args[1] === "app") {
       return executeAppDeveloperCommand(
         args.slice(2),
+        requestInput,
         context,
         scope,
         env,
@@ -95,7 +110,7 @@ export async function executePenkraExecCommand(
     }
     if (args.length === 3 && args[1] === "apps" && args[2] === "--help") {
       return {
-        command: "penkra apps list",
+        command: ["penkra", "apps", "list"],
         description: "List enabled Apps and their operation keys in the caller Thread's Space.",
       };
     }
@@ -149,11 +164,12 @@ export async function executePenkraExecCommand(
       if (!allowedActions.has(action)) {
         throw new Error(`Unknown Penkra tabs command ${action}. Run penkra tabs --help.`);
       }
-      const parsed = parseRegisteredCommandFlags(args.slice(3));
-      if (parsed.positionals.length > 0 || parsed.help || parsed.input) {
+      const parsed = structuredArguments(args.slice(3), requestInput);
+      if (parsed.positionals.length > 0 || parsed.help) {
         throw new Error(`Invalid arguments for penkra tabs ${action}. Run penkra tabs --help.`);
       }
       if (!parsed.tabId) throw new Error(`penkra tabs ${action} requires --tab-id.`);
+      const supplied = mergeStructuredObjectInput(parsed.input, parsed.named);
       const allowedOptions: Record<string, ReadonlySet<string>> = {
         snapshot: new Set(["expand"]),
         extract: new Set(),
@@ -168,7 +184,7 @@ export async function executePenkraExecCommand(
         "handle-dialog": new Set(["accept", "text"]),
         upload: new Set(["ref", "paths"]),
       };
-      for (const key of Object.keys(parsed.named)) {
+      for (const key of Object.keys(supplied)) {
         if (!allowedOptions[action]!.has(key)) {
           throw new Error(`Unknown penkra tabs ${action} option --${key}.`);
         }
@@ -188,52 +204,62 @@ export async function executePenkraExecCommand(
         upload: ["ref", "paths"],
       };
       for (const key of requiredOptions[action]!) {
-        if (parsed.named[key] === undefined) {
+        if (supplied[key] === undefined) {
           throw new Error(`penkra tabs ${action} requires --${key}.`);
         }
       }
       const params: Record<string, unknown> = {
         ...scope,
         tabId: parsed.tabId,
-        ...parsed.named,
+        ...supplied,
       };
-      if (parsed.named["delta-x"] !== undefined) {
-        params.deltaX = parseFiniteNumber(parsed.named["delta-x"]!, "--delta-x");
+      if (supplied["delta-x"] !== undefined) {
+        params.deltaX = parseFiniteNumber(supplied["delta-x"]!, "--delta-x");
         delete params["delta-x"];
       }
-      if (parsed.named["delta-y"] !== undefined) {
-        params.deltaY = parseFiniteNumber(parsed.named["delta-y"]!, "--delta-y");
+      if (supplied["delta-y"] !== undefined) {
+        params.deltaY = parseFiniteNumber(supplied["delta-y"]!, "--delta-y");
         delete params["delta-y"];
       }
-      if (parsed.named["timeout-ms"] !== undefined) {
-        params.timeoutMs = parseFiniteNumber(parsed.named["timeout-ms"]!, "--timeout-ms");
+      if (supplied["timeout-ms"] !== undefined) {
+        params.timeoutMs = parseFiniteNumber(supplied["timeout-ms"]!, "--timeout-ms");
         delete params["timeout-ms"];
       }
       for (const name of ["expand", "observe", "accept"] as const) {
-        if (parsed.named[name] !== undefined) {
-          params[name] = parseBoolean(parsed.named[name]!, `--${name}`);
+        if (supplied[name] !== undefined) {
+          params[name] = parseBoolean(supplied[name]!, `--${name}`);
         }
       }
-      if (parsed.named.paths !== undefined) {
-        const paths = parseInput(parsed.named.paths);
+      if (supplied.paths !== undefined) {
+        const paths = supplied.paths;
         if (!Array.isArray(paths) || !paths.every((entry) => typeof entry === "string")) {
-          throw new Error("--paths must be a JSON array of strings.");
+          throw new Error("paths must be an array of strings in structured input.");
         }
         params.paths = paths;
       }
       return bridgeRequest(`tabs.${action}`, params, env);
     }
     if (args[1] === "open") {
-      const parsed = parseRegisteredCommandFlags(args.slice(2));
-      if (parsed.positionals.length > 0 || parsed.help || parsed.input || parsed.tabId) {
+      const parsed = structuredArguments(args.slice(2), requestInput);
+      if (parsed.positionals.length > 0 || parsed.help || parsed.tabId) {
         throw new Error("Usage: penkra open --path <path> | --url <url> [--with <app-slug>]");
       }
+      const supplied = mergeStructuredObjectInput(parsed.input, parsed.named);
       const allowed = new Set(["path", "url", "with"]);
-      for (const key of Object.keys(parsed.named)) {
+      for (const key of Object.keys(supplied)) {
         if (!allowed.has(key)) throw new Error(`Unknown penkra open option --${key}.`);
       }
-      const rawPath = parsed.named.path;
-      const url = parsed.named.url;
+      const rawPath = supplied.path;
+      const url = supplied.url;
+      if (rawPath !== undefined && typeof rawPath !== "string") {
+        throw new Error("penkra open path must be a string.");
+      }
+      if (url !== undefined && typeof url !== "string") {
+        throw new Error("penkra open url must be a string.");
+      }
+      if (supplied.with !== undefined && typeof supplied.with !== "string") {
+        throw new Error("penkra open with must be an App slug string.");
+      }
       if ((rawPath === undefined) === (url === undefined)) {
         throw new Error("Supply exactly one of --path or --url.");
       }
@@ -248,7 +274,7 @@ export async function executePenkraExecCommand(
         "core.open",
         {
           ...(path ? { path } : { url }),
-          ...(parsed.named.with ? { requestedApp: parsed.named.with } : {}),
+          ...(supplied.with ? { requestedApp: supplied.with } : {}),
           spaceId: requireContextText(context.spaceId, "spaceId"),
           threadId: requireContextText(context.threadId, "threadId"),
         },
@@ -258,7 +284,7 @@ export async function executePenkraExecCommand(
     throw new Error(`Unknown Penkra core command: ${args.join(" ")}. Run penkra --help.`);
   }
 
-  const parsed = parseRegisteredCommandFlags(args);
+  const parsed = structuredArguments(args, requestInput);
   const appScope = {
     ...scope,
     ...(parsed.tabId === undefined ? {} : { tabId: parsed.tabId }),
@@ -305,14 +331,33 @@ function summarizeCatalog(catalog: ReadonlyArray<CatalogEntry>): ReadonlyArray<{
 }
 
 const APP_DEVELOPER_COMMANDS = [
-  "penkra app test <directory>",
-  "penkra app package <directory> --output <path>",
-  "penkra app sideload <directory>",
-  "penkra app status [--app-id <app-id>]",
-  "penkra app publish <directory> [--visibility public|private]",
-  "penkra app access invite --app-id <app-id> --email <email>",
-  "penkra app access list --app-id <app-id>",
-  "penkra app access revoke --app-id <app-id> --invitation-id <id>",
+  '{ "command": ["penkra", "app", "test", "<directory>"] }',
+  '{ "command": ["penkra", "app", "package", "<directory>"], "flags": { "output": "<path>" } }',
+  '{ "command": ["penkra", "app", "sideload", "<directory>"] }',
+  '{ "command": ["penkra", "app", "status"], "flags": { "app-id": "<app-id>" } }',
+  '{ "command": ["penkra", "app", "publish", "<directory>"], "flags": { "visibility": "private|public" } }',
+  '{ "command": ["penkra", "app", "access", "invite"], "flags": { "app-id": "<app-id>", "email": "<email>" } }',
+  '{ "command": ["penkra", "app", "access", "list"], "flags": { "app-id": "<app-id>" } }',
+  '{ "command": ["penkra", "app", "access", "revoke"], "flags": { "app-id": "<app-id>", "invitation-id": "<id>" } }',
+] as const;
+
+const CORE_OPERATIONS = [
+  { command: "penkra apps list", summary: "List Apps enabled in the caller Thread's Space." },
+  { command: "penkra tabs current", summary: "Return the current App tab." },
+  { command: "penkra tabs list", summary: "List App tabs in the current Thread and Space." },
+  { command: "penkra tabs snapshot", summary: "Observe a tab before element interaction." },
+  { command: "penkra tabs extract", summary: "Extract readable content from a tab." },
+  { command: "penkra tabs screenshot", summary: "Capture a tab image." },
+  { command: "penkra tabs click", summary: "Click a freshly observed element reference." },
+  { command: "penkra tabs hover", summary: "Hover a freshly observed element reference." },
+  { command: "penkra tabs type", summary: "Type into a freshly observed element reference." },
+  { command: "penkra tabs press", summary: "Send a key press to a tab." },
+  { command: "penkra tabs select", summary: "Select a value in a tab control." },
+  { command: "penkra tabs scroll", summary: "Scroll a tab." },
+  { command: "penkra tabs wait", summary: "Wait for text in a tab." },
+  { command: "penkra tabs handle-dialog", summary: "Accept or dismiss a tab dialog." },
+  { command: "penkra tabs upload", summary: "Upload local files through a tab control." },
+  { command: "penkra open", summary: "Open a path or URL through an eligible handler." },
 ] as const;
 
 function registryTarget(env: NodeJS.ProcessEnv): {
@@ -342,6 +387,7 @@ async function withRegistryTarget(
 
 async function executeAppDeveloperCommand(
   args: ReadonlyArray<string>,
+  requestInput: PenkraExecCommandInput,
   context: PenkraExecContext,
   scope: { spaceId: string; threadId: string },
   env: NodeJS.ProcessEnv,
@@ -375,7 +421,7 @@ async function executeAppDeveloperCommand(
     if (args.length === 3 && (args[2] === "--help" || args[2] === "-h")) {
       return appDeveloperCommandHelp(`access.${action}`);
     }
-    const parsed = parseAppDeveloperFlags(args.slice(2));
+    const parsed = parseAppDeveloperFlags(args.slice(2), requestInput);
     assertNoAppPositionals(parsed, `penkra app access ${action}`);
     const required =
       action === "invite"
@@ -387,19 +433,28 @@ async function executeAppDeveloperCommand(
     const method = `developer.app-access.${action}`;
     return withRegistryTarget(
       bridge(method, {
-        appId: parsed.named["app-id"],
-        ...(action === "invite" ? { email: parsed.named.email } : {}),
-        ...(action === "revoke" ? { invitationId: parsed.named["invitation-id"] } : {}),
+        appId: requireStringFlag(parsed.named, "app-id"),
+        ...(action === "invite" ? { email: requireStringFlag(parsed.named, "email") } : {}),
+        ...(action === "revoke"
+          ? { invitationId: requireStringFlag(parsed.named, "invitation-id") }
+          : {}),
       }),
       env,
     );
   }
 
-  const parsed = parseAppDeveloperFlags(args.slice(1));
+  const parsed = parseAppDeveloperFlags(args.slice(1), requestInput);
   if (command === "status") {
     assertNoAppPositionals(parsed, "penkra app status");
     assertExactAppOptions(parsed.named, [], "penkra app status", ["app-id"]);
-    return withRegistryTarget(operations.status(parsed.named["app-id"], bridge), env);
+    const appId = parsed.named["app-id"];
+    return withRegistryTarget(
+      operations.status(
+        appId === undefined ? undefined : requireStringFlag(parsed.named, "app-id"),
+        bridge,
+      ),
+      env,
+    );
   }
 
   if (parsed.positionals.length !== 1) {
@@ -414,7 +469,7 @@ async function executeAppDeveloperCommand(
     assertExactAppOptions(parsed.named, ["output"], "penkra app package");
     return operations.package({
       directory,
-      output: resolveAppPath(parsed.named.output!, context, "package output"),
+      output: resolveAppPath(requireStringFlag(parsed.named, "output"), context, "package output"),
     });
   }
   if (command === "sideload") {
@@ -432,8 +487,8 @@ async function executeAppDeveloperCommand(
   return withRegistryTarget(operations.publish({ directory, visibility, bridge, env }), env);
 }
 
-function parseAppDeveloperFlags(args: ReadonlyArray<string>) {
-  const parsed = parseRegisteredCommandFlags(args);
+function parseAppDeveloperFlags(args: ReadonlyArray<string>, requestInput: PenkraExecCommandInput) {
+  const parsed = structuredArguments(args, requestInput);
   if (parsed.help || parsed.input !== undefined || parsed.tabId !== undefined) {
     throw new Error(
       "App developer commands do not accept --help with other arguments, --input, or --tab-id.",
@@ -451,7 +506,7 @@ function assertNoAppPositionals(
 }
 
 function assertExactAppOptions(
-  named: Readonly<Record<string, string>>,
+  named: Readonly<Record<string, PenkraExecFlagValue>>,
   required: ReadonlyArray<string>,
   command: string,
   optional: ReadonlyArray<string> = [],
@@ -463,6 +518,15 @@ function assertExactAppOptions(
   for (const key of required) {
     if (named[key] === undefined) throw new Error(`${command} requires --${key}.`);
   }
+}
+
+function requireStringFlag(
+  flags: Readonly<Record<string, PenkraExecFlagValue>>,
+  name: string,
+): string {
+  const value = flags[name];
+  if (typeof value !== "string" || !value) throw new Error(`--${name} must be a string.`);
+  return value;
 }
 
 function resolveAppPath(value: string, context: PenkraExecContext, label: string): string {
@@ -499,7 +563,7 @@ function appDeveloperCommandHelp(command: string): {
       description: "Test, package, collision-check, sign, upload, and submit an App.",
     },
     access: {
-      usage: "penkra app access <invite|list|revoke> [options]",
+      usage: '{ "command": ["penkra", "app", "access", "<invite|list|revoke>"] }',
       description: "Manage account access to a private App.",
     },
     "access.invite": {
@@ -521,77 +585,29 @@ function appDeveloperCommandHelp(command: string): {
 function coreHelp(
   catalog: ReadonlyArray<CatalogEntry>,
   additionalCoreCommands: ReadonlyArray<string>,
-): unknown {
-  return {
-    description:
-      "Penkra registered commands run through penkra_exec_command; they are not shell commands.",
-    commands: [
-      ...additionalCoreCommands,
-      ...APP_DEVELOPER_COMMANDS,
-      "penkra apps list",
-      "penkra tabs current",
-      "penkra tabs list",
-      "penkra tabs snapshot --tab-id <id>",
-      "penkra tabs screenshot --tab-id <id>",
-      "penkra open --path <path> | --url <url> [--with <app-slug>]",
+): string {
+  return penkraRootInstructions(catalog, additionalCoreCommands);
+}
+
+export function penkraRootInstructions(
+  catalog: ReadonlyArray<CatalogEntry>,
+  additionalCoreCommands: ReadonlyArray<string>,
+): string {
+  return assemblePenkraInstructions({
+    catalog,
+    operations: [
+      ...additionalCoreCommands.map((command) => ({ command })),
+      ...APP_DEVELOPER_COMMANDS.map((command) => ({ command })),
+      ...CORE_OPERATIONS,
     ],
-    appCommands: summarizeCatalog(catalog).map((app) => ({
-      root: app.slug,
-      help: `penkra_exec_command: ${app.slug} --help`,
-      operations: app.operations,
-    })),
-  };
+  });
 }
 
-function parseFiniteNumber(value: string, name: string): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) throw new Error(`${name} must be a finite number.`);
-  return parsed;
-}
-
-export function tokenizeRegisteredCommand(command: string): string[] {
-  if (typeof command !== "string" || !command.trim()) return [];
-  if (/[$`]/.test(command)) {
-    throw new Error("Command expansion is not supported by penkra_exec_command.");
+function parseFiniteNumber(value: unknown, name: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${name} must be a finite number.`);
   }
-  const words: string[] = [];
-  let current = "";
-  let quote: "'" | '"' | null = null;
-  let escaped = false;
-  for (const character of command) {
-    if (escaped) {
-      current += character;
-      escaped = false;
-      continue;
-    }
-    if (character === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (quote) {
-      if (character === quote) quote = null;
-      else current += character;
-      continue;
-    }
-    if (character === "'" || character === '"') {
-      quote = character;
-      continue;
-    }
-    if (/[|&;<>()[\]{}]/.test(character)) {
-      throw new Error("Shell operators are not supported by penkra_exec_command.");
-    }
-    if (/\s/.test(character)) {
-      if (current) {
-        words.push(current);
-        current = "";
-      }
-      continue;
-    }
-    current += character;
-  }
-  if (escaped || quote) throw new Error("Command contains an unfinished escape or quote.");
-  if (current) words.push(current);
-  return words;
+  return value;
 }
 
 function requireContextText(value: string, name: string): string {
@@ -599,65 +615,45 @@ function requireContextText(value: string, name: string): string {
   return value;
 }
 
-export function parseRegisteredCommandFlags(args: ReadonlyArray<string>): {
+function mergeStructuredObjectInput(
+  input: unknown,
+  flags: Readonly<Record<string, PenkraExecFlagValue>>,
+): Record<string, unknown> {
+  if (input !== undefined && (!input || typeof input !== "object" || Array.isArray(input))) {
+    throw new Error("Structured input for this command must be an object.");
+  }
+  const result = { ...((input as Record<string, unknown> | undefined) ?? {}) };
+  for (const [name, value] of Object.entries(flags)) {
+    if (Object.hasOwn(result, name)) {
+      throw new Error(`${name} was supplied by both input and flags.`);
+    }
+    result[name] = value;
+  }
+  return result;
+}
+
+export function structuredArguments(
+  args: ReadonlyArray<string>,
+  input: Omit<PenkraExecCommandInput, "command">,
+): {
   positionals: string[];
   help: boolean;
-  input?: string;
+  input?: unknown;
   tabId?: string;
-  named: Record<string, string>;
+  named: Record<string, PenkraExecFlagValue>;
 } {
-  const positionals: string[] = [];
-  let help = false;
-  let input: string | undefined;
-  let tabId: string | undefined;
-  const named: Record<string, string> = {};
-  for (let index = 0; index < args.length; index += 1) {
-    const value = args[index]!;
-    if (value === "--help" || value === "-h") {
-      help = true;
-      continue;
-    }
-    if (value === "--schema") {
-      throw new Error(
-        "--schema has been removed. Run the command with --help for its complete validated input contract.",
-      );
-    }
-    if (value === "--input" || value === "--tab-id") {
-      const next = args[index + 1];
-      if (!next) throw new Error(`${value} requires a value.`);
-      if (value === "--input") input = next;
-      else tabId = next;
-      index += 1;
-      continue;
-    }
-    if (value.startsWith("--input=")) {
-      input = value.slice("--input=".length);
-      continue;
-    }
-    if (value.startsWith("--tab-id=")) {
-      tabId = value.slice("--tab-id=".length);
-      continue;
-    }
-    if (value.startsWith("--")) {
-      const equals = value.indexOf("=");
-      const name = value.slice(2, equals < 0 ? undefined : equals);
-      const next = equals < 0 ? args[index + 1] : value.slice(equals + 1);
-      if (!name || !next || (equals < 0 && next.startsWith("--"))) {
-        throw new Error(`${value} requires a value.`);
-      }
-      named[name] = next;
-      if (equals < 0) index += 1;
-      continue;
-    }
-    if (value.startsWith("-")) throw new Error(`Unknown App command option ${value}.`);
-    positionals.push(value);
+  const helpToken = args.at(-1);
+  const help = helpToken === "--help" || helpToken === "-h";
+  const positionals = help ? args.slice(0, -1) : [...args];
+  if (positionals.some((value) => value.startsWith("-"))) {
+    throw new Error("Command options belong in flags, input, or tabId, not in command.");
   }
   return {
     positionals,
     help,
-    named,
-    ...(input === undefined ? {} : { input }),
-    ...(tabId === undefined ? {} : { tabId }),
+    named: { ...(input.flags ?? {}) },
+    ...(input.input === undefined ? {} : { input: input.input }),
+    ...(input.tabId === undefined ? {} : { tabId: input.tabId }),
   };
 }
 
@@ -669,26 +665,17 @@ function resolveOperation(app: CatalogEntry, words: ReadonlyArray<string>): stri
   return key;
 }
 
-function parseInput(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    throw new Error("--input must be valid JSON.", { cause: error });
-  }
-}
-
-function parseBoolean(raw: string, name: string): boolean {
-  if (raw === "true") return true;
-  if (raw === "false") return false;
+function parseBoolean(raw: unknown, name: string): boolean {
+  if (raw === true || raw === false) return raw;
   throw new Error(`${name} must be true or false.`);
 }
 
 export function parseOperationInput(
   schema: Readonly<Record<string, unknown>>,
-  rawInput: string | undefined,
-  named: Readonly<Record<string, string>>,
+  rawInput: unknown,
+  named: Readonly<Record<string, PenkraExecFlagValue>>,
 ): unknown {
-  const base = rawInput === undefined ? {} : parseInput(rawInput);
+  const base = rawInput === undefined ? {} : rawInput;
   if (!base || typeof base !== "object" || Array.isArray(base)) {
     if (Object.keys(named).length > 0)
       throw new Error("Named operation flags require an object input schema.");
@@ -714,17 +701,21 @@ export function parseOperationInput(
       throw new Error(`${propertyName} was supplied by both --input and --${name}.`);
     const type = (declaration as Record<string, unknown>).type;
     if (type === "boolean") {
-      if (raw !== "true" && raw !== "false") throw new Error(`--${name} must be true or false.`);
-      result[propertyName] = raw === "true";
+      if (typeof raw !== "boolean") throw new Error(`--${name} must be true or false.`);
+      result[propertyName] = raw;
     } else if (type === "number" || type === "integer") {
-      const value = Number(raw);
-      if (!Number.isFinite(value) || (type === "integer" && !Number.isInteger(value))) {
+      if (
+        typeof raw !== "number" ||
+        !Number.isFinite(raw) ||
+        (type === "integer" && !Number.isInteger(raw))
+      ) {
         throw new Error(`--${name} must be a${type === "integer" ? "n integer" : " number"}.`);
       }
-      result[propertyName] = value;
+      result[propertyName] = raw;
     } else if (type === "object" || type === "array") {
-      result[propertyName] = parseInput(raw);
+      throw new Error(`--${name} must be supplied through structured input.`);
     } else {
+      if (typeof raw !== "string") throw new Error(`--${name} must be a string.`);
       result[propertyName] = raw;
     }
   }

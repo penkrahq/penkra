@@ -184,6 +184,12 @@ describe("Connection-scoped provider usage", () => {
       },
     });
 
-    expect(snapshots).toMatchObject([{ connectionId: "codex-account", status: "needs-auth" }]);
+    expect(snapshots).toMatchObject([
+      {
+        connectionId: "codex-account",
+        status: "ok",
+        source: "provider-runtime-awaiting-rate-limits",
+      },
+    ]);
   });
 });

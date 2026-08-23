@@ -21,7 +21,7 @@ describe("threadDetailSubscriptionRetention", () => {
         ...useStore.getState().sidebarThreadSummaryById,
         [threadId]: {
           id: threadId,
-          projectId: "project-1" as never,
+          folderId: "project-1" as never,
           title: "Idle thread",
           modelSelection: { provider: "codex", model: "gpt-5.4" },
           session: null,
@@ -130,7 +130,7 @@ describe("threadDetailSubscriptionRetention", () => {
         ...useStore.getState().sidebarThreadSummaryById,
         [threadId]: {
           id: threadId,
-          projectId: "project-1" as never,
+          folderId: "project-1" as never,
           title: "Busy thread",
           modelSelection: { provider: "codex", model: "gpt-5.4" },
           session: {

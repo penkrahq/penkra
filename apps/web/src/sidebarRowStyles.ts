@@ -3,7 +3,7 @@
 // Layer: Sidebar UI styling
 // Exports: row dimension, radius, hover/active, header + thread row class names
 
-/** Compact sidebar row height shared by projects, threads, chats, and settings nav. */
+/** Compact sidebar row height shared by folders, threads, chats, and settings nav. */
 export const SIDEBAR_ROW_HEIGHT_CLASS_NAME =
   "min-h-[var(--app-density-row-height,1.75rem)] h-[var(--app-density-row-height,1.75rem)]";
 

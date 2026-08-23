@@ -48,7 +48,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "chat.newTerminal",
   "chat.newClaude",
   "chat.newCodex",
-  "chat.newCursor",
+  "chat.newOpenCode",
   "chat.split",
   "view.recent.next",
   "view.recent.previous",

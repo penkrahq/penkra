@@ -7,15 +7,15 @@
  * @module ProjectionSnapshotQuery
  */
 import type {
-  OrchestrationProject,
-  OrchestrationProjectShell,
+  OrchestrationFolder,
+  OrchestrationFolderShell,
   OrchestrationSpaceShell,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   OrchestrationThreadDetailSnapshot,
   OrchestrationThread,
   OrchestrationThreadShell,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
   TurnId,
@@ -26,7 +26,7 @@ import type { Effect, Option } from "effect";
 import type { ProjectionRepositoryError } from "../../persistence/Errors.ts";
 
 export interface ProjectionSnapshotCounts {
-  readonly projectCount: number;
+  readonly folderCount: number;
   readonly threadCount: number;
 }
 
@@ -97,7 +97,7 @@ export interface ProjectionSnapshotQueryShape {
   /**
    * Read the latest orchestration shell snapshot.
    *
-   * Returns only project rows plus thread shell summaries so clients can
+   * Returns only folder rows plus thread shell summaries so clients can
    * bootstrap navigation state without hydrating every thread body.
    */
   readonly getShellSnapshot: () => Effect.Effect<
@@ -106,18 +106,18 @@ export interface ProjectionSnapshotQueryShape {
   >;
 
   /**
-   * Read the active project for an exact workspace root match.
+   * Read the active folder for an exact workspace root match.
    */
-  readonly getActiveProjectByWorkspaceRoot: (
+  readonly getActiveFolderByWorkspaceRoot: (
     workspaceRoot: string,
-  ) => Effect.Effect<Option.Option<OrchestrationProject>, ProjectionRepositoryError>;
+  ) => Effect.Effect<Option.Option<OrchestrationFolder>, ProjectionRepositoryError>;
 
   /**
-   * Read a single active project shell row by id.
+   * Read a single active folder shell row by id.
    */
-  readonly getProjectShellById: (
-    projectId: ContainerId,
-  ) => Effect.Effect<Option.Option<OrchestrationProjectShell>, ProjectionRepositoryError>;
+  readonly getFolderShellById: (
+    folderId: FolderId,
+  ) => Effect.Effect<Option.Option<OrchestrationFolderShell>, ProjectionRepositoryError>;
 
   /** Read a single active custom space shell row by id. */
   readonly getSpaceShellById: (
@@ -125,10 +125,10 @@ export interface ProjectionSnapshotQueryShape {
   ) => Effect.Effect<Option.Option<OrchestrationSpaceShell>, ProjectionRepositoryError>;
 
   /**
-   * Read the earliest active thread for a project.
+   * Read the earliest active thread for a folder.
    */
-  readonly getFirstActiveThreadIdByProjectId: (
-    projectId: ContainerId,
+  readonly getFirstActiveThreadIdByFolderId: (
+    folderId: FolderId,
   ) => Effect.Effect<Option.Option<ThreadId>, ProjectionRepositoryError>;
 
   /**

@@ -2,7 +2,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Layer } from "effect";
 
 import { AgentGatewayLive } from "./agentGateway/Layers/AgentGateway";
-import { AgentGatewayOperationRepositoryLive } from "./agentGateway/Layers/AgentGatewayOperationRepository";
 import { AgentGatewayCredentialsWithSecretsLive } from "./agentGateway/Layers/AgentGatewayCredentials";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
@@ -32,6 +31,7 @@ import { OrchestrationEventDeliveryRepositoryLive } from "./persistence/Layers/O
 import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/ProviderRuntimeEvents";
 import { ProviderInstallationRepositoryLive } from "./persistence/Layers/ProviderInstallations";
 import { ProviderConnectionRepositoryLive } from "./persistence/Layers/ProviderConnections";
+import { ConnectionUsageFactRepositoryLive } from "./persistence/Layers/ConnectionUsageFacts";
 import { ProviderConnectionOperationRepositoryLive } from "./persistence/Layers/ProviderConnectionOperations";
 import { ProviderConnectionLoginRepositoryLive } from "./persistence/Layers/ProviderConnectionLogins";
 import { ThreadProviderBindingRepositoryLive } from "./persistence/Layers/ThreadProviderBindings";
@@ -65,6 +65,7 @@ export function makeServerRuntimeServicesLayer(
   const providerHealthLayer = ProviderHealthLive.pipe(Layer.provideMerge(ServerSettingsLive));
   const providerConnectionPersistenceLayer = Layer.mergeAll(
     ProviderConnectionRepositoryLive,
+    ConnectionUsageFactRepositoryLive,
     ProviderConnectionOperationRepositoryLive,
     ProviderConnectionLoginRepositoryLive,
     ThreadProviderBindingRepositoryLive,
@@ -169,7 +170,6 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(agentGatewayCredentialsLayer),
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(ProjectionTurnRepositoryLive),
-    Layer.provideMerge(AgentGatewayOperationRepositoryLive),
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
     Layer.provideMerge(ProviderRuntimeEventRepositoryLive),
     Layer.provideMerge(ThreadDiagnosticsQueryLive),
@@ -184,7 +184,6 @@ export function makeServerRuntimeServicesLayer(
     agentGatewayCredentialsLayer,
     agentGatewayLayer,
     managedAttachmentCleanupLayer,
-    AgentGatewayOperationRepositoryLive,
     ProviderInstallationRepositoryLive,
     providerConnectionPersistenceLayer,
     ProviderCredentialBrokerLive,

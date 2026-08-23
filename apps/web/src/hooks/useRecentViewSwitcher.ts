@@ -40,7 +40,7 @@ interface RecentViewSwitcherState {
 interface UseRecentViewSwitcherInput {
   activeContextThreadId: NewThreadContext["activeContextThreadId"];
   activeDraftThread: NewThreadContext["activeDraftThread"];
-  projects: NewThreadContext["projects"];
+  folders: NewThreadContext["folders"];
 }
 
 // Encapsulates recent-view persistence, pruning, prewarm, and activation.
@@ -84,13 +84,13 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
     for (const [threadId, draftThread] of Object.entries(draftThreadsByThreadId)) {
       draftThreadsById[threadId] = {
         id: ThreadId.makeUnsafe(threadId),
-        projectId: draftThread.projectId,
+        folderId: draftThread.folderId,
       };
     }
     if (input.activeDraftThread && input.activeContextThreadId) {
       draftThreadsById[input.activeContextThreadId] = {
         id: input.activeContextThreadId,
-        projectId: input.activeDraftThread.projectId,
+        folderId: input.activeDraftThread.folderId,
       };
     }
     recentViewEntries = buildRecentViewDisplayEntries({
@@ -98,7 +98,7 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
       currentView: currentRecentView,
       threadsById: sidebarThreadSummaryById,
       draftThreadsById,
-      projects: input.projects,
+      folders: input.folders,
       pinnedThreadIds: persistedPinnedThreadIds,
     });
   }

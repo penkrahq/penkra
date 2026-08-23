@@ -63,9 +63,9 @@ import {
   type CodexAppServerStartSessionInput,
 } from "../../codexAppServerManager.ts";
 import {
-  evaluateAcpTurnIdleTick,
-  resolveAcpTurnIdleTimeoutMs,
-} from "../acp/AcpTurnIdleWatchdog.ts";
+  evaluateProviderTurnIdleTick,
+  resolveProviderTurnIdleTimeoutMs,
+} from "../ProviderTurnIdleWatchdog.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { AgentGatewayToolBridge } from "../../agentGateway/Services/AgentGatewayToolBridge.ts";
 import { acquireAgentGatewaySessionLease } from "../../agentGateway/sessionLease.ts";
@@ -128,7 +128,7 @@ function codexResumeThreadId(cursor: unknown): string | null {
 // Every turn-scoped event (reasoning, tool output, deltas) resets the clock and
 // a pending question/approval pauses it, so only a wedged child trips this.
 // Generous by design; override with PENKRA_CODEX_TURN_IDLE_TIMEOUT_MS.
-const CODEX_TURN_IDLE_TIMEOUT_MS = resolveAcpTurnIdleTimeoutMs({
+const CODEX_TURN_IDLE_TIMEOUT_MS = resolveProviderTurnIdleTimeoutMs({
   envVar: "PENKRA_CODEX_TURN_IDLE_TIMEOUT_MS",
   defaultMs: 900_000,
 });
@@ -1694,7 +1694,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
     );
 
     // Idle-progress backstop for codex turns. Same semantics as
-    // AcpTurnIdleWatchdog (any inbound activity resets it, a pending human
+    // ProviderTurnIdleWatchdog (any inbound activity resets it, a pending human
     // decision pauses it), driven by one shared ticker because codex activity
     // arrives on a single manager event stream instead of per-session fibers.
     const turnWatchdogs = new Map<ThreadId, CodexTurnWatchdogEntry>();
@@ -1749,7 +1749,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       const now = Date.now();
       for (const [threadId, entry] of turnWatchdogs) {
         const idleMs = now - entry.lastActivityAt;
-        const decision = evaluateAcpTurnIdleTick({
+        const decision = evaluateProviderTurnIdleTick({
           isTurnActive: manager.isTurnActive(threadId, entry.turnId),
           isAwaitingHuman: manager.isAwaitingHumanResponse(threadId),
           idleMs,

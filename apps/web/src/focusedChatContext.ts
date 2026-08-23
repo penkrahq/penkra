@@ -25,14 +25,14 @@ export interface FocusedChatContext {
   activeThread: Thread | null;
   activeDraftThread: DraftThreadState | null;
   activeProject: Project | null;
-  activeProjectId: Project["id"] | null;
+  activeFolderId: Project["id"] | null;
 }
 
 export function resolveFocusedChatContext(input: {
   routeThreadId: ThreadIdType | null;
   splitView: SplitView | null;
   threads: readonly Thread[];
-  projects: readonly Project[];
+  folders: readonly Project[];
   draftThreadsByThreadId: Record<string, DraftThreadState | undefined>;
 }): FocusedChatContext {
   const focusedThreadId = input.splitView
@@ -44,14 +44,11 @@ export function resolveFocusedChatContext(input: {
       : null;
   const activeDraftThread =
     focusedThreadId !== null ? (input.draftThreadsByThreadId[focusedThreadId] ?? null) : null;
-  const activeProjectId =
-    activeDraftThread?.projectId ??
-    activeThread?.projectId ??
-    input.splitView?.ownerProjectId ??
-    null;
+  const activeFolderId =
+    activeDraftThread?.folderId ?? activeThread?.folderId ?? input.splitView?.ownerFolderId ?? null;
   const activeProject =
-    activeProjectId !== null
-      ? (input.projects.find((project) => project.id === activeProjectId) ?? null)
+    activeFolderId !== null
+      ? (input.folders.find((project) => project.id === activeFolderId) ?? null)
       : null;
 
   return {
@@ -61,7 +58,7 @@ export function resolveFocusedChatContext(input: {
     activeThread,
     activeDraftThread,
     activeProject,
-    activeProjectId,
+    activeFolderId,
   };
 }
 
@@ -83,13 +80,10 @@ export function useFocusedChatContext(): FocusedChatContext {
   );
   const activeDraftThread =
     focusedThreadId !== null ? (draftThreadsByThreadId[focusedThreadId] ?? null) : null;
-  const activeProjectId =
-    activeDraftThread?.projectId ??
-    activeThread?.projectId ??
-    activeSplitView?.ownerProjectId ??
-    null;
+  const activeFolderId =
+    activeDraftThread?.folderId ?? activeThread?.folderId ?? activeSplitView?.ownerFolderId ?? null;
   const activeProject = useStore(
-    useMemo(() => createProjectSelector(activeProjectId), [activeProjectId]),
+    useMemo(() => createProjectSelector(activeFolderId), [activeFolderId]),
   );
 
   return {
@@ -99,6 +93,6 @@ export function useFocusedChatContext(): FocusedChatContext {
     activeThread: activeThread ?? null,
     activeDraftThread,
     activeProject: activeProject ?? null,
-    activeProjectId,
+    activeFolderId,
   };
 }

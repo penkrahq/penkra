@@ -394,11 +394,7 @@ layer("035_NormalizeLegacyModelSelectionOptions", (it) => {
         model: "openai/gpt-5.4",
         options: { agent: "plan", variant: "fast" },
       });
-      assert.deepStrictEqual(decodeModelSelection(threadSelections.get("gpt-5.4")), {
-        provider: "cursor",
-        model: "gpt-5.4",
-        options: { reasoningEffort: "high" },
-      });
+      assert.strictEqual(threadSelections.get("gpt-5.4"), undefined);
       assert.deepStrictEqual(decodeModelSelection(projectEventPayload.defaultModelSelection), {
         provider: "codex",
         model: "gpt-5.5",

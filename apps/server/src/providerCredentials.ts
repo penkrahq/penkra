@@ -7,7 +7,7 @@ import { Effect, Layer, ServiceMap } from "effect";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore";
 import { ServerSecretStore, type SecretStoreError } from "./auth/Services/ServerSecretStore";
 
-export type ExternalProviderServer = "kilo" | "opencode";
+export type ExternalProviderServer = "opencode";
 
 const secretName = (provider: ExternalProviderServer): string =>
   `provider-${provider}-server-password`;
@@ -48,6 +48,10 @@ const makeProviderCredentials = Effect.gen(function* () {
   const secrets = yield* ServerSecretStore;
   const encoder = new TextEncoder();
   const decoder = new TextDecoder("utf-8", { fatal: true });
+
+  // Kilo was removed before release. Its server password lived outside SQLite,
+  // so the provider-removal database migration cannot clear this secret.
+  yield* secrets.remove("provider-kilo-server-password");
 
   const getServerPassword: ProviderCredentialsShape["getServerPassword"] = (provider) =>
     secrets.get(secretName(provider)).pipe(

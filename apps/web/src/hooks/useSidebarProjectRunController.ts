@@ -5,7 +5,7 @@
 
 import {
   type ProjectDiscoveredScriptTarget,
-  type ContainerId,
+  type FolderId,
   type ServerLocalServerProcess,
 } from "@penkra/contracts";
 import { localServerAddressLabel, localServerMatchesRun } from "@penkra/shared/localServers";
@@ -14,7 +14,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { findDeepestWorkspaceRootMatch } from "../components/Sidebar.logic";
 import { toastManager } from "../components/ui/toast";
-import { isHomeChatContainerProject } from "../lib/chatProjects";
 import { projectDiscoverScriptsQueryOptions } from "../lib/projectReactQuery";
 import { serverQueryKeys, sidebarLocalServersQueryOptions } from "../lib/serverReactQuery";
 import { newCommandId } from "../lib/utils";
@@ -42,33 +41,22 @@ function findTrackedProjectRunServer(
 }
 
 export function useSidebarProjectRunController(input: {
-  readonly projects: readonly Project[];
-  readonly projectById: ReadonlyMap<ContainerId, Project>;
+  readonly folders: readonly Project[];
+  readonly projectById: ReadonlyMap<FolderId, Project>;
   readonly homeDir: string | null;
   readonly chatWorkspaceRoot: string | null;
 }) {
   const queryClient = useQueryClient();
-  const projectRunsByProjectId = useProjectRunStore((state) => state.runsByProjectId);
+  const projectRunsByFolderId = useProjectRunStore((state) => state.runsByFolderId);
   const storeUpsertProjectRun = useProjectRunStore((state) => state.upsertRun);
   const storeRemoveProjectRun = useProjectRunStore((state) => state.removeRun);
-  const [dialogProjectId, setDialogProjectId] = useState<ContainerId | null>(null);
+  const [dialogFolderId, setDialogFolderId] = useState<FolderId | null>(null);
   const [dialogCommandDraft, setDialogCommandDraft] = useState("");
 
-  const runnableProjects = useMemo(
-    () =>
-      input.projects.filter(
-        (project) =>
-          project.kind === "project" &&
-          !isHomeChatContainerProject(project, {
-            homeDir: input.homeDir,
-            chatWorkspaceRoot: input.chatWorkspaceRoot,
-          }),
-      ),
-    [input.chatWorkspaceRoot, input.homeDir, input.projects],
-  );
+  const runnableFolders = useMemo(() => input.folders, [input.folders]);
   const discoveryInputs = useMemo(() => {
     const byCwd = new Map<string, { cwd: string; enabled: boolean }>();
-    for (const project of runnableProjects) {
+    for (const project of runnableFolders) {
       if (!project.cwd) continue;
       const enabled = project.scripts.length === 0;
       const existing = byCwd.get(project.cwd);
@@ -79,66 +67,66 @@ export function useSidebarProjectRunController(input: {
       }
     }
     return [...byCwd.values()];
-  }, [runnableProjects]);
+  }, [runnableFolders]);
   const discoveryQueries = useQueries({
     queries: discoveryInputs.map((input) =>
       projectDiscoverScriptsQueryOptions({ cwd: input.cwd, enabled: input.enabled }),
     ),
   });
-  const discoveredTargetsByProjectId = useMemo(() => {
+  const discoveredTargetsByFolderId = useMemo(() => {
     const targetsByCwd = new Map<string, readonly ProjectDiscoveredScriptTarget[]>();
     for (let index = 0; index < discoveryInputs.length; index += 1) {
       const input = discoveryInputs[index];
       if (input) targetsByCwd.set(input.cwd, discoveryQueries[index]?.data?.targets ?? []);
     }
-    const targetsByProjectId = new Map<ContainerId, readonly ProjectDiscoveredScriptTarget[]>();
-    for (const project of runnableProjects) {
-      targetsByProjectId.set(project.id, project.cwd ? (targetsByCwd.get(project.cwd) ?? []) : []);
+    const targetsByFolderId = new Map<FolderId, readonly ProjectDiscoveredScriptTarget[]>();
+    for (const project of runnableFolders) {
+      targetsByFolderId.set(project.id, project.cwd ? (targetsByCwd.get(project.cwd) ?? []) : []);
     }
-    return targetsByProjectId;
-  }, [discoveryInputs, discoveryQueries, runnableProjects]);
-  const commandByProjectId = useMemo(() => {
-    const commands = new Map<ContainerId, ReturnType<typeof selectPrimaryProjectRunCommand>>();
-    for (const project of runnableProjects) {
+    return targetsByFolderId;
+  }, [discoveryInputs, discoveryQueries, runnableFolders]);
+  const commandByFolderId = useMemo(() => {
+    const commands = new Map<FolderId, ReturnType<typeof selectPrimaryProjectRunCommand>>();
+    for (const project of runnableFolders) {
       commands.set(
         project.id,
         selectPrimaryProjectRunCommand({
           project,
-          discoveredTargets: discoveredTargetsByProjectId.get(project.id) ?? [],
+          discoveredTargets: discoveredTargetsByFolderId.get(project.id) ?? [],
         }),
       );
     }
     return commands;
-  }, [discoveredTargetsByProjectId, runnableProjects]);
-  const commandByProjectIdRef = useRef(commandByProjectId);
+  }, [discoveredTargetsByFolderId, runnableFolders]);
+  const commandByFolderIdRef = useRef(commandByFolderId);
   useEffect(() => {
-    commandByProjectIdRef.current = commandByProjectId;
-  }, [commandByProjectId]);
+    commandByFolderIdRef.current = commandByFolderId;
+  }, [commandByFolderId]);
 
   const hasActiveProjectRun = useMemo(
-    () => Object.keys(projectRunsByProjectId).length > 0,
-    [projectRunsByProjectId],
+    () => Object.keys(projectRunsByFolderId).length > 0,
+    [projectRunsByFolderId],
   );
   const localServersQuery = useQuery(
     sidebarLocalServersQueryOptions({
       hasActiveProjectRun,
-      hasProjects: runnableProjects.length > 0,
+      hasFolders: runnableFolders.length > 0,
     }),
   );
-  const serverByProjectId = useMemo(() => {
+  const serverByFolderId = useMemo(() => {
     const servers = localServersQuery.data?.servers ?? [];
-    const serversByProject = new Map<ContainerId, ServerLocalServerProcess>();
+    const serversByProject = new Map<FolderId, ServerLocalServerProcess>();
 
-    for (const run of Object.values(projectRunsByProjectId)) {
+    for (const run of Object.values(projectRunsByFolderId)) {
       const server = findTrackedProjectRunServer(run, servers);
       if (server) {
-        serversByProject.set(run.projectId, server);
+        serversByProject.set(run.folderId, server);
       }
     }
     for (const server of servers) {
       if (!server.cwd) continue;
       const project = findDeepestWorkspaceRootMatch(
-        runnableProjects,
+        runnableFolders,
         server.cwd,
         (candidate) => candidate.cwd,
       );
@@ -147,18 +135,18 @@ export function useSidebarProjectRunController(input: {
       }
     }
     return serversByProject;
-  }, [localServersQuery.data?.servers, projectRunsByProjectId, runnableProjects]);
-  const serverByProjectIdRef = useRef(serverByProjectId);
+  }, [localServersQuery.data?.servers, projectRunsByFolderId, runnableFolders]);
+  const serverByFolderIdRef = useRef(serverByFolderId);
   useEffect(() => {
-    serverByProjectIdRef.current = serverByProjectId;
-  }, [serverByProjectId]);
+    serverByFolderIdRef.current = serverByFolderId;
+  }, [serverByFolderId]);
 
   const startProjectRun = useCallback(
-    async (projectId: ContainerId, commandOverride?: string) => {
+    async (folderId: FolderId, commandOverride?: string) => {
       const api = readNativeApi();
-      const project = input.projectById.get(projectId);
-      const runCommand = commandByProjectIdRef.current.get(projectId);
-      if (!api || !project || !runCommand || projectRunsByProjectId[projectId]) {
+      const project = input.projectById.get(folderId);
+      const runCommand = commandByFolderIdRef.current.get(folderId);
+      if (!api || !project || !runCommand || projectRunsByFolderId[folderId]) {
         return;
       }
       const command = commandOverride?.trim() || runCommand.command;
@@ -167,7 +155,7 @@ export function useSidebarProjectRunController(input: {
       });
 
       storeUpsertProjectRun({
-        projectId,
+        folderId,
         command,
         cwd: runCommand.cwd,
         pid: null,
@@ -175,8 +163,8 @@ export function useSidebarProjectRunController(input: {
         status: "starting",
       });
       try {
-        const { server } = await api.projects.runDevServer({
-          projectId,
+        const { server } = await api.folders.runDevServer({
+          folderId,
           command,
           cwd: runCommand.cwd,
           env,
@@ -184,7 +172,7 @@ export function useSidebarProjectRunController(input: {
         storeUpsertProjectRun(server);
         void queryClient.invalidateQueries({ queryKey: serverQueryKeys.localServers() });
       } catch (error) {
-        storeRemoveProjectRun(projectId);
+        storeRemoveProjectRun(folderId);
         toastManager.add({
           type: "error",
           title: `Failed to run "${project.name}"`,
@@ -194,7 +182,7 @@ export function useSidebarProjectRunController(input: {
     },
     [
       input.projectById,
-      projectRunsByProjectId,
+      projectRunsByFolderId,
       queryClient,
       storeRemoveProjectRun,
       storeUpsertProjectRun,
@@ -202,18 +190,18 @@ export function useSidebarProjectRunController(input: {
   );
 
   const stopProjectRun = useCallback(
-    async (projectId: ContainerId) => {
+    async (folderId: FolderId) => {
       const api = readNativeApi();
       if (!api) {
-        storeRemoveProjectRun(projectId);
+        storeRemoveProjectRun(folderId);
         return;
       }
-      storeRemoveProjectRun(projectId);
+      storeRemoveProjectRun(folderId);
       try {
-        await api.projects.stopDevServer({ projectId });
+        await api.folders.stopDevServer({ folderId });
       } catch (error) {
         try {
-          const { servers } = await api.projects.listDevServers();
+          const { servers } = await api.folders.listDevServers();
           useProjectRunStore.getState().replaceAll(servers);
         } catch {
           // The dev-server event stream remains the final reconciliation path.
@@ -230,9 +218,9 @@ export function useSidebarProjectRunController(input: {
     [queryClient, storeRemoveProjectRun],
   );
 
-  const openProjectRunServer = useCallback(async (projectId: ContainerId) => {
+  const openProjectRunServer = useCallback(async (folderId: FolderId) => {
     const api = readNativeApi();
-    const server = serverByProjectIdRef.current.get(projectId);
+    const server = serverByFolderIdRef.current.get(folderId);
     const url = server ? firstLocalServerUrl(server) : null;
     if (!api || !server || !url) return;
     try {
@@ -247,58 +235,58 @@ export function useSidebarProjectRunController(input: {
   }, []);
 
   const persistProjectRunCommand = useCallback(
-    async (projectId: ContainerId, command: string) => {
+    async (folderId: FolderId, command: string) => {
       const api = readNativeApi();
-      const project = input.projectById.get(projectId);
+      const project = input.projectById.get(folderId);
       if (!api || !project) return;
       const nextScripts = upsertProjectRunCommandScripts({ scripts: project.scripts, command });
       if (!nextScripts) return;
       try {
         await api.orchestration.dispatchCommand({
-          type: "project.meta.update",
+          type: "folder.update",
           commandId: newCommandId(),
-          projectId,
+          folderId,
           scripts: nextScripts,
         });
       } catch (error) {
-        console.error("Failed to save project run command", { projectId, error });
+        console.error("Failed to save project run command", { folderId, error });
       }
     },
     [input.projectById],
   );
 
-  const openProjectRunDialog = useCallback((projectId: ContainerId) => {
-    setDialogProjectId(projectId);
+  const openProjectRunDialog = useCallback((folderId: FolderId) => {
+    setDialogFolderId(folderId);
   }, []);
   const closeProjectRunDialog = useCallback(() => {
-    setDialogProjectId(null);
+    setDialogFolderId(null);
   }, []);
   useEffect(() => {
-    if (dialogProjectId === null) return;
-    const defaultCommand = commandByProjectIdRef.current.get(dialogProjectId)?.command ?? "";
+    if (dialogFolderId === null) return;
+    const defaultCommand = commandByFolderIdRef.current.get(dialogFolderId)?.command ?? "";
     const settle = window.setTimeout(() => {
       setDialogCommandDraft(defaultCommand);
     }, 0);
     return () => window.clearTimeout(settle);
-  }, [dialogProjectId]);
+  }, [dialogFolderId]);
   const confirmProjectRun = useCallback(() => {
-    if (!dialogProjectId) return;
+    if (!dialogFolderId) return;
     const command = dialogCommandDraft.trim();
     if (!command) return;
-    setDialogProjectId(null);
-    void persistProjectRunCommand(dialogProjectId, command);
-    void startProjectRun(dialogProjectId, command);
-  }, [dialogCommandDraft, dialogProjectId, persistProjectRunCommand, startProjectRun]);
+    setDialogFolderId(null);
+    void persistProjectRunCommand(dialogFolderId, command);
+    void startProjectRun(dialogFolderId, command);
+  }, [dialogCommandDraft, dialogFolderId, persistProjectRunCommand, startProjectRun]);
 
   return {
-    projectRunsByProjectId,
-    projectRunServerByProjectId: serverByProjectId,
-    projectRunDialogProjectId: dialogProjectId,
-    projectRunDialogProject: dialogProjectId
-      ? (input.projectById.get(dialogProjectId) ?? null)
+    projectRunsByFolderId,
+    projectRunServerByFolderId: serverByFolderId,
+    projectRunDialogFolderId: dialogFolderId,
+    projectRunDialogProject: dialogFolderId
+      ? (input.projectById.get(dialogFolderId) ?? null)
       : null,
-    projectRunDialogExistingRun: dialogProjectId
-      ? (projectRunsByProjectId[dialogProjectId] ?? null)
+    projectRunDialogExistingRun: dialogFolderId
+      ? (projectRunsByFolderId[dialogFolderId] ?? null)
       : null,
     projectRunDialogCommandDraft: dialogCommandDraft,
     setProjectRunDialogCommandDraft: setDialogCommandDraft,

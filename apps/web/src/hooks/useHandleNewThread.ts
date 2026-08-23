@@ -1,4 +1,4 @@
-import { type ContainerId, ThreadId } from "@penkra/contracts";
+import { type FolderId, ThreadId } from "@penkra/contracts";
 import { getDefaultModel } from "@penkra/shared/model";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { startTransition } from "react";
@@ -41,23 +41,23 @@ export interface NewThreadNavigationOptions {
 }
 
 export function useHandleNewThread() {
-  const projects = useStore((store) => store.projects);
+  const folders = useStore((store) => store.folders);
   const { settings } = useAppSettings();
   const navigate = useNavigate();
   const router = useRouter();
-  const { activeDraftThread, activeProjectId, activeThread, focusedThreadId, routeThreadId } =
+  const { activeDraftThread, activeFolderId, activeThread, focusedThreadId, routeThreadId } =
     useFocusedChatContext();
   const openChatThreadPage = useTerminalStateStore((store) => store.openChatThreadPage);
   const openTerminalThreadPage = useTerminalStateStore((store) => store.openTerminalThreadPage);
   const clearTerminalState = useTerminalStateStore((store) => store.clearTerminalState);
 
   const handleNewThread = (
-    projectId: ContainerId,
+    folderId: FolderId,
     requestedOptions?: NewThreadOptions,
     navigation?: NewThreadNavigationOptions,
   ): Promise<ThreadId | null> => {
     const currentState = useStore.getState();
-    const targetProject = currentState.projects.find((project) => project.id === projectId);
+    const targetProject = currentState.folders.find((project) => project.id === folderId);
     // A virtual Folder is always owned by exactly one Space. Make that durable
     // parent authoritative for every draft created inside it.
     const parentScopedOptions =
@@ -65,16 +65,13 @@ export function useHandleNewThread() {
         ? requestedOptions
         : scopeNewThreadOptionsToContainer({
             options: requestedOptions,
-            containerKind: targetProject.kind,
-            containerSpaceId: targetProject.spaceId ?? null,
+            containerSpaceId: targetProject.spaceId,
           });
     const shouldInferWorkingDirectory =
       parentScopedOptions?.workingDirectory === undefined && targetProject !== undefined;
     const inferredWorkingDirectory = shouldInferWorkingDirectory
       ? resolveRecentParentWorkingDirectory({
-          projectId,
-          projectKind: targetProject.kind,
-          spaceId: parentScopedOptions?.spaceId ?? null,
+          folderId,
           threads: Object.values(currentState.sidebarThreadSummaryById),
         })
       : null;
@@ -123,7 +120,7 @@ export function useHandleNewThread() {
     };
     const {
       getDraftThread,
-      getDraftThreadByProjectId,
+      getDraftThreadByFolderId,
       applyStickyState,
       clearDraftThread,
       registerDraftThread,
@@ -135,7 +132,7 @@ export function useHandleNewThread() {
     // promotes an old terminal draft slot.
     const shouldForceFreshThread = options?.fresh === true || entryPoint === "terminal";
 
-    const storedDraftThreadCandidate = getDraftThreadByProjectId(projectId, entryPoint);
+    const storedDraftThreadCandidate = getDraftThreadByFolderId(folderId, entryPoint);
     const latestActiveDraftThreadCandidate: DraftThreadState | null = focusedThreadId
       ? getDraftThread(focusedThreadId)
       : null;
@@ -147,15 +144,15 @@ export function useHandleNewThread() {
       storedDraftThread,
       latestActiveDraftThread,
       entryPoint,
-      projectId,
+      folderId,
       routeThreadId: focusedThreadId,
     });
     // Read from the store at call time so post-sync sidebar flows can use the latest project defaults.
     const projectDefaultModelSelection =
-      useStore.getState().projects.find((project) => project.id === projectId)
+      useStore.getState().folders.find((project) => project.id === folderId)
         ?.defaultModelSelection ?? null;
-    const activeThreadSnapshot = createActiveThreadSnapshot(activeThread, projectId);
-    const activeDraftThreadSnapshot = createActiveDraftThreadSnapshot(activeDraftThread, projectId);
+    const activeThreadSnapshot = createActiveThreadSnapshot(activeThread, folderId);
+    const activeDraftThreadSnapshot = createActiveDraftThreadSnapshot(activeDraftThread, folderId);
     const resolveCreationState = (
       targetThreadId: ThreadId,
       draftThread: DraftThreadState | null,
@@ -170,7 +167,7 @@ export function useHandleNewThread() {
         draftThread,
         options: creationOptions,
         projectDefaultModelSelection,
-        projectId,
+        folderId,
       });
     // Terminal-first threads need a real orchestration thread immediately so
     // the sidebar can render them as durable rows instead of draft-only routes.
@@ -187,8 +184,7 @@ export function useHandleNewThread() {
           type: "thread.create",
           commandId: newCommandId(),
           threadId,
-          projectId,
-          spaceId: creationState.spaceId,
+          folderId,
           title: "New terminal",
           modelSelection: creationState.modelSelection,
           runtimeMode: creationState.runtimeMode,
@@ -214,7 +210,7 @@ export function useHandleNewThread() {
           resolvedStoredDraftThread = getDraftThread(bootstrapPlan.threadId);
         }
         applyProviderOverride(bootstrapPlan.threadId);
-        setProjectDraftThreadId(projectId, bootstrapPlan.threadId, { entryPoint });
+        setProjectDraftThreadId(folderId, bootstrapPlan.threadId, { entryPoint });
         restoreComposerDraft(bootstrapPlan.threadId, preservedComposerDraft);
         activateThreadEntryPoint(bootstrapPlan.threadId);
         if (focusedThreadId === bootstrapPlan.threadId) {
@@ -261,7 +257,7 @@ export function useHandleNewThread() {
           resolvedActiveDraftThread = getDraftThread(bootstrapPlan.threadId);
         }
         applyProviderOverride(bootstrapPlan.threadId);
-        setProjectDraftThreadId(projectId, bootstrapPlan.threadId, { entryPoint });
+        setProjectDraftThreadId(folderId, bootstrapPlan.threadId, { entryPoint });
         restoreComposerDraft(bootstrapPlan.threadId, preservedComposerDraft);
         activateThreadEntryPoint(bootstrapPlan.threadId);
         if (entryPoint === "terminal") {
@@ -274,7 +270,7 @@ export function useHandleNewThread() {
       })();
     }
 
-    return runDraftNavigationOnce(draftNavigationSlotKey(projectId, entryPoint), async () => {
+    return runDraftNavigationOnce(draftNavigationSlotKey(folderId, entryPoint), async () => {
       const threadId = newThreadId();
       const createdAt = new Date().toISOString();
       const draftSeed = createFreshDraftThreadSeed({ createdAt, entryPoint, options });
@@ -282,7 +278,7 @@ export function useHandleNewThread() {
         // Keep the previous routed draft alive while the destination loads. Replacing the
         // project's primary slot earlier makes the route guard redirect the old URL to Home.
         stage: () => {
-          registerDraftThread(threadId, { projectId, ...draftSeed });
+          registerDraftThread(threadId, { folderId, ...draftSeed });
           activateThreadEntryPoint(threadId);
           applyStickyState(threadId);
           applyProviderOverride(threadId);
@@ -303,7 +299,7 @@ export function useHandleNewThread() {
         // TanStack resolves an older navigate() promise when a newer navigation supersedes it.
         // Verify the committed route before deleting the previous project draft.
         isDestinationActive: () => router.state.location.pathname === `/${threadId}`,
-        finalize: () => setProjectDraftThreadId(projectId, threadId, draftSeed),
+        finalize: () => setProjectDraftThreadId(folderId, threadId, draftSeed),
         rollback: () => {
           clearDraftThread(threadId);
           clearTerminalState(threadId);
@@ -324,11 +320,11 @@ export function useHandleNewThread() {
 
   return {
     activeDraftThread,
-    activeProjectId,
+    activeFolderId,
     activeThread,
     activeContextThreadId: focusedThreadId,
     handleNewThread,
-    projects,
+    folders,
     routeThreadId,
   };
 }

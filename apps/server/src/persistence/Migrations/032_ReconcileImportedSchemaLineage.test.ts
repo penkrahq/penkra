@@ -17,7 +17,7 @@ const projectionThreadMessagesColumnNames = (sql: SqlClient.SqlClient) =>
     SELECT name FROM pragma_table_info('projection_thread_messages')
   `.pipe(Effect.map((rows) => rows.map((row) => row.name)));
 
-const projectionProjectsColumnNames = (sql: SqlClient.SqlClient) =>
+const projectionFoldersColumnNames = (sql: SqlClient.SqlClient) =>
   sql<{ readonly name: string }>`
     SELECT name FROM pragma_table_info('projection_projects')
   `.pipe(Effect.map((rows) => rows.map((row) => row.name)));
@@ -50,7 +50,7 @@ layer("032_ReconcileImportedSchemaLineage", (it) => {
         [25, "ProjectionThreadsSubagents"],
         [26, "ProjectionThreadShellSummary"],
         [27, "BackfillProjectionThreadShellSummary"],
-        [28, "ProjectionProjectsKind"],
+        [28, "ProjectionFoldersKind"],
         [29, "ProjectionThreadsLastKnownPr"],
         [30, "ProjectionThreadMessagesDispatchMode"],
         [31, "ProjectionThreadsCreateBranchFlowCompleted"],
@@ -182,7 +182,7 @@ layer("032_ReconcileImportedSchemaLineage", (it) => {
 
       const afterThreadsColumns = yield* projectionThreadsColumnNames(sql);
       const afterMessagesColumns = yield* projectionThreadMessagesColumnNames(sql);
-      const afterProjectsColumns = yield* projectionProjectsColumnNames(sql);
+      const afterProjectsColumns = yield* projectionFoldersColumnNames(sql);
 
       // #017 + #018 columns
       assert.include(afterThreadsColumns, "handoff_json");

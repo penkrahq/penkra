@@ -1,21 +1,14 @@
 import { assert, describe, it } from "@effect/vitest";
 
 import {
-  buildAcpPenkraMcpServers,
   buildOpenCodeMcpServer,
   callAgentGatewayMcpTool,
   listAgentGatewayMcpTools,
-  PENKRA_AGENT_GATEWAY_TOKEN_ENV,
 } from "./mcpInjection.ts";
 
 const connection = {
   url: "http://127.0.0.1:3773/mcp",
   bearerToken: "sagw_abc.def",
-};
-
-const stdioProxy = {
-  command: "/usr/local/bin/node",
-  args: ["/state/agent-gateway-mcp-proxy.mjs"],
 };
 
 describe("agent gateway MCP injection", () => {
@@ -50,7 +43,7 @@ describe("agent gateway MCP injection", () => {
                     description: "Execute one registered Penkra command.",
                     inputSchema: {
                       type: "object",
-                      properties: { command: { type: "string" } },
+                      properties: { command: { type: "array", items: { type: "string" } } },
                       required: ["command"],
                     },
                   },
@@ -66,7 +59,7 @@ describe("agent gateway MCP injection", () => {
         description: "Execute one registered Penkra command.",
         inputSchema: {
           type: "object",
-          properties: { command: { type: "string" } },
+          properties: { command: { type: "array", items: { type: "string" } } },
           required: ["command"],
         },
       },
@@ -75,7 +68,10 @@ describe("agent gateway MCP injection", () => {
       await callAgentGatewayMcpTool({
         connection,
         name: "penkra_exec_command",
-        arguments: { command: "penkra threads list --limit 2" },
+        arguments: {
+          command: ["penkra", "threads", "list"],
+          flags: { limit: 2 },
+        },
         fetch,
       }),
       { content: [{ type: "text", text: "ok" }] },
@@ -86,42 +82,10 @@ describe("agent gateway MCP injection", () => {
     );
     assert.deepEqual((requests[1]?.body as { readonly params: unknown }).params, {
       name: "penkra_exec_command",
-      arguments: { command: "penkra threads list --limit 2" },
-    });
-  });
-
-  it("uses the ACP http transport when the agent advertises support", () => {
-    const servers = buildAcpPenkraMcpServers({
-      connection,
-      initializeResult: { agentCapabilities: { mcpCapabilities: { http: true } } },
-      stdioProxy,
-    });
-    assert.deepEqual(servers, [
-      {
-        type: "http",
-        name: "penkra",
-        url: connection.url,
-        headers: [{ name: "Authorization", value: `Bearer ${connection.bearerToken}` }],
+      arguments: {
+        command: ["penkra", "threads", "list"],
+        flags: { limit: 2 },
       },
-    ]);
-  });
-
-  it("falls back to the stdio proxy when http is not advertised", () => {
-    const servers = buildAcpPenkraMcpServers({
-      connection,
-      initializeResult: {},
-      stdioProxy,
     });
-    assert.deepEqual(servers, [
-      {
-        name: "penkra",
-        command: stdioProxy.command,
-        args: stdioProxy.args,
-        env: [
-          { name: "PENKRA_AGENT_GATEWAY_URL", value: connection.url },
-          { name: PENKRA_AGENT_GATEWAY_TOKEN_ENV, value: connection.bearerToken },
-        ],
-      },
-    ]);
   });
 });

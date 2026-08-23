@@ -10,6 +10,49 @@ export interface GenerateAppHelpInput {
   operation?: string;
 }
 
+export interface InstructionOperation {
+  readonly command: string;
+  readonly summary?: string;
+}
+
+export interface InstructionCatalogApp {
+  readonly slug: string;
+  readonly summary: string;
+  readonly operations: ReadonlyArray<string>;
+}
+
+/** Assemble one instruction document with declarations rendered as data. */
+export function assembleInstructions(input: {
+  readonly document: string;
+  readonly operations: ReadonlyArray<InstructionOperation>;
+  readonly catalog?: ReadonlyArray<InstructionCatalogApp>;
+}): string {
+  const document = input.document.trim();
+  if (!document) throw new Error("Instructions must not be empty.");
+  const lines = [document];
+  if (input.catalog !== undefined) {
+    lines.push("", "## What is installed right now", "");
+    if (input.catalog.length === 0) {
+      lines.push("No Apps are enabled in this Space.");
+    } else {
+      for (const app of input.catalog) {
+        lines.push(`### ${app.slug}`, "", app.summary);
+        lines.push(
+          app.operations.length > 0
+            ? `Operations: ${app.operations.map((operation) => `\`${operation}\``).join(" · ")}`
+            : "This App declares no operations.",
+        );
+      }
+    }
+  }
+  lines.push("", "## Operations", "");
+  if (input.operations.length === 0) lines.push("No operations are declared.");
+  for (const operation of input.operations) {
+    lines.push(`- \`${operation.command}\`${operation.summary ? ` — ${operation.summary}` : ""}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 /** Generates canonical agent-gateway help from one immutable App package. */
 export function generateAppHelp(input: GenerateAppHelpInput): string {
   const instructions = input.instructions.trim();
@@ -22,22 +65,21 @@ export function generateAppHelp(input: GenerateAppHelpInput): string {
       throw new Error(`${input.manifest.slug} does not declare operation ${input.operation}.`);
     return operationHelp(input.manifest, declaration);
   }
-  const lines = [
+  const header = [
     `${input.manifest.name} (${input.manifest.slug})`,
     input.manifest.summary,
     "",
     "Instructions",
     instructions,
-    "",
-    "Operations",
-  ];
+  ].join("\n");
   const operations = input.manifest.operations ?? [];
-  if (operations.length === 0) lines.push("This App does not publish agent or CLI operations.");
-  for (const operation of operations) {
-    lines.push(`  ${commandPath(input.manifest.slug, operation.key)}`);
-    lines.push(`    ${operation.summary}`);
-  }
-  return `${lines.join("\n")}\n`;
+  return assembleInstructions({
+    document: header,
+    operations: operations.map((operation) => ({
+      command: commandPath(input.manifest.slug, operation.key),
+      summary: operation.summary,
+    })),
+  });
 }
 
 function operationHelp(manifest: PenkraAppManifest, declaration: OperationDeclaration): string {

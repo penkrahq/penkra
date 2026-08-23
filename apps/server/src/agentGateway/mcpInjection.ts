@@ -5,22 +5,15 @@
  * bearer token) into every provider's native MCP configuration format so the
  * injection rules cannot drift between adapters:
  *
- * Codex and Claude use their native in-process tool APIs and therefore do not
- * have configuration builders here. This module remains only for providers
- * whose public protocol surface is MCP.
- * - ACP agents (cursor/grok/droid): `mcpServers` session entries; HTTP when
- *   the agent advertises `mcpCapabilities.http`, otherwise a stdio proxy that
- *   forwards to the HTTP endpoint.
+ * Codex and Claude use their native tool APIs. OpenCode receives the shared
+ * gateway through its dynamic MCP configuration endpoint.
  *
  * @module agentGateway/mcpInjection
  */
-import type * as Acp from "@agentclientprotocol/sdk";
-
 import type { AgentGatewayMcpConnection } from "./Services/AgentGatewayCredentials";
 
 export const PENKRA_MCP_SERVER_NAME = "penkra";
 export const PENKRA_AGENT_GATEWAY_TOKEN_ENV = "PENKRA_AGENT_GATEWAY_TOKEN";
-export const PENKRA_AGENT_GATEWAY_URL_ENV = "PENKRA_AGENT_GATEWAY_URL";
 
 export interface OpenCodeMcpRemoteServerConfig {
   readonly type: "remote";
@@ -165,59 +158,4 @@ export function callAgentGatewayMcpTool(input: {
     ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
     ...(input.signal === undefined ? {} : { signal: input.signal }),
   });
-}
-
-export interface AcpStdioProxySpawn {
-  readonly command: string;
-  readonly args: ReadonlyArray<string>;
-}
-
-// Structural view of an ACP initialize response so callers with untyped
-// (raw JSON) responses can reuse the same transport negotiation.
-export interface AcpInitializeCapabilitiesView {
-  readonly agentCapabilities?:
-    | {
-        readonly mcpCapabilities?:
-          | {
-              readonly http?: boolean | undefined;
-            }
-          | undefined;
-      }
-    | undefined
-    | null;
-}
-
-/**
- * Build the `mcpServers` entries for an ACP `session/new` / `session/resume`
- * payload. Prefers the HTTP transport when the agent advertises support and
- * falls back to the stdio->HTTP proxy script otherwise (stdio is the ACP
- * baseline every agent must accept).
- */
-export function buildAcpPenkraMcpServers(input: {
-  readonly connection: AgentGatewayMcpConnection;
-  readonly initializeResult: AcpInitializeCapabilitiesView;
-  readonly stdioProxy: AcpStdioProxySpawn;
-}): Array<Acp.McpServer> {
-  const supportsHttp = input.initializeResult.agentCapabilities?.mcpCapabilities?.http === true;
-  if (supportsHttp) {
-    return [
-      {
-        type: "http",
-        name: PENKRA_MCP_SERVER_NAME,
-        url: input.connection.url,
-        headers: [{ name: "Authorization", value: `Bearer ${input.connection.bearerToken}` }],
-      },
-    ];
-  }
-  return [
-    {
-      name: PENKRA_MCP_SERVER_NAME,
-      command: input.stdioProxy.command,
-      args: [...input.stdioProxy.args],
-      env: [
-        { name: PENKRA_AGENT_GATEWAY_URL_ENV, value: input.connection.url },
-        { name: PENKRA_AGENT_GATEWAY_TOKEN_ENV, value: input.connection.bearerToken },
-      ],
-    },
-  ];
 }

@@ -30,31 +30,37 @@ function engineFor(
 }
 
 describe("default Spaces bootstrap", () => {
-  it("creates Personal then Work through durable commands for a new history", async () => {
+  it("creates Personal and Work with one Default folder each through durable commands", async () => {
     const { dispatched, engine } = engineFor([]);
 
     await Effect.runPromise(ensureDefaultSpaces(engine));
 
-    expect(dispatched.map((command) => command.type)).toEqual(["space.create", "space.create"]);
+    expect(dispatched.map((command) => command.type)).toEqual([
+      "space.create",
+      "folder.create",
+      "space.create",
+      "folder.create",
+    ]);
     expect(
       dispatched.map((command) =>
         command.type === "space.create" ? [command.spaceId, command.name, command.icon] : null,
       ),
     ).toEqual([
       ["penkra-personal", "Personal", "home"],
+      null,
       ["penkra-work", "Work", "bag"],
+      null,
     ]);
-  });
-
-  it("does not inspect or repair historical folder assignments during bootstrap", async () => {
-    const timestamp = "2026-07-31T00:00:00.000Z";
-    const { dispatched, engine } = engineFor([], {
-      projects: [],
-    });
-
-    await Effect.runPromise(ensureDefaultSpaces(engine));
-
-    expect(dispatched.map((command) => command.type)).toEqual(["space.create", "space.create"]);
+    expect(
+      dispatched.flatMap((command) =>
+        command.type === "folder.create"
+          ? [[command.folderId, command.title, command.spaceId, command.workspaceRoot]]
+          : [],
+      ),
+    ).toEqual([
+      ["penkra-personal-default", "Default", "penkra-personal", null],
+      ["penkra-work-default", "Default", "penkra-work", null],
+    ]);
   });
 
   it("does not recreate defaults when Space history already exists", async () => {

@@ -10,7 +10,6 @@ import { cn } from "~/lib/utils";
 import {
   resolveModelGroupDefaultOpen,
   shouldUseCollapsibleModelGroups,
-  providerModelCostMultiplierLabel,
   type ProviderModelOption,
   type ProviderModelOptionGroup,
 } from "../../providerModelOptions";
@@ -24,7 +23,7 @@ import {
   COMPOSER_PICKER_RADIUS_CLASS_NAME,
 } from "./composerPickerStyles";
 
-type FavoriteModelProvider = "cursor" | "kilo" | "opencode" | "pi";
+type FavoriteModelProvider = "opencode";
 
 type ProviderModelOptionGroupListProps = {
   groupedOptions: ReadonlyArray<ProviderModelOptionGroup>;
@@ -56,8 +55,7 @@ function ProviderModelRadioItem(
     onAfterSelection,
   } = props;
   const supportsFavorites = favoriteProvider !== null;
-  const costMultiplierLabel =
-    provider === "droid" ? providerModelCostMultiplierLabel(modelOption.description) : null;
+  const costMultiplierLabel = null;
   const preserveChildLayout = supportsFavorites || costMultiplierLabel !== null;
 
   return (

@@ -2,8 +2,8 @@ import { Effect } from "effect";
 
 import {
   parseOperationInput,
-  parseRegisteredCommandFlags,
-  tokenizeRegisteredCommand,
+  structuredArguments,
+  type PenkraExecCommandInput,
 } from "../appRuntimeCli.ts";
 import { mcpToolResultJson, type McpToolCallResult } from "./protocol.ts";
 import {
@@ -34,7 +34,7 @@ function commandText(entry: AgentGatewayCommandEntry): string {
 
 function commandHelp(entry: AgentGatewayCommandEntry): McpToolCallResult {
   return mcpToolResultJson({
-    command: commandText(entry),
+    command: ["penkra", ...entry.words],
     description: entry.tool.definition.description,
     inputSchema: entry.tool.definition.inputSchema,
   });
@@ -47,10 +47,10 @@ export function agentGatewayCommandCatalog(
 }
 
 export function resolveAgentGatewayCommand(
-  command: string,
+  input: PenkraExecCommandInput,
   entries: ReadonlyArray<AgentGatewayCommandEntry>,
 ): AgentGatewayCommandResolution {
-  const tokens = tokenizeRegisteredCommand(command);
+  const tokens = input.command;
   if (tokens[0] !== "penkra") return { kind: "fallback" };
 
   const commandTokens = tokens.slice(1);
@@ -73,7 +73,7 @@ export function resolveAgentGatewayCommand(
         return {
           kind: "result",
           result: mcpToolResultJson({
-            command: `penkra ${groupWords.join(" ")}`,
+            command: ["penkra", ...groupWords],
             commands: children.map(commandText),
           }),
         };
@@ -82,7 +82,7 @@ export function resolveAgentGatewayCommand(
     return { kind: "fallback" };
   }
 
-  const parsed = parseRegisteredCommandFlags(commandTokens.slice(exact.words.length));
+  const parsed = structuredArguments(commandTokens.slice(exact.words.length), input);
   if (parsed.positionals.length > 0 || parsed.tabId !== undefined) {
     throw new Error(
       `Invalid arguments for ${commandText(exact)}. Run ${commandText(exact)} --help.`,

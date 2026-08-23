@@ -109,7 +109,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           ...currentState,
           draftsByThreadId,
           draftThreadsByThreadId: normalizedPersisted.draftThreadsByThreadId,
-          projectDraftThreadIdByProjectId: normalizedPersisted.projectDraftThreadIdByProjectId,
+          projectDraftThreadIdByFolderId: normalizedPersisted.projectDraftThreadIdByFolderId,
           stickyModelSelectionByProvider: normalizedPersisted.stickyModelSelectionByProvider ?? {},
           stickyConnectionByProvider: normalizedPersisted.stickyConnectionByProvider ?? {},
           stickyActiveProvider: normalizedPersisted.stickyActiveProvider ?? null,

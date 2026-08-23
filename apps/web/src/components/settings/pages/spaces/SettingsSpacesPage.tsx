@@ -47,15 +47,15 @@ function ActiveSpaceRow({
 export function SettingsSpacesPage() {
   const spaces = useStore((store) => store.spaces);
   const archivedSpaces = useStore((store) => store.archivedSpaces);
-  const projects = useStore((store) => store.projects);
-  const archivedProjects = useStore((store) => store.archivedProjects);
+  const folders = useStore((store) => store.folders);
+  const archivedFolders = useStore((store) => store.archivedFolders);
   const threadShellById = useStore((store) => store.threadShellById ?? {});
   const [restoreRenameSpace, setRestoreRenameSpace] = useState<Space | null>(null);
   const countsBySpace = useMemo(() => {
     const counts = new Map<string, { folders: number; threads: number }>();
     for (const space of [...spaces, ...archivedSpaces])
       counts.set(space.id, { folders: 0, threads: 0 });
-    for (const project of [...projects, ...archivedProjects]) {
+    for (const project of [...folders, ...archivedFolders]) {
       if (project.spaceId === null || project.spaceId === undefined) continue;
       const countsForSpace = counts.get(project.spaceId);
       if (countsForSpace) countsForSpace.folders += 1;
@@ -66,13 +66,13 @@ export function SettingsSpacesPage() {
       if (countsForSpace) countsForSpace.threads += 1;
     }
     return counts;
-  }, [archivedProjects, archivedSpaces, projects, spaces, threadShellById]);
+  }, [archivedFolders, archivedSpaces, folders, spaces, threadShellById]);
 
-  const restoreFolder = async (projectId: (typeof archivedProjects)[number]["id"]) => {
+  const restoreFolder = async (folderId: (typeof archivedFolders)[number]["id"]) => {
     const api = readNativeApi();
     if (!api) return;
     try {
-      await restoreProject(api, projectId);
+      await restoreProject(api, folderId);
     } catch (error) {
       toastManager.add({
         type: "error",
@@ -161,17 +161,17 @@ export function SettingsSpacesPage() {
           })}
         </section>
       ) : null}
-      {archivedProjects.length > 0 ? (
+      {archivedFolders.length > 0 ? (
         <section className="space-y-2">
           <h2 className="text-[12px] font-semibold text-[var(--color-text-foreground-tertiary)]">
             Archived folders
           </h2>
-          {archivedProjects.map((project) => {
+          {archivedFolders.map((project) => {
             const space = [...spaces, ...archivedSpaces].find(
               (candidate) => candidate.id === project.spaceId,
             );
             const threadCount = Object.values(threadShellById).filter(
-              (thread) => thread.projectId === project.id,
+              (thread) => thread.folderId === project.id,
             ).length;
             return (
               <div

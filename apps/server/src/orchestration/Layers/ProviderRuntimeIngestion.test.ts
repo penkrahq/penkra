@@ -14,7 +14,7 @@ import {
   CommandId,
   EventId,
   MessageId,
-  ContainerId,
+  FolderId,
   SpaceId,
   RuntimeItemId,
   ThreadId,
@@ -52,7 +52,7 @@ import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts"
 import { ServerConfig } from "../../config.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
-const asProjectId = (value: string): ContainerId => ContainerId.makeUnsafe(value);
+const asFolderId = (value: string): FolderId => FolderId.makeUnsafe(value);
 const asItemId = (value: string): RuntimeItemId => RuntimeItemId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
@@ -61,13 +61,7 @@ const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 const PROVIDER_KINDS = [
   "codex",
   "claudeAgent",
-  "cursor",
-  "antigravity",
-  "grok",
-  "droid",
-  "kilo",
   "opencode",
-  "pi",
 ] as const satisfies ReadonlyArray<ProviderKind>;
 
 type LegacyProviderRuntimeEvent = {
@@ -280,9 +274,9 @@ describe("ProviderRuntimeIngestion", () => {
     );
     await Effect.runPromise(
       engine.dispatch({
-        type: "project.create",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-provider-project-create"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Provider Project",
         workspaceRoot: null,
         spaceId: personalSpaceId,
@@ -298,7 +292,7 @@ describe("ProviderRuntimeIngestion", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-create"),
         threadId: ThreadId.makeUnsafe("thread-1"),
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Thread",
         modelSelection: {
           provider: "codex",
@@ -780,7 +774,7 @@ describe("ProviderRuntimeIngestion", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-accepted-rebuild-healthy-create"),
         threadId: thread2,
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Accepted Rebuild Healthy Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
@@ -877,7 +871,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
   });
 
-  it("recovers a quarantined partially accepted provider event and projects its retained assistant tail", async () => {
+  it("recovers a quarantined partially accepted provider event and folders its retained assistant tail", async () => {
     const harness = await createHarness({ startIngestion: false });
     const threadId = asThreadId("thread-1");
     const turnId = asTurnId("turn-after-partial-provider-event");
@@ -1028,7 +1022,7 @@ describe("ProviderRuntimeIngestion", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-2-create"),
         threadId: thread2,
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Independent Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
@@ -2122,7 +2116,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "content.delta",
       eventId: asEventId("evt-reasoning-delta"),
-      provider: "cursor",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-reasoning"),
@@ -2136,7 +2130,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "turn.completed",
       eventId: asEventId("evt-reasoning-turn-completed"),
-      provider: "cursor",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-reasoning"),
@@ -2159,7 +2153,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.messages).toHaveLength(0);
   });
 
-  it("projects only completed Codex reasoning with a readable summary", async () => {
+  it("folders only completed Codex reasoning with a readable summary", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
     const detail = `**${"Verify the protocol mapping ".repeat(12).trim()}**\n\n<!-- -->\n\n**Update the adapter**\n\n<!-- -->`;
@@ -2232,74 +2226,6 @@ describe("ProviderRuntimeIngestion", () => {
         data: { toolCallId: "reasoning-1" },
       },
     });
-  });
-
-  it("projects narrated Antigravity planner steps as completed reasoning", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-    const detail = "I will inspect the current working directory before continuing.";
-    const baseEvent = {
-      provider: "antigravity" as const,
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-antigravity-reasoning"),
-      itemId: asItemId("antigravity-reasoning-1"),
-    };
-
-    harness.emit({
-      ...baseEvent,
-      type: "item.started",
-      eventId: asEventId("evt-antigravity-reasoning-started"),
-      payload: {
-        itemType: "reasoning",
-        status: "inProgress",
-        title: "Reasoning",
-      },
-    });
-    harness.emit({
-      ...baseEvent,
-      type: "content.delta",
-      eventId: asEventId("evt-antigravity-reasoning-delta"),
-      payload: {
-        streamKind: "reasoning_text",
-        delta: detail,
-      },
-    });
-    harness.emit({
-      ...baseEvent,
-      type: "item.completed",
-      eventId: asEventId("evt-antigravity-reasoning-completed"),
-      payload: {
-        itemType: "reasoning",
-        status: "completed",
-        title: "Reasoning",
-        detail,
-      },
-    });
-
-    const stableActivityId = "provider-reasoning:thread-1:antigravity-reasoning-1";
-    const thread = await waitForThread(harness.engine, (entry) =>
-      entry.activities.some(
-        (activity: ProviderRuntimeTestActivity) => activity.id === stableActivityId,
-      ),
-    );
-
-    expect(
-      thread.activities.filter(
-        (activity: ProviderRuntimeTestActivity) => activity.id === stableActivityId,
-      ),
-    ).toEqual([
-      expect.objectContaining({
-        kind: "task.progress",
-        tone: "tool",
-        summary: "Reasoning trace",
-        payload: expect.objectContaining({
-          status: "completed",
-          detail,
-          data: { toolCallId: "antigravity-reasoning-1" },
-        }),
-      }),
-    ]);
   });
 
   it("buffers Codex summary deltas into one completed reasoning activity", async () => {
@@ -2598,12 +2524,12 @@ describe("ProviderRuntimeIngestion", () => {
 
     harness.emit({
       type: "item.started",
-      eventId: asEventId("evt-pi-reasoning-started"),
-      provider: "pi",
+      eventId: asEventId("evt-unsupported-reasoning-started"),
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-reasoning"),
-      itemId: asItemId("pi-reasoning-1"),
+      itemId: asItemId("unsupported-reasoning-1"),
       payload: {
         itemType: "reasoning",
         status: "inProgress",
@@ -2612,12 +2538,12 @@ describe("ProviderRuntimeIngestion", () => {
     });
     harness.emit({
       type: "item.completed",
-      eventId: asEventId("evt-pi-reasoning-completed"),
-      provider: "pi",
+      eventId: asEventId("evt-unsupported-reasoning-completed"),
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-reasoning"),
-      itemId: asItemId("pi-reasoning-1"),
+      itemId: asItemId("unsupported-reasoning-1"),
       payload: {
         itemType: "reasoning",
         status: "completed",
@@ -2735,7 +2661,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(Object.keys(persistedModelUsage ?? {})).toEqual(["claude-fable-5"]);
   });
 
-  it("projects MCP tool progress into thread activity with preserved tool metadata", async () => {
+  it("folders MCP tool progress into thread activity with preserved tool metadata", async () => {
     const harness = await createHarness();
 
     harness.setProviderSession({
@@ -3492,7 +3418,7 @@ describe("ProviderRuntimeIngestion", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-create-delivery-buffered"),
         threadId: secondThreadId,
-        projectId: asProjectId("project-1"),
+        folderId: asFolderId("project-1"),
         title: "Buffered Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
@@ -4318,7 +4244,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "turn.started",
       eventId: asEventId("evt-turn-started-late-completion"),
-      provider: "cursor",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-late-completion"),
@@ -4334,7 +4260,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "content.delta",
       eventId: asEventId("evt-message-delta-late-completion"),
-      provider: "cursor",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-late-completion"),
@@ -4347,7 +4273,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "turn.completed",
       eventId: asEventId("evt-turn-completed-late-completion"),
-      provider: "cursor",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-late-completion"),
@@ -4371,7 +4297,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "item.completed",
       eventId: asEventId("evt-item-completed-late-without-turn"),
-      provider: "cursor",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       itemId: asItemId("item-late-completion"),
@@ -4423,7 +4349,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "turn.started",
       eventId: asEventId("evt-turn-started-late-reassign-source"),
-      provider: "cursor",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-late-reassign-source"),
@@ -4437,7 +4363,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "content.delta",
       eventId: asEventId("evt-message-delta-late-reassign-source"),
-      provider: "cursor",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-late-reassign-source"),
@@ -4451,7 +4377,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "turn.completed",
       eventId: asEventId("evt-turn-completed-late-reassign-source"),
-      provider: "cursor",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-late-reassign-source"),
@@ -4475,7 +4401,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "turn.started",
       eventId: asEventId("evt-turn-started-late-reassign-next"),
-      provider: "cursor",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-late-reassign-next"),
@@ -4489,7 +4415,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "item.completed",
       eventId: asEventId("evt-item-completed-late-reassign-wrong-turn"),
-      provider: "cursor",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-late-reassign-next"),
@@ -5341,7 +5267,7 @@ describe("ProviderRuntimeIngestion", () => {
     ).toBe(true);
   });
 
-  it("projects context window updates into normalized thread activities", async () => {
+  it("folders context window updates into normalized thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -5430,14 +5356,14 @@ describe("ProviderRuntimeIngestion", () => {
     ]);
   });
 
-  it("projects percent-only context window updates into normalized thread activities", async () => {
+  it("folders percent-only context window updates into normalized thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
     harness.emit({
       type: "thread.token-usage.updated",
       eventId: asEventId("evt-thread-token-usage-updated-percent"),
-      provider: "cursor",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       payload: {
@@ -5465,14 +5391,14 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
-  it("projects real zero-percent context window updates into normalized thread activities", async () => {
+  it("folders real zero-percent context window updates into normalized thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
     harness.emit({
       type: "thread.token-usage.updated",
       eventId: asEventId("evt-thread-token-usage-updated-zero-percent"),
-      provider: "cursor",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       payload: {
@@ -5500,7 +5426,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
-  it("projects configured Claude context windows into normalized thread activities", async () => {
+  it("folders configured Claude context windows into normalized thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -5533,7 +5459,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
-  it("projects Codex camelCase token usage payloads into normalized thread activities", async () => {
+  it("folders Codex camelCase token usage payloads into normalized thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -5586,7 +5512,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
-  it("projects Claude usage snapshots with context window into normalized thread activities", async () => {
+  it("folders Claude usage snapshots with context window into normalized thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -5630,7 +5556,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
-  it("projects compacted thread state into context compaction activities", async () => {
+  it("folders compacted thread state into context compaction activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -5660,7 +5586,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(activity?.tone).toBe("info");
   });
 
-  it("projects context compaction progress updates into thread activities", async () => {
+  it("folders context compaction progress updates into thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -5694,14 +5620,14 @@ describe("ProviderRuntimeIngestion", () => {
     expect(activity?.tone).toBe("info");
   });
 
-  it("projects context compaction completion and failure into thread activities", async () => {
+  it("folders context compaction completion and failure into thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
     harness.emit({
       type: "item.completed",
       eventId: asEventId("evt-thread-compaction-completed"),
-      provider: "grok",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       payload: {
@@ -5712,7 +5638,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit({
       type: "item.completed",
       eventId: asEventId("evt-thread-compaction-failed"),
-      provider: "grok",
+      provider: "opencode",
       createdAt: now,
       threadId: asThreadId("thread-1"),
       payload: {
@@ -5743,7 +5669,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(failed?.tone).toBe("error");
   });
 
-  it("projects Codex task lifecycle chunks into thread activities", async () => {
+  it("folders Codex task lifecycle chunks into thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -5859,7 +5785,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(completedPayload?.totalCostUsd).toBeUndefined();
   });
 
-  it("projects structured user input request and resolution as thread activities", async () => {
+  it("folders structured user input request and resolution as thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -6365,7 +6291,7 @@ describe("ProviderRuntimeIngestion", () => {
       childThreadId,
     );
 
-    expect(childThread.projectId).toBe(asProjectId("project-1"));
+    expect(childThread.folderId).toBe(asFolderId("project-1"));
     expect(childThread.parentThreadId).toBe(asThreadId("thread-1"));
 
     const after = await Effect.runPromise(harness.engine.getReadModel());

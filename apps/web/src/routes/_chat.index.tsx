@@ -4,7 +4,7 @@
 // Layer: Routing
 // Depends on: the shared restore/create route surface plus the home-chat new-chat handler.
 
-import { SpaceId, type ContainerId } from "@penkra/contracts";
+import { SpaceId, type FolderId } from "@penkra/contracts";
 import { createFileRoute } from "@tanstack/react-router";
 
 import {
@@ -32,7 +32,7 @@ function ChatIndexRouteView() {
   const { handleNewChat } = useHandleNewChat();
   const landingSpaceKey = Route.useSearch({ select: (search) => search.space });
   const threadIds = useStore((state) => state.threadIds ?? EMPTY_THREAD_IDS);
-  const projects = useStore((state) => state.projects);
+  const folders = useStore((state) => state.folders);
   const sidebarThreadSummaryById = useStore((state) => state.sidebarThreadSummaryById);
   const draftThreadsByThreadId = useComposerDraftStore((state) => state.draftThreadsByThreadId);
   const homeDir = useWorkspacePathsStore((state) => state.homeDir);
@@ -47,10 +47,10 @@ function ChatIndexRouteView() {
   // Only plain, still-unsent chat drafts qualify as restore targets: a non-"chat" entry point
   // isn't a home-chat draft, and `promotedTo` means the draft already became a real thread, so
   // its stale id is no longer valid.
-  const draftProjectIdByThreadId = new Map<string, ContainerId>();
+  const draftFolderIdByThreadId = new Map<string, FolderId>();
   for (const [threadId, draft] of Object.entries(draftThreadsByThreadId)) {
     if (draft.entryPoint === "chat" && draft.promotedTo === undefined) {
-      draftProjectIdByThreadId.set(threadId, draft.projectId);
+      draftFolderIdByThreadId.set(threadId, draft.folderId);
     }
   }
 
@@ -59,7 +59,7 @@ function ChatIndexRouteView() {
       ? null
       : {
           spaceId: SpaceId.makeUnsafe(landingSpaceKey),
-          projectById: new Map(projects.map((project) => [project.id, project])),
+          projectById: new Map(folders.map((project) => [project.id, project])),
           workspacePaths,
         };
 
@@ -73,7 +73,7 @@ function ChatIndexRouteView() {
       availableSplitViewIds,
       threadIds,
       sidebarThreadSummaryById,
-      draftProjectIdByThreadId,
+      draftFolderIdByThreadId,
       rememberedSplitViewThreadIds: rememberedSplitView
         ? resolveSplitViewThreadIds(rememberedSplitView)
         : undefined,

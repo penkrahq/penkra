@@ -312,11 +312,8 @@ export function providerModelsQueryOptions(input: {
       return result;
     },
     enabled: input.enabled ?? true,
-    // Cursor/droid failures are permanent for a session (missing CLI/auth): fail
-    // fast so the picker settles to static options instead of spinning (#103).
-    retry: input.provider === "droid" || input.provider === "cursor" ? 0 : 3,
-    staleTime: input.provider === "droid" ? 5 * 60_000 : 60_000,
-    ...(input.provider === "droid" ? { refetchOnWindowFocus: false } : {}),
+    retry: 3,
+    staleTime: 60_000,
     ...(input.provider === "opencode"
       ? {
           initialData: () => readOpenCodeModelCache(discoveryIdentity),

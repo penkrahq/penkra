@@ -1,7 +1,7 @@
 // FILE: spacesUiStore.ts
 // Purpose: Keeps per-window Space selection and last working-context restoration.
 
-import type { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
+import type { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { create } from "zustand";
 
 import { readNativeApi } from "./nativeApi";
@@ -9,7 +9,7 @@ import { readNativeApi } from "./nativeApi";
 interface PersistedSpacesUiState {
   activeSpaceId: SpaceId | null;
   lastThreadIdBySpace: Record<string, ThreadId>;
-  lastProjectIdBySpace: Record<string, ContainerId>;
+  lastFolderIdBySpace: Record<string, FolderId>;
 }
 
 function recordsEqual<T extends string>(
@@ -30,14 +30,14 @@ interface SpacesUiState extends PersistedSpacesUiState {
   setActiveSpaceId: (spaceId: SpaceId) => void;
   setOptimisticActiveSpaceId: (spaceId: SpaceId, minSequence: number) => void;
   rememberThread: (spaceId: SpaceId, threadId: ThreadId) => void;
-  rememberProject: (spaceId: SpaceId, projectId: ContainerId) => void;
+  rememberProject: (spaceId: SpaceId, folderId: FolderId) => void;
   getLastThreadId: (spaceId: SpaceId) => ThreadId | null;
-  getLastProjectId: (spaceId: SpaceId) => ContainerId | null;
+  getLastFolderId: (spaceId: SpaceId) => FolderId | null;
   reconcile: (input: {
     activeSpaceIds: ReadonlySet<SpaceId>;
     snapshotSequence: number;
-    projectSpaceById: ReadonlyMap<ContainerId, SpaceId>;
-    threadProjectById: ReadonlyMap<ThreadId, ContainerId>;
+    projectSpaceById: ReadonlyMap<FolderId, SpaceId>;
+    threadProjectById: ReadonlyMap<ThreadId, FolderId>;
     threadSpaceById: ReadonlyMap<ThreadId, SpaceId | null>;
   }) => void;
 }
@@ -51,7 +51,7 @@ function persistDurably(state: SpacesUiState): void {
   const input = {
     activeSpaceId: state.activeSpaceId,
     lastThreadIdBySpace: state.lastThreadIdBySpace,
-    lastProjectIdBySpace: state.lastProjectIdBySpace,
+    lastFolderIdBySpace: state.lastFolderIdBySpace,
   };
   durableWrite = durableWrite
     .catch(() => undefined)
@@ -61,7 +61,7 @@ function persistDurably(state: SpacesUiState): void {
 export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
   activeSpaceId: null,
   lastThreadIdBySpace: {},
-  lastProjectIdBySpace: {},
+  lastFolderIdBySpace: {},
   serverHydrated: false,
   pendingActiveSpace: null,
   hydrateFromServer: async () => {
@@ -72,7 +72,7 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
     set({
       activeSpaceId: remote.activeSpaceId,
       lastThreadIdBySpace: remote.lastThreadIdBySpace,
-      lastProjectIdBySpace: remote.lastProjectIdBySpace,
+      lastFolderIdBySpace: remote.lastFolderIdBySpace,
       serverHydrated: true,
     });
   },
@@ -86,21 +86,20 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
   },
   rememberThread: (spaceId, threadId) => {
     const key = spaceId;
-    if (get().lastThreadIdBySpace[key] === threadId && !(key in get().lastProjectIdBySpace)) return;
+    if (get().lastThreadIdBySpace[key] === threadId && !(key in get().lastFolderIdBySpace)) return;
     set((state) => ({
       lastThreadIdBySpace: { ...state.lastThreadIdBySpace, [key]: threadId },
-      lastProjectIdBySpace: Object.fromEntries(
-        Object.entries(state.lastProjectIdBySpace).filter(([entryKey]) => entryKey !== key),
-      ) as Record<string, ContainerId>,
+      lastFolderIdBySpace: Object.fromEntries(
+        Object.entries(state.lastFolderIdBySpace).filter(([entryKey]) => entryKey !== key),
+      ) as Record<string, FolderId>,
     }));
     persistDurably(get());
   },
-  rememberProject: (spaceId, projectId) => {
+  rememberProject: (spaceId, folderId) => {
     const key = spaceId;
-    if (get().lastProjectIdBySpace[key] === projectId && !(key in get().lastThreadIdBySpace))
-      return;
+    if (get().lastFolderIdBySpace[key] === folderId && !(key in get().lastThreadIdBySpace)) return;
     set((state) => ({
-      lastProjectIdBySpace: { ...state.lastProjectIdBySpace, [key]: projectId },
+      lastFolderIdBySpace: { ...state.lastFolderIdBySpace, [key]: folderId },
       lastThreadIdBySpace: Object.fromEntries(
         Object.entries(state.lastThreadIdBySpace).filter(([entryKey]) => entryKey !== key),
       ) as Record<string, ThreadId>,
@@ -108,7 +107,7 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
     persistDurably(get());
   },
   getLastThreadId: (spaceId) => get().lastThreadIdBySpace[spaceId] ?? null,
-  getLastProjectId: (spaceId) => get().lastProjectIdBySpace[spaceId] ?? null,
+  getLastFolderId: (spaceId) => get().lastFolderIdBySpace[spaceId] ?? null,
   reconcile: ({
     activeSpaceIds,
     snapshotSequence,
@@ -135,29 +134,29 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
     const activeSpaceId = reconciledActiveSpaceId;
     const lastThreadIdBySpace: Record<string, ThreadId> = {};
     for (const [key, threadId] of Object.entries(current.lastThreadIdBySpace)) {
-      const projectId = threadProjectById.get(threadId);
-      if (!projectId) continue;
-      const assignedSpaceId = threadSpaceById.get(threadId) ?? projectSpaceById.get(projectId);
+      const folderId = threadProjectById.get(threadId);
+      if (!folderId) continue;
+      const assignedSpaceId = threadSpaceById.get(threadId) ?? projectSpaceById.get(folderId);
       if (assignedSpaceId === key) {
         lastThreadIdBySpace[key] = threadId;
       }
     }
-    const lastProjectIdBySpace: Record<string, ContainerId> = {};
-    for (const [key, projectId] of Object.entries(current.lastProjectIdBySpace)) {
-      const assignedSpaceId = projectSpaceById.get(projectId);
+    const lastFolderIdBySpace: Record<string, FolderId> = {};
+    for (const [key, folderId] of Object.entries(current.lastFolderIdBySpace)) {
+      const assignedSpaceId = projectSpaceById.get(folderId);
       if (assignedSpaceId === key) {
-        lastProjectIdBySpace[key] = projectId;
+        lastFolderIdBySpace[key] = folderId;
       }
     }
     if (
       activeSpaceId === current.activeSpaceId &&
       pendingActiveSpace === current.pendingActiveSpace &&
       recordsEqual(lastThreadIdBySpace, current.lastThreadIdBySpace) &&
-      recordsEqual(lastProjectIdBySpace, current.lastProjectIdBySpace)
+      recordsEqual(lastFolderIdBySpace, current.lastFolderIdBySpace)
     ) {
       return;
     }
-    set({ activeSpaceId, pendingActiveSpace, lastThreadIdBySpace, lastProjectIdBySpace });
+    set({ activeSpaceId, pendingActiveSpace, lastThreadIdBySpace, lastFolderIdBySpace });
     persistDurably(get());
   },
 }));

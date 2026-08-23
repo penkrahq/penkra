@@ -102,9 +102,9 @@ const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
     description: "Start a fresh thread with Codex selected.",
   },
   {
-    command: "chat.newCursor",
-    label: "New Cursor thread",
-    description: "Start a fresh thread with Cursor selected.",
+    command: "chat.newOpenCode",
+    label: "New OpenCode thread",
+    description: "Start a fresh thread with OpenCode selected.",
   },
   {
     command: "chat.split",

@@ -1,5 +1,5 @@
 // FILE: useTheme.ts
-// Purpose: Persists the Codex-style theme store and projects the active pack into DOM CSS variables.
+// Purpose: Persists the Codex-style theme store and folders the active pack into DOM CSS variables.
 // Layer: Web appearance state hook
 // Exports: useTheme for mode, resolved variant, theme-pack import/export, and active theme metadata.
 

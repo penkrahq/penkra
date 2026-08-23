@@ -13,10 +13,11 @@ import { FolderGroupShared } from "./folder-group-shared/FolderGroupShared";
 import { FolderRowInlineEdit } from "./folder-row-inline-edit/FolderRowInlineEdit";
 import { ShowMoreRow } from "./show-more-row/ShowMoreRow";
 import { SidebarHeaderShared } from "./sidebar-header-shared/SidebarHeaderShared";
-import { SidebarProjects } from "./sidebar-projects/SidebarProjects";
+import { SidebarFolders } from "./sidebar-folders/SidebarFolders";
 import { SidebarTopNavigation } from "./sidebar-top-navigation/SidebarTopNavigation";
 import { SpaceHeaderInlineEdit } from "./space-header-inline-edit/SpaceHeaderInlineEdit";
 import { SpaceHeaderShared } from "./space-header-shared/SpaceHeaderShared";
+import { SpaceGroupShared } from "./space-group-shared/SpaceGroupShared";
 import { ThreadRowShared } from "./thread-row-shared/ThreadRowShared";
 import { ThreadRowInlineEdit } from "./thread-row-inline-edit/ThreadRowInlineEdit";
 
@@ -93,12 +94,12 @@ describe("Pencil left rail", () => {
     ).toBeLessThan(1);
   });
 
-  it("uses a real bounded vertical scroll viewport for overflowing projects", async () => {
+  it("uses a real bounded vertical scroll viewport for overflowing folders", async () => {
     await render(
       <div className="h-32 w-60">
-        <SidebarProjects>
+        <SidebarFolders>
           <FolderGroupShared defaultExpanded label="penkra" threads={threads} />
-        </SidebarProjects>
+        </SidebarFolders>
       </div>,
     );
 
@@ -720,6 +721,50 @@ describe("Pencil left rail", () => {
     expect(openFolder.querySelector("[data-slot='work-status']")).toBeNull();
     await expect.element(page.getByRole("button", { name: /Attention thread/u })).toBeVisible();
     expect(document.querySelector("[aria-label='Needs attention']")).not.toBeNull();
+  });
+
+  it("moves aggregate work status between collapsed spaces and their visible folders", async () => {
+    const { rerender } = await render(
+      <div className="w-56">
+        <SpaceGroupShared
+          expanded={false}
+          label="Status space"
+          onHeaderAction={vi.fn()}
+          workStatus="running"
+        >
+          <FolderGroupShared label="Running folder" workStatus="running" />
+        </SpaceGroupShared>
+      </div>,
+    );
+
+    const collapsedSpace = page
+      .getByRole("button", { name: "Status space Working", exact: true })
+      .element();
+    expect(collapsedSpace.querySelector("[data-slot='work-status']")).not.toBeNull();
+    expect(collapsedSpace.querySelector("[aria-label='Working']")).not.toBeNull();
+    const action = page.getByRole("button", { name: "Create folder in Status space" });
+    await action.hover();
+    await vi.waitFor(() => {
+      const statusRect = collapsedSpace
+        .querySelector<HTMLElement>("[data-slot='work-status']")!
+        .getBoundingClientRect();
+      const actionRect = action.element().getBoundingClientRect();
+      expect(actionRect.left - statusRect.right).toBeGreaterThanOrEqual(11);
+    });
+
+    await rerender(
+      <div className="w-56">
+        <SpaceGroupShared expanded label="Status space" workStatus="attention">
+          <FolderGroupShared expanded={false} label="Attention folder" workStatus="attention" />
+        </SpaceGroupShared>
+      </div>,
+    );
+
+    const openSpace = page.getByRole("button", { name: "Status space", exact: true }).element();
+    expect(openSpace.querySelector("[data-slot='work-status']")).toBeNull();
+    await expect
+      .element(page.getByRole("button", { name: "Attention folder Needs attention", exact: true }))
+      .toBeVisible();
   });
 
   it("renders the complete thread work-status lifecycle without changing row geometry", async () => {

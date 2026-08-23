@@ -122,7 +122,7 @@ export function resetComposerDraftStore() {
   useComposerDraftStore.setState({
     draftsByThreadId: {},
     draftThreadsByThreadId: {},
-    projectDraftThreadIdByProjectId: {},
+    projectDraftThreadIdByFolderId: {},
     stickyModelSelectionByProvider: {},
     stickyConnectionByProvider: {},
     stickyActiveProvider: null,

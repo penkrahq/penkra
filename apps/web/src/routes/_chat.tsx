@@ -195,10 +195,10 @@ function ChatRouteGlobalShortcuts() {
   const {
     activeContextThreadId,
     activeDraftThread,
-    activeProjectId,
+    activeFolderId,
     activeThread,
     handleNewThread,
-    projects,
+    folders,
   } = useHandleNewThread();
   const {
     recentSwitcherState,
@@ -209,14 +209,14 @@ function ChatRouteGlobalShortcuts() {
   } = useRecentViewSwitcher({
     activeContextThreadId,
     activeDraftThread,
-    projects,
+    folders,
   });
   const { handleNewChat } = useHandleNewChat(handleNewThread);
   const homeDir = useWorkspacePathsStore((state) => state.homeDir);
   const chatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
-  const latestProjectId = useLatestProjectStore((state) => state.latestProjectId);
-  const setLatestProjectId = useLatestProjectStore((state) => state.setLatestProjectId);
-  const clearLatestProjectId = useLatestProjectStore((state) => state.clearLatestProjectId);
+  const latestFolderId = useLatestProjectStore((state) => state.latestFolderId);
+  const setLatestFolderId = useLatestProjectStore((state) => state.setLatestFolderId);
+  const clearLatestFolderId = useLatestProjectStore((state) => state.clearLatestFolderId);
   const threadsHydrated = useStore((state) => state.threadsHydrated);
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
@@ -227,35 +227,35 @@ function ChatRouteGlobalShortcuts() {
   const refreshProviderStatuses = useRefreshProviderStatusesNow();
   const newChatInFlightRef = useRef<Promise<unknown> | null>(null);
   const activeProject =
-    activeProjectId !== null
-      ? (projects.find((project) => project.id === activeProjectId) ?? null)
+    activeFolderId !== null
+      ? (folders.find((project) => project.id === activeFolderId) ?? null)
       : null;
-  const activeProjectScripts = activeProject?.kind === "project" ? activeProject.scripts : [];
+  const activeProjectScripts = activeProject?.scripts ?? [];
   // Shortcuts that target "a project" must stay inside the Space you are looking at, or
   // mod+alt+arrow would switch Space and the next new-thread shortcut would drop you back
   // out of it.
-  const activeSpaceProjects = useMemo(
+  const activeSpaceFolders = useMemo(
     () =>
-      projects.filter(
+      folders.filter(
         (project) =>
           isOrdinarySpaceProject(project, { homeDir, chatWorkspaceRoot }) &&
           (project.spaceId ?? null) === activeSpaceId,
       ),
-    [activeSpaceId, chatWorkspaceRoot, homeDir, projects],
+    [activeSpaceId, chatWorkspaceRoot, homeDir, folders],
   );
-  const currentProjectId = resolveCurrentProjectTargetId(
-    activeSpaceProjects,
+  const currentFolderId = resolveCurrentProjectTargetId(
+    activeSpaceFolders,
     activeProject?.id ?? null,
   );
   // The remembered project is global, so it is unusable the moment you switch Space. Fall
   // back to this Space's most recently touched project rather than to nothing.
-  const latestUsableProjectId = useMemo(
-    () => resolveLatestProjectTargetIdWithFallback(activeSpaceProjects, latestProjectId),
-    [activeSpaceProjects, latestProjectId],
+  const latestUsableFolderId = useMemo(
+    () => resolveLatestProjectTargetIdWithFallback(activeSpaceFolders, latestFolderId),
+    [activeSpaceFolders, latestFolderId],
   );
   // Deliberately unscoped: the persisted id is only cleared once the project is gone from
   // the app entirely, not merely absent from the Space you happen to be in.
-  const persistedLatestProjectStillExists = resolveLatestProjectTargetId(projects, latestProjectId);
+  const persistedLatestProjectStillExists = resolveLatestProjectTargetId(folders, latestFolderId);
   const handleNewChatForActiveSurface = useCallback(() => {
     if (newChatInFlightRef.current) {
       return newChatInFlightRef.current;
@@ -272,17 +272,17 @@ function ChatRouteGlobalShortcuts() {
   }, [handleNewChat]);
 
   useEffect(() => {
-    if (!currentProjectId) {
+    if (!currentFolderId) {
       return;
     }
-    setLatestProjectId(currentProjectId);
-  }, [currentProjectId, setLatestProjectId]);
+    setLatestFolderId(currentFolderId);
+  }, [currentFolderId, setLatestFolderId]);
 
   useEffect(() => {
-    if (threadsHydrated && latestProjectId && persistedLatestProjectStillExists === null) {
-      clearLatestProjectId(latestProjectId);
+    if (threadsHydrated && latestFolderId && persistedLatestProjectStillExists === null) {
+      clearLatestFolderId(latestFolderId);
     }
-  }, [clearLatestProjectId, latestProjectId, persistedLatestProjectStillExists, threadsHydrated]);
+  }, [clearLatestFolderId, latestFolderId, persistedLatestProjectStillExists, threadsHydrated]);
 
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
@@ -377,25 +377,25 @@ function ChatRouteGlobalShortcuts() {
       }
 
       if (command === "chat.newLatestProject") {
-        if (!latestUsableProjectId) return;
+        if (!latestUsableFolderId) return;
         event.preventDefault();
         event.stopPropagation();
-        void handleNewThread(latestUsableProjectId);
+        void handleNewThread(latestUsableFolderId);
         return;
       }
 
       if (
         command === "chat.newClaude" ||
         command === "chat.newCodex" ||
-        command === "chat.newCursor"
+        command === "chat.newOpenCode"
       ) {
         const provider =
           command === "chat.newClaude"
             ? "claudeAgent"
             : command === "chat.newCodex"
               ? "codex"
-              : "cursor";
-        const target = resolveNewThreadTarget({ currentProjectId, latestUsableProjectId });
+              : "opencode";
+        const target = resolveNewThreadTarget({ currentFolderId, latestUsableFolderId });
         if (!target) return;
         event.preventDefault();
         event.stopPropagation();
@@ -426,7 +426,7 @@ function ChatRouteGlobalShortcuts() {
             });
             return;
           }
-          await handleNewThread(target.projectId, {
+          await handleNewThread(target.folderId, {
             provider,
             ...(target.inheritContext
               ? resolveInheritedThreadContext({ activeThread, activeDraftThread })
@@ -437,11 +437,11 @@ function ChatRouteGlobalShortcuts() {
       }
 
       if (command === "chat.newTerminal") {
-        const target = resolveNewThreadTarget({ currentProjectId, latestUsableProjectId });
+        const target = resolveNewThreadTarget({ currentFolderId, latestUsableFolderId });
         if (!target) return;
         event.preventDefault();
         event.stopPropagation();
-        void handleNewThread(target.projectId, {
+        void handleNewThread(target.folderId, {
           entryPoint: "terminal",
           ...(target.inheritContext
             ? resolveInheritedThreadContext({ activeThread, activeDraftThread })
@@ -454,12 +454,12 @@ function ChatRouteGlobalShortcuts() {
       // Falls back to the most recent project when none is focused (e.g. the landing
       // view) so the primary "new thread" chord always creates a thread; on that
       // fallback omits inherited context and defers to the target's defaults.
-      const target = resolveNewThreadTarget({ currentProjectId, latestUsableProjectId });
+      const target = resolveNewThreadTarget({ currentFolderId, latestUsableFolderId });
       if (!target) return;
       event.preventDefault();
       event.stopPropagation();
       void handleNewThread(
-        target.projectId,
+        target.folderId,
         target.inheritContext
           ? resolveInheritedThreadContext({ activeThread, activeDraftThread })
           : undefined,
@@ -476,11 +476,11 @@ function ChatRouteGlobalShortcuts() {
     cancelRecentSwitcher,
     clearSelection,
     commitRecentSwitcherSelection,
-    currentProjectId,
+    currentFolderId,
     handleNewChatForActiveSurface,
     handleNewThread,
     keybindings,
-    latestUsableProjectId,
+    latestUsableFolderId,
     openOrAdvanceRecentSwitcher,
     platform,
     providerConnectionsQuery.data,

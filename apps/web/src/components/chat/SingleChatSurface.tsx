@@ -1,5 +1,5 @@
 import type { DesktopAppTabDescriptor } from "@penkra/contracts";
-import type { ContainerId, ThreadId } from "@penkra/contracts";
+import type { FolderId, ThreadId } from "@penkra/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
@@ -69,7 +69,7 @@ function appPaneFromTab(tab: DesktopAppTabDescriptor) {
   };
 }
 
-export function SingleChatSurface(props: { threadId: ThreadId; projectId: ContainerId | null }) {
+export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderId | null }) {
   const dockState = useRightDockStore(
     useMemo(() => selectRightDockState(props.threadId), [props.threadId]),
   );
@@ -87,7 +87,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
   const setDockOpen = useRightDockStore((store) => store.setDockOpen);
   const updatePane = useRightDockStore((store) => store.updatePane);
   const activeProject = useStore(
-    useMemo(() => createProjectSelector(props.projectId), [props.projectId]),
+    useMemo(() => createProjectSelector(props.folderId), [props.folderId]),
   );
   const threadWorkspaceMetadata = useStore(
     useMemo(() => createThreadWorkspaceMetadataSelector(props.threadId), [props.threadId]),

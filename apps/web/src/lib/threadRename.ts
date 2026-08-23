@@ -6,7 +6,7 @@
 
 import {
   type ModelSelection,
-  type ContainerId,
+  type FolderId,
   type RuntimeMode,
   type SpaceId,
   type ThreadId,
@@ -23,7 +23,7 @@ export async function dispatchThreadRename(input: {
   unchangedTitles: readonly string[];
   createIfMissing?:
     | {
-        projectId: ContainerId;
+        folderId: FolderId;
         spaceId?: SpaceId | null;
         modelSelection: ModelSelection;
         runtimeMode: RuntimeMode;
@@ -51,8 +51,7 @@ export async function dispatchThreadRename(input: {
         type: "thread.create",
         commandId: newCommandId(),
         threadId: input.threadId,
-        projectId: input.createIfMissing.projectId,
-        spaceId: input.createIfMissing.spaceId ?? null,
+        folderId: input.createIfMissing.folderId,
         title: trimmed,
         modelSelection: input.createIfMissing.modelSelection,
         runtimeMode: input.createIfMissing.runtimeMode,
@@ -63,7 +62,7 @@ export async function dispatchThreadRename(input: {
     );
     if (promotionResult === "exists") {
       await api.orchestration.dispatchCommand({
-        type: "thread.meta.update",
+        type: "thread.update",
         commandId: newCommandId(),
         threadId: input.threadId,
         title: trimmed,
@@ -71,7 +70,7 @@ export async function dispatchThreadRename(input: {
     }
   } else {
     await api.orchestration.dispatchCommand({
-      type: "thread.meta.update",
+      type: "thread.update",
       commandId: newCommandId(),
       threadId: input.threadId,
       title: trimmed,

@@ -1,4 +1,4 @@
-import { ContainerId, ThreadId } from "@penkra/contracts";
+import { FolderId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -24,35 +24,35 @@ describe("startFreshChatForActiveSurface", () => {
 
 describe("startContainerChat", () => {
   it("returns the created thread so callers can attach context deterministically", async () => {
-    const projectId = ContainerId.makeUnsafe("project-1");
+    const folderId = FolderId.makeUnsafe("project-1");
     const threadId = ThreadId.makeUnsafe("thread-1");
     const handleNewThread = vi.fn(async () => threadId);
 
     await expect(
       startContainerChat({
-        ensureProjectId: async () => projectId,
+        ensureFolderId: async () => folderId,
         handleNewThread,
         fresh: true,
         errorLabel: "failed",
       }),
     ).resolves.toEqual({ ok: true, threadId });
 
-    expect(handleNewThread).toHaveBeenCalledWith(projectId, {
+    expect(handleNewThread).toHaveBeenCalledWith(folderId, {
       fresh: true,
     });
   });
 
   it("starts a stored Folder draft without extra overrides", async () => {
-    const projectId = ContainerId.makeUnsafe("folder-project");
+    const folderId = FolderId.makeUnsafe("folder-project");
     const threadId = ThreadId.makeUnsafe("folder-thread");
     const handleNewThread = vi.fn(async () => threadId);
 
     await startContainerChat({
-      ensureProjectId: async () => projectId,
+      ensureFolderId: async () => folderId,
       handleNewThread,
       errorLabel: "failed",
     });
 
-    expect(handleNewThread).toHaveBeenCalledWith(projectId, undefined);
+    expect(handleNewThread).toHaveBeenCalledWith(folderId, undefined);
   });
 });

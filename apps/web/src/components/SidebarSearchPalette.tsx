@@ -1,5 +1,5 @@
 /**
- * SidebarSearchPalette - Command-style palette for sidebar actions, threads, and projects.
+ * SidebarSearchPalette - Command-style palette for sidebar actions, threads, and folders.
  *
  * Keeps the sidebar search UX aligned with the shared command primitives so
  * keyboard navigation and shortcut labels behave like the rest of the app.
@@ -30,7 +30,7 @@ import {
   type SidebarSearchTheme,
   type SidebarSearchThread,
   matchSidebarSearchActions,
-  matchSidebarSearchProjects,
+  matchSidebarSearchFolders,
   matchSidebarSearchThemes,
   matchSidebarSearchThreads,
 } from "./SidebarSearchPalette.logic";
@@ -62,23 +62,20 @@ interface SidebarSearchPaletteProps {
   onModeChange: (mode: SidebarSearchPaletteMode) => void;
   onOpenChange: (open: boolean) => void;
   actions: readonly SidebarSearchAction[];
-  projects: readonly SidebarSearchProject[];
+  folders: readonly SidebarSearchProject[];
   threads: readonly SidebarSearchThread[];
   onCreateChat: () => void;
   onCreateThread: () => void;
   onOpenSettings: () => void;
   onOpenFeedback: () => void;
   onOpenUsageSettings: () => void;
-  onOpenProject: (projectId: string) => void;
+  onOpenProject: (folderId: string) => void;
   onOpenThread: (threadId: string) => void;
   importProviders: readonly ImportProviderKind[];
   onImportThread: (provider: ImportProviderKind, externalId: string) => Promise<void>;
 }
 
-export type ImportProviderKind = Extract<
-  ProviderKind,
-  "codex" | "claudeAgent" | "cursor" | "kilo" | "opencode"
->;
+export type ImportProviderKind = Extract<ProviderKind, "codex" | "claudeAgent" | "opencode">;
 
 function actionHandler(
   actionId: string,
@@ -253,13 +250,13 @@ function ProviderIcon(props: { provider: ProviderKind }) {
 }
 
 function threadMatchLabel(input: {
-  matchKind: "message" | "project" | "title";
+  matchKind: "message" | "folder" | "title";
   messageMatchCount: number;
 }): string | null {
   if (input.matchKind === "message") {
     return input.messageMatchCount > 1 ? `${input.messageMatchCount} chat hits` : "Chat match";
   }
-  if (input.matchKind === "project") {
+  if (input.matchKind === "folder") {
     return "Folder match";
   }
   return null;
@@ -373,25 +370,21 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
     query.trim().length === 0 ? [] : matchSidebarSearchThemes(currentCodeThemeItems, query);
   const showThemeSection =
     query.trim().length > 0 && (themeCommandItems.length > 0 || matchedCurrentThemes.length > 0);
-  const matchedProjects = matchSidebarSearchProjects(props.projects, query);
+  const matchedFolders = matchSidebarSearchFolders(props.folders, query);
   const matchedThreads = matchSidebarSearchThreads(props.threads, query);
   const hasSearchResults =
     matchedActions.length > 0 ||
     themeCommandItems.length > 0 ||
     matchedCurrentThemes.length > 0 ||
-    matchedProjects.length > 0 ||
+    matchedFolders.length > 0 ||
     matchedThreads.length > 0;
   const importFieldLabel = importProvider === "codex" ? "Thread ID" : "Session ID";
   const importPlaceholder =
     importProvider === "claudeAgent"
       ? "Paste a Claude session id"
-      : importProvider === "cursor"
-        ? "Paste a Cursor session id"
-        : importProvider === "kilo"
-          ? "Paste a Kilo session id"
-          : importProvider === "opencode"
-            ? "Paste an OpenCode session id"
-            : "Paste a Codex thread id";
+      : importProvider === "opencode"
+        ? "Paste an OpenCode session id"
+        : "Paste a Codex thread id";
 
   const submitImport = () => {
     const normalizedImportId = importId.trim();
@@ -460,13 +453,9 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                       <ProviderIcon provider={provider} />
                       {provider === "claudeAgent"
                         ? "Claude"
-                        : provider === "cursor"
-                          ? "Cursor"
-                          : provider === "kilo"
-                            ? "Kilo"
-                            : provider === "opencode"
-                              ? "OpenCode"
-                              : "Codex"}
+                        : provider === "opencode"
+                          ? "OpenCode"
+                          : "Codex"}
                     </Button>
                   ))}
                 </div>
@@ -497,13 +486,9 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                 <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
                   {importProvider === "claudeAgent"
                     ? "Claude resumes a persisted session by session id."
-                    : importProvider === "cursor"
-                      ? "Cursor resumes a persisted session by session id."
-                      : importProvider === "kilo"
-                        ? "Kilo resumes a persisted session by session id."
-                        : importProvider === "opencode"
-                          ? "OpenCode resumes a persisted session by session id."
-                          : "Codex resumes a persisted thread by thread id."}
+                    : importProvider === "opencode"
+                      ? "OpenCode resumes a persisted session by session id."
+                      : "Codex resumes a persisted thread by thread id."}
                 </p>
               </div>
               {importError ? (
@@ -591,7 +576,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                   ) : null}
 
                   {matchedActions.length > 0 &&
-                  (matchedThreads.length > 0 || matchedProjects.length > 0 || showThemeSection) ? (
+                  (matchedThreads.length > 0 || matchedFolders.length > 0 || showThemeSection) ? (
                     <CommandSeparator />
                   ) : null}
 
@@ -665,14 +650,14 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                     </CommandGroup>
                   ) : null}
 
-                  {matchedThreads.length > 0 && (matchedProjects.length > 0 || showThemeSection) ? (
+                  {matchedThreads.length > 0 && (matchedFolders.length > 0 || showThemeSection) ? (
                     <CommandSeparator />
                   ) : null}
 
-                  {matchedProjects.length > 0 ? (
+                  {matchedFolders.length > 0 ? (
                     <CommandGroup>
                       <CommandGroupLabel className="py-1.5 pl-3">Folders</CommandGroupLabel>
-                      {matchedProjects.map(({ id, project }) => (
+                      {matchedFolders.map(({ id, project }) => (
                         <CommandItem
                           key={id}
                           value={id}
@@ -710,7 +695,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                     </CommandGroup>
                   ) : null}
 
-                  {showThemeSection && matchedProjects.length > 0 ? <CommandSeparator /> : null}
+                  {showThemeSection && matchedFolders.length > 0 ? <CommandSeparator /> : null}
 
                   {showThemeSection ? (
                     <>

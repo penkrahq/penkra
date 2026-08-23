@@ -26,8 +26,8 @@ describe("dispatchShellCommand", () => {
       snapshotSequence: 7,
       spaces: [],
       archivedSpaces: [],
-      projects: [],
-      archivedProjects: [],
+      folders: [],
+      archivedFolders: [],
       threads: [],
       updatedAt: "2026-08-21T00:00:00.000Z",
     });

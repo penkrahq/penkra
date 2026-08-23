@@ -24,12 +24,19 @@ import {
   type OpenCodeRuntimeShape,
 } from "../opencodeRuntime.ts";
 import { OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
-import { KiloAdapter } from "../Services/KiloAdapter.ts";
 import {
-  makeOpenCodeAdapterLive,
-  makeKiloAdapterLive,
+  makeOpenCodeAdapterLive as makeOpenCodeAdapterLiveBase,
   normalizeOpenCodeTokenUsage,
+  type OpenCodeAdapterLiveOptions,
 } from "./OpenCodeAdapter.ts";
+
+function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
+  return makeOpenCodeAdapterLiveBase({
+    ...options,
+    agentGatewayCredentials:
+      options?.agentGatewayCredentials ?? makeGatewayCredentials().credentials,
+  });
+}
 
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 function createMockOpenCodeRuntime(options?: {
@@ -1050,9 +1057,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     ]);
     expect(runtime.promptCalls).toHaveLength(2);
     for (const prompt of runtime.promptCalls) {
-      expect(JSON.stringify(prompt)).toContain(
-        "Use `penkra_exec_command` for every Penkra operation",
-      );
+      expect(JSON.stringify(prompt)).toContain("penkra_exec_command");
     }
     expect(gateway.revoked).toEqual(["gateway-token-1", "gateway-token-2"]);
   });
@@ -1090,11 +1095,11 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     expect(runtime.abortCalls).toHaveLength(1);
   });
 
-  it("keeps shared external OpenCode servers identity-only and never installs a token", async () => {
+  it("rejects shared external OpenCode servers that cannot host a thread-scoped gateway", async () => {
     const runtime = createMockOpenCodeRuntime();
     const gateway = makeGatewayCredentials();
 
-    await Effect.runPromise(
+    const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
         const threadId = asThreadId("thread-external-gateway-disabled");
@@ -1105,12 +1110,6 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
           providerOptions: {
             opencode: { serverUrl: "http://127.0.0.1:9999" },
           },
-        });
-        yield* adapter.sendTurn({
-          threadId,
-          input: "coordinate work",
-          attachments: [],
-          modelSelection: { provider: "opencode", model: "openai/gpt-5" },
         });
       }).pipe(
         Effect.provide(
@@ -1127,10 +1126,11 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       ),
     );
 
-    expect(runtime.connectCalls[0]?.poolIsolationKey).toBeUndefined();
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(runtime.connectCalls).toEqual([]);
     expect(runtime.mcpAddCalls).toEqual([]);
     expect(gateway.ownerByToken.size).toBe(0);
-    expect(JSON.stringify(runtime.promptCalls[0])).toContain("Penkra MCP control is unavailable");
+    expect(runtime.promptCalls).toEqual([]);
   });
 
   it("ignores a remembered external server when an exact managed launch is supplied", async () => {
@@ -1184,7 +1184,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     expect(runtime.connectCalls[0]?.serverUrl).toBeUndefined();
   });
 
-  it("keeps managed sessions identity-only and revokes credentials when MCP setup is not connected", async () => {
+  it("fails managed session start and revokes credentials when MCP setup is not connected", async () => {
     const runtime = createMockOpenCodeRuntime({
       mcpAdd: async () => ({
         data: { penkra: { status: "failed", error: "offline" } },
@@ -1192,7 +1192,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     });
     const gateway = makeGatewayCredentials();
 
-    await Effect.runPromise(
+    const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
         const threadId = asThreadId("thread-gateway-setup-failed");
@@ -1200,12 +1200,6 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
-        });
-        yield* adapter.sendTurn({
-          threadId,
-          input: "coordinate work",
-          attachments: [],
-          modelSelection: { provider: "opencode", model: "openai/gpt-5" },
         });
       }).pipe(
         Effect.provide(
@@ -1222,46 +1216,10 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       ),
     );
 
+    expect(Exit.isFailure(exit)).toBe(true);
     expect(gateway.revoked).toEqual(["gateway-token-1"]);
     expect(gateway.ownerByToken.size).toBe(0);
-    expect(JSON.stringify(runtime.promptCalls[0])).toContain("Penkra MCP control is unavailable");
-  });
-
-  it("applies the same isolated gateway lifecycle to managed Kilo sessions", async () => {
-    const runtime = createMockOpenCodeRuntime();
-    const gateway = makeGatewayCredentials();
-    const threadId = asThreadId("thread-kilo-gateway");
-
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const adapter = yield* KiloAdapter;
-        yield* adapter.startSession({
-          provider: "kilo",
-          threadId,
-          runtimeMode: "full-access",
-          cwd: "/repo",
-        });
-        yield* adapter.stopSession(threadId);
-      }).pipe(
-        Effect.provide(
-          makeKiloAdapterLive({ runtime: runtime.runtime }).pipe(
-            Layer.provide(Layer.succeed(AgentGatewayCredentials, gateway.credentials)),
-            Layer.provideMerge(
-              ServerConfig.layerTest(process.cwd(), {
-                prefix: "kilo-adapter-test-",
-              }),
-            ),
-            Layer.provideMerge(NodeServices.layer),
-          ),
-        ),
-      ),
-    );
-
-    expect(runtime.connectCalls[0]?.poolIsolationKey).toBeTruthy();
-    expect(runtime.mcpAddCalls[0]?.config).toMatchObject({
-      headers: { Authorization: "Bearer gateway-token-1" },
-    });
-    expect(gateway.revoked).toEqual(["gateway-token-1"]);
+    expect(runtime.promptCalls).toEqual([]);
   });
 
   it("revokes a managed gateway lease exactly once when the server exits unexpectedly", async () => {
@@ -2012,7 +1970,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       runtime.promptCalls[0]?.parts as ReadonlyArray<{ readonly text?: string }> | undefined
     )?.[0]?.text;
     expect(firstPromptText).toContain(PENKRA_HARNESS_POLICY_MARKER);
-    expect(firstPromptText).toContain("Penkra MCP control is unavailable");
+    expect(firstPromptText).toContain("penkra_exec_command");
     expect(runtime.promptCalls[0]).toMatchObject({
       model: {
         providerID: "openai",
@@ -2228,7 +2186,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     );
   });
 
-  it("filters Kilo synthetic and ignored text parts from assistant transcript", async () => {
+  it("filters synthetic and ignored text parts from assistant transcript", async () => {
     const eventQueue = createSubscribedEventQueue();
     const runtime = createMockOpenCodeRuntime();
     const client = runtime.runtime.createOpenCodeSdkClient({
@@ -2250,12 +2208,12 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
 
         yield* adapter.startSession({
           provider: "opencode",
-          threadId: asThreadId("thread-synthetic-kilo-parts"),
+          threadId: asThreadId("thread-synthetic-opencode-parts"),
           runtimeMode: "full-access",
         });
 
         yield* adapter.sendTurn({
-          threadId: asThreadId("thread-synthetic-kilo-parts"),
+          threadId: asThreadId("thread-synthetic-opencode-parts"),
           input: "hello",
           attachments: [],
           modelSelection: {
@@ -2409,7 +2367,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     });
   });
 
-  it("projects generic file attachments into text instead of native OpenCode file parts", async () => {
+  it("folders generic file attachments into text instead of native OpenCode file parts", async () => {
     const runtime = createMockOpenCodeRuntime();
 
     await Effect.runPromise(
@@ -4020,7 +3978,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     });
   });
 
-  it("projects newer OpenCode shell step events as command executions", async () => {
+  it("folders newer OpenCode shell step events as command executions", async () => {
     const eventQueue = createSubscribedEventQueue();
     const runtime = createMockOpenCodeRuntime();
     const client = runtime.runtime.createOpenCodeSdkClient({

@@ -3,7 +3,7 @@ import {
   ApprovalRequestId,
   EventId,
   MessageId,
-  ContainerId,
+  FolderId,
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
@@ -21,7 +21,7 @@ function makeThread(overrides: Partial<Thread>): Thread {
   return {
     id: "thread-1" as ThreadId,
     codexThreadId: null,
-    projectId: "project-1" as ContainerId,
+    folderId: "project-1" as FolderId,
     title: "Polish notifications",
     modelSelection: { provider: "codex", model: "gpt-5.4-mini" },
     runtimeMode: "full-access",
@@ -138,7 +138,7 @@ describe("collectCompletedThreadCandidates", () => {
     expect(collectCompletedThreadCandidates(previous, next)).toEqual([
       {
         threadId: ThreadId.makeUnsafe("thread-1"),
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         title: "Polish notifications",
         completedAt: "2026-04-05T10:00:05.000Z",
         assistantSummary: "Finished the task and everything looks good.",
@@ -343,7 +343,7 @@ describe("collectCompletedThreadCandidates", () => {
     expect(collectCompletedThreadCandidates(previous, next)).toEqual([
       {
         threadId: ThreadId.makeUnsafe("thread-1"),
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         title: "Polish notifications",
         completedAt: "2026-04-05T10:00:05.000Z",
         assistantSummary: "Done and verified.",
@@ -462,7 +462,7 @@ describe("collectCompletedThreadCandidates", () => {
     expect(collectCompletedThreadCandidates(previous, next)).toEqual([
       {
         threadId: ThreadId.makeUnsafe("thread-1"),
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         title: "Polish notifications",
         completedAt: "2026-04-05T10:00:05.000Z",
         assistantSummary: "First block is done.",
@@ -768,7 +768,7 @@ describe("collectInputNeededThreadCandidates", () => {
       {
         kind: "approval",
         threadId: ThreadId.makeUnsafe("thread-1"),
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         title: "Polish notifications",
         createdAt: "2026-04-05T10:00:04.000Z",
         requestId: ApprovalRequestId.makeUnsafe("approval-request-1"),
@@ -812,7 +812,7 @@ describe("collectInputNeededThreadCandidates", () => {
       {
         kind: "user-input",
         threadId: ThreadId.makeUnsafe("thread-1"),
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         title: "Polish notifications",
         createdAt: "2026-04-05T10:00:06.000Z",
         requestId: ApprovalRequestId.makeUnsafe("user-input-request-1"),
@@ -851,7 +851,7 @@ describe("buildInputNeededCopy", () => {
       buildInputNeededCopy({
         kind: "approval",
         threadId: ThreadId.makeUnsafe("thread-1"),
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         title: "Polish notifications",
         createdAt: "2026-04-05T10:00:04.000Z",
         requestId: ApprovalRequestId.makeUnsafe("approval-request-1"),
@@ -868,7 +868,7 @@ describe("buildInputNeededCopy", () => {
       buildInputNeededCopy({
         kind: "user-input",
         threadId: ThreadId.makeUnsafe("thread-1"),
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         title: "Polish notifications",
         createdAt: "2026-04-05T10:00:06.000Z",
         requestId: ApprovalRequestId.makeUnsafe("user-input-request-1"),

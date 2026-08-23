@@ -3,7 +3,7 @@
 // Layer: Web Sidebar controller hook
 // Exports: useSidebarThreadActions
 
-import { type ContainerId, ThreadId } from "@penkra/contracts";
+import { type FolderId, ThreadId } from "@penkra/contracts";
 import { pluralize } from "@penkra/shared/text";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -73,7 +73,7 @@ export function useSidebarThreadActions(input: {
   >;
   readonly clearTerminalState: (threadId: ThreadId) => void;
   readonly handleNewChat: (options?: { fresh?: boolean }) => Promise<unknown>;
-  readonly projectById: ReadonlyMap<ContainerId, Project>;
+  readonly projectById: ReadonlyMap<FolderId, Project>;
   readonly routeSplitViewId: string | null;
   readonly routeThreadId: ThreadId | null;
   readonly sidebarThreads: readonly SidebarThreadSummary[];
@@ -153,7 +153,7 @@ export function useSidebarThreadActions(input: {
     const api = readNativeApi();
     if (!api) return;
     await api.orchestration.dispatchCommand({
-      type: "thread.meta.update",
+      type: "thread.update",
       commandId: newCommandId(),
       threadId,
       isPinned,
@@ -295,7 +295,7 @@ export function useSidebarThreadActions(input: {
         onDeleted: ({ thread, prepared }) => {
           unpinThread(threadId);
           clearComposerDraftForThread(threadId);
-          clearProjectDraftThreadById(thread.projectId, thread.id);
+          clearProjectDraftThreadById(thread.folderId, thread.id);
           clearTerminalState(threadId);
           removeThreadFromSplitViews(threadId);
 
@@ -515,12 +515,12 @@ export function useSidebarThreadActions(input: {
   );
 
   const archiveAllThreadsInProject = useCallback(
-    async (projectId: ContainerId): Promise<void> => {
+    async (folderId: FolderId): Promise<void> => {
       const api = readNativeApi();
-      const project = projectById.get(projectId);
+      const project = projectById.get(folderId);
       if (!api || !project) return;
       const projectThreads = sidebarThreads.filter(
-        (thread) => thread.projectId === projectId && thread.archivedAt == null,
+        (thread) => thread.folderId === folderId && thread.archivedAt == null,
       );
       if (projectThreads.length === 0) {
         toastManager.add({
@@ -549,7 +549,7 @@ export function useSidebarThreadActions(input: {
           failureCount += 1;
           console.error("Failed to archive thread during bulk archive", {
             threadId: thread.id,
-            projectId,
+            folderId,
             error,
           });
         }
@@ -576,11 +576,11 @@ export function useSidebarThreadActions(input: {
   );
 
   const deleteProjectThreads = useCallback(
-    async (projectId: ContainerId, options?: DeleteProjectThreadsOptions) => {
+    async (folderId: FolderId, options?: DeleteProjectThreadsOptions) => {
       const api = readNativeApi();
-      const project = projectById.get(projectId);
+      const project = projectById.get(folderId);
       if (!api || !project) return null;
-      const projectThreads = sidebarThreads.filter((thread) => thread.projectId === projectId);
+      const projectThreads = sidebarThreads.filter((thread) => thread.folderId === folderId);
       if (projectThreads.length === 0) {
         if (options?.showEmptyToast ?? true) {
           toastManager.add({
@@ -624,7 +624,7 @@ export function useSidebarThreadActions(input: {
           failureCount += 1;
           console.error("Failed to delete thread during bulk delete", {
             threadId: thread.id,
-            projectId,
+            folderId,
             error,
           });
         }

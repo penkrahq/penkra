@@ -26,7 +26,7 @@ import {
   type ProjectionPendingInteractionRepositoryShape,
   ProjectionPendingInteractionRepository,
 } from "../../persistence/Services/ProjectionPendingInteractions.ts";
-import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
+import { ProjectionFolderRepository } from "../../persistence/Services/ProjectionFolders.ts";
 import { ProjectionSpaceRepository } from "../../persistence/Services/ProjectionSpaces.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -45,7 +45,7 @@ import {
   ProjectionThreadRepository,
 } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
-import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
+import { ProjectionFolderRepositoryLive } from "../../persistence/Layers/ProjectionFolders.ts";
 import { ProjectionSpaceRepositoryLive } from "../../persistence/Layers/ProjectionSpaces.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
@@ -61,10 +61,10 @@ import {
   type ShellMetadataOrchestrationEvent,
 } from "../Services/ProjectionPipeline.ts";
 import {
-  applyProjectMetadataProjection,
-  advanceProjectMetadataSnapshotState,
-  PROJECT_METADATA_SNAPSHOT_PROJECTORS,
-} from "../projectMetadataProjection.ts";
+  applyFolderMetadataProjection,
+  advanceFolderMetadataSnapshotState,
+  FOLDER_METADATA_SNAPSHOT_PROJECTORS,
+} from "../folderMetadataProjection.ts";
 import { applySpaceMetadataProjection } from "../spaceMetadataProjection.ts";
 import { resolveStableMessageTurnId } from "../messageTurnId.ts";
 import { settleTurnStateFromSession } from "../turnLifecycle.ts";
@@ -82,7 +82,7 @@ import {
 
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   hot: "projection.hot",
-  projects: "projection.projects",
+  folders: "projection.folders",
   threads: "projection.threads",
   threadShellSummaries: "projection.thread-shell-summaries",
   threadMessages: "projection.thread-messages",
@@ -137,15 +137,15 @@ function extractApprovalFailureSettlementStatus(
 
 const PROJECT_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "space.created",
-  "space.meta-updated",
-  "space.order-updated",
+  "space.updated",
+  "space.updated",
   "space.archived",
   "space.restored",
   "space.deleted",
   "sidebar.layout-updated",
-  "project.created",
-  "project.meta-updated",
-  "project.deleted",
+  "folder.created",
+  "folder.updated",
+  "folder.deleted",
 ]);
 
 const THREAD_MESSAGE_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
@@ -356,7 +356,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const eventStore = yield* OrchestrationEventStore;
   const managedAttachments = yield* ManagedAttachmentRepository;
   const projectionStateRepository = yield* ProjectionStateRepository;
-  const projectionProjectRepository = yield* ProjectionProjectRepository;
+  const projectionFolderRepository = yield* ProjectionFolderRepository;
   const projectionSpaceRepository = yield* ProjectionSpaceRepository;
   const projectionThreadRepository = yield* ProjectionThreadRepository;
   const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
@@ -369,17 +369,17 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig;
 
-  const applyProjectsProjection: ProjectorDefinition["apply"] = (event, _attachmentSideEffects) => {
+  const applyFoldersProjection: ProjectorDefinition["apply"] = (event, _attachmentSideEffects) => {
     switch (event.type) {
-      case "project.created":
-      case "project.meta-updated":
-      case "project.deleted":
-        return applyProjectMetadataProjection({ event, projectionProjectRepository }).pipe(
+      case "folder.created":
+      case "folder.updated":
+      case "folder.moved":
+      case "folder.deleted":
+        return applyFolderMetadataProjection({ event, projectionFolderRepository }).pipe(
           Effect.asVoid,
         );
       case "space.created":
-      case "space.meta-updated":
-      case "space.order-updated":
+      case "space.updated":
       case "space.archived":
       case "space.restored":
         return applySpaceMetadataProjection({ event, projectionSpaceRepository }).pipe(
@@ -387,28 +387,15 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         );
       case "space.deleted":
         return applySpaceMetadataProjection({ event, projectionSpaceRepository }).pipe(
-          Effect.andThen(
-            projectionProjectRepository.clearSpaceAssignments({
-              spaceId: event.payload.spaceId,
-              updatedAt: event.payload.deletedAt,
-            }),
-          ),
-          Effect.andThen(
-            projectionThreadRepository.clearSpaceAssignments({
-              spaceId: event.payload.spaceId,
-              updatedAt: event.payload.deletedAt,
-            }),
-          ),
           Effect.asVoid,
         );
       case "sidebar.layout-updated":
-        return Effect.forEach(event.payload.projectUpdates, (update) =>
-          projectionProjectRepository.getById({ projectId: update.projectId }).pipe(
+        return Effect.forEach(event.payload.folderUpdates, (update) =>
+          projectionFolderRepository.getById({ folderId: update.folderId }).pipe(
             Effect.flatMap((existing) =>
               Option.isSome(existing)
-                ? projectionProjectRepository.upsert({
+                ? projectionFolderRepository.upsert({
                     ...existing.value,
-                    ...(update.spaceId !== undefined ? { spaceId: update.spaceId } : {}),
                     ...(update.sidebarSortOrder !== undefined
                       ? { sidebarSortOrder: update.sidebarSortOrder }
                       : {}),
@@ -440,8 +427,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           yield* Effect.forEach(event.payload.threadUpdates, (update) =>
             updateThreadProjection(update.threadId, (thread) => ({
               ...thread,
-              ...(update.projectId !== undefined ? { projectId: update.projectId } : {}),
-              ...(update.spaceId !== undefined ? { spaceId: update.spaceId } : {}),
+              ...(update.folderId !== undefined ? { folderId: update.folderId } : {}),
               ...(update.sidebarSortOrder !== undefined
                 ? { sidebarSortOrder: update.sidebarSortOrder }
                 : {}),
@@ -452,8 +438,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         case "thread.created": {
           yield* projectionThreadRepository.upsert({
             threadId: event.payload.threadId,
-            projectId: event.payload.projectId,
-            spaceId: event.payload.spaceId ?? null,
+            folderId: event.payload.folderId,
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
@@ -486,11 +471,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           return;
         }
 
-        case "thread.meta-updated": {
+        case "thread.updated": {
           return yield* updateThreadProjection(event.payload.threadId, (thread) => {
             return {
               ...thread,
-              ...(event.payload.spaceId !== undefined ? { spaceId: event.payload.spaceId } : {}),
               ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
               ...(event.payload.modelSelection !== undefined
                 ? { modelSelection: event.payload.modelSelection }
@@ -1652,10 +1636,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
 
   const projectors: ReadonlyArray<ProjectorDefinition> = [
     {
-      name: ORCHESTRATION_PROJECTOR_NAMES.projects,
+      name: ORCHESTRATION_PROJECTOR_NAMES.folders,
       phase: "hot",
       shouldApply: (event) => PROJECT_EVENT_TYPES.has(event.type),
-      apply: applyProjectsProjection,
+      apply: applyFoldersProjection,
     },
     {
       name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
@@ -1707,10 +1691,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
     },
   ];
   const projectsProjector = projectors.find(
-    (projector) => projector.name === ORCHESTRATION_PROJECTOR_NAMES.projects,
+    (projector) => projector.name === ORCHESTRATION_PROJECTOR_NAMES.folders,
   );
 
-  // Project metadata changes only touch the project projection, so keep them
+  // Folder metadata changes only touch the folder projection, so keep them
   // off the slower full-projector pass used by thread and runtime events.
   const selectProjectorsForEvent = (
     event: OrchestrationEvent,
@@ -1968,7 +1952,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
 
   const advanceSnapshotProjectorStates = (event: OrchestrationEvent) =>
     sql.withTransaction(
-      Effect.forEach(PROJECT_METADATA_SNAPSHOT_PROJECTORS, (projector) =>
+      Effect.forEach(FOLDER_METADATA_SNAPSHOT_PROJECTORS, (projector) =>
         projectionStateRepository.upsert({
           projector,
           lastAppliedSequence: event.sequence,
@@ -1980,7 +1964,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const applyShellMetadataProjection = (event: ShellMetadataOrchestrationEvent) => {
     switch (event.type) {
       case "sidebar.layout-updated":
-        return applyProjectsProjection(event, {
+        return applyFoldersProjection(event, {
           deletedThreadIds: new Set(),
           prunedThreadRelativePaths: new Map(),
         }).pipe(
@@ -1992,39 +1976,26 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           ),
         );
       case "space.created":
-      case "space.meta-updated":
-      case "space.order-updated":
+      case "space.updated":
       case "space.archived":
       case "space.restored":
         return applySpaceMetadataProjection({ event, projectionSpaceRepository });
       case "space.deleted":
-        return applySpaceMetadataProjection({ event, projectionSpaceRepository }).pipe(
-          Effect.andThen(
-            projectionProjectRepository.clearSpaceAssignments({
-              spaceId: event.payload.spaceId,
-              updatedAt: event.payload.deletedAt,
-            }),
-          ),
-          Effect.andThen(
-            projectionThreadRepository.clearSpaceAssignments({
-              spaceId: event.payload.spaceId,
-              updatedAt: event.payload.deletedAt,
-            }),
-          ),
-        );
-      case "project.created":
-      case "project.meta-updated":
-      case "project.deleted":
-        return applyProjectMetadataProjection({ event, projectionProjectRepository });
+        return applySpaceMetadataProjection({ event, projectionSpaceRepository });
+      case "folder.created":
+      case "folder.updated":
+      case "folder.moved":
+      case "folder.deleted":
+        return applyFolderMetadataProjection({ event, projectionFolderRepository });
     }
   };
 
-  const projectMetadataEvent: OrchestrationProjectionPipelineShape["projectMetadataEvent"] = (
+  const folderMetadataEvent: OrchestrationProjectionPipelineShape["folderMetadataEvent"] = (
     event,
   ) =>
     applyShellMetadataProjection(event).pipe(
       Effect.flatMap(() =>
-        advanceProjectMetadataSnapshotState({
+        advanceFolderMetadataSnapshotState({
           event,
           projectionStateRepository,
         }),
@@ -2105,7 +2076,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
     projectEvent,
     projectHotEventInCurrentTransaction,
     projectDeferredEvent,
-    projectMetadataEvent,
+    folderMetadataEvent,
   } satisfies OrchestrationProjectionPipelineShape;
 });
 
@@ -2114,7 +2085,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   makeOrchestrationProjectionPipeline,
 ).pipe(
   Layer.provideMerge(NodeServices.layer),
-  Layer.provideMerge(ProjectionProjectRepositoryLive),
+  Layer.provideMerge(ProjectionFolderRepositoryLive),
   Layer.provideMerge(ProjectionSpaceRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),

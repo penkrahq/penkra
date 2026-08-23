@@ -1,7 +1,7 @@
 import {
   CommandId,
   OrchestrationCommand,
-  ContainerId,
+  FolderId,
   ThreadId,
   TurnId,
   type OrchestrationSession,
@@ -25,7 +25,7 @@ const LIVE_TURN_ID = TurnId.makeUnsafe("turn-live");
 function threadShell(overrides: Partial<OrchestrationThreadShell> = {}): OrchestrationThreadShell {
   return {
     id: THREAD_ID,
-    projectId: ContainerId.makeUnsafe("project-reconcile"),
+    folderId: FolderId.makeUnsafe("project-reconcile"),
     title: "Runtime reconciliation",
     modelSelection: { provider: "codex", model: "gpt-5.6" },
     runtimeMode: "full-access",

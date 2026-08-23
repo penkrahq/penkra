@@ -156,7 +156,7 @@ describe("serverLocalServersQueryOptions", () => {
   it("keeps sidebar attribution enabled without idle polling", () => {
     const options = sidebarLocalServersQueryOptions({
       hasActiveProjectRun: false,
-      hasProjects: true,
+      hasFolders: true,
     });
 
     expect(options.enabled).toBe(true);
@@ -167,17 +167,17 @@ describe("serverLocalServersQueryOptions", () => {
   it("uses visible polling while a Penkra-owned project run is active", () => {
     const options = sidebarLocalServersQueryOptions({
       hasActiveProjectRun: true,
-      hasProjects: true,
+      hasFolders: true,
     });
 
     expect(options.enabled).toBe(true);
     expect(options.refetchInterval).toBe(LOCAL_SERVERS_VISIBLE_REFETCH_INTERVAL_MS);
   });
 
-  it("disables sidebar attribution when no projects or project runs exist", () => {
+  it("disables sidebar attribution when no folders or project runs exist", () => {
     const options = sidebarLocalServersQueryOptions({
       hasActiveProjectRun: false,
-      hasProjects: false,
+      hasFolders: false,
     });
 
     expect(options.enabled).toBe(false);
@@ -218,7 +218,7 @@ describe("serverAllProviderUsageQueryOptions", () => {
 describe("serverProviderUsageSnapshotQueryOptions", () => {
   it("can be disabled by privacy-safe active surfaces", () => {
     const options = serverProviderUsageSnapshotQueryOptions({
-      provider: "cursor",
+      provider: "opencode",
       enabled: false,
     });
 

@@ -1,5 +1,5 @@
 // FILE: appOpenWith.ts
-// Purpose: Projects enabled App handler declarations into flat file-type settings rows.
+// Purpose: Folders enabled App handler declarations into flat file-type settings rows.
 // Layer: Web UI domain logic
 
 import type { DesktopInstalledApp } from "@penkra/contracts";

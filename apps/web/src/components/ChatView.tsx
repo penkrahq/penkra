@@ -12,7 +12,7 @@ import {
   type ProviderConnectionId,
   type ProviderConnectionsSnapshot,
   type ProjectEntry,
-  type ContainerId,
+  type FolderId,
   type ProviderApprovalDecision,
   type ProviderMentionReference,
   type ProviderNativeCommandDescriptor,
@@ -108,8 +108,6 @@ import { isScrollContainerNearBottom } from "../chat-scroll";
 import { parseChatRouteSearch } from "../chatRouteSearch";
 import { openThreadUrlReference, useThreadResourceOpener } from "../lib/threadResourceOpener";
 import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
-import { isHomeChatContainerProject } from "../lib/chatProjects";
-import { resolveFirstSendTarget } from "../lib/chatFirstSend";
 import { readActiveSpaceId, useSpacesUiStore } from "../spacesUiStore";
 import {
   buildComposerFileAttachmentsFromFiles,
@@ -187,6 +185,7 @@ import {
   hasActivePendingTurnStart,
   hasLiveTurnTailWork,
   isLatestTurnSettled,
+  isSessionActiveLatestTurn,
   PROVIDER_OPTIONS,
 } from "../session-logic";
 import {
@@ -236,7 +235,7 @@ import {
   type ProjectScriptRunResult,
 } from "~/projectScripts";
 import { runProjectCommandInTerminal } from "~/projectTerminalRunner";
-import { newCommandId, newMessageId, newProjectId, newThreadId } from "~/lib/utils";
+import { newCommandId, newMessageId, newFolderId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { promoteThreadCreate } from "~/lib/threadCreatePromotion";
 import { requireNewThreadSpaceId } from "~/lib/threadBootstrap";
@@ -434,10 +433,6 @@ import { useComposerSlashCommands } from "../hooks/useComposerSlashCommands";
 import { useFeatureFlags } from "../featureFlags";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { buildModelSelection, buildNextProviderOptions } from "../providerModelOptions";
-import {
-  isDuplicateProjectCreateError,
-  waitForRecoverableProjectForDuplicateCreate,
-} from "../lib/projectCreateRecovery";
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
@@ -466,9 +461,9 @@ function waitForDraftProjectSyncDelay(ms: number): Promise<void> {
 // Waits for a project to appear in the shell snapshot before a local draft points at it.
 async function waitForShellProjectById(
   api: NativeApi,
-  projectId: ContainerId,
+  folderId: FolderId,
 ): Promise<{
-  project: OrchestrationShellSnapshot["projects"][number] | null;
+  project: OrchestrationShellSnapshot["folders"][number] | null;
   snapshot: OrchestrationShellSnapshot | null;
 }> {
   let latestSnapshot: OrchestrationShellSnapshot | null = null;
@@ -476,7 +471,7 @@ async function waitForShellProjectById(
     const snapshot = await api.orchestration.getShellSnapshot().catch(() => null);
     if (snapshot) {
       latestSnapshot = snapshot;
-      const project = snapshot.projects.find((candidate) => candidate.id === projectId) ?? null;
+      const project = snapshot.folders.find((candidate) => candidate.id === folderId) ?? null;
       if (project) {
         return { project, snapshot };
       }
@@ -613,20 +608,8 @@ function getProviderStartOptionsCustomBinaryPath(
       return normalizeCustomBinaryPath(providerOptions?.codex?.binaryPath);
     case "claudeAgent":
       return normalizeCustomBinaryPath(providerOptions?.claudeAgent?.binaryPath);
-    case "antigravity":
-      return normalizeCustomBinaryPath(providerOptions?.antigravity?.binaryPath);
-    case "grok":
-      return normalizeCustomBinaryPath(providerOptions?.grok?.binaryPath);
-    case "droid":
-      return normalizeCustomBinaryPath(providerOptions?.droid?.binaryPath);
-    case "kilo":
-      return normalizeCustomBinaryPath(providerOptions?.kilo?.binaryPath);
     case "opencode":
       return normalizeCustomBinaryPath(providerOptions?.opencode?.binaryPath);
-    case "cursor":
-      return normalizeCustomBinaryPath(providerOptions?.cursor?.binaryPath);
-    case "pi":
-      return normalizeCustomBinaryPath(providerOptions?.pi?.binaryPath);
   }
 }
 
@@ -884,9 +867,7 @@ export default function ChatView({
   );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
-  const getDraftThreadByProjectId = useComposerDraftStore(
-    (store) => store.getDraftThreadByProjectId,
-  );
+  const getDraftThreadByFolderId = useComposerDraftStore((store) => store.getDraftThreadByFolderId);
   const getDraftThread = useComposerDraftStore((store) => store.getDraftThread);
   const setProjectDraftThreadId = useComposerDraftStore((store) => store.setProjectDraftThreadId);
   const clearProjectDraftThreadId = useComposerDraftStore(
@@ -901,7 +882,7 @@ export default function ChatView({
   const composerThreadSummaries = useStore(
     useMemo(() => createComposerThreadMentionSourcesSelector(), []),
   );
-  const composerThreadProjects = useStore((state) => state.projects);
+  const composerThreadFolders = useStore((state) => state.folders);
   const crossTaskSourceThreadId =
     serverThread?.creationSource && serverThread.sourceThreadId
       ? serverThread.sourceThreadId
@@ -919,9 +900,9 @@ export default function ChatView({
         : null,
     [crossTaskSourceThread?.modelSelection.provider, crossTaskSourceThreadId],
   );
-  const fallbackDraftProjectId = draftThread?.projectId ?? null;
+  const fallbackDraftFolderId = draftThread?.folderId ?? null;
   const fallbackDraftProject = useStore(
-    useMemo(() => createProjectSelector(fallbackDraftProjectId), [fallbackDraftProjectId]),
+    useMemo(() => createProjectSelector(fallbackDraftFolderId), [fallbackDraftFolderId]),
   );
   const parentScopedDraftThread = useMemo(
     () =>
@@ -1056,7 +1037,7 @@ export default function ChatView({
     },
     [setComposerDraftMentions, threadId],
   );
-  const [lastInvokedScriptByProjectId, setLastInvokedScriptByProjectId] = useLocalStorage(
+  const [lastInvokedScriptByFolderId, setLastInvokedScriptByFolderId] = useLocalStorage(
     LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
     EMPTY_LAST_INVOKED_SCRIPT_BY_PROJECT,
     LastInvokedScriptByProjectSchema,
@@ -1391,7 +1372,7 @@ export default function ChatView({
   const activeLatestTurnId = activeLatestTurn?.turnId ?? null;
   const activeSessionTurnId = activeThread?.session?.activeTurnId ?? null;
   const activeSessionTurnStartedAt =
-    activeLatestTurn && activeSessionTurnId === activeLatestTurn.turnId
+    activeLatestTurn && isSessionActiveLatestTurn(activeLatestTurn, activeThread?.session ?? null)
       ? (activeLatestTurn.startedAt ?? null)
       : null;
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
@@ -1430,9 +1411,9 @@ export default function ChatView({
   // durable turn identity. Do not require `startedAt`: the first-turn request is
   // projected as a running latest turn before the provider start timestamp arrives.
   const latestTurnLive = activeLatestTurn !== null && !latestTurnSettled;
-  const activeProjectId = activeThread?.projectId ?? draftThread?.projectId ?? null;
+  const activeFolderId = activeThread?.folderId ?? draftThread?.folderId ?? null;
   const activeProject = useStore(
-    useMemo(() => createProjectSelector(activeProjectId), [activeProjectId]),
+    useMemo(() => createProjectSelector(activeFolderId), [activeFolderId]),
   );
   const deletePlaceholderTerminalThread = useCallback(
     async (terminalThreadId: ThreadId) => {
@@ -1533,15 +1514,10 @@ export default function ChatView({
   const emptyLandingSpaceName = useStore(
     (state) => state.spaces.find((space) => space.id === emptyLandingSpaceId)?.name?.trim() || null,
   );
-  const isHomeChatContainer = isHomeChatContainerProject(activeProject, {
-    homeDir,
-    chatWorkspaceRoot,
-  });
-  const isContainerLandingProject = isHomeChatContainer;
-  const activeProjectDisplayName = isHomeChatContainer
-    ? activeProject?.folderName
-    : activeProject?.name;
-  const activeFolderName = !isContainerLandingProject ? activeProject?.name.trim() : null;
+  const isHomeChatContainer = false;
+  const isContainerLandingProject = false;
+  const activeProjectDisplayName = activeProject?.name;
+  const activeFolderName = activeProject?.name.trim() || null;
   const emptyLandingParentName = activeFolderName || emptyLandingSpaceName || "this space";
   const isChatProject = isContainerLandingProject;
   const threadLineageThreads = useStore(
@@ -1568,7 +1544,7 @@ export default function ChatView({
     if (!api) return;
     void api.orchestration
       .dispatchCommand({
-        type: "thread.meta.update",
+        type: "thread.update",
         commandId: newCommandId(),
         threadId: activeThread.id,
         lastVisitedAt: visitedAt,
@@ -1659,13 +1635,7 @@ export default function ChatView({
     return {
       codex: resolveHint("codex"),
       claudeAgent: resolveHint("claudeAgent"),
-      cursor: resolveHint("cursor"),
-      antigravity: resolveHint("antigravity"),
-      grok: resolveHint("grok"),
-      droid: resolveHint("droid"),
-      kilo: resolveHint("kilo"),
       opencode: resolveHint("opencode"),
-      pi: resolveHint("pi"),
     };
   }, [
     activeProject?.defaultModelSelection,
@@ -1802,13 +1772,6 @@ export default function ChatView({
   const draftModelSelectionForSelectedProvider =
     composerDraft.modelSelectionByProvider[selectedProvider] ?? null;
   const selectedModelSelection = useMemo<ModelSelection>(() => {
-    if (selectedProvider === "pi" && draftModelSelectionForSelectedProvider?.provider === "pi") {
-      return buildModelSelection(
-        selectedProvider,
-        draftModelSelectionForSelectedProvider.model,
-        selectedModelOptionsForDispatch ?? draftModelSelectionForSelectedProvider.options,
-      );
-    }
     return buildModelSelection(selectedProvider, selectedModel, selectedModelOptionsForDispatch);
   }, [
     draftModelSelectionForSelectedProvider,
@@ -2822,37 +2785,30 @@ export default function ChatView({
       binaryPath:
         (selectedProvider === "opencode"
           ? providerOptionsForDispatch?.opencode?.binaryPath
-          : selectedProvider === "kilo"
-            ? providerOptionsForDispatch?.kilo?.binaryPath
-            : null) ?? null,
+          : null) ?? null,
       serverUrl:
         (selectedProvider === "opencode"
           ? providerOptionsForDispatch?.opencode?.serverUrl
-          : selectedProvider === "kilo"
-            ? providerOptionsForDispatch?.kilo?.serverUrl
-            : null) ?? null,
+          : null) ?? null,
       experimentalWebSockets:
         selectedProvider === "opencode"
           ? providerOptionsForDispatch?.opencode?.experimentalWebSockets
           : undefined,
-      agentDir: selectedProvider === "pi" ? settings.piAgentDir || null : null,
       enabled:
         (composerTriggerKind === "slash-command" || composerTriggerKind === "slash-model") &&
         supportsNativeSlashCommandDiscovery(providerComposerCapabilitiesQuery.data) &&
         composerSkillCwd !== null,
     }),
   );
-  const canDiscoverProviderSkills =
-    selectedProvider === "pi" || supportsSkillDiscovery(providerComposerCapabilitiesQuery.data);
+  const canDiscoverProviderSkills = supportsSkillDiscovery(providerComposerCapabilitiesQuery.data);
   const providerSkillsQuery = useQuery(
     providerSkillsQueryOptions({
       provider: selectedProvider,
       cwd: composerSkillCwd,
       threadId,
       spaceId: selectedSpaceId,
-      agentDir: selectedProvider === "pi" ? settings.piAgentDir || null : null,
       enabled:
-        (isSkillTrigger || composerTriggerKind === "slash-command" || selectedProvider === "pi") &&
+        (isSkillTrigger || composerTriggerKind === "slash-command") &&
         canDiscoverProviderSkills &&
         composerSkillCwd !== null,
     }),
@@ -2978,7 +2934,7 @@ export default function ChatView({
     dynamicAgents,
     threadMentionSources: {
       threads: composerThreadSummaries,
-      projects: composerThreadProjects,
+      folders: composerThreadFolders,
       currentThreadId: threadId,
     },
   });
@@ -3377,7 +3333,7 @@ export default function ChatView({
       const api = readNativeApi();
       if (!api || !activeThreadId || !activeProject || !activeThread) return null;
       if (options?.rememberAsLastInvoked !== false) {
-        setLastInvokedScriptByProjectId((current) => {
+        setLastInvokedScriptByFolderId((current) => {
           if (current[activeProject.id] === script.id) return current;
           return { ...current, [activeProject.id]: script.id };
         });
@@ -3452,7 +3408,7 @@ export default function ChatView({
       storeNewTerminal,
       storeSetActiveTerminal,
       storeSetTerminalMetadata,
-      setLastInvokedScriptByProjectId,
+      setLastInvokedScriptByFolderId,
       terminalState.activeTerminalId,
       terminalState.terminalOpen,
       terminalState.runningTerminalIds,
@@ -3461,7 +3417,7 @@ export default function ChatView({
   );
   const persistProjectScripts = useCallback(
     async (input: {
-      projectId: ContainerId;
+      folderId: FolderId;
       projectCwd: string;
       previousScripts: ProjectScript[];
       nextScripts: ProjectScript[];
@@ -3472,9 +3428,9 @@ export default function ChatView({
       if (!api) return;
 
       await api.orchestration.dispatchCommand({
-        type: "project.meta.update",
+        type: "folder.update",
         commandId: newCommandId(),
-        projectId: input.projectId,
+        folderId: input.folderId,
         scripts: input.nextScripts,
       });
 
@@ -3506,7 +3462,7 @@ export default function ChatView({
       const nextScripts = [...activeProject.scripts, nextScript];
 
       await persistProjectScripts({
-        projectId: activeProject.id,
+        folderId: activeProject.id,
         projectCwd: activeProject.cwd,
         previousScripts: activeProject.scripts,
         nextScripts,
@@ -3535,7 +3491,7 @@ export default function ChatView({
       );
 
       await persistProjectScripts({
-        projectId: activeProject.id,
+        folderId: activeProject.id,
         projectCwd: activeProject.cwd,
         previousScripts: activeProject.scripts,
         nextScripts,
@@ -3555,7 +3511,7 @@ export default function ChatView({
 
       try {
         await persistProjectScripts({
-          projectId: activeProject.id,
+          folderId: activeProject.id,
           projectCwd: activeProject.cwd,
           previousScripts: activeProject.scripts,
           nextScripts,
@@ -4726,12 +4682,6 @@ export default function ChatView({
         }
       }
       setComposerDraftModelSelectionAndSticky(activeThread.id, nextModelSelection);
-      if (provider === "cursor") {
-        setComposerDraftProviderModelOptions(activeThread.id, provider, undefined, {
-          persistSticky: true,
-          model: resolvedModel,
-        });
-      }
       scheduleComposerFocus();
     },
     [
@@ -5587,88 +5537,9 @@ export default function ChatView({
     // Keep the optimistic label short while the server asks Codex for a better summary.
     const title = buildPromptThreadTitleFallback(titleSeed);
     const currentStoreState = useStore.getState();
-    const activeSpaceIdForSend = readActiveSpaceId();
-    const threadSpaceIdForSend = requireNewThreadSpaceId(activeSpaceIdForSend);
-    const firstSendTarget = resolveFirstSendTarget({
-      activeProject,
-      chatWorkspaceRoot,
-      createdAt: firstSendCreatedAt,
-      isFirstMessage,
-      isHomeChatContainer,
-      projects: currentStoreState.projects,
-      selectedWorkspaceRoot: null,
-      title,
-      titleSeed,
-    });
-    let {
-      targetProjectId: targetProjectIdForSend,
-      targetProjectKind: targetProjectKindForSend,
-      targetProjectDefaultModelSelection: targetProjectDefaultModelSelectionForSend,
-    } = firstSendTarget.kind === "create-project"
-      ? {
-          targetProjectId: activeProject.id,
-          targetProjectKind: activeProject.kind,
-          targetProjectDefaultModelSelection: activeProject.defaultModelSelection ?? null,
-        }
-      : firstSendTarget.target;
+    const targetFolderIdForSend = activeProject.id;
+    const targetProjectDefaultModelSelectionForSend = activeProject.defaultModelSelection ?? null;
     let nextRuntimeModeForSend = runtimeModeForSend;
-
-    if (isFirstMessage && isContainerLandingProject && firstSendTarget.kind !== "current") {
-      if (firstSendTarget.kind === "create-project") {
-        const projectId = newProjectId();
-        const createdAt = firstSendCreatedAt.toISOString();
-        const createProjectSpaceFields =
-          firstSendTarget.creation.kind === "project" ? { spaceId: activeSpaceIdForSend } : {};
-        try {
-          await api.orchestration.dispatchCommand({
-            type: "project.create",
-            commandId: newCommandId(),
-            projectId,
-            kind: firstSendTarget.creation.kind,
-            title: firstSendTarget.creation.title,
-            workspaceRoot: firstSendTarget.creation.workspaceRoot,
-            createWorkspaceRootIfMissing: firstSendTarget.creation.createWorkspaceRootIfMissing,
-            defaultModelSelection: firstSendTarget.creation.defaultModelSelection,
-            // Managed chat rows stay global; folder mentions create ordinary projects.
-            ...createProjectSpaceFields,
-            createdAt,
-          });
-          targetProjectIdForSend = projectId;
-          targetProjectKindForSend = firstSendTarget.creation.kind;
-          targetProjectDefaultModelSelectionForSend =
-            firstSendTarget.creation.defaultModelSelection;
-        } catch (error) {
-          const description =
-            error instanceof Error ? error.message : "Failed to create the selected folder.";
-          if (!isDuplicateProjectCreateError(description)) {
-            throw error;
-          }
-
-          // If the server already knows this workspace root, reuse that project and continue.
-          const { snapshot, project: recoveredProject } =
-            await waitForRecoverableProjectForDuplicateCreate({
-              message: description,
-              workspaceRoot: firstSendTarget.creation.workspaceRoot,
-              loadSnapshot: () => api.orchestration.getShellSnapshot().catch(() => null),
-            });
-          if (!snapshot || !recoveredProject || recoveredProject.workspaceRoot === null) {
-            throw error;
-          }
-
-          syncServerShellSnapshot(snapshot);
-          targetProjectIdForSend = recoveredProject.id;
-          targetProjectKindForSend = recoveredProject.kind ?? firstSendTarget.creation.kind;
-          targetProjectDefaultModelSelectionForSend =
-            recoveredProject.defaultModelSelection ??
-            firstSendTarget.creation.defaultModelSelection;
-        }
-      }
-
-      clearProjectDraftThreadId(targetProjectIdForSend);
-      setDraftThreadContext(threadIdForSend, {
-        projectId: targetProjectIdForSend,
-      });
-    }
     const messageIdForSend = newMessageId();
     const isFollowUpToActiveTurn =
       phase === "connecting" || phase === "running" || isSendBusy || hasPendingTurnStart;
@@ -5850,8 +5721,7 @@ export default function ChatView({
             type: "thread.create",
             commandId: newCommandId(),
             threadId: threadIdForSend,
-            projectId: targetProjectIdForSend,
-            spaceId: threadSpaceIdForSend,
+            folderId: targetFolderIdForSend,
             title,
             modelSelection: threadCreateModelSelection,
             runtimeMode: nextRuntimeModeForSend,
@@ -5863,14 +5733,6 @@ export default function ChatView({
         );
         createdServerThreadForLocalDraft = promotionResult === "created";
         throwIfPendingTurnStartCancelled();
-        if (targetProjectKindForSend === "chat") {
-          await api.orchestration.dispatchCommand({
-            type: "project.meta.update",
-            commandId: newCommandId(),
-            projectId: targetProjectIdForSend,
-            title,
-          });
-        }
       }
 
       if (isServerThread) {
@@ -7558,7 +7420,7 @@ export default function ChatView({
       </span>
     ) : null;
   const showEmptyLandingProjectPicker =
-    isCenteredEmptyLanding && isLocalDraftThread && activeProject?.kind === "project";
+    isCenteredEmptyLanding && isLocalDraftThread && activeProject !== undefined;
   const emptyLandingProjectChip =
     !isEmptyChatLanding && !showEmptyLandingProjectPicker && activeProjectDisplayName ? (
       <span className="inline-flex h-[26px] min-w-0 shrink items-center gap-[7px] overflow-hidden rounded-full px-1.5 text-[length:var(--app-font-size-ui,12px)] font-medium text-[var(--color-text-foreground)]">
@@ -7577,7 +7439,7 @@ export default function ChatView({
           <ProjectPicker
             align="start"
             side="top"
-            recentProjectId={activeProject!.id}
+            recentFolderId={activeProject!.id}
             recentSpaceId={isHomeChatContainer ? selectedSpaceId : null}
             selectedWorkspaceRoot={resolvedThreadWorkingDirectory}
             onSelectWorkspaceRoot={handleSelectWorkspaceRoot}
@@ -7588,7 +7450,7 @@ export default function ChatView({
           <ProjectPicker
             align="start"
             side="top"
-            recentProjectId={activeProject.id}
+            recentFolderId={activeProject.id}
             recentSpaceId={null}
             selectedWorkspaceRoot={resolvedThreadWorkingDirectory}
             onSelectWorkspaceRoot={handleSelectWorkspaceRoot}

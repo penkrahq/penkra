@@ -2,7 +2,7 @@
 // Purpose: Resolve the active thread route into either a single chat surface or a persisted split view.
 // Layer: Route container
 
-import { type ContainerId, ThreadId } from "@penkra/contracts";
+import { type FolderId, ThreadId } from "@penkra/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -21,10 +21,10 @@ import { readNativeApi } from "../nativeApi";
 import { isSplitRoute } from "../splitViewRoute";
 import { selectSplitView, useSplitViewStore } from "../splitViewStore";
 import { useStore } from "../store";
-import { createThreadExistsSelector, createThreadProjectIdSelector } from "../storeSelectors";
+import { createThreadExistsSelector, createThreadFolderIdSelector } from "../storeSelectors";
 import { SingleChatSurface } from "../components/chat/SingleChatSurface";
 import { SplitChatSurface } from "../components/chat/SplitChatSurface";
-import { resolveSingleProjectId } from "./-chatThreadRoute.logic";
+import { resolveSingleFolderId } from "./-chatThreadRoute.logic";
 
 function ChatThreadRouteView() {
   const threadsHydrated = useStore((store) => store.threadsHydrated);
@@ -33,9 +33,9 @@ function ChatThreadRouteView() {
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
   const search = Route.useSearch();
-  const threadProjectIdSelector = createThreadProjectIdSelector(threadId);
+  const threadFolderIdSelector = createThreadFolderIdSelector(threadId);
   const threadExistsSelector = createThreadExistsSelector(threadId);
-  const threadProjectId: ContainerId | null = useStore(threadProjectIdSelector);
+  const threadFolderId: FolderId | null = useStore(threadFolderIdSelector);
   const threadExists = useStore(threadExistsSelector);
   const draftThreadState = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
@@ -46,9 +46,9 @@ function ChatThreadRouteView() {
     useMemo(() => selectSplitView(search.splitViewId ?? null), [search.splitViewId]),
   );
   const splitViewsHydrated = useSplitViewStore((store) => store.hasHydrated);
-  const activeProjectId = resolveSingleProjectId({
-    threadProjectId,
-    draftProjectId: draftThreadState?.projectId ?? null,
+  const activeFolderId = resolveSingleFolderId({
+    threadFolderId,
+    draftFolderId: draftThreadState?.folderId ?? null,
   });
   const navigate = useNavigate();
   const [missingThreadRecoveryState, setMissingThreadRecoveryState] =
@@ -181,7 +181,7 @@ function ChatThreadRouteView() {
     return null;
   }
 
-  return <SingleChatSurface threadId={threadId} projectId={activeProjectId} />;
+  return <SingleChatSurface threadId={threadId} folderId={activeFolderId} />;
 }
 
 export const Route = createFileRoute("/_chat/$threadId")({

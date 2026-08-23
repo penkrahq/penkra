@@ -1,14 +1,14 @@
 // FILE: projectDelete.test.ts
 // Purpose: Verifies project deletion reconciles local state only after server acceptance.
 
-import { ContainerId } from "@penkra/contracts";
+import { FolderId } from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { deleteProjectFromClient } from "./projectDelete";
 
 describe("deleteProjectFromClient", () => {
   it("reconciles local state after the delete command succeeds", async () => {
-    const projectId = ContainerId.makeUnsafe("project-delete");
+    const folderId = FolderId.makeUnsafe("project-delete");
     const order: string[] = [];
     const dispatchCommand = vi.fn(async () => {
       order.push("dispatch");
@@ -20,21 +20,21 @@ describe("deleteProjectFromClient", () => {
 
     await deleteProjectFromClient({
       api: { dispatchCommand },
-      projectId,
+      folderId,
       removeDeletedProjectFromClientState,
     });
 
     expect(dispatchCommand).toHaveBeenCalledWith({
-      type: "project.delete",
+      type: "folder.delete",
       commandId: expect.any(String),
-      projectId,
+      folderId,
     });
-    expect(removeDeletedProjectFromClientState).toHaveBeenCalledWith(projectId);
+    expect(removeDeletedProjectFromClientState).toHaveBeenCalledWith(folderId);
     expect(order).toEqual(["dispatch", "remove"]);
   });
 
   it("keeps local state when the delete command fails", async () => {
-    const projectId = ContainerId.makeUnsafe("project-delete-failed");
+    const folderId = FolderId.makeUnsafe("project-delete-failed");
     const dispatchCommand = vi.fn(async () => {
       throw new Error("delete rejected");
     });
@@ -43,7 +43,7 @@ describe("deleteProjectFromClient", () => {
     await expect(
       deleteProjectFromClient({
         api: { dispatchCommand },
-        projectId,
+        folderId,
         removeDeletedProjectFromClientState,
       }),
     ).rejects.toThrow("delete rejected");

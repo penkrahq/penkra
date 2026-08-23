@@ -1,12 +1,12 @@
 // FILE: spaceNavigation.ts
 // Purpose: Where selecting a Space lands, and which threads a Space is allowed to land on.
 // Layer: Spaces domain helper
-// Why: `isOrdinarySpaceProject` states which *projects* Spaces organize; every Space-scoped
+// Why: `isOrdinarySpaceProject` states which *folders* Spaces organize; every Space-scoped
 //      navigation needs the thread-level consequence of that rule. The Space switcher and the
 //      "/" restore landing both make that judgement, and spelling it out separately is exactly
 //      how selecting an empty Space ended up restoring another Space's thread.
 
-import type { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
+import type { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 
 import type { ServerWorkspacePaths } from "~/lib/serverWorkspacePaths";
 import { isOrdinarySpaceProject } from "~/lib/spaces";
@@ -45,7 +45,7 @@ export function isThreadReachableFromSpace(input: {
  */
 export type SpaceSelectionTarget =
   | { readonly kind: "thread"; readonly threadId: ThreadId }
-  | { readonly kind: "project"; readonly projectId: ContainerId }
+  | { readonly kind: "folder"; readonly folderId: FolderId }
   | { readonly kind: "empty"; readonly spaceId: SpaceId | null };
 
 /**
@@ -54,22 +54,22 @@ export type SpaceSelectionTarget =
  */
 export function resolveSpaceSelectionTarget(input: {
   spaceId: SpaceId | null;
-  /** Space-assignable projects only; the containers are filtered out by `isProjectInSpace`. */
-  projects: readonly Project[];
-  projectById: ReadonlyMap<ContainerId, Project>;
+  /** Space-assignable folders only; the containers are filtered out by `isProjectInSpace`. */
+  folders: readonly Project[];
+  projectById: ReadonlyMap<FolderId, Project>;
   threads: readonly SidebarThreadSummary[];
   rememberedThreadId: ThreadId | null;
-  rememberedProjectId: ContainerId | null;
+  rememberedFolderId: FolderId | null;
   paths: ServerWorkspacePaths;
   /** Injected so this stays a domain helper instead of importing sidebar presentation. */
   sortThreads: (threads: readonly SidebarThreadSummary[]) => readonly SidebarThreadSummary[];
 }): SpaceSelectionTarget {
-  const { paths, projectById, projects, rememberedProjectId, rememberedThreadId, spaceId } = input;
+  const { paths, projectById, folders, rememberedFolderId, rememberedThreadId, spaceId } = input;
 
   const availableThreads = input.threads.filter(
     (thread) =>
       thread.archivedAt == null &&
-      isProjectInSpace(projectById.get(thread.projectId), spaceId, paths),
+      isProjectInSpace(projectById.get(thread.folderId), spaceId, paths),
   );
 
   const rememberedThread = rememberedThreadId
@@ -79,14 +79,13 @@ export function resolveSpaceSelectionTarget(input: {
     return { kind: "thread", threadId: rememberedThread.id };
   }
 
-  const rememberedProject = rememberedProjectId
-    ? projects.find(
-        (project) =>
-          project.id === rememberedProjectId && isProjectInSpace(project, spaceId, paths),
+  const rememberedProject = rememberedFolderId
+    ? folders.find(
+        (project) => project.id === rememberedFolderId && isProjectInSpace(project, spaceId, paths),
       )
     : undefined;
   if (rememberedProject) {
-    return { kind: "project", projectId: rememberedProject.id };
+    return { kind: "folder", folderId: rememberedProject.id };
   }
 
   const targetThread = input.sortThreads(availableThreads)[0];

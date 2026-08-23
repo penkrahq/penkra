@@ -1,11 +1,11 @@
 // FILE: projectCreateRecovery.test.ts
-// Purpose: Verifies duplicate `project.create` recovery helpers used by import flows.
+// Purpose: Verifies duplicate `folder.create` recovery helpers used by import flows.
 
-import { ContainerId } from "@penkra/contracts";
+import { FolderId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  extractDuplicateProjectCreateProjectId,
+  extractDuplicateProjectCreateFolderId,
   findRecoverableProject,
   findRecoverableProjectForDuplicateCreate,
   isDuplicateProjectCreateError,
@@ -14,18 +14,18 @@ import {
 } from "./projectCreateRecovery";
 
 describe("projectCreateRecovery", () => {
-  it("detects duplicate project.create invariant failures", () => {
+  it("detects duplicate folder.create invariant failures", () => {
     expect(
       isDuplicateProjectCreateError(
-        "Orchestration command invariant failed (project.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
+        "Orchestration command invariant failed (folder.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
       ),
     ).toBe(true);
   });
 
   it("extracts the existing project id from duplicate invariant failures", () => {
     expect(
-      extractDuplicateProjectCreateProjectId(
-        "Orchestration command invariant failed (project.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
+      extractDuplicateProjectCreateFolderId(
+        "Orchestration command invariant failed (folder.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
       ),
     ).toBe("project-123");
   });
@@ -33,17 +33,17 @@ describe("projectCreateRecovery", () => {
   it("prefers the explicit duplicate project id when recovering from a server snapshot", () => {
     const recovered = findRecoverableProjectForDuplicateCreate({
       message:
-        "Orchestration command invariant failed (project.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
-      projects: [
+        "Orchestration command invariant failed (folder.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
+      folders: [
         {
           id: "project-123",
-          kind: "project",
+          kind: "folder",
           workspaceRoot: "/Users/tester/Code/one",
           deletedAt: null,
         },
         {
           id: "project-456",
-          kind: "project",
+          kind: "folder",
           workspaceRoot: "/Users/tester/Code/two",
           deletedAt: null,
         },
@@ -56,18 +56,18 @@ describe("projectCreateRecovery", () => {
 
   it("finds a recoverable project by exact id before falling back to workspace root", () => {
     const recovered = findRecoverableProject({
-      projectId: "project-123",
+      folderId: "project-123",
       workspaceRoot: "/Users/tester/Code/one",
-      projects: [
+      folders: [
         {
           id: "project-123",
-          kind: "project",
+          kind: "folder",
           workspaceRoot: "/Users/tester/Code/two",
           deletedAt: null,
         },
         {
           id: "project-456",
-          kind: "project",
+          kind: "folder",
           workspaceRoot: "/Users/tester/Code/one",
           deletedAt: null,
         },
@@ -80,11 +80,11 @@ describe("projectCreateRecovery", () => {
   it("falls back to workspace-root matching when the duplicate id is not available locally", () => {
     const recovered = findRecoverableProjectForDuplicateCreate({
       message:
-        "Orchestration command invariant failed (project.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
-      projects: [
+        "Orchestration command invariant failed (folder.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
+      folders: [
         {
           id: "project-456",
-          kind: "project",
+          kind: "folder",
           workspaceRoot: "/Users/tester/Code/one/",
           deletedAt: null,
         },
@@ -98,8 +98,8 @@ describe("projectCreateRecovery", () => {
   it("treats a missing kind like a normal project during recovery", () => {
     const recovered = findRecoverableProjectForDuplicateCreate({
       message:
-        "Orchestration command invariant failed (project.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
-      projects: [
+        "Orchestration command invariant failed (folder.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
+      folders: [
         {
           id: "project-123",
           workspaceRoot: "/Users/tester/Code/one",
@@ -112,14 +112,14 @@ describe("projectCreateRecovery", () => {
     expect(recovered?.id).toBe("project-123");
   });
 
-  it("recovers active shell-snapshot projects that do not carry deletedAt", () => {
+  it("recovers active shell-snapshot folders that do not carry deletedAt", () => {
     const recovered = findRecoverableProjectForDuplicateCreate({
       message:
-        "Orchestration command invariant failed (project.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
-      projects: [
+        "Orchestration command invariant failed (folder.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
+      folders: [
         {
           id: "project-123",
-          kind: "project",
+          kind: "folder",
           workspaceRoot: "/Users/tester/Code/one",
         },
       ],
@@ -129,20 +129,13 @@ describe("projectCreateRecovery", () => {
     expect(recovered?.id).toBe("project-123");
   });
 
-  it("ignores deleted and non-project rows during recovery", () => {
+  it("ignores deleted folders during recovery", () => {
     const recovered = findRecoverableProjectForDuplicateCreate({
       message:
-        "Orchestration command invariant failed (project.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
-      projects: [
+        "Orchestration command invariant failed (folder.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
+      folders: [
         {
           id: "project-123",
-          kind: "chat",
-          workspaceRoot: "/Users/tester/Code/one",
-          deletedAt: null,
-        },
-        {
-          id: "project-789",
-          kind: "project",
           workspaceRoot: "/Users/tester/Code/one",
           deletedAt: "2026-04-18T10:00:00.000Z",
         },
@@ -158,18 +151,18 @@ describe("projectCreateRecovery", () => {
 
     const result = await waitForRecoverableProjectForDuplicateCreate({
       message:
-        "Orchestration command invariant failed (project.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
+        "Orchestration command invariant failed (folder.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
       workspaceRoot: "/Users/tester/Code/one",
       loadSnapshot: async () => {
         attempts += 1;
         if (attempts < 3) {
           return {
-            projects: [],
+            folders: [],
           };
         }
 
         return {
-          projects: [
+          folders: [
             {
               id: "project-123",
               workspaceRoot: "/Users/tester/Code/one",
@@ -184,20 +177,20 @@ describe("projectCreateRecovery", () => {
 
     expect(attempts).toBe(3);
     expect(result.project?.id).toBe("project-123");
-    expect(result.snapshot?.projects).toHaveLength(1);
+    expect(result.snapshot?.folders).toHaveLength(1);
   });
 
   it("repairs the snapshot after polling when a directly created project is still missing", async () => {
     let repairCalls = 0;
 
     const result = await waitForRecoverableProjectInReadModel({
-      projectId: "project-123",
+      folderId: "project-123",
       workspaceRoot: "/Users/tester/Code/one",
       loadSnapshot: async () => ({
         snapshotSequence: 1,
         spaces: [],
         updatedAt: "2026-04-21T00:00:00.000Z",
-        projects: [],
+        folders: [],
         threads: [],
       }),
       repairSnapshot: async () => {
@@ -206,10 +199,10 @@ describe("projectCreateRecovery", () => {
           snapshotSequence: 2,
           spaces: [],
           updatedAt: "2026-04-21T00:00:01.000Z",
-          projects: [
+          folders: [
             {
-              id: ContainerId.makeUnsafe("project-123"),
-              kind: "project",
+              id: FolderId.makeUnsafe("project-123"),
+              kind: "folder",
               title: "One",
               workspaceRoot: "/Users/tester/Code/one",
               defaultModelSelection: null,
@@ -228,7 +221,7 @@ describe("projectCreateRecovery", () => {
 
     expect(repairCalls).toBe(1);
     expect(result.project?.id).toBe("project-123");
-    expect(result.snapshot?.projects).toHaveLength(1);
+    expect(result.snapshot?.folders).toHaveLength(1);
   });
 
   it("repairs duplicate-create recovery when the fresh snapshot still has no project rows", async () => {
@@ -236,15 +229,15 @@ describe("projectCreateRecovery", () => {
 
     const result = await waitForRecoverableProjectForDuplicateCreate({
       message:
-        "Orchestration command invariant failed (project.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
+        "Orchestration command invariant failed (folder.create): Project 'project-123' already uses workspace root '/Users/tester/Code/one'.",
       workspaceRoot: "/Users/tester/Code/one",
       loadSnapshot: async () => ({
-        projects: [],
+        folders: [],
       }),
       repairSnapshot: async () => {
         repairCalls += 1;
         return {
-          projects: [
+          folders: [
             {
               id: "project-123",
               workspaceRoot: "/Users/tester/Code/one",
@@ -259,6 +252,6 @@ describe("projectCreateRecovery", () => {
 
     expect(repairCalls).toBe(1);
     expect(result.project?.id).toBe("project-123");
-    expect(result.snapshot?.projects).toHaveLength(1);
+    expect(result.snapshot?.folders).toHaveLength(1);
   });
 });

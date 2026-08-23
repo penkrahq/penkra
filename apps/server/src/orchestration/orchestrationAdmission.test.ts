@@ -26,10 +26,10 @@ describe("orchestration command admission", () => {
           commandType: Parameters<typeof tryAdmitOrchestrationCommand<string>>[0]["commandType"],
         ) => tryAdmitOrchestrationCommand({ queues, envelope, commandType, policy });
 
-        expect(admit("normal-1", "project.create")).toEqual({ accepted: true });
-        expect(admit("normal-2", "project.create")).toEqual({ accepted: true });
-        expect(admit("normal-3", "project.create")).toEqual({ accepted: true });
-        expect(admit("normal-overload", "project.create")).toEqual({
+        expect(admit("normal-1", "folder.create")).toEqual({ accepted: true });
+        expect(admit("normal-2", "folder.create")).toEqual({ accepted: true });
+        expect(admit("normal-3", "folder.create")).toEqual({ accepted: true });
+        expect(admit("normal-overload", "folder.create")).toEqual({
           accepted: false,
           reason: "overloaded",
         });
@@ -94,8 +94,8 @@ describe("orchestration command admission", () => {
           commandType: Parameters<typeof tryAdmitOrchestrationCommand<string>>[0]["commandType"],
         ) => tryAdmitOrchestrationCommand({ queues, envelope, commandType, policy });
 
-        expect(admit("normal-1", "project.create")).toEqual({ accepted: true });
-        expect(admit("normal-2", "thread.meta.update")).toEqual({ accepted: true });
+        expect(admit("normal-1", "folder.create")).toEqual({ accepted: true });
+        expect(admit("normal-2", "thread.update")).toEqual({ accepted: true });
         expect(admit("start-1", "thread.turn.start")).toEqual({ accepted: true });
         expect(admit("stop", "thread.turn.interrupt")).toEqual({ accepted: true });
 

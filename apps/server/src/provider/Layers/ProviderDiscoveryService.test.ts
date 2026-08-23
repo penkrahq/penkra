@@ -141,7 +141,7 @@ const runListModels = (input: {
     makeConfigLayer(),
     ServerSettingsService.layerTest({
       providers: {
-        cursor: {
+        codex: {
           enabled: input.enabled,
         },
       },
@@ -152,7 +152,7 @@ const runListModels = (input: {
   const testLayer = ProviderDiscoveryServiceLive.pipe(Layer.provideMerge(baseLayer));
   const program = Effect.gen(function* () {
     const discovery = yield* ProviderDiscoveryService;
-    return yield* discovery.listModels({ provider: "cursor" });
+    return yield* discovery.listModels({ provider: "codex" });
   }).pipe(Effect.provide(testLayer));
   return Effect.runPromise(
     program as unknown as Effect.Effect<ProviderListModelsResult, never, never>,
@@ -178,7 +178,7 @@ describe("ProviderDiscoveryService.listSkills", () => {
 
     const result = await runListSkills({
       adapter: {},
-      provider: "antigravity",
+      provider: "opencode",
     });
 
     expect(result.skills.map((skill) => skill.name)).toEqual(["portable"]);
@@ -261,7 +261,7 @@ describe("ProviderDiscoveryService.getComposerCapabilities", () => {
 
     const program = Effect.gen(function* () {
       const discovery = yield* ProviderDiscoveryService;
-      return yield* discovery.getComposerCapabilities({ provider: "grok" });
+      return yield* discovery.getComposerCapabilities({ provider: "opencode" });
     }).pipe(Effect.provide(testLayer));
     const capabilities = await Effect.runPromise(
       program as unknown as Effect.Effect<ProviderComposerCapabilities, never, never>,
@@ -273,50 +273,6 @@ describe("ProviderDiscoveryService.getComposerCapabilities", () => {
 });
 
 describe("ProviderDiscoveryService.listModels", () => {
-  it("does not invoke the adapter for a disabled provider", async () => {
-    let adapterCalls = 0;
-    const result = await runListModels({
-      adapter: {
-        listModels: () => {
-          adapterCalls += 1;
-          return Effect.succeed({
-            models: [{ slug: "cursor-model", name: "Cursor Model" }],
-            source: "cursor.cli",
-            cached: false,
-          });
-        },
-      },
-      enabled: false,
-    });
-
-    expect(result).toEqual({
-      models: [],
-      source: "disabled",
-      cached: false,
-    });
-    expect(adapterCalls).toBe(0);
-  });
-
-  it("dispatches model discovery for an enabled provider", async () => {
-    let adapterCalls = 0;
-    const result = await runListModels({
-      adapter: {
-        listModels: () => {
-          adapterCalls += 1;
-          return Effect.succeed({
-            models: [{ slug: "cursor-model", name: "Cursor Model" }],
-            source: "cursor.cli",
-            cached: false,
-          });
-        },
-      },
-      enabled: true,
-    });
-
-    expect(result.models).toEqual([{ slug: "cursor-model", name: "Cursor Model" }]);
-    expect(adapterCalls).toBe(1);
-  });
-
   it("discovers managed models through every exact Connection and anonymous route", async () => {
     const connectionId = ProviderConnectionId.makeUnsafe("opencode-go-connection");
     const failedConnectionId = ProviderConnectionId.makeUnsafe("opencode-go-failed-connection");

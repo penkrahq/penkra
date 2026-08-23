@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { generateAppHelp } from "./help";
+import { assembleInstructions, generateAppHelp } from "./help";
 
 const manifest = {
   manifestVersion: 2,
@@ -31,6 +31,17 @@ const manifest = {
 } as const;
 
 describe("generated App help", () => {
+  it("renders declarations and a live App catalog without hand-authored operation lists", () => {
+    const help = assembleInstructions({
+      document: "# Penkra\n\nRead the live catalog.",
+      operations: [{ command: "penkra threads list", summary: "List Threads." }],
+      catalog: [{ slug: "linear", summary: "Manage issues.", operations: ["issues.list"] }],
+    });
+    expect(help).toContain("### linear\n\nManage issues.");
+    expect(help).toContain("Operations: `issues.list`");
+    expect(help).toContain("`penkra threads list` — List Threads.");
+  });
+
   it("combines package instructions with direct App-root commands", () => {
     const help = generateAppHelp({
       manifest,

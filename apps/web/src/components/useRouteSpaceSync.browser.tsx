@@ -1,4 +1,4 @@
-import { ContainerId, SpaceId } from "@penkra/contracts";
+import { FolderId, SpaceId } from "@penkra/contracts";
 import { page } from "vitest/browser";
 import { beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
@@ -6,14 +6,14 @@ import { render } from "vitest-browser-react";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useRouteSpaceSync } from "./useRouteSpaceSync";
 
-const routeProjectId = ContainerId.makeUnsafe("project-void");
+const routeFolderId = FolderId.makeUnsafe("project-void");
 const selectedSpaceId = SpaceId.makeUnsafe("space-work");
 
 function RouteSpaceSyncFixture() {
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const setActiveSpaceId = useSpacesUiStore((state) => state.setActiveSpaceId);
   useRouteSpaceSync({
-    routeProjectId,
+    routeFolderId,
     routeSpaceId: null,
     routeThreadId: null,
   });
@@ -31,7 +31,7 @@ describe("route Space synchronization", () => {
     useSpacesUiStore.setState({
       activeSpaceId: null,
       lastThreadIdBySpace: {},
-      lastProjectIdBySpace: {},
+      lastFolderIdBySpace: {},
     });
   });
 

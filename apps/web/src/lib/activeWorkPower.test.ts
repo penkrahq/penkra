@@ -1,4 +1,4 @@
-import { ContainerId, ThreadId, TurnId } from "@penkra/contracts";
+import { FolderId, ThreadId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { AppState } from "../storeState";
@@ -10,7 +10,7 @@ function stateWithThread(
 ): Pick<AppState, "threadIds" | "sidebarThreadSummaryById"> {
   const thread = {
     id: ThreadId.makeUnsafe("thread-1"),
-    projectId: ContainerId.makeUnsafe("project-1"),
+    folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: { provider: "codex", model: "gpt-5" },
     session: null,

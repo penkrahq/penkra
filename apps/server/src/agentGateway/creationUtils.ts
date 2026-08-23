@@ -38,6 +38,5 @@ export function makeAgentCreationIds(operationId: string, index: number) {
     threadCreateCommandId: CommandId.makeUnsafe(`agent:${id}:thread-create`),
     turnStartCommandId: CommandId.makeUnsafe(`agent:${id}:turn-start`),
     messageId: MessageId.makeUnsafe(`agent:${id}:message`),
-    compensateCommandId: CommandId.makeUnsafe(`agent:${id}:compensate-delete`),
   };
 }

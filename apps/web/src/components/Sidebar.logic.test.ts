@@ -6,27 +6,27 @@ import {
   canArchiveSidebarFolder,
   canArchiveSidebarThreads,
   createSidebarThreadHoverAnchorId,
-  derivePinnedProjectIdsForSidebar,
+  derivePinnedFolderIdsForSidebar,
   derivePinnedThreadIdsForSidebar,
   deriveSidebarProjectData,
   findDeepestWorkspaceRootMatch,
   getFallbackThreadIdAfterDelete,
   getVisibleSidebarEntriesForPreview,
-  orderPinnedProjectsForSidebar,
+  orderPinnedFoldersForSidebar,
   orderSidebarSpaceItems,
   getNextVisibleSidebarThreadId,
   getSidebarThreadIdForJumpCommand,
   getSidebarThreadIdsToPrewarm,
   getRenderedThreadsForSidebarProject,
-  groupSidebarThreadsByProjectId,
+  groupSidebarThreadsByFolderId,
   isLatestPinnedProjectMutation,
-  isProjectsSidebarSurface,
+  isFoldersSidebarSurface,
   getVisibleSidebarThreadIds,
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
   isLatestPinnedThreadMutation,
   isLoopbackHostname,
-  pruneProjectThreadListPagingForCollapsedProjects,
+  pruneProjectThreadListPagingForCollapsedFolders,
   resolveSidebarThreadListPaging,
   resolveProjectEmptyState,
   resolveProjectHeaderState,
@@ -39,11 +39,11 @@ import {
   shouldShowDebugFeatureFlagsMenu,
   shouldPrunePinnedThreads,
   shouldClearThreadSelectionOnMouseDown,
-  sortProjectsForSidebar,
+  sortFoldersForSidebar,
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
 import { hasUnseenThreadCompletion } from "../threadCompletion";
-import { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import {
   DEFAULT_RUNTIME_MODE,
   type Project,
@@ -65,8 +65,8 @@ describe("resolveProjectHeaderState", () => {
   it("highlights the folder only while its focused chat is still a local draft", () => {
     expect(
       resolveProjectHeaderState({
-        projectId: "project-a",
-        activeDraftProjectId: "project-a",
+        folderId: "project-a",
+        activeDraftFolderId: "project-a",
         activeDraftPromotedTo: undefined,
       }),
     ).toBe("active");
@@ -75,8 +75,8 @@ describe("resolveProjectHeaderState", () => {
   it("clears the folder highlight as soon as the draft becomes a durable thread", () => {
     expect(
       resolveProjectHeaderState({
-        projectId: "project-a",
-        activeDraftProjectId: "project-a",
+        folderId: "project-a",
+        activeDraftFolderId: "project-a",
         activeDraftPromotedTo: "thread-a",
       }),
     ).toBe("default");
@@ -85,8 +85,8 @@ describe("resolveProjectHeaderState", () => {
   it("does not highlight an unrelated folder", () => {
     expect(
       resolveProjectHeaderState({
-        projectId: "project-b",
-        activeDraftProjectId: "project-a",
+        folderId: "project-b",
+        activeDraftFolderId: "project-a",
         activeDraftPromotedTo: undefined,
       }),
     ).toBe("default");
@@ -107,15 +107,15 @@ function makeLatestTurn(overrides?: {
   };
 }
 
-describe("isProjectsSidebarSurface", () => {
+describe("isFoldersSidebarSurface", () => {
   it("enables Space shortcuts only where the Space switcher is visible", () => {
     expect(
-      isProjectsSidebarSurface({
+      isFoldersSidebarSurface({
         isOnSettings: false,
         isOnWorkspace: false,
       }),
     ).toBe(true);
-    expect(isProjectsSidebarSurface({ isOnSettings: true, isOnWorkspace: false })).toBe(false);
+    expect(isFoldersSidebarSurface({ isOnSettings: true, isOnWorkspace: false })).toBe(false);
   });
 });
 
@@ -282,16 +282,16 @@ describe("resolveSettingsBackTarget", () => {
   });
 });
 
-describe("pruneProjectThreadListPagingForCollapsedProjects", () => {
+describe("pruneProjectThreadListPagingForCollapsedFolders", () => {
   it("clears remembered show-more paging when a project is collapsed", () => {
     const current = new Map([
       ["/Users/tester/Code/one", 2],
       ["/Users/tester/Code/two", 1],
     ]);
 
-    const next = pruneProjectThreadListPagingForCollapsedProjects({
+    const next = pruneProjectThreadListPagingForCollapsedFolders({
       threadListExtraPagesByProjectCwd: current,
-      projects: [
+      folders: [
         { cwd: "/Users/tester/Code/one", expanded: false },
         { cwd: "/Users/tester/Code/two", expanded: true },
       ],
@@ -304,9 +304,9 @@ describe("pruneProjectThreadListPagingForCollapsedProjects", () => {
   it("preserves the existing map when no collapsed project needs pruning", () => {
     const current = new Map([["/Users/tester/Code/one", 1]]);
 
-    const next = pruneProjectThreadListPagingForCollapsedProjects({
+    const next = pruneProjectThreadListPagingForCollapsedFolders({
       threadListExtraPagesByProjectCwd: current,
-      projects: [{ cwd: "/Users/tester/Code/one", expanded: true }],
+      folders: [{ cwd: "/Users/tester/Code/one", expanded: true }],
       normalizeProjectCwd: (cwd) => cwd.replace(/\/+$/, ""),
     });
 
@@ -316,9 +316,9 @@ describe("pruneProjectThreadListPagingForCollapsedProjects", () => {
   it("resets a pathless folder through its stable project paging key", () => {
     const current = new Map([["project:pathless", 1]]);
 
-    const next = pruneProjectThreadListPagingForCollapsedProjects({
+    const next = pruneProjectThreadListPagingForCollapsedFolders({
       threadListExtraPagesByProjectCwd: current,
-      projects: [{ id: "pathless", cwd: "", expanded: false }],
+      folders: [{ id: "pathless", cwd: "", expanded: false }],
       normalizeProjectCwd: (cwd) => cwd,
       getProjectPagingKey: (project) => `project:${project.id}`,
     });
@@ -412,7 +412,7 @@ describe("resolveSidebarThreadListPaging", () => {
 
 describe("workspace attribution", () => {
   it("attributes a nested server cwd to the deepest matching project", () => {
-    const projects = [
+    const folders = [
       { id: "repo", cwd: "/Users/tester/Code/repo" },
       { id: "web", cwd: "/Users/tester/Code/repo/apps/web" },
       { id: "other", cwd: "/Users/tester/Code/other" },
@@ -420,21 +420,21 @@ describe("workspace attribution", () => {
 
     expect(
       findDeepestWorkspaceRootMatch(
-        projects,
+        folders,
         "/Users/tester/Code/repo/apps/web/src",
         (project) => project.cwd,
       )?.id,
     ).toBe("web");
     expect(
       findDeepestWorkspaceRootMatch(
-        projects,
+        folders,
         "/Users/tester/Code/repo/apps/server",
         (project) => project.cwd,
       )?.id,
     ).toBe("repo");
     expect(
       findDeepestWorkspaceRootMatch(
-        projects,
+        folders,
         "/Users/tester/Code/unrelated",
         (project) => project.cwd,
       ),
@@ -445,8 +445,7 @@ describe("workspace attribution", () => {
 describe("pin helpers", () => {
   const makeProject = (id: string): Project =>
     ({
-      id: id as ContainerId,
-      kind: "project",
+      id: id as FolderId,
       name: id,
       remoteName: id,
       folderName: id,
@@ -454,7 +453,7 @@ describe("pin helpers", () => {
       cwd: `/tmp/${id}`,
       defaultModelSelection: null,
       expanded: true,
-      spaceId: null,
+      spaceId: SpaceId.makeUnsafe("space-test"),
       createdAt: "2026-03-09T10:00:00.000Z",
       updatedAt: "2026-03-09T10:00:00.000Z",
       scripts: [],
@@ -464,7 +463,7 @@ describe("pin helpers", () => {
     ({
       id: id as ThreadId,
       codexThreadId: null,
-      projectId: "project-1" as ContainerId,
+      folderId: "project-1" as FolderId,
       title: id,
       modelSelection: {
         provider: "codex",
@@ -508,8 +507,8 @@ describe("pin helpers", () => {
     ).toEqual(["thread-1"]);
   });
 
-  it("derives at most three pinned projects and keeps persisted order first", () => {
-    const projects = [
+  it("derives at most three pinned folders and keeps persisted order first", () => {
+    const folders = [
       { ...makeProject("project-1"), isPinned: true },
       { ...makeProject("project-2"), isPinned: true },
       { ...makeProject("project-3"), isPinned: true },
@@ -517,30 +516,27 @@ describe("pin helpers", () => {
     ];
 
     expect(
-      derivePinnedProjectIdsForSidebar({
-        projects,
-        persistedPinnedProjectIds: ["project-3" as ContainerId, "project-1" as ContainerId],
-        optimisticPinnedStateByProjectId: new Map([["project-1" as ContainerId, false]]),
+      derivePinnedFolderIdsForSidebar({
+        folders,
+        persistedPinnedFolderIds: ["project-3" as FolderId, "project-1" as FolderId],
+        optimisticPinnedStateByFolderId: new Map([["project-1" as FolderId, false]]),
       }),
     ).toEqual(["project-3", "project-2", "project-4"]);
   });
 
-  it("moves pinned projects to the top while preserving unpinned order", () => {
-    const projects = [makeProject("project-1"), makeProject("project-2"), makeProject("project-3")];
+  it("moves pinned folders to the top while preserving unpinned order", () => {
+    const folders = [makeProject("project-1"), makeProject("project-2"), makeProject("project-3")];
 
     expect(
-      orderPinnedProjectsForSidebar(projects, [
-        "project-3" as ContainerId,
-        "project-1" as ContainerId,
-      ]),
-    ).toEqual([projects[2], projects[0], projects[1]]);
+      orderPinnedFoldersForSidebar(folders, ["project-3" as FolderId, "project-1" as FolderId]),
+    ).toEqual([folders[2], folders[0], folders[1]]);
   });
 
   it("rejects stale pin mutation versions so old failures cannot roll back newer clicks", () => {
     const threadId = "thread-1" as ThreadId;
     const latestMutationVersionByThreadId = new Map<ThreadId, number>([[threadId, 2]]);
-    const projectId = "project-1" as ContainerId;
-    const latestMutationVersionByProjectId = new Map<ContainerId, number>([[projectId, 2]]);
+    const folderId = "project-1" as FolderId;
+    const latestMutationVersionByFolderId = new Map<FolderId, number>([[folderId, 2]]);
 
     expect(
       isLatestPinnedThreadMutation({
@@ -558,16 +554,16 @@ describe("pin helpers", () => {
     ).toBe(true);
     expect(
       isLatestPinnedProjectMutation({
-        projectId,
+        folderId,
         requestVersion: 1,
-        latestMutationVersionByProjectId,
+        latestMutationVersionByFolderId,
       }),
     ).toBe(false);
     expect(
       isLatestPinnedProjectMutation({
-        projectId,
+        folderId,
         requestVersion: 2,
-        latestMutationVersionByProjectId,
+        latestMutationVersionByFolderId,
       }),
     ).toBe(true);
   });
@@ -580,21 +576,21 @@ describe("pin helpers", () => {
   it("shows loading before the first project snapshot can prove the list is empty", () => {
     expect(
       resolveProjectEmptyState({
-        projectCount: 0,
+        folderCount: 0,
         shouldShowProjectPathEntry: false,
         threadsHydrated: false,
       }),
     ).toBe("loading");
     expect(
       resolveProjectEmptyState({
-        projectCount: 0,
+        folderCount: 0,
         shouldShowProjectPathEntry: false,
         threadsHydrated: true,
       }),
     ).toBe("empty");
     expect(
       resolveProjectEmptyState({
-        projectCount: 1,
+        folderCount: 1,
         shouldShowProjectPathEntry: false,
         threadsHydrated: false,
       }),
@@ -1180,44 +1176,44 @@ describe("getVisibleSidebarEntriesForPreview", () => {
 
 describe("getVisibleSidebarThreadIds", () => {
   it("flattens only the sidebar-visible threads in render order", () => {
-    const projects = [
-      makeProject({ id: ContainerId.makeUnsafe("project-1"), expanded: true }),
-      makeProject({ id: ContainerId.makeUnsafe("project-2"), expanded: false }),
+    const folders = [
+      makeProject({ id: FolderId.makeUnsafe("project-1"), expanded: true }),
+      makeProject({ id: FolderId.makeUnsafe("project-2"), expanded: false }),
     ];
     const threads = [
       makeThread({
         id: ThreadId.makeUnsafe("thread-1"),
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         createdAt: "2026-03-09T10:01:00.000Z",
       }),
       makeThread({
         id: ThreadId.makeUnsafe("thread-2"),
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         parentThreadId: ThreadId.makeUnsafe("thread-1"),
         createdAt: "2026-03-09T10:02:00.000Z",
       }),
       makeThread({
         id: ThreadId.makeUnsafe("thread-3"),
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         createdAt: "2026-03-09T10:03:00.000Z",
       }),
       makeThread({
         id: ThreadId.makeUnsafe("thread-4"),
-        projectId: ContainerId.makeUnsafe("project-2"),
+        folderId: FolderId.makeUnsafe("project-2"),
         createdAt: "2026-03-09T10:04:00.000Z",
       }),
       makeThread({
         id: ThreadId.makeUnsafe("thread-5"),
-        projectId: ContainerId.makeUnsafe("project-2"),
+        folderId: FolderId.makeUnsafe("project-2"),
         createdAt: "2026-03-09T10:05:00.000Z",
       }),
     ];
 
     const visibleThreadIds = getVisibleSidebarThreadIds({
-      projects,
+      folders,
       threads,
       activeThreadId: ThreadId.makeUnsafe("thread-4"),
-      threadListExtraPagesByProjectId: new Map<ContainerId, number>(),
+      threadListExtraPagesByFolderId: new Map<FolderId, number>(),
       previewLimit: 2,
       previewPageSize: 2,
       threadSortOrder: "created_at",
@@ -1232,29 +1228,29 @@ describe("getVisibleSidebarThreadIds", () => {
 
   it("groups interleaved thread input by project before flattening", () => {
     const visibleThreadIds = getVisibleSidebarThreadIds({
-      projects: [
-        makeProject({ id: ContainerId.makeUnsafe("project-1"), expanded: true }),
-        makeProject({ id: ContainerId.makeUnsafe("project-2"), expanded: true }),
+      folders: [
+        makeProject({ id: FolderId.makeUnsafe("project-1"), expanded: true }),
+        makeProject({ id: FolderId.makeUnsafe("project-2"), expanded: true }),
       ],
       threads: [
         makeThread({
           id: ThreadId.makeUnsafe("thread-project-2"),
-          projectId: ContainerId.makeUnsafe("project-2"),
+          folderId: FolderId.makeUnsafe("project-2"),
           createdAt: "2026-03-09T10:03:00.000Z",
         }),
         makeThread({
           id: ThreadId.makeUnsafe("thread-project-1-newer"),
-          projectId: ContainerId.makeUnsafe("project-1"),
+          folderId: FolderId.makeUnsafe("project-1"),
           createdAt: "2026-03-09T10:02:00.000Z",
         }),
         makeThread({
           id: ThreadId.makeUnsafe("thread-project-1-older"),
-          projectId: ContainerId.makeUnsafe("project-1"),
+          folderId: FolderId.makeUnsafe("project-1"),
           createdAt: "2026-03-09T10:01:00.000Z",
         }),
       ],
       activeThreadId: undefined,
-      threadListExtraPagesByProjectId: new Map<ContainerId, number>(),
+      threadListExtraPagesByFolderId: new Map<FolderId, number>(),
       previewLimit: 10,
       previewPageSize: 5,
       threadSortOrder: "created_at",
@@ -1269,27 +1265,27 @@ describe("getVisibleSidebarThreadIds", () => {
 
   it("reveals an active subagent without persistent expansion state", () => {
     const visibleThreadIds = getVisibleSidebarThreadIds({
-      projects: [makeProject({ id: ContainerId.makeUnsafe("project-1"), expanded: true })],
+      folders: [makeProject({ id: FolderId.makeUnsafe("project-1"), expanded: true })],
       threads: [
         makeThread({
           id: ThreadId.makeUnsafe("thread-parent"),
-          projectId: ContainerId.makeUnsafe("project-1"),
+          folderId: FolderId.makeUnsafe("project-1"),
           createdAt: "2026-03-09T10:03:00.000Z",
         }),
         makeThread({
           id: ThreadId.makeUnsafe("thread-child"),
-          projectId: ContainerId.makeUnsafe("project-1"),
+          folderId: FolderId.makeUnsafe("project-1"),
           parentThreadId: ThreadId.makeUnsafe("thread-parent"),
           createdAt: "2026-03-09T10:02:00.000Z",
         }),
         makeThread({
           id: ThreadId.makeUnsafe("thread-other"),
-          projectId: ContainerId.makeUnsafe("project-1"),
+          folderId: FolderId.makeUnsafe("project-1"),
           createdAt: "2026-03-09T10:01:00.000Z",
         }),
       ],
       activeThreadId: ThreadId.makeUnsafe("thread-child"),
-      threadListExtraPagesByProjectId: new Map<ContainerId, number>(),
+      threadListExtraPagesByFolderId: new Map<FolderId, number>(),
       previewLimit: 6,
       previewPageSize: 5,
       threadSortOrder: "created_at",
@@ -1408,11 +1404,10 @@ describe("createSidebarThreadHoverAnchorId", () => {
 function makeProject(overrides: Partial<Project> = {}): Project {
   const { defaultModelSelection, ...rest } = overrides;
   return {
-    id: ContainerId.makeUnsafe("project-1"),
-    kind: "project",
+    id: FolderId.makeUnsafe("project-1"),
     name: "Project",
     remoteName: "Project",
-    folderName: "project",
+    folderName: "folder",
     localName: null,
     cwd: "/tmp/project",
     defaultModelSelection: {
@@ -1421,7 +1416,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
       ...defaultModelSelection,
     },
     expanded: true,
-    spaceId: null,
+    spaceId: SpaceId.makeUnsafe("space-test"),
     createdAt: "2026-03-09T10:00:00.000Z",
     updatedAt: "2026-03-09T10:00:00.000Z",
     scripts: [],
@@ -1433,7 +1428,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
     id: ThreadId.makeUnsafe("thread-1"),
     codexThreadId: null,
-    projectId: ContainerId.makeUnsafe("project-1"),
+    folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
       provider: "codex",
@@ -1457,7 +1452,7 @@ function makeSidebarThreadSummary(
 ): SidebarThreadSummary {
   return {
     id: ThreadId.makeUnsafe("thread-1"),
-    projectId: ContainerId.makeUnsafe("project-1"),
+    folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
       provider: "codex",
@@ -1489,11 +1484,8 @@ describe("deriveSidebarProjectData", () => {
     });
 
     const data = deriveSidebarProjectData({
-      projects: [project],
-      sortedSidebarThreadsByProjectId: groupSidebarThreadsByProjectId([
-        pinnedThread,
-        unpinnedThread,
-      ]),
+      folders: [project],
+      sortedSidebarThreadsByFolderId: groupSidebarThreadsByFolderId([pinnedThread, unpinnedThread]),
       pinnedThreadIds: [pinnedThread.id],
       threadListExtraPagesByProjectCwd: new Map(),
       normalizeProjectCwd: (cwd) => cwd,
@@ -1532,8 +1524,8 @@ describe("deriveSidebarProjectData", () => {
     });
 
     const data = deriveSidebarProjectData({
-      projects: [project],
-      sortedSidebarThreadsByProjectId: groupSidebarThreadsByProjectId([
+      folders: [project],
+      sortedSidebarThreadsByFolderId: groupSidebarThreadsByFolderId([
         sourceThread,
         droppedThread,
         standaloneThread,
@@ -1573,8 +1565,8 @@ describe("deriveSidebarProjectData", () => {
     });
 
     const data = deriveSidebarProjectData({
-      projects: [project],
-      sortedSidebarThreadsByProjectId: groupSidebarThreadsByProjectId([
+      folders: [project],
+      sortedSidebarThreadsByFolderId: groupSidebarThreadsByFolderId([
         threadOne,
         threadTwo,
         threadThree,
@@ -1607,8 +1599,8 @@ describe("deriveSidebarProjectData", () => {
     });
 
     const data = deriveSidebarProjectData({
-      projects: [project],
-      sortedSidebarThreadsByProjectId: groupSidebarThreadsByProjectId([threadOne]),
+      folders: [project],
+      sortedSidebarThreadsByFolderId: groupSidebarThreadsByFolderId([threadOne]),
       pinnedThreadIds: [],
       threadListExtraPagesByProjectCwd: new Map(),
       normalizeProjectCwd: (cwd) => cwd,
@@ -1633,8 +1625,8 @@ describe("deriveSidebarProjectData", () => {
     );
     const derive = (requestedExtraPages: number) =>
       deriveSidebarProjectData({
-        projects: [project],
-        sortedSidebarThreadsByProjectId: groupSidebarThreadsByProjectId(threads),
+        folders: [project],
+        sortedSidebarThreadsByFolderId: groupSidebarThreadsByFolderId(threads),
         pinnedThreadIds: [],
         threadListExtraPagesByProjectCwd: new Map([[project.cwd, requestedExtraPages]]),
         normalizeProjectCwd: (cwd) => cwd,
@@ -1677,8 +1669,8 @@ describe("deriveSidebarProjectData", () => {
     );
 
     const data = deriveSidebarProjectData({
-      projects: [project],
-      sortedSidebarThreadsByProjectId: groupSidebarThreadsByProjectId(threads),
+      folders: [project],
+      sortedSidebarThreadsByFolderId: groupSidebarThreadsByFolderId(threads),
       pinnedThreadIds: [],
       threadListExtraPagesByProjectCwd: new Map([[pagingKey, 1]]),
       normalizeProjectCwd: (cwd) => cwd,
@@ -2170,25 +2162,25 @@ describe("getFallbackThreadIdAfterDelete", () => {
       threads: [
         makeThread({
           id: ThreadId.makeUnsafe("thread-oldest"),
-          projectId: ContainerId.makeUnsafe("project-1"),
+          folderId: FolderId.makeUnsafe("project-1"),
           createdAt: "2026-03-09T10:00:00.000Z",
           messages: [],
         }),
         makeThread({
           id: ThreadId.makeUnsafe("thread-active"),
-          projectId: ContainerId.makeUnsafe("project-1"),
+          folderId: FolderId.makeUnsafe("project-1"),
           createdAt: "2026-03-09T10:05:00.000Z",
           messages: [],
         }),
         makeThread({
           id: ThreadId.makeUnsafe("thread-newest"),
-          projectId: ContainerId.makeUnsafe("project-1"),
+          folderId: FolderId.makeUnsafe("project-1"),
           createdAt: "2026-03-09T10:10:00.000Z",
           messages: [],
         }),
         makeThread({
           id: ThreadId.makeUnsafe("thread-other-project"),
-          projectId: ContainerId.makeUnsafe("project-2"),
+          folderId: FolderId.makeUnsafe("project-2"),
           createdAt: "2026-03-09T10:20:00.000Z",
           messages: [],
         }),
@@ -2205,19 +2197,19 @@ describe("getFallbackThreadIdAfterDelete", () => {
       threads: [
         makeThread({
           id: ThreadId.makeUnsafe("thread-active"),
-          projectId: ContainerId.makeUnsafe("project-1"),
+          folderId: FolderId.makeUnsafe("project-1"),
           createdAt: "2026-03-09T10:05:00.000Z",
           messages: [],
         }),
         makeThread({
           id: ThreadId.makeUnsafe("thread-newest"),
-          projectId: ContainerId.makeUnsafe("project-1"),
+          folderId: FolderId.makeUnsafe("project-1"),
           createdAt: "2026-03-09T10:10:00.000Z",
           messages: [],
         }),
         makeThread({
           id: ThreadId.makeUnsafe("thread-next"),
-          projectId: ContainerId.makeUnsafe("project-1"),
+          folderId: FolderId.makeUnsafe("project-1"),
           createdAt: "2026-03-09T10:07:00.000Z",
           messages: [],
         }),
@@ -2234,15 +2226,15 @@ describe("getFallbackThreadIdAfterDelete", () => {
   });
 });
 
-describe("sortProjectsForSidebar", () => {
-  it("sorts projects by the most recent thread updatedAt", () => {
-    const projects = [
-      makeProject({ id: ContainerId.makeUnsafe("project-1"), name: "Older project" }),
-      makeProject({ id: ContainerId.makeUnsafe("project-2"), name: "Newer project" }),
+describe("sortFoldersForSidebar", () => {
+  it("sorts folders by the most recent thread updatedAt", () => {
+    const folders = [
+      makeProject({ id: FolderId.makeUnsafe("project-1"), name: "Older project" }),
+      makeProject({ id: FolderId.makeUnsafe("project-2"), name: "Newer project" }),
     ];
     const threads = [
       makeThread({
-        projectId: ContainerId.makeUnsafe("project-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
         updatedAt: "2026-03-09T10:20:00.000Z",
         messages: [
           {
@@ -2257,7 +2249,7 @@ describe("sortProjectsForSidebar", () => {
       }),
       makeThread({
         id: ThreadId.makeUnsafe("thread-2"),
-        projectId: ContainerId.makeUnsafe("project-2"),
+        folderId: FolderId.makeUnsafe("project-2"),
         updatedAt: "2026-03-09T10:05:00.000Z",
         messages: [
           {
@@ -2272,24 +2264,24 @@ describe("sortProjectsForSidebar", () => {
       }),
     ];
 
-    const sorted = sortProjectsForSidebar(projects, threads, "updated_at");
+    const sorted = sortFoldersForSidebar(folders, threads, "updated_at");
 
     expect(sorted.map((project) => project.id)).toEqual([
-      ContainerId.makeUnsafe("project-1"),
-      ContainerId.makeUnsafe("project-2"),
+      FolderId.makeUnsafe("project-1"),
+      FolderId.makeUnsafe("project-2"),
     ]);
   });
 
   it("does not let project activity timestamps change manual order", () => {
-    const sorted = sortProjectsForSidebar(
+    const sorted = sortFoldersForSidebar(
       [
         makeProject({
-          id: ContainerId.makeUnsafe("project-1"),
+          id: FolderId.makeUnsafe("project-1"),
           name: "Older project",
           updatedAt: "2026-03-09T10:01:00.000Z",
         }),
         makeProject({
-          id: ContainerId.makeUnsafe("project-2"),
+          id: FolderId.makeUnsafe("project-2"),
           name: "Newer project",
           updatedAt: "2026-03-09T10:05:00.000Z",
         }),
@@ -2299,22 +2291,22 @@ describe("sortProjectsForSidebar", () => {
     );
 
     expect(sorted.map((project) => project.id)).toEqual([
-      ContainerId.makeUnsafe("project-1"),
-      ContainerId.makeUnsafe("project-2"),
+      FolderId.makeUnsafe("project-1"),
+      FolderId.makeUnsafe("project-2"),
     ]);
   });
 
-  it("falls back to name and id ordering when projects have no sortable timestamps", () => {
-    const sorted = sortProjectsForSidebar(
+  it("falls back to name and id ordering when folders have no sortable timestamps", () => {
+    const sorted = sortFoldersForSidebar(
       [
         makeProject({
-          id: ContainerId.makeUnsafe("project-2"),
+          id: FolderId.makeUnsafe("project-2"),
           name: "Beta",
           createdAt: undefined,
           updatedAt: undefined,
         }),
         makeProject({
-          id: ContainerId.makeUnsafe("project-1"),
+          id: FolderId.makeUnsafe("project-1"),
           name: "Alpha",
           createdAt: undefined,
           updatedAt: undefined,
@@ -2325,30 +2317,30 @@ describe("sortProjectsForSidebar", () => {
     );
 
     expect(sorted.map((project) => project.id)).toEqual([
-      ContainerId.makeUnsafe("project-1"),
-      ContainerId.makeUnsafe("project-2"),
+      FolderId.makeUnsafe("project-1"),
+      FolderId.makeUnsafe("project-2"),
     ]);
   });
 
   it("preserves manual project ordering", () => {
-    const projects = [
+    const folders = [
       makeProject({
-        id: ContainerId.makeUnsafe("project-2"),
+        id: FolderId.makeUnsafe("project-2"),
         name: "Second",
         sidebarSortOrder: 0,
       }),
       makeProject({
-        id: ContainerId.makeUnsafe("project-1"),
+        id: FolderId.makeUnsafe("project-1"),
         name: "First",
         sidebarSortOrder: 1,
       }),
     ];
 
-    const sorted = sortProjectsForSidebar(projects, [], "manual");
+    const sorted = sortFoldersForSidebar(folders, [], "manual");
 
     expect(sorted.map((project) => project.id)).toEqual([
-      ContainerId.makeUnsafe("project-2"),
-      ContainerId.makeUnsafe("project-1"),
+      FolderId.makeUnsafe("project-2"),
+      FolderId.makeUnsafe("project-1"),
     ]);
   });
 

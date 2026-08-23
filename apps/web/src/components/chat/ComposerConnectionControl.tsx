@@ -29,7 +29,10 @@ import {
   selectPrimaryProviderUsageDisplayRow,
   type ProviderUsageDisplayRow,
 } from "~/lib/providerUsageDisplay";
-import { normalizeServerProviderUsageRateLimit } from "~/lib/providerUsageSnapshot";
+import {
+  connectionUsageEmptyMessage,
+  normalizeServerProviderUsageRateLimit,
+} from "~/lib/providerUsageSnapshot";
 import { serverAllProviderUsageQueryOptions } from "~/lib/serverReactQuery";
 import { cn } from "~/lib/utils";
 
@@ -166,7 +169,6 @@ export function ComposerConnectionControl(props: {
   const snapshot = snapshots.get(selected.id);
   const rows = usageRows(snapshot);
   const primary = selectPrimaryProviderUsageDisplayRow(rows);
-  const unavailable = !apiKey && snapshot !== undefined && (snapshot.status ?? "ok") !== "ok";
   const title = apiKey ? `${selected.label} API key` : selected.label;
 
   return (
@@ -242,11 +244,7 @@ export function ComposerConnectionControl(props: {
           <ConnectionUsageRows rows={rows} />
         ) : (
           <p className="px-2 pb-2 pt-1 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground">
-            {usageQuery.isPending
-              ? "Loading usage…"
-              : unavailable
-                ? "Usage is temporarily unavailable."
-                : "Usage isn’t available for this account."}
+            {usageQuery.isPending ? "Loading usage…" : connectionUsageEmptyMessage(snapshot)}
           </p>
         )}
         {snapshot?.detail && rows.length > 0 ? (

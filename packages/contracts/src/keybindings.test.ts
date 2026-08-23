@@ -131,11 +131,11 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedTerminal.command, "chat.newTerminal");
 
-    const parsedCursor = yield* decode(KeybindingRule, {
+    const parsedOpenCode = yield* decode(KeybindingRule, {
       key: "mod+alt+r",
-      command: "chat.newCursor",
+      command: "chat.newOpenCode",
     });
-    assert.strictEqual(parsedCursor.command, "chat.newCursor");
+    assert.strictEqual(parsedOpenCode.command, "chat.newOpenCode");
 
     const parsedThreadJump = yield* decode(KeybindingRule, {
       key: "mod+3",

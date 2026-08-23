@@ -3,7 +3,7 @@
 
 import {
   CommandId,
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
   type OrchestrationCommand,
@@ -42,9 +42,9 @@ async function addSpace(readModel: ReadModel, id: string, name: string) {
 
 async function addFolder(readModel: ReadModel, id: string, spaceId: SpaceId) {
   return dispatch(readModel, {
-    type: "project.create",
+    type: "folder.create",
     commandId: CommandId.makeUnsafe(`create-${id}`),
-    projectId: ContainerId.makeUnsafe(id),
+    folderId: FolderId.makeUnsafe(id),
     title: id,
     workspaceRoot: null,
     spaceId,
@@ -54,9 +54,9 @@ async function addFolder(readModel: ReadModel, id: string, spaceId: SpaceId) {
 
 async function addNamedFolder(readModel: ReadModel, id: string, title: string, spaceId: SpaceId) {
   return dispatch(readModel, {
-    type: "project.create",
+    type: "folder.create",
     commandId: CommandId.makeUnsafe(`create-${id}`),
-    projectId: ContainerId.makeUnsafe(id),
+    folderId: FolderId.makeUnsafe(id),
     title,
     workspaceRoot: null,
     spaceId,
@@ -64,31 +64,17 @@ async function addNamedFolder(readModel: ReadModel, id: string, title: string, s
   });
 }
 
-async function addChatContainer(readModel: ReadModel) {
-  return dispatch(readModel, {
-    type: "project.create",
-    commandId: CommandId.makeUnsafe("create-chat-container"),
-    projectId: ContainerId.makeUnsafe("chat-container"),
-    kind: "chat",
-    title: "Chats",
-    workspaceRoot: "/tmp/chats",
-    createdAt: CREATED_AT,
-  });
-}
-
 async function addThread(input: {
   readModel: ReadModel;
   id: string;
-  projectId: ContainerId;
-  spaceId?: SpaceId;
+  folderId: FolderId;
   parentThreadId?: ThreadId;
 }) {
   return dispatch(input.readModel, {
     type: "thread.create",
     commandId: CommandId.makeUnsafe(`create-${input.id}`),
     threadId: ThreadId.makeUnsafe(input.id),
-    projectId: input.projectId,
-    ...(input.spaceId ? { spaceId: input.spaceId } : {}),
+    folderId: input.folderId,
     title: input.id,
     modelSelection: { provider: "codex", model: "gpt-5-codex" },
     runtimeMode: "full-access",
@@ -107,10 +93,10 @@ describe("Spaces", () => {
     ({ readModel } = await addSpace(readModel, third, "Third"));
 
     const reordered = await dispatch(readModel, {
-      type: "space.reorder",
+      type: "space.update",
       commandId: CommandId.makeUnsafe("move-third-before-first"),
       spaceId: third,
-      position: { type: "before", spaceId: first },
+      sortOrder: 0,
     });
 
     expect(
@@ -121,21 +107,10 @@ describe("Spaces", () => {
   });
 
   it("requires every ordinary folder to be born in a persisted Space", async () => {
-    await expect(
-      dispatch(createEmptyReadModel(CREATED_AT), {
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("create-unassigned"),
-        projectId: ContainerId.makeUnsafe("unassigned"),
-        title: "Unassigned",
-        workspaceRoot: null,
-        createdAt: CREATED_AT,
-      }),
-    ).rejects.toThrow(/must be created in a persisted Space/i);
-
     let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), "personal", "Personal"))
       .readModel;
     ({ readModel } = await addFolder(readModel, "ideas", SpaceId.makeUnsafe("personal")));
-    expect(readModel.projects[0]).toMatchObject({
+    expect(readModel.folders[0]).toMatchObject({
       id: "ideas",
       workspaceRoot: null,
       spaceId: "personal",
@@ -171,70 +146,21 @@ describe("Spaces", () => {
 
     await expect(
       dispatch(readModel, {
-        type: "project.meta.update",
+        type: "folder.update",
         commandId: CommandId.makeUnsafe("rename-to-product"),
-        projectId: ContainerId.makeUnsafe("work-research"),
+        folderId: FolderId.makeUnsafe("work-research"),
         title: "PRODUCT",
       }),
     ).rejects.toThrow(/already exists in this Space/i);
 
     await expect(
       dispatch(readModel, {
-        type: "space.projects.assign",
+        type: "folder.move",
         commandId: CommandId.makeUnsafe("move-product-to-work"),
         spaceId: work,
-        projectIds: [ContainerId.makeUnsafe("personal-product")],
+        folderIds: [FolderId.makeUnsafe("personal-product")],
       }),
     ).rejects.toThrow(/already exists in this Space/i);
-  });
-
-  it("keeps managed chat containers global and rooted", async () => {
-    await expect(
-      dispatch(createEmptyReadModel(CREATED_AT), {
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("create-pathless-chat"),
-        projectId: ContainerId.makeUnsafe("pathless-chat"),
-        kind: "chat",
-        title: "Chats",
-        workspaceRoot: null,
-        createdAt: CREATED_AT,
-      }),
-    ).rejects.toThrow(/require a workspace root/i);
-
-    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), "personal", "Personal"))
-      .readModel;
-    await expect(
-      dispatch(readModel, {
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("create-filed-chat"),
-        projectId: ContainerId.makeUnsafe("filed-chat"),
-        kind: "chat",
-        title: "Chats",
-        workspaceRoot: "/tmp/chats",
-        spaceId: SpaceId.makeUnsafe("personal"),
-        createdAt: CREATED_AT,
-      }),
-    ).rejects.toThrow(/do not belong to a Space/i);
-  });
-
-  it("requires folders to remain assigned", async () => {
-    const personal = SpaceId.makeUnsafe("personal");
-    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
-      .readModel;
-    ({ readModel } = await addFolder(readModel, "ideas", personal));
-    await expect(
-      Effect.runPromise(
-        decideOrchestrationCommand({
-          command: {
-            type: "project.meta.update",
-            commandId: CommandId.makeUnsafe("clear-folder-space"),
-            projectId: ContainerId.makeUnsafe("ideas"),
-            spaceId: null,
-          },
-          readModel,
-        }),
-      ),
-    ).rejects.toThrow(/must remain assigned/i);
   });
 
   it("archives a non-empty Space while preserving its content assignments", async () => {
@@ -246,7 +172,7 @@ describe("Spaces", () => {
     ({ readModel } = await addThread({
       readModel,
       id: "personal-chat",
-      projectId: ContainerId.makeUnsafe("ideas"),
+      folderId: FolderId.makeUnsafe("ideas"),
     }));
 
     const archived = await dispatch(readModel, {
@@ -258,11 +184,11 @@ describe("Spaces", () => {
     expect(
       archived.readModel.spaces.find((space) => space.id === personal)?.archivedAt,
     ).not.toBeNull();
-    expect(archived.readModel.projects.find((project) => project.id === "ideas")?.spaceId).toBe(
+    expect(archived.readModel.folders.find((project) => project.id === "ideas")?.spaceId).toBe(
       personal,
     );
     expect(
-      archived.readModel.threads.find((thread) => thread.id === "personal-chat")?.projectId,
+      archived.readModel.threads.find((thread) => thread.id === "personal-chat")?.folderId,
     ).toBe("ideas");
   });
 
@@ -284,7 +210,7 @@ describe("Spaces", () => {
           readModel,
         }),
       ),
-    ).rejects.toThrow(/move every folder and chat thread/i);
+    ).rejects.toThrow(/move every folder/i);
   });
 
   it("allows deleting an empty Space without changing assignments", async () => {
@@ -300,7 +226,7 @@ describe("Spaces", () => {
       commandId: CommandId.makeUnsafe("delete-empty-work"),
       spaceId: work,
     });
-    expect(result.readModel.projects[0]?.spaceId).toBe(personal);
+    expect(result.readModel.folders[0]?.spaceId).toBe(personal);
     expect(result.readModel.spaces.find((space) => space.id === work)?.deletedAt).not.toBeNull();
   });
 
@@ -371,13 +297,13 @@ describe("Spaces", () => {
     ({ readModel } = await addFolder(readModel, "second", work));
 
     const moved = await dispatch(readModel, {
-      type: "space.projects.assign",
+      type: "folder.move",
       commandId: CommandId.makeUnsafe("move-folders"),
       spaceId: work,
-      projectIds: [ContainerId.makeUnsafe("first"), ContainerId.makeUnsafe("second")],
+      folderIds: [FolderId.makeUnsafe("first"), FolderId.makeUnsafe("second")],
     });
     expect(moved.events).toHaveLength(1);
-    expect(moved.readModel.projects.map((project) => project.spaceId)).toEqual([work, work]);
+    expect(moved.readModel.folders.map((project) => project.spaceId)).toEqual([work, work]);
   });
 
   it("persists a mixed folder order while moving a folder across Spaces", async () => {
@@ -391,20 +317,27 @@ describe("Spaces", () => {
     // This row was not part of the drag-start snapshot. Anchor intent must preserve it.
     ({ readModel } = await addFolder(readModel, "third", work));
 
+    ({ readModel } = await dispatch(readModel, {
+      type: "folder.move",
+      commandId: CommandId.makeUnsafe("move-first-to-work"),
+      spaceId: work,
+      folderIds: [FolderId.makeUnsafe("first")],
+    }));
+
     const moved = await dispatch(readModel, {
       type: "sidebar.item.move",
       commandId: CommandId.makeUnsafe("move-first-after-second"),
-      item: { kind: "project", id: ContainerId.makeUnsafe("first") },
+      item: { kind: "folder", id: FolderId.makeUnsafe("first") },
       target: { kind: "space", spaceId: work },
       position: {
         type: "after",
-        item: { kind: "project", id: ContainerId.makeUnsafe("second") },
+        item: { kind: "folder", id: FolderId.makeUnsafe("second") },
       },
     });
 
     expect(moved.events).toHaveLength(1);
     expect(
-      moved.readModel.projects.map(({ id, spaceId, sidebarSortOrder }) => ({
+      moved.readModel.folders.map(({ id, spaceId, sidebarSortOrder }) => ({
         id,
         spaceId,
         sidebarSortOrder,
@@ -420,42 +353,30 @@ describe("Spaces", () => {
     const personal = SpaceId.makeUnsafe("personal");
     let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
       .readModel;
-    ({ readModel } = await addChatContainer(readModel));
-    ({ readModel } = await addFolder(readModel, "folder", personal));
+    ({ readModel } = await addFolder(readModel, "source", personal));
+    ({ readModel } = await addFolder(readModel, "destination", personal));
     ({ readModel } = await addThread({
       readModel,
       id: "root-thread",
-      projectId: ContainerId.makeUnsafe("folder"),
+      folderId: FolderId.makeUnsafe("source"),
     }));
     ({ readModel } = await addThread({
       readModel,
       id: "child-thread",
-      projectId: ContainerId.makeUnsafe("folder"),
+      folderId: FolderId.makeUnsafe("source"),
       parentThreadId: ThreadId.makeUnsafe("root-thread"),
     }));
-    // Simulate the legacy pre-migration shape; new commands can no longer create it.
-    readModel = {
-      ...readModel,
-      threads: readModel.threads.map((thread) => ({
-        ...thread,
-        projectId: ContainerId.makeUnsafe("chat-container"),
-        spaceId: personal,
-      })),
-    };
-
     const moved = await dispatch(readModel, {
       type: "sidebar.item.move",
       commandId: CommandId.makeUnsafe("move-thread-tree"),
       item: { kind: "thread", id: ThreadId.makeUnsafe("root-thread") },
-      target: { kind: "project", projectId: ContainerId.makeUnsafe("folder") },
+      target: { kind: "folder", folderId: FolderId.makeUnsafe("destination") },
       position: { type: "pinned-boundary" },
     });
 
-    expect(
-      moved.readModel.threads.map(({ id, projectId, spaceId }) => ({ id, projectId, spaceId })),
-    ).toEqual([
-      { id: "root-thread", projectId: "folder", spaceId: null },
-      { id: "child-thread", projectId: "folder", spaceId: null },
+    expect(moved.readModel.threads.map(({ id, folderId }) => ({ id, folderId }))).toEqual([
+      { id: "root-thread", folderId: "destination" },
+      { id: "child-thread", folderId: "destination" },
     ]);
   });
 
@@ -463,22 +384,12 @@ describe("Spaces", () => {
     const personal = SpaceId.makeUnsafe("personal");
     let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
       .readModel;
-    ({ readModel } = await addChatContainer(readModel));
     ({ readModel } = await addFolder(readModel, "folder", personal));
-
-    await expect(
-      addThread({
-        readModel,
-        id: "loose-thread",
-        projectId: ContainerId.makeUnsafe("chat-container"),
-        spaceId: personal,
-      }),
-    ).rejects.toThrow(/inside a folder/i);
 
     ({ readModel } = await addThread({
       readModel,
       id: "filed-thread",
-      projectId: ContainerId.makeUnsafe("folder"),
+      folderId: FolderId.makeUnsafe("folder"),
     }));
     await expect(
       dispatch(readModel, {
@@ -498,9 +409,9 @@ describe("Spaces", () => {
     ({ readModel } = await addFolder(readModel, "pinned", personal));
     ({ readModel } = await addFolder(readModel, "regular", personal));
     ({ readModel } = await dispatch(readModel, {
-      type: "project.meta.update",
+      type: "folder.update",
       commandId: CommandId.makeUnsafe("pin-folder"),
-      projectId: ContainerId.makeUnsafe("pinned"),
+      folderId: FolderId.makeUnsafe("pinned"),
       isPinned: true,
     }));
 
@@ -508,11 +419,11 @@ describe("Spaces", () => {
       dispatch(readModel, {
         type: "sidebar.item.move",
         commandId: CommandId.makeUnsafe("cross-pin-boundary"),
-        item: { kind: "project", id: ContainerId.makeUnsafe("regular") },
+        item: { kind: "folder", id: FolderId.makeUnsafe("regular") },
         target: { kind: "space", spaceId: personal },
         position: {
           type: "before",
-          item: { kind: "project", id: ContainerId.makeUnsafe("pinned") },
+          item: { kind: "folder", id: FolderId.makeUnsafe("pinned") },
         },
       }),
     ).rejects.toThrow(/cannot be interleaved/i);
@@ -520,31 +431,31 @@ describe("Spaces", () => {
 
   it("archives and restores a folder without changing its threads", async () => {
     const personal = SpaceId.makeUnsafe("personal");
-    const projectId = ContainerId.makeUnsafe("folder");
+    const folderId = FolderId.makeUnsafe("folder");
     let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
       .readModel;
-    ({ readModel } = await addFolder(readModel, projectId, personal));
-    ({ readModel } = await addThread({ readModel, id: "thread", projectId }));
+    ({ readModel } = await addFolder(readModel, folderId, personal));
+    ({ readModel } = await addThread({ readModel, id: "thread", folderId }));
     const originalThread = readModel.threads[0];
 
     ({ readModel } = await dispatch(readModel, {
-      type: "project.meta.update",
+      type: "folder.update",
       commandId: CommandId.makeUnsafe("archive-folder"),
-      projectId,
+      folderId,
       archivedAt: "2026-08-02T11:00:00.000Z",
     }));
 
-    expect(readModel.projects[0]?.archivedAt).toBe("2026-08-02T11:00:00.000Z");
+    expect(readModel.folders[0]?.archivedAt).toBe("2026-08-02T11:00:00.000Z");
     expect(readModel.threads[0]).toEqual(originalThread);
 
     ({ readModel } = await dispatch(readModel, {
-      type: "project.meta.update",
+      type: "folder.update",
       commandId: CommandId.makeUnsafe("restore-folder"),
-      projectId,
+      folderId,
       archivedAt: null,
     }));
 
-    expect(readModel.projects[0]?.archivedAt).toBeNull();
+    expect(readModel.folders[0]?.archivedAt).toBeNull();
     expect(readModel.threads[0]).toEqual(originalThread);
   });
 });

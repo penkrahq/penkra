@@ -11,7 +11,15 @@ import {
 } from "@penkra/contracts";
 import { deriveChromeUserAgent } from "@penkra/shared/browserSession";
 import type { AppBrowserSessionState } from "@penkra/sdk";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { PanelStateMessage } from "./PanelStateMessage";
 
@@ -37,6 +45,7 @@ export function AppDockPane(props: {
   const browserWebviewRef = useRef<BrowserWebviewElement | null>(null);
   const [browserState, setBrowserState] = useState<AppBrowserSessionState | null>(null);
   const [browserSurface, setBrowserSurface] = useState<BrowserSurface | null>(null);
+  const browserSurfacePartition = browserSurface?.partition;
   const [simulatorSurface, setSimulatorSurface] = useState<SurfaceBounds | null>(null);
   const [simulatorFrame, setSimulatorFrame] = useState<string | null>(null);
   const browserPage = useMemo(
@@ -172,8 +181,20 @@ export function AppDockPane(props: {
     const bridge = window.desktopBridge?.appTabs;
     const webview = browserWebviewRef.current;
     const pageId = browserPage?.id;
-    if (!bridge || !webview || !pageId || !browserSurface) return;
+    if (!bridge || !webview || !pageId || !browserSurfacePartition) return;
     let attachedWebContentsId: number | null = null;
+    const didFailLoad = (event: Event) => {
+      const failure = event as BrowserWebviewDidFailLoadEvent;
+      void bridge.browserWebviewDidFailLoad({
+        tabId: props.tabId,
+        rendererId: props.rendererId,
+        pageId,
+        errorCode: failure.errorCode,
+        errorDescription: failure.errorDescription,
+        validatedUrl: failure.validatedURL,
+        isMainFrame: failure.isMainFrame,
+      });
+    };
     const attach = () => {
       if (typeof webview.getWebContentsId !== "function") return;
       const webContentsId = webview.getWebContentsId();
@@ -188,8 +209,10 @@ export function AppDockPane(props: {
       });
     };
     webview.addEventListener("dom-ready", attach);
+    webview.addEventListener("did-fail-load", didFailLoad);
     return () => {
       webview.removeEventListener("dom-ready", attach);
+      webview.removeEventListener("did-fail-load", didFailLoad);
       if (attachedWebContentsId !== null) {
         void bridge.browserWebviewDetach({
           tabId: props.tabId,
@@ -199,7 +222,7 @@ export function AppDockPane(props: {
         });
       }
     };
-  }, [browserPage?.id, browserSurface?.partition, props.rendererId, props.tabId]);
+  }, [browserPage?.id, browserSurfacePartition, props.rendererId, props.tabId]);
 
   return (
     <div className="relative h-full min-h-0 w-full overflow-hidden">
@@ -216,19 +239,20 @@ export function AppDockPane(props: {
         />
       ) : null}
       {props.visible && browserSurface && browserPage && browserPage.url !== "about:blank" ? (
-        <webview
-          allowpopups={ALLOW_WEBVIEW_POPUPS_ATTRIBUTE}
+        <HostedBrowserWebview
+          initialUrl={browserPage.url}
           key={browserPage.id}
-          ref={browserWebviewRef}
-          className="absolute z-10 flex bg-background"
           partition={browserSurface.partition}
-          src={browserPage.url}
           useragent={browserUserAgent}
+          webviewRef={browserWebviewRef}
           style={{
             top: browserSurface.insets.top,
             right: browserSurface.insets.right,
             bottom: browserSurface.insets.bottom,
             left: browserSurface.insets.left,
+            // Preserve the guest/runtime so Reload can recover a failed page, but let the
+            // Browser App's useful error state show instead of a blank chrome-error document.
+            visibility: browserPage.lastError ? "hidden" : "visible",
           }}
         />
       ) : null}
@@ -273,8 +297,39 @@ export function AppDockPane(props: {
   );
 }
 
+function HostedBrowserWebview(props: {
+  initialUrl: string;
+  partition: string;
+  useragent: string;
+  webviewRef: RefObject<BrowserWebviewElement | null>;
+  style: CSSProperties;
+}) {
+  // `src` bootstraps a new guest only. Once mounted, explicit Browser commands own navigation.
+  // Reflecting did-navigate state back into this attribute calls loadURL again, which turns a
+  // redirect chain (especially a Cloudflare challenge) into an abort/retry request storm.
+  const bootstrapUrl = useRef(props.initialUrl).current;
+  return (
+    <webview
+      allowpopups={ALLOW_WEBVIEW_POPUPS_ATTRIBUTE}
+      ref={props.webviewRef}
+      className="absolute z-10 flex bg-background"
+      partition={props.partition}
+      src={bootstrapUrl}
+      useragent={props.useragent}
+      style={props.style}
+    />
+  );
+}
+
 interface BrowserWebviewElement extends HTMLElement {
   getWebContentsId(): number;
+}
+
+interface BrowserWebviewDidFailLoadEvent extends Event {
+  errorCode: number;
+  errorDescription: string;
+  validatedURL: string;
+  isMainFrame: boolean;
 }
 
 interface BrowserSurface {

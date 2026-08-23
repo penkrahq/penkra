@@ -27,7 +27,7 @@ const installationRepository = {
 function thread(overrides: Partial<OrchestrationThreadShell> = {}): OrchestrationThreadShell {
   return {
     id: "thread-1",
-    projectId: "project-1",
+    folderId: "project-1",
     title: "Thread",
     modelSelection: { provider: "codex", model: "gpt-5" },
     runtimeMode: "full-access",
@@ -267,7 +267,7 @@ describe("provider update coordinator", () => {
             Effect.succeed({
               snapshotSequence: 1,
               spaces: [],
-              projects: [],
+              folders: [],
               threads: [thread()],
               updatedAt: "2026-07-30T00:00:00.000Z",
             }),
@@ -368,7 +368,7 @@ describe("provider update coordinator", () => {
               Effect.succeed({
                 snapshotSequence: 1,
                 spaces: [],
-                projects: [],
+                folders: [],
                 threads: [],
                 updatedAt: "2026-07-30T00:00:00.000Z",
               }),
@@ -441,7 +441,7 @@ describe("provider update coordinator", () => {
               Effect.succeed({
                 snapshotSequence: 1,
                 spaces: [],
-                projects: [],
+                folders: [],
                 threads: [],
                 updatedAt: "2026-07-30T00:00:00.000Z",
               }),
@@ -509,7 +509,7 @@ describe("provider update coordinator", () => {
               Effect.succeed({
                 snapshotSequence: 1,
                 spaces: [],
-                projects: [],
+                folders: [],
                 threads: [],
                 updatedAt: "2026-07-30T00:00:00.000Z",
               }),

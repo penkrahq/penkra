@@ -5352,6 +5352,34 @@ function registerIpcHandlers(): void {
       webContentsId,
     });
   });
+  ipcMain.handle(IPC.appTabs.browserWebviewDidFailLoad, async (event, input: unknown) => {
+    const tabs = requireShellAppTabs(event.sender.id);
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error("Invalid hosted Browser webview load failure.");
+    }
+    const { tabId, rendererId, pageId, errorCode, errorDescription, validatedUrl, isMainFrame } =
+      input as Record<string, unknown>;
+    if (
+      typeof tabId !== "string" ||
+      typeof rendererId !== "number" ||
+      typeof pageId !== "string" ||
+      typeof errorCode !== "number" ||
+      typeof errorDescription !== "string" ||
+      typeof validatedUrl !== "string" ||
+      typeof isMainFrame !== "boolean"
+    ) {
+      throw new Error("Invalid hosted Browser webview load failure details.");
+    }
+    tabs.frameIdentity(tabId, rendererId);
+    browserManager.reportRendererWebviewLoadFailure({
+      threadId: tabId as ThreadId,
+      tabId: pageId,
+      errorCode,
+      errorDescription,
+      validatedUrl,
+      isMainFrame,
+    });
+  });
   ipcMain.handle(IPC.appTabs.browserWebviewDetach, async (event, input: unknown) => {
     const tabs = requireShellAppTabs(event.sender.id);
     if (!input || typeof input !== "object" || Array.isArray(input)) return;

@@ -1,7 +1,6 @@
 import type { ClientOrchestrationCommand, OrchestrationCommand } from "@penkra/contracts";
-import { isWorkspaceRootWithin, workspaceRootsEqual } from "@penkra/shared/threadWorkspace";
 import type { FileSystem, Path } from "effect";
-import { Effect, Schedule } from "effect";
+import { Effect } from "effect";
 
 import { createAttachmentId } from "../attachmentStore";
 
@@ -29,134 +28,8 @@ export interface DispatchCommandNormalizerOptions<E> {
   readonly prepareChatWorkspaceRoot?: (workspaceRoot: string) => Effect.Effect<void, E>;
 }
 
-// Deferred workspace-root scaffolding (mkdir of managed subdirectories like Inbox/Outbox/
-// work/outputs) can transiently fail on a flaky filesystem even though the underlying
-// operation is safe to retry (it's idempotent recursive directory creation). Since this runs
-// AFTER the orchestration decider has already accepted the dispatch (see wsRpc), a single
-// transient failure here would otherwise permanently strand the project row without its
-// managed subdirectories. Retry a bounded number of times with a short
-// backoff before letting the failure surface to the caller.
-const WORKSPACE_ROOT_PREPARE_RETRY_SCHEDULE = Schedule.exponential("100 millis").pipe(
-  Schedule.take(2),
-);
-
 export function makeDispatchCommandNormalizer<E>(options: DispatchCommandNormalizerOptions<E>) {
-  // Per-thread chat workspace roots always live strictly within chatWorkspaceRoot. Exact
-  // equality is excluded so the shared parent never receives per-Thread subdirectories.
-  const maybePrepareWorkspaceRoot = (input: {
-    readonly kind: "chat";
-    readonly command: Extract<
-      ClientOrchestrationCommand,
-      { type: "project.create" | "project.meta.update" }
-    >;
-    readonly workspaceRoot: string;
-    readonly configuredWorkspaceRoot: string | undefined;
-    readonly prepare: ((workspaceRoot: string) => Effect.Effect<void, E>) | undefined;
-    readonly prepareWhenEqualToRoot: boolean;
-  }) => {
-    const {
-      kind,
-      command,
-      workspaceRoot,
-      configuredWorkspaceRoot,
-      prepare,
-      prepareWhenEqualToRoot,
-    } = input;
-    if (
-      command.kind !== kind ||
-      command.createWorkspaceRootIfMissing !== true ||
-      !configuredWorkspaceRoot ||
-      !prepare
-    ) {
-      return Effect.void;
-    }
-    const isWithin = isWorkspaceRootWithin(workspaceRoot, configuredWorkspaceRoot);
-    const isEqual = workspaceRootsEqual(workspaceRoot, configuredWorkspaceRoot);
-    const shouldPrepare = prepareWhenEqualToRoot ? isWithin || isEqual : isWithin && !isEqual;
-    if (!shouldPrepare) {
-      return Effect.void;
-    }
-    return prepare(workspaceRoot).pipe(Effect.retry(WORKSPACE_ROOT_PREPARE_RETRY_SCHEDULE));
-  };
-  const maybePrepareChatWorkspaceRoot = (
-    command: Extract<
-      ClientOrchestrationCommand,
-      { type: "project.create" | "project.meta.update" }
-    >,
-    workspaceRoot: string,
-  ) =>
-    maybePrepareWorkspaceRoot({
-      kind: "chat",
-      command,
-      workspaceRoot,
-      configuredWorkspaceRoot: options.chatWorkspaceRoot,
-      prepare: options.prepareChatWorkspaceRoot,
-      prepareWhenEqualToRoot: false,
-    });
-  // The decision is eager and pure; the returned filesystem effect runs only after dispatch.
-  const deferredPrepareWorkspaceRoot = (
-    command: Extract<
-      ClientOrchestrationCommand,
-      { type: "project.create" | "project.meta.update" }
-    >,
-    workspaceRoot: string,
-  ): Effect.Effect<void, E> => maybePrepareChatWorkspaceRoot(command, workspaceRoot);
-
   return Effect.fnUntraced(function* (input: { readonly command: ClientOrchestrationCommand }) {
-    if (input.command.type === "project.create") {
-      if ((input.command.kind ?? "project") === "project" || input.command.workspaceRoot === null) {
-        return {
-          command: input.command as OrchestrationCommand,
-          prepareWorkspaceRoot: null,
-        };
-      }
-      // Known trade-off: canonicalization may create the (empty) root directory before the
-      // decider validates ownership — realpath-based canonicalization needs the directory to
-      // exist, and comparing lexical paths instead would mis-handle symlinked roots. A rejected
-      // command can therefore leave an empty directory behind, but never scaffolding: the
-      // subdirectory prepare is deferred until the dispatch is accepted (see wsRpc).
-      const workspaceRoot = yield* options.canonicalizeProjectWorkspaceRoot(
-        input.command.workspaceRoot,
-        {
-          createIfMissing: input.command.createWorkspaceRootIfMissing === true,
-        },
-      );
-      const command = {
-        ...input.command,
-        workspaceRoot,
-        createWorkspaceRootIfMissing: input.command.createWorkspaceRootIfMissing === true,
-      } satisfies OrchestrationCommand;
-      return {
-        command,
-        prepareWorkspaceRoot: deferredPrepareWorkspaceRoot(input.command, workspaceRoot),
-      };
-    }
-
-    if (input.command.type === "project.meta.update" && input.command.workspaceRoot === null) {
-      return {
-        command: input.command as OrchestrationCommand,
-        prepareWorkspaceRoot: null,
-      };
-    }
-
-    if (input.command.type === "project.meta.update" && input.command.workspaceRoot != null) {
-      const workspaceRoot = yield* options.canonicalizeProjectWorkspaceRoot(
-        input.command.workspaceRoot,
-        {
-          createIfMissing: input.command.createWorkspaceRootIfMissing === true,
-        },
-      );
-      const command = {
-        ...input.command,
-        workspaceRoot,
-        createWorkspaceRootIfMissing: input.command.createWorkspaceRootIfMissing === true,
-      } satisfies OrchestrationCommand;
-      return {
-        command,
-        prepareWorkspaceRoot: deferredPrepareWorkspaceRoot(input.command, workspaceRoot),
-      };
-    }
-
     if (input.command.type !== "thread.turn.start") {
       return {
         command: input.command as OrchestrationCommand,

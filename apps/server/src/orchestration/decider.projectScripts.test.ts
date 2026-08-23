@@ -1,4 +1,4 @@
-import { CommandId, EventId, MessageId, ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
+import { CommandId, EventId, MessageId, FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 
@@ -10,7 +10,7 @@ import {
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
 
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asProjectId = (value: string): ContainerId => ContainerId.makeUnsafe(value);
+const asFolderId = (value: string): FolderId => FolderId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 const TEST_SPACE_ID = SpaceId.makeUnsafe("space-project-scripts");
 
@@ -40,16 +40,16 @@ async function withTestSpace(now: string) {
 }
 
 describe("decider project scripts", () => {
-  it("emits empty scripts on project.create", async () => {
+  it("emits empty scripts on folder.create", async () => {
     const now = new Date().toISOString();
     const readModel = await withTestSpace(now);
 
     const result = await Effect.runPromise(
       decideOrchestrationCommand({
         command: {
-          type: "project.create",
+          type: "folder.create",
           commandId: CommandId.makeUnsafe("cmd-project-create-scripts"),
-          projectId: asProjectId("project-scripts"),
+          folderId: asFolderId("project-scripts"),
           title: "Scripts",
           workspaceRoot: null,
           spaceId: TEST_SPACE_ID,
@@ -60,7 +60,7 @@ describe("decider project scripts", () => {
     );
 
     const event = Array.isArray(result) ? result[0] : result;
-    expect(event.type).toBe("project.created");
+    expect(event.type).toBe("folder.created");
     expect((event.payload as { scripts: unknown[] }).scripts).toEqual([]);
   });
 
@@ -71,16 +71,16 @@ describe("decider project scripts", () => {
       projectEvent(initial, {
         sequence: 1,
         eventId: asEventId("evt-stale-project-a"),
-        aggregateKind: "project",
-        aggregateId: asProjectId("project-stale-a"),
-        type: "project.created",
+        aggregateKind: "folder",
+        aggregateId: asFolderId("project-stale-a"),
+        type: "folder.created",
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-stale-project-a"),
         causationEventId: null,
         correlationId: CommandId.makeUnsafe("cmd-stale-project-a"),
         metadata: {},
         payload: {
-          projectId: asProjectId("project-stale-a"),
+          folderId: asFolderId("project-stale-a"),
           title: "Stale A",
           workspaceRoot: "/tmp/recreate-root",
           defaultModelSelection: null,
@@ -95,20 +95,21 @@ describe("decider project scripts", () => {
       projectEvent(withFirstProject, {
         sequence: 2,
         eventId: asEventId("evt-stale-project-b"),
-        aggregateKind: "project",
-        aggregateId: asProjectId("project-stale-b"),
-        type: "project.created",
+        aggregateKind: "folder",
+        aggregateId: asFolderId("project-stale-b"),
+        type: "folder.created",
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-stale-project-b"),
         causationEventId: null,
         correlationId: CommandId.makeUnsafe("cmd-stale-project-b"),
         metadata: {},
         payload: {
-          projectId: asProjectId("project-stale-b"),
+          folderId: asFolderId("project-stale-b"),
           title: "Stale B",
           workspaceRoot: "/tmp/recreate-root",
           defaultModelSelection: null,
           scripts: [],
+          spaceId: TEST_SPACE_ID,
           createdAt: now,
           updatedAt: now,
         },
@@ -119,11 +120,12 @@ describe("decider project scripts", () => {
       Effect.runPromise(
         decideOrchestrationCommand({
           command: {
-            type: "project.create",
+            type: "folder.create",
             commandId: CommandId.makeUnsafe("cmd-project-recreate"),
-            projectId: asProjectId("project-recreated"),
+            folderId: asFolderId("project-recreated"),
             title: "Recreated",
             workspaceRoot: "/tmp/recreate-root",
+            spaceId: TEST_SPACE_ID,
             createdAt: now,
           },
           readModel,
@@ -139,16 +141,16 @@ describe("decider project scripts", () => {
       projectEvent(initial, {
         sequence: 1,
         eventId: asEventId("evt-mixed-stale-project"),
-        aggregateKind: "project",
-        aggregateId: asProjectId("project-mixed-stale"),
-        type: "project.created",
+        aggregateKind: "folder",
+        aggregateId: asFolderId("project-mixed-stale"),
+        type: "folder.created",
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-mixed-stale-project"),
         causationEventId: null,
         correlationId: CommandId.makeUnsafe("cmd-mixed-stale-project"),
         metadata: {},
         payload: {
-          projectId: asProjectId("project-mixed-stale"),
+          folderId: asFolderId("project-mixed-stale"),
           title: "Mixed Stale",
           workspaceRoot: "/tmp/mixed-root",
           defaultModelSelection: null,
@@ -163,20 +165,21 @@ describe("decider project scripts", () => {
       projectEvent(withStaleProject, {
         sequence: 2,
         eventId: asEventId("evt-mixed-active-project"),
-        aggregateKind: "project",
-        aggregateId: asProjectId("project-mixed-active"),
-        type: "project.created",
+        aggregateKind: "folder",
+        aggregateId: asFolderId("project-mixed-active"),
+        type: "folder.created",
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-mixed-active-project"),
         causationEventId: null,
         correlationId: CommandId.makeUnsafe("cmd-mixed-active-project"),
         metadata: {},
         payload: {
-          projectId: asProjectId("project-mixed-active"),
+          folderId: asFolderId("project-mixed-active"),
           title: "Mixed Active",
           workspaceRoot: "/tmp/mixed-root",
           defaultModelSelection: null,
           scripts: [],
+          spaceId: TEST_SPACE_ID,
           createdAt: now,
           updatedAt: now,
         },
@@ -196,7 +199,7 @@ describe("decider project scripts", () => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-mixed-active"),
-          projectId: asProjectId("project-mixed-active"),
+          folderId: asFolderId("project-mixed-active"),
           title: "Saved chat",
           modelSelection: {
             provider: "codex",
@@ -213,11 +216,12 @@ describe("decider project scripts", () => {
       Effect.runPromise(
         decideOrchestrationCommand({
           command: {
-            type: "project.create",
+            type: "folder.create",
             commandId: CommandId.makeUnsafe("cmd-project-mixed-recreate"),
-            projectId: asProjectId("project-mixed-recreated"),
+            folderId: asFolderId("project-mixed-recreated"),
             title: "Mixed Recreated",
             workspaceRoot: "/tmp/mixed-root",
+            spaceId: TEST_SPACE_ID,
             createdAt: now,
           },
           readModel,
@@ -226,23 +230,23 @@ describe("decider project scripts", () => {
     ).rejects.toThrow("Folders are virtual containers");
   });
 
-  it("propagates scripts in project.meta.update payload", async () => {
+  it("propagates scripts in folder.update payload", async () => {
     const now = new Date().toISOString();
     const initial = await withTestSpace(now);
     const readModel = await Effect.runPromise(
       projectEvent(initial, {
         sequence: 1,
         eventId: asEventId("evt-project-create-scripts"),
-        aggregateKind: "project",
-        aggregateId: asProjectId("project-scripts"),
-        type: "project.created",
+        aggregateKind: "folder",
+        aggregateId: asFolderId("project-scripts"),
+        type: "folder.created",
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-project-create-scripts"),
         causationEventId: null,
         correlationId: CommandId.makeUnsafe("cmd-project-create-scripts"),
         metadata: {},
         payload: {
-          projectId: asProjectId("project-scripts"),
+          folderId: asFolderId("project-scripts"),
           title: "Scripts",
           workspaceRoot: "/tmp/scripts",
           defaultModelSelection: null,
@@ -267,9 +271,9 @@ describe("decider project scripts", () => {
     const result = await Effect.runPromise(
       decideOrchestrationCommand({
         command: {
-          type: "project.meta.update",
+          type: "folder.update",
           commandId: CommandId.makeUnsafe("cmd-project-update-scripts"),
-          projectId: asProjectId("project-scripts"),
+          folderId: asFolderId("project-scripts"),
           scripts: Array.from(scripts),
         },
         readModel,
@@ -277,11 +281,11 @@ describe("decider project scripts", () => {
     );
 
     const event = Array.isArray(result) ? result[0] : result;
-    expect(event.type).toBe("project.meta-updated");
+    expect(event.type).toBe("folder.updated");
     expect((event.payload as { scripts?: unknown[] }).scripts).toEqual(scripts);
   });
 
-  it("rejects pinning more than three active projects", async () => {
+  it("rejects pinning more than three active folders", async () => {
     const now = new Date().toISOString();
     let readModel = await withTestSpace(now);
 
@@ -290,16 +294,16 @@ describe("decider project scripts", () => {
         projectEvent(readModel, {
           sequence: index,
           eventId: asEventId(`evt-project-pin-${index}`),
-          aggregateKind: "project",
-          aggregateId: asProjectId(`project-pin-${index}`),
-          type: "project.created",
+          aggregateKind: "folder",
+          aggregateId: asFolderId(`project-pin-${index}`),
+          type: "folder.created",
           occurredAt: now,
           commandId: CommandId.makeUnsafe(`cmd-project-pin-${index}`),
           causationEventId: null,
           correlationId: CommandId.makeUnsafe(`cmd-project-pin-${index}`),
           metadata: {},
           payload: {
-            projectId: asProjectId(`project-pin-${index}`),
+            folderId: asFolderId(`project-pin-${index}`),
             title: `Project Pin ${index}`,
             workspaceRoot: `/tmp/project-pin-${index}`,
             defaultModelSelection: null,
@@ -317,22 +321,22 @@ describe("decider project scripts", () => {
       Effect.runPromise(
         decideOrchestrationCommand({
           command: {
-            type: "project.meta.update",
+            type: "folder.update",
             commandId: CommandId.makeUnsafe("cmd-project-pin-fourth"),
-            projectId: asProjectId("project-pin-4"),
+            folderId: asFolderId("project-pin-4"),
             isPinned: true,
           },
           readModel,
         }),
       ),
-    ).rejects.toThrow("Only 3 projects can be pinned at once.");
+    ).rejects.toThrow("Only 3 folders can be pinned at once.");
 
     const result = await Effect.runPromise(
       decideOrchestrationCommand({
         command: {
-          type: "project.meta.update",
+          type: "folder.update",
           commandId: CommandId.makeUnsafe("cmd-project-repin-existing"),
-          projectId: asProjectId("project-pin-1"),
+          folderId: asFolderId("project-pin-1"),
           isPinned: true,
         },
         readModel,
@@ -340,7 +344,7 @@ describe("decider project scripts", () => {
     );
 
     const event = Array.isArray(result) ? result[0] : result;
-    expect(event.type).toBe("project.meta-updated");
+    expect(event.type).toBe("folder.updated");
   });
 
   it("emits user message and turn-start-requested events for thread.turn.start", async () => {
@@ -350,20 +354,21 @@ describe("decider project scripts", () => {
       projectEvent(initial, {
         sequence: 1,
         eventId: asEventId("evt-project-create"),
-        aggregateKind: "project",
-        aggregateId: asProjectId("project-1"),
-        type: "project.created",
+        aggregateKind: "folder",
+        aggregateId: asFolderId("project-1"),
+        type: "folder.created",
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-project-create"),
         causationEventId: null,
         correlationId: CommandId.makeUnsafe("cmd-project-create"),
         metadata: {},
         payload: {
-          projectId: asProjectId("project-1"),
+          folderId: asFolderId("project-1"),
           title: "Project",
           workspaceRoot: "/tmp/project",
           defaultModelSelection: null,
           scripts: [],
+          spaceId: TEST_SPACE_ID,
           createdAt: now,
           updatedAt: now,
         },
@@ -383,7 +388,7 @@ describe("decider project scripts", () => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-1"),
-          projectId: asProjectId("project-1"),
+          folderId: asFolderId("project-1"),
           title: "Thread",
           modelSelection: {
             provider: "codex",
@@ -559,20 +564,21 @@ describe("decider project scripts", () => {
       projectEvent(initial, {
         sequence: 1,
         eventId: asEventId("evt-project-create"),
-        aggregateKind: "project",
-        aggregateId: asProjectId("project-1"),
-        type: "project.created",
+        aggregateKind: "folder",
+        aggregateId: asFolderId("project-1"),
+        type: "folder.created",
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-project-create"),
         causationEventId: null,
         correlationId: CommandId.makeUnsafe("cmd-project-create"),
         metadata: {},
         payload: {
-          projectId: asProjectId("project-1"),
+          folderId: asFolderId("project-1"),
           title: "Project",
           workspaceRoot: "/tmp/project",
           defaultModelSelection: null,
           scripts: [],
+          spaceId: TEST_SPACE_ID,
           createdAt: now,
           updatedAt: now,
         },
@@ -592,7 +598,7 @@ describe("decider project scripts", () => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-1"),
-          projectId: asProjectId("project-1"),
+          folderId: asFolderId("project-1"),
           title: "Thread",
           modelSelection: {
             provider: "codex",

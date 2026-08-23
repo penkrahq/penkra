@@ -2,7 +2,7 @@
 // Purpose: Exercises the public store facade, persistence, and simple UI actions.
 
 import {
-  ContainerId,
+  FolderId,
   SpaceId,
   ThreadId,
   TurnId,
@@ -12,12 +12,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   applySpaceOrder,
-  collapseProjectsExcept,
+  collapseFoldersExcept,
   markThreadUnread,
   renameProjectLocally,
-  reorderProjects,
+  reorderFolders,
   setThreadWorkspace,
-  setAllProjectsExpanded,
+  setAllFoldersExpanded,
   syncServerReadModel,
   useStore,
 } from "./store";
@@ -130,14 +130,14 @@ describe("store facade", () => {
     expect(next).toEqual(initialState);
   });
 
-  it("reorderProjects moves a project to a target index", () => {
-    const project1 = ContainerId.makeUnsafe("project-1");
-    const project2 = ContainerId.makeUnsafe("project-2");
-    const project3 = ContainerId.makeUnsafe("project-3");
+  it("reorderFolders moves a project to a target index", () => {
+    const project1 = FolderId.makeUnsafe("project-1");
+    const project2 = FolderId.makeUnsafe("project-2");
+    const project3 = FolderId.makeUnsafe("project-3");
     const state: AppState = {
       spaces: [],
       archivedSpaces: [],
-      projects: [
+      folders: [
         makeProject({
           id: project1,
           name: "Project 1",
@@ -160,23 +160,23 @@ describe("store facade", () => {
           cwd: "/tmp/project-3",
         }),
       ],
-      archivedProjects: [],
+      archivedFolders: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
 
-    const next = reorderProjects(state, project1, project3);
+    const next = reorderFolders(state, project1, project3);
 
-    expect(next.projects.map((project) => project.id)).toEqual([project2, project3, project1]);
+    expect(next.folders.map((project) => project.id)).toEqual([project2, project3, project1]);
   });
 
   it("expands every project when toggled on", () => {
-    const project1 = ContainerId.makeUnsafe("project-1");
-    const project2 = ContainerId.makeUnsafe("project-2");
+    const project1 = FolderId.makeUnsafe("project-1");
+    const project2 = FolderId.makeUnsafe("project-2");
     const state: AppState = {
       spaces: [],
       archivedSpaces: [],
-      projects: [
+      folders: [
         makeProject({
           id: project1,
           name: "Project 1",
@@ -193,56 +193,56 @@ describe("store facade", () => {
           expanded: false,
         }),
       ],
-      archivedProjects: [],
+      archivedFolders: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
 
-    const next = setAllProjectsExpanded(state, true);
+    const next = setAllFoldersExpanded(state, true);
 
-    expect(next.projects.map(({ id, expanded }) => ({ id, expanded }))).toEqual([
+    expect(next.folders.map(({ id, expanded }) => ({ id, expanded }))).toEqual([
       { id: project1, expanded: true },
       { id: project2, expanded: true },
     ]);
   });
 
-  it("collapses all projects when toggled off", () => {
+  it("collapses all folders when toggled off", () => {
     const state: AppState = {
       spaces: [],
       archivedSpaces: [],
-      projects: [
+      folders: [
         makeProject({
-          id: ContainerId.makeUnsafe("project-1"),
+          id: FolderId.makeUnsafe("project-1"),
           name: "Project 1",
           remoteName: "Project 1",
           folderName: "project-1",
           cwd: "/tmp/project-1",
         }),
         makeProject({
-          id: ContainerId.makeUnsafe("project-2"),
+          id: FolderId.makeUnsafe("project-2"),
           name: "Project 2",
           remoteName: "Project 2",
           folderName: "project-2",
           cwd: "/tmp/project-2",
         }),
       ],
-      archivedProjects: [],
+      archivedFolders: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
 
-    const next = setAllProjectsExpanded(state, false);
+    const next = setAllFoldersExpanded(state, false);
 
-    expect(next.projects.every((project) => project.expanded === false)).toBe(true);
+    expect(next.folders.every((project) => project.expanded === false)).toBe(true);
   });
 
   it("collapses every project except the active one", () => {
-    const project1 = ContainerId.makeUnsafe("project-1");
-    const project2 = ContainerId.makeUnsafe("project-2");
+    const project1 = FolderId.makeUnsafe("project-1");
+    const project2 = FolderId.makeUnsafe("project-2");
     const state: AppState = {
       spaces: [],
       archivedSpaces: [],
-      projects: [
+      folders: [
         makeProject({
           id: project1,
           name: "Project 1",
@@ -258,14 +258,14 @@ describe("store facade", () => {
           cwd: "/tmp/project-2",
         }),
       ],
-      archivedProjects: [],
+      archivedFolders: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
 
-    const next = collapseProjectsExcept(state, project2);
+    const next = collapseFoldersExcept(state, project2);
 
-    expect(next.projects.map(({ id, expanded }) => ({ id, expanded }))).toEqual([
+    expect(next.folders.map(({ id, expanded }) => ({ id, expanded }))).toEqual([
       { id: project1, expanded: false },
       { id: project2, expanded: true },
     ]);
@@ -274,24 +274,24 @@ describe("store facade", () => {
   it("renames a project locally without changing its remote or folder names", () => {
     const state = makeState(makeThread());
 
-    const next = renameProjectLocally(state, ContainerId.makeUnsafe("project-1"), "penkra");
+    const next = renameProjectLocally(state, FolderId.makeUnsafe("project-1"), "penkra");
 
-    expect(next.projects[0]).toMatchObject({
+    expect(next.folders[0]).toMatchObject({
       name: "penkra",
       localName: "penkra",
       remoteName: "Project",
-      folderName: "project",
+      folderName: "folder",
     });
   });
 
   it("preserves the current project order when syncing incoming read model updates", () => {
-    const project1 = ContainerId.makeUnsafe("project-1");
-    const project2 = ContainerId.makeUnsafe("project-2");
-    const project3 = ContainerId.makeUnsafe("project-3");
+    const project1 = FolderId.makeUnsafe("project-1");
+    const project2 = FolderId.makeUnsafe("project-2");
+    const project3 = FolderId.makeUnsafe("project-3");
     const initialState: AppState = {
       spaces: [],
       archivedSpaces: [],
-      projects: [
+      folders: [
         makeProject({
           id: project2,
           name: "Project 2",
@@ -307,7 +307,7 @@ describe("store facade", () => {
           cwd: "/tmp/project-1",
         }),
       ],
-      archivedProjects: [],
+      archivedFolders: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -315,7 +315,7 @@ describe("store facade", () => {
       snapshotSequence: 2,
       updatedAt: "2026-02-27T00:00:00.000Z",
       spaces: [],
-      projects: [
+      folders: [
         makeReadModelProject({
           id: project1,
           title: "Project 1",
@@ -337,16 +337,16 @@ describe("store facade", () => {
 
     const next = syncServerReadModel(initialState, readModel);
 
-    expect(next.projects.map((project) => project.id)).toEqual([project2, project1, project3]);
+    expect(next.folders.map((project) => project.id)).toEqual([project2, project1, project3]);
   });
 
   it("preserves expanded project state when a project briefly disappears from the snapshot", () => {
-    const project1 = ContainerId.makeUnsafe("project-1");
-    const project2 = ContainerId.makeUnsafe("project-2");
+    const project1 = FolderId.makeUnsafe("project-1");
+    const project2 = FolderId.makeUnsafe("project-2");
     const initialState: AppState = {
       spaces: [],
       archivedSpaces: [],
-      projects: [
+      folders: [
         makeProject({
           id: project1,
           name: "Project 1",
@@ -362,7 +362,7 @@ describe("store facade", () => {
           cwd: "/tmp/project-2",
         }),
       ],
-      archivedProjects: [],
+      archivedFolders: [],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -371,7 +371,7 @@ describe("store facade", () => {
       snapshotSequence: 2,
       updatedAt: "2026-02-27T00:00:00.000Z",
       spaces: [],
-      projects: [
+      folders: [
         makeReadModelProject({
           id: project1,
           title: "Project 1",
@@ -384,7 +384,7 @@ describe("store facade", () => {
       snapshotSequence: 3,
       updatedAt: "2026-02-27T00:01:00.000Z",
       spaces: [],
-      projects: [
+      folders: [
         makeReadModelProject({
           id: project1,
           title: "Project 1",
@@ -402,13 +402,13 @@ describe("store facade", () => {
     const withoutProject2 = syncServerReadModel(initialState, snapshotWithoutProject2);
     const restored = syncServerReadModel(withoutProject2, snapshotWithProject2Restored);
 
-    expect(restored.projects.find((project) => project.id === project2)?.expanded).toBe(true);
+    expect(restored.folders.find((project) => project.id === project2)?.expanded).toBe(true);
   });
 
   it("preserves a local project alias across read model syncs", () => {
     const aliasedState = renameProjectLocally(
       makeState(makeThread()),
-      ContainerId.makeUnsafe("project-1"),
+      FolderId.makeUnsafe("project-1"),
       "penkra",
     );
 
@@ -421,7 +421,7 @@ describe("store facade", () => {
       ),
     );
 
-    expect(next.projects[0]).toMatchObject({
+    expect(next.folders[0]).toMatchObject({
       name: "penkra",
       localName: "penkra",
       remoteName: "Project",
@@ -459,12 +459,12 @@ describe("store facade", () => {
       vi.resetModules();
 
       const freshStore = await import("./store");
-      const projectId = ContainerId.makeUnsafe("project-1");
+      const folderId = FolderId.makeUnsafe("project-1");
       freshStore.useStore.setState((state) => ({
         ...state,
-        projects: [
+        folders: [
           makeProject({
-            id: projectId,
+            id: folderId,
             name: "penkra",
             localName: "penkra",
           }),
@@ -473,7 +473,7 @@ describe("store facade", () => {
         threadsHydrated: true,
       }));
 
-      freshStore.useStore.getState().renameProjectLocally(projectId, null);
+      freshStore.useStore.getState().renameProjectLocally(folderId, null);
 
       const next = freshStore.syncServerReadModel(
         freshStore.useStore.getState(),
@@ -484,7 +484,7 @@ describe("store facade", () => {
         ),
       );
 
-      expect(next.projects[0]).toMatchObject({
+      expect(next.folders[0]).toMatchObject({
         name: "Project",
         localName: null,
         remoteName: "Project",
@@ -517,12 +517,12 @@ describe("store facade", () => {
       vi.resetModules();
 
       const freshStore = await import("./store");
-      const projectId = ContainerId.makeUnsafe("project-1");
+      const folderId = FolderId.makeUnsafe("project-1");
       freshStore.useStore.setState((state) => ({
         ...state,
-        projects: [
+        folders: [
           makeProject({
-            id: projectId,
+            id: folderId,
             cwd: "/tmp/project",
           }),
         ],
@@ -530,7 +530,7 @@ describe("store facade", () => {
         threadsHydrated: true,
       }));
 
-      freshStore.useStore.getState().renameProjectLocally(projectId, "penkra");
+      freshStore.useStore.getState().renameProjectLocally(folderId, "penkra");
 
       expect(setItem).toHaveBeenCalled();
       expect(JSON.parse(storage.get("penkra:renderer-state:v9") ?? "{}")).toMatchObject({

@@ -3,7 +3,7 @@
 // Layer: UI state logic
 // Exports: recent view types plus MRU update, pruning, and display derivation helpers
 
-import type { ContainerId, ProviderKind, ThreadId } from "@penkra/contracts";
+import type { FolderId, ProviderKind, ThreadId } from "@penkra/contracts";
 import type { Project, SidebarThreadSummary } from "./types";
 
 export const MAX_RECENT_VIEWS = 5;
@@ -39,7 +39,7 @@ export type RecentViewDisplayIcon =
 
 export interface RecentViewThreadDraftSummary {
   id: ThreadId;
-  projectId: ContainerId;
+  folderId: FolderId;
   title?: string | undefined;
   isPinned?: boolean | undefined;
 }
@@ -195,11 +195,11 @@ export function buildRecentViewDisplayEntries(input: {
   currentView: RecentView | null;
   threadsById: Readonly<Record<string, SidebarThreadSummary | undefined>>;
   draftThreadsById?: Readonly<Record<string, RecentViewThreadDraftSummary | undefined>>;
-  projects: readonly Project[];
+  folders: readonly Project[];
   pinnedThreadIds: readonly ThreadId[];
 }): RecentViewDisplayEntry[] {
   const currentKey = input.currentView ? recentViewKey(input.currentView) : null;
-  const projectNameById = new Map(input.projects.map((project) => [project.id, project.name]));
+  const projectNameById = new Map(input.folders.map((project) => [project.id, project.name]));
   const pinnedThreadIds = new Set(input.pinnedThreadIds);
 
   return input.recentViews.map((view) => {
@@ -217,7 +217,7 @@ export function buildRecentViewDisplayEntries(input: {
       case "thread": {
         const summary = input.threadsById[view.threadId];
         const thread = summary ?? input.draftThreadsById?.[view.threadId];
-        const projectName = thread ? projectNameById.get(thread.projectId) : null;
+        const projectName = thread ? projectNameById.get(thread.folderId) : null;
         const provider = summary?.modelSelection.provider;
         const title = normalizeOptionalId(thread?.title) ?? "New chat";
         const subtitleParts = [projectName ?? "Chat", "Chat", base.isSplit ? "Split" : null].filter(

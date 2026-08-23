@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { MessageId, ContainerId, ThreadId } from "@penkra/contracts";
+import type { MessageId, FolderId, ThreadId } from "@penkra/contracts";
 
 import type { AppState } from "./store";
 import {
@@ -8,7 +8,7 @@ import {
   createAllThreadsMessagelessSelector,
   createComposerThreadMentionSourcesSelector,
   createThreadExistsSelector,
-  createThreadProjectIdSelector,
+  createThreadFolderIdSelector,
   createThreadShellsSelector,
   createThreadWorkspaceMetadataSelector,
 } from "./storeSelectors";
@@ -17,13 +17,13 @@ import type { SidebarThreadSummary, ThreadShell } from "./types";
 const threadIdA = "thread-a" as ThreadId;
 const threadIdB = "thread-b" as ThreadId;
 const messageId = "message-1" as MessageId;
-const projectId = "project-1" as ContainerId;
+const folderId = "project-1" as FolderId;
 
-const shellA = { id: threadIdA, projectId, title: "A" } as ThreadShell;
-const shellB = { id: threadIdB, projectId, title: "B" } as ThreadShell;
+const shellA = { id: threadIdA, folderId, title: "A" } as ThreadShell;
+const shellB = { id: threadIdB, folderId, title: "B" } as ThreadShell;
 const summaryA = {
   id: threadIdA,
-  projectId,
+  folderId,
   title: "A",
   modelSelection: { provider: "codex", model: "gpt-5-codex" },
   session: null,
@@ -185,7 +185,7 @@ describe("thread shell route selectors", () => {
     });
 
     expect(createThreadExistsSelector(threadIdA)(state)).toBe(true);
-    expect(createThreadProjectIdSelector(threadIdA)(state)).toBe(projectId);
+    expect(createThreadFolderIdSelector(threadIdA)(state)).toBe(folderId);
   });
 
   it("keeps workspace metadata stable while streaming messages change", () => {
