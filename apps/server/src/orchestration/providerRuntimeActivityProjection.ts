@@ -874,20 +874,20 @@ export function projectProviderRuntimeActivities(
     case "item.updated":
     case "item.completed":
     case "item.started": {
-      if (event.type !== "item.started" && event.payload.itemType === "context_compaction") {
+      if (event.payload.itemType === "context_compaction") {
         const failed = event.type === "item.completed" && event.payload.status === "failed";
+        const inProgress = event.type !== "item.completed";
         return [
           {
             id: event.eventId,
             createdAt: event.createdAt,
             tone: failed ? "error" : "info",
             kind: "context-compaction",
-            summary:
-              event.type === "item.updated"
-                ? "Compacting conversation..."
-                : failed
-                  ? "Context compaction failed"
-                  : "Context compacted",
+            summary: inProgress
+              ? "Compacting conversation..."
+              : failed
+                ? "Context compaction failed"
+                : "Context compacted",
             payload: toActivityPayload({
               itemType: event.payload.itemType,
               status: event.payload.status,

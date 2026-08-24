@@ -56,6 +56,13 @@ const approvedVisualAssetDigests = new Map<string, string>([
   ],
 ]);
 
+const thirdPartyBrandSearchExclusions = [
+  // Dark Reader's upstream compatibility datasets intentionally name external
+  // sites and their selectors. They are neither Penkra-authored identity copy
+  // nor user-facing Penkra branding, so scanning them produces false positives.
+  "apps/desktop/resources/extensions/darkreader/config/",
+] as const;
+
 export interface BrandIdentityFile {
   readonly path: string;
   readonly contents: string;
@@ -74,6 +81,10 @@ export interface BrandIdentityBinaryFile {
 
 function containsForbiddenIdentity(value: string): boolean {
   return forbiddenPatterns.some((pattern) => pattern.test(value));
+}
+
+export function isBrandIdentitySearchablePath(path: string): boolean {
+  return !thirdPartyBrandSearchExclusions.some((prefix) => path.startsWith(prefix));
 }
 
 export function findBrandIdentityViolations(
@@ -131,10 +142,12 @@ function readTrackedFiles(): BrandIdentityBinaryFile[] {
 
 function main(): void {
   const trackedFiles = readTrackedFiles();
-  const searchableFiles = trackedFiles.map((file) => ({
-    path: file.path,
-    contents: file.contents.includes(0) ? "" : Buffer.from(file.contents).toString("utf8"),
-  }));
+  const searchableFiles = trackedFiles
+    .filter((file) => isBrandIdentitySearchablePath(file.path))
+    .map((file) => ({
+      path: file.path,
+      contents: file.contents.includes(0) ? "" : Buffer.from(file.contents).toString("utf8"),
+    }));
   const violations = [
     ...findBrandIdentityViolations(searchableFiles),
     ...findVisualBrandAssetViolations(trackedFiles),

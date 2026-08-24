@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { assert, describe, it } from "@effect/vitest";
 
 import {
+  BROWSER_EXTENSIONS_EXTRA_RESOURCE,
   createDesktopPlatformBuildConfig,
   MAC_ENTITLEMENTS_PATH,
   MAC_INHERITED_ENTITLEMENTS_PATH,
@@ -44,6 +45,7 @@ describe("createDesktopPlatformBuildConfig", () => {
     ]);
     assert.deepStrictEqual(config.extraResources, [
       REQUIRED_APPS_EXTRA_RESOURCE,
+      BROWSER_EXTENSIONS_EXTRA_RESOURCE,
       {
         from: "apps/desktop/prod-resources/native",
         to: "native",
@@ -125,7 +127,10 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.equal((config.win as Record<string, unknown>).icon, "icon.ico");
     assert.equal((config.win as Record<string, unknown>).verifyUpdateCodeSignature, true);
     assert.deepStrictEqual(config.nsis, { perMachine: false, oneClick: true });
-    assert.deepStrictEqual(config.extraResources, [REQUIRED_APPS_EXTRA_RESOURCE]);
+    assert.deepStrictEqual(config.extraResources, [
+      REQUIRED_APPS_EXTRA_RESOURCE,
+      BROWSER_EXTENSIONS_EXTRA_RESOURCE,
+    ]);
   });
 
   it("rejects signed Windows artifacts until deferred Azure signing is implemented", () => {
@@ -150,7 +155,10 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.deepStrictEqual((config.linux as Record<string, unknown>).target, ["AppImage"]);
     assert.equal((config.linux as Record<string, unknown>).icon, "icon.png");
     assert.equal((config.linux as Record<string, unknown>).category, "Development");
-    assert.deepStrictEqual(config.extraResources, [REQUIRED_APPS_EXTRA_RESOURCE]);
+    assert.deepStrictEqual(config.extraResources, [
+      REQUIRED_APPS_EXTRA_RESOURCE,
+      BROWSER_EXTENSIONS_EXTRA_RESOURCE,
+    ]);
   });
 
   it("uses the canonical Pencil-derived Penkra artwork for every macOS icon path", () => {

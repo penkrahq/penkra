@@ -11,7 +11,7 @@ const validManifest = {
   version: "0.1.0",
   compatibility: { penkra: ">=0.8.0" },
   icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
-  entrypoints: { app: "app.html", operations: "operations.html" },
+  entrypoints: { app: "app.html", operations: "operations.js" },
   permissions: [{ name: "network-fetch", required: true, reason: "Load the Penkra App catalog." }],
   operations: [
     {

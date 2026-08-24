@@ -1,5 +1,5 @@
 // FILE: appRuntimeLifecycle.ts
-// Purpose: Reconciles persisted Space enablement with App sessions and isolated controllers.
+// Purpose: Reconciles persisted Space enablement with App sessions and Node controllers.
 // Layer: Trusted desktop App runtime
 
 import {

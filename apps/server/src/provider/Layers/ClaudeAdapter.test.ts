@@ -3770,6 +3770,48 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
+  it.effect("maps Claude compacting status to visible context compaction progress", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEventFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "item.updated"),
+        Stream.runHead,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "status",
+        status: "compacting",
+        session_id: "sdk-session-compacting",
+        uuid: "status-compacting",
+      } as unknown as SDKMessage);
+
+      const runtimeEvent = yield* Fiber.join(runtimeEventFiber);
+      assert.equal(runtimeEvent._tag, "Some");
+      if (runtimeEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(runtimeEvent.value.type, "item.updated");
+      if (runtimeEvent.value.type !== "item.updated") {
+        return;
+      }
+      assert.equal(runtimeEvent.value.payload.itemType, "context_compaction");
+      assert.equal(runtimeEvent.value.payload.status, "inProgress");
+      assert.equal(runtimeEvent.value.payload.detail, "Compacting context");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("retires a subagent on a terminal task_updated without task_notification", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

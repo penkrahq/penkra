@@ -60,6 +60,7 @@ interface RecordChatScrollDiagnosticInput {
 }
 
 const MAX_SAMPLES = 2_000;
+const PERSISTED_ENABLE_KEY = "penkra:chat-scroll-diagnostics-enabled";
 const state = {
   enabled: false,
   logToConsole: false,
@@ -67,6 +68,28 @@ const state = {
   nextSequence: 1,
   samples: [] as ChatScrollDiagnosticSample[],
 };
+
+function persistEnabled(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (enabled) {
+      window.localStorage.setItem(PERSISTED_ENABLE_KEY, "true");
+    } else {
+      window.localStorage.removeItem(PERSISTED_ENABLE_KEY);
+    }
+  } catch {
+    // Diagnostics must remain optional when storage is unavailable.
+  }
+}
+
+function readPersistedEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(PERSISTED_ENABLE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 
 function diagnosticsAvailable(): boolean {
   return import.meta.env.DEV && typeof performance !== "undefined";
@@ -159,11 +182,13 @@ export function enableChatScrollDiagnostics(options?: { logToConsole?: boolean }
   if (!diagnosticsAvailable()) return;
   state.enabled = true;
   state.logToConsole = options?.logToConsole ?? false;
+  persistEnabled(true);
 }
 
 export function disableChatScrollDiagnostics(): void {
   state.enabled = false;
   state.logToConsole = false;
+  persistEnabled(false);
 }
 
 export function resetChatScrollDiagnostics(): void {
@@ -192,6 +217,7 @@ declare global {
 }
 
 if (import.meta.env.DEV && typeof window !== "undefined") {
+  state.enabled = readPersistedEnabled();
   window.penkraChatScroll = {
     enable: enableChatScrollDiagnostics,
     disable: disableChatScrollDiagnostics,

@@ -57,6 +57,7 @@ describe("desktop App runtime composition", () => {
     const runtime = await startDesktopAppRuntime({
       userDataPath: root,
       appPreloadPath: "/trusted/appPreload.js",
+      appControllerRunnerPath: "/trusted/appNodeControllerRunner.js",
       appFrameRuntimePath: "/trusted/appFrameRuntime.iife.js",
       ipcMain: ipcMain as never,
       onTabOpened: () => undefined,

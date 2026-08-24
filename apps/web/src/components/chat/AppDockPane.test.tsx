@@ -20,6 +20,7 @@ describe("AppDockPane", () => {
     expect(html).toContain('aria-label="Loading Figma"');
     expect(html).toContain('sandbox="allow-forms allow-modals allow-same-origin allow-scripts"');
     expect(html).toContain('data-app-tab-id="tab-1"');
+    expect(html).toContain('name="penkra-app-tab:tab-1"');
     expect(html).toContain("data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=");
     expect(html).not.toContain("Loading App");
   });

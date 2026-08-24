@@ -4,11 +4,16 @@
 // Depends on: Electron BrowserWindow/WebContentsView, shared browser IPC contracts
 
 import * as Crypto from "node:crypto";
+import * as FS from "node:fs";
+import * as Path from "node:path";
 
 import {
+  app,
   BrowserWindow,
   clipboard,
   nativeImage,
+  screen,
+  session,
   View,
   webContents as electronWebContents,
   WebContentsView,
@@ -45,10 +50,6 @@ import { BROWSER_SESSION_PARTITION, BrowserSessionPolicy } from "./browserSessio
 import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
 
 export { BROWSER_SESSION_PARTITION } from "./browserSessionPolicy";
-const BROWSER_INACTIVE_TAB_SUSPEND_DELAY_MS = 1_500;
-const BROWSER_INACTIVE_TAB_SUSPEND_DELAY_PRESSURED_MS = 400;
-const BROWSER_MAX_WARM_INACTIVE_RUNTIMES_PER_THREAD = 1;
-const BROWSER_THREAD_SUSPEND_DELAY_MS = 30_000;
 const BROWSER_ERROR_ABORTED = -3;
 const BROWSER_INTERNAL_ERROR_URL_PREFIX = "chrome-error://";
 const BROWSER_FAVICON_MAX_BYTES = 1024 * 1024;
@@ -90,6 +91,19 @@ interface PendingRuntimeSync {
   faviconUrls?: string[];
 }
 
+interface BrowserExtensionRuntime {
+  id: string;
+  name: string;
+  iconDataUrl: string;
+  popupUrl: string;
+}
+
+export interface BrowserExtensionAction {
+  id: string;
+  name: string;
+  iconDataUrl: string;
+}
+
 const LIVE_TAB_STATUS: BrowserTabState["status"] = "live";
 const SUSPENDED_TAB_STATUS: BrowserTabState["status"] = "suspended";
 
@@ -103,9 +117,6 @@ interface BrowserPerformanceSnapshot {
     stateCloneCount: number;
     runtimeSyncQueueFlushes: number;
     syncRuntimeStateCalls: number;
-    inactiveTabSuspendScheduled: number;
-    inactiveTabSuspendCancelled: number;
-    inactiveTabBudgetEvictions: number;
     warmInactiveRuntimeCount: number;
   };
   trackedProcessIds: number[];
@@ -265,6 +276,35 @@ function browserBoundsSignature(bounds: BrowserPanelBounds | null): string {
   return `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}`;
 }
 
+function resolveBuiltInExtensionPath(name: string): string | null {
+  const candidates = [
+    Path.join(__dirname, "../resources/extensions", name),
+    Path.join(__dirname, "../prod-resources/extensions", name),
+    ...(typeof process.resourcesPath === "string"
+      ? [
+          Path.join(process.resourcesPath, "extensions", name),
+          Path.join(process.resourcesPath, "resources/extensions", name),
+        ]
+      : []),
+    Path.join(app.getAppPath(), "apps/desktop/resources/extensions", name),
+  ];
+  return (
+    candidates.find((candidate) => FS.existsSync(Path.join(candidate, "manifest.json"))) ?? null
+  );
+}
+
+function resolveManifestIconPath(
+  value: string | Record<string, string> | undefined,
+): string | null {
+  if (typeof value === "string") return value;
+  if (!value) return null;
+  const entries = Object.entries(value)
+    .map(([size, path]) => ({ size: Number(size), path }))
+    .filter((entry) => Number.isFinite(entry.size) && typeof entry.path === "string")
+    .sort((left, right) => right.size - left.size);
+  return entries[0]?.path ?? null;
+}
+
 export class DesktopBrowserManager {
   private window: BrowserWindow | null = null;
   private activeThreadId: ThreadId | null = null;
@@ -290,9 +330,16 @@ export class DesktopBrowserManager {
   // OAuth/sign-in popups opened by pages via `window.open`. Tracked so they can be sized over
   // the panel and torn down cleanly without leaking native windows.
   private readonly popupRuntimes = new Map<BrowserWindow, OAuthPopupRuntime>();
+  private readonly extensionLoadByPartition = new Map<
+    string,
+    Promise<ReadonlyArray<BrowserExtensionRuntime>>
+  >();
+  private readonly extensionsByPartition = new Map<
+    string,
+    ReadonlyArray<BrowserExtensionRuntime>
+  >();
+  private extensionPopupWindow: BrowserWindow | null = null;
   private readonly sessionPolicy = new BrowserSessionPolicy();
-  private readonly tabSuspendTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly suspendTimers = new Map<ThreadId, ReturnType<typeof setTimeout>>();
   private runtimeSyncFlushScheduled = false;
   private readonly perfCounters = {
     setPanelBoundsCalls: 0,
@@ -303,9 +350,6 @@ export class DesktopBrowserManager {
     stateCloneCount: 0,
     runtimeSyncQueueFlushes: 0,
     syncRuntimeStateCalls: 0,
-    inactiveTabSuspendScheduled: 0,
-    inactiveTabSuspendCancelled: 0,
-    inactiveTabBudgetEvictions: 0,
     warmInactiveRuntimeCount: 0,
   };
 
@@ -335,6 +379,7 @@ export class DesktopBrowserManager {
     this.detachAttachedRuntime();
     this.destroyAllRuntimes();
     this.closeAllPopupWindows();
+    this.closeExtensionPopup();
     this.destroyHostedContainers();
   }
 
@@ -353,6 +398,105 @@ export class DesktopBrowserManager {
     this.sessionPartitionByThreadId.set(threadId, partition);
   }
 
+  async prepareExtensions(threadId: ThreadId): Promise<void> {
+    const partition = this.sessionPartition(threadId);
+    let load = this.extensionLoadByPartition.get(partition);
+    if (!load) {
+      load = this.loadBuiltInExtensions(partition);
+      this.extensionLoadByPartition.set(partition, load);
+    }
+    this.extensionsByPartition.set(partition, await load);
+  }
+
+  extensionActions(threadId: ThreadId): ReadonlyArray<BrowserExtensionAction> {
+    return (this.extensionsByPartition.get(this.sessionPartition(threadId)) ?? []).map(
+      ({ id, name, iconDataUrl }) => ({ id, name, iconDataUrl }),
+    );
+  }
+
+  async openExtensionAction(input: {
+    threadId: ThreadId;
+    extensionId: string;
+    tabId: string;
+  }): Promise<void> {
+    await this.prepareExtensions(input.threadId);
+    const extension = (
+      this.extensionsByPartition.get(this.sessionPartition(input.threadId)) ?? []
+    ).find((candidate) => candidate.id === input.extensionId);
+    if (!extension) throw new Error("Browser extension is not available in this session.");
+
+    const state = this.states.get(input.threadId);
+    if (!state || !this.getTab(state, input.tabId)) throw new Error("Browser page was not found.");
+    const runtime = this.ensureLiveRuntime(input.threadId, input.tabId);
+    runtime.webContents.focus();
+    const extensionOrigin = new URL(extension.popupUrl).origin;
+    const background = electronWebContents
+      .getAllWebContents()
+      .find(
+        (contents) =>
+          contents.session === runtime.webContents.session &&
+          contents.getURL().startsWith(`${extensionOrigin}/background/`),
+      );
+    if (background && !background.isDestroyed()) {
+      await background.executeJavaScript(
+        `globalThis.__penkraActiveTabId = ${runtime.webContents.id}`,
+        true,
+      );
+    }
+
+    if (this.extensionPopupWindow && !this.extensionPopupWindow.isDestroyed()) {
+      this.extensionPopupWindow.destroy();
+    }
+
+    const popup = new BrowserWindow({
+      width: 272,
+      height: 512,
+      show: false,
+      frame: false,
+      resizable: false,
+      fullscreenable: false,
+      maximizable: false,
+      minimizable: false,
+      skipTaskbar: true,
+      ...(this.window && !this.window.isDestroyed() ? { parent: this.window } : {}),
+      webPreferences: {
+        partition: this.sessionPartition(input.threadId),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    this.extensionPopupWindow = popup;
+    popup.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) {
+        this.newTab({ threadId: input.threadId, url, activate: true });
+      }
+      return { action: "deny" };
+    });
+    popup.once("closed", () => {
+      if (this.extensionPopupWindow === popup) this.extensionPopupWindow = null;
+    });
+    popup.on("blur", () => {
+      if (!popup.isDestroyed()) popup.close();
+    });
+    popup.webContents.once("did-finish-load", () => {
+      if (popup.isDestroyed()) return;
+      const cursor = screen.getCursorScreenPoint();
+      const display = screen.getDisplayNearestPoint(cursor).workArea;
+      const bounds = popup.getBounds();
+      popup.setPosition(
+        Math.min(
+          Math.max(display.x, cursor.x - bounds.width),
+          display.x + display.width - bounds.width,
+        ),
+        Math.min(Math.max(display.y, cursor.y + 8), display.y + display.height - bounds.height),
+        false,
+      );
+      popup.showInactive();
+    });
+    await popup.loadURL(extension.popupUrl);
+  }
+
   pageForWebContentsId(webContentsId: number): { threadId: ThreadId; pageId: string } | null {
     for (const runtime of this.runtimes.values()) {
       if (runtime.webContents.id === webContentsId) {
@@ -368,6 +512,42 @@ export class DesktopBrowserManager {
 
   private sessionPartition(threadId: ThreadId): string {
     return this.sessionPartitionByThreadId.get(threadId) ?? BROWSER_SESSION_PARTITION;
+  }
+
+  private async loadBuiltInExtensions(
+    partition: string,
+  ): Promise<ReadonlyArray<BrowserExtensionRuntime>> {
+    const extensionPath = resolveBuiltInExtensionPath("darkreader");
+    if (!extensionPath) {
+      console.warn("Dark Reader resources were not found; Browser extension support is disabled.");
+      return [];
+    }
+    try {
+      const loaded = await session.fromPartition(partition).extensions.loadExtension(extensionPath);
+      const manifest = loaded.manifest as {
+        browser_action?: {
+          default_icon?: string | Record<string, string>;
+          default_popup?: string;
+        };
+      };
+      const action = manifest.browser_action;
+      if (!action?.default_popup) return [];
+      const iconPath = resolveManifestIconPath(action.default_icon);
+      const icon = iconPath
+        ? nativeImage.createFromPath(Path.join(extensionPath, iconPath))
+        : nativeImage.createEmpty();
+      return [
+        {
+          id: loaded.id,
+          name: loaded.name,
+          iconDataUrl: icon.isEmpty() ? "" : icon.toDataURL(),
+          popupUrl: new URL(action.default_popup, loaded.url).toString(),
+        },
+      ];
+    } catch (error) {
+      console.warn("Dark Reader could not be loaded into the Browser session.", error);
+      return [];
+    }
   }
 
   subscribeCopyLink(listener: BrowserCopyLinkListener): () => void {
@@ -644,17 +824,10 @@ export class DesktopBrowserManager {
   }
 
   dispose(): void {
-    for (const timer of this.suspendTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.suspendTimers.clear();
-    for (const timer of this.tabSuspendTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.tabSuspendTimers.clear();
     this.detachAttachedRuntime();
     this.destroyAllRuntimes();
     this.closeAllPopupWindows();
+    this.closeExtensionPopup();
     this.pendingRuntimeSyncs.clear();
     this.runtimeLastActiveAtByKey.clear();
     this.listeners.clear();
@@ -671,6 +844,13 @@ export class DesktopBrowserManager {
     this.attachedBoundsSignature = null;
     this.attachedParentView = null;
     this.runtimeSyncFlushScheduled = false;
+  }
+
+  private closeExtensionPopup(): void {
+    if (this.extensionPopupWindow && !this.extensionPopupWindow.isDestroyed()) {
+      this.extensionPopupWindow.destroy();
+    }
+    this.extensionPopupWindow = null;
   }
 
   getPerformanceSnapshot(): BrowserPerformanceSnapshot {
@@ -723,8 +903,6 @@ export class DesktopBrowserManager {
   }
 
   close(input: BrowserThreadInput): ThreadBrowserState {
-    this.clearSuspendTimer(input.threadId);
-
     if (this.activeThreadId === input.threadId) {
       this.detachAttachedRuntime();
       this.activeThreadId = null;
@@ -754,11 +932,7 @@ export class DesktopBrowserManager {
       this.activeThreadId = null;
     }
 
-    if (!state?.open) {
-      return;
-    }
-
-    this.scheduleThreadSuspend(input.threadId);
+    if (!state?.open) return;
   }
 
   getState(input: BrowserThreadInput): ThreadBrowserState {
@@ -779,7 +953,6 @@ export class DesktopBrowserManager {
       if (this.activeThreadId === input.threadId) {
         this.detachAttachedRuntime();
         this.activeThreadId = null;
-        this.scheduleThreadSuspend(input.threadId);
       }
       return;
     }
@@ -964,6 +1137,9 @@ export class DesktopBrowserManager {
       return;
     }
 
+    // A real page close/unmount may race a queued navigation-state update. Capture the live URL
+    // synchronously before releasing the adopted guest so a later reconstruction is never stale.
+    this.syncRuntimeState(input.threadId, input.tabId);
     this.destroyRuntime(input.threadId, input.tabId);
     const didChange = suspendTabState(tab) || syncThreadLastError(state);
     if (didChange) {
@@ -995,7 +1171,6 @@ export class DesktopBrowserManager {
       // Load the target tab directly so we don't clobber its pending URL with a
       // thread-wide runtime sync from the old live page state.
       const nextRuntime = this.ensureLiveRuntime(input.threadId, tab.id);
-      this.clearSuspendTimer(input.threadId);
       const bounds = this.getVisibleBoundsForThread(input.threadId);
       if (state.activeTabId === tab.id && bounds) {
         this.attachRuntime(nextRuntime, bounds);
@@ -1327,10 +1502,6 @@ export class DesktopBrowserManager {
 
   private activateThread(threadId: ThreadId, bounds: BrowserPanelBounds): void {
     const previousThreadId = this.activeThreadId;
-    if (this.activeThreadId && this.activeThreadId !== threadId) {
-      this.scheduleThreadSuspend(this.activeThreadId);
-    }
-
     this.activeThreadId = threadId;
     this.activeBounds = bounds;
     this.activeBoundsThreadId = threadId;
@@ -1347,13 +1518,11 @@ export class DesktopBrowserManager {
   private activateThreadForPendingRenderer(threadId: ThreadId, bounds: BrowserPanelBounds): void {
     const previousThreadId = this.activeThreadId;
     if (previousThreadId && previousThreadId !== threadId) {
-      this.scheduleThreadSuspend(previousThreadId);
       this.updatePopupWindowsForThread(previousThreadId);
     }
     this.activeThreadId = threadId;
     this.activeBounds = bounds;
     this.activeBoundsThreadId = threadId;
-    this.clearSuspendTimer(threadId);
     this.updatePopupWindowsForThread(threadId);
   }
 
@@ -1384,9 +1553,8 @@ export class DesktopBrowserManager {
       return;
     }
 
-    this.clearSuspendTimer(threadId);
     const activeTab = this.getActiveTab(state);
-    let didChange = this.suspendInactiveTabs(threadId, activeTab?.id ?? null);
+    let didChange = false;
 
     // Only resume the visible tab. Waking every tab can fan out into several
     // Chromium renderer processes and background page activity at once.
@@ -1410,137 +1578,6 @@ export class DesktopBrowserManager {
     }
   }
 
-  private suspendInactiveTabs(threadId: ThreadId, activeTabId: string | null): boolean {
-    const state = this.states.get(threadId);
-    if (!state) {
-      return false;
-    }
-
-    let didChange = false;
-    const inactiveRuntimeTabIds = state.tabs
-      .filter((tab) => tab.id !== activeTabId)
-      .filter((tab) => this.runtimes.has(buildRuntimeKey(threadId, tab.id)))
-      .sort((left, right) => {
-        const leftKey = buildRuntimeKey(threadId, left.id);
-        const rightKey = buildRuntimeKey(threadId, right.id);
-        return (
-          (this.runtimeLastActiveAtByKey.get(rightKey) ?? 0) -
-          (this.runtimeLastActiveAtByKey.get(leftKey) ?? 0)
-        );
-      });
-    const warmRuntimeTabIds = new Set(
-      inactiveRuntimeTabIds
-        .slice(0, BROWSER_MAX_WARM_INACTIVE_RUNTIMES_PER_THREAD)
-        .map((tab) => tab.id),
-    );
-
-    for (const tab of state.tabs) {
-      if (tab.id === activeTabId) {
-        this.clearTabSuspendTimer(threadId, tab.id);
-        continue;
-      }
-
-      const runtime = this.runtimes.get(buildRuntimeKey(threadId, tab.id));
-      if (runtime) {
-        if (warmRuntimeTabIds.has(tab.id)) {
-          this.scheduleInactiveTabSuspend(threadId, tab.id);
-          continue;
-        }
-
-        this.perfCounters.inactiveTabBudgetEvictions += 1;
-        this.destroyRuntime(threadId, tab.id);
-        didChange = suspendTabState(tab) || didChange;
-        continue;
-      }
-
-      didChange = suspendTabState(tab) || didChange;
-    }
-
-    return didChange;
-  }
-
-  private scheduleThreadSuspend(threadId: ThreadId): void {
-    const state = this.states.get(threadId);
-    if (!state?.open || this.activeThreadId === threadId) {
-      return;
-    }
-
-    this.clearSuspendTimer(threadId);
-    const timer = setTimeout(() => {
-      this.suspendThread(threadId);
-      this.suspendTimers.delete(threadId);
-    }, BROWSER_THREAD_SUSPEND_DELAY_MS);
-    timer.unref();
-    this.suspendTimers.set(threadId, timer);
-  }
-
-  private suspendThread(threadId: ThreadId): void {
-    const state = this.states.get(threadId);
-    if (!state || this.activeThreadId === threadId) {
-      return;
-    }
-
-    let didChange = false;
-    for (const tab of state.tabs) {
-      this.destroyRuntime(threadId, tab.id);
-      didChange = suspendTabState(tab) || didChange;
-    }
-
-    didChange = syncThreadLastError(state) || didChange;
-    if (didChange) {
-      this.markThreadStateChanged(threadId);
-      this.emitState(threadId);
-    }
-  }
-
-  private clearSuspendTimer(threadId: ThreadId): void {
-    const existing = this.suspendTimers.get(threadId);
-    if (!existing) {
-      return;
-    }
-    clearTimeout(existing);
-    this.suspendTimers.delete(threadId);
-  }
-
-  private scheduleInactiveTabSuspend(threadId: ThreadId, tabId: string): void {
-    const key = buildRuntimeKey(threadId, tabId);
-    if (this.tabSuspendTimers.has(key)) {
-      return;
-    }
-
-    this.perfCounters.inactiveTabSuspendScheduled += 1;
-    const delayMs = this.resolveInactiveTabSuspendDelay(threadId);
-    const timer = setTimeout(() => {
-      this.tabSuspendTimers.delete(key);
-      const state = this.states.get(threadId);
-      const tab = state ? this.getTab(state, tabId) : null;
-      if (!state || !tab) {
-        return;
-      }
-
-      this.destroyRuntime(threadId, tabId);
-      const didChange = suspendTabState(tab) || syncThreadLastError(state);
-      if (didChange) {
-        this.markThreadStateChanged(threadId);
-        this.emitState(threadId);
-      }
-    }, delayMs);
-    timer.unref();
-    this.tabSuspendTimers.set(key, timer);
-  }
-
-  private clearTabSuspendTimer(threadId: ThreadId, tabId: string): void {
-    const key = buildRuntimeKey(threadId, tabId);
-    const existing = this.tabSuspendTimers.get(key);
-    if (!existing) {
-      return;
-    }
-
-    clearTimeout(existing);
-    this.tabSuspendTimers.delete(key);
-    this.perfCounters.inactiveTabSuspendCancelled += 1;
-  }
-
   private attachActiveTab(
     threadId: ThreadId,
     bounds: BrowserPanelBounds,
@@ -1552,7 +1589,6 @@ export class DesktopBrowserManager {
       return;
     }
 
-    this.suspendInactiveTabs(threadId, activeTab.id);
     const wasSuspended = activeTab.status === SUSPENDED_TAB_STATUS;
     const runtime = this.ensureLiveRuntime(threadId, activeTab.id);
     this.attachRuntime(runtime, bounds);
@@ -1689,7 +1725,6 @@ export class DesktopBrowserManager {
 
   private ensureLiveRuntime(threadId: ThreadId, tabId: string): LiveTabRuntime {
     const key = buildRuntimeKey(threadId, tabId);
-    this.clearTabSuspendTimer(threadId, tabId);
     const existing = this.runtimes.get(key);
     if (existing) {
       if (existing.webContents.isDestroyed()) {
@@ -2126,7 +2161,6 @@ export class DesktopBrowserManager {
 
   private destroyRuntime(threadId: ThreadId, tabId: string): void {
     const key = buildRuntimeKey(threadId, tabId);
-    this.clearTabSuspendTimer(threadId, tabId);
     this.pendingRuntimeSyncs.delete(key);
     this.runtimeLastActiveAtByKey.delete(key);
     const runtime = this.runtimes.get(key);
@@ -2220,26 +2254,13 @@ export class DesktopBrowserManager {
 
   private countWarmInactiveRuntimes(): number {
     let count = 0;
-    for (const [key] of this.tabSuspendTimers) {
-      if (this.runtimes.has(key)) {
-        count += 1;
-      }
+    for (const runtime of this.runtimes.values()) {
+      const state = this.states.get(runtime.threadId);
+      const isPresented =
+        runtime.threadId === this.activeThreadId && state?.activeTabId === runtime.tabId;
+      if (!isPresented) count += 1;
     }
     return count;
-  }
-
-  private resolveInactiveTabSuspendDelay(threadId: ThreadId): number {
-    const threadRuntimeCount = [...this.runtimes.values()].filter(
-      (runtime) => runtime.threadId === threadId,
-    ).length;
-    if (
-      threadRuntimeCount > BROWSER_MAX_WARM_INACTIVE_RUNTIMES_PER_THREAD + 1 ||
-      this.runtimes.size > 4
-    ) {
-      return BROWSER_INACTIVE_TAB_SUSPEND_DELAY_PRESSURED_MS;
-    }
-
-    return BROWSER_INACTIVE_TAB_SUSPEND_DELAY_MS;
   }
 
   private ensureWorkspace(threadId: ThreadId, initialUrl?: string): ThreadBrowserState {

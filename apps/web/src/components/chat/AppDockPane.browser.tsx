@@ -343,6 +343,131 @@ describe("AppDockPane Runtime v2 frame", () => {
     expect(bridge.browserWebviewDetach).not.toHaveBeenCalled();
   });
 
+  it("retains every Browser page while presentation switches between pages and Apps", async () => {
+    const bridge = installBridge();
+    function Harness() {
+      const [visible, setVisible] = useState(true);
+      return (
+        <>
+          <button onClick={() => setVisible((current) => !current)} type="button">
+            Toggle Browser
+          </button>
+          <div className="h-80 w-[640px]">
+            <AppDockPane
+              appName="Browser"
+              documentUrl={FRAME_DOCUMENT}
+              rendererId={-3}
+              status="ready"
+              tabId="retained-browser-tab"
+              visible={visible}
+            />
+          </div>
+        </>
+      );
+    }
+
+    await render(<Harness />);
+    await vi.waitFor(() => expect(bridge.frameReady).toHaveBeenCalledOnce());
+    const pages = [
+      { id: "page-login", url: "https://identity.example/login", title: "Sign in" },
+      { id: "page-console", url: "https://console.example/dashboard", title: "Console" },
+    ];
+    bridge.emitHostMessage({
+      tabId: "retained-browser-tab",
+      rendererId: -3,
+      delivery: {
+        kind: "event",
+        name: "browser.state",
+        payload: { activePageId: "page-login", pages },
+      },
+    });
+    bridge.emitHostMessage({
+      tabId: "retained-browser-tab",
+      rendererId: -3,
+      delivery: {
+        kind: "event",
+        name: "browser.surface",
+        payload: {
+          partition: "persist:retained-browser",
+          insets: { top: 44, right: 8, bottom: 16, left: 8 },
+        },
+      },
+    });
+
+    await vi.waitFor(() => expect(document.querySelectorAll("webview")).toHaveLength(2));
+    const webviews = Array.from(document.querySelectorAll("webview")) as Array<
+      HTMLElement & { getWebContentsId(): number }
+    >;
+    const loginWebview = webviews[0]!;
+    const consoleWebview = webviews[1]!;
+    loginWebview.getWebContentsId = () => 81;
+    consoleWebview.getWebContentsId = () => 82;
+    loginWebview.dispatchEvent(new Event("dom-ready"));
+    consoleWebview.dispatchEvent(new Event("dom-ready"));
+    await vi.waitFor(() => expect(bridge.browserWebviewAttach).toHaveBeenCalledTimes(2));
+    expect(loginWebview.style.visibility).toBe("visible");
+    expect(consoleWebview.style.visibility).toBe("hidden");
+
+    bridge.emitHostMessage({
+      tabId: "retained-browser-tab",
+      rendererId: -3,
+      delivery: {
+        kind: "event",
+        name: "browser.state",
+        payload: { activePageId: "page-console", pages },
+      },
+    });
+    await vi.waitFor(() => expect(consoleWebview.style.visibility).toBe("visible"));
+    expect(loginWebview.style.visibility).toBe("hidden");
+    expect(Array.from(document.querySelectorAll("webview"))).toEqual([
+      loginWebview,
+      consoleWebview,
+    ]);
+    expect(bridge.browserWebviewDetach).not.toHaveBeenCalled();
+
+    await page.getByRole("button", { name: "Toggle Browser" }).click();
+    await vi.waitFor(() =>
+      expect(bridge.setActive).toHaveBeenLastCalledWith({
+        tabId: "retained-browser-tab",
+        rendererId: -3,
+        active: false,
+      }),
+    );
+    expect(loginWebview.style.visibility).toBe("hidden");
+    expect(consoleWebview.style.visibility).toBe("hidden");
+    bridge.emitHostMessage({
+      tabId: "retained-browser-tab",
+      rendererId: -3,
+      delivery: { kind: "event", name: "browser.surface", payload: null },
+    });
+    expect(Array.from(document.querySelectorAll("webview"))).toEqual([
+      loginWebview,
+      consoleWebview,
+    ]);
+    expect(bridge.browserWebviewDetach).not.toHaveBeenCalled();
+
+    await page.getByRole("button", { name: "Toggle Browser" }).click();
+    bridge.emitHostMessage({
+      tabId: "retained-browser-tab",
+      rendererId: -3,
+      delivery: {
+        kind: "event",
+        name: "browser.surface",
+        payload: {
+          partition: "persist:retained-browser",
+          insets: { top: 44, right: 8, bottom: 16, left: 8 },
+        },
+      },
+    });
+    await vi.waitFor(() => expect(consoleWebview.style.visibility).toBe("visible"));
+    expect(Array.from(document.querySelectorAll("webview"))).toEqual([
+      loginWebview,
+      consoleWebview,
+    ]);
+    expect(bridge.browserWebviewAttach).toHaveBeenCalledTimes(2);
+    expect(bridge.browserWebviewDetach).not.toHaveBeenCalled();
+  });
+
   it("keeps both Browser surface edges locked during rapid host-only resizing", async () => {
     const bridge = installBridge();
     function Harness() {

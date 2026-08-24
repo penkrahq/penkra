@@ -33,6 +33,7 @@ function createBrowserMock(): PenkraAppRuntimeApi["browser"] {
     newPage: vi.fn(),
     closePage: vi.fn(),
     selectPage: vi.fn(),
+    openExtensionAction: vi.fn(),
     find: vi.fn(),
     stopFind: vi.fn(),
     capture: vi.fn(),

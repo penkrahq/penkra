@@ -15,7 +15,7 @@ function installedApp(): InstalledAppPackage {
     version: "0.1.0",
     compatibility: { penkra: ">=0.8.0" },
     icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
-    entrypoints: { app: "app.html", operations: "operations.html" },
+    entrypoints: { app: "app.html", operations: "operations.js" },
   } as const;
   return {
     appId: manifest.id,
@@ -204,6 +204,47 @@ describe("ElectronAppTabHost", () => {
         status: "loading",
       }),
     ]);
+  });
+
+  it("does not block an App update on navigation for an unmounted background tab", async () => {
+    const app = installedApp();
+    const rpc = createRpcMock();
+    rpc.request.mockReturnValue(new Promise(() => undefined));
+    const host = new ElectronAppTabHost({
+      installations: {
+        snapshot: () => ({ packagesByInstallationKey: { [`personal\0${app.appId}`]: app } }),
+        isActive: () => true,
+        setEnabled: vi.fn(),
+      } as never,
+      sessions: {
+        get: () => ({ appId: app.appId, spaceId: "personal", origin: TEST_ORIGIN }) as never,
+      },
+      frameDocuments: { activate: async () => "/app.html" },
+      broker: { registerTab: vi.fn(() => vi.fn()) },
+      rpc,
+      ipcBridge: { waitForReady: vi.fn(async () => undefined) },
+      onOpened: vi.fn(),
+      onState: vi.fn(),
+    });
+
+    await expect(
+      host.restoreAfterUpdate(app.appId, "personal", [
+        {
+          id: "background-tab",
+          threadId: "background-thread",
+          route: "/document/7",
+          state: { page: 3 },
+        },
+      ]),
+    ).resolves.toBeUndefined();
+
+    expect(host.list()).toEqual([
+      expect.objectContaining({ id: "background-tab", route: "/document/7", status: "loading" }),
+    ]);
+    expect(rpc.request).toHaveBeenCalledWith(-1, "tab.navigate", {
+      route: "/document/7",
+      state: { page: 3 },
+    });
   });
 
   it("replays complete navigation when an existing tab frame reconnects", async () => {

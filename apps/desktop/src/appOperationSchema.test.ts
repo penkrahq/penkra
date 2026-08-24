@@ -66,7 +66,7 @@ describe("App operation schema boundary", () => {
         version: "1.0.0",
         compatibility: { penkra: ">=0.11.1" },
         icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-        entrypoints: { app: "app.html", operations: "operations.html" },
+        entrypoints: { app: "app.html", operations: "operations.js" },
         operations: [
           { ...declaration, examples: [{ name: "Invalid issue", input: { title: "" } }] },
         ],

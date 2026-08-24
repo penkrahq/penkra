@@ -104,11 +104,18 @@ export interface AppBrowserPage {
   lastError: string | null;
 }
 
+export interface AppBrowserExtensionAction {
+  id: string;
+  name: string;
+  iconDataUrl: string;
+}
+
 export interface AppBrowserSessionState {
   version: number;
   open: boolean;
   activePageId: string | null;
   pages: ReadonlyArray<AppBrowserPage>;
+  extensionActions: ReadonlyArray<AppBrowserExtensionAction>;
   lastError: string | null;
 }
 
@@ -299,6 +306,7 @@ export interface PenkraAppRuntimeApi {
     newPage(input?: { url?: string; activate?: boolean }): Promise<AppBrowserSessionState>;
     closePage(pageId: string): Promise<AppBrowserSessionState>;
     selectPage(pageId: string): Promise<AppBrowserSessionState>;
+    openExtensionAction(input: { extensionId: string; pageId: string }): Promise<void>;
     find(input: {
       pageId: string;
       text: string;
@@ -475,6 +483,7 @@ export const browser: PenkraAppRuntimeApi["browser"] = {
   newPage: (input) => runtime().browser.newPage(input),
   closePage: (pageId) => runtime().browser.closePage(pageId),
   selectPage: (pageId) => runtime().browser.selectPage(pageId),
+  openExtensionAction: (input) => runtime().browser.openExtensionAction(input),
   find: (input) => runtime().browser.find(input),
   stopFind: (pageId) => runtime().browser.stopFind(pageId),
   capture: (pageId) => runtime().browser.capture(pageId),

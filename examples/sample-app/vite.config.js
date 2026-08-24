@@ -8,7 +8,7 @@ export default defineConfig({
     emptyOutDir: true,
     outDir: "dist",
     rollupOptions: {
-      input: { app: path.join(root, "app.html"), operations: path.join(root, "operations.html") },
+      input: { app: path.join(root, "app.html") },
     },
   },
   plugins: [
@@ -17,6 +17,7 @@ export default defineConfig({
       closeBundle() {
         for (const file of ["penkra-app.json", "README.md", "INSTRUCTIONS.md", "icon.svg"])
           fs.copyFileSync(path.join(root, file), path.join(root, "dist", file));
+        fs.writeFileSync(path.join(root, "dist", "package.json"), '{"type":"module"}\n');
         fs.cpSync(path.join(root, "skills"), path.join(root, "dist", "skills"), {
           recursive: true,
         });

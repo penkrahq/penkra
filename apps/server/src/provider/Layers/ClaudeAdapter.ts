@@ -3562,6 +3562,19 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             });
             return;
           case "status":
+            if (message.status === "compacting") {
+              yield* offerRuntimeEvent(context, {
+                ...base,
+                type: "item.updated",
+                payload: {
+                  itemType: "context_compaction",
+                  status: "inProgress",
+                  title: "Context compaction",
+                  detail: "Compacting context",
+                  data: message,
+                },
+              });
+            }
             yield* offerRuntimeEvent(context, {
               ...base,
               type: "session.state.changed",

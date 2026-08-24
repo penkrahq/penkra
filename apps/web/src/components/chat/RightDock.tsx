@@ -209,8 +209,12 @@ export function RightDock(props: RightDockProps) {
                 <div
                   key={pane.id}
                   aria-hidden={!isVisible}
-                  className="absolute inset-0 flex min-h-0 w-full"
-                  hidden={!isVisible}
+                  className={cn(
+                    "absolute inset-0 flex min-h-0 w-full",
+                    // Retained App renderers stay mounted and composited so switching tabs cannot
+                    // reveal a stale same-App frame. Visibility, not lifetime, owns presentation.
+                    !isVisible && "pointer-events-none invisible",
+                  )}
                 >
                   {props.renderPane(pane, { isVisible })}
                 </div>

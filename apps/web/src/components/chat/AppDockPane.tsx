@@ -11,15 +11,7 @@ import {
 } from "@penkra/contracts";
 import { deriveChromeUserAgent } from "@penkra/shared/browserSession";
 import type { AppBrowserSessionState } from "@penkra/sdk";
-import {
-  type CSSProperties,
-  type RefObject,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PanelStateMessage } from "./PanelStateMessage";
 
@@ -42,9 +34,9 @@ export function AppDockPane(props: {
     port: MessagePort;
     removeHostMessage: () => void;
   } | null>(null);
-  const browserWebviewRef = useRef<BrowserWebviewElement | null>(null);
   const [browserState, setBrowserState] = useState<AppBrowserSessionState | null>(null);
   const [browserSurface, setBrowserSurface] = useState<BrowserSurface | null>(null);
+  const [browserSurfacePresented, setBrowserSurfacePresented] = useState(false);
   const browserSurfacePartition = browserSurface?.partition;
   const [simulatorSurface, setSimulatorSurface] = useState<SurfaceBounds | null>(null);
   const [simulatorFrame, setSimulatorFrame] = useState<string | null>(null);
@@ -136,9 +128,9 @@ export function AppDockPane(props: {
           setBrowserState(input.delivery.payload as AppBrowserSessionState);
         }
         if (input.delivery.kind === "event" && input.delivery.name === "browser.surface") {
-          setBrowserSurface(
-            isBrowserSurface(input.delivery.payload) ? input.delivery.payload : null,
-          );
+          const surface = isBrowserSurface(input.delivery.payload) ? input.delivery.payload : null;
+          if (surface) setBrowserSurface(surface);
+          setBrowserSurfacePresented(surface !== null);
         }
         if (input.delivery.kind === "event" && input.delivery.name === "simulator.surface") {
           setSimulatorSurface(
@@ -177,59 +169,13 @@ export function AppDockPane(props: {
 
   useEffect(() => disconnectFrame, [connectFrame, disconnectFrame]);
 
-  useEffect(() => {
-    const bridge = window.desktopBridge?.appTabs;
-    const webview = browserWebviewRef.current;
-    const pageId = browserPage?.id;
-    if (!bridge || !webview || !pageId || !browserSurfacePartition) return;
-    let attachedWebContentsId: number | null = null;
-    const didFailLoad = (event: Event) => {
-      const failure = event as BrowserWebviewDidFailLoadEvent;
-      void bridge.browserWebviewDidFailLoad({
-        tabId: props.tabId,
-        rendererId: props.rendererId,
-        pageId,
-        errorCode: failure.errorCode,
-        errorDescription: failure.errorDescription,
-        validatedUrl: failure.validatedURL,
-        isMainFrame: failure.isMainFrame,
-      });
-    };
-    const attach = () => {
-      if (typeof webview.getWebContentsId !== "function") return;
-      const webContentsId = webview.getWebContentsId();
-      if (!Number.isInteger(webContentsId) || webContentsId <= 0) return;
-      if (attachedWebContentsId === webContentsId) return;
-      attachedWebContentsId = webContentsId;
-      void bridge.browserWebviewAttach({
-        tabId: props.tabId,
-        rendererId: props.rendererId,
-        pageId,
-        webContentsId,
-      });
-    };
-    webview.addEventListener("dom-ready", attach);
-    webview.addEventListener("did-fail-load", didFailLoad);
-    return () => {
-      webview.removeEventListener("dom-ready", attach);
-      webview.removeEventListener("did-fail-load", didFailLoad);
-      if (attachedWebContentsId !== null) {
-        void bridge.browserWebviewDetach({
-          tabId: props.tabId,
-          rendererId: props.rendererId,
-          pageId,
-          webContentsId: attachedWebContentsId,
-        });
-      }
-    };
-  }, [browserPage?.id, browserSurfacePartition, props.rendererId, props.tabId]);
-
   return (
     <div className="relative h-full min-h-0 w-full overflow-hidden">
       {props.documentUrl ? (
         <iframe
           ref={iframeRef}
           data-app-tab-id={props.tabId}
+          name={`penkra-app-tab:${props.tabId}`}
           className="h-full min-h-0 w-full border-0 bg-background"
           hidden={!props.visible || props.status === "crashed"}
           sandbox="allow-forms allow-modals allow-same-origin allow-scripts"
@@ -238,24 +184,36 @@ export function AppDockPane(props: {
           onLoad={(event) => connectFrame(event.currentTarget)}
         />
       ) : null}
-      {props.visible && browserSurface && browserPage && browserPage.url !== "about:blank" ? (
-        <HostedBrowserWebview
-          initialUrl={browserPage.url}
-          key={browserPage.id}
-          partition={browserSurface.partition}
-          useragent={browserUserAgent}
-          webviewRef={browserWebviewRef}
-          style={{
-            top: browserSurface.insets.top,
-            right: browserSurface.insets.right,
-            bottom: browserSurface.insets.bottom,
-            left: browserSurface.insets.left,
-            // Preserve the guest/runtime so Reload can recover a failed page, but let the
-            // Browser App's useful error state show instead of a blank chrome-error document.
-            visibility: browserPage.lastError ? "hidden" : "visible",
-          }}
-        />
-      ) : null}
+      {browserSurface && browserSurfacePartition
+        ? browserState?.pages.map((page) =>
+            page.url === "about:blank" ? null : (
+              <HostedBrowserWebview
+                initialUrl={page.url}
+                key={page.id}
+                pageId={page.id}
+                partition={browserSurfacePartition}
+                rendererId={props.rendererId}
+                tabId={props.tabId}
+                useragent={browserUserAgent}
+                style={{
+                  top: browserSurface.insets.top,
+                  right: browserSurface.insets.right,
+                  bottom: browserSurface.insets.bottom,
+                  left: browserSurface.insets.left,
+                  // Presentation is independent from lifetime: hidden App tabs and inactive
+                  // Browser pages keep their live guest so auth and transient page state survive.
+                  visibility:
+                    props.visible &&
+                    browserSurfacePresented &&
+                    page.id === browserPage?.id &&
+                    !page.lastError
+                      ? "visible"
+                      : "hidden",
+                }}
+              />
+            ),
+          )
+        : null}
       {props.visible && simulatorSurface && simulatorFrame ? (
         <img
           alt="Live simulator display"
@@ -299,19 +257,68 @@ export function AppDockPane(props: {
 
 function HostedBrowserWebview(props: {
   initialUrl: string;
+  pageId: string;
   partition: string;
+  rendererId: number;
+  tabId: string;
   useragent: string;
-  webviewRef: RefObject<BrowserWebviewElement | null>;
   style: CSSProperties;
 }) {
+  const webviewRef = useRef<BrowserWebviewElement | null>(null);
   // `src` bootstraps a new guest only. Once mounted, explicit Browser commands own navigation.
   // Reflecting did-navigate state back into this attribute calls loadURL again, which turns a
   // redirect chain (especially a Cloudflare challenge) into an abort/retry request storm.
   const bootstrapUrl = useRef(props.initialUrl).current;
+  useEffect(() => {
+    const bridge = window.desktopBridge?.appTabs;
+    const webview = webviewRef.current;
+    if (!bridge || !webview) return;
+    let attachedWebContentsId: number | null = null;
+    const didFailLoad = (event: Event) => {
+      const failure = event as BrowserWebviewDidFailLoadEvent;
+      void bridge.browserWebviewDidFailLoad({
+        tabId: props.tabId,
+        rendererId: props.rendererId,
+        pageId: props.pageId,
+        errorCode: failure.errorCode,
+        errorDescription: failure.errorDescription,
+        validatedUrl: failure.validatedURL,
+        isMainFrame: failure.isMainFrame,
+      });
+    };
+    const attach = () => {
+      if (typeof webview.getWebContentsId !== "function") return;
+      const webContentsId = webview.getWebContentsId();
+      if (!Number.isInteger(webContentsId) || webContentsId <= 0) return;
+      if (attachedWebContentsId === webContentsId) return;
+      attachedWebContentsId = webContentsId;
+      void bridge.browserWebviewAttach({
+        tabId: props.tabId,
+        rendererId: props.rendererId,
+        pageId: props.pageId,
+        webContentsId,
+      });
+    };
+    webview.addEventListener("dom-ready", attach);
+    webview.addEventListener("did-fail-load", didFailLoad);
+    return () => {
+      webview.removeEventListener("dom-ready", attach);
+      webview.removeEventListener("did-fail-load", didFailLoad);
+      if (attachedWebContentsId !== null) {
+        void bridge.browserWebviewDetach({
+          tabId: props.tabId,
+          rendererId: props.rendererId,
+          pageId: props.pageId,
+          webContentsId: attachedWebContentsId,
+        });
+      }
+    };
+  }, [props.pageId, props.partition, props.rendererId, props.tabId]);
+
   return (
     <webview
       allowpopups={ALLOW_WEBVIEW_POPUPS_ATTRIBUTE}
-      ref={props.webviewRef}
+      ref={webviewRef}
       className="absolute z-10 flex bg-background"
       partition={props.partition}
       src={bootstrapUrl}

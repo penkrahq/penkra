@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && vite build --config vite.operations.config.js",
     "test": "node --test src/model.test.js"
   },
   "dependencies": {

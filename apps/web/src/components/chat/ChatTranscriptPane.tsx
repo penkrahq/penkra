@@ -144,6 +144,7 @@ function ChatTranscriptPaneImpl({
         ) : (
           <MessagesTimeline
             key={activeThreadId}
+            viewportMemoryKey={activeThreadId}
             hasMessages={hasMessages}
             isWorking={isWorking}
             activeTurnId={activeTurnId ?? null}

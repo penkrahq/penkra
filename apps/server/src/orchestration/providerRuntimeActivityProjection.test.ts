@@ -125,6 +125,35 @@ describe("projected activities satisfy the orchestration command schema", () => 
     );
   });
 
+  it("projects provider-started context compaction as visible progress", () => {
+    const [activity] = projectProviderRuntimeActivities(
+      runtimeEvent({
+        type: "item.started",
+        eventId: "context-compaction-started",
+        turnId: TURN_ID,
+        itemId: RuntimeItemId.makeUnsafe("compaction-item"),
+        payload: {
+          itemType: "context_compaction",
+          status: "inProgress",
+          title: "Context compaction",
+        },
+      }),
+    );
+
+    expect(activity).toMatchObject({
+      id: "context-compaction-started",
+      kind: "context-compaction",
+      tone: "info",
+      summary: "Compacting conversation...",
+      payload: {
+        itemType: "context_compaction",
+        status: "inProgress",
+      },
+      turnId: TURN_ID,
+    });
+    expect(() => decodeActivityAppendCommand(activity!)).not.toThrow();
+  });
+
   // `TurnId.makeUnsafe` validates: it rejects "" *and* untrimmed input rather than
   // normalizing it, so an unnormalized runtime turn id throws inside the projection
   // itself before it can even reach the command schema.

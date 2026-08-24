@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AppTabHandle, OperationContext } from "@penkra/sdk";
 
 import type { InstalledAppPackage } from "./appInstallationState";
-import { AppControllerHost, type AppControllerRenderer } from "./appControllerHost";
+import { AppControllerHost, type AppControllerProcess } from "./appControllerHost";
 import type { AppOperationController } from "./appOperationBroker";
 import type { AppRendererRpcRequestOptions } from "./appRendererRpc";
 import type { ActiveAppSession } from "./appSessionManager";
@@ -19,7 +19,7 @@ function installedApp(withOperations = true): InstalledAppPackage {
     compatibility: { penkra: ">=0.8.0" },
     icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
     entrypoints: withOperations
-      ? { app: "app.html", operations: "operations.html" }
+      ? { app: "app.html", operations: "operations.js" }
       : { app: "app.html" },
     ...(withOperations
       ? {
@@ -54,7 +54,7 @@ function fixture(app = installedApp()) {
   let destroyedListener: (() => void) | undefined;
   let controller: AppOperationController | undefined;
   let rpcOptions: AppRendererRpcRequestOptions | undefined;
-  const renderer: AppControllerRenderer = {
+  const controllerProcess: AppControllerProcess = {
     id: 44,
     send: vi.fn(),
     start: vi.fn(async () => undefined),
@@ -82,7 +82,7 @@ function fixture(app = installedApp()) {
   const host = new AppControllerHost({
     broker,
     rpc: rpc as never,
-    renderers: { create: vi.fn(() => renderer) },
+    processes: { create: vi.fn(() => controllerProcess) },
   });
   const session = {
     appId: app.appId,
@@ -95,7 +95,7 @@ function fixture(app = installedApp()) {
     host,
     app,
     session,
-    renderer,
+    controllerProcess,
     broker,
     rpc,
     controller: () => controller,
@@ -146,23 +146,27 @@ describe("AppControllerHost", () => {
       session: test.session,
     });
 
-    expect(test.renderer.start).toHaveBeenCalledWith(`${test.session.origin}/operations.html`);
-    expect(test.broker.registerController).toHaveBeenCalledAfter(test.renderer.start as never);
+    expect(test.controllerProcess.start).toHaveBeenCalledWith(
+      "/profile/apps/com.acme.linear/1.0.0/operations.js",
+    );
+    expect(test.broker.registerController).toHaveBeenCalledAfter(
+      test.controllerProcess.start as never,
+    );
     expect(Object.keys(test.controller()?.handlers ?? {})).toEqual(["issues.create"]);
     await release();
     expect(test.unregisterController).toHaveBeenCalledOnce();
     expect(test.unregisterRpc).toHaveBeenCalledWith("app-disabled");
-    expect(test.renderer.destroy).toHaveBeenCalledOnce();
+    expect(test.controllerProcess.destroy).toHaveBeenCalledOnce();
   });
 
-  it("does not create a controller renderer for a UI-only App", async () => {
+  it("does not create a controller process for a UI-only App", async () => {
     const test = fixture(installedApp(false));
     const release = await test.host.activate({
       installedApp: test.app,
       spaceId: "personal",
       session: test.session,
     });
-    expect(test.renderer.start).not.toHaveBeenCalled();
+    expect(test.controllerProcess.start).not.toHaveBeenCalled();
     expect(test.broker.registerController).not.toHaveBeenCalled();
     await expect(release()).resolves.toBeUndefined();
   });
@@ -256,7 +260,7 @@ describe("AppControllerHost", () => {
     ).rejects.toMatchObject({ code: "TAB_HANDLE_INVALID" });
   });
 
-  it("unregisters broker and transport when the controller renderer crashes", async () => {
+  it("unregisters broker and transport when the controller process crashes", async () => {
     const test = fixture();
     const onUnexpectedExit = vi.fn();
     await test.host.activate({
@@ -268,7 +272,7 @@ describe("AppControllerHost", () => {
     test.destroyed();
     await vi.waitFor(() => expect(test.unregisterController).toHaveBeenCalledOnce());
     expect(test.unregisterRpc).toHaveBeenCalledWith("host-stopped");
-    expect(test.renderer.destroy).not.toHaveBeenCalled();
+    expect(test.controllerProcess.destroy).not.toHaveBeenCalled();
     expect(onUnexpectedExit).toHaveBeenCalledWith(
       expect.objectContaining({
         message: expect.stringContaining("exited unexpectedly"),

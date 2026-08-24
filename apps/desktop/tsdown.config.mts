@@ -19,7 +19,7 @@ const shared = {
 export default defineConfig([
   {
     ...shared,
-    entry: ["src/entry.ts", "src/main.ts", "src/appTestHost.ts"],
+    entry: ["src/entry.ts", "src/main.ts", "src/appTestHost.ts", "src/appNodeControllerRunner.ts"],
     clean: true,
     // Electron exposes this builtin only at runtime; keeping it external avoids
     // asking Rolldown to resolve a package that intentionally does not exist.

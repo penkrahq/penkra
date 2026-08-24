@@ -13,7 +13,7 @@ export type JsonSchema = Readonly<Record<string, unknown>>;
 export interface AppEntrypoints {
   /** Local visual entry document, conventionally `app.html`. */
   app: string;
-  /** Optional isolated controller entry document, conventionally `operations.html`. */
+  /** Optional Node controller entry module, conventionally `operations.js`. */
   operations?: string;
 }
 

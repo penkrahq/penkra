@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   findBrandIdentityViolations,
   findVisualBrandAssetViolations,
+  isBrandIdentitySearchablePath,
 } from "./check-brand-identity";
 
 const characters = (...codes: number[]): string => String.fromCharCode(...codes);
@@ -39,6 +40,20 @@ describe("brand identity guard", () => {
     expect(
       findBrandIdentityViolations([{ path: "docs/license-copy.md", contents: notice }]),
     ).toHaveLength(1);
+  });
+
+  it("excludes only Dark Reader's upstream compatibility datasets", () => {
+    expect(
+      isBrandIdentitySearchablePath(
+        "apps/desktop/resources/extensions/darkreader/config/dark-sites.config",
+      ),
+    ).toBe(false);
+    expect(
+      isBrandIdentitySearchablePath(
+        "apps/desktop/resources/extensions/darkreader/background/electron-compat.js",
+      ),
+    ).toBe(true);
+    expect(isBrandIdentitySearchablePath("apps/desktop/src/main.ts")).toBe(true);
   });
 
   it("requires user-facing raster assets to match a visually approved digest", () => {

@@ -78,6 +78,7 @@ export {
   type AppAccountRealtimeSubscriptionOptions,
   type AppContextMenuItem,
   type AppBrowserFindResult,
+  type AppBrowserExtensionAction,
   type AppBrowserDownloadEvent,
   type AppHostedSurfaceInsets,
   type AppBrowserPage,

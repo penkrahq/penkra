@@ -34,7 +34,7 @@ import { AppFrameDocumentRegistry } from "./appFrameDocumentRegistry";
 import { AppDataVault } from "./appDataVault";
 import { ProviderCredentialVault } from "./providerCredentialVault";
 import { DeferredAppTabHost } from "./deferredAppTabHost";
-import { ElectronAppControllerRendererFactory } from "./electronAppControllerRenderer";
+import { ElectronAppControllerProcessFactory } from "./electronAppControllerProcess";
 import { ElectronAppTabHost, type AppUpdateTabSnapshot } from "./electronAppTabHost";
 import {
   AppUpdateJournal,
@@ -43,6 +43,7 @@ import {
 } from "./appUpdateJournal";
 import { AppBlobUrlRegistry } from "./appBlobUrlRegistry";
 import { AppTransferService } from "./appTransfer";
+import { queryAppPermission } from "./appPermissionQuery";
 
 export interface DesktopAppRuntime {
   readonly store: AppInstallationStore;
@@ -71,9 +72,17 @@ export interface DesktopAppRuntime {
   stop(): Promise<void>;
 }
 
+function requireControllerRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
 export async function startDesktopAppRuntime(input: {
   userDataPath: string;
   appPreloadPath: string;
+  appControllerRunnerPath: string;
   appFrameRuntimePath: string;
   ipcMain: Pick<IpcMain, "on" | "removeListener">;
   onTabOpened: (descriptor: DesktopAppTabDescriptor) => void;
@@ -91,6 +100,12 @@ export async function startDesktopAppRuntime(input: {
     spaceId: string;
     permissions: ReadonlyArray<import("./appStandardPermissions").AppStandardPermissionName>;
   }) => Promise<boolean>;
+  controllerServiceCall?: (input: {
+    appId: string;
+    spaceId: string;
+    method: string;
+    input: unknown;
+  }) => Promise<unknown>;
 }): Promise<DesktopAppRuntime> {
   const storeResult = await AppInstallationStore.openSafe(
     resolveAppInstallationStatePath(input.userDataPath),
@@ -234,10 +249,52 @@ export async function startDesktopAppRuntime(input: {
   const controllerHost = new AppControllerHost({
     broker,
     rpc,
-    renderers: new ElectronAppControllerRendererFactory({
-      preloadPath: input.appPreloadPath,
-      ipcBridge,
-      onRendererCreated: registerRendererIdentity,
+    processes: new ElectronAppControllerProcessFactory({
+      runnerPath: input.appControllerRunnerPath,
+      rpc,
+      serviceCall: async (request) => {
+        const identity = { appId: request.appId, spaceId: request.spaceId };
+        switch (request.method) {
+          case "identity.get":
+            return identities.resolve(identity.appId, identity.spaceId);
+          case "permissions.query":
+            return queryAppPermission(store.snapshot(), identity, request.input);
+          case "settings.get":
+            if (typeof request.input !== "string") throw new Error("Setting key must be a string.");
+            return installations.getSetting({ ...identity, key: request.input });
+          case "settings.set": {
+            const value = requireControllerRecord(request.input, "Setting input");
+            if (typeof value.key !== "string") throw new Error("Setting key must be a string.");
+            await installations.setSetting({ ...identity, key: value.key, value: value.value });
+            return null;
+          }
+          case "settings.reset":
+            if (typeof request.input !== "string") throw new Error("Setting key must be a string.");
+            await installations.resetSetting({ ...identity, key: request.input });
+            return null;
+          case "secrets.get":
+            if (typeof request.input !== "string") throw new Error("Secret name must be a string.");
+            return vault.getSecret(identity.appId, identity.spaceId, request.input);
+          case "secrets.set": {
+            const value = requireControllerRecord(request.input, "Secret input");
+            if (typeof value.name !== "string" || typeof value.value !== "string") {
+              throw new Error("Secret name and value must be strings.");
+            }
+            await vault.setSecret(identity.appId, identity.spaceId, value.name, value.value);
+            return null;
+          }
+          case "secrets.delete":
+            if (typeof request.input !== "string") throw new Error("Secret name must be a string.");
+            await vault.deleteSecret(identity.appId, identity.spaceId, request.input);
+            return null;
+          default:
+            if (input.controllerServiceCall) return input.controllerServiceCall(request);
+            throw Object.assign(
+              new Error(`App controller service ${request.method} is unavailable.`),
+              { code: "METHOD_NOT_SUPPORTED" },
+            );
+        }
+      },
     }),
   });
   const lifecycle = new AppRuntimeLifecycle({

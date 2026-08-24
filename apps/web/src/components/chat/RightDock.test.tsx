@@ -39,5 +39,7 @@ describe("RightDock retained App surfaces", () => {
     expect(html).toContain('data-retained-app="canvas-tab" data-visible="true"');
     expect(html).toContain('data-retained-app="browser-tab" data-visible="false"');
     expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain("pointer-events-none invisible");
+    expect(html).not.toContain(' hidden=""');
   });
 });

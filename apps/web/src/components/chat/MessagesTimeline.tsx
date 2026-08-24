@@ -223,6 +223,8 @@ function UserDispatchModeChip({
 // Per-step status glyph for the worktree setup stepper. Mirrors the active
 // task-list card: spinner while active, check when done, hollow node pending.
 interface MessagesTimelineProps {
+  /** Thread-scoped in-memory viewport identity; intentionally not persisted across reloads. */
+  viewportMemoryKey?: string;
   hasMessages: boolean;
   isWorking: boolean;
   activeTurnInProgress: boolean;
@@ -277,6 +279,7 @@ interface MessagesTimelineProps {
 }
 
 export const MessagesTimeline = memo(function MessagesTimeline({
+  viewportMemoryKey,
   hasMessages,
   isWorking,
   activeTurnInProgress,
@@ -1690,6 +1693,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         ref={resolvedListRef}
         data={rows}
         anchorRevision={transcriptAnchorRevision}
+        {...(viewportMemoryKey === undefined ? {} : { viewportMemoryKey })}
         keyExtractor={(row) => row.id}
         renderItem={renderRowContent}
         estimatedItemSize={90}

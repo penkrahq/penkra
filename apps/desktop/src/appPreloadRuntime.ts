@@ -3,22 +3,14 @@
 // Layer: Untrusted App renderer preload
 
 import type {
-  AppOperationHandler,
   AppTabNavigationHandler,
   AppTabOperationHandler,
-  OperationContext,
   PenkraAppRuntimeApi,
 } from "@penkra/sdk";
 
-import type {
-  AppRendererRpcContextCallMessage,
-  AppRendererRpcHostMessage,
-  AppRendererRpcResponseMessage,
-} from "./appRendererRpc";
+import type { AppRendererRpcHostMessage, AppRendererRpcResponseMessage } from "./appRendererRpc";
 
-export type AppPreloadRendererMessage =
-  | AppRendererRpcResponseMessage
-  | AppRendererRpcContextCallMessage;
+export type AppPreloadRendererMessage = AppRendererRpcResponseMessage;
 
 export interface AppPreloadTransport {
   call?<Result = unknown>(method: string, input?: unknown): Promise<Result>;
@@ -75,13 +67,11 @@ export interface AppPreloadTransport {
 
 interface ActiveRequest {
   controller: AbortController;
-  contextCalls: Map<string, { resolve(value: unknown): void; reject(error: Error): void }>;
 }
 
 export class AppPreloadRuntime {
   readonly api: PenkraAppRuntimeApi;
   readonly #transport: AppPreloadTransport;
-  readonly #operationHandlers = new Map<string, AppOperationHandler>();
   readonly #tabHandlers = new Map<string, AppTabOperationHandler>();
   readonly #active = new Map<string, ActiveRequest>();
   #navigationHandler: AppTabNavigationHandler<unknown> | null = null;
@@ -89,7 +79,6 @@ export class AppPreloadRuntime {
     resolve(handler: AppTabNavigationHandler<unknown>): void;
     reject(error: Error): void;
   }>();
-  #nextContextCallId = 0;
   #unsubscribe: (() => void) | null = null;
   #ready = false;
 
@@ -209,6 +198,8 @@ export class AppPreloadRuntime {
           this.#transport.browserCall("selectPage", pageId) as Promise<
             import("@penkra/sdk").AppBrowserSessionState
           >,
+        openExtensionAction: (input) =>
+          this.#transport.browserCall("openExtensionAction", input) as Promise<void>,
         find: (input) =>
           this.#transport.browserCall("find", input) as Promise<
             import("@penkra/sdk").AppBrowserFindResult
@@ -303,13 +294,9 @@ export class AppPreloadRuntime {
         request: (name) => this.#transport.requestPermission(name),
       },
       operations: {
-        handle: (handlerKey, handler) =>
-          registerUnique(
-            this.#operationHandlers,
-            handlerKey,
-            handler as AppOperationHandler,
-            "operation handler",
-          ),
+        handle: () => {
+          throw new Error("Operation handlers must be registered by the App's Node controller.");
+        },
       },
       tab: {
         getContext: () => this.#transport.tabGetContext(),
@@ -386,7 +373,6 @@ export class AppPreloadRuntime {
     this.#navigationHandlerWaiters.clear();
     for (const [id, request] of this.#active) {
       request.controller.abort(new Error("Penkra App runtime stopped."));
-      this.#rejectContextCalls(request, new Error("Penkra App runtime stopped."));
       this.#active.delete(id);
     }
   }
@@ -407,12 +393,8 @@ export class AppPreloadRuntime {
         code: reason.toUpperCase().replaceAll("-", "_"),
       });
       request.controller.abort(error);
-      this.#rejectContextCalls(request, error);
       if (this.#active.get(requestId) === request) this.#active.delete(requestId);
       return;
-    }
-    if (candidate.type === "context-result" || candidate.type === "context-error") {
-      this.#settleContextCall(candidate);
     }
   }
 
@@ -422,14 +404,11 @@ export class AppPreloadRuntime {
     const method = message.method;
     const request: ActiveRequest = {
       controller: new AbortController(),
-      contextCalls: new Map(),
     };
     this.#active.set(id, request);
     try {
       let result: unknown;
-      if (method === "controller.invoke") {
-        result = await this.#invokeController(id, request, message.input);
-      } else if (method === "tab.invoke") {
+      if (method === "tab.invoke") {
         result = await this.#invokeTab(request, message.input);
       } else if (method === "tab.navigate" || method === "tab.navigate-for-result") {
         result = await this.#navigateTab(request, message.input);
@@ -445,32 +424,8 @@ export class AppPreloadRuntime {
         this.#transport.send({ type: "error", id, ...publicError });
       }
     } finally {
-      this.#rejectContextCalls(request, new Error("Parent App request settled."));
       if (this.#active.get(id) === request) this.#active.delete(id);
     }
-  }
-
-  async #invokeController(
-    parentId: string,
-    request: ActiveRequest,
-    value: unknown,
-  ): Promise<unknown> {
-    const input = requireRecord(value);
-    const handlerKey = requireString(input.handler, "handler");
-    const handler = this.#operationHandlers.get(handlerKey);
-    if (!handler)
-      throw runtimeError(
-        "HANDLER_NOT_REGISTERED",
-        `Operation handler ${handlerKey} is not registered.`,
-      );
-    const invocation = parseInvocation(input.invocation);
-    const context = this.#operationContext(
-      parentId,
-      request,
-      invocation,
-      parseCaller(input.caller),
-    );
-    return handler(input.input, context);
   }
 
   async #invokeTab(request: ActiveRequest, value: unknown): Promise<unknown> {
@@ -518,123 +473,6 @@ export class AppPreloadRuntime {
       signal.addEventListener("abort", abort, { once: true });
     });
   }
-
-  #operationContext(
-    parentId: string,
-    request: ActiveRequest,
-    invocation: OperationContext["invocation"],
-    caller: OperationContext["caller"],
-  ): OperationContext {
-    const targetTab = invocation.tabId
-      ? this.#tabHandle(parentId, request, invocation.tabId, false)
-      : undefined;
-    return {
-      invocation,
-      caller,
-      ...(targetTab ? { tab: targetTab } : {}),
-      tabs: {
-        open: async (input) => {
-          const result = requireRecord(
-            await this.#contextCall(parentId, request, "context.tabs.open", input),
-          );
-          const id = requireString(result.id, "id");
-          return this.#tabHandle(parentId, request, id, true);
-        },
-        openForResult: <Result = unknown>(input: { route: string; state?: unknown }) =>
-          this.#contextCall(
-            parentId,
-            request,
-            "context.tabs.open-for-result",
-            input,
-          ) as Promise<Result>,
-      },
-      operations: {
-        invoke: <Result = unknown>(input: import("@penkra/sdk").OperationRequest) =>
-          this.#contextCall(
-            parentId,
-            request,
-            "context.operations.invoke",
-            input,
-          ) as Promise<Result>,
-      },
-      signal: request.controller.signal,
-    };
-  }
-
-  #tabHandle(
-    parentId: string,
-    request: ActiveRequest,
-    id: string,
-    opened: boolean,
-  ): import("@penkra/sdk").AppTabHandle {
-    const withHandle = (input: Record<string, unknown>) =>
-      opened ? { ...input, handleId: id } : input;
-    return {
-      id,
-      close: async () => {
-        await this.#contextCall(parentId, request, "context.tab.close", withHandle({}));
-      },
-      navigate: async (input: { route: string; state?: unknown }) => {
-        await this.#contextCall(parentId, request, "context.tab.navigate", withHandle(input));
-      },
-      navigateForResult: <Result = unknown>(input: { route: string; state?: unknown }) =>
-        this.#contextCall(
-          parentId,
-          request,
-          "context.tab.navigate-for-result",
-          withHandle(input),
-        ) as Promise<Result>,
-      invoke: <Result = unknown>(input: { operation: string; input: unknown }) =>
-        this.#contextCall(
-          parentId,
-          request,
-          "context.tab.invoke",
-          withHandle(input),
-        ) as Promise<Result>,
-    };
-  }
-
-  #contextCall(
-    parentId: string,
-    request: ActiveRequest,
-    method: AppRendererRpcContextCallMessage["method"],
-    input: unknown,
-  ): Promise<unknown> {
-    if (request.controller.signal.aborted) return Promise.reject(request.controller.signal.reason);
-    const id = `context-${++this.#nextContextCallId}`;
-    return new Promise((resolve, reject) => {
-      request.contextCalls.set(id, { resolve, reject });
-      try {
-        this.#transport.send({ type: "context-call", parentId, id, method, input });
-      } catch (error) {
-        request.contextCalls.delete(id);
-        reject(error);
-      }
-    });
-  }
-
-  #settleContextCall(message: Record<string, unknown>): void {
-    if (typeof message.parentId !== "string" || typeof message.id !== "string") return;
-    const request = this.#active.get(message.parentId);
-    const pending = request?.contextCalls.get(message.id);
-    if (!request || !pending) return;
-    request.contextCalls.delete(message.id);
-    if (message.type === "context-result") {
-      pending.resolve(message.result);
-    } else {
-      pending.reject(
-        runtimeError(
-          typeof message.code === "string" ? message.code : "CONTEXT_CALL_FAILED",
-          typeof message.message === "string" ? message.message : "App context call failed.",
-        ),
-      );
-    }
-  }
-
-  #rejectContextCalls(request: ActiveRequest, error: Error): void {
-    for (const pending of request.contextCalls.values()) pending.reject(error);
-    request.contextCalls.clear();
-  }
 }
 
 function registerUnique<Handler>(
@@ -651,29 +489,6 @@ function registerUnique<Handler>(
   handlers.set(key, handler);
   return () => {
     if (handlers.get(key) === handler) handlers.delete(key);
-  };
-}
-
-function parseInvocation(value: unknown): OperationContext["invocation"] {
-  const input = requireRecord(value);
-  return {
-    id: requireString(input.id, "invocation.id"),
-    app: requireString(input.app, "invocation.app"),
-    operation: requireString(input.operation, "invocation.operation"),
-    spaceId: requireString(input.spaceId, "invocation.spaceId"),
-    threadId: requireString(input.threadId, "invocation.threadId"),
-    ...(input.tabId === undefined ? {} : { tabId: requireString(input.tabId, "invocation.tabId") }),
-  };
-}
-
-function parseCaller(value: unknown): OperationContext["caller"] {
-  const input = requireRecord(value);
-  const kind = requireString(input.kind, "caller.kind");
-  if (kind !== "user" && kind !== "agent" && kind !== "app" && kind !== "host") {
-    throw runtimeError("INVALID_REQUEST", "caller.kind is invalid.");
-  }
-  return {
-    kind,
   };
 }
 

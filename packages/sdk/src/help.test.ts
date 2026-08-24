@@ -11,7 +11,7 @@ const manifest = {
   version: "1.0.0",
   compatibility: { penkra: ">=0.8.0" },
   icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-  entrypoints: { app: "app.html", operations: "operations.html" },
+  entrypoints: { app: "app.html", operations: "operations.js" },
   operations: [
     {
       key: "issues.create",

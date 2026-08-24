@@ -1738,6 +1738,43 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       assert.equal(firstEvent.value.payload.status, "inProgress");
     }),
   );
+
+  it.effect("maps automatic contextCompaction item starts to canonical progress lifecycle", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-codex-auto-compaction-started"),
+        kind: "notification",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        createdAt: new Date().toISOString(),
+        method: "item/started",
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("compaction-1"),
+        payload: {
+          item: {
+            type: "contextCompaction",
+            id: "compaction-1",
+            status: "inProgress",
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "item.started");
+      if (firstEvent.value.type !== "item.started") {
+        return;
+      }
+      assert.equal(firstEvent.value.payload.itemType, "context_compaction");
+      assert.equal(firstEvent.value.payload.status, "inProgress");
+    }),
+  );
 });
 
 afterAll(() => {

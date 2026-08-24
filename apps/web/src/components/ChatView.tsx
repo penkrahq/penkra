@@ -3678,6 +3678,14 @@ export default function ChatView({
       showScrollDebouncer.current.maybeExecute();
     }
   }, []);
+  useLayoutEffect(() => {
+    // MessagesTimeline remounts per thread. Resolve its initial placement before
+    // the auto-follow layout effect below: a remembered detached viewport must
+    // never inherit the previous thread's tail-follow ownership.
+    clearTranscriptAutoFollow();
+    const initialState = transcriptListRef.current?.getState?.();
+    isAtEndRef.current = initialState?.isAtEnd ?? true;
+  }, [activeThread?.id, clearTranscriptAutoFollow]);
   const cancelPendingInteractionAnchorAdjustment = useCallback(() => {
     const pendingFrame = pendingInteractionAnchorFrameRef.current;
     if (pendingFrame === null) return;
@@ -3929,10 +3937,11 @@ export default function ChatView({
   ]);
 
   useEffect(() => {
-    isAtEndRef.current = true;
     showScrollDebouncer.current.cancel();
     const settle = window.setTimeout(() => {
-      setShowScrollToBottom(false);
+      const isAtEnd = transcriptListRef.current?.getState?.().isAtEnd ?? true;
+      isAtEndRef.current = isAtEnd;
+      setShowScrollToBottom(!isAtEnd);
     }, 0);
     return () => window.clearTimeout(settle);
   }, [activeThread?.id]);

@@ -2327,6 +2327,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "Unable to find message scroll container.",
       );
       scrollContainer.scrollTop = 0;
+      // Initial tail placement ignores geometry-only scroll events because
+      // ResizeObserver and the virtualizer emit those while rows settle. A
+      // wheel event represents the reader intent that revokes tail ownership.
+      scrollContainer.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true }));
       scrollContainer.dispatchEvent(new Event("scroll"));
       await waitForLayout();
       expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(

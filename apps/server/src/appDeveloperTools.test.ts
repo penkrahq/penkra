@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +12,7 @@ import { packageLockedAppDirectory } from "@penkra/shared/appPackaging";
 import { packageAppDirectory, testAppDirectory } from "./appDeveloperTools";
 
 const roots: string[] = [];
+const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
   vi.unstubAllEnvs();
@@ -21,11 +24,9 @@ describe("App developer integration host", () => {
     const outputRoot = await mkdtemp(join(tmpdir(), "penkra-sample-app-package-"));
     roots.push(outputRoot);
     const source = fileURLToPath(new URL("../../../examples/sample-app", import.meta.url));
+    await execFileAsync("bun", ["run", "build"], { cwd: source });
     const staged = join(outputRoot, "sample-app");
-    await cp(source, staged, {
-      recursive: true,
-      filter: (path) => !path.endsWith("/node_modules"),
-    });
+    await cp(join(source, "dist"), staged, { recursive: true });
 
     await expect(
       packageAppDirectory({
@@ -86,9 +87,10 @@ writeFileSync(process.env.PENKRA_APP_TEST_RESULT, JSON.stringify({
     vi.stubEnv("PENKRA_APP_TEST_HOST", host);
     vi.stubEnv("PENKRA_APP_TEST_PACKAGED", "0");
 
-    const error = await testAppDirectory({ directory: source, timeoutMs: 20 }).catch(
-      (cause: unknown) => cause,
-    );
+    const error = await testAppDirectory({
+      directory: source,
+      timeoutMs: 20,
+    }).catch((cause: unknown) => cause);
 
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toBe("App integration test exceeded 20 ms.");
@@ -164,7 +166,11 @@ describe("App developer packaging", () => {
         compatibilityRange: ">=0.8.0",
         packageSizeBytes: expect.any(Number),
         permissions: [
-          { permission: "network-fetch", required: false, rationale: "Sync documents" },
+          {
+            permission: "network-fetch",
+            required: false,
+            rationale: "Sync documents",
+          },
         ],
       }),
     );
@@ -180,7 +186,10 @@ describe("App developer packaging", () => {
     await rm(join(root, "assets", "icon.svg"));
 
     await expect(
-      packageAppDirectory({ directory: root, output: join(root, "..", "bad.penkra") }),
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "bad.penkra"),
+      }),
     ).rejects.toThrow("Manifest reference is missing");
   });
 
@@ -202,11 +211,17 @@ describe("App developer packaging", () => {
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
     await expect(
-      packageAppDirectory({ directory: root, output: join(root, "..", "bad.penkra") }),
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "bad.penkra"),
+      }),
     ).rejects.toThrow("missing required sections");
 
     await expect(
-      packageLockedAppDirectory({ directory: root, output: join(root, "..", "locked.penkra") }),
+      packageLockedAppDirectory({
+        directory: root,
+        output: join(root, "..", "locked.penkra"),
+      }),
     ).resolves.toMatchObject({ slug: "canvas" });
 
     await writeFile(
@@ -220,7 +235,10 @@ describe("App developer packaging", () => {
       ].join("\n"),
     );
     await expect(
-      packageAppDirectory({ directory: root, output: join(root, "..", "first.penkra") }),
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "first.penkra"),
+      }),
     ).resolves.toMatchObject({ slug: "canvas" });
   });
 
@@ -241,27 +259,39 @@ describe("App developer packaging", () => {
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
     await expect(
-      packageAppDirectory({ directory: root, output: join(root, "..", "missing-example.penkra") }),
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "missing-example.penkra"),
+      }),
     ).rejects.toThrow("examples must contain at least one");
 
     manifest.operations[0].examples = [{ name: "Invalid list input", input: { unexpected: true } }];
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
     await expect(
-      packageAppDirectory({ directory: root, output: join(root, "..", "invalid-example.penkra") }),
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "invalid-example.penkra"),
+      }),
     ).rejects.toThrow("does not match its input schema");
   });
 
   it("rejects symlinks and output paths inside the package root", async () => {
     const root = await fixture();
     await expect(
-      packageAppDirectory({ directory: root, output: join(root, "app.penkra") }),
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "app.penkra"),
+      }),
     ).rejects.toThrow("outside the packaged directory");
     await rm(join(root, "app.html"));
     await import("node:fs/promises").then(({ symlink }) =>
       symlink("README.md", join(root, "app.html")),
     );
     await expect(
-      packageAppDirectory({ directory: root, output: join(root, "..", "bad.penkra") }),
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "bad.penkra"),
+      }),
     ).rejects.toThrow("Symbolic links are not allowed");
   });
 });

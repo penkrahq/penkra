@@ -1011,6 +1011,7 @@ function toAppBrowserState(
     open: state.open,
     activePageId: state.activeTabId,
     pages: state.tabs,
+    extensionActions: browserManager.extensionActions(state.threadId),
     lastError: state.lastError,
   };
 }
@@ -1098,6 +1099,7 @@ async function invokeRuntimeV2BrowserCall(input: {
     threadId,
     createScopedBrowserSessionPartition(input.appId, input.spaceId),
   );
+  await browserManager.prepareExtensions(threadId);
   configureAppBrowserDownloads(threadId, input.appId, input.spaceId);
   const state = () => toAppBrowserState(browserManager.getState({ threadId }));
   const pageId = () => {
@@ -1174,6 +1176,21 @@ async function invokeRuntimeV2BrowserCall(input: {
       return toAppBrowserState(browserManager.closeTab({ threadId, tabId: pageId() }));
     case "selectPage":
       return toAppBrowserState(browserManager.selectTab({ threadId, tabId: pageId() }));
+    case "openExtensionAction": {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("Browser extension action input is required.");
+      }
+      const record = value as Record<string, unknown>;
+      if (typeof record.extensionId !== "string" || typeof record.pageId !== "string") {
+        throw new Error("Browser extension action requires extensionId and pageId.");
+      }
+      await browserManager.openExtensionAction({
+        threadId,
+        extensionId: record.extensionId,
+        tabId: record.pageId,
+      });
+      return;
+    }
     case "find": {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         throw new Error("Browser find input is required.");
@@ -1779,13 +1796,6 @@ function armInstallWatchdog(): void {
     }
     const failedHandoff = activeUpdateInstallHandoff;
     clearUpdaterInstallInFlightAfterError();
-    // The backend was already stopped before quitAndInstall(); since the app is
-    // not actually quitting, bring it back so the recovered app is functional
-    // (renderer reconnects) instead of a zombie window with a dead backend.
-    startBackend();
-    // Polling was stopped before the install attempt; resume it so background
-    // update checks keep running after this recovery.
-    scheduleUpdatePoll();
     const consecutiveFailures = recordInstallMarkerFailure(new Date().toISOString(), failedHandoff);
     setUpdateState({
       ...reduceDesktopUpdateStateOnInstallFailure(
@@ -1797,6 +1807,16 @@ function armInstallWatchdog(): void {
     console.error(
       "[desktop-updater] quitAndInstall did not exit the app within the watchdog window; surfacing manual-download fallback.",
     );
+    if (desktopShutdownComplete) {
+      // Update handoff now retires every host service before invoking the OS installer. If the
+      // installer never takes ownership, the only safe recovery is a fresh process; reviving only
+      // the backend leaves App controllers, the command pipe, and tab state missing or stale.
+      app.relaunch();
+      app.exit(1);
+      return;
+    }
+    startBackend();
+    scheduleUpdatePoll();
   }, AUTO_UPDATE_INSTALL_WATCHDOG_MS);
 }
 
@@ -3578,7 +3598,10 @@ async function runDownloadedUpdateInstall(
   try {
     isQuitting = true;
     clearUpdatePollTimer();
-    await stopBackendAndWaitForExit({
+    // Retire the complete desktop host before the updater launches the replacement process. A
+    // backend-only stop leaves App controllers, the command pipe, simulator resources, and tab
+    // renderers alive long enough for the new process to race them and reopen with a dead shell.
+    await shutdownDesktopRuntime("update install", {
       forceKillDelayMs: UPDATE_BACKEND_FORCE_KILL_DELAY_MS,
       timeoutMs: UPDATE_BACKEND_SHUTDOWN_TIMEOUT_MS,
     });
@@ -3611,8 +3634,6 @@ async function runDownloadedUpdateInstall(
     const consecutiveFailures = markerWritten
       ? recordInstallMarkerFailure(new Date().toISOString(), handoffExpectation)
       : updateState.installFailureCount;
-    startBackend();
-    scheduleUpdatePoll();
     setUpdateState({
       ...(artifactInvalidated
         ? reduceDesktopUpdateStateOnDownloadFailure(updateState, message)
@@ -3620,6 +3641,13 @@ async function runDownloadedUpdateInstall(
       installFailureCount: consecutiveFailures,
     });
     console.error(`[desktop-updater] Failed to install update: ${message}`);
+    if (desktopShutdownComplete) {
+      app.relaunch();
+      app.exit(1);
+      return { accepted: true, completed: false };
+    }
+    startBackend();
+    scheduleUpdatePoll();
     return { accepted: true, completed: false };
   }
 }
@@ -4345,7 +4373,10 @@ async function disposeAppCommandPipeServerForShutdown(reason: string): Promise<v
   }
 }
 
-async function stopAppRuntimeAndBackend(): Promise<void> {
+async function stopAppRuntimeAndBackend(backendShutdownOptions?: {
+  forceKillDelayMs?: number;
+  timeoutMs?: number;
+}): Promise<void> {
   const failures: unknown[] = [];
   try {
     await runtimeV2FileWrites.abortAll();
@@ -4382,7 +4413,7 @@ async function stopAppRuntimeAndBackend(): Promise<void> {
     }
   }
   try {
-    await stopBackendAndWaitForExit();
+    await stopBackendAndWaitForExit(backendShutdownOptions);
   } catch (error) {
     failures.push(error);
   }
@@ -4392,7 +4423,13 @@ async function stopAppRuntimeAndBackend(): Promise<void> {
 }
 
 // Keeps Electron alive long enough for backend finalizers to reap provider child processes.
-async function shutdownDesktopRuntime(reason: string): Promise<void> {
+async function shutdownDesktopRuntime(
+  reason: string,
+  backendShutdownOptions?: {
+    forceKillDelayMs?: number;
+    timeoutMs?: number;
+  },
+): Promise<void> {
   if (desktopShutdownPromise) {
     return desktopShutdownPromise;
   }
@@ -4400,7 +4437,7 @@ async function shutdownDesktopRuntime(reason: string): Promise<void> {
   isQuitting = true;
   writeDesktopLogHeader(`${reason} shutdown start`);
   const shutdown = runAfterDesktopShutdown(
-    stopAppRuntimeAndBackend(),
+    stopAppRuntimeAndBackend(backendShutdownOptions),
     async () => {
       clearUpdateBackgroundBlurTimer();
       clearUpdateCheckTimeoutTimer();
@@ -4901,6 +4938,7 @@ function registerIpcHandlers(): void {
       threadId,
       createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
     );
+    await browserManager.prepareExtensions(threadId);
     configureAppBrowserDownloads(threadId, identity.appId, identity.spaceId);
     const state = () => toAppBrowserState(browserManager.getState({ threadId }));
     const pageId = () => {
@@ -4962,6 +5000,21 @@ function registerIpcHandlers(): void {
         return toAppBrowserState(browserManager.closeTab({ threadId, tabId: pageId() }));
       case "selectPage":
         return toAppBrowserState(browserManager.selectTab({ threadId, tabId: pageId() }));
+      case "openExtensionAction": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Browser extension action input is required.");
+        }
+        const record = value as Record<string, unknown>;
+        if (typeof record.extensionId !== "string" || typeof record.pageId !== "string") {
+          throw new Error("Browser extension action requires extensionId and pageId.");
+        }
+        await browserManager.openExtensionAction({
+          threadId,
+          extensionId: record.extensionId,
+          tabId: record.pageId,
+        });
+        return;
+      }
       case "find": {
         if (!value || typeof value !== "object" || Array.isArray(value))
           throw new Error("Browser find input is required.");
@@ -7162,6 +7215,7 @@ async function bootstrap(): Promise<void> {
   desktopAppRuntime = await startDesktopAppRuntime({
     userDataPath: app.getPath("userData"),
     appPreloadPath: Path.join(__dirname, "appPreload.js"),
+    appControllerRunnerPath: Path.join(__dirname, "appNodeControllerRunner.js"),
     appFrameRuntimePath: Path.join(__dirname, "appFrameRuntime.iife.js"),
     ipcMain,
     getAccountId: getPenkraAccountId,
@@ -7181,6 +7235,108 @@ async function bootstrap(): Promise<void> {
         noLink: true,
       });
       return result.response === 1;
+    },
+    controllerServiceCall: async ({ appId, spaceId, method, input }) => {
+      const runtime = desktopAppRuntime;
+      if (!runtime) throw new Error("The App runtime is unavailable.");
+      const identity = { appId, spaceId };
+      if (method === "account.request") {
+        const permission = queryAppPermission(
+          runtime.installations.snapshot(),
+          identity,
+          "account-data",
+        );
+        if (!permission.declared || permission.state !== "granted") {
+          throw Object.assign(new Error("account-data is not granted for this App."), {
+            code: "PERMISSION_DENIED",
+          });
+        }
+        if (!input || typeof input !== "object" || Array.isArray(input)) {
+          throw new Error("Account-data request must be an object.");
+        }
+        return requestAppAccountData({
+          apiUrl: penkraAccountServices.apiUrl,
+          appId,
+          cookie: getPenkraAccountCookie(),
+          request: input as import("./appAccountData").AppAccountDataRequest,
+        });
+      }
+      if (method === "identity.getToken") {
+        const audience = requireGrantedIdentityAudience(runtime, identity, input);
+        return requestAppIdentityToken({
+          apiUrl: penkraAccountServices.apiUrl,
+          appId,
+          spaceId,
+          audience,
+          cookie: getPenkraAccountCookie(),
+        });
+      }
+      if (!method.startsWith("installations.") || appId !== "com.penkra.apps") {
+        throw Object.assign(new Error(`App controller service ${method} is unavailable.`), {
+          code: "METHOD_NOT_SUPPORTED",
+        });
+      }
+      const installationSnapshot = () =>
+        toDesktopAppInstallationSnapshot(
+          runtime.installations.snapshot(),
+          spaceId,
+          permissionReviewUpdatesForSpace(spaceId),
+        );
+      switch (method) {
+        case "installations.installRegistry": {
+          if (!appRegistryClient) throw new Error("The App registry is not ready.");
+          const request = parseInstallRegistryAppRequest(input);
+          if (request.spaceId !== spaceId)
+            throw new Error("Apps can only be installed into the current Space.");
+          await installRegistryApp({
+            request,
+            hostVersion: app.getVersion(),
+            registry: appRegistryClient,
+            packages: runtime.packages,
+            installations: runtime.installations,
+          });
+          return installationSnapshot();
+        }
+        case "installations.updateRegistry": {
+          if (!appRegistryClient) throw new Error("The App registry is not ready.");
+          const request = parseUpdateRegistryAppRequest(input);
+          if (request.spaceId !== spaceId)
+            throw new Error("Apps can only be updated in the current Space.");
+          await updateRegistryApp({
+            request,
+            hostVersion: app.getVersion(),
+            registry: appRegistryClient,
+            packages: runtime.packages,
+            installations: runtime.installations,
+          });
+          return installationSnapshot();
+        }
+        case "installations.setEnabled": {
+          const request = parseSetAppEnabledRequest(input);
+          if (request.spaceId !== spaceId)
+            throw new Error("Apps can only be changed in the current Space.");
+          await runtime.installations.setEnabled(request);
+          return installationSnapshot();
+        }
+        case "installations.uninstall": {
+          const request = parseUninstallAppRequest(input);
+          if (request.spaceId !== spaceId)
+            throw new Error("Apps can only be uninstalled from the current Space.");
+          await runtime.installations.uninstall(request);
+          return installationSnapshot();
+        }
+        case "installations.removeData": {
+          const request = parseRemoveAppDataRequest(input);
+          if (request.spaceId !== spaceId)
+            throw new Error("App data can only be removed from the current Space.");
+          await runtime.installations.removeData(request);
+          return installationSnapshot();
+        }
+        default:
+          throw Object.assign(new Error(`App controller service ${method} is unavailable.`), {
+            code: "METHOD_NOT_SUPPORTED",
+          });
+      }
     },
     onTabOpened: (descriptor) => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -7390,8 +7546,11 @@ async function bootstrap(): Promise<void> {
             throw new Error("The Penkra window is unavailable.");
           }
           const shellContents = mainWindow.webContents;
+          // Multiple tabs for the same App intentionally load the same package URL. The iframe
+          // browsing-context name is the stable host identity; matching by URL can observe a
+          // retained, inactive tab while a different same-App tab is painted.
           const frame = shellContents.mainFrame.framesInSubtree.find(
-            (candidate) => candidate.url === descriptor.documentUrl,
+            (candidate) => candidate.name === `penkra-app-tab:${targetTabId}`,
           );
           if (!frame) throw new Error(`App frame ${targetTabId} is unavailable.`);
           return {

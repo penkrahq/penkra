@@ -1,6 +1,8 @@
 // FILE: appControllerHost.ts
-// Purpose: Runs declared App operation handlers in one isolated controller renderer per App/Space.
+// Purpose: Runs declared App operation handlers in one dedicated Node controller per App/Space.
 // Layer: Trusted desktop App runtime
+
+import * as Path from "node:path";
 
 import type { AppTabHandle, OperationCancellationCode, OperationContext } from "@penkra/sdk";
 
@@ -11,42 +13,41 @@ import {
   type AppRendererRpcHost,
   type AppRendererRpcHostMessage,
 } from "./appRendererRpc";
-import { createAppDocumentUrlForOrigin } from "./appRuntimePolicy";
 import type { ActiveAppSession } from "./appSessionManager";
 
-export interface AppControllerRenderer {
-  /** Host-owned renderer identity, conventionally Electron webContents.id. */
+export interface AppControllerProcess {
+  /** Host-owned process identity used by the bounded operation RPC transport. */
   id: number;
   send(message: AppRendererRpcHostMessage): void;
-  /** Resolves only after the preload and controller entrypoint are ready. */
-  start(url: string): Promise<void>;
+  /** Resolves only after the Node runtime and controller entrypoint are ready. */
+  start(entrypointPath: string): Promise<void>;
   destroy(): void;
   onDestroyed(listener: () => void): () => void;
 }
 
-export interface AppControllerRendererFactory {
+export interface AppControllerProcessFactory {
   create(input: {
     installedApp: InstalledAppPackage;
     spaceId: string;
     session: ActiveAppSession;
-  }): AppControllerRenderer;
+  }): AppControllerProcess;
 }
 
 export interface AppControllerHostDependencies {
   broker: Pick<AppOperationBroker, "registerController">;
   rpc: Pick<AppRendererRpcHost, "registerTarget" | "request">;
-  renderers: AppControllerRendererFactory;
+  processes: AppControllerProcessFactory;
 }
 
 export class AppControllerHost {
   readonly #broker: AppControllerHostDependencies["broker"];
   readonly #rpc: AppControllerHostDependencies["rpc"];
-  readonly #renderers: AppControllerRendererFactory;
+  readonly #processes: AppControllerProcessFactory;
 
   constructor(dependencies: AppControllerHostDependencies) {
     this.#broker = dependencies.broker;
     this.#rpc = dependencies.rpc;
-    this.#renderers = dependencies.renderers;
+    this.#processes = dependencies.processes;
   }
 
   async activate(input: {
@@ -64,7 +65,7 @@ export class AppControllerHost {
       );
     }
 
-    const renderer = this.#renderers.create(input);
+    const controllerProcess = this.#processes.create(input);
     let unregisterRpc: ((reason?: OperationCancellationCode) => void) | null = null;
     let unregisterController: (() => void) | null = null;
     let removeDestroyedListener: (() => void) | null = null;
@@ -79,15 +80,20 @@ export class AppControllerHost {
       removeDestroyedListener?.();
       unregisterController?.();
       unregisterRpc?.(unexpected ? "host-stopped" : reason);
-      if (!unexpected) renderer.destroy();
+      if (!unexpected) controllerProcess.destroy();
     };
 
     try {
       unregisterRpc = this.#rpc.registerTarget({
-        id: renderer.id,
-        send: (message) => renderer.send(message),
+        id: controllerProcess.id,
+        send: (message) => controllerProcess.send(message),
       });
-      await renderer.start(createAppDocumentUrlForOrigin(input.session.origin, entrypoint));
+      const packagePath = Path.resolve(input.installedApp.packagePath);
+      const entrypointPath = Path.resolve(packagePath, entrypoint);
+      if (!entrypointPath.startsWith(`${packagePath}${Path.sep}`)) {
+        throw new Error("App controller entrypoint escapes its installed package.");
+      }
+      await controllerProcess.start(entrypointPath);
       const controller: AppOperationController = {
         appId: input.installedApp.appId,
         spaceId: input.spaceId,
@@ -97,7 +103,7 @@ export class AppControllerHost {
             async (operationInput: unknown, context: OperationContext) => {
               const openedTabs = new Map<string, AppTabHandle>();
               return this.#rpc.request(
-                renderer.id,
+                controllerProcess.id,
                 "controller.invoke",
                 {
                   operation: declaration.key,
@@ -117,7 +123,7 @@ export class AppControllerHost {
         ),
       };
       unregisterController = this.#broker.registerController(controller);
-      removeDestroyedListener = renderer.onDestroyed(() => {
+      removeDestroyedListener = controllerProcess.onDestroyed(() => {
         const crash = new Error(
           `${input.installedApp.name} operation controller exited unexpectedly in Space ${input.spaceId}.`,
         );

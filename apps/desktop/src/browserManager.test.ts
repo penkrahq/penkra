@@ -7,8 +7,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DesktopBrowserManager } from "./browserManager";
 
+const { loadExtension } = vi.hoisted(() => ({
+  loadExtension: vi.fn(async () => ({
+    id: "dark-reader-id",
+    name: "Dark Reader",
+    url: "chrome-extension://dark-reader-id/",
+    manifest: {
+      browser_action: {
+        default_icon: { 19: "icons/dr_active_19.png", 38: "icons/dr_active_38.png" },
+        default_popup: "ui/popup/index.html",
+      },
+    },
+  })),
+}));
+
 vi.mock("electron", () => ({
   app: {
+    getAppPath: () => "/tmp/penkra",
     getName: () => "Penkra",
     getPreferredSystemLanguages: () => ["en-US"],
     userAgentFallback:
@@ -16,9 +31,21 @@ vi.mock("electron", () => ({
   },
   BrowserWindow: class {},
   clipboard: { writeImage: vi.fn(), writeText: vi.fn() },
-  nativeImage: { createFromBuffer: vi.fn() },
+  nativeImage: {
+    createEmpty: vi.fn(() => ({ isEmpty: () => true, toDataURL: () => "" })),
+    createFromBuffer: vi.fn(),
+    createFromPath: vi.fn(() => ({
+      isEmpty: () => false,
+      toDataURL: () => "data:image/png;base64,dark-reader",
+    })),
+  },
+  screen: {
+    getCursorScreenPoint: vi.fn(() => ({ x: 0, y: 0 })),
+    getDisplayNearestPoint: vi.fn(() => ({ workArea: { x: 0, y: 0, width: 1000, height: 800 } })),
+  },
   session: {
     fromPartition: () => ({
+      extensions: { loadExtension },
       setUserAgent: vi.fn(),
       webRequest: { onBeforeSendHeaders: vi.fn() },
     }),
@@ -52,7 +79,7 @@ type WindowOpenHandler = (details: WindowOpenDetails) => {
 
 class FakeWebContents extends EventEmitter {
   readonly id = 1;
-  readonly debugger = { isAttached: vi.fn(() => false), detach: vi.fn() };
+  readonly debugger = { isAttached: vi.fn(() => false), attach: vi.fn(), detach: vi.fn() };
   windowOpenHandler: WindowOpenHandler | null = null;
   currentUrl = "https://example.com/";
   currentTitle = "Example";
@@ -126,6 +153,21 @@ function asCharacterizationAccess(
 describe("DesktopBrowserManager repeated workflow characterization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("loads the built-in Dark Reader action into the scoped Browser session", async () => {
+    const manager = new DesktopBrowserManager();
+
+    await manager.prepareExtensions(THREAD_ID);
+
+    expect(loadExtension).toHaveBeenCalledTimes(1);
+    expect(manager.extensionActions(THREAD_ID)).toEqual([
+      {
+        id: "dark-reader-id",
+        name: "Dark Reader",
+        iconDataUrl: "data:image/png;base64,dark-reader",
+      },
+    ]);
   });
 
   it("settles native find results and removes its listeners", async () => {
@@ -820,5 +862,104 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       bounds: null,
       surface: "renderer",
     });
+  });
+
+  it("retains a hidden renderer runtime without time-based suspension", async () => {
+    vi.useFakeTimers();
+    try {
+      const manager = new DesktopBrowserManager();
+      const opened = manager.open({ threadId: THREAD_ID, initialUrl: "https://console.example" });
+      const tabId = opened.activeTabId;
+      expect(tabId).not.toBeNull();
+      if (!tabId) return;
+
+      manager.setRendererSurfaceActive(THREAD_ID, true);
+      const webContents = new FakeWebContents();
+      const runtimes = (
+        manager as unknown as {
+          runtimes: Map<
+            string,
+            {
+              key: string;
+              threadId: ThreadId;
+              tabId: string;
+              webContents: WebContents;
+              view: null;
+              ownsWebContents: false;
+              listenerDisposers: Array<() => void>;
+            }
+          >;
+        }
+      ).runtimes;
+      const key = `${THREAD_ID}:${tabId}`;
+      runtimes.set(key, {
+        key,
+        threadId: THREAD_ID,
+        tabId,
+        webContents: webContents as unknown as WebContents,
+        view: null,
+        ownsWebContents: false,
+        listenerDisposers: [],
+      });
+
+      manager.setRendererSurfaceActive(THREAD_ID, false);
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(runtimes.get(key)?.webContents).toBe(webContents);
+      expect(webContents.isDestroyed).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives agents the existing live page while its Browser App is hidden", async () => {
+    const manager = new DesktopBrowserManager();
+    const opened = manager.open({ threadId: THREAD_ID, initialUrl: "https://console.example" });
+    const tabId = opened.activeTabId;
+    expect(tabId).not.toBeNull();
+    if (!tabId) return;
+
+    const webContents = new FakeWebContents();
+    webContents.currentUrl = "https://console.example/dashboard";
+    const key = `${THREAD_ID}:${tabId}`;
+    (
+      manager as unknown as {
+        runtimes: Map<
+          string,
+          {
+            key: string;
+            threadId: ThreadId;
+            tabId: string;
+            webContents: WebContents;
+            view: null;
+            ownsWebContents: false;
+            listenerDisposers: Array<() => void>;
+          }
+        >;
+      }
+    ).runtimes.set(key, {
+      key,
+      threadId: THREAD_ID,
+      tabId,
+      webContents: webContents as unknown as WebContents,
+      view: null,
+      ownsWebContents: false,
+      listenerDisposers: [],
+    });
+    const internal = (
+      manager as unknown as {
+        states: Map<ThreadId, { tabs: Array<{ id: string; status: "live" | "suspended" }> }>;
+      }
+    ).states.get(THREAD_ID);
+    const tab = internal?.tabs.find((candidate) => candidate.id === tabId);
+    if (!tab) throw new Error("Expected Browser tab state.");
+    tab.status = "live";
+
+    manager.hide({ threadId: THREAD_ID });
+    const observed = await manager.observationWebContents(THREAD_ID);
+
+    expect(observed).toBe(webContents);
+    expect(webContents.loadURL).not.toHaveBeenCalled();
+    expect(webContents.debugger.attach).toHaveBeenCalledWith("1.3");
   });
 });

@@ -22,6 +22,11 @@ export const REQUIRED_APPS_EXTRA_RESOURCE = {
   to: "required-apps",
   filter: ["**/*"],
 } as const;
+export const BROWSER_EXTENSIONS_EXTRA_RESOURCE = {
+  from: "apps/desktop/prod-resources/extensions",
+  to: "extensions",
+  filter: ["**/*"],
+} as const;
 
 export interface DesktopPlatformBuildConfig {
   readonly asarUnpack?: ReadonlyArray<string>;
@@ -47,7 +52,7 @@ export function createDesktopPlatformBuildConfig(
 ): DesktopPlatformBuildConfig {
   const nativePackaging = {
     asarUnpack: [...NODE_PTY_ASAR_UNPACK_GLOBS, ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS],
-    extraResources: [REQUIRED_APPS_EXTRA_RESOURCE],
+    extraResources: [REQUIRED_APPS_EXTRA_RESOURCE, BROWSER_EXTENSIONS_EXTRA_RESOURCE],
   };
 
   if (input.platform === "win") {
@@ -107,6 +112,7 @@ export function createDesktopPlatformBuildConfig(
     ...nativePackaging,
     extraResources: [
       REQUIRED_APPS_EXTRA_RESOURCE,
+      BROWSER_EXTENSIONS_EXTRA_RESOURCE,
       {
         from: "apps/desktop/prod-resources/native",
         to: "native",

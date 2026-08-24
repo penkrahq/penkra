@@ -38,6 +38,7 @@ void runHostPhase("electron-ready", () => app.whenReady())
       startDesktopAppRuntime({
         userDataPath: profilePath,
         appPreloadPath: Path.join(__dirname, "appPreload.js"),
+        appControllerRunnerPath: Path.join(__dirname, "appNodeControllerRunner.js"),
         appFrameRuntimePath: Path.join(__dirname, "appFrameRuntime.iife.js"),
         ipcMain,
         onTabOpened: () => undefined,

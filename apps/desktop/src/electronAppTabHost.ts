@@ -156,6 +156,20 @@ export class ElectronAppTabHost implements AppTabHost {
     route: string;
     state?: unknown;
   }): Promise<DesktopAppTabDescriptor> {
+    return this.#openInstalled(input, false);
+  }
+
+  async #openInstalled(
+    input: {
+      tabId?: string;
+      appId: string;
+      spaceId: string;
+      threadId: string;
+      route: string;
+      state?: unknown;
+    },
+    deferNavigation: boolean,
+  ): Promise<DesktopAppTabDescriptor> {
     const app = getInstalledAppPackage(this.#installations.snapshot(), input.appId, input.spaceId);
     if (!app) throw new Error(`${input.appId} is not installed in this Space.`);
     if (!this.#installations.isActive(input.appId, input.spaceId)) {
@@ -172,7 +186,37 @@ export class ElectronAppTabHost implements AppTabHost {
         await this.#installations.ensureActive(input.appId, input.spaceId);
       }
     }
-    const handle = await this.open({ app, ...input });
+    const handle = deferNavigation
+      ? await this.#create({ app, ...input })
+      : await this.open({ app, ...input });
+    if (deferNavigation && (input.route !== "/" || input.state !== undefined)) {
+      const startedAt = performance.now();
+      void handle
+        .navigate({
+          route: input.route,
+          ...(input.state === undefined ? {} : { state: input.state }),
+        })
+        .then(
+          () =>
+            this.#onDiagnostic({
+              kind: "tab-navigation-restored",
+              appId: app.appId,
+              spaceId: input.spaceId,
+              tabId: handle.id,
+              durationMs: Math.round(performance.now() - startedAt),
+              message: input.route,
+            }),
+          (error: unknown) =>
+            this.#onDiagnostic({
+              kind: "tab-navigation-restore-failed",
+              appId: app.appId,
+              spaceId: input.spaceId,
+              tabId: handle.id,
+              durationMs: Math.round(performance.now() - startedAt),
+              message: error instanceof Error ? error.message : String(error),
+            }),
+        );
+    }
     return this.#require(handle.id).descriptor;
   }
 
@@ -396,14 +440,17 @@ export class ElectronAppTabHost implements AppTabHost {
   ): Promise<void> {
     const results = await Promise.allSettled(
       tabs.map((tab) =>
-        this.openInstalled({
-          tabId: tab.id,
-          appId,
-          spaceId,
-          threadId: tab.threadId,
-          route: tab.route,
-          ...(tab.state === undefined ? {} : { state: tab.state }),
-        }),
+        this.#openInstalled(
+          {
+            tabId: tab.id,
+            appId,
+            spaceId,
+            threadId: tab.threadId,
+            route: tab.route,
+            ...(tab.state === undefined ? {} : { state: tab.state }),
+          },
+          true,
+        ),
       ),
     );
     const failures = results.filter((result) => result.status === "rejected");

@@ -22,9 +22,11 @@ Supported Penkra installations expose the public `penkra app ...` author operati
 `["penkra", "--help"]`. If an older installation does not list them, update Penkra; do not substitute shell
 commands or internal product-development procedures.
 
-A Penkra App is an installed browser application with a visual entrypoint and an optional isolated
-operation controller. It can use React, Vue, Svelte, Solid, vanilla DOM, or any other
-browser-compatible stack. There is no required scaffold: begin with the files below or copy
+A Penkra App can have two deliberately separate runtimes: a sandboxed browser UI and an optional
+Node operation controller. The UI can use React, Vue, Svelte, Solid, vanilla DOM, or another
+browser-compatible stack. The controller uses ordinary Node APIs and dependencies for background
+work, while the Penkra SDK supplies Penkra concepts such as operations, tabs, Account data,
+settings, and secrets. There is no required scaffold: begin with the files below or copy
 `examples/sample-app` when an example is useful.
 
 ## Package shape
@@ -37,9 +39,14 @@ my-app/
 ├── README.md             Human-facing App description
 ├── INSTRUCTIONS.md       Agent-facing operational guidance for this App
 ├── app.html              Visual entrypoint
-├── operations.html       Optional isolated operation controller
+├── operations.js         Optional Node operation controller
+├── package.json          Optional standard Node module/dependency metadata
 └── assets/               Declared icons and local browser assets
 ```
+
+Penkra loads the controller with Node's ordinary module rules. Add `{ "type": "module" }` when an
+`operations.js` bundle uses ESM syntax, use an `.mjs` entrypoint, or publish CommonJS as `.cjs`.
+TypeScript and framework source remain build inputs; point the manifest at emitted JavaScript.
 
 All package paths are relative and remain inside the immutable package. Symlinks, native
 executables, executable scripts, source secrets, and files outside the build directory are
@@ -57,7 +64,7 @@ rejected. `README.md` and `INSTRUCTIONS.md` must be nonempty UTF-8 documents.
   "version": "1.0.0",
   "compatibility": { "penkra": ">=0.8.0" },
   "icons": [{ "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml" }],
-  "entrypoints": { "app": "app.html", "operations": "operations.html" },
+  "entrypoints": { "app": "app.html", "operations": "operations.js" },
   "permissions": [
     {
       "name": "network-fetch",
@@ -259,6 +266,25 @@ call is re-authorized against the host-owned App, Space, Thread, tab, installati
 state; messages cannot select another origin or renderer. Reload creates a new port and invalidates
 old tab references without changing the App×Space origin.
 
+The operation controller is not a hidden webpage and cannot inspect the shell or any App tab DOM.
+Penkra starts one dedicated Node process for each enabled App and Space, loads the declared
+`operations.js`, and exposes the SDK as `globalThis.penkra` and through `@penkra/sdk`. Controller
+code may use standard Node facilities such as `node:fs`, `Buffer`, `fetch`, `node:crypto`, streams,
+and packaged JavaScript dependencies. The initial controller policy disables child processes,
+worker threads, WASI, and native add-ons; use a host SDK service when work genuinely needs a
+Penkra-owned native lifecycle, such as Simulator. A controller crash disables that App runtime in
+the affected Space and cancels its outstanding operations; it does not compromise a visual tab's
+browser boundary.
+
+Controllers receive ordinary OS context such as the home, temporary, locale, and executable-search
+paths. Penkra does not inherit its own runtime tokens, provider credentials, `NODE_OPTIONS`, or
+unrelated parent-process environment variables into an App controller.
+
+Do not route ordinary controller filesystem or HTTP work through `penkra.files` or
+`penkra.network`. Those SDK surfaces exist for sandboxed visual tabs. Use the SDK in a controller
+only for capabilities owned by Penkra: operation registration and context, tabs, Account access,
+App settings and secrets, identity, and other explicit host services.
+
 App renderers use a restrictive Content Security Policy. An App may fetch only files from its own
 verified immutable package origin (`connect-src 'self'`); remote renderer connections remain
 blocked. Packaged WebAssembly is supported with `wasm-unsafe-eval`, which permits compiling local
@@ -267,7 +293,7 @@ crosses explicit host capabilities so permissions, destination checks,
 attribution, credentials, and revocation stay enforceable. The current special permissions are
 `network-fetch`, `browser-session`, `simulator-session`, `account-data`, and `account-identity`.
 
-### Files and directories
+### Files and directories in visual tabs
 
 Use `files.pick("file")`, `files.pick("directory")`, or `files.pick("save", { suggestedName })`.
 The native picker is one authorization boundary; the trusted host may also hand an App one
@@ -314,8 +340,8 @@ metadata in IndexedDB, not assumptions that an old handle remains authorized.
 The public `simulator-session` service lets an interactive App tab manage saved simulated devices,
 host their complete display/input surface, and return a standard Apple UDID or Android ADB serial.
 The host owns native tooling, loopback credentials, ports, process lifecycle, tab-close cleanup, and
-trusted prerequisite/license prompts. Apps never receive a raw process handle or ambient project
-directory; build frameworks continue to target the returned platform identifier normally.
+trusted prerequisite/license prompts. Visual tabs never receive a raw process handle or ambient
+project directory; build frameworks continue to target the returned platform identifier normally.
 
 `simulator.requestSetup({ platform, runtimeId? })` requests platform prerequisites or one discovered
 runtime. Penkra presents a trusted confirmation before invoking the official platform installer,
@@ -329,7 +355,7 @@ permissions such as microphone and camera use host-intercepted browser permissio
 File access is handle-based. A handle authorizes only a user-selected or host-handed-off file or
 directory and its validated descendants for the receiving App and Space in the current desktop
 session. Other Apps and Spaces must obtain their own handles through a picker or trusted handoff.
-Apps never receive ambient filesystem access. A hosted browser session can control only pages
+Visual tabs never receive ambient filesystem access. A hosted browser session can control only pages
 created for the calling App and Space. A hosted simulator session can control only saved devices
 and live sessions owned by the calling App and Space.
 
@@ -433,7 +459,9 @@ React is optional. Hooks are exported from `@penkra/sdk/react`; UI adapters are 
 
 ## Operations and tabs
 
-An operation executes in one isolated controller for the App and Space. `context.caller.kind` is
+An operation executes in one dedicated Node controller for the App and Space. Register handlers
+from the controller entrypoint with `operations.handle(...)`; controller source is not loaded into
+the visual App. `context.caller.kind` is
 host-asserted as `user`, `agent`, `app`, or `host`; caller identity is not exposed.
 
 When an invocation includes `tabId`, `context.tab` addresses exactly that validated App tab. Use
@@ -632,7 +660,7 @@ registry App before sideloading. Invalid rebuilds leave the last working package
 
 `test` asks the installed Penkra desktop to relaunch its own App runtime in a hidden, disposable
 profile and Space. It ingests the App through the immutable package path, starts its controller and
-renderer, requires the tab to reach `ready`, records diagnostics, and removes the profile. It never
+visual renderer, requires the tab to reach `ready`, records diagnostics, and removes the profile. It never
 uses or changes the active profile, Space, database, or installed Apps. It complements unit,
 accessibility, and visual tests.
 

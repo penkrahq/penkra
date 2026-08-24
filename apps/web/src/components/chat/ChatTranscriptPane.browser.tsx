@@ -155,7 +155,16 @@ describe("ChatTranscriptPane", () => {
     try {
       await vi.waitFor(() => {
         expect(transcriptCommitCount).toBeGreaterThan(0);
+        expect(
+          screen.container.querySelector('[data-initial-placement="resolved"]'),
+        ).not.toBeNull();
       });
+
+      // Establish the performance baseline only after the virtualizer has
+      // finished its one-time initial placement. Any later transcript commit
+      // can then be attributed to the composer interaction under test.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+      await settleLayout();
 
       const baselineCommitCount = transcriptCommitCount;
       await page.getByTestId("composer-editor").click();
