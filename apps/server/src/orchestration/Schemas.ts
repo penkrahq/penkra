@@ -15,10 +15,6 @@ import {
   ThreadPinnedMessageRemovedPayload as ContractsThreadPinnedMessageRemovedPayloadSchema,
   ThreadPinnedMessageDoneSetPayload as ContractsThreadPinnedMessageDoneSetPayloadSchema,
   ThreadPinnedMessageLabelSetPayload as ContractsThreadPinnedMessageLabelSetPayloadSchema,
-  ThreadMarkerAddedPayload as ContractsThreadMarkerAddedPayloadSchema,
-  ThreadMarkerRemovedPayload as ContractsThreadMarkerRemovedPayloadSchema,
-  ThreadMarkerDoneSetPayload as ContractsThreadMarkerDoneSetPayloadSchema,
-  ThreadMarkerLabelSetPayload as ContractsThreadMarkerLabelSetPayloadSchema,
   ThreadRuntimeModeSetPayload as ContractsThreadRuntimeModeSetPayloadSchema,
   ThreadDeletedPayload as ContractsThreadDeletedPayloadSchema,
   ThreadUnarchivedPayload as ContractsThreadUnarchivedPayloadSchema,
@@ -53,10 +49,6 @@ export const ThreadPinnedMessageAddedPayload = ContractsThreadPinnedMessageAdded
 export const ThreadPinnedMessageRemovedPayload = ContractsThreadPinnedMessageRemovedPayloadSchema;
 export const ThreadPinnedMessageDoneSetPayload = ContractsThreadPinnedMessageDoneSetPayloadSchema;
 export const ThreadPinnedMessageLabelSetPayload = ContractsThreadPinnedMessageLabelSetPayloadSchema;
-export const ThreadMarkerAddedPayload = ContractsThreadMarkerAddedPayloadSchema;
-export const ThreadMarkerRemovedPayload = ContractsThreadMarkerRemovedPayloadSchema;
-export const ThreadMarkerDoneSetPayload = ContractsThreadMarkerDoneSetPayloadSchema;
-export const ThreadMarkerLabelSetPayload = ContractsThreadMarkerLabelSetPayloadSchema;
 export const ThreadRuntimeModeSetPayload = ContractsThreadRuntimeModeSetPayloadSchema;
 export const ThreadDeletedPayload = ContractsThreadDeletedPayloadSchema;
 export const ThreadUnarchivedPayload = ContractsThreadUnarchivedPayloadSchema;

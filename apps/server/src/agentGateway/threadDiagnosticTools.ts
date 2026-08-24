@@ -60,15 +60,25 @@ export function makeThreadDiagnosticTools(input: {
     definition: {
       name: "penkra_read_thread_activity",
       description:
-        "Read a stable, paginated page of projected thread activity. Returns newest-last rows and an opaque cursor for older evidence.",
+        "Use after penkra_read_thread when you need the user-facing work log behind a turn: tool calls, approvals, status, and other projected activity. This is the least detailed diagnostic source and returns stable newest-last pages; use penkra_read_thread_events for durable command/event evidence, penkra_read_thread_runtime_events for raw provider evidence, or penkra_diagnose_thread when the thread is malfunctioning and you need a bounded cross-source assessment.",
       inputSchema: {
         type: "object",
         properties: {
-          threadId: { type: "string" },
-          cursor: { type: "string" },
-          limit: { type: "number", description: "Default 50, max 200." },
-          turnId: { type: "string" },
-          kinds: { type: "array", items: { type: "string" } },
+          threadId: {
+            type: "string",
+            description: "Exact Penkra thread id whose projected activity should be read.",
+          },
+          cursor: {
+            type: "string",
+            description: "Opaque nextCursor from the preceding activity page.",
+          },
+          limit: { type: "number", description: "Rows per page; default 50, maximum 200." },
+          turnId: { type: "string", description: "Only activity for this exact Penkra turn id." },
+          kinds: {
+            type: "array",
+            items: { type: "string" },
+            description: "Only these exact projected activity kinds.",
+          },
           includeDetails: {
             type: "boolean",
             description: "Include bounded, redacted activity payloads.",
@@ -149,15 +159,30 @@ export function makeThreadDiagnosticTools(input: {
     definition: {
       name: "penkra_read_thread_events",
       description:
-        "Read a stable, paginated page from the durable orchestration event journal. Consecutive updates for the same message are coalesced without crossing intervening events.",
+        "Use when projected activity is insufficient and you need Penkra's durable orchestration journal: accepted commands, lifecycle transitions, and exact event ordering. Consecutive updates for one message are coalesced without crossing intervening events. Use penkra_read_thread_activity for the readable work log, penkra_read_thread_runtime_events for provider-native evidence, or penkra_diagnose_thread for a bounded cross-source diagnosis.",
       inputSchema: {
         type: "object",
         properties: {
-          threadId: { type: "string" },
-          cursor: { type: "string" },
-          limit: { type: "number", description: "Default 50, max 200." },
-          eventTypes: { type: "array", items: { type: "string" } },
-          payloadMode: { type: "string", enum: ["none", "summary", "full"] },
+          threadId: {
+            type: "string",
+            description: "Exact Penkra thread id whose durable events should be read.",
+          },
+          cursor: {
+            type: "string",
+            description: "Opaque nextCursor from the preceding durable-event page.",
+          },
+          limit: { type: "number", description: "Events per page; default 50, maximum 200." },
+          eventTypes: {
+            type: "array",
+            items: { type: "string" },
+            description: "Only these exact orchestration event types.",
+          },
+          payloadMode: {
+            type: "string",
+            enum: ["none", "summary", "full"],
+            description:
+              "Payload detail: none omits payloads, summary returns bounded fields (default), full returns bounded redacted payloads.",
+          },
         },
         required: ["threadId"],
         additionalProperties: false,
@@ -254,15 +279,25 @@ export function makeThreadDiagnosticTools(input: {
     definition: {
       name: "penkra_read_thread_runtime_events",
       description:
-        "Read retained provider-runtime events for one thread. This source has a global accepted-event retention cap; inspect coverage before treating absence as evidence.",
+        "Use only when durable Penkra events do not explain provider behavior and you need retained provider-native runtime evidence. The response reports bounded global-retention coverage, so absence is not proof an event never occurred. Prefer penkra_read_thread_activity for readable history, penkra_read_thread_events for durable Penkra events, and penkra_diagnose_thread for a bounded cross-source diagnosis.",
       inputSchema: {
         type: "object",
         properties: {
-          threadId: { type: "string" },
-          cursor: { type: "string" },
-          limit: { type: "number", description: "Default 50, max 200." },
-          turnId: { type: "string" },
-          eventTypes: { type: "array", items: { type: "string" } },
+          threadId: {
+            type: "string",
+            description: "Exact Penkra thread id whose retained provider events should be read.",
+          },
+          cursor: {
+            type: "string",
+            description: "Opaque nextCursor from the preceding provider-event page.",
+          },
+          limit: { type: "number", description: "Events per page; default 50, maximum 200." },
+          turnId: { type: "string", description: "Only events for this exact Penkra turn id." },
+          eventTypes: {
+            type: "array",
+            items: { type: "string" },
+            description: "Only these exact provider-runtime event types.",
+          },
           includeDetails: {
             type: "boolean",
             description: "Include bounded, redacted provider event fields, including raw metadata.",
@@ -346,10 +381,15 @@ export function makeThreadDiagnosticTools(input: {
     definition: {
       name: "penkra_diagnose_thread",
       description:
-        "Build one bounded forensic snapshot from projected status/messages/activity, durable events, provider delivery blockers, and operational stream incidents.",
+        "Use when a Penkra thread appears stuck, inconsistent, or failed and you need one bounded cross-source assessment before reading raw evidence. It combines projected status, recent messages/activity, durable events, delivery blockers, and stream incidents, and reports when deeper activity, event, or runtime-event reads are warranted. Do not use it as a routine transcript reader.",
       inputSchema: {
         type: "object",
-        properties: { threadId: { type: "string" } },
+        properties: {
+          threadId: {
+            type: "string",
+            description: "Exact Penkra thread id to diagnose across projection and event sources.",
+          },
+        },
         required: ["threadId"],
         additionalProperties: false,
       },
@@ -529,10 +569,15 @@ export function makeThreadDiagnosticTools(input: {
     definition: {
       name: "penkra_retry_thread_projection",
       description:
-        "Release one quarantined provider-runtime event for the thread so Penkra retries the original preserved event. This never skips or deletes the event.",
+        "Use only after penkra_diagnose_thread reports a quarantined provider-runtime head event. Releases that one preserved event for another projection attempt; it never skips or deletes evidence. If diagnosis does not name this recovery, inspect the reported blocker instead of retrying projection.",
       inputSchema: {
         type: "object",
-        properties: { threadId: { type: "string" } },
+        properties: {
+          threadId: {
+            type: "string",
+            description: "Exact Penkra thread id whose quarantined head event should be released.",
+          },
+        },
         required: ["threadId"],
         additionalProperties: false,
       },

@@ -7,6 +7,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   ProviderConnectionId,
   type OrchestrationReadModel,
+  type OrchestrationEvent,
   type FolderId,
   type ServerConfig,
   SpaceId,
@@ -45,6 +46,7 @@ import { useSplitViewStore } from "../splitViewStore";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useStore } from "../store";
 import { initialState } from "../storeState";
+import { makeDomainEvent } from "../storeTestFixtures";
 import {
   createShellSnapshotFromReadModel,
   flattenEffectRpcRequestPayload,
@@ -79,6 +81,7 @@ const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
 let attachmentResponseDelayMs = 0;
 let attachmentUploadSequence = 0;
+let emitDomainEvent: ((event: OrchestrationEvent) => void) | null = null;
 
 interface WsRequestEnvelope {
   id: string;
@@ -1369,6 +1372,9 @@ const worker = setupWorker(
         method === WS_METHODS.subscribeProjectDevServerEvents ||
         method === WS_METHODS.subscribeProjectWorkspaceChanges
       ) {
+        if (method === WS_METHODS.subscribeOrchestrationDomainEvents) {
+          emitDomainEvent = (event) => sendEffectRpcChunk(client, parsed.request.id, event);
+        }
         return;
       }
       sendEffectRpcExit(client, parsed.request.id, resolveWsRpc(requestBody));
@@ -2000,6 +2006,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     await setViewport(DEFAULT_VIEWPORT);
     attachmentResponseDelayMs = 0;
     attachmentUploadSequence = 0;
+    emitDomainEvent = null;
     localStorage.clear();
     useLatestProjectStore.setState({ latestFolderId: null });
     document.body.innerHTML = "";
@@ -3790,12 +3797,30 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-          expect(draft?.prompt).toBe("pending provider start prompt");
           const interrupt = wsRequests
             .map(readDispatchedCommand)
             .find((command) => command?.type === "thread.turn.interrupt");
           expect(interrupt?.pendingMessageId).toBe(pendingMessageId);
+          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe(
+            "",
+          );
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      expect(emitDomainEvent).not.toBeNull();
+      emitDomainEvent!(
+        makeDomainEvent("thread.turn-start-cancelled", {
+          threadId: THREAD_ID,
+          messageId: pendingMessageId,
+          cancelledAt: NOW_ISO,
+        }),
+      );
+
+      await vi.waitFor(
+        () => {
+          const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
+          expect(draft?.prompt).toBe("pending provider start prompt");
         },
         { timeout: 8_000, interval: 16 },
       );

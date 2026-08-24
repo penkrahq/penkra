@@ -58,6 +58,7 @@ layer("removed provider data migration", (it) => {
       assert.deepStrictEqual(executed, [
         [148, "RemoveUnshippedProviders"],
         [149, "FolderOnlyHierarchy"],
+        [150, "ResetConnectionUsageAccounting"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`

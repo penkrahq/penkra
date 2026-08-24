@@ -1,5 +1,15 @@
 # AGENTS.md
 
+## Instruction Authority
+
+The client-workspace `../AGENTS.md` is the higher-level authority for client scope, consequential
+claims, external effects, and shared-client-instruction changes. This file is authoritative only for
+engineering work inside the Penkra desktop repository. The workspace-root `TODO.md` is the shared
+product plan for desktop and public platform/SDK contracts; a sibling repository's local
+`AGENTS.md` remains authoritative for its own build, test, design, and release mechanics. When two
+files overlap, follow the narrower repository rule unless it conflicts with the higher-level client
+boundary.
+
 ## Documentation Audiences
 
 - `docs/app-development.md` is the public App-author contract. Do not put Penkra repository setup,
@@ -113,14 +123,39 @@ failure. A scratch root that outlives its task becomes indistinguishable from re
 person cannot tell whether it is a live fixture or abandoned work, so they leave it and the
 directory becomes permanent. If a root must survive a task, record why in a `README.md` inside it.
 
-## Provider adapter prose
+## Provider payload assembly
 
-Provider adapters choose a delivery mechanism; they do not author host instructions. If a line
-would remain true for a provider Penkra has not integrated yet, it is host policy and belongs in
-`apps/server/src/agentGateway/instructions/INSTRUCTIONS.md`. Provider-specific adapter prose must
-describe only a constraint that is false for every other provider. Keep the shared instruction
-assembler and provider-neutral document as the single source rather than appending paraphrases in
-adapter files.
+Files that contribute text or configuration to a provider session choose delivery mechanisms; they
+do not author parallel host policy. This includes adapters, session managers, process-environment
+builders, turn-start parameter builders, and provider config writers. If a line would remain true
+for a provider Penkra has not integrated yet, it belongs in one of the two instruction documents
+under `apps/server/src/agentGateway/instructions/`, never in the file that delivers it.
+
+Before adding provider-specific prose, ask: **could this sentence become false without a commit to
+this repository?** If yes, encode the constraint in configuration or code instead. Set the feature
+flag, register only a supported tool, or surface the runtime capability; do not copy upstream prose
+that Penkra must remember to update. This applies to code comments asserting upstream behaviour as
+much as to prose sent to a model. A comment claiming what another company's client does is exactly
+as unfalsifiable from here as instruction text claiming it, and it drifts the same way — with the
+added cost that the next reader treats it as a researched finding rather than a claim to check.
+
+Audit this boundary through callers of the instruction renderers, assignments to
+`developer_instructions`, `systemPrompt`, `instructions`, or `appendSystemPrompt`, and code that
+writes provider configuration files. Keep the shared assembler and the provider-neutral documents as
+the single source rather than appending paraphrases elsewhere.
+
+### Which instruction document a sentence belongs in
+
+- `instructions/HOST.md` — host authority, delivered by injection into the provider's own prompt:
+  `systemPrompt` on Claude, `developer_instructions` on Codex, a session text part on OpenCode.
+- `instructions/SERVER.md` — the manual for `penkra_exec_command`, delivered as the gateway's MCP
+  `initialize.instructions`, with the live App catalog and operation list appended by the assembler.
+  All three providers connect as MCP clients and all three surface this field.
+
+Placement test: **is the sentence true even if Penkra exposed no tools?** If yes, put it in
+`HOST.md`. Guidance for addressing, calling, choosing between, observing, or recovering from Penkra
+operations belongs in `SERVER.md`. Neither document may cross-reference the other; each travels on
+an independently ordered provider channel and must read standalone.
 
 ## UI Conventions
 

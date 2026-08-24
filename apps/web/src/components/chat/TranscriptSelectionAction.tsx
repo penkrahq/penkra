@@ -3,7 +3,7 @@
 // Layer: Chat transcript interaction UI
 
 import type { ReactNode } from "react";
-import { MessageCircleIcon, PencilIcon, TextWrapIcon } from "~/lib/icons";
+import { MessageCircleIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { ELEVATED_HOVER_SURFACE_CLASS_NAME } from "~/surfaceStyles";
 
@@ -11,10 +11,6 @@ interface TranscriptSelectionActionProps {
   left: number;
   top: number;
   placement: "top" | "bottom";
-  // Highlight/underline only make sense for transcript text; read-only code
-  // surfaces without thread context omit them and get an add-only toolbar.
-  onHighlight?: (() => void) | undefined;
-  onUnderline?: (() => void) | undefined;
   onAddToChat: () => void;
 }
 
@@ -67,16 +63,6 @@ export function TranscriptSelectionAction(props: TranscriptSelectionActionProps)
           props.placement === "top" ? "origin-bottom" : "origin-top",
         )}
       >
-        {props.onHighlight ? (
-          <TranscriptSelectionToolbarButton label="Highlight" onClick={props.onHighlight}>
-            <PencilIcon className="size-3.5" />
-          </TranscriptSelectionToolbarButton>
-        ) : null}
-        {props.onUnderline ? (
-          <TranscriptSelectionToolbarButton label="Underline" onClick={props.onUnderline}>
-            <TextWrapIcon className="size-3.5" />
-          </TranscriptSelectionToolbarButton>
-        ) : null}
         <TranscriptSelectionToolbarButton label="Add to chat" onClick={props.onAddToChat}>
           <MessageCircleIcon className="size-3.5" />
         </TranscriptSelectionToolbarButton>

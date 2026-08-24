@@ -1400,7 +1400,7 @@ describe("deriveWorkLogEntries", () => {
 
     expect(entry).toMatchObject({
       toolStatus: "failed",
-      toolTitle: "Penkra couldn't create threads",
+      toolTitle: "Penkra couldn't handle create threads",
       detail: "Invalid target options",
     });
   });

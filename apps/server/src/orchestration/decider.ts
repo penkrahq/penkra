@@ -3,17 +3,14 @@ import type {
   OrchestrationEvent,
   OrchestrationReadModel,
   OrchestrationThread,
-  ThreadMarker,
 } from "@penkra/contracts";
 import {
   EventId,
   MAX_PINNED_PROJECTS,
   PINNED_MESSAGES_MAX_COUNT,
   SPACES_MAX_COUNT,
-  THREAD_MARKERS_MAX_COUNT,
   TurnId,
 } from "@penkra/contracts";
-import { doThreadMarkerRangesOverlap } from "@penkra/shared/threadMarkers";
 import {
   collectTailTurnIds,
   resolveTailUserMessageEditTarget,
@@ -1134,149 +1131,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           messageId: command.messageId,
-          label: command.label,
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "thread.marker.add": {
-      const thread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      if (command.endOffset <= command.startOffset) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Marker end offset must be greater than start offset.`,
-        });
-      }
-      let existingMarker: ThreadMarker | undefined = undefined;
-      let replacedMarkerCount = 0;
-      for (const marker of thread.threadMarkers ?? []) {
-        if (
-          marker.id === command.markerId ||
-          (marker.messageId === command.messageId &&
-            marker.startOffset === command.startOffset &&
-            marker.endOffset === command.endOffset &&
-            marker.style === command.style)
-        ) {
-          existingMarker = marker;
-        }
-        if (
-          doThreadMarkerRangesOverlap(marker, {
-            messageId: command.messageId,
-            startOffset: command.startOffset,
-            endOffset: command.endOffset,
-          })
-        ) {
-          replacedMarkerCount += 1;
-        }
-      }
-      if (
-        !existingMarker &&
-        (thread.threadMarkers?.length ?? 0) - replacedMarkerCount >= THREAD_MARKERS_MAX_COUNT
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Thread '${command.threadId}' already has the maximum of ${THREAD_MARKERS_MAX_COUNT} markers.`,
-        });
-      }
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.marker-added",
-        payload: {
-          threadId: command.threadId,
-          marker: existingMarker ?? {
-            id: command.markerId,
-            messageId: command.messageId,
-            startOffset: command.startOffset,
-            endOffset: command.endOffset,
-            selectedText: command.selectedText,
-            style: command.style,
-            color: command.color,
-            label: null,
-            done: false,
-            createdAt: occurredAt,
-            updatedAt: occurredAt,
-          },
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "thread.marker.remove": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.marker-removed",
-        payload: {
-          threadId: command.threadId,
-          markerId: command.markerId,
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "thread.marker.done.set": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.marker-done-set",
-        payload: {
-          threadId: command.threadId,
-          markerId: command.markerId,
-          done: command.done,
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "thread.marker.label.set": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.marker-label-set",
-        payload: {
-          threadId: command.threadId,
-          markerId: command.markerId,
           label: command.label,
           updatedAt: occurredAt,
         },

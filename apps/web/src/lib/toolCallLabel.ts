@@ -130,32 +130,7 @@ const PENKRA_MCP_TOOL_PRESENTATIONS = {
     completed: "Penkra checked available agents",
     failed: "Penkra couldn't check available agents",
   },
-  penkra_overview: {
-    running: "Penkra is gathering an overview",
-    completed: "Penkra gathered an overview",
-    failed: "Penkra couldn't gather an overview",
-  },
-  penkra_list_allowed_projects: {
-    running: "Penkra is listing allowed folders",
-    completed: "Penkra listed allowed folders",
-    failed: "Penkra couldn't list allowed folders",
-  },
-  penkra_create_task: {
-    running: "Penkra is creating a task",
-    completed: "Penkra created a task",
-    failed: "Penkra couldn't create a task",
-  },
-  penkra_wait_for_task: {
-    running: "Penkra is waiting for a task",
-    completed: "Penkra finished waiting for a task",
-    failed: "Penkra couldn't wait for a task",
-  },
-  penkra_read_task: {
-    running: "Penkra is reading a task",
-    completed: "Penkra read a task",
-    failed: "Penkra couldn't read a task",
-  },
-  penkra_list_projects: {
+  penkra_list_folders: {
     running: "Penkra is listing folders",
     completed: "Penkra listed folders",
     failed: "Penkra couldn't list folders",
@@ -190,15 +165,15 @@ const PENKRA_MCP_TOOL_PRESENTATIONS = {
     completed: "Penkra diagnosed a thread",
     failed: "Penkra couldn't diagnose a thread",
   },
+  penkra_retry_thread_projection: {
+    running: "Penkra is retrying thread projection",
+    completed: "Penkra retried thread projection",
+    failed: "Penkra couldn't retry thread projection",
+  },
   penkra_create_thread: {
     running: "Penkra is creating a thread",
     completed: "Penkra created a thread",
     failed: "Penkra couldn't create a thread",
-  },
-  penkra_create_threads: {
-    running: "Penkra is creating threads",
-    completed: "Penkra created threads",
-    failed: "Penkra couldn't create threads",
   },
   penkra_wait_for_threads: {
     running: "Penkra is waiting for threads",
@@ -220,10 +195,15 @@ const PENKRA_MCP_TOOL_PRESENTATIONS = {
     completed: "Penkra renamed a thread",
     failed: "Penkra couldn't rename a thread",
   },
-  penkra_set_thread_archived: {
-    running: "Penkra is updating a thread",
-    completed: "Penkra updated a thread",
-    failed: "Penkra couldn't update a thread",
+  penkra_archive_thread: {
+    running: "Penkra is archiving a thread",
+    completed: "Penkra archived a thread",
+    failed: "Penkra couldn't archive a thread",
+  },
+  penkra_unarchive_thread: {
+    running: "Penkra is unarchiving a thread",
+    completed: "Penkra unarchived a thread",
+    failed: "Penkra couldn't unarchive a thread",
   },
 } as const satisfies Record<string, PenkraMcpToolPresentation>;
 

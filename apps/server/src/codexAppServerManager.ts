@@ -44,7 +44,7 @@ import {
   parseCodexCliVersion,
 } from "./provider/codexCliVersion";
 import { PENKRA_AGENT_GATEWAY_TOKEN_ENV } from "./agentGateway/mcpInjection.ts";
-import { PENKRA_GATEWAY_HARNESS_POLICY } from "./agentGateway/harnessPolicy.ts";
+import { PENKRA_HOST_POLICY } from "./agentGateway/harnessPolicy.ts";
 import type { AgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
 import type { AgentGatewayNativeToolSurface } from "./agentGateway/Services/AgentGatewayToolBridge.ts";
 import { isNonFatalCodexErrorMessage } from "./codexErrorClassification.ts";
@@ -435,16 +435,8 @@ export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapsho
   };
 }
 
-export const CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS = `<collaboration_mode># Collaboration Mode: Default
-
-You are in Penkra's standard collaborative execution mode.
-
-## request_user_input availability
-
-The \`request_user_input\` tool is unavailable in Default mode. If you call it while in Default mode, it will return an error.
-
-In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
-</collaboration_mode>\n\n${PENKRA_GATEWAY_HARNESS_POLICY}`;
+/** The canonical host policy delivered through Codex's developer-instruction channel. */
+export const CODEX_DEVELOPER_INSTRUCTIONS = PENKRA_HOST_POLICY;
 
 // Maps Penkra's simple runtime toggle to Codex thread-level permission overrides.
 function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
@@ -579,7 +571,7 @@ function buildCodexCollaborationMode(input: {
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",
-      developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+      developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
     },
   };
 }

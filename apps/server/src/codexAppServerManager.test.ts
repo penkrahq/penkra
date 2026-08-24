@@ -19,7 +19,7 @@ import { buildCodexProcessEnv } from "./codexProcessEnv";
 import {
   buildCodexInitializeParams,
   buildCodexDynamicTools,
-  CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+  CODEX_DEVELOPER_INSTRUCTIONS,
   __codexCliVersionGateTesting,
   CodexAppServerManager,
   classifyCodexStderrLine,
@@ -35,7 +35,6 @@ import {
 } from "./codexWorkingDirectory";
 import { CodexJsonlFramer, CodexJsonlWriter } from "./codexAppServerTransport";
 import { ensureIsolatedScratchWorkspace } from "./scratchWorkspaces";
-import { PENKRA_HARNESS_POLICY_MARKER } from "./agentGateway/harnessPolicy.ts";
 import { acquireAgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
 
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
@@ -49,13 +48,6 @@ const approvalRequiredTurnOverrides = {
 } as const;
 
 describe("Codex Penkra harness policy", () => {
-  it("keeps the host policy exactly once in the collaboration instructions", () => {
-    expect(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS).toContain(PENKRA_HARNESS_POLICY_MARKER);
-    expect(
-      CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS.split(PENKRA_HARNESS_POLICY_MARKER),
-    ).toHaveLength(2);
-  });
-
   it("keeps the Penkra host tool out of Codex MCP configuration", async () => {
     const homePath = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-gateway-endpoint-"));
     const previousPenkraHome = process.env.PENKRA_HOME;
@@ -1704,7 +1696,7 @@ describe("sendTurn", () => {
         settings: {
           model: "gpt-5.3-codex",
           reasoning_effort: "high",
-          developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+          developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
         },
       },
     });
@@ -1740,7 +1732,7 @@ describe("sendTurn", () => {
         settings: {
           model: "gpt-5.3-codex",
           reasoning_effort: "medium",
-          developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+          developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
         },
       },
     });
@@ -1771,7 +1763,7 @@ describe("sendTurn", () => {
         settings: {
           model: "gpt-5.3-codex",
           reasoning_effort: "medium",
-          developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+          developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
         },
       },
     });
@@ -1803,7 +1795,7 @@ describe("sendTurn", () => {
         settings: {
           model: "gpt-5.2-codex",
           reasoning_effort: "medium",
-          developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+          developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
         },
       },
     });
@@ -1859,7 +1851,7 @@ describe("sendTurn", () => {
         settings: {
           model: "gpt-5.4",
           reasoning_effort: "high",
-          developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+          developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
         },
       },
     });
@@ -2662,7 +2654,7 @@ describe("respondToRequest", () => {
         settings: {
           model: "gpt-5.3-codex",
           reasoning_effort: "medium",
-          developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+          developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
         },
       },
     });

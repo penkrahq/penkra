@@ -12,7 +12,6 @@ import {
   NonNegativeInt,
   ThreadNotes,
   ThreadPinnedMessages,
-  ThreadMarkers,
   FolderId,
   RuntimeMode,
   ThreadId,
@@ -54,7 +53,6 @@ export const ProjectionThread = Schema.Struct({
   forkSourceThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   latestTurnId: Schema.NullOr(TurnId),
   pinnedMessages: Schema.NullOr(ThreadPinnedMessages),
-  threadMarkers: Schema.NullOr(ThreadMarkers),
   notes: Schema.NullOr(ThreadNotes),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   lastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(

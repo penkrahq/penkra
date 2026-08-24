@@ -87,6 +87,43 @@ const BUFFERED_TOOL_OUTPUT_BY_KEY_TTL = Duration.minutes(60);
 const BUFFERED_REASONING_SUMMARY_BY_KEY_CACHE_CAPACITY = 2_048;
 const BUFFERED_REASONING_SUMMARY_BY_KEY_TTL = Duration.minutes(60);
 const PENDING_GENERATED_IMAGES_CACHE_CAPACITY = 512;
+
+function usageRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function nonNegativeTokenCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+}
+
+function completedTurnTokenUsage(
+  event: Extract<ProviderRuntimeEvent, { readonly type: "turn.completed" }>,
+): {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly reasoningOutputTokens: number;
+} {
+  const usage = usageRecord(event.payload.usage);
+  if (!usage) return { inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 };
+  const outputDetails = usageRecord(usage.output_tokens_details ?? usage.outputTokensDetails);
+  const baseInput = nonNegativeTokenCount(usage.input_tokens ?? usage.inputTokens);
+  const inputTokens =
+    event.provider === "claudeAgent"
+      ? baseInput +
+        nonNegativeTokenCount(usage.cache_creation_input_tokens) +
+        nonNegativeTokenCount(usage.cache_read_input_tokens)
+      : baseInput;
+  return {
+    inputTokens,
+    outputTokens: nonNegativeTokenCount(usage.output_tokens ?? usage.outputTokens),
+    reasoningOutputTokens: nonNegativeTokenCount(
+      usage.reasoning_output_tokens ??
+        usage.reasoningOutputTokens ??
+        outputDetails?.reasoning_tokens ??
+        outputDetails?.reasoningTokens,
+    ),
+  };
+}
 // Hot-path cache only. Turn settlement also reads durable activity records, so
 // TTL expiry or a server restart cannot discard the transcript reference.
 const PENDING_GENERATED_IMAGES_TTL = Duration.minutes(60);
@@ -649,11 +686,7 @@ const make = Effect.gen(function* () {
 
   const materializeConnectionFacts = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
-      if (
-        event.type !== "account.rate-limits.updated" &&
-        event.type !== "thread.token-usage.updated" &&
-        event.type !== "turn.completed"
-      ) {
+      if (event.type !== "account.rate-limits.updated" && event.type !== "turn.completed") {
         return;
       }
       const connectionId = yield* resolveEventConnectionId(event);
@@ -700,67 +733,7 @@ const make = Effect.gen(function* () {
         return;
       }
 
-      if (event.type === "thread.token-usage.updated") {
-        const usage = event.payload.usage;
-        const currentInput = usage.inputTokens ?? 0;
-        const currentOutput = usage.outputTokens ?? 0;
-        const currentReasoning = usage.reasoningOutputTokens ?? 0;
-        yield* sql.withTransaction(
-          Effect.gen(function* () {
-            const cursors = yield* sql<{
-              readonly inputTokens: number;
-              readonly outputTokens: number;
-              readonly reasoningOutputTokens: number;
-              readonly sourceEventId: string;
-            }>`
-              SELECT input_tokens AS "inputTokens", output_tokens AS "outputTokens",
-                     reasoning_output_tokens AS "reasoningOutputTokens",
-                     last_source_event_id AS "sourceEventId"
-              FROM connection_usage_cursors
-              WHERE thread_id = ${event.threadId} AND connection_id = ${connectionId}
-            `;
-            const previous = cursors[0];
-            if (previous?.sourceEventId === event.eventId) return;
-            const delta = (current: number, prior: number | undefined) =>
-              prior === undefined || current < prior ? current : current - prior;
-            const inputDelta = delta(currentInput, previous?.inputTokens);
-            const outputDelta = delta(currentOutput, previous?.outputTokens);
-            const reasoningDelta = delta(currentReasoning, previous?.reasoningOutputTokens);
-            yield* sql`
-              INSERT INTO connection_usage_daily (
-                utc_day, connection_id, provider, input_tokens, output_tokens,
-                reasoning_output_tokens, turns, updated_at
-              ) VALUES (
-                ${utcDay}, ${connectionId}, ${event.provider}, ${inputDelta}, ${outputDelta},
-                ${reasoningDelta}, 0, ${event.createdAt}
-              )
-              ON CONFLICT(utc_day, connection_id) DO UPDATE SET
-                input_tokens = connection_usage_daily.input_tokens + excluded.input_tokens,
-                output_tokens = connection_usage_daily.output_tokens + excluded.output_tokens,
-                reasoning_output_tokens =
-                  connection_usage_daily.reasoning_output_tokens + excluded.reasoning_output_tokens,
-                updated_at = excluded.updated_at
-            `;
-            yield* sql`
-              INSERT INTO connection_usage_cursors (
-                thread_id, connection_id, input_tokens, output_tokens,
-                reasoning_output_tokens, last_source_event_id, updated_at
-              ) VALUES (
-                ${event.threadId}, ${connectionId}, ${currentInput}, ${currentOutput},
-                ${currentReasoning}, ${event.eventId}, ${event.createdAt}
-              )
-              ON CONFLICT(thread_id, connection_id) DO UPDATE SET
-                input_tokens = excluded.input_tokens,
-                output_tokens = excluded.output_tokens,
-                reasoning_output_tokens = excluded.reasoning_output_tokens,
-                last_source_event_id = excluded.last_source_event_id,
-                updated_at = excluded.updated_at
-            `;
-          }),
-        );
-        return;
-      }
-
+      const tokenUsage = completedTurnTokenUsage(event);
       yield* sql.withTransaction(
         Effect.gen(function* () {
           const inserted = yield* sql<{ readonly sourceEventId: string }>`
@@ -775,10 +748,15 @@ const make = Effect.gen(function* () {
               utc_day, connection_id, provider, input_tokens, output_tokens,
               reasoning_output_tokens, turns, updated_at
             ) VALUES (
-              ${utcDay}, ${connectionId}, ${event.provider}, 0, 0, 0, 1,
+              ${utcDay}, ${connectionId}, ${event.provider}, ${tokenUsage.inputTokens},
+              ${tokenUsage.outputTokens}, ${tokenUsage.reasoningOutputTokens}, 1,
               ${event.createdAt}
             )
             ON CONFLICT(utc_day, connection_id) DO UPDATE SET
+              input_tokens = connection_usage_daily.input_tokens + excluded.input_tokens,
+              output_tokens = connection_usage_daily.output_tokens + excluded.output_tokens,
+              reasoning_output_tokens =
+                connection_usage_daily.reasoning_output_tokens + excluded.reasoning_output_tokens,
               turns = connection_usage_daily.turns + 1,
               updated_at = excluded.updated_at
           `;

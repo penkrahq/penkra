@@ -37,7 +37,7 @@ import {
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
 } from "../Errors.ts";
-import { takePenkraHarnessPolicyForProviderSession } from "../../agentGateway/harnessPolicy.ts";
+import { takePenkraHostPolicyForSession } from "../../agentGateway/harnessPolicy.ts";
 import { buildOpenCodeMcpServer, PENKRA_MCP_SERVER_NAME } from "../../agentGateway/mcpInjection.ts";
 import {
   AgentGatewayCredentials,
@@ -141,7 +141,7 @@ interface OpenCodeTurnSnapshot {
 }
 
 interface OpenCodeSessionContext {
-  harnessPolicyDelivered?: boolean;
+  hostPolicyDelivered?: boolean;
   gatewaySessionLease?: AgentGatewaySessionLease;
   session: ProviderSession;
   readonly lifecycleGeneration?: string;
@@ -3732,8 +3732,8 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             issue: `${adapterConfig.displayName} turns require text input or at least one attachment.`,
           });
         }
-        const harnessPolicy = takePenkraHarnessPolicyForProviderSession(context);
-        const providerText = [harnessPolicy, text].filter(Boolean).join("\n\n");
+        const hostPolicy = takePenkraHostPolicyForSession(context);
+        const providerText = [hostPolicy, text].filter(Boolean).join("\n\n");
 
         const requestedAgent =
           input.modelSelection?.provider === provider

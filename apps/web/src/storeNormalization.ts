@@ -119,7 +119,6 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     (left.subagentRole ?? null) === (right.subagentRole ?? null) &&
     (left.forkSourceThreadId ?? null) === (right.forkSourceThreadId ?? null) &&
     deepEqualJson(left.pinnedMessages ?? null, right.pinnedMessages ?? null) &&
-    deepEqualJson(left.threadMarkers ?? null, right.threadMarkers ?? null) &&
     (left.notes ?? "") === (right.notes ?? "") &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
@@ -1441,10 +1440,6 @@ export function normalizeThreadFromReadModel(
     deepEqualJson(previous.pinnedMessages, incoming.pinnedMessages ?? null)
       ? previous.pinnedMessages
       : (incoming.pinnedMessages as Thread["pinnedMessages"]);
-  const threadMarkers =
-    previous?.threadMarkers && deepEqualJson(previous.threadMarkers, incoming.threadMarkers ?? null)
-      ? previous.threadMarkers
-      : (incoming.threadMarkers as Thread["threadMarkers"]);
   const notes = incoming.notes;
   const activities = normalizeActivities(incoming.activities, previous?.activities);
   const incomingPendingInteractions = Object.hasOwn(incoming, "pendingInteractions")
@@ -1504,7 +1499,6 @@ export function normalizeThreadFromReadModel(
     previous.lastActivityAt === sidebarRollups.lastActivityAt &&
     (previous.forkSourceThreadId ?? null) === (incoming.forkSourceThreadId ?? null) &&
     previous.pinnedMessages === pinnedMessages &&
-    previous.threadMarkers === threadMarkers &&
     previous.notes === notes &&
     previous.activities === activities &&
     previous.pendingInteractions === pendingInteractions
@@ -1541,7 +1535,6 @@ export function normalizeThreadFromReadModel(
     workingDirectory: nextWorkingDirectory,
     forkSourceThreadId: incoming.forkSourceThreadId ?? null,
     ...(pinnedMessages !== undefined ? { pinnedMessages } : {}),
-    ...(threadMarkers !== undefined ? { threadMarkers } : {}),
     ...(notes !== undefined ? { notes } : {}),
     ...(resolvedLatestUserMessageAt !== undefined
       ? { latestUserMessageAt: resolvedLatestUserMessageAt }
@@ -1597,7 +1590,6 @@ export function normalizeThreadShellSnapshot(
     // The sidebar shell snapshot/event does not carry thread annotations, so keep the values
     // resolved from the thread-detail path instead of clobbering them with `undefined`.
     ...(previous?.pinnedMessages !== undefined ? { pinnedMessages: previous.pinnedMessages } : {}),
-    ...(previous?.threadMarkers !== undefined ? { threadMarkers: previous.threadMarkers } : {}),
     ...(previous?.notes !== undefined ? { notes: previous.notes } : {}),
     ...(incoming.latestUserMessageAt !== undefined
       ? { latestUserMessageAt: incoming.latestUserMessageAt ?? null }

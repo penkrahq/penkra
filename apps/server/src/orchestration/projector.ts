@@ -12,12 +12,6 @@ import {
   setPinnedMessageDone,
   setPinnedMessageLabel,
 } from "@penkra/shared/pinnedMessages";
-import {
-  addThreadMarker,
-  removeThreadMarker,
-  setThreadMarkerDone,
-  setThreadMarkerLabel,
-} from "@penkra/shared/threadMarkers";
 import { Effect, Schema } from "effect";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
@@ -41,10 +35,6 @@ import {
   ThreadPinnedMessageDoneSetPayload,
   ThreadPinnedMessageLabelSetPayload,
   ThreadPinnedMessageRemovedPayload,
-  ThreadMarkerAddedPayload,
-  ThreadMarkerDoneSetPayload,
-  ThreadMarkerLabelSetPayload,
-  ThreadMarkerRemovedPayload,
   ThreadConversationRolledBackPayload,
   ThreadRuntimeModeSetPayload,
   ThreadUnarchivedPayload,
@@ -581,9 +571,6 @@ export function projectEvent(
               ...(payload.pinnedMessages !== undefined
                 ? { pinnedMessages: payload.pinnedMessages }
                 : {}),
-              ...(payload.threadMarkers !== undefined
-                ? { threadMarkers: payload.threadMarkers }
-                : {}),
               ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
               ...(payload.lastVisitedAt !== undefined
                 ? { lastVisitedAt: payload.lastVisitedAt }
@@ -685,75 +672,12 @@ export function projectEvent(
         }),
       );
 
+    // Marker events are retained in the event contract solely for historical replay.
     case "thread.marker-added":
-      return decodeForEvent(ThreadMarkerAddedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => {
-          const existingThread =
-            nextBase.threads.find((thread) => thread.id === payload.threadId) ?? null;
-          return {
-            ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
-              threadMarkers: addThreadMarker(existingThread?.threadMarkers, payload.marker),
-              updatedAt: payload.updatedAt,
-            }),
-          };
-        }),
-      );
-
     case "thread.marker-removed":
-      return decodeForEvent(ThreadMarkerRemovedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => {
-          const existingThread =
-            nextBase.threads.find((thread) => thread.id === payload.threadId) ?? null;
-          return {
-            ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
-              threadMarkers: removeThreadMarker(existingThread?.threadMarkers, payload.markerId),
-              updatedAt: payload.updatedAt,
-            }),
-          };
-        }),
-      );
-
     case "thread.marker-done-set":
-      return decodeForEvent(ThreadMarkerDoneSetPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => {
-          const existingThread =
-            nextBase.threads.find((thread) => thread.id === payload.threadId) ?? null;
-          return {
-            ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
-              threadMarkers: setThreadMarkerDone(
-                existingThread?.threadMarkers,
-                payload.markerId,
-                payload.done,
-                payload.updatedAt,
-              ),
-              updatedAt: payload.updatedAt,
-            }),
-          };
-        }),
-      );
-
     case "thread.marker-label-set":
-      return decodeForEvent(ThreadMarkerLabelSetPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => {
-          const existingThread =
-            nextBase.threads.find((thread) => thread.id === payload.threadId) ?? null;
-          return {
-            ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
-              threadMarkers: setThreadMarkerLabel(
-                existingThread?.threadMarkers,
-                payload.markerId,
-                payload.label,
-                payload.updatedAt,
-              ),
-              updatedAt: payload.updatedAt,
-            }),
-          };
-        }),
-      );
+      return Effect.succeed(nextBase);
 
     case "thread.runtime-mode-set":
       return decodeForEvent(ThreadRuntimeModeSetPayload, event.payload, event.type, "payload").pipe(

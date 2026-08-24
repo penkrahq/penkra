@@ -172,9 +172,18 @@ Now give the same agent `documents.update`, `documents.meta.update`, and `docume
 and it has no way to choose except by trying one. The cost of a vague name is not confusion; it is a
 write to the wrong place.
 
-Write the `summary` for each operation to answer the question the name raises. Name the object acted
-on and the result, avoid store-listing language, and never promise behavior the operation cannot
-verify.
+Write the `summary` for each operation to answer the question the name raises. In one or two compact
+sentences, say what object it acts on and what result it returns or commits, when to choose it over
+its nearest neighboring operation, and any prerequisite the caller must already hold such as an
+exact ID, scoped handle, target tab, permission, or confirmation. Name a consequential or common
+failure when that changes the safe next action. Say when not to use a broad or destructive operation
+if its name alone leaves that ambiguous. Avoid store-listing language, implementation detail, and
+promises the operation cannot verify.
+
+Audit resource lifecycles as a set. If an App lets an agent create durable or leased state, either
+provide the matching close, release, archive, or delete operation or document why that lifecycle is
+owned by the visible UI or trusted host instead. A create-only agent surface strands state and makes
+cleanup depend on an unrelated interface.
 
 ## Agent-facing instructions
 

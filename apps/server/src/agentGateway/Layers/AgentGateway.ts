@@ -66,7 +66,11 @@ import {
 import { makeCreateThreadHandler } from "../creationCoordinator.ts";
 import { makeThreadReadTools } from "../threadReadTools.ts";
 import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
-import { executePenkraExecCommand, penkraRootInstructions } from "../../appRuntimeCli.ts";
+import {
+  executePenkraExecCommand,
+  loadPenkraServerManual,
+  penkraRootInstructions,
+} from "../../appRuntimeCli.ts";
 import type { PenkraExecCommandInput, PenkraExecFlagValue } from "../../appRuntimeCli.ts";
 import { requireThreadSpaceId } from "../threadSpaceContext.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
@@ -193,18 +197,37 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_create_thread",
       description:
-        "Create one standalone Penkra thread. Retrying the same requestId is idempotent. Multiple create calls are independent and are not atomic: if a later call fails, earlier threads remain.",
+        "Use when work should run in a separate Penkra conversation. Create one standalone thread from a self-contained prompt and a target returned by penkra_capabilities; optionally choose a folder returned by penkra_list_folders. Retrying the same requestId is idempotent. Separate create calls are independent and non-atomic, so retain successful thread ids if a later call fails.",
       inputSchema: {
         type: "object",
         properties: {
-          requestId: { type: "string", maxLength: 256 },
-          prompt: { type: "string" },
-          title: { type: "string" },
+          requestId: {
+            type: "string",
+            maxLength: 256,
+            description:
+              "Stable caller-chosen idempotency key for this one creation attempt; reuse it only when retrying the same request.",
+          },
+          prompt: {
+            type: "string",
+            description:
+              "Self-contained instructions for the new thread, which cannot read the caller's conversation.",
+          },
+          title: {
+            type: "string",
+            description: "Optional short outcome-oriented title shown in Penkra.",
+          },
           target: {
             ...MODEL_SELECTION_INPUT_SCHEMA,
           },
-          folderId: { type: "string" },
-          runtimeMode: { type: "string", enum: ["approval-required", "full-access"] },
+          folderId: {
+            type: "string",
+            description: "Optional exact Penkra folder id; defaults to the caller's folder.",
+          },
+          runtimeMode: {
+            type: "string",
+            enum: ["approval-required", "full-access"],
+            description: "Permission mode for the new thread; defaults to the caller's mode.",
+          },
         },
         required: ["requestId", "prompt", "target"],
         additionalProperties: false,
@@ -229,13 +252,24 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_send_message",
       description:
-        'Send a Penkra follow-up message to an existing thread. mode "queue" (default) waits for the current turn; "steer" redirects a running turn where the provider supports it (otherwise it is queued).',
+        'Use to post an agent-authored follow-up into a different existing Penkra thread. Never target the caller thread: continue the current conversation normally instead. mode "queue" (default) waits behind a running turn; "steer" redirects a live turn when supported and otherwise queues the message.',
       inputSchema: {
         type: "object",
         properties: {
-          threadId: { type: "string", description: "Target thread." },
-          message: { type: "string", description: "Message text." },
-          mode: { type: "string", enum: ["queue", "steer"], description: "Dispatch mode." },
+          threadId: {
+            type: "string",
+            description: "Exact target Penkra thread id; it must differ from the caller thread id.",
+          },
+          message: {
+            type: "string",
+            description:
+              "Self-contained follow-up text recorded with user role as sent by the agent.",
+          },
+          mode: {
+            type: "string",
+            enum: ["queue", "steer"],
+            description: "queue waits behind current work; steer redirects live supported work.",
+          },
         },
         required: ["threadId", "message"],
         additionalProperties: false,
@@ -294,7 +328,8 @@ export const makeAgentGateway = Effect.gen(function* () {
     requiresActiveTurn: true,
     definition: {
       name: "penkra_interrupt_thread",
-      description: "Interrupt the running turn of a Penkra thread.",
+      description:
+        "Use to request that an existing Penkra thread stop its current running turn. This does not delete the thread or its transcript; use penkra_send_message to steer or queue new direction instead when the work should continue.",
       inputSchema: {
         type: "object",
         properties: {
@@ -332,12 +367,13 @@ export const makeAgentGateway = Effect.gen(function* () {
     requiresActiveTurn: true,
     definition: {
       name: "penkra_set_thread_title",
-      description: "Rename a Penkra thread.",
+      description:
+        "Use only to change the user-visible title of an existing Penkra thread after its purpose has changed or a clearer label is needed. This does not send a message or alter the thread's work.",
       inputSchema: {
         type: "object",
         properties: {
           threadId: { type: "string", description: "Thread to rename." },
-          title: { type: "string", description: "New title." },
+          title: { type: "string", description: "New non-empty user-visible thread title." },
         },
         required: ["threadId", "title"],
         additionalProperties: false,
@@ -368,7 +404,9 @@ export const makeAgentGateway = Effect.gen(function* () {
     requiresActiveTurn: true,
     definition: {
       name: archived ? "penkra_archive_thread" : "penkra_unarchive_thread",
-      description: `${archived ? "Archive" : "Unarchive"} a Penkra thread. The target threadId is required.`,
+      description: archived
+        ? "Use to hide an inactive Penkra thread from normal listings without deleting its transcript. Archived threads remain discoverable with includeArchived and can be restored with penkra_unarchive_thread."
+        : "Use to restore an archived Penkra thread to normal listings. This preserves its existing transcript and does not start a new turn.",
       inputSchema: {
         type: "object",
         properties: {
@@ -566,19 +604,12 @@ export const makeAgentGateway = Effect.gen(function* () {
           if (!process.env.PENKRA_APP_COMMAND_PIPE) {
             return penkraRootInstructions([], coreCommands);
           }
-          const instructions = await executePenkraExecCommand(
-            { command: ["penkra", "--help"] },
-            {
-              spaceId,
-              threadId: caller.id,
-              workingDirectory: caller.workingDirectory ?? null,
-              additionalCoreCommands: coreCommands,
-            },
-          );
-          if (typeof instructions !== "string") {
-            throw new Error("Penkra root help did not return its instruction document.");
-          }
-          return instructions;
+          return loadPenkraServerManual({
+            spaceId,
+            threadId: caller.id,
+            workingDirectory: caller.workingDirectory ?? null,
+            additionalCoreCommands: coreCommands,
+          });
         },
         catch: (error) => new ToolInputError(errorText(error)),
       }),

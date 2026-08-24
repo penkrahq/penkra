@@ -77,7 +77,7 @@ describe("derivePenkraMcpToolTitle", () => {
         "Penkra is checking available agents",
         "Penkra checked available agents",
       ],
-      ["penkra_list_projects", "Penkra is listing folders", "Penkra listed folders"],
+      ["penkra_list_folders", "Penkra is listing folders", "Penkra listed folders"],
       ["penkra_list_threads", "Penkra is listing threads", "Penkra listed threads"],
       ["penkra_read_thread", "Penkra is reading a thread", "Penkra read a thread"],
       [
@@ -92,8 +92,12 @@ describe("derivePenkraMcpToolTitle", () => {
         "Penkra read thread runtime events",
       ],
       ["penkra_diagnose_thread", "Penkra is diagnosing a thread", "Penkra diagnosed a thread"],
+      [
+        "penkra_retry_thread_projection",
+        "Penkra is retrying thread projection",
+        "Penkra retried thread projection",
+      ],
       ["penkra_create_thread", "Penkra is creating a thread", "Penkra created a thread"],
-      ["penkra_create_threads", "Penkra is creating threads", "Penkra created threads"],
       [
         "penkra_wait_for_threads",
         "Penkra is waiting for threads",
@@ -102,20 +106,8 @@ describe("derivePenkraMcpToolTitle", () => {
       ["penkra_send_message", "Penkra is sending a message", "Penkra sent a message"],
       ["penkra_interrupt_thread", "Penkra is interrupting a thread", "Penkra interrupted a thread"],
       ["penkra_set_thread_title", "Penkra is renaming a thread", "Penkra renamed a thread"],
-      ["penkra_set_thread_archived", "Penkra is updating a thread", "Penkra updated a thread"],
-      ["penkra_overview", "Penkra is gathering an overview", "Penkra gathered an overview"],
-      [
-        "penkra_list_allowed_projects",
-        "Penkra is listing allowed folders",
-        "Penkra listed allowed folders",
-      ],
-      ["penkra_create_task", "Penkra is creating a task", "Penkra created a task"],
-      [
-        "penkra_wait_for_task",
-        "Penkra is waiting for a task",
-        "Penkra finished waiting for a task",
-      ],
-      ["penkra_read_task", "Penkra is reading a task", "Penkra read a task"],
+      ["penkra_archive_thread", "Penkra is archiving a thread", "Penkra archived a thread"],
+      ["penkra_unarchive_thread", "Penkra is unarchiving a thread", "Penkra unarchived a thread"],
     ] as const;
 
     for (const [toolName, running, completed] of cases) {
@@ -128,7 +120,7 @@ describe("derivePenkraMcpToolTitle", () => {
         toolName: "penkra_create_threads",
         status: "failed",
       }),
-    ).toBe("Penkra couldn't create threads");
+    ).toBe("Penkra couldn't handle create threads");
   });
 
   it("turns provider-specific create-thread identifiers into activity sentences", () => {
@@ -194,8 +186,8 @@ describe("derivePenkraMcpToolTitle", () => {
   it("removes transport identifiers without hiding meaningful Penkra details", () => {
     expect(
       sanitizePenkraMcpToolPreview({
-        preview: "Penkra__penkra_create_threads",
-        heading: "Penkra created threads",
+        preview: "Penkra__penkra_create_thread",
+        heading: "Penkra created a thread",
         status: "completed",
       }),
     ).toBeNull();

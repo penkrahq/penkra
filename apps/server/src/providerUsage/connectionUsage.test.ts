@@ -7,6 +7,7 @@ import { outboundHttp } from "@penkra/shared/outboundHttp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProviderConnectionRecord } from "../persistence/Services/ProviderConnections";
+import type { ConnectionRateLimitFactRecord } from "../persistence/Services/ConnectionUsageFacts";
 import { providerConnectionProfileRoot } from "../provider/providerNativeStatePaths";
 import { __resetConnectionUsageCache, collectProviderConnectionUsageSnapshots } from "./index";
 
@@ -191,5 +192,61 @@ describe("Connection-scoped provider usage", () => {
         source: "provider-runtime-awaiting-rate-limits",
       },
     ]);
+  });
+
+  it("does not let a reset-only Claude runtime event shadow OAuth utilization", async () => {
+    const stateDir = await mkdtemp(path.join(tmpdir(), "penkra-connection-usage-"));
+    createdRoots.push(stateDir);
+    await writeClaudeAccount(stateDir, "claude-account", "claude-token");
+    vi.spyOn(outboundHttp, "request").mockResolvedValue({
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      body: new TextEncoder().encode(
+        JSON.stringify({
+          five_hour: { utilization: 44, resets_at: "2099-01-01T01:00:00.000Z" },
+        }),
+      ),
+      url: "https://api.anthropic.com/api/oauth/usage",
+    });
+    const claudeConnection = connection({
+      id: "claude-account",
+      harness: "claudeAgent",
+      target: "anthropic-first-party",
+      method: "claude-account",
+      profileRef: "provider-profile:claude-account",
+    });
+    const runtimeFact: ConnectionRateLimitFactRecord = {
+      connectionId: claudeConnection.id,
+      provider: "claudeAgent",
+      limitsJson: JSON.stringify({
+        type: "rate_limit_event",
+        rate_limit_info: {
+          status: "allowed",
+          resetsAt: 4_071_003_600,
+          rateLimitType: "five_hour",
+        },
+      }),
+      status: null,
+      sourceEventId: "runtime-rate-limit",
+      updatedAt: timestamp,
+    };
+
+    const [snapshot] = await collectProviderConnectionUsageSnapshots({
+      connections: [claudeConnection],
+      stateDir,
+      ctx: {
+        homeDir: stateDir,
+        env: {},
+        platform: process.platform,
+        nowMs: Date.parse(timestamp),
+      },
+      rateLimitFacts: new Map([[claudeConnection.id, runtimeFact]]),
+    });
+
+    expect(snapshot).toMatchObject({
+      connectionId: claudeConnection.id,
+      limits: [{ window: "5h", usedPercent: 44 }],
+      status: "ok",
+    });
   });
 });

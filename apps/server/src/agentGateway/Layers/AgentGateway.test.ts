@@ -53,6 +53,13 @@ import { AgentGatewayToolBridgeLive } from "./AgentGatewayToolBridge.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderThreadSwitchCoordinator } from "../../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { penkraRootInstructions } from "../../appRuntimeCli.ts";
+import { CODEX_DEVELOPER_INSTRUCTIONS } from "../../codexAppServerManager.ts";
+import { PENKRA_SYSTEM_PROMPT } from "../../provider/Layers/ClaudeAdapter.ts";
+import {
+  PENKRA_HOST_POLICY_MARKER,
+  PENKRA_SERVER_MANUAL_MARKER,
+  takePenkraHostPolicyForSession,
+} from "../harnessPolicy.ts";
 
 const NOW = "2026-03-01T10:00:00.000Z";
 const PROJECT_ID = FolderId.makeUnsafe("project-1");
@@ -116,7 +123,6 @@ function makeThreadDetail(shell: OrchestrationThreadShell): OrchestrationThread 
     ...shell,
     deletedAt: null,
     pinnedMessages: [],
-    threadMarkers: [],
     messages: [],
     activities: [],
   };
@@ -798,14 +804,34 @@ describe("AgentGateway", () => {
       assert.equal(init.status, 200);
       const initResult = (init.body as { result: Record<string, unknown> }).result;
       assert.equal(initResult.protocolVersion, "2025-06-18");
-      assert.isString(initResult.instructions);
+      const instructions = initResult.instructions;
+      assert.isString(instructions);
+      if (typeof instructions !== "string") return;
       assert.equal(
-        initResult.instructions,
+        instructions,
         penkraRootInstructions(
           [],
           Object.values(TEST_TOOL_COMMANDS).map((words) => words.join(" ")),
         ),
       );
+      const providerInjections = [
+        ["Claude", PENKRA_SYSTEM_PROMPT],
+        ["Codex", CODEX_DEVELOPER_INSTRUCTIONS],
+        ["OpenCode", takePenkraHostPolicyForSession({}) ?? ""],
+      ] as const;
+      for (const [provider, injectedText] of providerInjections) {
+        const sessionDelivery = `${injectedText}\n${instructions}`;
+        assert.equal(
+          sessionDelivery.split(PENKRA_HOST_POLICY_MARKER).length - 1,
+          1,
+          `${provider} host-policy delivery`,
+        );
+        assert.equal(
+          sessionDelivery.split(PENKRA_SERVER_MANUAL_MARKER).length - 1,
+          1,
+          `${provider} server-manual delivery`,
+        );
+      }
 
       const list = yield* harness.postRaw({
         authorizationHeader: "Bearer token-parent",
@@ -917,6 +943,26 @@ describe("AgentGateway", () => {
 
       const serialized = JSON.stringify(payload);
       assert.isBelow(serialized.indexOf('"targetConstruction"'), serialized.indexOf('"providers"'));
+      const providers = payload.providers as Array<{
+        models: Array<Record<string, unknown>>;
+      }>;
+      assert.isTrue(providers.length > 0);
+      assert.deepEqual(Object.keys(providers[0]!.models[0]!).toSorted(), ["name", "slug"]);
+
+      const filteredResponse = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_capabilities",
+        args: { provider: "codex", detail: "full" },
+      });
+      const filteredPayload = toolResultJson(filteredResponse.result);
+      assert.deepEqual(Object.keys(filteredPayload.targetConstruction as object), ["codex"]);
+      const filteredProviders = filteredPayload.providers as Array<{
+        provider: string;
+        models: Array<Record<string, unknown>>;
+      }>;
+      assert.equal(filteredProviders.length, 1);
+      assert.equal(filteredProviders[0]?.provider, "codex");
+      assert.isTrue(filteredProviders[0]!.models.some((model) => Object.keys(model).length > 2));
     }).pipe(Effect.provide(gatewayLayer));
   });
 

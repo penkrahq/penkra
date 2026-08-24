@@ -12,7 +12,7 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection, ThreadPinnedMessages, ThreadMarkers } from "@penkra/contracts";
+import { ModelSelection, ThreadPinnedMessages } from "@penkra/contracts";
 
 const SqliteBoolean = Schema.Number.pipe(
   Schema.decodeTo(Schema.Boolean, {
@@ -25,7 +25,6 @@ const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     isPinned: SqliteBoolean,
     pinnedMessages: Schema.NullOr(Schema.fromJsonString(ThreadPinnedMessages)),
-    threadMarkers: Schema.NullOr(Schema.fromJsonString(ThreadMarkers)),
     modelSelection: Schema.fromJsonString(ModelSelection),
   }),
 );
@@ -60,7 +59,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           fork_source_thread_id,
           latest_turn_id,
           pinned_messages_json,
-          thread_markers_json,
           notes,
           latest_user_message_at,
           last_visited_at,
@@ -96,7 +94,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.forkSourceThreadId ?? null},
           ${row.latestTurnId},
           ${row.pinnedMessages === null ? null : JSON.stringify(row.pinnedMessages)},
-          ${row.threadMarkers === null ? null : JSON.stringify(row.threadMarkers)},
           ${row.notes},
           ${row.latestUserMessageAt},
           ${row.lastVisitedAt ?? null},
@@ -132,7 +129,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           fork_source_thread_id = excluded.fork_source_thread_id,
           latest_turn_id = excluded.latest_turn_id,
           pinned_messages_json = excluded.pinned_messages_json,
-          thread_markers_json = excluded.thread_markers_json,
           notes = excluded.notes,
           latest_user_message_at = excluded.latest_user_message_at,
           last_visited_at = excluded.last_visited_at,
@@ -171,7 +167,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           fork_source_thread_id AS "forkSourceThreadId",
           latest_turn_id AS "latestTurnId",
           pinned_messages_json AS "pinnedMessages",
-          thread_markers_json AS "threadMarkers",
           notes,
           latest_user_message_at AS "latestUserMessageAt",
           last_visited_at AS "lastVisitedAt",
@@ -215,7 +210,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           fork_source_thread_id AS "forkSourceThreadId",
           latest_turn_id AS "latestTurnId",
           pinned_messages_json AS "pinnedMessages",
-          thread_markers_json AS "threadMarkers",
           notes,
           latest_user_message_at AS "latestUserMessageAt",
           last_visited_at AS "lastVisitedAt",

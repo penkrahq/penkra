@@ -5,6 +5,7 @@ import {
   parseOperationInput,
   structuredArguments,
 } from "./appRuntimeCli";
+import { PENKRA_SERVER_MANUAL_MARKER } from "./agentGateway/harnessPolicy";
 
 const context = { spaceId: "personal", threadId: "thread-1" };
 const command = (...words: string[]) => ({ command: words });
@@ -88,7 +89,7 @@ describe("penkra_exec_command discovery", () => {
     };
 
     const help = await executePenkraExecCommand(command("penkra", "--help"), context, {}, bridge);
-    expect(help).toContain("# Penkra");
+    expect(help).toContain(PENKRA_SERVER_MANUAL_MARKER);
     expect(help).toContain("`penkra apps list`");
     expect(help).toContain("### explorer");
     expect(help).toContain("Open local resources.");

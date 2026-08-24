@@ -89,7 +89,7 @@ import {
   Stream,
 } from "effect";
 
-import { renderPenkraHarnessPolicy } from "../../agentGateway/harnessPolicy.ts";
+import { renderPenkraHostPolicy } from "../../agentGateway/harnessPolicy.ts";
 import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
@@ -972,7 +972,7 @@ const CLAUDE_NATIVE_RESUME_VERIFICATION_THREAD_ID = ThreadId.makeUnsafe(
 // The SDK's interrupt resolves only once the CLI acknowledges it; a wedged CLI
 // would otherwise stall the caller (and the provider command reactor) forever.
 const CLAUDE_INTERRUPT_TIMEOUT = Duration.seconds(10);
-export const PENKRA_SYSTEM_PROMPT = renderPenkraHarnessPolicy();
+export const PENKRA_SYSTEM_PROMPT = renderPenkraHostPolicy();
 
 const CLAUDE_WORKER_EFFORT_TIERS = ["low", "medium", "high", "xhigh"] as const;
 const CLAUDE_WORKER_PROMPT =

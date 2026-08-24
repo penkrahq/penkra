@@ -27,7 +27,9 @@ export function connectionUsageEmptyMessage(
     case "error":
       return "Usage is temporarily unavailable.";
     default:
-      return "Usage hasn’t been reported for this account yet.";
+      return snapshot && snapshot.limits.length > 0
+        ? "A reset window was reported, but no usage percentage is available."
+        : "No account usage has been reported yet.";
   }
 }
 

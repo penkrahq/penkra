@@ -219,7 +219,12 @@ describe("ProviderRuntimeIngestion", () => {
     }
   });
 
-  async function createHarness(options?: { readonly startIngestion?: boolean }) {
+  async function createHarness(options?: {
+    readonly startIngestion?: boolean;
+    readonly provider?: ProviderKind;
+  }) {
+    const providerKind = options?.provider ?? "codex";
+    const model = providerKind === "claudeAgent" ? "claude-opus-5" : "gpt-5-codex";
     const workspaceRoot = makeTempDir("penkra-provider-project-");
     fs.mkdirSync(path.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
@@ -281,8 +286,8 @@ describe("ProviderRuntimeIngestion", () => {
         workspaceRoot: null,
         spaceId: personalSpaceId,
         defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
+          provider: providerKind,
+          model,
         },
         createdAt,
       }),
@@ -295,8 +300,8 @@ describe("ProviderRuntimeIngestion", () => {
         folderId: asFolderId("project-1"),
         title: "Thread",
         modelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
+          provider: providerKind,
+          model,
         },
         runtimeMode: "approval-required",
         workingDirectory: workspaceRoot,
@@ -311,7 +316,7 @@ describe("ProviderRuntimeIngestion", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
-          providerName: "codex",
+          providerName: providerKind,
           runtimeMode: "approval-required",
           activeTurnId: null,
           updatedAt: createdAt,
@@ -321,7 +326,7 @@ describe("ProviderRuntimeIngestion", () => {
       }),
     );
     provider.setSession({
-      provider: "codex",
+      provider: providerKind,
       status: "ready",
       runtimeMode: "approval-required",
       threadId: ThreadId.makeUnsafe("thread-1"),
@@ -5319,6 +5324,121 @@ describe("ProviderRuntimeIngestion", () => {
       lastUsedTokens: 1075,
       compactsAutomatically: true,
     });
+  });
+
+  it("accounts terminal Claude usage once and ignores context-window gauges", async () => {
+    const harness = await createHarness({ provider: "claudeAgent" });
+    await Effect.runPromise(
+      harness.sql`
+        INSERT INTO provider_installations (
+          installation_id, harness_kind, version, platform, architecture,
+          executable_path, artifact_source, artifact_url, artifact_sha256,
+          adapter_version, protocol_version, lifecycle, installed_at, activated_at
+        ) VALUES (
+          'claude-installation', 'claudeAgent', '1.0.0', 'test', 'test',
+          '/test/claude', 'test', 'test://claude',
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          '1', '1', 'active', '2026-08-23T12:00:00.000Z', '2026-08-23T12:00:00.000Z'
+        )
+      `,
+    );
+    await Effect.runPromise(
+      harness.sql`
+        INSERT INTO provider_native_state_generations (
+          native_state_generation_id, harness_kind, adapter_schema_version,
+          state_manifest_json, lifecycle, created_at, owner_thread_id
+        ) VALUES (
+          'claude-state', 'claudeAgent', '1', '{}', 'active',
+          '2026-08-23T12:00:00.000Z', 'thread-1'
+        )
+      `,
+    );
+    await Effect.runPromise(
+      harness.sql`
+        INSERT INTO thread_harness_states (
+          thread_id, harness_kind, native_state_generation_id,
+          native_state_locator_json, created_at, updated_at
+        ) VALUES (
+          'thread-1', 'claudeAgent', 'claude-state', '{}',
+          '2026-08-23T12:00:00.000Z', '2026-08-23T12:00:00.000Z'
+        )
+      `,
+    );
+    await Effect.runPromise(
+      harness.sql`
+        INSERT INTO provider_connections (
+          connection_id, harness_kind, authentication_target_id, authentication_method_id,
+          label, profile_ref, health_status, lifecycle, created_at, updated_at
+        ) VALUES (
+          'claude-account', 'claudeAgent', 'anthropic-first-party', 'claude-account',
+          'Claude account', 'provider-profile:claude-account', 'ready', 'active',
+          '2026-08-23T12:00:00.000Z', '2026-08-23T12:00:00.000Z'
+        )
+      `,
+    );
+    const updatedBindings = await Effect.runPromise(
+      harness.sql<{ readonly threadId: string }>`
+        INSERT INTO thread_runtime_bindings (
+          thread_id, connection_id, installation_id, internal_provider_id, model_id,
+          binding_revision, created_at, updated_at
+        )
+        SELECT 'thread-1', 'claude-account', installation_id, NULL, 'claude-opus-5',
+               0, '2026-08-23T12:00:00.000Z', '2026-08-23T12:00:00.000Z'
+        FROM provider_installations
+        WHERE harness_kind = 'claudeAgent' AND lifecycle = 'active'
+        LIMIT 1
+        RETURNING thread_id AS "threadId"
+      `,
+    );
+    expect(updatedBindings).toHaveLength(1);
+
+    harness.emit({
+      type: "thread.token-usage.updated",
+      eventId: asEventId("evt-claude-context-gauge"),
+      provider: "claudeAgent",
+      createdAt: "2026-08-23T12:01:00.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-accounting"),
+      payload: {
+        usage: {
+          usedTokens: 90_000,
+          inputTokens: 88_000,
+          outputTokens: 2_000,
+          maxTokens: 1_000_000,
+        },
+      },
+    });
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-claude-accounted-turn"),
+      provider: "claudeAgent",
+      createdAt: "2026-08-23T12:02:00.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-accounting"),
+      payload: {
+        state: "completed",
+        usage: {
+          input_tokens: 1_000,
+          cache_creation_input_tokens: 200,
+          cache_read_input_tokens: 300,
+          output_tokens: 75,
+        },
+      },
+    });
+    await harness.drain();
+
+    const rows = await Effect.runPromise(
+      harness.sql<{
+        readonly inputTokens: number;
+        readonly outputTokens: number;
+        readonly turns: number;
+      }>`
+        SELECT input_tokens AS "inputTokens", output_tokens AS "outputTokens", turns
+        FROM connection_usage_daily
+        WHERE connection_id = 'claude-account' AND utc_day = '2026-08-23'
+      `,
+    );
+    expect(rows).toEqual([{ inputTokens: 1_500, outputTokens: 75, turns: 1 }]);
   });
 
   it("suppresses identical consecutive context window updates", async () => {

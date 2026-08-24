@@ -11,6 +11,7 @@ type TurnMessageLike<TTurnId extends string = string> = {
 type EditableMessageLike = TurnMessageLike & {
   readonly role: string;
   readonly source?: string | undefined;
+  readonly dispatchMode?: string | undefined;
 };
 
 export type TailUserMessageEditTarget =
@@ -29,6 +30,7 @@ export type TailUserMessageEditTarget =
         | "not-user-message"
         | "non-native-message"
         | "not-latest-native-user-message"
+        | "active-steer"
         | "missing-turn-metadata"
         | "spans-multiple-turns";
     };
@@ -108,6 +110,12 @@ export function resolveTailUserMessageEditTarget(input: {
   }
 
   if (input.activeTurnId) {
+    // Once a steer has been admitted to the active provider turn, editing it in
+    // place would duplicate the already-accepted input. Completed turns still
+    // take the rollback path above.
+    if (message.dispatchMode === "steer") {
+      return { editable: false, reason: "active-steer" };
+    }
     return {
       editable: true,
       messageId: message.id,

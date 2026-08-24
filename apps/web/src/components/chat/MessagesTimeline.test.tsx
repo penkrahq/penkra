@@ -2253,7 +2253,7 @@ describe("MessagesTimeline", () => {
         ]}
       />,
     );
-    expect(failedMarkup).toContain("Penkra couldn&#x27;t create threads");
+    expect(failedMarkup).toContain("Penkra couldn&#x27;t handle create threads");
     expect(failedMarkup).toContain("Claude rejected reasoningEffort");
   });
 
@@ -2391,7 +2391,7 @@ describe("MessagesTimeline", () => {
       detail: 'McpError: {"code":-32602,"message":"Invalid params"}',
       activityKind: "tool.completed",
     });
-    expect(failedArgsMarkup).toContain("Penkra couldn&#x27;t create threads");
+    expect(failedArgsMarkup).toContain("Penkra couldn&#x27;t handle create threads");
     expect(failedArgsMarkup).toContain("Invalid params");
   });
 
@@ -2463,7 +2463,7 @@ describe("MessagesTimeline", () => {
         timelineEntries={[...workEntries]}
       />,
     );
-    expect(liveMarkup).toContain("Penkra created threads");
+    expect(liveMarkup).toContain("Penkra handled create threads");
     expect(liveMarkup).not.toContain('data-penkra-thread-creation-card="true"');
 
     const markup = renderToStaticMarkup(

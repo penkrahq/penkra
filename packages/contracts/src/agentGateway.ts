@@ -57,6 +57,7 @@ export const PenkraContextResult = Schema.Struct({
     threadRead: Schema.Boolean,
     threadCreate: Schema.Boolean,
     threadWait: Schema.Boolean,
+    diagnostics: Schema.Boolean,
   }),
 });
 export type PenkraContextResult = typeof PenkraContextResult.Type;

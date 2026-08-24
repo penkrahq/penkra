@@ -1,6 +1,7 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -16,6 +17,24 @@ afterEach(async () => {
 });
 
 describe("App developer integration host", () => {
+  it("keeps the sample App compliant with the packaging contract", async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), "penkra-sample-app-package-"));
+    roots.push(outputRoot);
+    const source = fileURLToPath(new URL("../../../examples/sample-app", import.meta.url));
+    const staged = join(outputRoot, "sample-app");
+    await cp(source, staged, {
+      recursive: true,
+      filter: (path) => !path.endsWith("/node_modules"),
+    });
+
+    await expect(
+      packageAppDirectory({
+        directory: staged,
+        output: join(outputRoot, "sample-app.penkra"),
+      }),
+    ).resolves.toMatchObject({ slug: "sample" });
+  });
+
   it("uses the running desktop's installed test entry and removes its temporary profile", async () => {
     const source = await mkdtemp(join(tmpdir(), "penkra-app-test-source-"));
     roots.push(source);

@@ -10,7 +10,6 @@ import {
   OrchestrationShellSnapshot,
   OrchestrationThreadDetailSnapshot,
   ThreadPinnedMessages,
-  ThreadMarkers,
   ProjectScript,
   FolderId,
   SpaceId,
@@ -84,13 +83,11 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     isPinned: Schema.Number,
     pinnedMessages: Schema.NullOr(Schema.fromJsonString(ThreadPinnedMessages)),
-    threadMarkers: Schema.NullOr(Schema.fromJsonString(ThreadMarkers)),
     modelSelection: ModelSelectionJsonUnknown,
   }),
 );
 const {
   pinnedMessages: _projectionThreadPinnedMessagesField,
-  threadMarkers: _projectionThreadMarkersField,
   notes: _projectionThreadNotesField,
   ...ProjectionThreadShellFields
 } = ProjectionThread.fields;
@@ -577,7 +574,6 @@ function toProjectedThread(input: {
     activities: input.activities,
     pendingInteractions: input.pendingInteractions,
     ...(threadRow.pinnedMessages !== null ? { pinnedMessages: threadRow.pinnedMessages } : {}),
-    ...(threadRow.threadMarkers !== null ? { threadMarkers: threadRow.threadMarkers } : {}),
     ...(threadRow.notes !== null ? { notes: threadRow.notes } : {}),
     session: input.session,
   };
@@ -680,7 +676,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           is_pinned AS "isPinned",
           sidebar_sort_order AS "sidebarSortOrder",
           pinned_messages_json AS "pinnedMessages",
-          thread_markers_json AS "threadMarkers",
           notes,
           parent_thread_id AS "parentThreadId",
           creation_source AS "creationSource",
@@ -1134,7 +1129,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           is_pinned AS "isPinned",
           sidebar_sort_order AS "sidebarSortOrder",
           pinned_messages_json AS "pinnedMessages",
-          thread_markers_json AS "threadMarkers",
           notes,
           parent_thread_id AS "parentThreadId",
           creation_source AS "creationSource",
@@ -1180,7 +1174,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           is_pinned AS "isPinned",
           sidebar_sort_order AS "sidebarSortOrder",
           pinned_messages_json AS "pinnedMessages",
-          thread_markers_json AS "threadMarkers",
           notes,
           parent_thread_id AS "parentThreadId",
           creation_source AS "creationSource",

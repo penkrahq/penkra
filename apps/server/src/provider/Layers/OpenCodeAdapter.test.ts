@@ -12,7 +12,7 @@ import { Deferred, Effect, Exit, Fiber, Layer, Scope, Stream } from "effect";
 import { describe, it, expect, vi } from "vitest";
 
 import { ServerConfig } from "../../config.ts";
-import { PENKRA_HARNESS_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
+import { PENKRA_HOST_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
 import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
@@ -1969,7 +1969,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     const firstPromptText = (
       runtime.promptCalls[0]?.parts as ReadonlyArray<{ readonly text?: string }> | undefined
     )?.[0]?.text;
-    expect(firstPromptText).toContain(PENKRA_HARNESS_POLICY_MARKER);
+    expect(firstPromptText).toContain(PENKRA_HOST_POLICY_MARKER);
     expect(firstPromptText).toContain("penkra_exec_command");
     expect(runtime.promptCalls[0]).toMatchObject({
       model: {

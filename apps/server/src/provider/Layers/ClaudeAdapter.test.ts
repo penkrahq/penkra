@@ -25,8 +25,8 @@ import { Effect, Exit, Fiber, Layer, Random, Stream } from "effect";
 
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import {
-  PENKRA_HARNESS_POLICY_MARKER,
-  renderPenkraHarnessPolicy,
+  PENKRA_HOST_POLICY_MARKER,
+  renderPenkraHostPolicy,
 } from "../../agentGateway/harnessPolicy.ts";
 import {
   AgentGatewayCredentials,
@@ -442,10 +442,10 @@ const RESUME_THREAD_ID = ThreadId.makeUnsafe("thread-claude-resume");
 describe("Claude Penkra harness policy", () => {
   it("uses the canonical Penkra system prompt", () => {
     // Assert delivery, not phrasing: the document is owned by
-    // agentGateway/instructions/INSTRUCTIONS.md and is meant to be rewritten.
-    assert.include(PENKRA_SYSTEM_PROMPT, PENKRA_HARNESS_POLICY_MARKER);
+    // agentGateway/instructions/HOST.md and is meant to be rewritten.
+    assert.include(PENKRA_SYSTEM_PROMPT, PENKRA_HOST_POLICY_MARKER);
     assert.include(PENKRA_SYSTEM_PROMPT, "penkra_exec_command");
-    assert.strictEqual(PENKRA_SYSTEM_PROMPT, renderPenkraHarnessPolicy());
+    assert.strictEqual(PENKRA_SYSTEM_PROMPT, renderPenkraHostPolicy());
   });
 });
 

@@ -54,6 +54,51 @@ describe("conversationEdit", () => {
     });
   });
 
+  it("rejects editing a steer after it was admitted to the active turn", () => {
+    expect(
+      resolveTailUserMessageEditTarget({
+        messages: [
+          {
+            id: "user-steer",
+            role: "user",
+            source: "native",
+            dispatchMode: "steer",
+            turnId: null,
+          },
+        ],
+        messageId: "user-steer",
+        activeTurnId: "turn-active",
+      }),
+    ).toEqual({ editable: false, reason: "active-steer" });
+  });
+
+  it("keeps completed steer messages eligible for concrete-turn rollback", () => {
+    expect(
+      resolveTailUserMessageEditTarget({
+        messages: [
+          {
+            id: "user-steer",
+            role: "user",
+            source: "native",
+            dispatchMode: "steer",
+            turnId: null,
+          },
+          {
+            id: "assistant",
+            role: "assistant",
+            source: "native",
+            turnId: "turn-complete",
+          },
+        ],
+        messageId: "user-steer",
+      }),
+    ).toMatchObject({
+      editable: true,
+      mode: "rollback",
+      removedTurnIds: ["turn-complete"],
+    });
+  });
+
   it("rejects older native user messages", () => {
     expect(
       resolveTailUserMessageEditTarget({

@@ -86,10 +86,7 @@ export async function executePenkraExecCommand(
   };
   if (args[0] === "penkra") {
     if (args.length === 2 && args[1] === "--help") {
-      return coreHelp(
-        (await bridgeRequest("catalog.list", scope, env)) as CatalogEntry[],
-        context.additionalCoreCommands ?? [],
-      );
+      return loadPenkraServerManual(context, env, bridgeRequest);
     }
     if (args[1] === "app") {
       return executeAppDeveloperCommand(
@@ -582,11 +579,22 @@ function appDeveloperCommandHelp(command: string): {
   return help[command]!;
 }
 
-function coreHelp(
-  catalog: ReadonlyArray<CatalogEntry>,
-  additionalCoreCommands: ReadonlyArray<string>,
-): string {
-  return penkraRootInstructions(catalog, additionalCoreCommands);
+/** Assemble the server manual with the caller Space's live App catalog. */
+export async function loadPenkraServerManual(
+  context: PenkraExecContext,
+  env: NodeJS.ProcessEnv = process.env,
+  bridgeRequest: (
+    method: string,
+    params: unknown,
+    env: NodeJS.ProcessEnv,
+  ) => Promise<unknown> = request,
+): Promise<string> {
+  const scope = {
+    spaceId: requireContextText(context.spaceId, "spaceId"),
+    threadId: requireContextText(context.threadId, "threadId"),
+  };
+  const catalog = (await bridgeRequest("catalog.list", scope, env)) as CatalogEntry[];
+  return penkraRootInstructions(catalog, context.additionalCoreCommands ?? []);
 }
 
 export function penkraRootInstructions(
@@ -751,7 +759,15 @@ async function request(method: string, params: unknown, env: NodeJS.ProcessEnv):
       method === "developer.submissions.create" || method === "developer.sideload"
         ? DEVELOPER_MUTATION_TIMEOUT_MS
         : TIMEOUT_MS;
-    const timer = setTimeout(() => socket.destroy(new Error("App command timed out.")), timeoutMs);
+    const timer = setTimeout(
+      () =>
+        socket.destroy(
+          new Error(
+            `App command ${method} exceeded its ${timeoutMs}-millisecond limit. Inspect the App's operation help, narrow the request, and retry once; a timeout does not prove the operation failed or succeeded.`,
+          ),
+        ),
+      timeoutMs,
+    );
     socket.once("connect", () => {
       socket.write(
         `${JSON.stringify({ id, token, method, ...(params === undefined ? {} : { params }) })}\n`,
@@ -760,7 +776,11 @@ async function request(method: string, params: unknown, env: NodeJS.ProcessEnv):
     socket.on("data", (chunk) => {
       bytes = Buffer.concat([bytes, chunk]);
       if (bytes.length > MAX_RESPONSE_BYTES) {
-        socket.destroy(new Error("App command response exceeded the size limit."));
+        socket.destroy(
+          new Error(
+            `App command ${method} returned more than ${MAX_RESPONSE_BYTES} bytes, exceeding the response limit. Use a paginated, filtered, export, or file-handle operation instead.`,
+          ),
+        );
         return;
       }
       const newline = bytes.indexOf(10);

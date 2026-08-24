@@ -25,10 +25,6 @@ import {
   type ResolvedKeybindingsConfig,
   type ServerProviderStatus,
   ThreadId,
-  ThreadMarkerId,
-  type ThreadMarker,
-  type ThreadMarkerColor,
-  type ThreadMarkerStyle,
   type TurnId,
   type KeybindingCommand,
   OrchestrationThreadActivity,
@@ -384,8 +380,6 @@ import {
 } from "./chat/WorkflowRunCard.logic";
 import { ComposerColumnFrame } from "./chat/ComposerColumnFrame";
 import { useTranscriptAssistantSelectionAction } from "./chat/useTranscriptAssistantSelectionAction";
-import { resolveTranscriptMarkerRange } from "./chat/chatSelectionActions";
-import { dispatchThreadMarkerAdd, dispatchThreadMarkerRemove } from "../threadMarkers";
 import { getComposerProviderState } from "./chat/composerProviderRegistry";
 import {
   COMPOSER_COMMAND_MENU_FLOATING_WRAPPER_CLASS_NAME,
@@ -438,7 +432,6 @@ const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_PINNED_MESSAGES: readonly PinnedMessage[] = [];
-const EMPTY_THREAD_MARKERS: readonly ThreadMarker[] = [];
 const CAN_PIN_ANY_MESSAGE = () => true;
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
@@ -728,6 +721,11 @@ interface LateComposerSendHandlers {
   readonly handleStandaloneSlashCommand: (trimmedPrompt: string) => Promise<boolean>;
 }
 
+interface PendingTurnStartRestoration {
+  readonly threadId: ThreadId;
+  readonly restore: () => Promise<void>;
+}
+
 export default function ChatView({
   threadId,
   paneScopeId: paneScopeIdProp,
@@ -949,7 +947,39 @@ export default function ChatView({
   const restorePendingTurnStartRef = useRef<
     ((pendingTurn: QueuedComposerChatTurn) => Promise<void>) | null
   >(null);
+  const pendingTurnStartRestorationsRef = useRef<Map<MessageId, PendingTurnStartRestoration>>(
+    new Map(),
+  );
   const cancelPendingTurnStartMessageIdsRef = useRef<Set<MessageId>>(new Set());
+  useEffect(() => {
+    const api = readNativeApi();
+    if (!api) return;
+    return api.orchestration.onDomainEvent((event) => {
+      if (event.type === "thread.message-delivery-set" && event.payload.state === "accepted") {
+        pendingTurnStartRestorationsRef.current.delete(event.payload.messageId);
+        cancelPendingTurnStartMessageIdsRef.current.delete(event.payload.messageId);
+        return;
+      }
+      if (event.type !== "thread.turn-start-cancelled") {
+        return;
+      }
+      const restoration = pendingTurnStartRestorationsRef.current.get(event.payload.messageId);
+      if (!restoration || restoration.threadId !== event.payload.threadId) {
+        return;
+      }
+      pendingTurnStartRestorationsRef.current.delete(event.payload.messageId);
+      cancelPendingTurnStartMessageIdsRef.current.delete(event.payload.messageId);
+      setOptimisticUserMessages((existing) => {
+        const removed = existing.filter((message) => message.id === event.payload.messageId);
+        for (const message of removed) {
+          revokeUserMessagePreviewUrls(message);
+        }
+        const next = existing.filter((message) => message.id !== event.payload.messageId);
+        return next.length === existing.length ? existing : next;
+      });
+      void restoration.restore();
+    });
+  }, []);
   const [isLocalConnecting, _setIsLocalConnecting] = useState(false);
   const [isEditingMessageHistory, setIsEditingMessageHistory] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -2735,7 +2765,6 @@ export default function ChatView({
     () => new Set(pinnedMessages.map((pin) => pin.messageId)),
     [pinnedMessages],
   );
-  const threadMarkers = activeThread?.threadMarkers ?? EMPTY_THREAD_MARKERS;
   const { handleTogglePinMessage } = usePinnedMessageActions({
     activeThreadId,
     pinnedMessages,
@@ -3742,7 +3771,6 @@ export default function ChatView({
   const {
     pendingTranscriptSelectionAction,
     commitTranscriptAssistantSelection,
-    dismissTranscriptSelectionAction,
     onMessagesClickCapture,
     onMessagesMouseUp,
     onMessagesPointerCancel,
@@ -3775,86 +3803,6 @@ export default function ChatView({
     onMessagesTouchStartBase,
     onMessagesWheelBase,
   });
-  const createMarkerFromPendingSelection = useCallback(
-    (style: ThreadMarkerStyle, color: ThreadMarkerColor) => {
-      const pendingSelection = pendingTranscriptSelectionAction;
-      if (!pendingSelection || !activeThreadId) {
-        return;
-      }
-      const messageId = MessageId.makeUnsafe(pendingSelection.selection.assistantMessageId);
-      const message = timelineMessages.find((candidate) => candidate.id === messageId);
-      if (!message) {
-        toastManager.add({
-          type: "warning",
-          title: "Could not find the selected message.",
-        });
-        return;
-      }
-      const range = resolveTranscriptMarkerRange({
-        messageText: message.text,
-        selectedText: pendingSelection.selection.text,
-      });
-      if (!range) {
-        toastManager.add({
-          type: "warning",
-          title: "Select a unique phrase to mark it.",
-          description: "Try including a few more words so Penkra can find the exact place.",
-        });
-        return;
-      }
-      dismissTranscriptSelectionAction();
-      window.getSelection()?.removeAllRanges();
-      const sameStyleOverlappingMarkers = threadMarkers.filter(
-        (marker) =>
-          marker.messageId === messageId &&
-          marker.style === style &&
-          marker.startOffset < range.endOffset &&
-          range.startOffset < marker.endOffset,
-      );
-      if (sameStyleOverlappingMarkers.length > 0) {
-        for (const marker of sameStyleOverlappingMarkers) {
-          void dispatchThreadMarkerRemove(activeThreadId, marker.id).catch((error) => {
-            console.error("Failed to remove thread marker", error);
-            toastManager.add({
-              type: "error",
-              title: "Could not remove marker.",
-            });
-          });
-        }
-        return;
-      }
-      void dispatchThreadMarkerAdd({
-        threadId: activeThreadId,
-        markerId: ThreadMarkerId.makeUnsafe(crypto.randomUUID()),
-        messageId,
-        startOffset: range.startOffset,
-        endOffset: range.endOffset,
-        selectedText: message.text.slice(range.startOffset, range.endOffset),
-        style,
-        color,
-      }).catch((error) => {
-        console.error("Failed to create thread marker", error);
-        toastManager.add({
-          type: "error",
-          title: "Could not create marker.",
-        });
-      });
-    },
-    [
-      activeThreadId,
-      dismissTranscriptSelectionAction,
-      pendingTranscriptSelectionAction,
-      threadMarkers,
-      timelineMessages,
-    ],
-  );
-  const createHighlightFromPendingSelection = useCallback(() => {
-    createMarkerFromPendingSelection("highlight", "yellow");
-  }, [createMarkerFromPendingSelection]);
-  const createUnderlineFromPendingSelection = useCallback(() => {
-    createMarkerFromPendingSelection("underline", "blue");
-  }, [createMarkerFromPendingSelection]);
-
   useLayoutEffect(() => {
     if (isInactiveSplitPane) return;
     const composerForm = composerFormRef.current;
@@ -4502,20 +4450,24 @@ export default function ChatView({
     const api = readNativeApi();
     if (!api || !activeThread) return;
     const isPreAcceptanceStop = phase === "connecting" || isSendBusy || hasPendingTurnStart;
-    const pendingMessageId = isPreAcceptanceStop
+    const candidatePendingMessageId = isPreAcceptanceStop
       ? (localDispatch?.expectedUserMessageId ??
         pendingTurnStartMessageRef.current?.messageId ??
         activeThread.pendingTurnStartMessageId ??
         undefined)
       : undefined;
+    const candidatePendingMessage = candidatePendingMessageId
+      ? activeThread.messages.find((message) => message.id === candidatePendingMessageId)
+      : undefined;
+    const pendingMessageId =
+      candidatePendingMessage?.delivery?.state === "accepted"
+        ? undefined
+        : candidatePendingMessageId;
     setComposerQueuePaused(activeThread.id, true);
-    let restorePendingTurn: Promise<void> | null = null;
     if (pendingMessageId) {
       cancelPendingTurnStartMessageIdsRef.current.add(pendingMessageId);
       const pending = pendingTurnStartMessageRef.current;
-      const pendingMessage = activeThread.messages.find(
-        (message) => message.id === pendingMessageId,
-      );
+      const pendingMessage = candidatePendingMessage;
       const hasExactPendingSnapshot = pending !== null && pending.messageId === pendingMessageId;
       const restoredPrompt = hasExactPendingSnapshot
         ? pending.prompt
@@ -4525,28 +4477,47 @@ export default function ChatView({
       const currentDraftPrompt =
         useComposerDraftStore.getState().draftsByThreadId[activeThread.id]?.prompt ?? "";
       if (hasExactPendingSnapshot && restorePendingTurnStartRef.current) {
-        restorePendingTurn = restorePendingTurnStartRef.current(pending);
+        const restorePendingTurnStart = restorePendingTurnStartRef.current;
+        pendingTurnStartRestorationsRef.current.set(pendingMessageId, {
+          threadId: activeThread.id,
+          restore: () => restorePendingTurnStart(pending),
+        });
       } else if (restoredPrompt.length > 0 && currentDraftPrompt.length === 0) {
-        promptRef.current = restoredPrompt;
-        setComposerDraftPrompt(activeThread.id, restoredPrompt);
-        setComposerCursor(collapseExpandedComposerCursor(restoredPrompt, restoredPrompt.length));
-        setComposerTrigger(detectComposerTrigger(restoredPrompt, restoredPrompt.length));
-        scheduleComposerFocus();
+        pendingTurnStartRestorationsRef.current.set(pendingMessageId, {
+          threadId: activeThread.id,
+          restore: () => {
+            const livePrompt =
+              useComposerDraftStore.getState().draftsByThreadId[activeThread.id]?.prompt ?? "";
+            if (livePrompt.length === 0) {
+              promptRef.current = restoredPrompt;
+              setComposerDraftPrompt(activeThread.id, restoredPrompt);
+              setComposerCursor(
+                collapseExpandedComposerCursor(restoredPrompt, restoredPrompt.length),
+              );
+              setComposerTrigger(detectComposerTrigger(restoredPrompt, restoredPrompt.length));
+              scheduleComposerFocus();
+            }
+            return Promise.resolve();
+          },
+        });
       }
-      setOptimisticUserMessages((existing) =>
-        existing.filter((message) => message.id !== pendingMessageId),
-      );
     }
-    await Promise.all([
-      api.orchestration.dispatchCommand({
-        type: "thread.turn.interrupt",
-        commandId: newCommandId(),
-        threadId: activeThread.id,
-        ...(pendingMessageId ? { pendingMessageId } : {}),
-        createdAt: new Date().toISOString(),
-      }),
-      restorePendingTurn ?? Promise.resolve(),
-    ]);
+    const interruptCommand = {
+      type: "thread.turn.interrupt" as const,
+      commandId: newCommandId(),
+      threadId: activeThread.id,
+      ...(pendingMessageId ? { pendingMessageId } : {}),
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      await api.orchestration.dispatchCommand(interruptCommand);
+    } catch (error) {
+      if (pendingMessageId) {
+        pendingTurnStartRestorationsRef.current.delete(pendingMessageId);
+        cancelPendingTurnStartMessageIdsRef.current.delete(pendingMessageId);
+      }
+      throw error;
+    }
   }, [
     activeThread,
     hasPendingTurnStart,
@@ -5809,6 +5780,21 @@ export default function ChatView({
       }
     })().catch(async (err: unknown) => {
       const wasCancelled = err instanceof PendingTurnStartCancelled;
+      const pendingRestoration = wasCancelled
+        ? pendingTurnStartRestorationsRef.current.get(messageIdForSend)
+        : undefined;
+      if (pendingRestoration) {
+        pendingTurnStartRestorationsRef.current.delete(messageIdForSend);
+        setOptimisticUserMessages((existing) => {
+          const removed = existing.filter((message) => message.id === messageIdForSend);
+          for (const message of removed) {
+            revokeUserMessagePreviewUrls(message);
+          }
+          const next = existing.filter((message) => message.id !== messageIdForSend);
+          return next.length === existing.length ? existing : next;
+        });
+        await pendingRestoration.restore();
+      }
       // Uploads start in parallel with workspace/session preparation. If any
       // earlier step fails, settle that promise and release every staged blob.
       await turnAttachmentsPromise.then(
@@ -5828,6 +5814,7 @@ export default function ChatView({
       if (
         queuedChatTurn === null &&
         !turnStartSucceeded &&
+        pendingRestoration === undefined &&
         promptRef.current.length === 0 &&
         composerImagesRef.current.length === 0 &&
         composerFilesRef.current.length === 0 &&
@@ -7894,7 +7881,6 @@ export default function ChatView({
                       pinnedMessageIds={pinnedMessageIds}
                       canPinMessage={CAN_PIN_ANY_MESSAGE}
                       onTogglePinMessage={handleTogglePinMessageGuarded}
-                      threadMarkers={threadMarkers}
                       enteringUserMessageIds={enteringUserMessageIds}
                       crossTaskOrigin={crossTaskOrigin}
                       timelineEntries={timelineEntries}
@@ -7961,8 +7947,6 @@ export default function ChatView({
       {isInactiveSplitPane ? null : (
         <TranscriptSelectionActionLayer
           action={pendingTranscriptSelectionAction}
-          onHighlight={createHighlightFromPendingSelection}
-          onUnderline={createUnderlineFromPendingSelection}
           onAddToChat={commitTranscriptAssistantSelection}
         />
       )}

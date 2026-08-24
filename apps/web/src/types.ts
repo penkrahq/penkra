@@ -11,7 +11,6 @@ import type {
   TurnDispatchMode,
   OrchestrationLatestTurn,
   PinnedMessage,
-  ThreadMarker,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
   ProjectScript as ContractProjectScript,
@@ -167,7 +166,6 @@ export interface Thread extends ThreadWorkspaceState {
   updatedAt?: string | undefined;
   isPinned?: boolean;
   pinnedMessages?: PinnedMessage[];
-  threadMarkers?: ThreadMarker[];
   notes?: string;
   latestTurn: OrchestrationLatestTurn | null;
   pendingTurnStartMessageId?: MessageId | null;
@@ -208,7 +206,6 @@ export interface ThreadShell extends ThreadWorkspaceState {
   // These do not arrive on the sidebar shell snapshot, so the snapshot path preserves them
   // from the previous shell rather than clobbering with `undefined`.
   pinnedMessages?: PinnedMessage[];
-  threadMarkers?: ThreadMarker[];
   notes?: string;
   parentThreadId?: ThreadId | null;
   creationSource?: ThreadCreationSource | null;

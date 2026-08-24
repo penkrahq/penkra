@@ -1,9 +1,16 @@
 // FILE: runtimeFacts.ts
 // Purpose: Normalize provider-native rate-limit events persisted for a managed Connection.
 
-import type { ServerProviderUsageLimit, ServerProviderUsageSnapshot } from "@penkra/contracts";
+import type {
+  ServerProviderUsageLimit,
+  ServerProviderUsageLine,
+  ServerProviderUsageSnapshot,
+} from "@penkra/contracts";
 
-import type { ConnectionRateLimitFactRecord } from "../persistence/Services/ConnectionUsageFacts";
+import type {
+  ConnectionDailyUsageFactRecord,
+  ConnectionRateLimitFactRecord,
+} from "../persistence/Services/ConnectionUsageFacts";
 import { asFiniteNumber, asRecord, clampPercent, isoFromUnixSeconds } from "./parse";
 
 function usedPercent(value: Record<string, unknown>): number | undefined {
@@ -125,4 +132,92 @@ export function snapshotFromConnectionRateLimitFact(
     source: "provider-runtime-rate-limits",
     status: "ok",
   };
+}
+
+function normalizedWindowKey(window: string): string {
+  const value = window
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s-]+/gu, "_");
+  if (value === "session" || value === "five_hour" || value === "5h") return "5h";
+  if (value === "weekly" || value === "seven_day" || value === "7d") return "weekly";
+  return value;
+}
+
+export function mergeConnectionUsageSnapshots(input: {
+  readonly runtime: ServerProviderUsageSnapshot | null;
+  readonly fetched: ServerProviderUsageSnapshot;
+}): ServerProviderUsageSnapshot {
+  if (!input.runtime) return input.fetched;
+  if (input.fetched.status === "error") {
+    return {
+      ...input.runtime,
+      usageLines: [...input.runtime.usageLines, ...input.fetched.usageLines],
+      ...(input.fetched.detail ? { detail: input.fetched.detail } : {}),
+    };
+  }
+  if ((input.fetched.status ?? "ok") !== "ok") return input.fetched;
+
+  const limitsByWindow = new Map(
+    input.runtime.limits.map((limit) => [normalizedWindowKey(limit.window), limit] as const),
+  );
+  for (const limit of input.fetched.limits) {
+    const key = normalizedWindowKey(limit.window);
+    limitsByWindow.set(key, { ...limitsByWindow.get(key), ...limit });
+  }
+  const usageLinesByLabel = new Map(
+    [...input.runtime.usageLines, ...input.fetched.usageLines].map(
+      (line) => [line.label.toLowerCase(), line] as const,
+    ),
+  );
+  return {
+    ...input.fetched,
+    limits: [...limitsByWindow.values()],
+    usageLines: [...usageLinesByLabel.values()],
+    source: `${input.fetched.source}+${input.runtime.source}`,
+  };
+}
+
+function compactTokens(tokens: number): string {
+  return `${new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: tokens < 1_000_000 ? 1 : 0,
+  }).format(tokens)} tokens`;
+}
+
+function turnSubtitle(turns: number): string | undefined {
+  if (turns === 0) return undefined;
+  return `${new Intl.NumberFormat("en-US").format(turns)} ${turns === 1 ? "turn" : "turns"}`;
+}
+
+export function usageLinesFromConnectionDailyFacts(input: {
+  readonly facts: ReadonlyArray<ConnectionDailyUsageFactRecord>;
+  readonly nowMs: number;
+}): ServerProviderUsageLine[] {
+  if (input.facts.length === 0) return [];
+  const utcDay = (daysAgo: number) =>
+    new Date(input.nowMs - daysAgo * 24 * 60 * 60 * 1_000).toISOString().slice(0, 10);
+  const totalsSince = (since: string) =>
+    input.facts.reduce(
+      (total, fact) => {
+        if (fact.utcDay < since) return total;
+        return {
+          // Provider output totals already include reasoning tokens when they expose
+          // a reasoning breakdown, so adding the breakdown again would double-count.
+          tokens: total.tokens + fact.inputTokens + fact.outputTokens,
+          turns: total.turns + fact.turns,
+        };
+      },
+      { tokens: 0, turns: 0 },
+    );
+  const line = (label: string, since: string): ServerProviderUsageLine => {
+    const total = totalsSince(since);
+    const subtitle = turnSubtitle(total.turns);
+    return {
+      label,
+      value: compactTokens(total.tokens),
+      ...(subtitle ? { subtitle } : {}),
+    };
+  };
+  return [line("Today", utcDay(0)), line("7d", utcDay(6)), line("30d", utcDay(29))];
 }

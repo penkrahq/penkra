@@ -1,6 +1,6 @@
 import { assembleInstructions, type InstructionOperation } from "@penkra/sdk";
 
-import document from "./INSTRUCTIONS.md?raw";
+import document from "./SERVER.md?raw";
 
 export interface PenkraInstructionCatalogEntry {
   readonly slug: string;

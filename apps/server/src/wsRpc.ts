@@ -266,10 +266,6 @@ function isThreadDetailEventFor(threadId: ThreadId, event: OrchestrationEvent): 
       event.type === "thread.pinned-message-removed" ||
       event.type === "thread.pinned-message-done-set" ||
       event.type === "thread.pinned-message-label-set" ||
-      event.type === "thread.marker-added" ||
-      event.type === "thread.marker-removed" ||
-      event.type === "thread.marker-done-set" ||
-      event.type === "thread.marker-label-set" ||
       event.type === "thread.archived" ||
       event.type === "thread.unarchived")
   );

@@ -13,7 +13,11 @@ export const MODEL_SELECTION_INPUT_SCHEMA = {
   type: "object",
   description: AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION,
   properties: {
-    provider: { type: "string", enum: [...PROVIDER_KINDS] },
+    provider: {
+      type: "string",
+      enum: [...PROVIDER_KINDS],
+      description: "Exact provider kind returned by penkra_capabilities providers[].provider.",
+    },
     model: {
       type: "string",
       description: "Exact model slug from penkra_capabilities providers[].models[].slug.",

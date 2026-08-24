@@ -31,9 +31,12 @@ describe("providerUsageSnapshot", () => {
   });
 
   it("explains distinct empty states without collapsing them into a transient error", () => {
-    expect(connectionUsageEmptyMessage(undefined)).toBe(
-      "Usage hasn’t been reported for this account yet.",
-    );
+    expect(connectionUsageEmptyMessage(undefined)).toBe("No account usage has been reported yet.");
+    expect(
+      connectionUsageEmptyMessage(
+        snapshot({ limits: [{ window: "5h", resetsAt: "2026-06-09T17:00:00.000Z" }] }),
+      ),
+    ).toBe("A reset window was reported, but no usage percentage is available.");
     expect(connectionUsageEmptyMessage(snapshot({ status: "needs-auth" }))).toBe(
       "Reconnect this account to see usage.",
     );

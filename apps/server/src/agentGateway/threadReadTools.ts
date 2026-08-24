@@ -10,7 +10,7 @@ import { Effect, Option } from "effect";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns.ts";
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
-import { PENKRA_HARNESS_POLICY_VERSION } from "./harnessPolicy.ts";
+import { PENKRA_INSTRUCTION_SET_VERSION } from "./harnessPolicy.ts";
 import { mcpToolResultError, mcpToolResultJson } from "./protocol.ts";
 import {
   AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION,
@@ -44,6 +44,7 @@ import {
 
 const LIST_THREADS_DEFAULT_LIMIT = 50;
 const LIST_THREADS_MAX_LIMIT = 200;
+const CAPABILITIES_RESPONSE_MAX_CHARS = 40_000;
 
 export interface ThreadReadToolsInput {
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
@@ -57,7 +58,10 @@ export interface ThreadReadToolsInput {
   readonly requireThreadShell: (
     threadId: string,
   ) => Effect.Effect<OrchestrationThreadShell, unknown, never>;
-  readonly workspacePaths: { readonly homeDir: string; readonly chatWorkspaceRoot: string };
+  readonly workspacePaths: {
+    readonly homeDir: string;
+    readonly chatWorkspaceRoot: string;
+  };
 }
 
 export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<ToolEntry> {
@@ -75,8 +79,12 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_context",
       description:
-        "Inspect the current Penkra harness identity, caller thread/turn, and authorized coordination capabilities.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        "Use when you need the caller's own Penkra thread id, active turn id, folder, provider, or coordination permissions. This identifies the current execution context; use penkra_list_threads to discover other threads and penkra_capabilities to choose a provider/model target.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
       annotations: { title: "Penkra context", ...READ_ONLY_TOOL_ANNOTATIONS },
     },
     handler: (_args, context) =>
@@ -84,7 +92,10 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const caller = yield* requireThreadShell(context.callerThreadId);
         const turnId = caller.latestTurn?.state === "running" ? caller.latestTurn.turnId : null;
         return mcpToolResultJson({
-          harness: { name: "Penkra", policyVersion: PENKRA_HARNESS_POLICY_VERSION },
+          harness: {
+            name: "Penkra",
+            policyVersion: PENKRA_INSTRUCTION_SET_VERSION,
+          },
           caller: {
             threadId: caller.id,
             turnId,
@@ -105,12 +116,47 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     requiredCapability: "thread:read",
     definition: {
       name: "penkra_capabilities",
-      description: `List canonical Penkra provider/model targets, exact provider option keys, examples, and gateway limits used to validate thread creation. ${AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION}`,
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      annotations: { title: "Penkra capabilities", ...READ_ONLY_TOOL_ANNOTATIONS },
+      description: `Use immediately before penkra_create_thread when you need a valid provider/model target or provider-specific option keys. By default it returns a compact summary of available providers; pass provider for one exact catalog or detail "full" for complete model metadata. Returns canonical targets and gateway limits, not existing threads or folders; use penkra_list_threads or penkra_list_folders for those. ${AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION}`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          provider: {
+            type: "string",
+            enum: [...PROVIDER_KINDS],
+            description:
+              "Only this exact provider kind, including its unavailable reason when it cannot run.",
+          },
+          detail: {
+            type: "string",
+            enum: ["summary", "full"],
+            description:
+              "summary (default) returns model slug/name plus target rules; full adds all discovered model metadata.",
+          },
+        },
+        additionalProperties: false,
+      },
+      annotations: {
+        title: "Penkra capabilities",
+        ...READ_ONLY_TOOL_ANNOTATIONS,
+      },
     },
-    handler: (_args, context) =>
+    handler: (args, context) =>
       Effect.gen(function* () {
+        const requestedProvider = readStringArg(args, "provider");
+        if (
+          requestedProvider !== undefined &&
+          !PROVIDER_KINDS.includes(requestedProvider as ProviderKind)
+        ) {
+          throw new ToolInputError(
+            `Argument "provider" received "${requestedProvider}". Use one of: ${PROVIDER_KINDS.join(", ")}.`,
+          );
+        }
+        const detail = readStringArg(args, "detail") ?? "summary";
+        if (detail !== "summary" && detail !== "full") {
+          throw new ToolInputError(
+            `Argument "detail" received "${detail}". Use "summary" or "full".`,
+          );
+        }
         const caller = yield* requireThreadShell(context.callerThreadId);
         const project = yield* snapshotQuery.getFolderShellById(caller.folderId).pipe(
           Effect.mapError((error) => new ToolInputError(errorText(error))),
@@ -123,7 +169,10 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           ),
         );
         const availabilities = yield* loadProviderAvailabilities;
-        const providers = yield* Effect.forEach(PROVIDER_KINDS, (provider) =>
+        const providerKinds = requestedProvider
+          ? [requestedProvider as ProviderKind]
+          : PROVIDER_KINDS;
+        const discoveredProviders = yield* Effect.forEach(providerKinds, (provider) =>
           loadAgentGatewayProviderCatalog({
             provider,
             discovery: providerDiscovery,
@@ -133,6 +182,9 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             ...(project.workspaceRoot ? { cwd: project.workspaceRoot } : {}),
           }),
         );
+        const providers = requestedProvider
+          ? discoveredProviders
+          : discoveredProviders.filter((provider) => provider.available);
         const targetConstruction = Object.fromEntries(
           providers.map((provider) => [
             provider.provider,
@@ -142,14 +194,43 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             },
           ]),
         );
-        return mcpToolResultJson({
+        const payload = {
           targetConstruction,
-          providers,
+          providers:
+            detail === "full"
+              ? providers
+              : providers.map((provider) => ({
+                  provider: provider.provider,
+                  defaultModel: provider.defaultModel,
+                  enabled: provider.enabled,
+                  available: provider.available,
+                  ...(provider.authStatus ? { authStatus: provider.authStatus } : {}),
+                  ...(provider.source ? { source: provider.source } : {}),
+                  ...(provider.error ? { error: provider.error } : {}),
+                  models: provider.models.map((model) => ({
+                    slug: model.slug,
+                    name: model.name,
+                  })),
+                })),
+          ...(!requestedProvider
+            ? {
+                omittedUnavailableProviders: discoveredProviders
+                  .filter((provider) => !provider.available)
+                  .map((provider) => provider.provider),
+              }
+            : {}),
           limits: {
             maxThreadsPerWait: PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
             maxWaitMs: 60_000,
           },
-        });
+        };
+        const responseChars = JSON.stringify(payload).length;
+        if (responseChars > CAPABILITIES_RESPONSE_MAX_CHARS) {
+          throw new ToolInputError(
+            `Capabilities response is ${responseChars} characters, exceeding the ${CAPABILITIES_RESPONSE_MAX_CHARS}-character limit. Pass one exact provider or use detail "summary".`,
+          );
+        }
+        return mcpToolResultJson(payload);
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
 
@@ -158,9 +239,16 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_list_folders",
       description:
-        "List Penkra folders (id, title, workspace root). Use before creating a thread in another folder.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      annotations: { title: "List Penkra folders", ...READ_ONLY_TOOL_ANNOTATIONS },
+        "Use to resolve a Penkra folder id and workspace root before creating or filtering threads in another folder. Returns folder metadata only; use penkra_list_threads to discover conversations and penkra_context for the caller's current folder.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+      annotations: {
+        title: "List Penkra folders",
+        ...READ_ONLY_TOOL_ANNOTATIONS,
+      },
     },
     handler: () =>
       snapshotQuery.getShellSnapshot().pipe(
@@ -183,32 +271,60 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_list_threads",
       description:
-        "Discover Penkra threads by folder, hierarchy, provider, model, status, title, creation source, or update window. Archived threads are hidden unless includeArchived is true.",
+        "Use to discover existing Penkra threads or child threads before reading, waiting, sending, interrupting, or diagnosing them. Filters by folder, hierarchy, provider/model, status, title, source, and update window; archived threads are hidden unless includeArchived is true. Use penkra_read_thread once you know the exact thread id.",
       inputSchema: {
         type: "object",
         properties: {
-          folderId: { type: "string", description: "Only threads in this folder." },
+          folderId: {
+            type: "string",
+            description: "Only threads in this exact Penkra folder id.",
+          },
           parentThreadId: {
             type: "string",
-            description: "Only child threads of this thread (e.g. your own thread id).",
+            description: "Only direct child threads of this exact Penkra parent thread id.",
           },
-          provider: { type: "string", enum: [...PROVIDER_KINDS] },
+          provider: {
+            type: "string",
+            enum: [...PROVIDER_KINDS],
+            description: "Only threads using this exact provider kind.",
+          },
           model: { type: "string", description: "Exact model slug." },
           status: {
             type: "string",
             description:
               "Derived thread status such as working, idle, error, or waiting-for-approval.",
           },
-          titleContains: { type: "string", description: "Case-insensitive title substring." },
-          creationSource: { type: "string", description: "Exact thread creation source." },
-          updatedAfter: { type: "string", description: "ISO timestamp lower bound (inclusive)." },
-          updatedBefore: { type: "string", description: "ISO timestamp upper bound (inclusive)." },
-          includeArchived: { type: "boolean", description: "Include archived threads." },
-          limit: { type: "number", description: "Max results (default 50, max 200)." },
+          titleContains: {
+            type: "string",
+            description: "Case-insensitive title substring.",
+          },
+          creationSource: {
+            type: "string",
+            description: "Exact thread creation source.",
+          },
+          updatedAfter: {
+            type: "string",
+            description: "ISO timestamp lower bound (inclusive).",
+          },
+          updatedBefore: {
+            type: "string",
+            description: "ISO timestamp upper bound (inclusive).",
+          },
+          includeArchived: {
+            type: "boolean",
+            description: "Include archived threads.",
+          },
+          limit: {
+            type: "number",
+            description: "Max results (default 50, max 200).",
+          },
         },
         additionalProperties: false,
       },
-      annotations: { title: "List Penkra threads", ...READ_ONLY_TOOL_ANNOTATIONS },
+      annotations: {
+        title: "List Penkra threads",
+        ...READ_ONLY_TOOL_ANNOTATIONS,
+      },
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -260,13 +376,22 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_read_thread",
       description:
-        "Read one Penkra thread's status and recent messages (newest last, truncated). Pass the returned nextCursor as cursor to page older messages.",
+        "Use after penkra_list_threads when you need one thread's status and transcript. Returns newest-last message pages with bounded text; follow nextCursor until null before treating the transcript as complete. Use penkra_read_thread_activity for the work log or penkra_diagnose_thread when behavior is inconsistent.",
       inputSchema: {
         type: "object",
         properties: {
-          threadId: { type: "string", description: "Thread to read." },
-          cursor: { type: "string", description: "Pagination cursor from a previous call." },
-          messageLimit: { type: "number", description: "Messages per page (default 20, max 100)." },
+          threadId: {
+            type: "string",
+            description: "Exact Penkra thread id to read.",
+          },
+          cursor: {
+            type: "string",
+            description: "Opaque nextCursor from the preceding transcript page.",
+          },
+          messageLimit: {
+            type: "number",
+            description: "Messages per page (default 20, max 100).",
+          },
           maxMessageChars: {
             type: "number",
             description: "Per-message truncation limit (default 1500).",
@@ -275,7 +400,10 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         required: ["threadId"],
         additionalProperties: false,
       },
-      annotations: { title: "Read a Penkra thread", ...READ_ONLY_TOOL_ANNOTATIONS },
+      annotations: {
+        title: "Read a Penkra thread",
+        ...READ_ONLY_TOOL_ANNOTATIONS,
+      },
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -307,7 +435,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     requiredCapability: "thread:read",
     definition: {
       name: "penkra_wait_for_threads",
-      description: `Wait for the pinned turns of 1–20 Penkra threads and return every outcome in input order. Assistant summaries are capped at ${WAIT_THREAD_SUMMARY_MAX_CHARS} characters; use each result's readThread call to page the full transcript. Timeouts only report progress; they never retry, replace, cancel, or create work.`,
+      description: `Use after creating or otherwise identifying background Penkra threads when you need all of their turn outcomes. Waits for 1–20 pinned turns and returns every result in input order. Assistant summaries are capped at ${WAIT_THREAD_SUMMARY_MAX_CHARS} characters; use each result's readThread call for the full transcript. A timeout reports progress only and never retries, replaces, cancels, or creates work.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -316,6 +444,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             minItems: 1,
             maxItems: PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
             items: { type: "string" },
+            description: "Exact Penkra thread ids to wait for, in the desired result order.",
           },
           runIds: {
             type: "array",
@@ -333,7 +462,10 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         required: ["threadIds"],
         additionalProperties: false,
       },
-      annotations: { title: "Wait for Penkra threads", ...READ_ONLY_TOOL_ANNOTATIONS },
+      annotations: {
+        title: "Wait for Penkra threads",
+        ...READ_ONLY_TOOL_ANNOTATIONS,
+      },
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -379,7 +511,12 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
               turns: pinned.flatMap((pin) =>
                 pin.runId === null
                   ? []
-                  : [{ threadId: pin.threadId, turnId: TurnId.makeUnsafe(pin.runId) }],
+                  : [
+                      {
+                        threadId: pin.threadId,
+                        turnId: TurnId.makeUnsafe(pin.runId),
+                      },
+                    ],
               ),
             })
             .pipe(

@@ -20,6 +20,7 @@ import {
 } from "../persistence/Services/ProviderConnections";
 import {
   ConnectionUsageFactRepository,
+  type ConnectionDailyUsageFactRecord,
   type ConnectionRateLimitFactRecord,
 } from "../persistence/Services/ConnectionUsageFacts";
 import { buildProviderChildEnvironment, type ProviderChildKind } from "../providerChildEnvironment";
@@ -35,7 +36,11 @@ import {
 import { loadLocalProviderUsageLines } from "../providerUsageSnapshot";
 import { errorSnapshot, unsupportedSnapshot } from "./parse";
 import { PROVIDER_USAGE_FETCHERS } from "./registry";
-import { snapshotFromConnectionRateLimitFact } from "./runtimeFacts";
+import {
+  mergeConnectionUsageSnapshots,
+  snapshotFromConnectionRateLimitFact,
+  usageLinesFromConnectionDailyFacts,
+} from "./runtimeFacts";
 import type { ProviderUsageContext } from "./types";
 
 // Providers whose live snapshot is enriched with on-disk token-total lines (24h/7d/30d).
@@ -233,18 +238,38 @@ export async function collectProviderConnectionUsageSnapshots(input: {
   ctx: ProviderUsageContext;
   forceRefresh?: boolean;
   rateLimitFacts?: ReadonlyMap<ProviderConnectionId, ConnectionRateLimitFactRecord>;
+  dailyUsageFacts?: ReadonlyMap<
+    ProviderConnectionId,
+    ReadonlyArray<ConnectionDailyUsageFactRecord>
+  >;
 }): Promise<ServerProviderUsageSnapshot[]> {
   return Promise.all(
-    input.connections.map((connection) => {
+    input.connections.map(async (connection) => {
       const fact = input.rateLimitFacts?.get(connection.id);
       const runtimeSnapshot = fact ? snapshotFromConnectionRateLimitFact(fact) : null;
-      if (runtimeSnapshot) return Promise.resolve(runtimeSnapshot);
-      return cachedConnectionUsage({
+      const fetchedSnapshot = await cachedConnectionUsage({
         connection,
         stateDir: input.stateDir,
         base: input.ctx,
         forceRefresh: input.forceRefresh === true,
       });
+      const snapshot = mergeConnectionUsageSnapshots({
+        runtime: runtimeSnapshot,
+        fetched: fetchedSnapshot,
+      });
+      const dailyUsageLines = usageLinesFromConnectionDailyFacts({
+        facts: input.dailyUsageFacts?.get(connection.id) ?? [],
+        nowMs: input.ctx.nowMs,
+      });
+      if (dailyUsageLines.length === 0) return snapshot;
+      const dailyLabels = new Set(dailyUsageLines.map((line) => line.label.toLowerCase()));
+      return {
+        ...snapshot,
+        usageLines: [
+          ...snapshot.usageLines.filter((line) => !dailyLabels.has(line.label.toLowerCase())),
+          ...dailyUsageLines,
+        ],
+      };
     }),
   );
 }
@@ -320,6 +345,7 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
   if (input.connectionIds !== undefined) {
     const connections = yield* ProviderConnectionRepository;
     const usageFacts = yield* ConnectionUsageFactRepository;
+    const context = { ...buildContext(), homeDir: serverConfig.homeDir };
     const uniqueConnectionIds = [...new Set(input.connectionIds)];
     const records = yield* Effect.forEach(uniqueConnectionIds, (connectionId) =>
       connections.getRecord(connectionId).pipe(Effect.map(Option.getOrNull)),
@@ -341,14 +367,24 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
           entry[1] !== null,
       ),
     );
+    const sinceUtcDay = new Date(context.nowMs - 29 * 24 * 60 * 60 * 1_000)
+      .toISOString()
+      .slice(0, 10);
+    const dailyFacts = yield* Effect.forEach(activeRecords, (record) =>
+      usageFacts
+        .listDailyUsage({ connectionId: record.id, sinceUtcDay })
+        .pipe(Effect.map((rows) => [record.id, rows] as const)),
+    );
+    const dailyUsageFacts = new Map(dailyFacts);
     return yield* Effect.tryPromise({
       try: () =>
         collectProviderConnectionUsageSnapshots({
           connections: activeRecords,
           stateDir: serverConfig.stateDir,
-          ctx: { ...buildContext(), homeDir: serverConfig.homeDir },
+          ctx: context,
           forceRefresh: input.forceRefresh === true,
           rateLimitFacts,
+          dailyUsageFacts,
         }),
       catch: () => [] as unknown as ServerListProviderUsageResult,
     });

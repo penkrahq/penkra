@@ -55,6 +55,36 @@ First-party App packages receive the same sandbox and permission checks as third
 - In-flight work observes an abort signal. Disable, uninstall, tab close, timeout, user cancellation,
   and host shutdown terminate work with a canonical cancellation reason.
 
+## Agent-observed content
+
+App and hosted-page text remains untrusted after Penkra validates, bounds, redacts, and returns an
+observation. The runtime enforces where an agent may observe and act: the exact tab must belong to
+the caller's Thread and Space, references expire with the observed document generation, protected
+values are redacted, and every later operation still crosses its own schema, capability, permission,
+and authorization boundary. App content cannot call agent tools or grant itself authority.
+
+Penkra does not attempt to classify arbitrary natural-language content as benign text or prompt
+injection. Such a classifier could neither prove intent nor safely remove instructions without also
+destroying legitimate document content. The semantic rule that observed content supplies data but
+never authority is therefore instruction-enforced, not runtime-enforced. This is an accepted risk:
+the shared agent policy carries the semantic distinction, while runtime isolation and per-effect
+authorization limit what a mistaken interpretation can reach. Any future control must preserve the
+content needed for the user's task and must be evaluated as defense in depth, not as a replacement
+for effect-level authorization.
+
+### App-authored catalog metadata
+
+An App manifest's `summary` is validated only as a non-empty UTF-8 JSON string. Penkra deliberately
+does not attempt to classify its wording or reject Markdown and imperative language. The live MCP
+server manual therefore labels installed-App catalog entries as App-authored, untrusted data and
+renders each summary as a JSON-quoted single line. Newlines and Unicode line separators cannot
+escape that attributed line or create instruction-document structure.
+
+This is an instruction-enforced boundary, not proof that arbitrary natural language is harmless.
+Apps must keep summaries descriptive and user-facing, while the host policy tells the agent that
+catalog metadata supplies data rather than authority. Runtime authorization remains the boundary
+for every effect even if a model misinterprets a malicious summary.
+
 ## Installation and persistence
 
 - Package bytes are immutable after verification. Activation requires valid manifest, identity,

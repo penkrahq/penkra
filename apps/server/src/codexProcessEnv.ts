@@ -139,6 +139,17 @@ export function enableOfficialComputerUseRoutes(config: string): string {
 }
 
 /**
+ * Codex keeps `request_user_input` out of Default mode unless this upstream
+ * feature is enabled. Penkra's managed profile turns it on so provider turns
+ * can render the same native question UI in Default mode as other providers.
+ * This intentionally overrides a copied user value only inside the managed
+ * overlay; the user's source `config.toml` is never modified.
+ */
+export function enableDefaultModeRequestUserInput(config: string): string {
+  return setTomlTableBoolean(config, "[features]", "default_mode_request_user_input", true, true);
+}
+
+/**
  * ChatGPT can leave a disabled legacy top-level server named `computer-use`.
  * That name masks the enabled plugin-owned server in app-server inventory, so
  * omit only the disabled legacy definition from Penkra's effective profile.
@@ -179,8 +190,10 @@ export function removeDisabledLegacyComputerUseServer(config: string): string {
 }
 
 function prepareEffectiveCodexConfig(config: string): string {
-  return enableOfficialComputerUseRoutes(
-    removeDisabledLegacyComputerUseServer(removeReservedPenkraMcpServer(config)),
+  return enableDefaultModeRequestUserInput(
+    enableOfficialComputerUseRoutes(
+      removeDisabledLegacyComputerUseServer(removeReservedPenkraMcpServer(config)),
+    ),
   );
 }
 
