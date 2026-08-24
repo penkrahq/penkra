@@ -22,7 +22,7 @@ describe("RightDock retained App surfaces", () => {
     const browser = pane("browser-tab", "Browser");
     const html = renderToStaticMarkup(
       <RightDock
-        state={{ open: true, panes: [canvas], activePaneId: canvas.id }}
+        state={{ open: true, panes: [canvas], activePaneId: canvas.id, width: null }}
         retainedPanes={[canvas, browser]}
         minWidth={320}
         defaultWidth="50vw"

@@ -195,6 +195,7 @@ describe("App developer packaging", () => {
         summary: "List documents.",
         input: { type: "object", additionalProperties: false },
         output: { type: "object", additionalProperties: true },
+        examples: [{ name: "List documents", input: {} }],
         handler: "documents.list",
       },
     ];
@@ -221,6 +222,33 @@ describe("App developer packaging", () => {
     await expect(
       packageAppDirectory({ directory: root, output: join(root, "..", "first.penkra") }),
     ).resolves.toMatchObject({ slug: "canvas" });
+  });
+
+  it("rejects operation packages without a named schema-valid example", async () => {
+    const root = await fixture();
+    const manifestPath = join(root, "penkra-app.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.entrypoints.operations = "app.html";
+    manifest.operations = [
+      {
+        key: "documents.list",
+        summary: "List documents.",
+        input: { type: "object", additionalProperties: false },
+        output: { type: "object", additionalProperties: true },
+        handler: "documents.list",
+      },
+    ];
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    await expect(
+      packageAppDirectory({ directory: root, output: join(root, "..", "missing-example.penkra") }),
+    ).rejects.toThrow("examples must contain at least one");
+
+    manifest.operations[0].examples = [{ name: "Invalid list input", input: { unexpected: true } }];
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    await expect(
+      packageAppDirectory({ directory: root, output: join(root, "..", "invalid-example.penkra") }),
+    ).rejects.toThrow("does not match its input schema");
   });
 
   it("rejects symlinks and output paths inside the package root", async () => {

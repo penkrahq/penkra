@@ -37,15 +37,22 @@ interface WindowOpenDetails {
   frameName: string;
   features: string;
   disposition: string;
+  referrer?: { url: string; policy: string };
+  postBody?: {
+    contentType: string;
+    data: Array<{ bytes: Buffer }>;
+  };
 }
 
 type WindowOpenHandler = (details: WindowOpenDetails) => {
   action: "allow" | "deny";
   overrideBrowserWindowOptions?: object;
+  outlivesOpener?: boolean;
 };
 
 class FakeWebContents extends EventEmitter {
   readonly id = 1;
+  readonly debugger = { isAttached: vi.fn(() => false), detach: vi.fn() };
   windowOpenHandler: WindowOpenHandler | null = null;
   currentUrl = "https://example.com/";
   currentTitle = "Example";
@@ -62,7 +69,7 @@ class FakeWebContents extends EventEmitter {
   isLoading = vi.fn(() => this.loading);
   canGoBack = vi.fn(() => false);
   canGoForward = vi.fn(() => false);
-  loadURL = vi.fn(async (url: string) => {
+  loadURL = vi.fn(async (url: string, _options?: Electron.LoadURLOptions) => {
     this.currentUrl = url;
   });
 
@@ -73,6 +80,13 @@ class FakeWebContents extends EventEmitter {
 
 class FakePopupWindow extends EventEmitter {
   readonly webContents = new FakeWebContents();
+  readonly hide = vi.fn();
+  readonly show = vi.fn(() => this.emit("show"));
+  readonly destroy = vi.fn(() => this.emit("closed"));
+  readonly isDestroyed = vi.fn(() => false);
+  readonly setMenuBarVisibility = vi.fn();
+  readonly getBounds = vi.fn(() => ({ x: 0, y: 0, width: 480, height: 640 }));
+  readonly setBounds = vi.fn();
 }
 
 class FakeNativeView {
@@ -487,7 +501,7 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
     ).toBe("Couldn't open this page.");
   });
 
-  it("applies the same popup, tab-open, and scheme-denial policy to tabs and popups", () => {
+  it("applies the same popup, tab-open, and scheme-denial policy to tabs and popups", async () => {
     const manager = new DesktopBrowserManager();
     const initial = manager.open({ threadId: THREAD_ID });
     const tabId = initial.activeTabId;
@@ -517,6 +531,8 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
     expect(handlers.every(Boolean)).toBe(true);
     for (const handler of handlers) {
       if (!handler) continue;
+      const sourceContents =
+        handler === tabContents.windowOpenHandler ? tabContents : popup.webContents;
       expect(
         handler({
           url: "https://auth.example",
@@ -525,6 +541,64 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
           disposition: "new-window",
         }),
       ).toMatchObject({ action: "allow", overrideBrowserWindowOptions: expect.any(Object) });
+
+      const beforeFormOpen = manager.getState({ threadId: THREAD_ID }).tabs.length;
+      const genericFormResponse = handler({
+        url: "https://account.example/signed-handoff",
+        frameName: "",
+        features: "",
+        disposition: "foreground-tab",
+        referrer: {
+          url: "https://account.example/dashboard",
+          policy: "strict-origin-when-cross-origin",
+        },
+        postBody: {
+          contentType: "application/x-www-form-urlencoded",
+          data: [{ bytes: Buffer.from("csrf=redacted&service=123") }],
+        },
+      });
+      expect(genericFormResponse).toMatchObject({
+        action: "allow",
+        outlivesOpener: true,
+        overrideBrowserWindowOptions: expect.not.objectContaining({ show: false }),
+      });
+
+      const formResponse = handler({
+        url: "https://management.mxroute.com/panel-login",
+        frameName: "",
+        features: "",
+        disposition: "foreground-tab",
+        postBody: {
+          contentType: "application/x-www-form-urlencoded",
+          data: [{ bytes: Buffer.from("csrf_token=redacted&service_id=123") }],
+        },
+      });
+      expect(formResponse).toMatchObject({
+        action: "allow",
+        outlivesOpener: true,
+        overrideBrowserWindowOptions: { show: false },
+      });
+      const afterFormOpen = manager.getState({ threadId: THREAD_ID });
+      expect(afterFormOpen.tabs).toHaveLength(beforeFormOpen);
+
+      const handoffPopup = new FakePopupWindow();
+      handoffPopup.webContents.currentUrl = "https://management.mxroute.com/panel-login";
+      sourceContents.emit("did-create-window", handoffPopup as unknown as BrowserWindow, {
+        url: "https://management.mxroute.com/panel-login",
+        frameName: "",
+        options: {},
+        referrer: { url: "https://account.example/dashboard", policy: "strict-origin" },
+        disposition: "foreground-tab",
+      });
+      expect(handoffPopup.hide).toHaveBeenCalledOnce();
+      handoffPopup.webContents.currentUrl = "https://panel.mxroute.com/dashboard.php";
+      handoffPopup.webContents.emit("did-finish-load");
+      await vi.waitFor(() => expect(handoffPopup.destroy).toHaveBeenCalledOnce());
+      const afterHandoff = manager.getState({ threadId: THREAD_ID });
+      expect(afterHandoff.tabs).toHaveLength(beforeFormOpen + 1);
+      expect(afterHandoff.tabs.find((tab) => tab.id === afterHandoff.activeTabId)?.url).toBe(
+        "https://panel.mxroute.com/dashboard.php",
+      );
 
       const beforeTabOpen = manager.getState({ threadId: THREAD_ID }).tabs.length;
       expect(

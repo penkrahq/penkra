@@ -54,6 +54,8 @@ const BROWSER_INTERNAL_ERROR_URL_PREFIX = "chrome-error://";
 const BROWSER_FAVICON_MAX_BYTES = 1024 * 1024;
 const BROWSER_FAVICON_MAX_DATA_URL_CHARACTERS =
   Math.ceil((BROWSER_FAVICON_MAX_BYTES * 4) / 3) + 128;
+const MXROUTE_PANEL_LOGIN_URL = "https://management.mxroute.com/panel-login";
+const MXROUTE_PANEL_DASHBOARD_URL = "https://panel.mxroute.com/dashboard.php";
 
 type BrowserStateListener = (state: ThreadBrowserState) => void;
 type BrowserCopyLinkListener = (event: BrowserCopyLinkEvent) => void;
@@ -381,6 +383,7 @@ export class DesktopBrowserManager {
     listenerDisposers: Array<() => void>,
   ): void {
     const { threadId, tabId } = context;
+    const pendingFormHandoffUrls: string[] = [];
 
     // Auth providers can chain web popups (provider -> consent). Page-controlled custom
     // schemes are denied here: browser content must never launch an OS handler implicitly.
@@ -398,9 +401,32 @@ export class DesktopBrowserManager {
         features: details.features,
         disposition: details.disposition,
       });
+      if (details.postBody !== undefined) {
+        // Chromium must perform signed POSTs itself so request bodies and navigation state are
+        // preserved. MXroute's handoff is promoted below after it reaches its exact dashboard URL;
+        // other POST-backed windows retain Chromium's normal visible popup behavior.
+        const windowOptions = this.sessionPolicy.buildOAuthPopupWindowOptions(
+          this.window,
+          this.sessionPartition(threadId),
+        );
+        if (details.url === MXROUTE_PANEL_LOGIN_URL) {
+          pendingFormHandoffUrls.push(details.url);
+          return {
+            action: "allow",
+            outlivesOpener: true,
+            overrideBrowserWindowOptions: { ...windowOptions, show: false },
+          };
+        }
+        return {
+          action: "allow",
+          outlivesOpener: true,
+          overrideBrowserWindowOptions: windowOptions,
+        };
+      }
+
       if (kind === "popup") {
         // Allow (don't deny) so Electron creates a real child window that keeps
-        // `window.opener`, which the OAuth callback needs to message the page back.
+        // the original request and `window.opener` relationship intact.
         return {
           action: "allow",
           overrideBrowserWindowOptions: this.sessionPolicy.buildOAuthPopupWindowOptions(
@@ -422,12 +448,81 @@ export class DesktopBrowserManager {
       return { action: "deny" };
     });
 
-    const didCreateWindow = (childWindow: BrowserWindow) => {
+    const didCreateWindow = (
+      childWindow: BrowserWindow,
+      details: Electron.DidCreateWindowDetails,
+    ) => {
+      const handoffIndex = pendingFormHandoffUrls.indexOf(details.url);
+      if (handoffIndex >= 0) {
+        pendingFormHandoffUrls.splice(handoffIndex, 1);
+        this.registerFormHandoffWindow(childWindow, { threadId, tabId }, details.url);
+        return;
+      }
       this.registerOAuthPopupWindow(childWindow, { threadId, tabId });
     };
     webContents.on("did-create-window", didCreateWindow);
     listenerDisposers.push(() => {
+      pendingFormHandoffUrls.length = 0;
       webContents.removeListener("did-create-window", didCreateWindow);
+    });
+  }
+
+  private registerFormHandoffWindow(
+    popup: BrowserWindow,
+    context: OAuthPopupContext,
+    submittedUrl: string,
+  ): void {
+    this.registerOAuthPopupWindow(popup, context);
+    const runtime = this.popupRuntimes.get(popup);
+    if (!runtime) return;
+
+    popup.hide();
+    const keepHidden = () => popup.hide();
+    popup.on("show", keepHidden);
+    const stopKeepingHidden = () => popup.removeListener("show", keepHidden);
+    runtime.listenerDisposers.push(stopKeepingHidden);
+
+    let settled = false;
+    const finish = (dashboardUrl: string | null) => {
+      if (settled || popup.isDestroyed()) return;
+      settled = true;
+      stopKeepingHidden();
+      if (dashboardUrl === null) {
+        popup.show();
+        return;
+      }
+
+      this.newTab({ threadId: context.threadId, url: dashboardUrl, activate: true });
+      const bounds = this.getVisibleBoundsForThread(context.threadId);
+      if (this.activeThreadId === context.threadId && bounds) {
+        this.attachActiveTab(context.threadId, bounds);
+      }
+      this.closePopupRuntime(runtime);
+    };
+    const didFinishLoad = () => {
+      finish(
+        submittedUrl === MXROUTE_PANEL_LOGIN_URL &&
+          popup.webContents.getURL() === MXROUTE_PANEL_DASHBOARD_URL
+          ? MXROUTE_PANEL_DASHBOARD_URL
+          : null,
+      );
+    };
+    const didFailLoad = (
+      _event: Electron.Event,
+      _errorCode: number,
+      _errorDescription: string,
+      _validatedUrl: string,
+      isMainFrame: boolean,
+    ) => {
+      if (isMainFrame) finish(null);
+    };
+    popup.webContents.on("did-finish-load", didFinishLoad);
+    popup.webContents.on("did-fail-load", didFailLoad);
+    const observationTimer = setTimeout(() => finish(null), 5_000);
+    runtime.listenerDisposers.push(() => {
+      clearTimeout(observationTimer);
+      popup.webContents.removeListener("did-finish-load", didFinishLoad);
+      popup.webContents.removeListener("did-fail-load", didFailLoad);
     });
   }
 

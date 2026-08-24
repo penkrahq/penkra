@@ -1,7 +1,12 @@
 // FILE: ConnectionUsageFacts.ts
 // Purpose: Read provider-owned account usage facts materialized from live runtime events.
 
-import { IsoDateTime, NonNegativeInt, ProviderConnectionId, ProviderKind } from "@penkra/contracts";
+import {
+  IsoDateTime,
+  ProviderConnectionId,
+  ProviderKind,
+  TrimmedNonEmptyString,
+} from "@penkra/contracts";
 import { Effect, Option, Schema, ServiceMap } from "effect";
 
 import type { PersistenceDecodeError, PersistenceSqlError } from "../Errors.ts";
@@ -12,23 +17,11 @@ export const ConnectionRateLimitFactRecord = Schema.Struct({
   connectionId: ProviderConnectionId,
   provider: ProviderKind,
   limitsJson: Schema.String,
-  status: Schema.NullOr(Schema.String),
-  sourceEventId: Schema.String,
+  status: Schema.NullOr(TrimmedNonEmptyString),
+  sourceEventId: TrimmedNonEmptyString,
   updatedAt: IsoDateTime,
 });
 export type ConnectionRateLimitFactRecord = typeof ConnectionRateLimitFactRecord.Type;
-
-export const ConnectionDailyUsageFactRecord = Schema.Struct({
-  utcDay: Schema.String,
-  connectionId: ProviderConnectionId,
-  provider: ProviderKind,
-  inputTokens: NonNegativeInt,
-  outputTokens: NonNegativeInt,
-  reasoningOutputTokens: NonNegativeInt,
-  turns: NonNegativeInt,
-  updatedAt: IsoDateTime,
-});
-export type ConnectionDailyUsageFactRecord = typeof ConnectionDailyUsageFactRecord.Type;
 
 export interface ConnectionUsageFactRepositoryShape {
   readonly getRateLimits: (
@@ -40,13 +33,6 @@ export interface ConnectionUsageFactRepositoryShape {
   readonly putRateLimits: (
     record: ConnectionRateLimitFactRecord,
   ) => Effect.Effect<void, ConnectionUsageFactRepositoryError>;
-  readonly listDailyUsage: (input: {
-    readonly connectionId: ProviderConnectionId;
-    readonly sinceUtcDay: string;
-  }) => Effect.Effect<
-    ReadonlyArray<ConnectionDailyUsageFactRecord>,
-    ConnectionUsageFactRepositoryError
-  >;
 }
 
 export class ConnectionUsageFactRepository extends ServiceMap.Service<

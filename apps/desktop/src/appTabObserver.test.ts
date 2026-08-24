@@ -175,6 +175,82 @@ describe("AppTabObserver", () => {
     });
   });
 
+  it("resolves Electron frames to Chrome protocol frame ids before accessibility capture", async () => {
+    const { contents, sendCommand } = makeContents();
+    sendCommand.mockImplementation(async (method: string) => {
+      if (method === "Page.getFrameTree") {
+        return {
+          frameTree: {
+            frame: { id: "shell-frame", url: "penkra://app/chat" },
+            childFrames: [
+              { frame: { id: "canvas-frame", url: `${descriptor.documentUrl}#host-only` } },
+            ],
+          },
+        };
+      }
+      if (method === "Accessibility.getFullAXTree") return { nodes: [] };
+      return {};
+    });
+    const frame = {
+      url: descriptor.documentUrl,
+      frameTreeNodeId: 41,
+      executeJavaScript: vi.fn(async () => "Canvas"),
+    } as never;
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents, frame }),
+    });
+
+    await observer.snapshot("tab-1");
+
+    expect(sendCommand).toHaveBeenCalledWith("Accessibility.getFullAXTree", {
+      frameId: "canvas-frame",
+    });
+  });
+
+  it("attaches to an out-of-process App frame for accessibility capture", async () => {
+    const { contents, sendCommand } = makeContents();
+    sendCommand.mockImplementation(async (method: string) => {
+      if (method === "Page.getFrameTree") {
+        return { frameTree: { frame: { id: "shell-frame", url: "penkra://app/chat" } } };
+      }
+      if (method === "Target.getTargets") {
+        return {
+          targetInfos: [
+            { targetId: "worker-target", type: "worker", url: "" },
+            {
+              targetId: "canvas-target",
+              type: "iframe",
+              url: `${descriptor.documentUrl}#isolated`,
+            },
+          ],
+        };
+      }
+      if (method === "Target.attachToTarget") return { sessionId: "canvas-session" };
+      if (method === "Accessibility.getFullAXTree") return { nodes: [] };
+      return {};
+    });
+    const frame = {
+      url: descriptor.documentUrl,
+      frameTreeNodeId: 41,
+      executeJavaScript: vi.fn(async () => "Canvas"),
+    } as never;
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents, frame }),
+    });
+
+    await observer.snapshot("tab-1");
+
+    expect(sendCommand).toHaveBeenCalledWith("Target.attachToTarget", {
+      targetId: "canvas-target",
+      flatten: true,
+    });
+    expect(sendCommand).toHaveBeenCalledWith(
+      "Accessibility.getFullAXTree",
+      undefined,
+      "canvas-session",
+    );
+  });
+
   it("uses the latest snapshot reference and invalidates it on navigation", async () => {
     const { contents, listeners, sendCommand } = makeContents();
     const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });

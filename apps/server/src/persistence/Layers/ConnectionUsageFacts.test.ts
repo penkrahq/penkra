@@ -59,39 +59,4 @@ layer("ConnectionUsageFactRepository", (it) => {
       });
     }),
   );
-
-  it.effect("reads connection-scoped daily usage within the requested window", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      const repository = yield* ConnectionUsageFactRepository;
-      yield* runMigrations();
-      yield* sql`
-        INSERT INTO connection_usage_daily (
-          utc_day, connection_id, provider, input_tokens, output_tokens,
-          reasoning_output_tokens, turns, updated_at
-        ) VALUES
-          ('2026-07-01', 'claude-account', 'claudeAgent', 10, 2, 0, 1,
-           '2026-07-01T12:00:00.000Z'),
-          ('2026-08-23', 'claude-account', 'claudeAgent', 500, 40, 0, 3,
-           '2026-08-23T12:00:00.000Z')
-      `;
-
-      const rows = yield* repository.listDailyUsage({
-        connectionId: ProviderConnectionId.makeUnsafe("claude-account"),
-        sinceUtcDay: "2026-08-01",
-      });
-      assert.deepStrictEqual(rows, [
-        {
-          utcDay: "2026-08-23",
-          connectionId: ProviderConnectionId.makeUnsafe("claude-account"),
-          provider: "claudeAgent",
-          inputTokens: 500,
-          outputTokens: 40,
-          reasoningOutputTokens: 0,
-          turns: 3,
-          updatedAt: "2026-08-23T12:00:00.000Z",
-        },
-      ]);
-    }),
-  );
 });

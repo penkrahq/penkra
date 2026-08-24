@@ -229,6 +229,7 @@
   "dependencies": {
     "@penkra/contracts": "workspace:*",
     "@penkra/sdk": "workspace:*",
+    "ajv": "8.18.0",
     "effect": "catalog:",
     "semver": "^7.7.4",
     "yazl": "3.3.1"

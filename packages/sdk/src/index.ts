@@ -1,17 +1,20 @@
 export {
   PENKRA_APP_MANIFEST_VERSION,
   assertAppManifest,
+  assertPublishableAppManifest,
   defineApp,
   validateAppManifest,
   type AppEntrypoints,
   type AppHandlerDeclaration,
   type AppManifestValidationIssue,
+  type AppManifestValidationOptions,
   type AppManifestValidationResult,
   type AppPermissionDeclaration,
   type AppSettingDeclaration,
   type AppSkillDeclaration,
   type JsonSchema,
   type OperationDeclaration,
+  type OperationExampleDeclaration,
   type PenkraAppManifest,
 } from "./manifest";
 export {

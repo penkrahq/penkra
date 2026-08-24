@@ -45,6 +45,24 @@ describe("App runtime CLI operation flags", () => {
     });
   });
 
+  it("recovers a JSON object string once when the resolved schema expects an object", () => {
+    expect(parseOperationInput(schema, '{"title":"Fix redirect","confirm":true}', {})).toEqual({
+      title: "Fix redirect",
+      confirm: true,
+    });
+    expect(parseOperationInput(schema, '"{\\"title\\":\\"nested\\"}"', {})).toBe(
+      '"{\\"title\\":\\"nested\\"}"',
+    );
+    expect(parseOperationInput(schema, '["not","an","object"]', {})).toBe('["not","an","object"]');
+    expect(
+      parseOperationInput(
+        { $ref: "#/$defs/input", $defs: { input: schema } },
+        '{"title":"Resolved through a ref"}',
+        {},
+      ),
+    ).toEqual({ title: "Resolved through a ref" });
+  });
+
   it("rejects unknown, duplicate, and invalid typed flags", () => {
     expect(() => parseOperationInput(schema, undefined, { unknown: "value" })).toThrow(
       "Unknown operation option",

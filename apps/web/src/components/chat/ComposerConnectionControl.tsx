@@ -31,7 +31,6 @@ import {
 } from "~/lib/providerUsageDisplay";
 import {
   connectionUsageEmptyMessage,
-  normalizeServerProviderUsageLines,
   normalizeServerProviderUsageRateLimit,
 } from "~/lib/providerUsageSnapshot";
 import { serverAllProviderUsageQueryOptions } from "~/lib/serverReactQuery";
@@ -88,30 +87,6 @@ function ConnectionUsageRows({ rows }: { rows: ReadonlyArray<ProviderUsageDispla
               style={{ width: `${row.remainingPercent}%` }}
             />
           </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ConnectionUsageLines({
-  lines,
-}: {
-  lines: ReturnType<typeof normalizeServerProviderUsageLines>;
-}) {
-  return (
-    <div className="space-y-1.5 border-t border-border/50 px-2 py-2">
-      {lines.map((line) => (
-        <div className="flex items-baseline gap-2" key={line.label}>
-          <span className="text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground">
-            {line.label}
-            {line.subtitle ? (
-              <span className="text-muted-foreground/60"> · {line.subtitle}</span>
-            ) : null}
-          </span>
-          <span className="ml-auto text-[length:var(--app-font-size-ui-sm,11px)] font-medium tabular-nums text-foreground">
-            {line.value}
-          </span>
         </div>
       ))}
     </div>
@@ -193,8 +168,6 @@ export function ComposerConnectionControl(props: {
   const apiKey = isApiKeyConnection(selected);
   const snapshot = snapshots.get(selected.id);
   const rows = usageRows(snapshot);
-  const usageLines = normalizeServerProviderUsageLines(snapshot);
-  const primary = selectPrimaryProviderUsageDisplayRow(rows);
   const title = apiKey ? `${selected.label} API key` : selected.label;
 
   return (
@@ -266,17 +239,14 @@ export function ComposerConnectionControl(props: {
               <ExternalLinkIcon className="ml-auto size-3" />
             </MenuItem>
           </div>
-        ) : rows.length > 0 || usageLines.length > 0 ? (
-          <div>
-            {rows.length > 0 ? <ConnectionUsageRows rows={rows} /> : null}
-            {usageLines.length > 0 ? <ConnectionUsageLines lines={usageLines} /> : null}
-          </div>
+        ) : rows.length > 0 ? (
+          <ConnectionUsageRows rows={rows} />
         ) : (
           <p className="px-2 pb-2 pt-1 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground">
             {usageQuery.isPending ? "Loading usage…" : connectionUsageEmptyMessage(snapshot)}
           </p>
         )}
-        {snapshot?.detail && (rows.length > 0 || usageLines.length > 0) ? (
+        {snapshot?.detail && rows.length > 0 ? (
           <p className="px-2 pb-2 text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/70">
             {snapshot.detail}
           </p>

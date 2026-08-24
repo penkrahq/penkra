@@ -77,10 +77,10 @@ A call has four parts, and keeping them straight is most of what goes wrong:
 `command` is the operation named as discrete words. `input` carries structured operation data.
 `flags` carries scalar named options. `tabId` names an App tab when the operation targets one.
 
-Values never belong inside the command words, and nothing you send needs quoting or escaping. If you
-find yourself building a string, you are using the wrong field — send the object through `input` and
-let Penkra validate it. This is not a style preference: command words are matched against the
-registry, so a value smuggled in there simply fails to resolve.
+Values never belong inside the command words. Follow the operation's generated help: its examples
+show complete calls, and its input schema is the validation boundary. Use the structured `input`
+shape shown there. If a client delivers an object-shaped input as equivalent JSON text, Penkra
+recovers that object once before validation; nested values are never recursively decoded.
 
 Core commands begin with the reserved word `penkra`, as in `["penkra", "threads", "list"]`. App
 commands begin directly with the App slug. An App that declares the operation key `issues.create` is

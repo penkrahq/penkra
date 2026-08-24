@@ -23,6 +23,7 @@ export interface RightDockThreadState {
   open: boolean;
   panes: RightDockPane[];
   activePaneId: string | null;
+  width: number | null;
 }
 
 export interface OpenPaneInput {
@@ -40,7 +41,7 @@ export interface OpenPaneInput {
 }
 
 export function createDefaultRightDockState(): RightDockThreadState {
-  return { open: false, panes: [], activePaneId: null };
+  return { open: false, panes: [], activePaneId: null, width: null };
 }
 
 function parsePersistedAppPane(value: unknown): RightDockPane | null {
@@ -76,7 +77,11 @@ export function sanitizeRightDockThreadState(value: unknown): RightDockThreadSta
     typeof value.activePaneId === "string" && panes.some((pane) => pane.id === value.activePaneId)
       ? value.activePaneId
       : (panes[0]?.id ?? null);
-  return { open: value.open === true && panes.length > 0, panes, activePaneId };
+  const width =
+    typeof value.width === "number" && Number.isFinite(value.width) && value.width > 0
+      ? value.width
+      : null;
+  return { open: value.open === true && panes.length > 0, panes, activePaneId, width };
 }
 
 export function sanitizeRightDockStateByThreadId(
@@ -113,10 +118,10 @@ export function openPaneInState(
     const panes = state.panes.map((candidate) =>
       candidate.id === input.paneId ? pane : candidate,
     );
-    return { open: true, panes, activePaneId: existing.id };
+    return { ...state, open: true, panes, activePaneId: existing.id };
   }
   const pane = createPane(input);
-  return { open: true, panes: [...state.panes, pane], activePaneId: pane.id };
+  return { ...state, open: true, panes: [...state.panes, pane], activePaneId: pane.id };
 }
 
 export function closePaneInState(
@@ -130,7 +135,7 @@ export function closePaneInState(
     state.activePaneId === paneId
       ? (panes[Math.min(removedIndex, panes.length - 1)]?.id ?? null)
       : state.activePaneId;
-  return { open: panes.length > 0 && state.open, panes, activePaneId };
+  return { ...state, open: panes.length > 0 && state.open, panes, activePaneId };
 }
 
 export function setActivePaneInState(
@@ -147,6 +152,14 @@ export function setDockOpenInState(
 ): RightDockThreadState {
   const nextOpen = open && state.panes.length > 0;
   return state.open === nextOpen ? state : { ...state, open: nextOpen };
+}
+
+export function setDockWidthInState(
+  state: RightDockThreadState,
+  width: number,
+): RightDockThreadState {
+  if (!Number.isFinite(width) || width <= 0 || state.width === width) return state;
+  return { ...state, width };
 }
 
 export function updatePaneInState(

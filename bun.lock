@@ -14,7 +14,7 @@
     },
     "apps/desktop": {
       "name": "@penkra/desktop",
-      "version": "0.11.9",
+      "version": "0.11.10",
       "dependencies": {
         "@better-auth/electron": "1.6.25",
         "@grpc/grpc-js": "1.14.4",
@@ -57,7 +57,7 @@
     },
     "apps/server": {
       "name": "@penkra/cli",
-      "version": "0.11.9",
+      "version": "0.11.10",
       "bin": {
         "penkra": "dist/index.mjs",
         "penkra-database": "dist/databaseMaintenance.mjs",
@@ -100,7 +100,7 @@
     },
     "apps/web": {
       "name": "@penkra/web",
-      "version": "0.11.9",
+      "version": "0.11.10",
       "dependencies": {
         "@base-ui/react": "^1.5.0",
         "@dnd-kit/dom": "^0.5.0",
@@ -184,7 +184,7 @@
     },
     "packages/contracts": {
       "name": "@penkra/contracts",
-      "version": "0.11.9",
+      "version": "0.11.10",
       "dependencies": {
         "effect": "catalog:",
       },
@@ -198,7 +198,7 @@
     },
     "packages/sdk": {
       "name": "@penkra/sdk",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@types/react": "^19.0.0",
         "react": "^19.0.0",
@@ -219,6 +219,7 @@
       "dependencies": {
         "@penkra/contracts": "workspace:*",
         "@penkra/sdk": "workspace:*",
+        "ajv": "8.18.0",
         "effect": "catalog:",
         "semver": "^7.7.4",
         "yazl": "3.3.1",

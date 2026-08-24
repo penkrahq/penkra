@@ -683,7 +683,7 @@ export function parseOperationInput(
   rawInput: unknown,
   named: Readonly<Record<string, PenkraExecFlagValue>>,
 ): unknown {
-  const base = rawInput === undefined ? {} : rawInput;
+  const base = recoverObjectInputOnce(schema, rawInput === undefined ? {} : rawInput);
   if (!base || typeof base !== "object" || Array.isArray(base)) {
     if (Object.keys(named).length > 0)
       throw new Error("Named operation flags require an object input schema.");
@@ -728,6 +728,66 @@ export function parseOperationInput(
     }
   }
   return result;
+}
+
+function recoverObjectInputOnce(
+  schema: Readonly<Record<string, unknown>>,
+  rawInput: unknown,
+): unknown {
+  if (!schemaExpectsObject(schema) || typeof rawInput !== "string") return rawInput;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawInput);
+  } catch {
+    return rawInput;
+  }
+  return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed
+    : rawInput;
+}
+
+function schemaExpectsObject(
+  root: Readonly<Record<string, unknown>>,
+  schema: Readonly<Record<string, unknown>> = root,
+  seen = new Set<unknown>(),
+): boolean {
+  if (seen.has(schema)) return false;
+  seen.add(schema);
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+  if (types.includes("object")) return true;
+  if (typeof schema.$ref === "string" && schema.$ref.startsWith("#/")) {
+    const target = schema.$ref
+      .slice(2)
+      .split("/")
+      .map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"))
+      .reduce<unknown>(
+        (value, segment) =>
+          value && typeof value === "object" && !Array.isArray(value)
+            ? (value as Record<string, unknown>)[segment]
+            : undefined,
+        root,
+      );
+    if (target && typeof target === "object" && !Array.isArray(target)) {
+      return schemaExpectsObject(root, target as Readonly<Record<string, unknown>>, seen);
+    }
+  }
+  for (const keyword of ["allOf", "anyOf", "oneOf"] as const) {
+    const branches = schema[keyword];
+    if (
+      Array.isArray(branches) &&
+      branches.length > 0 &&
+      branches.every(
+        (branch) =>
+          branch !== null &&
+          typeof branch === "object" &&
+          !Array.isArray(branch) &&
+          schemaExpectsObject(root, branch as Readonly<Record<string, unknown>>, new Set(seen)),
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function resolveOperationPropertyName(

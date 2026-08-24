@@ -47,6 +47,12 @@
         "required": ["saved"],
         "additionalProperties": false
       },
+      "examples": [
+        {
+          "name": "Create a confirmed note",
+          "input": { "text": "Review the launch checklist", "confirm": true }
+        }
+      ],
       "handler": "notes.create"
     },
     {
@@ -61,6 +67,9 @@
         "additionalProperties": false
       },
       "output": {},
+      "examples": [
+        { "name": "Open the Canvas listing", "input": { "appId": "com.penkra.canvas" } }
+      ],
       "handler": "catalog.open-listing"
     }
   ]

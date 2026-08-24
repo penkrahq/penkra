@@ -19,6 +19,7 @@ const validManifest = {
       summary: "Install a registry App.",
       input: { type: "object" },
       output: { type: "object" },
+      examples: [{ name: "Install an App", input: {} }],
       handler: "installations.install",
     },
   ],
@@ -63,6 +64,25 @@ describe("validateAppManifest", () => {
   it("accepts the canonical Apps manifest shape", () => {
     expect(validateAppManifest(validManifest)).toEqual({ ok: true, manifest: validManifest });
     expect(defineApp(validManifest)).toBe(validManifest);
+  });
+
+  it("requires at least one named JSON example per operation", () => {
+    const operation = validManifest.operations[0];
+    const legacy = { ...operation } as Record<string, unknown>;
+    delete legacy.examples;
+    expect(validateAppManifest({ ...validManifest, operations: [legacy] }).ok).toBe(true);
+    const missing = validateAppManifest(
+      { ...validManifest, operations: [legacy] },
+      { requireOperationExamples: true },
+    );
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.issues[0]?.path).toBe("operations[0].examples");
+
+    const malformed = validateAppManifest({
+      ...validManifest,
+      operations: [{ ...operation, examples: [{ name: "", input: undefined }] }],
+    });
+    expect(malformed.ok).toBe(false);
   });
 
   it("accepts any non-empty App summary as data", () => {

@@ -1,7 +1,6 @@
 // FILE: providerUsage/index.ts
 // Purpose: Orchestrate the live provider-usage fetchers — defensive batch fetch (one failure never
-// blocks the others), and enrichment of Codex/Claude live
-// snapshots with the locally-derived token-total usage lines. Exposes both a plain async API
+// blocks the others), and enrichment of Codex/Claude live snapshots. Exposes both a plain async API
 // (for tests) and an Effect that reads ServerConfig (for the WS RPC handler).
 
 import type {
@@ -20,7 +19,6 @@ import {
 } from "../persistence/Services/ProviderConnections";
 import {
   ConnectionUsageFactRepository,
-  type ConnectionDailyUsageFactRecord,
   type ConnectionRateLimitFactRecord,
 } from "../persistence/Services/ConnectionUsageFacts";
 import { buildProviderChildEnvironment, type ProviderChildKind } from "../providerChildEnvironment";
@@ -36,11 +34,7 @@ import {
 import { loadLocalProviderUsageLines } from "../providerUsageSnapshot";
 import { errorSnapshot, unsupportedSnapshot } from "./parse";
 import { PROVIDER_USAGE_FETCHERS } from "./registry";
-import {
-  mergeConnectionUsageSnapshots,
-  snapshotFromConnectionRateLimitFact,
-  usageLinesFromConnectionDailyFacts,
-} from "./runtimeFacts";
+import { mergeConnectionUsageSnapshots, snapshotFromConnectionRateLimitFact } from "./runtimeFacts";
 import type { ProviderUsageContext } from "./types";
 
 // Providers whose live snapshot is enriched with on-disk token-total lines (24h/7d/30d).
@@ -238,10 +232,6 @@ export async function collectProviderConnectionUsageSnapshots(input: {
   ctx: ProviderUsageContext;
   forceRefresh?: boolean;
   rateLimitFacts?: ReadonlyMap<ProviderConnectionId, ConnectionRateLimitFactRecord>;
-  dailyUsageFacts?: ReadonlyMap<
-    ProviderConnectionId,
-    ReadonlyArray<ConnectionDailyUsageFactRecord>
-  >;
 }): Promise<ServerProviderUsageSnapshot[]> {
   return Promise.all(
     input.connections.map(async (connection) => {
@@ -253,23 +243,10 @@ export async function collectProviderConnectionUsageSnapshots(input: {
         base: input.ctx,
         forceRefresh: input.forceRefresh === true,
       });
-      const snapshot = mergeConnectionUsageSnapshots({
+      return mergeConnectionUsageSnapshots({
         runtime: runtimeSnapshot,
         fetched: fetchedSnapshot,
       });
-      const dailyUsageLines = usageLinesFromConnectionDailyFacts({
-        facts: input.dailyUsageFacts?.get(connection.id) ?? [],
-        nowMs: input.ctx.nowMs,
-      });
-      if (dailyUsageLines.length === 0) return snapshot;
-      const dailyLabels = new Set(dailyUsageLines.map((line) => line.label.toLowerCase()));
-      return {
-        ...snapshot,
-        usageLines: [
-          ...snapshot.usageLines.filter((line) => !dailyLabels.has(line.label.toLowerCase())),
-          ...dailyUsageLines,
-        ],
-      };
     }),
   );
 }
@@ -367,15 +344,6 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
           entry[1] !== null,
       ),
     );
-    const sinceUtcDay = new Date(context.nowMs - 29 * 24 * 60 * 60 * 1_000)
-      .toISOString()
-      .slice(0, 10);
-    const dailyFacts = yield* Effect.forEach(activeRecords, (record) =>
-      usageFacts
-        .listDailyUsage({ connectionId: record.id, sinceUtcDay })
-        .pipe(Effect.map((rows) => [record.id, rows] as const)),
-    );
-    const dailyUsageFacts = new Map(dailyFacts);
     return yield* Effect.tryPromise({
       try: () =>
         collectProviderConnectionUsageSnapshots({
@@ -384,7 +352,6 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
           ctx: context,
           forceRefresh: input.forceRefresh === true,
           rateLimitFacts,
-          dailyUsageFacts,
         }),
       catch: () => [] as unknown as ServerListProviderUsageResult,
     });

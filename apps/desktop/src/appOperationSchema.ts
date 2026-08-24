@@ -42,7 +42,19 @@ export function compileOperationValidators(
 }
 
 export function assertOperationSchemas(manifest: PenkraAppManifest): void {
-  for (const declaration of manifest.operations ?? []) compileOperationValidators(declaration);
+  for (const declaration of manifest.operations ?? []) {
+    const validators = compileOperationValidators(declaration);
+    for (const [index, example] of (declaration.examples ?? []).entries()) {
+      try {
+        assertOperationValue(example.input, validators.input, "input");
+      } catch (error) {
+        throw new Error(
+          `Operation ${declaration.key} example ${index + 1} (${JSON.stringify(example.name)}) does not match its input schema.`,
+          { cause: error },
+        );
+      }
+    }
+  }
 }
 
 export function assertOperationValue(

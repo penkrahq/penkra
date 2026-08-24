@@ -32,6 +32,10 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useCopyPathToClipboard, useCopyThreadIdToClipboard } from "~/hooks/useCopyToClipboard";
+import {
+  resolveDesktopAccountName,
+  useDesktopAccountAuthState,
+} from "~/hooks/useDesktopAccountAuthState";
 import { DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS } from "~/hooks/useDesktopTopBarGutter";
 import { useDesktopWindowState } from "~/hooks/useDesktopWindowState";
 import { createCentralIconComponent } from "~/lib/central-icons";
@@ -207,8 +211,6 @@ import {
   type ThreadWorkStatus,
 } from "./left-rail/thread-row-shared/ThreadRowShared";
 import { ThreadRowInlineEdit } from "./left-rail/thread-row-inline-edit/ThreadRowInlineEdit";
-import { toDisplayName } from "./profile/profileFormatting";
-import { useProfileName } from "./profile/useProfileName";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
 import {
@@ -393,10 +395,8 @@ export default function Sidebar() {
   const unpinProject = usePinnedFoldersStore((store) => store.unpinProject);
   const prunePinnedFolders = usePinnedFoldersStore((store) => store.prunePinnedFolders);
   const homeDir = useWorkspacePathsStore((store) => store.homeDir);
-  const defaultProfileName = toDisplayName(
-    (homeDir ?? "").split(/[\\/]/).findLast((segment) => segment.length > 0) ?? "",
-  );
-  const { name: profileName } = useProfileName(defaultProfileName);
+  const { authState: desktopAccountAuthState } = useDesktopAccountAuthState();
+  const accountName = resolveDesktopAccountName(desktopAccountAuthState);
   const chatWorkspaceRoot = useWorkspacePathsStore((store) => store.chatWorkspaceRoot);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -3407,7 +3407,7 @@ export default function Sidebar() {
           </Suspense>
         ) : null}
         <AccountControlShared
-          accountName={profileName}
+          accountName={accountName}
           onSettings={() => void navigate({ to: "/settings", search: { section: undefined } })}
           onSupport={() => openFeedbackDialog()}
           updateAvailable={showDesktopUpdateButton}

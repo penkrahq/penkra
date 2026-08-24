@@ -11,9 +11,10 @@ import { pipeline } from "node:stream/promises";
 import {
   PENKRA_APP_INSTRUCTIONS_MAX_BYTES,
   PENKRA_APP_README_MAX_BYTES,
-  assertAppManifest,
+  assertPublishableAppManifest,
   type PenkraAppManifest,
 } from "@penkra/sdk";
+import Ajv2020 from "ajv/dist/2020";
 import { valid, validRange } from "semver";
 import yazl from "yazl";
 
@@ -220,12 +221,34 @@ function parseManifest(bytes: Buffer): PenkraAppManifest {
       `penkra-app.json is not valid UTF-8 JSON: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  assertAppManifest(manifest);
+  assertPublishableAppManifest(manifest);
+  assertOperationExamplesMatchSchemas(manifest);
   if (!valid(manifest.version)) throw new Error("App manifest version must be valid SemVer.");
   if (!validRange(manifest.compatibility.penkra)) {
     throw new Error("App manifest compatibility.penkra must be a valid SemVer range.");
   }
   return manifest;
+}
+
+function assertOperationExamplesMatchSchemas(manifest: PenkraAppManifest): void {
+  const ajv = new Ajv2020({ allErrors: false, strict: true, validateFormats: false });
+  for (const operation of manifest.operations ?? []) {
+    let validate: ReturnType<typeof ajv.compile>;
+    try {
+      validate = ajv.compile(operation.input);
+    } catch (error) {
+      throw new Error(`Operation ${operation.key} contains an invalid input schema.`, {
+        cause: error,
+      });
+    }
+    for (const [index, example] of operation.examples.entries()) {
+      if (validate(example.input)) continue;
+      const issue = validate.errors?.[0];
+      throw new Error(
+        `Operation ${operation.key} example ${index + 1} (${JSON.stringify(example.name)}) does not match its input schema${issue ? ` at ${issue.instancePath || "$"}: ${issue.message ?? issue.keyword}` : ""}.`,
+      );
+    }
+  }
 }
 
 const REQUIRED_AGENT_INSTRUCTION_SECTIONS = [

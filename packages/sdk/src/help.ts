@@ -101,15 +101,33 @@ function operationHelp(manifest: PenkraAppManifest, declaration: OperationDeclar
     commandPath(manifest.slug, declaration.key),
     declaration.summary,
     "",
-    "Usage",
-    `  ${commandPath(manifest.slug, declaration.key)} [--input '<json>'] [--<property> <value> ...] [--tab-id <tab-id>]`,
+    "Call shape",
+    "  Send command words as an array and operation data as input. tabId is a separate",
+    "  invocation field when an operation targets an existing visible App tab.",
     "",
-    "Operation input",
+    "Input fields",
     ...operationFlagHelp(declaration.input),
     "",
     "Invocation",
-    "  --tab-id <tab-id>  Target one existing App tab (invocation envelope; not App input).",
-    "  --input <json>      Supply the complete input object as JSON.",
+    "  input  Complete structured operation input validated against the schema below.",
+    "  tabId  Exact existing App tab when required; this is not operation input.",
+    "",
+    "Examples",
+    ...(declaration.examples ?? []).flatMap((example) => [
+      "",
+      `  ${example.name}`,
+      "",
+      ...JSON.stringify(
+        { command: commandWords(manifest.slug, declaration.key), input: example.input },
+        null,
+        2,
+      )
+        .split("\n")
+        .map((line) => `  ${line}`),
+    ]),
+    ...(declaration.guidance
+      ? ["", "Guidance", "", ...declaration.guidance.trim().split("\n")]
+      : []),
     "",
     "App guidance",
     `  Run ${manifest.slug} --help for ${manifest.name} operating instructions.`,
@@ -158,12 +176,9 @@ function operationFlagHelp(schema: Readonly<Record<string, unknown>>): string[] 
         ? [`one of ${property.enum.map((value) => JSON.stringify(value)).join(", ")}`]
         : []),
     ];
-    return `  --${camelToKebab(name)} <${type}>  ${details.join("; ")}.`;
+    const description = typeof property.description === "string" ? ` ${property.description}` : "";
+    return `  ${name} <${type}>  ${details.join("; ")}.${description}`;
   });
-}
-
-function camelToKebab(value: string): string {
-  return value.replace(/[A-Z]/g, (character) => `-${character.toLowerCase()}`);
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -172,4 +187,8 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 
 function commandPath(slug: string, operation: string): string {
   return `${slug} ${operation.split(".").join(" ")}`;
+}
+
+function commandWords(slug: string, operation: string): string[] {
+  return [slug, ...operation.split(".")];
 }

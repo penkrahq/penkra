@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   APP_OPERATION_VALUE_MAX_DEPTH,
+  assertOperationSchemas,
   assertOperationValue,
   compileOperationValidators,
 } from "./appOperationSchema";
@@ -22,6 +23,7 @@ const declaration = {
     properties: { id: { type: "string" } },
     additionalProperties: false,
   },
+  examples: [{ name: "Create an issue", input: { title: "Fix redirect" } }],
 } as const;
 
 describe("App operation schema boundary", () => {
@@ -51,6 +53,25 @@ describe("App operation schema boundary", () => {
         input: { type: "not-a-json-schema-type" },
       }),
     ).toThrow("invalid JSON Schema");
+  });
+
+  it("rejects manifest examples that do not match their operation input schema", () => {
+    expect(() =>
+      assertOperationSchemas({
+        manifestVersion: 2,
+        id: "com.acme.issues",
+        slug: "issues",
+        name: "Issues",
+        summary: "Manage issues.",
+        version: "1.0.0",
+        compatibility: { penkra: ">=0.11.1" },
+        icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
+        entrypoints: { app: "app.html", operations: "operations.html" },
+        operations: [
+          { ...declaration, examples: [{ name: "Invalid issue", input: { title: "" } }] },
+        ],
+      }),
+    ).toThrow("example 1");
   });
 
   it("bounds invocation data before validation", () => {

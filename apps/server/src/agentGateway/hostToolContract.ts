@@ -19,7 +19,7 @@ export const PENKRA_EXEC_COMMAND_ZOD_SHAPE = {
     .unknown()
     .optional()
     .describe(
-      "Structured operation input matching the schema returned by command help. Send JSON directly; do not serialize it into a string.",
+      "Operation input matching the schema and examples returned by command help. Object-shaped operations normally receive a structured JSON object; the dispatcher also recovers once from an equivalent JSON-object string.",
     ),
   flags: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))

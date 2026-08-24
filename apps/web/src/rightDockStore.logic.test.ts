@@ -8,6 +8,7 @@ import {
   sanitizeRightDockThreadState,
   setActivePaneInState,
   setDockOpenInState,
+  setDockWidthInState,
   updatePaneInState,
 } from "./rightDockStore.logic";
 
@@ -55,6 +56,13 @@ describe("App tab state", () => {
       createDefaultRightDockState(),
     );
   });
+
+  it("retains a custom width in the Thread state", () => {
+    const state = setDockWidthInState(createDefaultRightDockState(), 640);
+    expect(state.width).toBe(640);
+    expect(setDockWidthInState(state, 640)).toBe(state);
+    expect(openPaneInState(state, APP_PANE).width).toBe(640);
+  });
 });
 
 describe("persisted App tabs", () => {
@@ -83,6 +91,14 @@ describe("persisted App tabs", () => {
     });
     expect(state.activePaneId).toBe("valid");
     expect(state.open).toBe(true);
+    expect(state.width).toBeNull();
+  });
+
+  it("restores a valid per-Thread width and rejects invalid widths", () => {
+    const valid = sanitizeRightDockThreadState({ width: 612 });
+    const invalid = sanitizeRightDockThreadState({ width: Number.POSITIVE_INFINITY });
+    expect(valid.width).toBe(612);
+    expect(invalid.width).toBeNull();
   });
 
   it("closes malformed or empty state", () => {

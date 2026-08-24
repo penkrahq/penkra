@@ -29,6 +29,7 @@ function installedApp(withOperations = true): InstalledAppPackage {
               summary: "Create an issue.",
               input: { type: "object" },
               output: { type: "object" },
+              examples: [{ name: "Create an issue", input: {} }],
               handler: "issues.create",
             },
           ],

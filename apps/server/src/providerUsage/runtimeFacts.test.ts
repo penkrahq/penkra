@@ -2,11 +2,7 @@ import { ProviderConnectionId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { ConnectionRateLimitFactRecord } from "../persistence/Services/ConnectionUsageFacts";
-import {
-  mergeConnectionUsageSnapshots,
-  snapshotFromConnectionRateLimitFact,
-  usageLinesFromConnectionDailyFacts,
-} from "./runtimeFacts";
+import { mergeConnectionUsageSnapshots, snapshotFromConnectionRateLimitFact } from "./runtimeFacts";
 
 const updatedAt = "2026-08-21T12:00:00.000Z";
 
@@ -189,39 +185,26 @@ describe("provider runtime usage facts", () => {
     expect(mergeConnectionUsageSnapshots({ runtime, fetched })).toEqual(fetched);
   });
 
-  it("builds account-scoped usage lines from persisted daily totals", () => {
-    const connectionId = ProviderConnectionId.makeUnsafe("codex-account");
-    expect(
-      usageLinesFromConnectionDailyFacts({
-        nowMs: Date.parse("2026-08-23T16:00:00.000Z"),
-        facts: [
-          {
-            utcDay: "2026-08-23",
-            connectionId,
-            provider: "claudeAgent",
-            inputTokens: 507_966,
-            outputTokens: 39_175,
-            reasoningOutputTokens: 0,
-            turns: 19,
-            updatedAt,
-          },
-          {
-            utcDay: "2026-08-22",
-            connectionId,
-            provider: "claudeAgent",
-            inputTokens: 938_975,
-            outputTokens: 78_803,
-            reasoningOutputTokens: 0,
-            turns: 30,
-            updatedAt,
-          },
-        ],
-      }),
-    ).toEqual([
-      { label: "Today", value: "547.1K tokens", subtitle: "19 turns" },
-      { label: "7d", value: "2M tokens", subtitle: "49 turns" },
-      { label: "30d", value: "2M tokens", subtitle: "49 turns" },
-    ]);
+  it("drops the stale awaiting-usage detail once a runtime percentage exists", () => {
+    const runtime = snapshotFromConnectionRateLimitFact(
+      fact({ primary: { usedPercent: 95, windowDurationMins: 10_080 } }),
+    );
+    const merged = mergeConnectionUsageSnapshots({
+      runtime,
+      fetched: {
+        provider: "codex",
+        connectionId: ProviderConnectionId.makeUnsafe("codex-account"),
+        updatedAt,
+        limits: [],
+        usageLines: [],
+        source: "provider-runtime-awaiting-rate-limits",
+        status: "ok",
+        detail: "Usage hasn’t been reported for this account yet.",
+      },
+    });
+
+    expect(merged.limits).toHaveLength(1);
+    expect(merged.detail).toBeUndefined();
   });
 
   it("rejects malformed or empty persisted payloads so the caller can use its fallback", () => {

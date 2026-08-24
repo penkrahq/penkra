@@ -7,7 +7,6 @@ import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
 import { toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
-  ConnectionDailyUsageFactRecord,
   ConnectionRateLimitFactRecord,
   ConnectionUsageFactRepository,
   type ConnectionUsageFactRepositoryShape,
@@ -56,28 +55,6 @@ const makeConnectionUsageFactRepository = Effect.gen(function* () {
         updated_at = excluded.updated_at
     `,
   });
-  const listDailyUsage = SqlSchema.findAll({
-    Request: Schema.Struct({
-      connectionId: ConnectionRateLimitFactRecord.fields.connectionId,
-      sinceUtcDay: Schema.String,
-    }),
-    Result: ConnectionDailyUsageFactRecord,
-    execute: ({ connectionId, sinceUtcDay }) => sql`
-      SELECT
-        utc_day AS "utcDay",
-        connection_id AS "connectionId",
-        provider,
-        input_tokens AS "inputTokens",
-        output_tokens AS "outputTokens",
-        reasoning_output_tokens AS "reasoningOutputTokens",
-        turns,
-        updated_at AS "updatedAt"
-      FROM connection_usage_daily
-      WHERE connection_id = ${connectionId} AND utc_day >= ${sinceUtcDay}
-      ORDER BY utc_day ASC
-    `,
-  });
-
   return {
     getRateLimits: (connectionId) =>
       selectRateLimits({ connectionId }).pipe(
@@ -94,15 +71,6 @@ const makeConnectionUsageFactRepository = Effect.gen(function* () {
           toPersistenceSqlOrDecodeError(
             "ConnectionUsageFactRepository.putRateLimits:query",
             "ConnectionUsageFactRepository.putRateLimits:decode",
-          ),
-        ),
-      ),
-    listDailyUsage: (input) =>
-      listDailyUsage(input).pipe(
-        Effect.mapError(
-          toPersistenceSqlOrDecodeError(
-            "ConnectionUsageFactRepository.listDailyUsage:query",
-            "ConnectionUsageFactRepository.listDailyUsage:decode",
           ),
         ),
       ),

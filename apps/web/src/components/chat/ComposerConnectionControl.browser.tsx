@@ -96,7 +96,7 @@ describe("ComposerConnectionControl", () => {
           { window: "5h", usedPercent: 38, windowDurationMins: 300 },
           { window: "Weekly", usedPercent: 52, windowDurationMins: 10_080 },
         ],
-        usageLines: [],
+        usageLines: [{ label: "Today", value: "547.1K tokens", subtitle: "19 turns" }],
         source: "test",
         status: "ok",
       },
@@ -144,6 +144,8 @@ describe("ComposerConnectionControl", () => {
 
       await expect.element(page.getByText("Session", { exact: true })).toBeVisible();
       await expect.element(page.getByText("62%", { exact: true })).toBeVisible();
+      expect(page.getByText("Today", { exact: true }).query()).toBeNull();
+      expect(page.getByText("547.1K tokens", { exact: true }).query()).toBeNull();
       const connectionSubmenuTrigger = page.getByRole("menuitem", {
         name: "emmanuel@penkra.com",
         exact: true,
@@ -164,43 +166,6 @@ describe("ComposerConnectionControl", () => {
       expect(nativeApi.openExternal).toHaveBeenCalledWith(
         "https://console.anthropic.com/settings/usage",
       );
-    } finally {
-      await screen.unmount();
-      queryClient.clear();
-    }
-  });
-
-  it("shows persisted account totals when Claude reports only a reset window", async () => {
-    nativeApi.listProviderUsage.mockResolvedValue([
-      {
-        provider: "claudeAgent",
-        connectionId: connections[0]!.id,
-        updatedAt: timestamp,
-        limits: [
-          {
-            window: "5h",
-            resetsAt: "2026-08-18T17:00:00.000Z",
-            windowDurationMins: 300,
-          },
-        ],
-        usageLines: [{ label: "Today", value: "547.1K tokens", subtitle: "19 turns" }],
-        source: "provider-runtime-rate-limits",
-        status: "ok",
-      },
-    ]);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const screen = await render(
-      <QueryClientProvider client={queryClient}>
-        <Harness />
-      </QueryClientProvider>,
-    );
-
-    try {
-      await page.getByRole("button", { name: "Change connection" }).click();
-      await expect.element(page.getByText("Today", { exact: false })).toBeVisible();
-      await expect.element(page.getByText("547.1K tokens", { exact: true })).toBeVisible();
-      await expect.element(page.getByText("19 turns", { exact: false })).toBeVisible();
-      expect(page.getByText("Usage hasn’t been reported", { exact: false }).query()).toBeNull();
     } finally {
       await screen.unmount();
       queryClient.clear();

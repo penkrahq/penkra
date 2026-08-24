@@ -33,12 +33,23 @@ export interface OperationDeclaration {
   key: string;
   /** Concise help text used by generated CLI and agent help. */
   summary: string;
+  /** Optional operation-specific procedure, limits, and recovery guidance rendered by help. */
+  guidance?: string;
   /** JSON Schema for caller-supplied input. */
   input: JsonSchema;
   /** JSON Schema for the successful result. */
   output: JsonSchema;
+  /** Named, validated examples rendered as complete provider-neutral tool calls in help. */
+  examples: ReadonlyArray<OperationExampleDeclaration>;
   /** Controller-local handler key. */
   handler: string;
+}
+
+export interface OperationExampleDeclaration {
+  /** Short description of the user intent demonstrated by this example. */
+  name: string;
+  /** Complete operation input. The host supplies the command envelope. */
+  input: unknown;
 }
 
 export type AppSettingDeclaration =
@@ -139,6 +150,11 @@ export type AppManifestValidationResult =
   | { ok: true; manifest: PenkraAppManifest }
   | { ok: false; issues: ReadonlyArray<AppManifestValidationIssue> };
 
+export interface AppManifestValidationOptions {
+  /** Require examples at authoring and package-ingestion boundaries. */
+  requireOperationExamples?: boolean;
+}
+
 const APP_ID_PATTERN = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*){2,}$/;
 const APP_SLUG_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const PERMISSION_NAME_PATTERN = APP_SLUG_PATTERN;
@@ -204,7 +220,10 @@ function validateUniqueNames(
   }
 }
 
-export function validateAppManifest(value: unknown): AppManifestValidationResult {
+export function validateAppManifest(
+  value: unknown,
+  options: AppManifestValidationOptions = {},
+): AppManifestValidationResult {
   const issues: AppManifestValidationIssue[] = [];
   if (!isRecord(value)) {
     return {
@@ -359,6 +378,9 @@ export function validateAppManifest(value: unknown): AppManifestValidationResult
           }
         }
         requireString(candidate.summary, `${path}.summary`, issues);
+        if (candidate.guidance !== undefined) {
+          requireString(candidate.guidance, `${path}.guidance`, issues);
+        }
         if (!isRecord(candidate.input)) {
           issue(issues, `${path}.input`, "invalid-format", "input must be a JSON Schema object.");
         } else {
@@ -372,6 +394,41 @@ export function validateAppManifest(value: unknown): AppManifestValidationResult
           for (const message of validatePenkraJsonSchema(candidate.output)) {
             issue(issues, `${path}.output`, "invalid-format", `output ${message}.`);
           }
+        }
+        if (candidate.examples === undefined && !options.requireOperationExamples) {
+          // Previously committed packages remain readable. New package and
+          // publication boundaries call the strict validator below.
+        } else if (!Array.isArray(candidate.examples) || candidate.examples.length === 0) {
+          issue(
+            issues,
+            `${path}.examples`,
+            "missing",
+            "examples must contain at least one named operation example.",
+          );
+        } else {
+          candidate.examples.forEach((example, exampleIndex) => {
+            const examplePath = `${path}.examples[${exampleIndex}]`;
+            if (!isRecord(example)) {
+              issue(issues, examplePath, "invalid-format", `${examplePath} must be an object.`);
+              return;
+            }
+            requireString(example.name, `${examplePath}.name`, issues);
+            if (!Object.hasOwn(example, "input")) {
+              issue(issues, `${examplePath}.input`, "missing", "Example input is required.");
+            } else {
+              try {
+                const encoded = JSON.stringify(example.input);
+                if (encoded === undefined) throw new Error("not JSON data");
+              } catch {
+                issue(
+                  issues,
+                  `${examplePath}.input`,
+                  "invalid-format",
+                  "Example input must be JSON-serializable.",
+                );
+              }
+            }
+          });
         }
         requireString(candidate.handler, `${path}.handler`, issues);
       });
@@ -731,7 +788,13 @@ export function assertAppManifest(value: unknown): asserts value is PenkraAppMan
   throw new TypeError(result.issues.map((entry) => `${entry.path}: ${entry.message}`).join("\n"));
 }
 
+export function assertPublishableAppManifest(value: unknown): asserts value is PenkraAppManifest {
+  const result = validateAppManifest(value, { requireOperationExamples: true });
+  if (result.ok) return;
+  throw new TypeError(result.issues.map((entry) => `${entry.path}: ${entry.message}`).join("\n"));
+}
+
 export function defineApp<const Manifest extends PenkraAppManifest>(manifest: Manifest): Manifest {
-  assertAppManifest(manifest);
+  assertPublishableAppManifest(manifest);
   return manifest;
 }

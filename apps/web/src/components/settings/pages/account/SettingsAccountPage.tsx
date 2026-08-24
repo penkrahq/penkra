@@ -1,49 +1,18 @@
-import type { DesktopAccountAuthState, DesktopAccountUser } from "@penkra/contracts";
-import { useCallback, useEffect, useState } from "react";
+import type { DesktopAccountAuthState } from "@penkra/contracts";
+import { useCallback, useState } from "react";
 
 import { AvatarAccount } from "~/components/foundations/avatar-account/AvatarAccount";
 import { SettingRowShared } from "~/components/settings/setting-row-shared/SettingRowShared";
 import { SettingsSectionShared } from "~/components/settings/settings-section-shared/SettingsSectionShared";
 import { toastManager } from "~/components/ui/toast";
+import { useDesktopAccountAuthState } from "~/hooks/useDesktopAccountAuthState";
 import { ensureNativeApi } from "~/nativeApi";
 
 import { SettingsTextAction, SettingsValueAction } from "../shared/SettingsPageControls";
 
 export function SettingsAccountPage() {
-  const accountAuth = window.desktopBridge?.accountAuth;
-  const [authState, setAuthState] = useState<DesktopAccountAuthState | null>(null);
+  const { accountAuth, authState } = useDesktopAccountAuthState();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-
-  useEffect(() => {
-    if (!accountAuth) return;
-
-    let active = true;
-    const updateUser = (user: DesktopAccountUser | null) => {
-      if (active)
-        setAuthState(user ? { status: "authenticated", user } : { status: "unauthenticated" });
-    };
-    const unsubscribeAuthenticated = accountAuth.onAuthenticated(updateUser);
-    const unsubscribeUserUpdated = accountAuth.onUserUpdated(updateUser);
-    void accountAuth.getState().then(
-      (state) => {
-        if (active) setAuthState(state);
-      },
-      (error: unknown) => {
-        if (active) {
-          setAuthState({
-            status: "error",
-            message: error instanceof Error ? error.message : "Account details are unavailable.",
-          });
-        }
-      },
-    );
-
-    return () => {
-      active = false;
-      unsubscribeAuthenticated();
-      unsubscribeUserUpdated();
-    };
-  }, [accountAuth]);
 
   const user = authState?.status === "authenticated" ? authState.user : null;
   const displayName = user?.name.trim() || user?.email.split("@")[0] || "Penkra account";

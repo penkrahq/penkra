@@ -68,7 +68,8 @@ rejected. `README.md` and `INSTRUCTIONS.md` must be nonempty UTF-8 documents.
   "operations": [
     {
       "key": "documents.open",
-      "summary": "Open a note.",
+      "summary": "Open one exact note in an App tab and return its tab ID.",
+      "guidance": "Use the returned tab ID for visible review. Opening does not change note content.",
       "input": {
         "type": "object",
         "properties": { "id": { "type": "string" } },
@@ -76,6 +77,12 @@ rejected. `README.md` and `INSTRUCTIONS.md` must be nonempty UTF-8 documents.
         "additionalProperties": false
       },
       "output": { "type": "object" },
+      "examples": [
+        {
+          "name": "Open a project note",
+          "input": { "id": "note_01HXYZ" }
+        }
+      ],
       "handler": "documents.open"
     }
   ]
@@ -91,6 +98,12 @@ Operation keys are App-local dotted names such as `documents.open`; never prefix
 Penkra presents the operation to an agent as `["notes", "documents", "open"]`. Inputs and outputs are
 bounded JSON Schemas and are validated at the host boundary. See [Naming operations](#naming-operations)
 for how to choose the key itself.
+
+Every operation requires at least one named example whose `input` matches the declared input
+schema. Penkra renders examples as complete `penkra_exec_command` calls in generated help and
+rejects missing, malformed, or schema-invalid examples during App testing, packaging, sideloading,
+and publication. Use optional `guidance` for operation-specific procedure, limits, and recovery;
+keep the summary concise enough for discovery.
 
 Handler contributions declare resources an App can open through one of its public operations:
 

@@ -85,6 +85,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
   const closePane = useRightDockStore((store) => store.closePane);
   const setActivePane = useRightDockStore((store) => store.setActivePane);
   const setDockOpen = useRightDockStore((store) => store.setDockOpen);
+  const setDockWidth = useRightDockStore((store) => store.setDockWidth);
   const updatePane = useRightDockStore((store) => store.updatePane);
   const activeProject = useStore(
     useMemo(() => createProjectSelector(props.folderId), [props.folderId]),
@@ -385,6 +386,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           onSelectPane={(paneId) => setActivePane(props.threadId, paneId)}
           onClosePane={closeAppPane}
           onOpenChange={(open) => setDockOpen(props.threadId, open)}
+          onResize={(width) => setDockWidth(props.threadId, width)}
           renderPane={renderAppPane}
         />
         <div className="absolute right-1.5 top-1.5 z-50 [-webkit-app-region:no-drag]">

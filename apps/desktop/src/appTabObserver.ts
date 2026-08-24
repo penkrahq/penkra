@@ -52,6 +52,11 @@ interface CdpAxNode {
   properties?: CdpAxProperty[];
 }
 
+interface CdpFrameTree {
+  frame?: { id?: string; url?: string };
+  childFrames?: CdpFrameTree[];
+}
+
 interface SnapshotReference {
   backendNodeId: number;
   generation: number;
@@ -69,6 +74,7 @@ export interface AppTabObservationTarget {
   descriptor: DesktopAppTabDescriptor;
   webContents: WebContents;
   frame?: WebFrameMain;
+  cdpSessionId?: string;
   /** Null means the shell has not made this App tab visible for capture. */
   captureBounds?: () => Promise<Rectangle | null> | Rectangle | null;
   embedded?: {
@@ -121,6 +127,7 @@ export async function resolveAppTabObservationTarget(input: {
 export class AppTabObserver {
   readonly #resolver: AppTabObserverResolver;
   readonly #states = new Map<string, TabSnapshotState>();
+  readonly #protocolSessions = new Map<string, string>();
 
   constructor(resolver: AppTabObserverResolver) {
     this.#resolver = resolver;
@@ -174,11 +181,13 @@ export class AppTabObserver {
     prefix: "a" | "p",
     limit: number,
   ): Promise<{ nodes: unknown[]; truncated: boolean }> {
+    const protocol = target.frame ? await this.#protocolTarget(target) : { target };
     const response = asRecord(
       await this.#cdp(
-        target.webContents,
+        protocol.target.webContents,
         "Accessibility.getFullAXTree",
-        target.frame ? { frameId: target.frame.frameTreeNodeId } : undefined,
+        protocol.frameId ? { frameId: protocol.frameId } : undefined,
+        protocol.target.cdpSessionId,
       ),
     );
     const rawNodes = Array.isArray(response.nodes) ? (response.nodes as CdpAxNode[]) : [];
@@ -213,7 +222,7 @@ export class AppTabObserver {
         state.references.set(reference, {
           backendNodeId: raw.backendDOMNodeId,
           generation: state.generation,
-          target,
+          target: protocol.target,
         });
         entry.ref = reference;
       }
@@ -221,6 +230,65 @@ export class AppTabObserver {
       if (nodes.length >= limit) return { nodes, truncated: rawNodes.length > nodes.length };
     }
     return { nodes, truncated: false };
+  }
+
+  async #protocolTarget(
+    target: AppTabObservationTarget,
+  ): Promise<{ target: AppTabObservationTarget; frameId?: string }> {
+    const response = asRecord(await this.#cdp(target.webContents, "Page.getFrameTree"));
+    const root = response.frameTree as CdpFrameTree | undefined;
+    const expectedUrl = target.frame?.url;
+    if (!root || !expectedUrl) throw new Error("The App frame is unavailable for observation.");
+    const stack = [root];
+    const frames: Array<{ id: string; url: string }> = [];
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      if (current.frame?.url === expectedUrl && current.frame.id) {
+        return { target, frameId: current.frame.id };
+      }
+      if (current.frame?.id && current.frame.url)
+        frames.push(current.frame as { id: string; url: string });
+      stack.push(...(current.childFrames ?? []));
+    }
+    const expectedDocumentUrl = withoutHash(expectedUrl);
+    const documentMatches = frames.filter(
+      (frame) => withoutHash(frame.url) === expectedDocumentUrl,
+    );
+    if (documentMatches.length === 1) return { target, frameId: documentMatches[0]!.id };
+
+    const targetsResponse = asRecord(await this.#cdp(target.webContents, "Target.getTargets"));
+    const targetInfos = Array.isArray(targetsResponse.targetInfos)
+      ? targetsResponse.targetInfos.filter(isRecord)
+      : [];
+    const exactTargets = targetInfos.filter(
+      (info) => info.url === expectedUrl && typeof info.targetId === "string",
+    );
+    const documentTargets = targetInfos.filter(
+      (info) =>
+        typeof info.url === "string" &&
+        withoutHash(info.url) === expectedDocumentUrl &&
+        typeof info.targetId === "string",
+    );
+    const matches = exactTargets.length > 0 ? exactTargets : documentTargets;
+    if (matches.length === 1) {
+      const targetId = matches[0]!.targetId as string;
+      let sessionId = this.#protocolSessions.get(targetId);
+      if (!sessionId) {
+        const attached = asRecord(
+          await this.#cdp(target.webContents, "Target.attachToTarget", {
+            targetId,
+            flatten: true,
+          }),
+        );
+        if (typeof attached.sessionId !== "string") {
+          throw new Error("Chrome did not return an App frame observation session.");
+        }
+        sessionId = attached.sessionId;
+        this.#protocolSessions.set(targetId, sessionId);
+      }
+      return { target: { ...target, cdpSessionId: sessionId } };
+    }
+    throw new Error("The App frame is not present in the browser protocol frame tree.");
   }
 
   async extract(tabId: string): Promise<unknown> {
@@ -279,42 +347,65 @@ export class AppTabObserver {
 
   async click(tabId: string, reference: string, observe = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
-    const point = await this.#nodeCenter(target.webContents, node.backendNodeId);
-    await this.#cdp(target.webContents, "Input.dispatchMouseEvent", {
-      type: "mouseMoved",
-      ...point,
-    });
-    await this.#cdp(target.webContents, "Input.dispatchMouseEvent", {
-      type: "mousePressed",
-      button: "left",
-      clickCount: 1,
-      ...point,
-    });
-    await this.#cdp(target.webContents, "Input.dispatchMouseEvent", {
-      type: "mouseReleased",
-      button: "left",
-      clickCount: 1,
-      ...point,
-    });
+    const point = await this.#nodeCenter(target, node.backendNodeId);
+    await this.#cdp(
+      target.webContents,
+      "Input.dispatchMouseEvent",
+      {
+        type: "mouseMoved",
+        ...point,
+      },
+      target.cdpSessionId,
+    );
+    await this.#cdp(
+      target.webContents,
+      "Input.dispatchMouseEvent",
+      {
+        type: "mousePressed",
+        button: "left",
+        clickCount: 1,
+        ...point,
+      },
+      target.cdpSessionId,
+    );
+    await this.#cdp(
+      target.webContents,
+      "Input.dispatchMouseEvent",
+      {
+        type: "mouseReleased",
+        button: "left",
+        clickCount: 1,
+        ...point,
+      },
+      target.cdpSessionId,
+    );
     return this.#actionResult(tabId, { tabId, ref: reference, clicked: true }, observe);
   }
 
   async hover(tabId: string, reference: string, observe = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
-    const point = await this.#nodeCenter(target.webContents, node.backendNodeId);
-    await this.#cdp(target.webContents, "Input.dispatchMouseEvent", {
-      type: "mouseMoved",
-      ...point,
-    });
+    const point = await this.#nodeCenter(target, node.backendNodeId);
+    await this.#cdp(
+      target.webContents,
+      "Input.dispatchMouseEvent",
+      {
+        type: "mouseMoved",
+        ...point,
+      },
+      target.cdpSessionId,
+    );
     return this.#actionResult(tabId, { tabId, ref: reference, hovered: true }, observe);
   }
 
   async type(tabId: string, reference: string, text: string, observe = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
-    const objectId = await this.#resolveObject(target.webContents, node.backendNodeId);
-    await this.#cdp(target.webContents, "Runtime.callFunctionOn", {
-      objectId,
-      functionDeclaration: `function(value) {
+    const objectId = await this.#resolveObject(target, node.backendNodeId);
+    await this.#cdp(
+      target.webContents,
+      "Runtime.callFunctionOn",
+      {
+        objectId,
+        functionDeclaration: `function(value) {
         this.focus();
         if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) {
           const prototype = this instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -328,10 +419,12 @@ export class AppTabObserver {
         this.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
         this.dispatchEvent(new Event("change", { bubbles: true }));
       }`,
-      arguments: [{ value: text }],
-      awaitPromise: true,
-      returnByValue: true,
-    });
+        arguments: [{ value: text }],
+        awaitPromise: true,
+        returnByValue: true,
+      },
+      target.cdpSessionId,
+    );
     return this.#actionResult(
       tabId,
       { tabId, ref: reference, typed: true, characters: text.length },
@@ -341,33 +434,43 @@ export class AppTabObserver {
 
   async press(tabId: string, key: string, observe = false): Promise<unknown> {
     const target = await this.#target(tabId);
+    const protocol = target.frame ? await this.#protocolTarget(target) : { target };
     const normalized = bounded(key, 100);
-    await this.#cdp(target.webContents, "Input.dispatchKeyEvent", {
-      type: "keyDown",
-      key: normalized,
-    });
-    await this.#cdp(target.webContents, "Input.dispatchKeyEvent", {
-      type: "keyUp",
-      key: normalized,
-    });
+    await this.#cdp(
+      protocol.target.webContents,
+      "Input.dispatchKeyEvent",
+      { type: "keyDown", key: normalized },
+      protocol.target.cdpSessionId,
+    );
+    await this.#cdp(
+      protocol.target.webContents,
+      "Input.dispatchKeyEvent",
+      { type: "keyUp", key: normalized },
+      protocol.target.cdpSessionId,
+    );
     return this.#actionResult(tabId, { tabId, key: normalized, pressed: true }, observe);
   }
 
   async select(tabId: string, reference: string, value: string, observe = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
-    const objectId = await this.#resolveObject(target.webContents, node.backendNodeId);
-    await this.#cdp(target.webContents, "Runtime.callFunctionOn", {
-      objectId,
-      functionDeclaration: `function(value) {
+    const objectId = await this.#resolveObject(target, node.backendNodeId);
+    await this.#cdp(
+      target.webContents,
+      "Runtime.callFunctionOn",
+      {
+        objectId,
+        functionDeclaration: `function(value) {
         if (!(this instanceof HTMLSelectElement)) throw new Error("Target is not a select control.");
         this.value = value;
         this.dispatchEvent(new Event("input", { bubbles: true }));
         this.dispatchEvent(new Event("change", { bubbles: true }));
       }`,
-      arguments: [{ value }],
-      awaitPromise: true,
-      returnByValue: true,
-    });
+        arguments: [{ value }],
+        awaitPromise: true,
+        returnByValue: true,
+      },
+      target.cdpSessionId,
+    );
     return this.#actionResult(tabId, { tabId, ref: reference, value, selected: true }, observe);
   }
 
@@ -383,10 +486,16 @@ export class AppTabObserver {
 
   async handleDialog(tabId: string, accept: boolean, text?: string): Promise<unknown> {
     const target = await this.#target(tabId);
-    await this.#cdp(target.webContents, "Page.handleJavaScriptDialog", {
-      accept,
-      ...(text === undefined ? {} : { promptText: bounded(text) }),
-    });
+    const protocol = target.frame ? await this.#protocolTarget(target) : { target };
+    await this.#cdp(
+      protocol.target.webContents,
+      "Page.handleJavaScriptDialog",
+      {
+        accept,
+        ...(text === undefined ? {} : { promptText: bounded(text) }),
+      },
+      protocol.target.cdpSessionId,
+    );
     return { tabId, accepted: accept };
   }
 
@@ -397,10 +506,15 @@ export class AppTabObserver {
     const validatedPaths = this.#resolver.validateUploadPaths
       ? await this.#resolver.validateUploadPaths(target.descriptor, paths)
       : paths;
-    await this.#cdp(target.webContents, "DOM.setFileInputFiles", {
-      files: [...validatedPaths],
-      backendNodeId: node.backendNodeId,
-    });
+    await this.#cdp(
+      target.webContents,
+      "DOM.setFileInputFiles",
+      {
+        files: [...validatedPaths],
+        backendNodeId: node.backendNodeId,
+      },
+      target.cdpSessionId,
+    );
     return { tabId, ref: reference, uploaded: validatedPaths.length };
   }
 
@@ -486,10 +600,17 @@ export class AppTabObserver {
   }
 
   async #nodeCenter(
-    contents: WebContents,
+    target: AppTabObservationTarget,
     backendNodeId: number,
   ): Promise<{ x: number; y: number }> {
-    const response = asRecord(await this.#cdp(contents, "DOM.getBoxModel", { backendNodeId }));
+    const response = asRecord(
+      await this.#cdp(
+        target.webContents,
+        "DOM.getBoxModel",
+        { backendNodeId },
+        target.cdpSessionId,
+      ),
+    );
     const model = asRecord(response.model);
     const quad = Array.isArray(model.content) ? model.content.filter(isFiniteNumber) : [];
     if (quad.length < 8)
@@ -502,8 +623,15 @@ export class AppTabObserver {
     };
   }
 
-  async #resolveObject(contents: WebContents, backendNodeId: number): Promise<string> {
-    const response = asRecord(await this.#cdp(contents, "DOM.resolveNode", { backendNodeId }));
+  async #resolveObject(target: AppTabObservationTarget, backendNodeId: number): Promise<string> {
+    const response = asRecord(
+      await this.#cdp(
+        target.webContents,
+        "DOM.resolveNode",
+        { backendNodeId },
+        target.cdpSessionId,
+      ),
+    );
     const object = asRecord(response.object);
     if (typeof object.objectId !== "string") {
       throw observerError("STALE_REFERENCE", "The referenced element no longer exists.");
@@ -515,10 +643,13 @@ export class AppTabObserver {
     contents: WebContents,
     method: string,
     params?: Record<string, unknown>,
+    sessionId?: string,
   ): Promise<unknown> {
     if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
     try {
-      return await contents.debugger.sendCommand(method, params);
+      return sessionId
+        ? await contents.debugger.sendCommand(method, params, sessionId)
+        : await contents.debugger.sendCommand(method, params);
     } catch (error) {
       if (error instanceof Error && /node|object|context|target|document/i.test(error.message)) {
         throw observerError("STALE_REFERENCE", error.message);
@@ -536,6 +667,11 @@ export class AppTabObserver {
       ? target.frame.executeJavaScript(source, userGesture)
       : target.webContents.executeJavaScript(source, userGesture);
   }
+}
+
+function withoutHash(value: string): string {
+  const hashIndex = value.indexOf("#");
+  return hashIndex === -1 ? value : value.slice(0, hashIndex);
 }
 
 function cdpText(value: CdpValue | undefined): string {
@@ -570,9 +706,11 @@ function bounded(value: string, maximum = MAX_VALUE_LENGTH): string {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+  return isRecord(value) ? (value as Record<string, unknown>) : {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isFiniteNumber(value: unknown): value is number {

@@ -1,16 +1,9 @@
 // FILE: runtimeFacts.ts
 // Purpose: Normalize provider-native rate-limit events persisted for a managed Connection.
 
-import type {
-  ServerProviderUsageLimit,
-  ServerProviderUsageLine,
-  ServerProviderUsageSnapshot,
-} from "@penkra/contracts";
+import type { ServerProviderUsageLimit, ServerProviderUsageSnapshot } from "@penkra/contracts";
 
-import type {
-  ConnectionDailyUsageFactRecord,
-  ConnectionRateLimitFactRecord,
-} from "../persistence/Services/ConnectionUsageFacts";
+import type { ConnectionRateLimitFactRecord } from "../persistence/Services/ConnectionUsageFacts";
 import { asFiniteNumber, asRecord, clampPercent, isoFromUnixSeconds } from "./parse";
 
 function usedPercent(value: Record<string, unknown>): number | undefined {
@@ -170,54 +163,14 @@ export function mergeConnectionUsageSnapshots(input: {
       (line) => [line.label.toLowerCase(), line] as const,
     ),
   );
+  const { detail: fetchedDetail, ...fetchedWithoutDetail } = input.fetched;
   return {
-    ...input.fetched,
+    ...fetchedWithoutDetail,
     limits: [...limitsByWindow.values()],
     usageLines: [...usageLinesByLabel.values()],
     source: `${input.fetched.source}+${input.runtime.source}`,
+    ...(fetchedDetail && (input.fetched.limits.length > 0 || input.fetched.usageLines.length > 0)
+      ? { detail: fetchedDetail }
+      : {}),
   };
-}
-
-function compactTokens(tokens: number): string {
-  return `${new Intl.NumberFormat("en-US", {
-    notation: "compact",
-    maximumFractionDigits: tokens < 1_000_000 ? 1 : 0,
-  }).format(tokens)} tokens`;
-}
-
-function turnSubtitle(turns: number): string | undefined {
-  if (turns === 0) return undefined;
-  return `${new Intl.NumberFormat("en-US").format(turns)} ${turns === 1 ? "turn" : "turns"}`;
-}
-
-export function usageLinesFromConnectionDailyFacts(input: {
-  readonly facts: ReadonlyArray<ConnectionDailyUsageFactRecord>;
-  readonly nowMs: number;
-}): ServerProviderUsageLine[] {
-  if (input.facts.length === 0) return [];
-  const utcDay = (daysAgo: number) =>
-    new Date(input.nowMs - daysAgo * 24 * 60 * 60 * 1_000).toISOString().slice(0, 10);
-  const totalsSince = (since: string) =>
-    input.facts.reduce(
-      (total, fact) => {
-        if (fact.utcDay < since) return total;
-        return {
-          // Provider output totals already include reasoning tokens when they expose
-          // a reasoning breakdown, so adding the breakdown again would double-count.
-          tokens: total.tokens + fact.inputTokens + fact.outputTokens,
-          turns: total.turns + fact.turns,
-        };
-      },
-      { tokens: 0, turns: 0 },
-    );
-  const line = (label: string, since: string): ServerProviderUsageLine => {
-    const total = totalsSince(since);
-    const subtitle = turnSubtitle(total.turns);
-    return {
-      label,
-      value: compactTokens(total.tokens),
-      ...(subtitle ? { subtitle } : {}),
-    };
-  };
-  return [line("Today", utcDay(0)), line("7d", utcDay(6)), line("30d", utcDay(29))];
 }

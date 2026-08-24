@@ -3,7 +3,14 @@
 // Layer: Chat right-dock UI
 // Depends on: ui/sidebar primitive, right-dock pane metadata, and a caller-provided pane renderer.
 
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { cn } from "~/lib/utils";
 import type { RightDockPane, RightDockThreadState } from "~/rightDockStore.logic";
@@ -40,6 +47,7 @@ interface RightDockProps {
   onSelectPane: (paneId: string) => void;
   onClosePane: (paneId: string) => void;
   onOpenChange: (open: boolean) => void;
+  onResize?: (width: number) => void;
   motionKey?: string;
   renderPane: (pane: RightDockPane, context: { isVisible: boolean }) => ReactNode;
 }
@@ -74,11 +82,11 @@ export function RightDock(props: RightDockProps) {
   const desktopTopBarWindowControlsGutterClassName =
     useDesktopTopBarWindowControlsGutterClassName();
 
-  // The dock must open as an exact 50/50 split of the chat shell. The CSS
-  // default can only approximate half (it cannot observe the resizable left
-  // sidebar), so on every open we measure the shell row hosting chat + dock and
-  // pin the dock width to exactly half of it. Mid-session drags still resize
-  // freely; the next open re-centers the split.
+  // A Thread without a saved width opens as an exact 50/50 split of the chat
+  // shell. The CSS default can only approximate half (it cannot observe the
+  // resizable left sidebar), so measure the shell row hosting chat + dock. A
+  // saved width takes precedence and is reapplied when navigating between
+  // Threads that share this mounted shell.
   const contentRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const root = contentRef.current;
@@ -93,7 +101,7 @@ export function RightDock(props: RightDockProps) {
     );
   }, [props.state.open, registerFindSurface]);
   const minWidth = props.minWidth;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!props.state.open) {
       return;
     }
@@ -102,11 +110,11 @@ export function RightDock(props: RightDockProps) {
     if (!wrapper || !shell) {
       return;
     }
-    const halfWidth = Math.round(shell.getBoundingClientRect().width / 2);
-    if (halfWidth > 0) {
-      wrapper.style.setProperty("--sidebar-width", `${Math.max(minWidth, halfWidth)}px`);
+    const nextWidth = props.state.width ?? Math.round(shell.getBoundingClientRect().width / 2);
+    if (nextWidth > 0) {
+      wrapper.style.setProperty("--sidebar-width", `${Math.max(minWidth, nextWidth)}px`);
     }
-  }, [props.state.open, minWidth]);
+  }, [props.motionKey, props.state.open, props.state.width, minWidth]);
   // Motion allowance keyed to the current motionKey: a key change (reposition/
   // remount) derives straight back to "suppressed" in that same render, and the
   // rAF below re-enables motion once the suppressed frame has painted. Mounting
@@ -158,6 +166,7 @@ export function RightDock(props: RightDockProps) {
         transparentSurface
         resizable={{
           minWidth: props.minWidth,
+          ...(props.onResize ? { onResize: props.onResize } : {}),
           shouldAcceptWidth: props.shouldAcceptWidth,
         }}
       >

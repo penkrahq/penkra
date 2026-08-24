@@ -10,7 +10,7 @@ import { pipeline } from "node:stream/promises";
 import yauzl, { type Entry } from "yauzl";
 
 import {
-  assertAppManifest,
+  assertPublishableAppManifest,
   PENKRA_APP_INSTRUCTIONS_MAX_BYTES,
   PENKRA_APP_README_MAX_BYTES,
   type PenkraAppManifest,
@@ -260,7 +260,7 @@ async function readManifest(sourcePath: string): Promise<PenkraAppManifest> {
   } catch (error) {
     throw new Error(`Unable to read ${PENKRA_APP_MANIFEST_FILE_NAME}.`, { cause: error });
   }
-  assertAppManifest(parsed);
+  assertPublishableAppManifest(parsed);
   return parsed;
 }
 
