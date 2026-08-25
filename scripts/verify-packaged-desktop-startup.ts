@@ -391,12 +391,20 @@ export function inspectPackagedDesktopStartupLog(log: string): {
       hasProof: false,
     };
   }
+  const fatalStartup = /fatal startup error stage=([^\n]+)/.exec(log);
+  if (fatalStartup) {
+    return {
+      failure: `Packaged desktop reported a fatal startup error: ${fatalStartup[1]!.trim()}`,
+      hasProof: false,
+    };
+  }
   return {
     failure: null,
     hasProof:
       log.includes("app ready") &&
       log.includes("bootstrap main window created") &&
-      log.includes("bootstrap backend ready source="),
+      log.includes("bootstrap backend ready source=") &&
+      log.includes("bootstrap required Apps controller ready"),
   };
 }
 
@@ -422,7 +430,11 @@ async function hasPackagedDesktopHttpProof(logPath: string): Promise<boolean> {
   } catch {
     return false;
   }
-  if (!log.includes("app ready") || !log.includes("bootstrap main window created")) {
+  if (
+    !log.includes("app ready") ||
+    !log.includes("bootstrap main window created") ||
+    !log.includes("bootstrap required Apps controller ready")
+  ) {
     return false;
   }
   const port = extractPackagedDesktopBackendPort(log);

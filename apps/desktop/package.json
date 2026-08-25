@@ -1,13 +1,13 @@
 {
   "name": "@penkra/desktop",
-  "version": "0.11.12",
+  "version": "0.11.13",
   "private": true,
   "main": "dist-electron/entry.js",
   "scripts": {
     "dev": "bun run scripts/dev.mjs",
     "dev:bundle": "bun run build:native && tsdown && tsdown --watch --no-clean",
     "dev:electron": "bun run scripts/dev-electron.mjs",
-    "build": "bun run build:native && tsdown",
+    "build": "bun run build:native && tsdown && node ../../scripts/verify-desktop-app-controller-bundle.ts",
     "build:native": "node scripts/build-apple-speech-helper.mjs",
     "start": "bun run scripts/start-electron.mjs",
     "typecheck": "tsc --noEmit",

@@ -429,20 +429,25 @@ export class DesktopBrowserManager {
     if (!state || !this.getTab(state, input.tabId)) throw new Error("Browser page was not found.");
     const runtime = this.ensureLiveRuntime(input.threadId, input.tabId);
     runtime.webContents.focus();
-    const extensionOrigin = new URL(extension.popupUrl).origin;
-    const background = electronWebContents
+    const popupUrl = new URL(extension.popupUrl);
+    const extensionRoot = `${popupUrl.protocol}//${popupUrl.host}`;
+    const extensionContents = electronWebContents
       .getAllWebContents()
-      .find(
+      .filter(
         (contents) =>
           contents.session === runtime.webContents.session &&
-          contents.getURL().startsWith(`${extensionOrigin}/background/`),
+          contents.getURL().startsWith(`${extensionRoot}/`),
       );
-    if (background && !background.isDestroyed()) {
-      await background.executeJavaScript(
-        `globalThis.__penkraActiveTabId = ${runtime.webContents.id}`,
-        true,
-      );
-    }
+    await Promise.all(
+      extensionContents
+        .filter((contents) => !contents.isDestroyed())
+        .map((contents) =>
+          contents.executeJavaScript(
+            `globalThis.__penkraActiveTabId = ${runtime.webContents.id}`,
+            true,
+          ),
+        ),
+    );
 
     if (this.extensionPopupWindow && !this.extensionPopupWindow.isDestroyed()) {
       this.extensionPopupWindow.destroy();
@@ -476,9 +481,6 @@ export class DesktopBrowserManager {
     popup.once("closed", () => {
       if (this.extensionPopupWindow === popup) this.extensionPopupWindow = null;
     });
-    popup.on("blur", () => {
-      if (!popup.isDestroyed()) popup.close();
-    });
     popup.webContents.once("did-finish-load", () => {
       if (popup.isDestroyed()) return;
       const cursor = screen.getCursorScreenPoint();
@@ -492,7 +494,10 @@ export class DesktopBrowserManager {
         Math.min(Math.max(display.y, cursor.y + 8), display.y + display.height - bounds.height),
         false,
       );
-      popup.showInactive();
+      popup.show();
+      popup.once("blur", () => {
+        if (!popup.isDestroyed()) popup.close();
+      });
     });
     await popup.loadURL(extension.popupUrl);
   }

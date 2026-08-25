@@ -116,11 +116,22 @@ describe("packaged desktop startup verification", () => {
   it("requires complete startup proof and rejects missing account-auth IPC", () => {
     expect(
       inspectPackagedDesktopStartupLog(
+        [
+          "app ready",
+          "bootstrap main window created",
+          "bootstrap backend ready source=http",
+          "bootstrap required Apps controller ready spaces=1 version=0.2.5",
+        ].join("\n"),
+      ),
+    ).toEqual({ failure: null, hasProof: true });
+
+    expect(
+      inspectPackagedDesktopStartupLog(
         ["app ready", "bootstrap main window created", "bootstrap backend ready source=http"].join(
           "\n",
         ),
       ),
-    ).toEqual({ failure: null, hasProof: true });
+    ).toEqual({ failure: null, hasProof: false });
 
     expect(
       inspectPackagedDesktopStartupLog(
@@ -128,6 +139,22 @@ describe("packaged desktop startup verification", () => {
       ),
     ).toEqual({
       failure: "Packaged desktop invoked account authentication before its IPC handler existed.",
+      hasProof: false,
+    });
+
+    expect(
+      inspectPackagedDesktopStartupLog(
+        [
+          "app ready",
+          "bootstrap main window created",
+          "bootstrap backend ready source=http",
+          "bootstrap required Apps controller ready spaces=1 version=0.2.5",
+          "fatal startup error stage=required Apps message=controller exited",
+        ].join("\n"),
+      ),
+    ).toEqual({
+      failure:
+        "Packaged desktop reported a fatal startup error: required Apps message=controller exited",
       hasProof: false,
     });
   });

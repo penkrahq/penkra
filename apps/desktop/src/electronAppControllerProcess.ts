@@ -61,10 +61,18 @@ export class ElectronAppControllerProcessFactory implements AppControllerProcess
             execArgv: ["--permission", "--allow-fs-read=*", "--allow-fs-write=*", "--no-addons"],
             env: appControllerEnvironment(process.env),
             serialization: "advanced",
-            stdio: ["ignore", "inherit", "inherit", "ipc"],
+            stdio: ["ignore", "pipe", "pipe", "ipc"],
           },
         );
         child = spawned;
+        let startupStderr = "";
+        spawned.stdout?.on("data", (chunk: Buffer | string) => {
+          process.stdout.write(chunk);
+        });
+        spawned.stderr?.on("data", (chunk: Buffer | string) => {
+          startupStderr = `${startupStderr}${String(chunk)}`.slice(-16_000);
+          process.stderr.write(chunk);
+        });
         await new Promise<void>((resolve, reject) => {
           let settled = false;
           let ready = false;
@@ -83,7 +91,7 @@ export class ElectronAppControllerProcessFactory implements AppControllerProcess
           const onStartupExit = (code: number | null) =>
             settle(
               new Error(
-                `${input.installedApp.name} operation controller exited during startup (${code}).`,
+                `${input.installedApp.name} operation controller exited during startup (${code}).${formatStartupStderr(startupStderr)}`,
               ),
             );
           const onProcessError = (error: Error) => {
@@ -96,10 +104,14 @@ export class ElectronAppControllerProcessFactory implements AppControllerProcess
               ready = true;
               settle();
             } else if (message.type === "startup-error") {
+              const detail =
+                typeof message.stack === "string" && message.stack.trim().length > 0
+                  ? `\n${message.stack.trim()}`
+                  : "";
               settle(
                 new Error(
                   typeof message.message === "string"
-                    ? message.message
+                    ? `${message.message}${detail}`
                     : `${input.installedApp.name} operation controller failed to start.`,
                 ),
               );
@@ -163,6 +175,11 @@ export class ElectronAppControllerProcessFactory implements AppControllerProcess
       });
     }
   }
+}
+
+function formatStartupStderr(stderr: string): string {
+  const detail = stderr.trim();
+  return detail.length === 0 ? "" : `\nController stderr:\n${detail}`;
 }
 
 const APP_CONTROLLER_ENVIRONMENT_KEYS = new Set([

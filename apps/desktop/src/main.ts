@@ -807,6 +807,9 @@ async function reconcileConfiguredRequiredApps(spaceIds: ReadonlyArray<string>):
       allowDevelopmentSideload: isDevelopment,
       developmentSourcePackage: requiredAppsPackageIsDevelopmentSource,
     });
+    writeDesktopLogHeader(
+      `bootstrap required Apps controller ready spaces=${spaceIds.length} version=${embedded.manifest.version}`,
+    );
   } catch (error) {
     handleFatalStartupError("required Apps", error);
     throw error;
@@ -5949,6 +5952,7 @@ function registerIpcHandlers(): void {
       case "browser.newPage":
       case "browser.closePage":
       case "browser.selectPage":
+      case "browser.openExtensionAction":
       case "browser.find":
       case "browser.stopFind":
       case "browser.capture":

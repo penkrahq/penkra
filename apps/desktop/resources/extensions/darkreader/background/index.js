@@ -2357,6 +2357,14 @@
     return new Promise((resolve) => chrome.tabs.query(query, resolve));
   }
   async function getActiveTab() {
+    if (Number.isInteger(globalThis.__penkraActiveTabId)) {
+      const penkraActiveTab = (await queryTabs({})).find(
+        (candidate) => candidate.id === globalThis.__penkraActiveTabId,
+      );
+      if (penkraActiveTab) {
+        return penkraActiveTab;
+      }
+    }
     let tab = (
       await queryTabs({
         active: true,

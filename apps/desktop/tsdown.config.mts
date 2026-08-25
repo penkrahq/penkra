@@ -19,7 +19,7 @@ const shared = {
 export default defineConfig([
   {
     ...shared,
-    entry: ["src/entry.ts", "src/main.ts", "src/appTestHost.ts", "src/appNodeControllerRunner.ts"],
+    entry: ["src/entry.ts", "src/main.ts", "src/appTestHost.ts"],
     clean: true,
     // Electron exposes this builtin only at runtime; keeping it external avoids
     // asking Rolldown to resolve a package that intentionally does not exist.
@@ -27,6 +27,16 @@ export default defineConfig([
     define: {
       __PENKRA_REGISTRY_TRUSTED_KEYS__: JSON.stringify(registryTrustedKeys),
     },
+    noExternal: (id) => id.startsWith("@penkra/"),
+  },
+  {
+    ...shared,
+    entry: ["src/appNodeControllerRunner.ts"],
+    platform: "node",
+    // This file runs under ELECTRON_RUN_AS_NODE, where Electron APIs do not
+    // exist. A self-contained build prevents shared desktop chunks from
+    // pulling `electron` into the controller process at module evaluation.
+    outputOptions: { codeSplitting: false },
     noExternal: (id) => id.startsWith("@penkra/"),
   },
   {

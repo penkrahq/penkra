@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -41,11 +42,15 @@ function fixture() {
     connected: boolean;
     send: ReturnType<typeof vi.fn>;
     kill: ReturnType<typeof vi.fn>;
+    stdout: PassThrough;
+    stderr: PassThrough;
   };
   child.pid = 123;
   child.connected = true;
   child.send = vi.fn();
   child.kill = vi.fn(() => true);
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
   const fork = vi.fn(() => child as never);
   const rpc = { acceptResponse: vi.fn(), acceptContextCall: vi.fn() };
   const serviceCall = vi.fn(async () => ({ ok: true }));
@@ -106,9 +111,27 @@ describe("ElectronAppControllerProcessFactory", () => {
         execPath: process.execPath,
         env: expect.objectContaining({ ELECTRON_RUN_AS_NODE: "1" }),
         serialization: "advanced",
-        stdio: ["ignore", "inherit", "inherit", "ipc"],
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
       }),
     );
+  });
+
+  it("preserves controller stderr when startup exits before the IPC handshake", async () => {
+    const test = fixture();
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const starting = test.factory
+        .create({ installedApp: test.app, spaceId: "personal", session: test.session })
+        .start("/profile/apps/com.acme.linear/1.0.0/operations.js");
+      test.child.stderr.write("Cannot find module 'electron'\n");
+      test.child.emit("exit", 1);
+      await expect(starting).rejects.toThrow(
+        "Linear operation controller exited during startup (1).\nController stderr:\nCannot find module 'electron'",
+      );
+      expect(stderr).toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
   });
 
   it("routes operation RPC and host SDK service calls over the process port", async () => {
