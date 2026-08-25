@@ -404,7 +404,7 @@ export function inspectPackagedDesktopStartupLog(log: string): {
       log.includes("app ready") &&
       log.includes("bootstrap main window created") &&
       log.includes("bootstrap backend ready source=") &&
-      log.includes("bootstrap required Apps controller ready"),
+      log.includes("bootstrap required Apps package ready"),
   };
 }
 
@@ -433,7 +433,7 @@ async function hasPackagedDesktopHttpProof(logPath: string): Promise<boolean> {
   if (
     !log.includes("app ready") ||
     !log.includes("bootstrap main window created") ||
-    !log.includes("bootstrap required Apps controller ready")
+    !log.includes("bootstrap required Apps package ready")
   ) {
     return false;
   }

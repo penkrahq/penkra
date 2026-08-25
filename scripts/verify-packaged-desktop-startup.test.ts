@@ -120,7 +120,7 @@ describe("packaged desktop startup verification", () => {
           "app ready",
           "bootstrap main window created",
           "bootstrap backend ready source=http",
-          "bootstrap required Apps controller ready spaces=1 version=0.2.5",
+          "bootstrap required Apps package ready version=0.2.5 digest=sha256",
         ].join("\n"),
       ),
     ).toEqual({ failure: null, hasProof: true });
@@ -148,7 +148,7 @@ describe("packaged desktop startup verification", () => {
           "app ready",
           "bootstrap main window created",
           "bootstrap backend ready source=http",
-          "bootstrap required Apps controller ready spaces=1 version=0.2.5",
+          "bootstrap required Apps package ready version=0.2.5 digest=sha256",
           "fatal startup error stage=required Apps message=controller exited",
         ].join("\n"),
       ),
