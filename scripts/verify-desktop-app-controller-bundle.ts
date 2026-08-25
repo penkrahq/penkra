@@ -4,7 +4,8 @@
 // Layer: Desktop build verification
 
 import { fork, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,6 +64,15 @@ function waitForControllerReady(child: ChildProcess, stderr: () => string): Prom
   });
 }
 
+async function stopController(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>((resolveExit) => {
+    child.once("exit", () => resolveExit());
+  });
+  child.kill();
+  await exited;
+}
+
 export async function verifyDesktopAppControllerBundle(
   runnerPath = DEFAULT_RUNNER_PATH,
 ): Promise<void> {
@@ -95,8 +105,8 @@ export async function verifyDesktopAppControllerBundle(
     });
     await waitForControllerReady(child, () => stderr);
   } finally {
-    child?.kill();
-    rmSync(root, { recursive: true, force: true });
+    if (child) await stopController(child);
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
