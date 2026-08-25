@@ -74,7 +74,7 @@ jobs:
           cache-suffix: server-serial-${{ matrix.shard }}
 
       - name: Build server test dependencies
-        run: bunx turbo run build --filter='@penkra/cli^...'
+        run: bunx turbo run build --filter='@penkra/cli^...' --filter='penkra-sample-app^...'
 
       - name: Run serial server shard
         run: bun run --cwd apps/server test:serial -- --shard=${{ matrix.shard }}/2
