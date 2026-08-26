@@ -39,16 +39,18 @@ await tab.setRoute({ route: "/note", state: { noteId: "note-123" } });
 restart. `tab.onNavigate` receives navigation initiated outside the App.
 
 Apps may use any browser-compatible framework. React is optional and available from
-`@penkra/sdk/react`. Runtime calls throw when used outside a Penkra App renderer; ordinary unit
-tests should test App logic separately. Penkra exposes the real isolated-host runner through the
-registered `{ "command": "penkra app test <directory>" }` invocation in
-`penkra_exec_command`.
+`@penkra/sdk/react`. Renderer-only exports require a live visual App tab. A Node operation
+controller receives the narrower `PenkraControllerRuntimeApi`: operation registration, invocation
+context, Account requests, settings, secrets, identity, and permission queries. Controllers use
+ordinary Node APIs for filesystem, HTTP, crypto, Buffer, and stream work. Ordinary unit tests should
+test App logic separately. Penkra exposes the real isolated-host runner through the registered
+`{ "command": "penkra app test <directory>" }` invocation in `penkra_exec_command`.
 
 Use `contextMenu.show(...)` from a direct pointer interaction when an App needs a platform-native
 right-click menu. Penkra returns the selected item ID or `null`; Apps never receive Electron menu
 objects.
 
-Files and directories use `files.pick("file" | "directory" | "save")` and opaque
+In a visual tab, files and directories use `files.pick("file" | "directory" | "save")` and opaque
 App×Space-scoped handle IDs.
 The host validates every descendant and symlink boundary and never reveals an absolute path.
 Handles survive iframe reload but currently expire when the desktop runtime restarts; there is no
@@ -58,10 +60,12 @@ handle to the declared operation. Use `readBinary` for bounded reads and the
 `beginWrite` / `writeChunk` / `commitWrite` session for larger atomic writes; abort unfinished
 writes when App-side work fails.
 
-For bulk bytes, `files.open` and `storage.open` return revocable same-origin URLs suitable for
-`fetch`, images, audio, and ranged video playback. Network uploads and downloads use the
-permission-gated `transfer.begin`, `transfer.send`, and `transfer.receive` APIs; subscribe with
-`transfer.onProgress` for host-measured remote progress. Bulk bytes do not cross renderer RPC.
+For visual-tab bulk bytes, `files.open` and `storage.open` return revocable same-origin URLs suitable
+for `fetch`, images, audio, and ranged video playback. Network uploads and downloads involving an
+opaque handle or App storage use permission-gated `transfer.begin`, `transfer.send`, and
+`transfer.receive`; subscribe with `transfer.onProgress` for host-measured remote progress. Bulk
+bytes do not cross renderer RPC. Do not use these renderer services from `operations.js`; use
+ordinary Node HTTP, filesystem, and stream APIs there.
 
 Privileged Penkra APIs require matching manifest declarations and per-Space grants. Hosted browser
 APIs require `browser-session`, and hosted simulated-device APIs require `simulator-session`. Both

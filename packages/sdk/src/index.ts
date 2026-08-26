@@ -101,6 +101,7 @@ export {
   type AppTabOperationHandler,
   type AppTabVisibility,
   type PenkraAppRuntimeApi,
+  type PenkraControllerRuntimeApi,
 } from "./runtime";
 export {
   type AppSimulatorButton,

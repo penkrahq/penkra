@@ -254,7 +254,7 @@ describe("framework-neutral App runtime exports", () => {
     expect(runtime.settings.set).toHaveBeenCalledWith("display-name", "Ada");
   });
 
-  it("fails clearly outside a Penkra App renderer", () => {
+  it("fails clearly without an injected Penkra App runtime", () => {
     expect(() => operations.handle("issues.create", vi.fn())).toThrow(
       "Penkra App runtime is unavailable",
     );

@@ -10,7 +10,7 @@ the workspace-root `TODO.md`.
 | -------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------- |
 | Penkra main process                          | Trusted            | Package verification, App lifecycle, sessions, permissions, tab routing, privileged operations |
 | Apps installation binding                    | Trusted and narrow | Verified package mutation only; unavailable to ordinary Apps                                   |
-| App controller                               | Untrusted          | Declared operation handlers for one App in one Space                                           |
+| App controller                               | Untrusted          | Permission-bounded Node plus supported Penkra services for one App in one Space                |
 | App tab renderer                             | Untrusted          | Visual UI for one App in one Space and one Penkra thread                                       |
 | Registry/package/README/INSTRUCTIONS content | Untrusted input    | Data only until separately verified, sanitized, and authorized                                 |
 | Another App, agent, or CLI caller            | Untrusted caller   | Only declared operation input and explicit host context                                        |
@@ -29,8 +29,9 @@ First-party App packages receive the same sandbox and permission checks as third
 - Each App tab receives a host-minted stable `tabId` and is bound to one App ID, Space ID, and
   Penkra thread ID. A caller-supplied `tabId` is validated against all three before delivery.
 - App renderers run with sandboxing and context isolation enabled and Node, `<webview>`, insecure
-  content, and direct filesystem access disabled. Controllers are separate Node processes governed
-  by the controller policy described in the development guide.
+  content, and direct filesystem access disabled. Controllers are separate permission-bounded Node
+  processes with ordinary filesystem and networking APIs; the initial controller policy disables
+  child processes, worker threads, WASI, and native add-ons.
 - App package documents load only from their assigned `penkra-app://<app-id>` origin. Top-level
   navigation to another origin is denied. External links use a separate mediated host action.
 - Package-path resolution percent-decodes once, rejects invalid encoding and NUL bytes, and proves
@@ -105,16 +106,19 @@ for every effect even if a model misinterprets a malicious summary.
   `javascript:`, and remote HTTP(S) documents do not become App UI origins.
 - Window creation is denied by default. New App tabs are created through `context.tabs.open()` or
   an equivalent user action mediated by the host.
-- Remote access is performed through the declared `network-fetch` permission and mediated API.
-  Renderer navigation is not a substitute for network permission.
+- Visual-tab remote access is performed through the declared `network-fetch` permission and
+  mediated API. Renderer navigation is not a substitute for network permission. A controller uses
+  ordinary Node networking; `network-fetch` does not technically wrap or constrain that separate
+  process, so package review must assess controller source and dependencies accordingly.
 - Bulk transfer destinations are host-named, HTTPS-only, and resolved through the same public-address
   checks as mediated fetches. Renderer-supplied request bodies may stream through a single-use
   same-origin ticket only after the host validates and pins the remote destination. Tickets expire,
   cannot be replayed, and are released with their owning tab or renderer. This prevents an App from
   using a same-origin request as an SSRF path to local or private services.
 - Downloads, external-protocol links, clipboard, microphone, camera, notifications, hosted browser
-  pages, and simulated devices each require their dedicated host policy. No generic escape hatch
-  exists, and Apps have no raw-socket or process-spawn API.
+  pages, and simulated devices each require their dedicated visual-tab host policy. Renderers have
+  no generic escape hatch, raw-socket API, or process-spawn API. Controllers may use ordinary Node
+  networking, including sockets; their process policy independently denies process spawning.
 
 ## Local byte URLs
 
@@ -144,5 +148,6 @@ for every effect even if a model misinterprets a malicious summary.
 ## Verification gates
 
 Before ordinary App packages can run, tests must demonstrate cross-App and cross-Space partition
-separation, package traversal rejection, navigation/window denial, Node isolation, exact-tab routing,
+separation, package traversal rejection, navigation/window denial, renderer Node isolation,
+controller process-policy enforcement, exact-tab routing, renderer-only SDK rejection in controllers,
 permission revocation races, cancellation, crash containment, atomic update rollback, and safe start.

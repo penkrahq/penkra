@@ -2,7 +2,12 @@
 // Purpose: Implements the public Penkra SDK and operation RPC inside a Node App controller.
 // Layer: App controller process
 
-import type { AppTabHandle, OperationContext, PenkraAppRuntimeApi } from "@penkra/sdk";
+import type {
+  AppTabHandle,
+  OperationContext,
+  PenkraAppRuntimeApi,
+  PenkraControllerRuntimeApi,
+} from "@penkra/sdk";
 
 import type {
   AppRendererRpcContextCallMessage,
@@ -28,7 +33,8 @@ type RegisteredOperationHandler = (
 ) => unknown | Promise<unknown>;
 
 export class AppNodeControllerRuntime {
-  readonly api: PenkraAppRuntimeApi;
+  /** Supported controller contract; visual-only surfaces remain runtime rejection sentinels. */
+  readonly api: PenkraControllerRuntimeApi;
   readonly #transport: AppNodeControllerTransport;
   readonly #handlers = new Map<string, RegisteredOperationHandler>();
   readonly #active = new Map<string, ActiveRequest>();
@@ -44,7 +50,7 @@ export class AppNodeControllerRuntime {
           code: "INTERACTIVE_TAB_REQUIRED",
         }),
       );
-    this.api = {
+    const api = {
       identity: {
         get: () => transport.serviceCall("identity.get"),
         getToken: (input) => transport.serviceCall("identity.getToken", input),
@@ -82,6 +88,7 @@ export class AppNodeControllerRuntime {
       contextMenu: unsupportedSurface("contextMenu"),
       tab: unsupportedSurface("tab"),
     } as PenkraAppRuntimeApi;
+    this.api = api;
   }
 
   start(): void {

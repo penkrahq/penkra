@@ -196,11 +196,11 @@ export type AppTabNavigationHandler<Result = void> = (
 ) => Promise<Result> | Result;
 
 export interface PenkraAppRuntimeApi {
-  /** Show a native context menu at the current pointer position. */
+  /** Visual-tab only. Show a native context menu at the current pointer position. */
   contextMenu: {
     show<T extends string>(items: ReadonlyArray<AppContextMenuItem<T>>): Promise<T | null>;
   };
-  /** User-selected or host-handed-off file capabilities scoped to this App and Space. */
+  /** Visual-tab only. User-selected or host-handed-off files scoped to this App and Space. */
   files: {
     list(): Promise<ReadonlyArray<AppScopedFileHandle>>;
     pick(
@@ -241,7 +241,7 @@ export interface PenkraAppRuntimeApi {
       listener: () => void,
     ): Promise<() => void>;
   };
-  /** Host-mediated private storage scoped to this App and Space. */
+  /** Visual-tab only. Host-mediated private storage scoped to this App and Space. */
   storage: {
     open(path: string): Promise<string>;
     closeUrl(url: string): Promise<void>;
@@ -254,7 +254,7 @@ export interface PenkraAppRuntimeApi {
     list(input?: { path?: string }): Promise<ReadonlyArray<AppStorageFileEntry>>;
     usage(): Promise<{ bytes: number }>;
   };
-  /** Host-validated bulk transfer service for renderer, handle, and App-storage bytes. */
+  /** Visual-tab only. Host-validated bulk transfer for handles and App-storage bytes. */
   transfer: {
     begin(input: {
       url: string;
@@ -282,15 +282,16 @@ export interface PenkraAppRuntimeApi {
     }): Promise<{ id: string; bytes: number; sha256: string }>;
     onProgress(listener: (event: AppTransferProgressEvent) => void): () => void;
   };
+  /** Visual-tab only. */
   composer: {
     /** Stage a visible draft in this App surface's thread. Never sends it. */
     stage(input: AppComposerStageInput): Promise<{
       resolvedModel: AppComposerModelSelection | null;
     }>;
   };
-  /** Open one descendant of a scoped file handle with a trusted host handler. */
+  /** Visual-tab only. Open one scoped file with a trusted host handler. */
   open(input: { handleId: string; relativePath?: string; with: "system" }): Promise<void>;
-  /** Permission-bound hosted browser pages. The App owns chrome; Penkra owns page isolation. */
+  /** Visual-tab only. The App owns browser chrome; Penkra owns page isolation. */
   browser: {
     open(initialUrl?: string): Promise<AppBrowserSessionState>;
     close(): Promise<void>;
@@ -316,7 +317,7 @@ export interface PenkraAppRuntimeApi {
     capture(pageId: string): Promise<{ dataUrl: string }>;
     evaluate(input: { pageId: string; expression: string }): Promise<unknown>;
   };
-  /** Permission-bound simulated devices. The App owns chrome; Penkra owns native lifecycle. */
+  /** Visual-tab only. The App owns simulator chrome; Penkra owns native lifecycle. */
   simulator: {
     getEnvironment(): Promise<AppSimulatorEnvironment>;
     listRuntimes(): Promise<ReadonlyArray<AppSimulatorRuntime>>;
@@ -355,6 +356,7 @@ export interface PenkraAppRuntimeApi {
       body?: string | Uint8Array;
       contentType?: "application/json" | "application/octet-stream";
     }): Promise<AppAccountDataResponse>;
+    /** Visual-tab only realtime subscription. Controllers may use request(). */
     subscribe(
       channel: string,
       listener: (event: AppAccountRealtimeEvent) => void,
@@ -371,6 +373,7 @@ export interface PenkraAppRuntimeApi {
     set(name: string, value: string): Promise<void>;
     delete(name: string): Promise<void>;
   };
+  /** Visual-tab only mediated HTTP. Controllers use ordinary Node HTTP APIs. */
   network: {
     fetch(input: {
       url: string;
@@ -388,7 +391,7 @@ export interface PenkraAppRuntimeApi {
   permissions: {
     /** Inspect this App's grant in its current Space without prompting. */
     query(name: PenkraPermissionName): Promise<AppPermissionStatus>;
-    /** Request a declared optional permission in direct response to a user-invoked feature. */
+    /** Visual-tab only. Request a permission in direct response to a user-invoked feature. */
     request(name: PenkraPermissionName): Promise<AppPermissionStatus>;
   };
   operations: {
@@ -397,6 +400,7 @@ export interface PenkraAppRuntimeApi {
       handler: AppOperationHandler<Input, Result>,
     ): () => void;
   };
+  /** Visual-tab only. Operation controllers receive tab handles through OperationContext. */
   tab: {
     /** Identity of this App-owned surface; thread is implicit for all privileged calls. */
     getContext(): Promise<{ threadId: string; tabId: string | null }>;
@@ -411,6 +415,18 @@ export interface PenkraAppRuntimeApi {
     onNavigate<Result = void>(handler: AppTabNavigationHandler<Result>): () => void;
   };
 }
+
+/**
+ * Penkra-owned services available to an App's non-visual Node operation controller.
+ * Ordinary filesystem, HTTP, crypto, Buffer, and stream work uses standard Node APIs instead.
+ */
+export type PenkraControllerRuntimeApi = Pick<
+  PenkraAppRuntimeApi,
+  "identity" | "operations" | "secrets" | "settings"
+> & {
+  account: Pick<PenkraAppRuntimeApi["account"], "request">;
+  permissions: Pick<PenkraAppRuntimeApi["permissions"], "query">;
+};
 
 function runtime(): PenkraAppRuntimeApi {
   const candidate = (globalThis as { penkra?: PenkraAppRuntimeApi }).penkra;

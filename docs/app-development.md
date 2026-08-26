@@ -285,6 +285,21 @@ Do not route ordinary controller filesystem or HTTP work through `penkra.files` 
 only for capabilities owned by Penkra: operation registration and context, tabs, Account access,
 App settings and secrets, identity, and other explicit host services.
 
+The runtime boundary determines the API; whether code belongs to the same App does not:
+
+| Work                                                      | Visual tab (`app.html`)                           | Operation controller (`operations.js`)                      |
+| --------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------- |
+| Read or write ordinary host files                         | Use an opaque `files` handle or App `storage`     | Use `node:fs` and normal paths                              |
+| Make a small remote request                               | Use mediated `network.fetch` or `account.request` | Use Node `fetch` or a packaged HTTP client                  |
+| Move bulk bytes to or from a picked handle or App storage | Use `transfer`                                    | Not available; the controller does not own renderer handles |
+| Register and implement a public operation                 | Not available                                     | Use `operations.handle` and `OperationContext`              |
+| Address an App-owned tab during an operation              | Handle an incoming tab call                       | Use the tab handle supplied by `OperationContext`           |
+
+`network-fetch` authorizes Penkra's mediated visual-tab network and transfer services. It does not
+wrap or technically constrain a controller's ordinary Node networking. App review must therefore
+assess the controller source and packaged dependencies as executable Node code, not infer its
+authority solely from renderer permission declarations.
+
 App renderers use a restrictive Content Security Policy. An App may fetch only files from its own
 verified immutable package origin (`connect-src 'self'`); remote renderer connections remain
 blocked. Packaged WebAssembly is supported with `wasm-unsafe-eval`, which permits compiling local
@@ -483,12 +498,13 @@ navigation event. Penkra uses that latest recorded route and state when it recre
 Apps may invoke another enabled App's public operation through `context.operations.invoke`; the
 callee's schemas and permissions still apply. Apps cannot invoke private installation operations.
 
-## App storage, byte movement, and composer staging
+## Visual-tab storage, byte movement, and composer staging
 
-`storage` is private to one App and Space. `writeFile`, `list`, `usage`, and `remove` operate only
-inside that root. Paths supplied to storage methods are relative; listed entries retain their
-host-local absolute path for composer staging and other host-mediated operations. The host rejects
-traversal and symlinks, keeps a free-disk safety floor, and erases the root when App data is removed.
+The APIs in this section belong to a visual App tab. `storage` is private to one App and Space.
+`writeFile`, `list`, `usage`, and `remove` operate only inside that root. Paths supplied to storage
+methods are relative; listed entries retain their host-local absolute path for composer staging and
+other host-mediated operations. The host rejects traversal and symlinks, keeps a free-disk safety
+floor, and erases the root when App data is removed.
 
 Bulk bytes use same-origin URLs instead of renderer RPC. `files.open(handleId, relativePath?)` and
 `storage.open(path)` return an unguessable `penkra-app://…/.penkra/blob/…` URL. Use that URL with
@@ -516,7 +532,8 @@ the matching `files.closeUrl(url)` or `storage.closeUrl(url)`. Treat it like a b
 do not persist it, share it with another App, or close it while an element or request is still using
 it.
 
-Use `transfer` when bytes cross the network. Every method requires `network-fetch`. The App names
+From a visual tab, use `transfer` when bulk bytes cross between an HTTPS endpoint and renderer-owned
+bytes, an opaque file handle, or App storage. Every method requires `network-fetch`. The tab names
 the HTTPS destination through `transfer.begin`, `transfer.send`, or `transfer.receive`; the host
 validates and pins that destination before moving bytes. A renderer cannot turn an arbitrary local
 URL into a network target.
@@ -556,6 +573,39 @@ if (target) {
   });
 }
 ```
+
+That download travels directly from the remote server through the trusted host into the selected
+file. Its bulk bytes do not pass through the renderer or an operation result. Do not insert a Node
+controller merely to proxy the same remote response.
+
+Conversely, controller work such as materializing agent inputs uses ordinary Node APIs:
+
+```js
+import { createWriteStream } from "node:fs";
+import { mkdir, rename, rm } from "node:fs/promises";
+import { dirname } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
+export async function downloadAtomically(url, destination) {
+  const temporary = `${destination}.partial`;
+  const response = await fetch(url);
+  if (!response.ok || !response.body) throw new Error(`Download failed: ${response.status}`);
+  await mkdir(dirname(destination), { recursive: true });
+  try {
+    await pipeline(Readable.fromWeb(response.body), createWriteStream(temporary));
+    await rename(temporary, destination);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+}
+```
+
+Controllers cannot resolve a visual tab's opaque file handle, and operation results are not a
+bulk-byte transport. A workflow that generates a large controller-local artifact and then needs a
+user-selected destination requires an explicit handoff design; it must not serialize the file into
+operation JSON or call renderer-only `files`, `storage`, or `transfer` APIs from the controller.
 
 Transfer progress comes from the host and measures the actual remote upload or download. Native
 `XMLHttpRequest.upload.onprogress` does not fire for the local custom-scheme endpoint and would in
