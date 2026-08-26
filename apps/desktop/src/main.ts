@@ -69,6 +69,7 @@ import { RotatingFileSink } from "@penkra/shared/logging";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
+import { prepareAppBrowserDownload } from "./appBrowserDownload";
 import { requestAppIdentityToken } from "./appIdentityToken";
 import { parseAppHostedSurfaceInsets } from "./appHostedSurfaceLayout";
 import { openLocalAppResource } from "./appLocalResourceOpener";
@@ -940,7 +941,7 @@ const browserManager = new DesktopBrowserManager({
 });
 let appCommandPipeServer: AppCommandPipeServer | null = null;
 const appBrowserTrackedRendererIds = new Set<number>();
-const appBrowserOwnerByThreadId = new Map<string, { appId: string; spaceId: string }>();
+const appBrowserOwnerByTabId = new Map<string, { appId: string; spaceId: string }>();
 const appBrowserSurfaceInsetsByTabId = new Map<
   string,
   { top: number; right: number; bottom: number; left: number }
@@ -952,33 +953,36 @@ browserManager.subscribe((state) => {
   const runtime = desktopAppRuntime;
   if (!runtime) return;
   const appState = toAppBrowserState(state);
-  if (runtime.appTabs.has(state.threadId)) {
-    runtime.appTabs.sendFrameEvent(state.threadId, "browser.state", appState);
+  // DesktopBrowserManager predates App tabs and calls its owning-session key `threadId`.
+  // App-hosted browser sessions key that field with the owning App tab ID.
+  const appTabId = state.threadId as string;
+  if (runtime.appTabs.has(appTabId)) {
+    runtime.appTabs.sendFrameEvent(appTabId, "browser.state", appState);
   }
 });
 
-function configureAppBrowserDownloads(threadId: ThreadId, appId: string, spaceId: string): void {
-  appBrowserOwnerByThreadId.set(threadId, { appId, spaceId });
+function configureAppBrowserDownloads(appTabId: string, appId: string, spaceId: string): void {
+  appBrowserOwnerByTabId.set(appTabId, { appId, spaceId });
   const partition = createScopedBrowserSessionPartition(appId, spaceId);
   if (configuredAppBrowserDownloadPartitions.has(partition)) return;
   configuredAppBrowserDownloadPartitions.add(partition);
   session.fromPartition(partition).on("will-download", (_event, item, source) => {
     const page = browserManager.pageForWebContentsId(source.id);
     if (!page) return;
-    const owner = appBrowserOwnerByThreadId.get(page.threadId);
+    // `page.threadId` is DesktopBrowserManager's legacy name for its owning-session key.
+    // App-hosted sessions always supply the App tab ID as that key.
+    const ownerTabId = page.threadId as string;
+    const owner = appBrowserOwnerByTabId.get(ownerTabId);
     const storage = appStorage;
     const runtime = desktopAppRuntime;
-    if (!owner || !storage || !runtime?.appTabs.has(page.threadId)) {
+    if (!owner || !storage || !runtime?.appTabs.has(ownerTabId)) {
       item.cancel();
       return;
     }
-    let destination: string;
+    let destination: ReturnType<typeof prepareAppBrowserDownload>;
     try {
-      destination = storage.prepareDownloadSync(owner, {
-        directory: Path.join("downloads", page.threadId),
-        suggestedName: item.getFilename(),
-      });
-      item.setSavePath(destination);
+      destination = prepareAppBrowserDownload(storage, owner, item.getFilename());
+      item.setSavePath(destination.path);
     } catch {
       item.cancel();
       return;
@@ -988,15 +992,16 @@ function configureAppBrowserDownloads(threadId: ThreadId, appId: string, spaceId
       url: item.getURL(),
       suggestedName: item.getFilename(),
       mimeType: item.getMimeType(),
-      path: destination,
+      path: destination.path,
+      storagePath: destination.storagePath,
     };
-    runtime.appTabs.sendFrameEvent(page.threadId, "browser.download", {
+    runtime.appTabs.sendFrameEvent(ownerTabId, "browser.download", {
       ...base,
       state: "pending",
       bytes: 0,
     });
     item.once("done", (_doneEvent, state) => {
-      runtime.appTabs.sendFrameEvent(page.threadId, "browser.download", {
+      runtime.appTabs.sendFrameEvent(ownerTabId, "browser.download", {
         ...base,
         state: state === "completed" ? "completed" : "failed",
         bytes: item.getReceivedBytes(),
@@ -1096,15 +1101,15 @@ async function invokeRuntimeV2BrowserCall(input: {
   method: string;
   value: unknown;
 }): Promise<unknown> {
-  const threadId = input.tabId as ThreadId;
+  const browserSessionId = input.tabId as ThreadId;
   const value = input.value;
   browserManager.setSessionPartition(
-    threadId,
+    browserSessionId,
     createScopedBrowserSessionPartition(input.appId, input.spaceId),
   );
-  await browserManager.prepareExtensions(threadId);
-  configureAppBrowserDownloads(threadId, input.appId, input.spaceId);
-  const state = () => toAppBrowserState(browserManager.getState({ threadId }));
+  await browserManager.prepareExtensions(browserSessionId);
+  configureAppBrowserDownloads(input.tabId, input.appId, input.spaceId);
+  const state = () => toAppBrowserState(browserManager.getState({ threadId: browserSessionId }));
   const pageId = () => {
     if (typeof value !== "string" || !value) throw new Error("Browser page ID is required.");
     return value;
@@ -1113,12 +1118,12 @@ async function invokeRuntimeV2BrowserCall(input: {
     case "open":
       return toAppBrowserState(
         browserManager.open({
-          threadId,
+          threadId: browserSessionId,
           ...(typeof value === "string" && value ? { initialUrl: value } : {}),
         }),
       );
     case "close":
-      browserManager.close({ threadId });
+      browserManager.close({ threadId: browserSessionId });
       return;
     case "getState":
       return state();
@@ -1126,12 +1131,12 @@ async function invokeRuntimeV2BrowserCall(input: {
       const insets = parseAppHostedSurfaceInsets(value);
       if (insets === null) {
         appBrowserSurfaceInsetsByTabId.delete(input.tabId);
-        browserManager.setRendererSurfaceActive(threadId, false);
+        browserManager.setRendererSurfaceActive(browserSessionId, false);
         desktopAppRuntime?.appTabs.sendFrameEvent(input.tabId, "browser.surface", null);
         return;
       }
       appBrowserSurfaceInsetsByTabId.set(input.tabId, insets);
-      browserManager.setRendererSurfaceActive(threadId, true);
+      browserManager.setRendererSurfaceActive(browserSessionId, true);
       desktopAppRuntime?.appTabs.sendFrameEvent(input.tabId, "browser.surface", {
         insets,
         partition: createScopedBrowserSessionPartition(input.appId, input.spaceId),
@@ -1148,20 +1153,28 @@ async function invokeRuntimeV2BrowserCall(input: {
       }
       return toAppBrowserState(
         browserManager.navigate({
-          threadId,
+          threadId: browserSessionId,
           url: record.url,
           ...(typeof record.pageId === "string" ? { tabId: record.pageId } : {}),
         }),
       );
     }
     case "reload":
-      return toAppBrowserState(browserManager.reload({ threadId, tabId: pageId() }));
+      return toAppBrowserState(
+        browserManager.reload({ threadId: browserSessionId, tabId: pageId() }),
+      );
     case "stop":
-      return toAppBrowserState(browserManager.stop({ threadId, tabId: pageId() }));
+      return toAppBrowserState(
+        browserManager.stop({ threadId: browserSessionId, tabId: pageId() }),
+      );
     case "back":
-      return toAppBrowserState(browserManager.goBack({ threadId, tabId: pageId() }));
+      return toAppBrowserState(
+        browserManager.goBack({ threadId: browserSessionId, tabId: pageId() }),
+      );
     case "forward":
-      return toAppBrowserState(browserManager.goForward({ threadId, tabId: pageId() }));
+      return toAppBrowserState(
+        browserManager.goForward({ threadId: browserSessionId, tabId: pageId() }),
+      );
     case "newPage": {
       const record =
         value && typeof value === "object" && !Array.isArray(value)
@@ -1169,16 +1182,20 @@ async function invokeRuntimeV2BrowserCall(input: {
           : {};
       return toAppBrowserState(
         browserManager.newTab({
-          threadId,
+          threadId: browserSessionId,
           ...(typeof record.url === "string" ? { url: record.url } : {}),
           ...(typeof record.activate === "boolean" ? { activate: record.activate } : {}),
         }),
       );
     }
     case "closePage":
-      return toAppBrowserState(browserManager.closeTab({ threadId, tabId: pageId() }));
+      return toAppBrowserState(
+        browserManager.closeTab({ threadId: browserSessionId, tabId: pageId() }),
+      );
     case "selectPage":
-      return toAppBrowserState(browserManager.selectTab({ threadId, tabId: pageId() }));
+      return toAppBrowserState(
+        browserManager.selectTab({ threadId: browserSessionId, tabId: pageId() }),
+      );
     case "openExtensionAction": {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         throw new Error("Browser extension action input is required.");
@@ -1188,7 +1205,7 @@ async function invokeRuntimeV2BrowserCall(input: {
         throw new Error("Browser extension action requires extensionId and pageId.");
       }
       await browserManager.openExtensionAction({
-        threadId,
+        threadId: browserSessionId,
         extensionId: record.extensionId,
         tabId: record.pageId,
       });
@@ -1207,17 +1224,20 @@ async function invokeRuntimeV2BrowserCall(input: {
         throw new Error("Browser find action is invalid.");
       }
       return browserManager.findInPage({
-        threadId,
+        threadId: browserSessionId,
         tabId: record.pageId,
         text: record.text,
         action: (action ?? "search") as "search" | "next" | "previous",
       });
     }
     case "stopFind":
-      browserManager.stopFindInPage({ threadId, tabId: pageId() });
+      browserManager.stopFindInPage({ threadId: browserSessionId, tabId: pageId() });
       return;
     case "capture": {
-      const result = await browserManager.captureScreenshot({ threadId, tabId: pageId() });
+      const result = await browserManager.captureScreenshot({
+        threadId: browserSessionId,
+        tabId: pageId(),
+      });
       return {
         dataUrl: `data:${result.mimeType};base64,${Buffer.from(result.bytes).toString("base64")}`,
       };
@@ -1234,7 +1254,7 @@ async function invokeRuntimeV2BrowserCall(input: {
         throw new Error("Browser expressions may contain at most 100,000 bytes.");
       }
       const response = await browserManager.executeCdp({
-        threadId,
+        threadId: browserSessionId,
         tabId: record.pageId,
         method: "Runtime.evaluate",
         params: {
@@ -4929,21 +4949,23 @@ function registerIpcHandlers(): void {
     const { method, input: value } = input as Record<string, unknown>;
     if (typeof method !== "string") throw new Error("Browser call method is required.");
     if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
-    const threadId = identity.tabId as ThreadId;
+    const browserSessionId = identity.tabId as ThreadId;
     if (!appBrowserTrackedRendererIds.has(event.sender.id)) {
       appBrowserTrackedRendererIds.add(event.sender.id);
       event.sender.once("destroyed", () => {
         appBrowserTrackedRendererIds.delete(event.sender.id);
-        if (browserManager.hasSession(threadId)) browserManager.close({ threadId });
+        if (browserManager.hasSession(browserSessionId)) {
+          browserManager.close({ threadId: browserSessionId });
+        }
       });
     }
     browserManager.setSessionPartition(
-      threadId,
+      browserSessionId,
       createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
     );
-    await browserManager.prepareExtensions(threadId);
-    configureAppBrowserDownloads(threadId, identity.appId, identity.spaceId);
-    const state = () => toAppBrowserState(browserManager.getState({ threadId }));
+    await browserManager.prepareExtensions(browserSessionId);
+    configureAppBrowserDownloads(identity.tabId, identity.appId, identity.spaceId);
+    const state = () => toAppBrowserState(browserManager.getState({ threadId: browserSessionId }));
     const pageId = () => {
       if (typeof value !== "string" || !value) throw new Error("Browser page ID is required.");
       return value;
@@ -4952,12 +4974,12 @@ function registerIpcHandlers(): void {
       case "open":
         return toAppBrowserState(
           browserManager.open({
-            threadId,
+            threadId: browserSessionId,
             ...(typeof value === "string" && value ? { initialUrl: value } : {}),
           }),
         );
       case "close":
-        browserManager.close({ threadId });
+        browserManager.close({ threadId: browserSessionId });
         return;
       case "getState":
         return state();
@@ -4972,20 +4994,28 @@ function registerIpcHandlers(): void {
           throw new Error("Browser navigation URL is required.");
         return toAppBrowserState(
           browserManager.navigate({
-            threadId,
+            threadId: browserSessionId,
             url: record.url,
             ...(typeof record.pageId === "string" ? { tabId: record.pageId } : {}),
           }),
         );
       }
       case "reload":
-        return toAppBrowserState(browserManager.reload({ threadId, tabId: pageId() }));
+        return toAppBrowserState(
+          browserManager.reload({ threadId: browserSessionId, tabId: pageId() }),
+        );
       case "stop":
-        return toAppBrowserState(browserManager.stop({ threadId, tabId: pageId() }));
+        return toAppBrowserState(
+          browserManager.stop({ threadId: browserSessionId, tabId: pageId() }),
+        );
       case "back":
-        return toAppBrowserState(browserManager.goBack({ threadId, tabId: pageId() }));
+        return toAppBrowserState(
+          browserManager.goBack({ threadId: browserSessionId, tabId: pageId() }),
+        );
       case "forward":
-        return toAppBrowserState(browserManager.goForward({ threadId, tabId: pageId() }));
+        return toAppBrowserState(
+          browserManager.goForward({ threadId: browserSessionId, tabId: pageId() }),
+        );
       case "newPage": {
         const record =
           value && typeof value === "object" && !Array.isArray(value)
@@ -4993,16 +5023,20 @@ function registerIpcHandlers(): void {
             : {};
         return toAppBrowserState(
           browserManager.newTab({
-            threadId,
+            threadId: browserSessionId,
             ...(typeof record.url === "string" ? { url: record.url } : {}),
             ...(typeof record.activate === "boolean" ? { activate: record.activate } : {}),
           }),
         );
       }
       case "closePage":
-        return toAppBrowserState(browserManager.closeTab({ threadId, tabId: pageId() }));
+        return toAppBrowserState(
+          browserManager.closeTab({ threadId: browserSessionId, tabId: pageId() }),
+        );
       case "selectPage":
-        return toAppBrowserState(browserManager.selectTab({ threadId, tabId: pageId() }));
+        return toAppBrowserState(
+          browserManager.selectTab({ threadId: browserSessionId, tabId: pageId() }),
+        );
       case "openExtensionAction": {
         if (!value || typeof value !== "object" || Array.isArray(value)) {
           throw new Error("Browser extension action input is required.");
@@ -5012,7 +5046,7 @@ function registerIpcHandlers(): void {
           throw new Error("Browser extension action requires extensionId and pageId.");
         }
         await browserManager.openExtensionAction({
-          threadId,
+          threadId: browserSessionId,
           extensionId: record.extensionId,
           tabId: record.pageId,
         });
@@ -5033,18 +5067,18 @@ function registerIpcHandlers(): void {
         )
           throw new Error("Browser find action is invalid.");
         return browserManager.findInPage({
-          threadId,
+          threadId: browserSessionId,
           tabId: record.pageId,
           text: record.text,
           action: action ?? "search",
         });
       }
       case "stopFind":
-        browserManager.stopFindInPage({ threadId, tabId: pageId() });
+        browserManager.stopFindInPage({ threadId: browserSessionId, tabId: pageId() });
         return;
       case "capture": {
         const result = await browserManager.captureScreenshot({
-          threadId,
+          threadId: browserSessionId,
           tabId: pageId(),
         });
         return {
@@ -5060,7 +5094,7 @@ function registerIpcHandlers(): void {
         if (Buffer.byteLength(record.expression) > 100_000)
           throw new Error("Browser expressions may contain at most 100,000 bytes.");
         const response = await browserManager.executeCdp({
-          threadId,
+          threadId: browserSessionId,
           tabId: record.pageId,
           method: "Runtime.evaluate",
           params: {
@@ -7362,6 +7396,7 @@ async function bootstrap(): Promise<void> {
       mainWindow.webContents.send(IPC.appTabs.frameHostMessage, message);
     },
     onTabClosed: (descriptor) => {
+      appBrowserOwnerByTabId.delete(descriptor.id);
       appBrowserSurfaceInsetsByTabId.delete(descriptor.id);
       for (const [subscriptionId, subscription] of appAccountSubscriptions) {
         if (subscription.tabId !== descriptor.id) continue;

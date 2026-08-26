@@ -502,9 +502,11 @@ callee's schemas and permissions still apply. Apps cannot invoke private install
 
 The APIs in this section belong to a visual App tab. `storage` is private to one App and Space.
 `writeFile`, `list`, `usage`, and `remove` operate only inside that root. Paths supplied to storage
-methods are relative; listed entries retain their host-local absolute path for composer staging and
-other host-mediated operations. The host rejects traversal and symlinks, keeps a free-disk safety
-floor, and erases the root when App data is removed.
+methods are relative. Listed entries retain both their storage-relative key and their host-local
+absolute path. Hosted Browser download events likewise provide both forms. The absolute form may be
+passed to the App's Node operation controller and opened with ordinary Node filesystem APIs; the
+relative form is for visual-tab `storage` calls. The host rejects traversal and symlinks, keeps a
+free-disk safety floor, and erases the root when App data is removed.
 
 Bulk bytes use same-origin URLs instead of renderer RPC. `files.open(handleId, relativePath?)` and
 `storage.open(path)` return an unguessable `penkra-app://…/.penkra/blob/…` URL. Use that URL with
@@ -617,9 +619,29 @@ const stop = transfer.onProgress((event) => {
 });
 ```
 
-Hosted-page downloads for an App with `browser-session` are redirected into
-`downloads/<tab-id>/` under its storage root. Subscribe with `browser.onDownload`; each transfer
-emits `pending` followed by `completed` or `failed`, with a sanitized collision-free destination.
+Hosted-page downloads for an App with `browser-session` are redirected into one flat `downloads/`
+directory under the App and Space's private storage root. The host sanitizes the suggested name and
+adds a numeric suffix when needed, so concurrent downloads cannot overwrite one another. It does
+not impose Thread, App-tab, or workflow directories.
+
+Subscribe with `browser.onDownload` in the owning App tab. Each transfer emits `pending`, then
+`completed` or `failed`, and includes two names for the same destination:
+
+```js
+import { browser, storage } from "@penkra/sdk";
+
+browser.onDownload((event) => {
+  // Absolute host path: pass to an operation controller that will use node:fs.
+  console.log(event.path);
+
+  // App-storage key: use directly from the visual tab.
+  if (event.state === "failed") void storage.remove({ path: event.storagePath });
+});
+```
+
+The event is delivered only to the App tab that owns the hosted Browser session. The App decides
+which run or workflow owns the path, records that association if it must survive a restart, and
+removes files when they are no longer needed. Closing a tab does not delete its completed downloads.
 Wait for pending transfers before deleting run data or closing a workflow.
 
 An App declaring high-risk `thread-compose` may call `composer.stage` to stage text, titled

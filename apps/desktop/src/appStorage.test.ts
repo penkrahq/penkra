@@ -64,4 +64,23 @@ describe("AppStorageService", () => {
     expect(await storage.list(owner)).toEqual([]);
     expect(await storage.usage(other)).toEqual({ bytes: 1 });
   });
+
+  it("allocates collision-free hosted downloads in one flat App-owned directory", async () => {
+    const storage = await service();
+    const first = storage.prepareDownloadSync(owner, {
+      directory: "downloads",
+      suggestedName: "report.pdf",
+    });
+    await FSP.writeFile(first, "first");
+    const second = storage.prepareDownloadSync(owner, {
+      directory: "downloads",
+      suggestedName: "report.pdf",
+    });
+
+    const downloads = Path.join(storage.root(owner), "downloads");
+    expect(Path.dirname(first)).toBe(downloads);
+    expect(Path.dirname(second)).toBe(downloads);
+    expect(Path.basename(first)).toBe("report.pdf");
+    expect(Path.basename(second)).toBe("report-1.pdf");
+  });
 });

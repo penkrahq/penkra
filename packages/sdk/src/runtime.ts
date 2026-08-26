@@ -125,7 +125,14 @@ export interface AppBrowserDownloadEvent {
   suggestedName: string;
   mimeType: string;
   state: "pending" | "completed" | "failed";
+  /**
+   * Absolute host path in this App and Space's private storage root.
+   * A visual tab may pass this value to its Node operation controller, which can open it with
+   * ordinary Node filesystem APIs. The App owns correlation, retention, and cleanup.
+   */
   path: string;
+  /** Storage-relative key for the same file, suitable for `storage.open` or `storage.remove`. */
+  storagePath: string;
   bytes: number;
   error?: string;
 }
@@ -273,6 +280,11 @@ export interface PenkraAppRuntimeApi {
       headers: Record<string, string>;
       body: string;
     }>;
+    /**
+     * Download directly to App storage or an opaque picked-file handle. The result intentionally
+     * has no path: picked handles do not disclose host paths. Use the known storage key when the
+     * destination is App storage.
+     */
     receive(input: {
       url: string;
       method?: "GET" | "POST";
@@ -402,7 +414,10 @@ export interface PenkraAppRuntimeApi {
   };
   /** Visual-tab only. Operation controllers receive tab handles through OperationContext. */
   tab: {
-    /** Identity of this App-owned surface; thread is implicit for all privileged calls. */
+    /**
+     * Identity of this App-owned surface. `threadId` is the containing Penkra Thread; `tabId` is
+     * this App tab and is distinct from both the Thread and any hosted Browser page ID.
+     */
     getContext(): Promise<{ threadId: string; tabId: string | null }>;
     /** Record the App's current route so the host can restore it after reloads and updates. */
     setRoute(input: AppTabNavigationInput): Promise<void>;
