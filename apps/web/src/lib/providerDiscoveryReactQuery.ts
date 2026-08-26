@@ -1,6 +1,7 @@
 import {
   ProviderListModelsResult,
   type ProviderComposerCapabilities,
+  type ProviderConnectionId,
   type ProviderKind,
   type ProviderListAgentsResult,
   type ProviderListCommandsResult,
@@ -51,12 +52,16 @@ const OPENCODE_MODEL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 const decodeProviderListModelsResult = Schema.decodeUnknownSync(ProviderListModelsResult);
 
 function openCodeModelCacheKey(input: {
+  connectionId?: ProviderConnectionId | null;
+  internalProviderId?: string | null;
   binaryPath?: string | null;
   apiEndpoint?: string | null;
   agentDir?: string | null;
   cwd?: string | null;
 }): string {
   return `${OPENCODE_MODEL_CACHE_KEY_PREFIX}${JSON.stringify([
+    input.connectionId ?? null,
+    input.internalProviderId ?? null,
     input.binaryPath ?? null,
     input.apiEndpoint ?? null,
     input.agentDir ?? null,
@@ -65,6 +70,8 @@ function openCodeModelCacheKey(input: {
 }
 
 function readOpenCodeModelCache(input: {
+  connectionId?: ProviderConnectionId | null;
+  internalProviderId?: string | null;
   binaryPath?: string | null;
   apiEndpoint?: string | null;
   agentDir?: string | null;
@@ -95,6 +102,8 @@ function readOpenCodeModelCache(input: {
 
 function writeOpenCodeModelCache(
   input: {
+    connectionId?: ProviderConnectionId | null;
+    internalProviderId?: string | null;
     binaryPath?: string | null;
     apiEndpoint?: string | null;
     agentDir?: string | null;
@@ -148,11 +157,36 @@ export const providerDiscoveryQueryKeys = {
     apiEndpoint: string | null,
     agentDir: string | null,
     cwd: string | null,
-  ) => ["provider-discovery", "models", provider, binaryPath, apiEndpoint, agentDir, cwd] as const,
+    connectionId?: ProviderConnectionId | null,
+    internalProviderId?: string | null,
+  ) =>
+    [
+      "provider-discovery",
+      "models",
+      provider,
+      connectionId ?? "unresolved",
+      internalProviderId ?? "unresolved",
+      binaryPath,
+      apiEndpoint,
+      agentDir,
+      cwd,
+    ] as const,
   agentsForProvider: (provider: ProviderKind) =>
     ["provider-discovery", "agents", provider] as const,
-  agents: (provider: ProviderKind, binaryPath: string | null, cwd: string | null) =>
-    [...providerDiscoveryQueryKeys.agentsForProvider(provider), binaryPath, cwd] as const,
+  agents: (
+    provider: ProviderKind,
+    binaryPath: string | null,
+    cwd: string | null,
+    connectionId?: ProviderConnectionId | null,
+    internalProviderId?: string | null,
+  ) =>
+    [
+      ...providerDiscoveryQueryKeys.agentsForProvider(provider),
+      connectionId ?? "unresolved",
+      internalProviderId ?? "unresolved",
+      binaryPath,
+      cwd,
+    ] as const,
 };
 
 export function providerComposerCapabilitiesQueryOptions(provider: ProviderKind) {
@@ -277,6 +311,8 @@ export function isInitialModelDiscoveryPending(query: {
 
 export function providerModelsQueryOptions(input: {
   provider: ProviderKind;
+  connectionId?: ProviderConnectionId | null;
+  internalProviderId?: string | null;
   binaryPath?: string | null;
   apiEndpoint?: string | null;
   agentDir?: string | null;
@@ -284,6 +320,10 @@ export function providerModelsQueryOptions(input: {
   enabled?: boolean;
 }) {
   const discoveryIdentity = {
+    ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+    ...(input.internalProviderId !== undefined
+      ? { internalProviderId: input.internalProviderId }
+      : {}),
     binaryPath: input.binaryPath ?? null,
     apiEndpoint: input.apiEndpoint ?? null,
     agentDir: input.agentDir ?? null,
@@ -296,11 +336,17 @@ export function providerModelsQueryOptions(input: {
       input.apiEndpoint ?? null,
       input.agentDir ?? null,
       input.cwd ?? null,
+      input.connectionId,
+      input.internalProviderId,
     ),
     queryFn: async (): Promise<ProviderListModelsResultType> => {
       const api = ensureNativeApi();
       const result = await api.provider.listModels({
         provider: input.provider,
+        ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+        ...(input.internalProviderId !== undefined
+          ? { internalProviderId: input.internalProviderId }
+          : {}),
         ...(input.binaryPath ? { binaryPath: input.binaryPath } : {}),
         ...(input.apiEndpoint ? { apiEndpoint: input.apiEndpoint } : {}),
         ...(input.agentDir ? { agentDir: input.agentDir } : {}),
@@ -328,6 +374,8 @@ export function providerModelsQueryOptions(input: {
 
 export function providerAgentsQueryOptions(input: {
   provider: ProviderKind;
+  connectionId?: ProviderConnectionId | null;
+  internalProviderId?: string | null;
   binaryPath?: string | null;
   cwd?: string | null;
   enabled?: boolean;
@@ -337,11 +385,17 @@ export function providerAgentsQueryOptions(input: {
       input.provider,
       input.binaryPath ?? null,
       input.cwd ?? null,
+      input.connectionId,
+      input.internalProviderId,
     ),
     queryFn: async () => {
       const api = ensureNativeApi();
       return api.provider.listAgents({
         provider: input.provider,
+        ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+        ...(input.internalProviderId !== undefined
+          ? { internalProviderId: input.internalProviderId }
+          : {}),
         ...(input.binaryPath ? { binaryPath: input.binaryPath } : {}),
         ...(input.cwd ? { cwd: input.cwd } : {}),
       });

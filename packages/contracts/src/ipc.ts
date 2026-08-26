@@ -646,6 +646,8 @@ export interface DesktopAppTabsBridge {
   list: () => Promise<ReadonlyArray<DesktopAppTabDescriptor>>;
   consumeListingRequest: () => Promise<{ appId: string } | null>;
   open: (input: {
+    /** Stable shell identity to retain when restoring a persisted App tab. */
+    tabId?: string;
     appId: string;
     spaceId: string;
     threadId: string;

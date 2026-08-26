@@ -28,6 +28,7 @@ import type {
 } from "@opencode-ai/sdk/v2";
 
 import { resolveProviderAttachmentPath } from "../providerAttachmentPaths.ts";
+import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 import { ServerConfig } from "../../config.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import {
@@ -3877,6 +3878,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           return yield* new ProviderAdapterRequestError({
             provider,
             method: "permission.reply",
+            code: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
             detail: `Unknown pending permission request: ${requestId}`,
           });
         }
@@ -3898,6 +3900,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           return yield* new ProviderAdapterRequestError({
             provider,
             method: "question.reply",
+            code: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
             detail: `Unknown pending user-input request: ${requestId}`,
           });
         }

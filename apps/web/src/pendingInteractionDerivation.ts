@@ -6,10 +6,9 @@ import {
 } from "@penkra/contracts";
 import {
   approvalRequestKindFromRequestType,
+  isPendingInteractionNotFoundFailure,
   pendingRequestInstanceKey,
 } from "@penkra/shared/threadSummary";
-
-import { isStalePendingRequestFailureDetail } from "./lib/pendingInteraction";
 import { orderedActivities } from "./workLog";
 
 export interface PendingApproval {
@@ -141,10 +140,9 @@ function replayPendingInteractions<T extends { requestId: ApprovalRequestId; cre
       continue;
     }
 
-    const detail = typeof payload?.detail === "string" ? payload.detail : undefined;
     if (
       activity.kind === replay.responseFailedActivityKind &&
-      isStalePendingRequestFailureDetail(detail)
+      isPendingInteractionNotFoundFailure(payload)
     ) {
       deletePendingInteraction(openByInstance, requestId, lifecycleGeneration);
     }

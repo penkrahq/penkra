@@ -107,6 +107,7 @@ export class AppRendererRpcError extends Error {
 
 export interface AppRendererRpcHostOptions {
   maxPayloadBytes?: number;
+  maxResultPayloadBytes?: number;
   maxPendingPerTarget?: number;
   defaultTimeoutMs?: number;
   mintRequestId?: () => string;
@@ -126,6 +127,7 @@ interface PendingRequest {
 }
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;
+const DEFAULT_MAX_RESULT_PAYLOAD_BYTES = 24 * 1024 * 1024;
 const DEFAULT_MAX_PENDING_PER_TARGET = 128;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_CONTEXT_CALLS_PER_REQUEST = 32;
@@ -135,6 +137,7 @@ export class AppRendererRpcHost {
   readonly #targets = new Map<number, AppRendererRpcTarget>();
   readonly #pending = new Map<string, PendingRequest>();
   readonly #maxPayloadBytes: number;
+  readonly #maxResultPayloadBytes: number;
   readonly #maxPendingPerTarget: number;
   readonly #defaultTimeoutMs: number;
   readonly #mintRequestId: () => string;
@@ -144,6 +147,10 @@ export class AppRendererRpcHost {
     this.#maxPayloadBytes = positiveInteger(
       options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES,
       "maxPayloadBytes",
+    );
+    this.#maxResultPayloadBytes = positiveInteger(
+      options.maxResultPayloadBytes ?? DEFAULT_MAX_RESULT_PAYLOAD_BYTES,
+      "maxResultPayloadBytes",
     );
     this.#maxPendingPerTarget = positiveInteger(
       options.maxPendingPerTarget ?? DEFAULT_MAX_PENDING_PER_TARGET,
@@ -241,7 +248,7 @@ export class AppRendererRpcHost {
   }
 
   acceptResponse(senderTargetId: number, candidate: unknown): boolean {
-    const response = parseResponse(candidate, this.#maxPayloadBytes);
+    const response = parseResponse(candidate, this.#maxResultPayloadBytes);
     const pending = this.#pending.get(response.id);
     if (!pending || pending.targetId !== senderTargetId) return false;
     this.#settle(response.id);

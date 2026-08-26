@@ -71,6 +71,31 @@ export class AppScopedFileWriteStore {
     return { writeId: id, chunkBytes: APP_FILE_WRITE_CHUNK_BYTES };
   }
 
+  async writeText(
+    owner: AppScopedFileWriteOwner,
+    input: { handleId: string; destinationPath: string; source: string },
+  ): Promise<void> {
+    const bytes = Buffer.from(input.source, "utf8");
+    const session = await this.begin(owner, {
+      handleId: input.handleId,
+      destinationPath: input.destinationPath,
+      expectedBytes: bytes.byteLength,
+    });
+    try {
+      for (let offset = 0; offset < bytes.byteLength; offset += APP_FILE_WRITE_CHUNK_BYTES) {
+        await this.write(owner, {
+          writeId: session.writeId,
+          offset,
+          bytes: bytes.subarray(offset, offset + APP_FILE_WRITE_CHUNK_BYTES),
+        });
+      }
+      await this.commit(owner, session.writeId);
+    } catch (error) {
+      await this.abort(owner, session.writeId).catch(() => undefined);
+      throw error;
+    }
+  }
+
   async write(
     owner: AppScopedFileWriteOwner,
     input: { writeId: unknown; offset: unknown; bytes: unknown },

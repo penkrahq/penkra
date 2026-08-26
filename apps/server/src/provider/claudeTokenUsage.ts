@@ -4,12 +4,7 @@ import type {
   SDKControlGetContextUsageResponse,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { ThreadTokenUsageSnapshot } from "@penkra/contracts";
-import {
-  getDefaultAutoCompactWindow,
-  getModelCapabilities,
-  hasAutoCompactWindowOption,
-  trimOrNull,
-} from "@penkra/shared/model";
+import { getModelCapabilities, trimOrNull } from "@penkra/shared/model";
 
 import { positiveFiniteNumber } from "./tokenUsage.ts";
 
@@ -167,15 +162,11 @@ export function resolveClaudeApiModelIdContextWindowMaxTokens(
 }
 
 export function resolveSelectedClaudeAutoCompactWindow(
-  model: string | null | undefined,
+  _model: string | null | undefined,
   selectedAutoCompactWindow: string | null | undefined,
 ): number | undefined {
-  const caps = getModelCapabilities("claudeAgent", model);
-  const resolvedAutoCompactWindow =
-    trimOrNull(selectedAutoCompactWindow) ?? getDefaultAutoCompactWindow(caps) ?? null;
+  const resolvedAutoCompactWindow = trimOrNull(selectedAutoCompactWindow) ?? "200k";
   if (
-    !resolvedAutoCompactWindow ||
-    !hasAutoCompactWindowOption(caps, resolvedAutoCompactWindow) ||
     !Object.prototype.hasOwnProperty.call(
       CLAUDE_CONTEXT_WINDOW_MAX_TOKENS,
       resolvedAutoCompactWindow,

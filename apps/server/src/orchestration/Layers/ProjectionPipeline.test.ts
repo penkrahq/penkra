@@ -165,10 +165,10 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         readonly scriptsJson: string;
       }>`
         SELECT
-          project_id AS "folderId",
+          folder_id AS "folderId",
           title,
           scripts_json AS "scriptsJson"
-        FROM projection_projects
+        FROM projection_folders
       `;
       assert.deepEqual(projectRows, [
         { folderId: "project-1", title: "Project 1", scriptsJson: "[]" },
@@ -1419,7 +1419,7 @@ it.effect("drains 2,501 file-backed events to a captured high-water fence", () =
       const sql = yield* SqlClient.SqlClient;
       yield* projectionPipeline.bootstrap;
       const folders = yield* sql<{ readonly title: string }>`
-        SELECT title FROM projection_projects WHERE project_id = ${folderId}
+        SELECT title FROM projection_folders WHERE folder_id = ${folderId}
       `;
       const cursors = yield* sql<{ readonly lastAppliedSequence: number }>`
         SELECT last_applied_sequence AS "lastAppliedSequence" FROM projection_state
@@ -2063,6 +2063,88 @@ it.layer(
           status: "confirmed",
           responseCommandId: "cmd-user-input-retried",
           resolvedAt: confirmedAt,
+        },
+      ]);
+
+      const staleRequestId = ApprovalRequestId.makeUnsafe("stale-user-input-request");
+      const staleRequestedAt = "2026-03-05T11:00:06.000Z";
+      yield* eventStore.append({
+        type: "thread.activity-appended",
+        eventId: EventId.makeUnsafe("evt-stale-user-input-requested"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: staleRequestedAt,
+        commandId: CommandId.makeUnsafe("cmd-stale-user-input-requested"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-stale-user-input-requested"),
+        metadata: {},
+        payload: {
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-stale-user-input-requested"),
+            tone: "info",
+            kind: "user-input.requested",
+            summary: "Need more info",
+            payload: { requestId: staleRequestId, questions: [] },
+            turnId: null,
+            createdAt: staleRequestedAt,
+          },
+        },
+      });
+      yield* projectionPipeline.bootstrap;
+
+      const staleFailedAt = "2026-03-05T11:00:07.000Z";
+      yield* eventStore.append({
+        type: "thread.activity-appended",
+        eventId: EventId.makeUnsafe("evt-stale-user-input-failed"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: staleFailedAt,
+        commandId: CommandId.makeUnsafe("cmd-stale-user-input-failed"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-stale-user-input-failed"),
+        metadata: {},
+        payload: {
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-stale-user-input-failed"),
+            tone: "error",
+            kind: "provider.user-input.respond.failed",
+            summary: "User input response failed",
+            payload: {
+              requestId: staleRequestId,
+              failureCode: "PENDING_INTERACTION_NOT_FOUND",
+              detail:
+                "Stale pending user-input request: stale-user-input-request. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.",
+            },
+            turnId: null,
+            createdAt: staleFailedAt,
+          },
+        },
+      });
+      yield* projectionPipeline.bootstrap;
+
+      const staleRows = yield* sql<{
+        readonly status: string;
+        readonly resolvedAt: string;
+        readonly pendingUserInputCount: number;
+      }>`
+        SELECT
+          interactions.status,
+          interactions.resolved_at AS "resolvedAt",
+          threads.pending_user_input_count AS "pendingUserInputCount"
+        FROM projection_pending_interactions AS interactions
+        INNER JOIN projection_threads AS threads
+          ON threads.thread_id = interactions.thread_id
+        WHERE interactions.thread_id = ${threadId}
+          AND interactions.interaction_kind = 'userInput'
+          AND interactions.request_id = ${staleRequestId}
+      `;
+      assert.deepEqual(staleRows, [
+        {
+          status: "confirmed",
+          resolvedAt: staleFailedAt,
+          pendingUserInputCount: 0,
         },
       ]);
     }),
@@ -3636,8 +3718,8 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         SELECT
           title,
           scripts_json AS "scriptsJson"
-        FROM projection_projects
-        WHERE project_id = 'project-live'
+        FROM projection_folders
+        WHERE folder_id = 'project-live'
       `;
       assert.deepEqual(projectRows, [{ title: "Live Project", scriptsJson: "[]" }]);
 
@@ -3737,8 +3819,8 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
           default_model_selection_json AS "defaultModelSelection",
           is_pinned AS "isPinned",
           icon_data_url AS "iconDataUrl"
-        FROM projection_projects
-        WHERE project_id = 'project-scripts'
+        FROM projection_folders
+        WHERE folder_id = 'project-scripts'
       `;
       assert.deepEqual(projectRows, [
         {

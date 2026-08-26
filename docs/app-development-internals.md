@@ -26,12 +26,12 @@ Every supported desktop flavor exposes the public App-author commands through
 `penkra_exec_command`:
 
 ```json
-{ "command": ["penkra", "app", "test", "<directory>"] }
-{ "command": ["penkra", "app", "package", "<directory>"], "flags": { "output": "<path>" } }
-{ "command": ["penkra", "app", "sideload", "<directory>"] }
-{ "command": ["penkra", "app", "status"], "flags": { "app-id": "<app-id>" } }
-{ "command": ["penkra", "app", "publish", "<directory>"], "flags": { "visibility": "private" } }
-{ "command": ["penkra", "app", "access", "<invite|list|revoke>"], "flags": {} }
+{ "command": "penkra app test <directory>" }
+{ "command": "penkra app package <directory> --output <path>" }
+{ "command": "penkra app sideload <directory>" }
+{ "command": "penkra app status --app-id <app-id>" }
+{ "command": "penkra app publish <directory> --visibility private" }
+{ "command": "penkra app access <invite|list|revoke>" }
 ```
 
 These are registered host operations, never native executables or provider-shell commands.

@@ -121,14 +121,14 @@ layer("ProviderConnectionRepository", (it) => {
           '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z')
       `;
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id, kind, title, workspace_root, scripts_json, created_at, updated_at, space_id
+        INSERT INTO projection_folders (
+          folder_id, kind, title, workspace_root, scripts_json, created_at, updated_at, space_id
         ) VALUES ('identity-project', 'project', 'Identity', NULL, '[]',
           '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z', 'identity-space')
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, runtime_mode,
+          thread_id, folder_id, title, runtime_mode,
           created_at, updated_at
         ) VALUES ('identity-thread', 'identity-project', 'Identity', 'full-access',
           '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z')

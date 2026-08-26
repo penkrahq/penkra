@@ -413,12 +413,12 @@ function readClaudeToolResultSample(input: {
   };
 }
 
-// Claude Code stores transcripts under `<CLAUDE_CONFIG_DIR>/folders`, defaulting to
-// `~/.claude/folders`. Honor the override so the Profile reads the SAME transcripts
+// Claude Code stores transcripts under the provider-owned
+// `<CLAUDE_CONFIG_DIR>/projects` directory. Honor the override so the Profile reads the SAME transcripts
 // the active Claude provider does (the adapter inherits `process.env`).
-function resolveClaudeFoldersRoot(homeDir: string): string {
+function resolveClaudeProjectsRoot(homeDir: string): string {
   const configDir = process.env.CLAUDE_CONFIG_DIR?.trim();
-  return nodePath.join(configDir || nodePath.join(homeDir, ".claude"), "folders");
+  return nodePath.join(configDir || nodePath.join(homeDir, ".claude"), "projects");
 }
 
 async function listRecentClaudeTranscriptFiles(
@@ -545,7 +545,7 @@ async function loadCodexUsageSnapshot(input: {
 }
 
 async function loadClaudeUsageSnapshot(input: { homeDir: string }): Promise<UsageSnapshot | null> {
-  const projectsRoot = resolveClaudeFoldersRoot(input.homeDir);
+  const projectsRoot = resolveClaudeProjectsRoot(input.homeDir);
   const transcriptFiles = await listRecentClaudeTranscriptFiles(projectsRoot);
   if (transcriptFiles.length === 0) {
     return null;

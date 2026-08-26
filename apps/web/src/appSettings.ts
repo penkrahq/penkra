@@ -227,7 +227,7 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConf
     title: "Codex",
     description: "Save additional Codex model slugs for the picker and `/model` command.",
     placeholder: "your-codex-model-slug",
-    example: "gpt-6.7-codex-ultra-preview",
+    example: "provider-model-id",
   },
   claudeAgent: {
     provider: "claudeAgent",
@@ -245,7 +245,7 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConf
     title: "OpenCode",
     description: "Save additional OpenCode model slugs for the picker and provider runtime.",
     placeholder: "provider/model",
-    example: "openai/gpt-5",
+    example: "provider/model-id",
   },
 };
 
@@ -376,8 +376,12 @@ function serverSettingsToAppSettings(settings: ServerSettingsView): Partial<AppS
     customCodexModels: settings.providers.codex.customModels,
     customClaudeModels: settings.providers.claudeAgent.customModels,
     customOpenCodeModels: settings.providers.opencode.customModels,
-    textGenerationProvider: settings.textGenerationModelSelection.provider,
-    textGenerationModel: settings.textGenerationModelSelection.model,
+    ...(settings.textGenerationModelSelection
+      ? {
+          textGenerationProvider: settings.textGenerationModelSelection.provider,
+          textGenerationModel: settings.textGenerationModelSelection.model,
+        }
+      : {}),
   };
 }
 
@@ -412,15 +416,17 @@ function appSettingsPatchToServerSettingsPatch(patch: Partial<AppSettings>): Ser
   }
   if (hasOwn(patch, "textGenerationModel") || hasOwn(patch, "textGenerationProvider")) {
     const model = patch.textGenerationModel ?? DEFAULT_TEXT_GENERATION_MODEL;
-    serverPatch.textGenerationModelSelection = {
-      provider: resolveTextGenerationProvider({
-        ...(patch.textGenerationProvider !== undefined
-          ? { provider: patch.textGenerationProvider }
-          : {}),
-        model,
-      }),
-      model,
-    };
+    serverPatch.textGenerationModelSelection = model
+      ? {
+          provider: resolveTextGenerationProvider({
+            ...(patch.textGenerationProvider !== undefined
+              ? { provider: patch.textGenerationProvider }
+              : {}),
+            model,
+          }),
+          model,
+        }
+      : null;
   }
 
   if (hasOwn(patch, "customCodexModels")) {

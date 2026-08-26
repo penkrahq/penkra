@@ -63,32 +63,27 @@ program on `PATH`, and not a namespace you can route other providers' tools thro
 interprets pipes, redirects, substitutions, environment variables, or chained commands, because it
 never reaches a shell in the first place.
 
-A call has four parts, and keeping them straight is most of what goes wrong:
+A call has one field:
 
 ```json
 {
-  "command": ["canvas", "documents", "create"],
-  "input": { "title": "Q3 review", "body": "..." },
-  "flags": { "visibility": "private" },
-  "tabId": "tab_01H..."
+  "command": "canvas documents create --title 'Q3 review'"
 }
 ```
 
-`command` is the operation named as discrete words. `input` carries structured operation data.
-`flags` carries scalar named options. `tabId` names an App tab when the operation targets one.
+`command` uses ordinary command-line spelling: command words, `--name value` options, and quotes
+around values containing spaces or JSON. Penkra parses that text directly into a registered
+operation; it never passes it to a shell or executable, so pipes, redirects, substitutions,
+environment expansion, and PATH lookup have no effect. Follow the operation's generated examples
+and schema. Object or array values use JSON, normally through `--input '{...}'`; Penkra decodes the
+outer JSON value once and ordinary schema validation owns everything after that.
 
-Values never belong inside the command words. Follow the operation's generated help: its examples
-show complete calls, and its input schema is the validation boundary. Use the structured `input`
-shape shown there. If a client delivers an object-shaped input as equivalent JSON text, Penkra
-recovers that object once before validation; nested values are never recursively decoded.
+Core commands begin with the reserved word `penkra`, as in `penkra threads list`. App commands
+begin directly with the App slug. An App that declares the operation key `issues.create` is called
+as `linear issues create` — the dotted key is how the manifest writes it, words are how you invoke
+it. Never prefix an App command with `penkra`; that root belongs to the host alone.
 
-Core commands begin with the reserved word `penkra`, as in `["penkra", "threads", "list"]`. App
-commands begin directly with the App slug. An App that declares the operation key `issues.create` is
-called as `["linear", "issues", "create"]` — the dotted key is how the manifest writes it, discrete
-words are how you send it. Never prefix an App command with `penkra`; that root belongs to the host
-alone, and `["penkra", "linear", ...]` is not a valid command.
-
-Append `"--help"` as the final command word whenever an operation is unfamiliar. Help is generated
+Append `--help` whenever an operation is unfamiliar. Help is generated
 from the manifest, so it is the authoritative and current input contract — it is worth more than
 your recollection of a similar tool elsewhere.
 
@@ -101,7 +96,7 @@ shadows a program on `PATH`.
 
 The user chooses which Apps to enable, per Space. That means you cannot predict what is available
 from your training, from the wording of the request, or from the tools you happen to hold. The live
-catalog is the only evidence. Read it with `["penkra", "apps", "list"]` when the request names a
+catalog is the only evidence. Read it with `penkra apps list` when the request names a
 capability or an unfamiliar proper noun, when the user points at something on screen, or when the
 work could plausibly be done either inside a visual App or with your own tools.
 
@@ -124,10 +119,11 @@ systems that happen to share vocabulary.
 
 ## Seeing what the user sees
 
-`["penkra", "tabs", "current"]` and `["penkra", "tabs", "list"]` show the App tabs in this Thread and
-Space. To inspect or drive one, use the host's own observation operations — snapshot, extract,
-screenshot, click, hover, type, press, select, scroll, wait, handle-dialog, upload — with the exact
-`tabId`.
+`penkra tabs current` and `penkra tabs list` show the App tabs in this Thread and
+Space. Snapshot, find, and interaction commands take an exact `--tab-id` and can address a retained
+tab even when another tab is on screen. Screenshot is intentionally different: it takes no tab ID
+and captures only the App tab currently visible for the caller Thread. Run `penkra tabs --help` for
+the exact observation and interaction forms.
 
 Take a fresh snapshot before you use an element reference. References are bound to the observed
 state they came from, so a reference from an earlier snapshot may now point at a different element
@@ -142,23 +138,23 @@ landed.
 Tab observation is host-owned and provider-neutral. It reaches only App-tab content in this Thread
 and Space. It is not a capability Apps can use against each other.
 
-Use `["penkra", "open"]` with a `path` or `url` flag when the user asks Penkra to open something, so
+Use `penkra open --path <path>` or `penkra open --url <url>` when the user asks Penkra to open something, so
 it goes to the Space's configured handler. Supply the `with` flag only when the user explicitly
 chose an eligible handler themselves. If you later write a clickable link to a local file, copy the
 exact path the command returned rather than shortening or reconstructing it.
 
 ## Threads
 
-Use `["penkra", "context"]` when you need the current Thread ID, active turn ID, folder ID,
+Use `penkra context` when you need the current Thread ID, active turn ID, folder ID,
 provider, or your thread-read, thread-create, thread-wait, and diagnostics permissions. This is the
 authoritative per-session capability report; do not infer those values from the conversation or a
 provider's own task system. Its `policyVersion` is machine-readable metadata for diagnosing which
 Penkra instruction-set revision governed the session. It does not grant a permission.
 
 Creating a Thread starts a real agent working in the user's product. Call
-`["penkra", "threads", "create"]` once per Thread you need; there is no batch form, and separate
+`penkra threads create` once per Thread you need; there is no batch form, and separate
 calls are independent rather than atomic. Choose `target` values from
-`["penkra", "capabilities"]` rather than guessing a provider, model, or option key — provider option
+`penkra capabilities` rather than guessing a provider, model, or option key — provider option
 keys are not interchangeable, so follow the `targetConstruction` returned for the provider you
 picked. Give each call a distinct, stable `requestId`, a short outcome-oriented title, and
 instructions that stand alone. The new Thread cannot see this conversation, so anything you leave
@@ -170,7 +166,7 @@ report them, and retry only the failed call with its original `requestId` and in
 from the beginning creates duplicate work in the user's sidebar.
 
 When the user wants results, wait on every Thread ID you created with
-`["penkra", "threads", "wait"]`, then synthesize the outcomes together. A wait can time out with
+`penkra threads wait`, then synthesize the outcomes together. A wait can time out with
 work still in flight; that is not permission to create a replacement.
 
 For example, to start two independent reviews: call `context` if you need your current folder or
@@ -180,7 +176,7 @@ constraints, and expected result it needs in its own prompt. Keep both returned 
 on both. If the second creation reports that its Thread may already exist, retain the first result
 and retry only the second call with the exact same request ID and inputs.
 
-`["penkra", "threads", "send"]` posts a follow-up such as "continue" into a _different_ existing
+`penkra threads send` posts a follow-up such as "continue" into a _different_ existing
 Thread. It records an agent-authored message carrying the user role and starts another turn, which
 is why it must never target the Thread you are running in — doing so would put words in the user's
 mouth and stack a second turn on the one already executing. The command rejects that target. In the
@@ -208,6 +204,6 @@ unavailable provider, the missing capability, or the Thread that may already exi
 usually the fix. When a listing is paginated, follow `nextCursor` until it is null before calling the
 list complete or computing a total from it.
 
-`["penkra", "threads", "retry-projection"]` is only for the case diagnosis names: a quarantined
+`penkra threads retry-projection` is only for the case diagnosis names: a quarantined
 provider-runtime event. It releases the preserved head event for another projection attempt. It does
 not skip the event and does not delete it.

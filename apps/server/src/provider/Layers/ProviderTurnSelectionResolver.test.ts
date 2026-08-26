@@ -327,26 +327,28 @@ layer("ProviderTurnSelectionResolver", (it) => {
     }),
   );
 
-  it.effect("migrates a retired thread binding to the active installation", () =>
-    Effect.gen(function* () {
-      installationLifecycle = "retired";
-      connectionLifecycle = "active";
-      hasRuntimeBinding = true;
-      const resolver = yield* ProviderTurnSelectionResolver;
-      const selected = yield* resolver.resolveExisting({ threadId });
-      assert.strictEqual(selected.changed, true);
-      assert.strictEqual(selected.requiresNativeStateMaterialization, true);
-      assert.strictEqual(selected.installationId, activeInstallationId);
-      const switched = yield* resolver.resolveExisting({
-        threadId,
-        modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
-        connectionId: null,
-        bindingRevision: 7,
-      });
-      assert.strictEqual(switched.changed, true);
-      assert.strictEqual(switched.installationId, activeInstallationId);
-      installationLifecycle = "active";
-    }),
+  it.effect(
+    "pins an unchanged retired thread and uses the active installation for an explicit switch",
+    () =>
+      Effect.gen(function* () {
+        installationLifecycle = "retired";
+        connectionLifecycle = "active";
+        hasRuntimeBinding = true;
+        const resolver = yield* ProviderTurnSelectionResolver;
+        const selected = yield* resolver.resolveExisting({ threadId });
+        assert.strictEqual(selected.changed, false);
+        assert.strictEqual(selected.requiresNativeStateMaterialization, false);
+        assert.strictEqual(selected.installationId, installationId);
+        const switched = yield* resolver.resolveExisting({
+          threadId,
+          modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
+          connectionId: null,
+          bindingRevision: 7,
+        });
+        assert.strictEqual(switched.changed, true);
+        assert.strictEqual(switched.installationId, activeInstallationId);
+        installationLifecycle = "active";
+      }),
   );
 
   it.effect("rejects a model that the exact selected Connection did not expose", () =>

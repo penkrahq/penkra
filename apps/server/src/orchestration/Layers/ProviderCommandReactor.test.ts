@@ -7628,6 +7628,7 @@ describe("ProviderCommandReactor", () => {
         new ProviderAdapterRequestError({
           provider: "codex",
           method: "session/request_permission",
+          code: "PENDING_INTERACTION_NOT_FOUND",
           detail: "Unknown pending permission request: approval-request-1",
         }),
       ),
@@ -7701,20 +7702,21 @@ describe("ProviderCommandReactor", () => {
       requestId: "approval-request-1",
       responseCommandId: "cmd-approval-respond-stale",
       settlementStatus: "uncertain",
+      failureCode: "PENDING_INTERACTION_NOT_FOUND",
       detail: expect.stringContaining("Stale pending approval request: approval-request-1"),
     });
-    const uncertainApproval = await Effect.runPromise(
+    const settledApproval = await Effect.runPromise(
       harness.pendingInteractionRepository.getByIdentity({
         threadId: ThreadId.makeUnsafe("thread-1"),
         interactionKind: "approval",
         requestId: asApprovalRequestId("approval-request-1"),
       }),
     );
-    expect(Option.getOrUndefined(uncertainApproval)).toMatchObject({
-      status: "uncertain",
+    expect(Option.getOrUndefined(settledApproval)).toMatchObject({
+      status: "confirmed",
       responseCommandId: "cmd-approval-respond-stale",
       decision: "acceptForSession",
-      resolvedAt: null,
+      resolvedAt: now,
     });
     const responseEvents = await Effect.runPromise(
       Stream.runCollect(harness.engine.readEvents(0)).pipe(
@@ -7751,6 +7753,7 @@ describe("ProviderCommandReactor", () => {
         new ProviderAdapterRequestError({
           provider: "claudeAgent",
           method: "item/tool/respondToUserInput",
+          code: "PENDING_INTERACTION_NOT_FOUND",
           detail: "Unknown pending user-input request: user-input-request-1",
         }),
       ),
@@ -7838,20 +7841,21 @@ describe("ProviderCommandReactor", () => {
       requestId: "user-input-request-1",
       responseCommandId: "cmd-user-input-respond-stale",
       settlementStatus: "uncertain",
+      failureCode: "PENDING_INTERACTION_NOT_FOUND",
       detail: expect.stringContaining("Stale pending user-input request: user-input-request-1"),
     });
-    const uncertainUserInput = await Effect.runPromise(
+    const settledUserInput = await Effect.runPromise(
       harness.pendingInteractionRepository.getByIdentity({
         threadId: ThreadId.makeUnsafe("thread-1"),
         interactionKind: "userInput",
         requestId: asApprovalRequestId("user-input-request-1"),
       }),
     );
-    expect(Option.getOrUndefined(uncertainUserInput)).toMatchObject({
-      status: "uncertain",
+    expect(Option.getOrUndefined(settledUserInput)).toMatchObject({
+      status: "confirmed",
       responseCommandId: "cmd-user-input-respond-stale",
       decision: null,
-      resolvedAt: null,
+      resolvedAt: now,
     });
 
     const resolvedActivity = thread?.activities.find(

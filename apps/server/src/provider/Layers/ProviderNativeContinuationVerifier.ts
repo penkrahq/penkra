@@ -4,6 +4,7 @@
 import { Effect, Layer, Option } from "effect";
 
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
+import { ThreadDiagnosticsQuery } from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
 import { providerNativeResumeIdentity } from "../nativeResumeIdentity.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
@@ -22,17 +23,92 @@ const fail = (detail: string, cause?: unknown) =>
     }),
   );
 
+const describeCauseChain = (cause: unknown): string => {
+  const entries: Array<{ readonly type: string; readonly message: string }> = [];
+  const seen = new Set<unknown>();
+  let current: unknown = cause;
+  while (current !== undefined && current !== null && entries.length < 8 && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof Error) {
+      entries.push({ type: current.name, message: current.message });
+      current = current.cause;
+      continue;
+    }
+    if (typeof current === "object") {
+      const record = current as {
+        readonly _tag?: unknown;
+        readonly cause?: unknown;
+        readonly message?: unknown;
+      };
+      entries.push({
+        type: typeof record._tag === "string" ? record._tag : "Object",
+        message: typeof record.message === "string" ? record.message : String(current),
+      });
+      current = record.cause;
+      continue;
+    }
+    entries.push({ type: typeof current, message: String(current) });
+    break;
+  }
+  return JSON.stringify(entries);
+};
+
 export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
   const adapters = yield* ProviderAdapterRegistry;
   const launches = yield* ProviderLaunchResolver;
   const materializer = yield* ProviderNativeStateMaterializer;
   const threads = yield* ThreadProviderBindingRepository;
+  const diagnostics = yield* ThreadDiagnosticsQuery;
 
-  const verifySwitch: ProviderNativeContinuationVerifierShape["verifySwitch"] = (input) =>
-    Effect.gen(function* () {
+  const recordDiagnostic = (input: {
+    readonly threadId: string;
+    readonly code: string;
+    readonly severity: "info" | "error";
+    readonly detail: Readonly<Record<string, string | number | boolean | null>>;
+  }) =>
+    diagnostics
+      .recordOperationalDiagnostic({
+        threadId: input.threadId,
+        source: "server",
+        kind: "provider.native-continuation-verification",
+        severity: input.severity,
+        code: input.code,
+        detail: input.detail,
+        occurredAt: new Date().toISOString(),
+      })
+      .pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("could not persist native continuation verification diagnostic", {
+            threadId: input.threadId,
+            code: input.code,
+            cause: cause.message,
+          }),
+        ),
+        Effect.asVoid,
+      );
+
+  const verifySwitch: ProviderNativeContinuationVerifierShape["verifySwitch"] = (input) => {
+    const startedAt = Date.now();
+    let stage = "validate-selection";
+    const commonDetail = {
+      provider: input.selection.harness,
+      sourceInstallationId: input.selection.previousInstallationId,
+      targetInstallationId: input.selection.installationId,
+      sourceStorage: input.sourceStorage,
+      targetGenerationId: input.targetGenerationId,
+      modelId: input.selection.modelId,
+    } as const;
+    const verification = Effect.gen(function* () {
+      yield* recordDiagnostic({
+        threadId: input.selection.threadId,
+        code: "NATIVE_CONTINUATION_VERIFICATION_STARTED",
+        severity: "info",
+        detail: { ...commonDetail, stage },
+      });
       if (!input.selection.changed) {
         return yield* fail("Native continuation verification requires an actual selection change.");
       }
+      stage = "read-source-state";
       const state = yield* threads.getHarnessState(input.selection.threadId).pipe(
         Effect.mapError(
           (cause) =>
@@ -50,6 +126,7 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
         return yield* fail("The source native state changed before verification.");
       }
 
+      stage = "decode-source-state";
       const sourceCursor = yield* Effect.try({
         try: () => JSON.parse(state.value.nativeStateLocatorJson) as unknown,
         catch: (cause) =>
@@ -66,6 +143,7 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
         return yield* fail("The source native-state identity is not exact.");
       }
 
+      stage = "clone-native-state";
       yield* materializer
         .clone({
           harness: input.selection.harness,
@@ -87,6 +165,7 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
         );
 
       const result = yield* Effect.gen(function* () {
+        stage = "resolve-target-launch";
         const launch = yield* launches
           .resolve({
             threadId: input.selection.threadId,
@@ -104,6 +183,7 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
                 }),
             ),
           );
+        stage = "resolve-target-adapter";
         const adapter = yield* adapters.getByProvider(input.selection.harness).pipe(
           Effect.mapError(
             (cause) =>
@@ -116,6 +196,7 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
         if (adapter.verifyNativeResume === undefined) {
           return yield* fail("The target provider adapter cannot verify native continuation.");
         }
+        stage = "initialize-target-resume";
         const verified = yield* adapter
           .verifyNativeResume({
             sourceResumeCursor: sourceCursor,
@@ -142,6 +223,7 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
                 }),
             ),
           );
+        stage = "validate-resumed-identity";
         const verifiedIdentity = providerNativeResumeIdentity(
           input.selection.harness,
           verified.resumeCursor,
@@ -171,6 +253,43 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
 
       return result;
     });
+
+    return verification.pipe(
+      Effect.tap(() =>
+        recordDiagnostic({
+          threadId: input.selection.threadId,
+          code: "NATIVE_CONTINUATION_VERIFICATION_SUCCEEDED",
+          severity: "info",
+          detail: { ...commonDetail, stage: "completed", elapsedMs: Date.now() - startedAt },
+        }),
+      ),
+      Effect.tapError((cause) => {
+        const failureDetail = {
+          ...commonDetail,
+          stage,
+          elapsedMs: Date.now() - startedAt,
+          errorType: cause._tag,
+          errorMessage: cause.message,
+          causeChain: describeCauseChain(cause),
+        } as const;
+        return Effect.all(
+          [
+            recordDiagnostic({
+              threadId: input.selection.threadId,
+              code: "NATIVE_CONTINUATION_VERIFICATION_FAILED",
+              severity: "error",
+              detail: failureDetail,
+            }),
+            Effect.logWarning("native continuation verification failed", {
+              threadId: input.selection.threadId,
+              ...failureDetail,
+            }),
+          ],
+          { concurrency: "unbounded", discard: true },
+        );
+      }),
+    );
+  };
 
   return { verifySwitch } satisfies ProviderNativeContinuationVerifierShape;
 });

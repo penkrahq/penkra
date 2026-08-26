@@ -41,12 +41,26 @@ describe("AppCommandPipeServer", () => {
       slug: "linear",
       name: "Linear",
       iconDataUrl: null,
-      documentUrl: "penkra-app://linear/app.html",
       spaceId: "personal",
       threadId: "thread-1",
       route: "/issues",
       status: "ready" as const,
+      documentUrl: "penkra-app://linear/index.html#penkra-tab=tab-1",
     };
+    const secondTab = {
+      ...current,
+      id: "tab-2",
+      rendererId: 102,
+      route: "/issues/second",
+    };
+    const otherThreadTab = {
+      ...current,
+      id: "tab-other-thread",
+      rendererId: 103,
+      threadId: "thread-2",
+    };
+    const snapshot = vi.fn(async () => ({ snapshot: "" }));
+    const screenshot = vi.fn(async () => ({ kind: "image" }));
     const server = new AppCommandPipeServer({
       path,
       token: "secret",
@@ -58,11 +72,11 @@ describe("AppCommandPipeServer", () => {
         skills: vi.fn(async () => []),
       } as never,
       broker: { invoke } as never,
-      tabs: { list: () => [current], current: () => current },
+      tabs: { list: () => [current, secondTab, otherThreadTab], current: () => current },
       observer: {
-        snapshot: vi.fn(async () => ({ nodes: [] })),
-        extract: vi.fn(async () => ({ text: "" })),
-        screenshot: vi.fn(async () => ({ kind: "image" })),
+        snapshot,
+        find: vi.fn(async () => ({ matches: [] })),
+        screenshot,
         click: vi.fn(async () => ({})),
         hover: vi.fn(async () => ({})),
         type: vi.fn(async () => ({})),
@@ -154,7 +168,7 @@ describe("AppCommandPipeServer", () => {
         method: "tabs.list",
         params: { spaceId: "personal", threadId: "thread-1" },
       }),
-    ).resolves.toEqual({ ok: true, id: "request-tabs", result: [current] });
+    ).resolves.toEqual({ ok: true, id: "request-tabs", result: [current, secondTab] });
 
     await expect(
       send(path, {
@@ -163,7 +177,61 @@ describe("AppCommandPipeServer", () => {
         method: "tabs.list",
         params: { spaceId: "personal", threadId: "thread-2" },
       }),
-    ).resolves.toEqual({ ok: true, id: "request-tabs-other-thread", result: [] });
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-tabs-other-thread",
+      result: [otherThreadTab],
+    });
+
+    await expect(
+      send(path, {
+        id: "request-exact-second-tab",
+        token: "secret",
+        method: "tabs.snapshot",
+        params: { spaceId: "personal", threadId: "thread-1", tabId: "tab-2" },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-exact-second-tab",
+      result: { snapshot: "" },
+    });
+    expect(snapshot).toHaveBeenCalledWith("tab-2", {
+      target: undefined,
+      depth: undefined,
+      boxes: undefined,
+      outputPath: undefined,
+    });
+
+    await expect(
+      send(path, {
+        id: "request-cross-thread-tab",
+        token: "secret",
+        method: "tabs.snapshot",
+        params: {
+          spaceId: "personal",
+          threadId: "thread-1",
+          tabId: "tab-other-thread",
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { message: expect.stringContaining("not open in the caller Thread and Space") },
+    });
+    expect(snapshot).toHaveBeenCalledOnce();
+
+    await expect(
+      send(path, {
+        id: "request-visible-screenshot",
+        token: "secret",
+        method: "tabs.screenshot",
+        params: { spaceId: "personal", threadId: "thread-1" },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-visible-screenshot",
+      result: { kind: "image" },
+    });
+    expect(screenshot).toHaveBeenCalledWith("tab-1", undefined);
 
     await expect(
       send(path, {

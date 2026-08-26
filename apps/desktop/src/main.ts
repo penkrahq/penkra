@@ -5696,7 +5696,14 @@ function registerIpcHandlers(): void {
           if (Buffer.byteLength(record.source) > 16 * 1024 * 1024) {
             throw new Error("Text file exceeds the 16 MB limit.");
           }
-          await FS.promises.writeFile(absolutePath, record.source, "utf8");
+          await runtimeV2FileWrites.writeText(
+            { appId: identity.appId, spaceId: identity.spaceId, tabId, rendererId },
+            {
+              handleId: handle.id,
+              destinationPath: absolutePath,
+              source: record.source,
+            },
+          );
           return;
         }
         if (method === "files.createDirectory") {

@@ -893,6 +893,7 @@ describe("ClaudeAdapterLive", () => {
       const createInput = harness.getLastCreateQueryInput();
       assert.deepEqual(createInput?.options.settings, {
         autoCompactEnabled: true,
+        autoCompactWindow: 200_000,
         alwaysThinkingEnabled: false,
       });
     }).pipe(
@@ -901,7 +902,7 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("ignores Claude thinking toggle for non-Haiku models", () => {
+  it.effect("forwards an explicit thinking toggle without model-name heuristics", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -922,6 +923,7 @@ describe("ClaudeAdapterLive", () => {
       assert.deepEqual(createInput?.options.settings, {
         autoCompactEnabled: true,
         autoCompactWindow: 200_000,
+        alwaysThinkingEnabled: false,
       });
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
@@ -958,7 +960,7 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("ignores claude fast mode for non-opus models", () => {
+  it.effect("forwards explicit fast mode without model-name heuristics", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -979,6 +981,7 @@ describe("ClaudeAdapterLive", () => {
       assert.deepEqual(createInput?.options.settings, {
         autoCompactEnabled: true,
         autoCompactWindow: 200_000,
+        fastMode: true,
       });
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
@@ -4505,6 +4508,76 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     },
   );
 
+  it.effect("does not let a never-spawned discovery child poison later retries", () => {
+    const successfulQuery = new FakeClaudeQuery();
+    let createCalls = 0;
+    let spawnCalls = 0;
+    let teardownCalls = 0;
+    const neverSpawnedProcess = {
+      pid: undefined,
+      exitCode: null,
+      signalCode: null,
+      once: () => undefined,
+      removeListener: () => undefined,
+    } as unknown as ClaudeOwnedProcess;
+    const spawnedProcess = {
+      pid: 73_316,
+      exitCode: 0,
+      signalCode: null,
+      once: () => undefined,
+      removeListener: () => undefined,
+    } as unknown as ClaudeOwnedProcess;
+    const layer = makeClaudeAdapterLive({
+      spawnClaudeCodeProcess: () => {
+        spawnCalls += 1;
+        return spawnCalls === 1 ? neverSpawnedProcess : spawnedProcess;
+      },
+      teardownProcessTree: async () => {
+        teardownCalls += 1;
+        return { escalated: false, signalErrors: [] };
+      },
+      createQuery: (input) => {
+        createCalls += 1;
+        input.options.spawnClaudeCodeProcess?.({
+          command: "claude",
+          args: [],
+          env: {},
+          signal: new AbortController().signal,
+        });
+        if (createCalls === 1) {
+          throw new Error("simulated executable-not-found spawn failure");
+        }
+        return successfulQuery;
+      },
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const listCommands = adapter.listCommands;
+      if (!listCommands) {
+        assert.fail("Expected Claude adapter to support command discovery.");
+      }
+      const input = {
+        provider: "claudeAgent" as const,
+        cwd: "/tmp/project",
+        forceReload: true,
+      };
+
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(listCommands(input))));
+      assert.equal(createCalls, 1);
+      assert.equal(spawnCalls, 1);
+      assert.equal(teardownCalls, 0);
+
+      yield* listCommands(input);
+      assert.equal(createCalls, 2);
+      assert.equal(spawnCalls, 2);
+      assert.equal(teardownCalls, 1);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("stopSession does not throw into the SDK prompt consumer", () => {
     // The SDK consumes user messages via `for await (... of prompt)`.
     // Stopping a session must end that loop cleanly — not throw an error.
@@ -5541,7 +5614,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     },
   );
 
-  it.effect("does not let stale result metadata shrink a known Claude model capacity", () => {
+  it.effect("treats provider-reported result metadata as authoritative", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -5606,10 +5679,10 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       if (finalUsageEvent?.type === "thread.token-usage.updated") {
         assert.deepEqual(finalUsageEvent.payload, {
           usage: {
-            usedTokens: 190000,
-            lastUsedTokens: 190000,
+            usedTokens: 128000,
+            lastUsedTokens: 128000,
             totalProcessedTokens: 535000,
-            maxTokens: 200000,
+            maxTokens: 128000,
           },
         });
       }
@@ -6468,7 +6541,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
-  it.effect("registers shared Claude subagent definitions with the SDK query options", () => {
+  it.effect("registers model-neutral worker definitions with the SDK query options", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -6482,10 +6555,6 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       const createInput = harness.getLastCreateQueryInput();
       assert.isDefined(createInput?.options.agents);
       assert.deepEqual(Object.keys(createInput?.options.agents ?? {}).toSorted(), [
-        "build",
-        "explore",
-        "plan",
-        "review",
         "worker-high",
         "worker-low",
         "worker-medium",
@@ -6913,7 +6982,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       const configuredEventsFiber = yield* Stream.filter(
         adapter.streamEvents,
         (event) => event.type === "session.configured",
-      ).pipe(Stream.take(3), Stream.runCollect, Effect.forkChild);
+      ).pipe(Stream.take(2), Stream.runCollect, Effect.forkChild);
 
       const session = yield* adapter.startSession({
         threadId: THREAD_ID,
@@ -6944,16 +7013,13 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         attachments: [],
       });
 
-      assert.deepEqual(harness.query.applyFlagSettingsCalls, [
-        { autoCompactWindow: 200_000 },
-        { autoCompactWindow: null },
-      ]);
+      assert.deepEqual(harness.query.applyFlagSettingsCalls, [{ autoCompactWindow: 200_000 }]);
       const configuredEvents = Array.from(yield* Fiber.join(configuredEventsFiber));
       assert.deepEqual(
         configuredEvents.map((event) =>
           event.type === "session.configured" ? event.payload.config.autoCompactWindow : undefined,
         ),
-        [1_000_000, 200_000, null],
+        [1_000_000, 200_000],
       );
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
@@ -7543,11 +7609,23 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         value: "opus",
         resolvedModel: "claude-opus-6",
         displayName: "Opus",
-        description: " Opus 6 ",
+        description: " Opus 6 · Most capable ",
         supportsEffort: true,
         supportedEffortLevels: ["low", "high", "max"],
         supportsAdaptiveThinking: true,
         supportsFastMode: true,
+      },
+      {
+        value: "haiku",
+        resolvedModel: "claude-haiku-4-5-20251001",
+        displayName: "Haiku",
+        description: "Haiku 4.5 · Fastest for quick answers",
+      },
+      {
+        value: "fallback",
+        resolvedModel: "claude-future-model",
+        displayName: "Provider label",
+        description: "Fastest",
       },
     ];
     const layer = makeClaudeAdapterLive({
@@ -7585,11 +7663,21 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         models: [
           {
             slug: "claude-opus-6",
-            name: "Opus",
-            description: "Opus 6",
+            name: "Opus 6",
+            description: "Opus 6 · Most capable",
             supportedReasoningEfforts: [{ value: "low" }, { value: "high" }, { value: "max" }],
             supportsFastMode: true,
             supportsThinkingToggle: false,
+          },
+          {
+            slug: "claude-haiku-4-5-20251001",
+            name: "Haiku 4.5",
+            description: "Haiku 4.5 · Fastest for quick answers",
+          },
+          {
+            slug: "claude-future-model",
+            name: "Provider label",
+            description: "Fastest",
           },
         ],
         source: "claudeAgent",
@@ -7864,7 +7952,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
-  it.effect("preserves the 1m auto-compact budget when final model usage reports 200k", () => {
+  it.effect("uses provider-reported context capacity when it is below the requested budget", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -7937,7 +8025,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
           usage: {
             usedTokens: 23_000,
             lastUsedTokens: 23_000,
-            maxTokens: 1_000_000,
+            maxTokens: 200_000,
           },
         });
       }

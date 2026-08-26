@@ -24,12 +24,22 @@ import {
 } from "~/lib/providerConnectionsReactQuery";
 import { providerDiscoveryQueryKeys } from "~/lib/providerDiscoveryReactQuery";
 import { ensureNativeApi } from "~/nativeApi";
+import { useComposerDraftStore } from "~/composerDraftStore";
 
 function authenticationMethodSelectionId(input: {
   authenticationTargetId: string;
   authenticationMethodId: string;
 }) {
   return `${input.authenticationTargetId}:${input.authenticationMethodId}`;
+}
+
+function selectNewConnection(connection: ProviderConnection): void {
+  useComposerDraftStore.setState((state) => ({
+    stickyConnectionByProvider: {
+      ...state.stickyConnectionByProvider,
+      [connection.harness]: connection.id,
+    },
+  }));
 }
 
 function connectionDetail(input: {
@@ -161,6 +171,7 @@ export function SettingsAgentsPage(_props: { embedded?: boolean } = {}) {
         });
         if (stopped) return;
         if (login.state === "completed") {
+          if (login.connection !== null) selectNewConnection(login.connection);
           await refresh();
           setLoginOperationId(null);
           clearAdd();
@@ -213,12 +224,13 @@ export function SettingsAgentsPage(_props: { embedded?: boolean } = {}) {
         setLoginOperationId(login.operationId);
         return;
       }
-      await ensureNativeApi().provider.createStaticConnection({
+      const connection = await ensureNativeApi().provider.createStaticConnection({
         harness: provider,
         authenticationTargetId: method.authenticationTargetId,
         authenticationMethodId: method.authenticationMethodId,
         secret,
       });
+      selectNewConnection(connection);
       await refresh();
       clearAdd();
     } catch (error) {

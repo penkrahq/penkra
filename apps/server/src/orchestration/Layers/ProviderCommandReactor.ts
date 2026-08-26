@@ -56,7 +56,10 @@ import {
   formatProviderDeliveryBlockDetail,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
 } from "@penkra/shared/providerDeliveryBlock";
-import { buildStalePendingRequestFailureDetail } from "@penkra/shared/threadSummary";
+import {
+  buildStalePendingRequestFailureDetail,
+  PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
+} from "@penkra/shared/threadSummary";
 import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 
 import {
@@ -300,26 +303,18 @@ function availableThreadMentionContextChars(messageText: string): number {
 
 function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
   const error = Cause.squash(cause);
-  if (Schema.is(ProviderAdapterRequestError)(error)) {
-    const detail = error.detail.toLowerCase();
-    return (
-      detail.includes("unknown pending approval request") ||
-      detail.includes("unknown pending permission request")
-    );
-  }
-  const message = Cause.pretty(cause);
   return (
-    message.includes("unknown pending approval request") ||
-    message.includes("unknown pending permission request")
+    Schema.is(ProviderAdapterRequestError)(error) &&
+    error.code === PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE
   );
 }
 
 function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
   const error = Cause.squash(cause);
-  if (Schema.is(ProviderAdapterRequestError)(error)) {
-    return error.detail.toLowerCase().includes("unknown pending user-input request");
-  }
-  return Cause.pretty(cause).toLowerCase().includes("unknown pending user-input request");
+  return (
+    Schema.is(ProviderAdapterRequestError)(error) &&
+    error.code === PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE
+  );
 }
 
 function interactionFailureSettlementStatus(
@@ -523,6 +518,7 @@ const make = Effect.gen(function* () {
     readonly lifecycleGeneration?: string;
     readonly responseCommandId?: CommandId;
     readonly settlementStatus?: "retryable" | "uncertain";
+    readonly failureCode?: typeof PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE;
   }) =>
     orchestrationEngine.dispatch({
       type: "thread.activity.append",
@@ -539,6 +535,7 @@ const make = Effect.gen(function* () {
           ...(input.lifecycleGeneration ? { lifecycleGeneration: input.lifecycleGeneration } : {}),
           ...(input.responseCommandId ? { responseCommandId: input.responseCommandId } : {}),
           ...(input.settlementStatus ? { settlementStatus: input.settlementStatus } : {}),
+          ...(input.failureCode ? { failureCode: input.failureCode } : {}),
         },
         turnId: input.turnId,
         createdAt: input.createdAt,
@@ -2549,6 +2546,7 @@ const make = Effect.gen(function* () {
       readonly interactionKind: "approval" | "userInput";
       readonly detail: string;
       readonly settlementStatus: "retryable" | "uncertain";
+      readonly failureCode?: typeof PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE;
     },
   ) =>
     event.commandId === null
@@ -2569,6 +2567,7 @@ const make = Effect.gen(function* () {
           requestId: event.payload.requestId,
           responseCommandId: event.commandId,
           settlementStatus: input.settlementStatus,
+          ...(input.failureCode ? { failureCode: input.failureCode } : {}),
           ...(event.payload.lifecycleGeneration === undefined
             ? {}
             : { lifecycleGeneration: event.payload.lifecycleGeneration }),
@@ -2643,6 +2642,9 @@ const make = Effect.gen(function* () {
               ? buildStalePendingRequestFailureDetail("approval", event.payload.requestId)
               : Cause.pretty(cause),
             settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
+            ...(unknownPendingRequest
+              ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
+              : {}),
           }).pipe(Effect.asVoid);
         }),
       );
@@ -2677,6 +2679,9 @@ const make = Effect.gen(function* () {
               ? buildStalePendingRequestFailureDetail("user-input", event.payload.requestId)
               : Cause.pretty(cause),
             settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
+            ...(unknownPendingRequest
+              ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
+              : {}),
           }).pipe(Effect.asVoid);
         }),
       );

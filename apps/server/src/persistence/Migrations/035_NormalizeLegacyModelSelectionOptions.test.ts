@@ -327,7 +327,7 @@ layer("035_NormalizeLegacyModelSelectionOptions", (it) => {
         FROM fixture
       `;
 
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 35 });
 
       const projectRows = yield* sql<{ readonly defaultModelSelection: string }>`
         SELECT default_model_selection_json AS "defaultModelSelection"
@@ -368,7 +368,10 @@ layer("035_NormalizeLegacyModelSelectionOptions", (it) => {
       const projectSelection = JSON.parse(projectRows[0]!.defaultModelSelection) as unknown;
       const threadSelections = new Map(
         threadRows.map((row) => {
-          const selection = JSON.parse(row.modelSelection) as { readonly model: string };
+          const selection = JSON.parse(row.modelSelection) as {
+            readonly model: string;
+            readonly [key: string]: unknown;
+          };
           return [selection.model, selection] as const;
         }),
       );
@@ -394,7 +397,11 @@ layer("035_NormalizeLegacyModelSelectionOptions", (it) => {
         model: "openai/gpt-5.4",
         options: { agent: "plan", variant: "fast" },
       });
-      assert.strictEqual(threadSelections.get("gpt-5.4"), undefined);
+      assert.deepStrictEqual(threadSelections.get("gpt-5.4"), {
+        provider: "cursor",
+        model: "gpt-5.4",
+        options: { reasoningEffort: "high" },
+      });
       assert.deepStrictEqual(decodeModelSelection(projectEventPayload.defaultModelSelection), {
         provider: "codex",
         model: "gpt-5.5",

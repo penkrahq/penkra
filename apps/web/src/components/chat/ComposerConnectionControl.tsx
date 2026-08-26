@@ -4,6 +4,7 @@
 import {
   type ProviderConnection,
   type ProviderConnectionId,
+  type ProviderConnectionsSnapshot,
   type ProviderKind,
   type ServerProviderUsageSnapshot,
 } from "@penkra/contracts";
@@ -93,30 +94,57 @@ function ConnectionUsageRows({ rows }: { rows: ReadonlyArray<ProviderUsageDispla
   );
 }
 
+interface ConnectionChoice {
+  readonly key: string;
+  readonly connectionId: ProviderConnectionId | null;
+  readonly label: string;
+  readonly groupLabel: string;
+  readonly connection?: ProviderConnection;
+}
+
 function ConnectionSwitcher(props: {
-  connections: ReadonlyArray<ProviderConnection>;
+  choices: ReadonlyArray<ConnectionChoice>;
   snapshots: ReadonlyMap<ProviderConnectionId, ServerProviderUsageSnapshot>;
-  onConnectionChange: (connectionId: ProviderConnectionId) => void;
+  onConnectionChange: (connectionId: ProviderConnectionId | null) => void;
   onManageConnections?: () => void;
 }) {
+  const groups = props.choices.reduce<Array<[string, ConnectionChoice[]]>>((result, choice) => {
+    const group = result.find(([label]) => label === choice.groupLabel);
+    if (group) group[1].push(choice);
+    else result.push([choice.groupLabel, [choice]]);
+    return result;
+  }, []);
   return (
     <>
-      {props.connections.map((connection) => {
-        const apiKey = isApiKeyConnection(connection);
-        const primary = selectPrimaryProviderUsageDisplayRow(
-          usageRows(props.snapshots.get(connection.id)),
-        );
-        return (
-          <MenuItem key={connection.id} onClick={() => props.onConnectionChange(connection.id)}>
-            <span className="min-w-0 truncate">{connection.label}</span>
-            {apiKey ? (
-              <IconKey aria-hidden="true" className="ml-auto size-[13px]" stroke={1.8} />
-            ) : (
-              <span className="ml-auto tabular-nums">{primary?.remainingLabel ?? "—"}</span>
-            )}
-          </MenuItem>
-        );
-      })}
+      {groups.map(([groupLabel, choices], groupIndex) => (
+        <div key={groupLabel}>
+          {groupIndex > 0 ? <MenuSeparator /> : null}
+          <div className="px-2 py-1 text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/60">
+            {groupLabel}
+          </div>
+          {choices.map((choice) => {
+            const apiKey = choice.connection ? isApiKeyConnection(choice.connection) : false;
+            const primary = choice.connection
+              ? selectPrimaryProviderUsageDisplayRow(
+                  usageRows(props.snapshots.get(choice.connection.id)),
+                )
+              : null;
+            return (
+              <MenuItem
+                key={choice.key}
+                onClick={() => props.onConnectionChange(choice.connectionId)}
+              >
+                <span className="min-w-0 truncate">{choice.label}</span>
+                {apiKey ? (
+                  <IconKey aria-hidden="true" className="ml-auto size-[13px]" stroke={1.8} />
+                ) : choice.connection ? (
+                  <span className="ml-auto tabular-nums">{primary?.remainingLabel ?? "—"}</span>
+                ) : null}
+              </MenuItem>
+            );
+          })}
+        </div>
+      ))}
       {props.onManageConnections ? <MenuSeparator /> : null}
       {props.onManageConnections ? (
         <MenuItem onClick={props.onManageConnections}>
@@ -131,8 +159,10 @@ function ConnectionSwitcher(props: {
 export function ComposerConnectionControl(props: {
   provider: ProviderKind;
   connections: ReadonlyArray<ProviderConnection>;
+  authenticationMethods?: ProviderConnectionsSnapshot["authenticationMethods"];
+  anonymousRoutes?: ProviderConnectionsSnapshot["anonymousRoutes"];
   selectedConnectionId: ProviderConnectionId | null | undefined;
-  onConnectionChange: (connectionId: ProviderConnectionId) => void;
+  onConnectionChange: (connectionId: ProviderConnectionId | null) => void;
   onManageConnections?: () => void;
   onSelectionCommitted?: () => void;
 }) {
@@ -144,9 +174,37 @@ export function ComposerConnectionControl(props: {
       ),
     [props.connections, props.provider],
   );
+  const choices = useMemo<ConnectionChoice[]>(
+    () => [
+      ...(props.anonymousRoutes ?? [])
+        .filter((route) => route.harness === props.provider)
+        .map((route) => ({
+          key: `anonymous:${route.internalProviderId}`,
+          connectionId: null,
+          label: route.label ?? "Free",
+          groupLabel: route.groupLabel ?? "Free",
+        })),
+      ...available.map((connection) => {
+        const method = (props.authenticationMethods ?? []).find(
+          (candidate) =>
+            candidate.harness === connection.harness &&
+            candidate.authenticationTargetId === connection.authenticationTargetId &&
+            candidate.authenticationMethodId === connection.authenticationMethodId,
+        );
+        return {
+          key: connection.id,
+          connectionId: connection.id,
+          label: connection.label,
+          groupLabel: method?.groupLabel ?? method?.label ?? "Connections",
+          connection,
+        };
+      }),
+    ],
+    [available, props.anonymousRoutes, props.authenticationMethods, props.provider],
+  );
   const selected =
-    available.find((connection) => connection.id === props.selectedConnectionId) ??
-    (props.selectedConnectionId === undefined ? available[0] : undefined);
+    choices.find((choice) => choice.connectionId === props.selectedConnectionId) ??
+    (props.selectedConnectionId === undefined ? choices[0] : undefined);
   const usageQuery = useQuery(
     serverAllProviderUsageQueryOptions({
       enabled: open && available.length > 0,
@@ -165,8 +223,9 @@ export function ComposerConnectionControl(props: {
   );
   if (!selected) return null;
 
-  const apiKey = isApiKeyConnection(selected);
-  const snapshot = snapshots.get(selected.id);
+  const selectedConnection = selected.connection;
+  const apiKey = selectedConnection ? isApiKeyConnection(selectedConnection) : false;
+  const snapshot = selectedConnection ? snapshots.get(selectedConnection.id) : undefined;
   const rows = usageRows(snapshot);
   const title = apiKey ? `${selected.label} API key` : selected.label;
 
@@ -205,7 +264,7 @@ export function ComposerConnectionControl(props: {
           </MenuSubTrigger>
           <ComposerPickerMenuSubPopup fixedWidth>
             <ConnectionSwitcher
-              connections={available}
+              choices={choices}
               snapshots={snapshots}
               onConnectionChange={(connectionId) => {
                 props.onConnectionChange(connectionId);
@@ -230,16 +289,16 @@ export function ComposerConnectionControl(props: {
             </p>
             <MenuItem
               onClick={() => {
-                const dashboard = dashboardForConnection(selected);
+                const dashboard = dashboardForConnection(selectedConnection!);
                 void ensureNativeApi().shell.openExternal(dashboard.url);
                 setOpen(false);
               }}
             >
-              View usage in {dashboardForConnection(selected).label}
+              View usage in {dashboardForConnection(selectedConnection!).label}
               <ExternalLinkIcon className="ml-auto size-3" />
             </MenuItem>
           </div>
-        ) : rows.length > 0 ? (
+        ) : selectedConnection === undefined ? null : rows.length > 0 ? (
           <ConnectionUsageRows rows={rows} />
         ) : (
           <p className="px-2 pb-2 pt-1 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground">

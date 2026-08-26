@@ -28,8 +28,8 @@ layer("ThreadProviderBindingRepository", (it) => {
         VALUES ('binding-space', 'Personal', '', 0, '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z')
       `;
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id, kind, title, workspace_root, scripts_json, created_at, updated_at, space_id
+        INSERT INTO projection_folders (
+          folder_id, kind, title, workspace_root, scripts_json, created_at, updated_at, space_id
         ) VALUES (
           'binding-folder', 'project', 'Folder', NULL, '[]',
           '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z', 'binding-space'
@@ -37,7 +37,7 @@ layer("ThreadProviderBindingRepository", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, runtime_mode,
+          thread_id, folder_id, title, runtime_mode,
           created_at, updated_at
         ) VALUES (
           'binding-thread', 'binding-folder', 'Thread', 'full-access',

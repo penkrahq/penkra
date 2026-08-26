@@ -353,20 +353,6 @@ export function runAutomaticProviderUpdateCycle(input: ManagedProviderCoordinato
       if (!release || !targetVersion) {
         continue;
       }
-      const activation = yield* (
-        input.readManagedActivation ?? readManagedProviderRuntimeActivation
-      )({
-        stateDir: input.config.stateDir,
-        provider: candidate.provider,
-      });
-      if (activation?.rejected?.version === targetVersion) {
-        yield* Effect.logWarning("provider update skipped after continuation rejection", {
-          provider: candidate.provider,
-          targetVersion,
-          rejectedInstallationId: activation.rejected.installationId,
-        });
-        continue;
-      }
       const shell = yield* input.projectionSnapshotQuery.getShellSnapshot();
       if (hasActiveProviderThread(candidate.provider, shell.threads)) {
         yield* Effect.logInfo("provider update deferred for active session", {

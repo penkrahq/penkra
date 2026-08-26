@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 
 import {
   buildMcpInitializeResult,
+  extractPenkraExecRichResult,
   negotiateMcpProtocolVersion,
   parseMcpMessage,
   MCP_DEFAULT_PROTOCOL_VERSION,
@@ -96,5 +97,28 @@ describe("agent gateway MCP protocol", () => {
       },
     };
     assert.equal(tool.annotations?.title, "Penkra context");
+  });
+
+  it("promotes rich App-operation results while preserving command metadata", () => {
+    assert.deepEqual(
+      extractPenkraExecRichResult({
+        app: "canvas",
+        operation: "documents.execute",
+        tabId: null,
+        result: {
+          content: [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }],
+          structuredContent: { documentId: "document-1", changed: false },
+        },
+      }),
+      {
+        content: [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }],
+        structuredContent: {
+          app: "canvas",
+          operation: "documents.execute",
+          tabId: null,
+          result: { documentId: "document-1", changed: false },
+        },
+      },
+    );
   });
 });

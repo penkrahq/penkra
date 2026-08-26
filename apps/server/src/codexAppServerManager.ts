@@ -34,6 +34,7 @@ import {
   type UserInputQuestion,
 } from "@penkra/contracts";
 import { getModelSelectionBooleanOptionValue, normalizeModelSlug } from "@penkra/shared/model";
+import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 import { decodeSubagentReceiverThreadIds } from "@penkra/shared/subagents";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 import { Effect, ServiceMap } from "effect";
@@ -85,6 +86,10 @@ import {
 const log = createLogger("codex");
 
 type PendingRequestKey = string;
+
+class CodexPendingInteractionNotFoundError extends Error {
+  readonly code = PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE;
+}
 
 export function buildCodexDynamicTools(definitions: AgentGatewayNativeToolSurface["definitions"]) {
   return definitions.map((definition) => ({
@@ -332,9 +337,6 @@ const BENIGN_ERROR_LOG_SNIPPETS = [
   "state db record_discrepancy: find_thread_path_by_id_str_in_subdir, falling_back",
 ];
 const BENIGN_PROCESS_OUTPUT_REGEXES = [/^(?:\^C)?Token usage:/i];
-const CODEX_DEFAULT_MODEL = "gpt-5.5";
-const CODEX_SPARK_MODEL = "gpt-5.3-codex-spark";
-const CODEX_SPARK_DISABLED_PLAN_TYPES = new Set<CodexPlanType>(["free", "go", "plus"]);
 const CODEX_DISCOVERY_SESSION_IDLE_MS = 10 * 60 * 1000;
 const CODEX_PENDING_SETTLE_DEADLINE_MS = 2_000;
 
@@ -424,7 +426,7 @@ export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapsho
     return {
       type: "chatgpt",
       planType,
-      sparkEnabled: !CODEX_SPARK_DISABLED_PLAN_TYPES.has(planType),
+      sparkEnabled: true,
     };
   }
 
@@ -497,13 +499,9 @@ function resolveCodexTurnOverrides(context: CodexSessionContext): {
 
 export function resolveCodexModelForAccount(
   model: string | undefined,
-  account: CodexAccountSnapshot,
+  _account: CodexAccountSnapshot,
 ): string | undefined {
-  if (model !== CODEX_SPARK_MODEL || account.sparkEnabled) {
-    return model;
-  }
-
-  return CODEX_DEFAULT_MODEL;
+  return model;
 }
 
 function spawnCodexAppServer(input: {
@@ -554,10 +552,7 @@ export function buildCodexInitializeParams() {
   } as const;
 }
 
-function buildCodexCollaborationMode(input: {
-  readonly model?: string;
-  readonly effort?: string;
-}): {
+function buildCodexCollaborationMode(input: { readonly model: string; readonly effort?: string }): {
   mode: "default";
   settings: {
     model: string;
@@ -565,11 +560,10 @@ function buildCodexCollaborationMode(input: {
     developer_instructions: string;
   };
 } {
-  const model = normalizeCodexModelSlug(input.model) ?? "gpt-5.3-codex";
   return {
     mode: "default",
     settings: {
-      model,
+      model: input.model,
       reasoning_effort: input.effort ?? "medium",
       developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
     },
@@ -1264,9 +1258,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     );
     if (normalizedModel) {
       turnStartParams.model = normalizedModel;
-      if (normalizedModel === CODEX_SPARK_MODEL) {
-        turnStartParams.summary = "none";
-      }
     }
     if (input.serviceTier !== undefined) {
       turnStartParams.serviceTier = input.serviceTier;
@@ -1274,14 +1265,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (input.effort) {
       turnStartParams.effort = input.effort;
     }
-    const collaborationMode = buildCodexCollaborationMode({
-      ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
-      ...(input.effort !== undefined ? { effort: input.effort } : {}),
-    });
-    if (!turnStartParams.model) {
-      turnStartParams.model = collaborationMode.settings.model;
+    if (normalizedModel) {
+      turnStartParams.collaborationMode = buildCodexCollaborationMode({
+        model: normalizedModel,
+        ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      });
     }
-    turnStartParams.collaborationMode = collaborationMode;
 
     const response = await this.sendRequest(context, "turn/start", turnStartParams);
     const turnIdRaw = this.readString(this.readObject(this.readObject(response), "turn"), "id");
@@ -1942,7 +1931,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const context = this.requireSession(threadId);
     const pendingRequest = context.pendingApprovals.get(requestId);
     if (!pendingRequest) {
-      throw new Error(`Unknown pending approval request: ${requestId}`);
+      throw new CodexPendingInteractionNotFoundError(
+        `Unknown pending approval request: ${requestId}`,
+      );
     }
 
     context.pendingApprovals.delete(requestId);
@@ -1963,7 +1954,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const context = this.requireSession(threadId);
     const pendingRequest = context.pendingUserInputs.get(requestId);
     if (!pendingRequest) {
-      throw new Error(`Unknown pending user-input request: ${requestId}`);
+      throw new CodexPendingInteractionNotFoundError(
+        `Unknown pending user-input request: ${requestId}`,
+      );
     }
 
     await this.resolveUserInputRequest(context, pendingRequest, answers);
@@ -2535,7 +2528,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         provider: "codex",
         status: "connecting",
         runtimeMode: "full-access",
-        model: CODEX_DEFAULT_MODEL,
+        model: "__provider_default__",
         cwd: normalizedCwd,
         threadId: ThreadId.makeUnsafe(`__codex_discovery__:${normalizedCwd}`),
         createdAt: now,

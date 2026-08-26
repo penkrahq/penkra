@@ -251,7 +251,10 @@ describe("composerDraftStore modelSelection", () => {
   it("does not clear other provider options when setting options for a single provider", () => {
     const store = useComposerDraftStore.getState();
 
-    // Set options for both providers
+    store.setModelSelection(threadId, modelSelection("codex", "runtime/codex"));
+    store.setModelSelection(threadId, modelSelection("claudeAgent", "runtime/claude"));
+
+    // Set options for both provider selections.
     store.setModelOptions(
       threadId,
       providerModelOptions({
@@ -270,6 +273,9 @@ describe("composerDraftStore modelSelection", () => {
 
   it("preserves other provider options when switching the active model selection", () => {
     const store = useComposerDraftStore.getState();
+
+    store.setModelSelection(threadId, modelSelection("codex", "runtime/codex"));
+    store.setModelSelection(threadId, modelSelection("claudeAgent", "claude-opus-4-6"));
 
     store.setModelOptions(
       threadId,
@@ -476,7 +482,7 @@ describe("composerDraftStore setModelSelection", () => {
     expect(state.stickyModelSelectionByProvider.codex).toEqual(selection);
   });
 
-  it("preserves a built-in Codex effort supported by both models", () => {
+  it("does not infer that an effort is supported after switching models", () => {
     const store = useComposerDraftStore.getState();
     store.setModelSelectionAndSticky(
       threadId,
@@ -486,7 +492,6 @@ describe("composerDraftStore setModelSelection", () => {
     store.setModelSelectionAndSticky(threadId, modelSelection("codex", "gpt-5.4"));
 
     const expectedSelection = modelSelection("codex", "gpt-5.4", {
-      reasoningEffort: "xhigh",
       fastMode: true,
     });
     const state = useComposerDraftStore.getState();
@@ -796,7 +801,12 @@ describe("composerDraftStore provider-scoped option updates", () => {
         reasoningEffort: "medium",
       }),
     );
-    store.setProviderModelOptions(threadId, "claudeAgent", { effort: "max" });
+    store.setProviderModelOptions(
+      threadId,
+      "claudeAgent",
+      { effort: "max" },
+      { model: "claude-opus-4-6" },
+    );
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
     expect(draft?.modelSelectionByProvider.codex).toEqual(
       modelSelection("codex", "gpt-5.3-codex", { reasoningEffort: "medium" }),

@@ -448,6 +448,7 @@ describe("planRestartTurnReconciliation", () => {
         kind: "provider.approval.respond.failed",
         payload: {
           requestId: "approval-1",
+          failureCode: "PENDING_INTERACTION_NOT_FOUND",
           detail: expect.stringContaining("Stale pending approval request: approval-1"),
         },
       },
@@ -460,6 +461,7 @@ describe("planRestartTurnReconciliation", () => {
         kind: "provider.user-input.respond.failed",
         payload: {
           requestId: "input-1",
+          failureCode: "PENDING_INTERACTION_NOT_FOUND",
           detail: expect.stringContaining("Stale pending user-input request: input-1"),
         },
       },

@@ -1,5 +1,5 @@
 import type { ProviderKind } from "@penkra/contracts";
-import { readFile, readdir, realpath, rm, stat } from "node:fs/promises";
+import { readFile, realpath, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Effect } from "effect";
 
@@ -50,38 +50,6 @@ export function resolveManagedProviderVersionDirectory(input: {
 
 function activationPath(input: { readonly stateDir: string; readonly provider: ProviderKind }) {
   return `${resolveManagedProviderRuntimeRoot(input)}/activation.json`;
-}
-
-function pruneManagedProviderVersionDirectories(input: {
-  readonly stateDir: string;
-  readonly provider: ProviderKind;
-  readonly retainedVersions: ReadonlySet<string>;
-}) {
-  return Effect.tryPromise({
-    try: async () => {
-      const versionsRoot = `${resolveManagedProviderRuntimeRoot(input)}/versions`;
-      let entries: ReadonlyArray<{ readonly name: string; readonly isDirectory: () => boolean }>;
-      try {
-        entries = await readdir(versionsRoot, { withFileTypes: true });
-      } catch (cause) {
-        if ((cause as NodeJS.ErrnoException).code === "ENOENT") return;
-        throw cause;
-      }
-      await Promise.all(
-        entries
-          .filter(
-            (entry) =>
-              entry.isDirectory() &&
-              SAFE_PATH_SEGMENT.test(entry.name) &&
-              !input.retainedVersions.has(entry.name),
-          )
-          .map((entry) =>
-            rm(path.join(versionsRoot, entry.name), { recursive: true, force: true }),
-          ),
-      );
-    },
-    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
-  });
 }
 
 function isRuntimeVersion(value: unknown): value is ManagedProviderRuntimeVersion {
@@ -238,39 +206,22 @@ export function activateManagedProviderRuntime(input: {
       current?.active.installationId === active.installationId
         ? current.previous
         : (current?.active ?? null);
-    if (current?.rejected?.installationId === active.installationId) {
-      yield* pruneManagedProviderVersionDirectories({
-        stateDir: input.stateDir,
-        provider: input.provider,
-        retainedVersions: new Set([current.active.version]),
-      });
-      return yield* Effect.fail(
-        new Error(
-          `Managed provider installation '${active.installationId}' previously failed continuation verification.`,
-        ),
-      );
-    }
     const next: ManagedProviderRuntimeActivation = {
       schemaVersion: MANAGED_PROVIDER_RUNTIME_SCHEMA_VERSION,
       provider: input.provider,
       active,
       previous,
-      rejected:
-        current?.active.installationId === active.installationId
-          ? (current.rejected ?? null)
-          : null,
+      // A thread-local continuation failure must not quarantine an installation.
+      // Activating an installation clears legacy rejection metadata.
+      rejected: null,
     };
     yield* writeFileStringAtomically({
       filePath: activationPath(input),
       contents: `${JSON.stringify(next, null, 2)}\n`,
     });
-    yield* pruneManagedProviderVersionDirectories({
-      stateDir: input.stateDir,
-      provider: input.provider,
-      retainedVersions: new Set(
-        previous === null ? [active.version] : [active.version, previous.version],
-      ),
-    });
+    // Old threads remain pinned to their exact installation. Version directories
+    // therefore cannot be pruned merely because a newer provider became active.
+    // Reference-aware garbage collection is intentionally a separate operation.
     return next;
   });
 }
@@ -292,11 +243,6 @@ export function confirmManagedProviderRuntimeCompatibility(input: {
     yield* writeFileStringAtomically({
       filePath: activationPath(input),
       contents: `${JSON.stringify(next, null, 2)}\n`,
-    });
-    yield* pruneManagedProviderVersionDirectories({
-      stateDir: input.stateDir,
-      provider: input.provider,
-      retainedVersions: new Set([current.active.version]),
     });
     return true;
   });
@@ -373,19 +319,6 @@ export function rejectManagedProviderRuntimeUpdate(input: {
       filePath: activationPath(input),
       contents: `${JSON.stringify(next, null, 2)}\n`,
     });
-    yield* pruneManagedProviderVersionDirectories({
-      stateDir: input.stateDir,
-      provider: input.provider,
-      retainedVersions: new Set([next.active.version]),
-    }).pipe(
-      Effect.catch((cause) =>
-        Effect.logWarning("could not prune rejected managed provider runtime", {
-          provider: input.provider,
-          installationId: input.installationId,
-          cause: cause.message,
-        }),
-      ),
-    );
     return true;
   });
 }

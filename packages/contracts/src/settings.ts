@@ -1,6 +1,5 @@
 import { Schema } from "effect";
 import { TrimmedString } from "./baseSchemas";
-import { DEFAULT_TEXT_GENERATION_MODEL } from "./model";
 import { ModelSelection, ProviderKind } from "./orchestration";
 
 const StringSetting = TrimmedString.check(Schema.isMaxLength(4096));
@@ -47,11 +46,8 @@ export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   providerUpdateMode: ProviderUpdateMode.pipe(Schema.withDecodingDefault(() => "automatic")),
   addProjectBaseDirectory: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
-  textGenerationModelSelection: ModelSelection.pipe(
-    Schema.withDecodingDefault(() => ({
-      provider: "codex" as const,
-      model: DEFAULT_TEXT_GENERATION_MODEL,
-    })),
+  textGenerationModelSelection: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefault(() => null),
   ),
   providers: Schema.Struct({
     codex: CodexServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
@@ -94,7 +90,7 @@ export const ServerSettingsPatch = Schema.Struct({
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   providerUpdateMode: Schema.optionalKey(ProviderUpdateMode),
   addProjectBaseDirectory: Schema.optionalKey(StringSetting),
-  textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  textGenerationModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelectionPatch)),
   providers: Schema.optionalKey(
     Schema.Struct({
       codex: Schema.optionalKey(Schema.Struct(ManagedProviderSettingsBasePatch)),

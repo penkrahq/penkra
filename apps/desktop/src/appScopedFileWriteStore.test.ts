@@ -25,6 +25,21 @@ async function temporaryFile(name: string): Promise<string> {
 }
 
 describe("AppScopedFileWriteStore", () => {
+  it("writes text through the same atomic commit path", async () => {
+    const destinationPath = await temporaryFile("notes.txt");
+    await FS.promises.writeFile(destinationPath, "old");
+    const store = new AppScopedFileWriteStore();
+
+    await store.writeText(owner, {
+      handleId: "handle-1",
+      destinationPath,
+      source: "new text",
+    });
+
+    expect(await FS.promises.readFile(destinationPath, "utf8")).toBe("new text");
+    expect(await FS.promises.readdir(Path.dirname(destinationPath))).toEqual(["notes.txt"]);
+  });
+
   it("replaces the destination only after an ordered, verified write commits", async () => {
     const destinationPath = await temporaryFile("document.pen");
     await FS.promises.writeFile(destinationPath, "old");

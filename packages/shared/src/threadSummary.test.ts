@@ -116,6 +116,7 @@ describe("deriveThreadSummaryMetadata", () => {
         summary: "Approval response failed",
         payload: {
           requestId: "approval-1",
+          failureCode: "PENDING_INTERACTION_NOT_FOUND",
           detail: "stale pending approval request",
         },
         sequence: 2,
@@ -149,6 +150,7 @@ describe("deriveThreadSummaryMetadata", () => {
         summary: "User input response failed",
         payload: {
           requestId: "input-1",
+          failureCode: "PENDING_INTERACTION_NOT_FOUND",
           detail: "unknown pending user-input request",
         },
         sequence: 4,

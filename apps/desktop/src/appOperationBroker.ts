@@ -48,6 +48,15 @@ export interface InvokeAppOperationRequest<Input = unknown> extends OperationReq
   caller?: { appId: string; slug: string; invocationId: string; depth: number };
 }
 
+type RichOperationContent =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "image"; readonly data: string; readonly mimeType: string };
+
+interface RichOperationResult {
+  readonly content: ReadonlyArray<RichOperationContent>;
+  readonly structuredContent: unknown;
+}
+
 export type AppOperationHandler<Input = unknown, Result = unknown> = (
   input: Input,
   context: OperationContext,
@@ -67,6 +76,8 @@ export interface AppTabEndpoint extends AppTabHandle {
 }
 
 export interface OpenAppTabRequest {
+  /** Stable host identity to retain when restoring a persisted tab. */
+  tabId?: string;
   app: InstalledAppPackage;
   spaceId: string;
   threadId: string;
@@ -269,7 +280,12 @@ export class AppOperationBroker {
       throw error;
     }
     try {
-      assertOperationValue(result, validators.output, "output");
+      if (isRichOperationResult(result)) {
+        assertRichOperationContent(result.content);
+        assertOperationValue(result.structuredContent, validators.output, "output");
+      } else {
+        assertOperationValue(result, validators.output, "output");
+      }
     } catch (error) {
       throw new AppOperationBrokerError("invalid-output", toError(error).message);
     }
@@ -306,6 +322,40 @@ export class AppOperationBroker {
       );
     }
     return tab;
+  }
+}
+
+function isRichOperationResult(value: unknown): value is RichOperationResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return Array.isArray(record.content) && Object.hasOwn(record, "structuredContent");
+}
+
+function assertRichOperationContent(content: ReadonlyArray<RichOperationContent>): void {
+  if (content.length === 0) {
+    throw new Error("Rich App operation content must not be empty.");
+  }
+  for (const block of content) {
+    if (!block || typeof block !== "object") {
+      throw new Error("Rich App operation content blocks must be objects.");
+    }
+    if (block.type === "text") {
+      if (typeof block.text !== "string") throw new Error("Text content requires text.");
+      continue;
+    }
+    if (block.type === "image") {
+      if (typeof block.data !== "string" || block.data.length === 0) {
+        throw new Error("Image content requires base64 data.");
+      }
+      if (block.data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(block.data)) {
+        throw new Error("Image content data must be canonical base64.");
+      }
+      if (typeof block.mimeType !== "string" || !block.mimeType.startsWith("image/")) {
+        throw new Error("Image content requires an image MIME type.");
+      }
+      continue;
+    }
+    throw new Error("Rich App operation content supports text and image blocks.");
   }
 }
 

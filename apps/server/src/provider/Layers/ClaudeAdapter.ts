@@ -64,8 +64,6 @@ import {
   applyClaudePromptEffortPrefix,
   getDefaultModel,
   getEffectiveClaudeCodeEffort,
-  getModelCapabilities,
-  hasEffortLevel,
   resolveApiModelId,
   trimOrNull,
 } from "@penkra/shared/model";
@@ -160,6 +158,7 @@ import {
   type ClaudeWorkflowRuntimeState,
 } from "../claudeWorkflowRuntime.ts";
 import { positiveFiniteNumber } from "../tokenUsage.ts";
+import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -473,6 +472,13 @@ function mapSupportedCommands(commands: SlashCommand[]): ProviderListCommandsRes
   };
 }
 
+function claudeModelDisplayName(model: ModelInfo): string {
+  const descriptionLabel = model.description.split("·", 1)[0]?.trim() ?? "";
+  return descriptionLabel.split(/\s+/u).filter(Boolean).length >= 2
+    ? descriptionLabel
+    : model.displayName.trim();
+}
+
 function mapSupportedModels(models: ModelInfo[]): ProviderListModelsResult {
   const seenSlugs = new Set<string>();
   const descriptors: Array<ProviderListModelsResult["models"][number]> = [];
@@ -482,9 +488,8 @@ function mapSupportedModels(models: ModelInfo[]): ProviderListModelsResult {
       continue;
     }
 
-    // Claude Code exposes stable canonical identity separately from the selector
-    // value (`opus` -> `claude-opus-5`). Persist and render that canonical id so
-    // evergreen aliases never get rewritten through a legacy model table.
+    // Claude Code exposes stable canonical identity separately from its selector
+    // value. Persist and render that canonical id without a Penkra alias table.
     const slug = (model.resolvedModel ?? model.value).replace(/\[[^\]]+\]$/u, "").trim();
     if (!slug || seenSlugs.has(slug)) {
       continue;
@@ -493,7 +498,7 @@ function mapSupportedModels(models: ModelInfo[]): ProviderListModelsResult {
 
     descriptors.push({
       slug,
-      name: model.displayName,
+      name: claudeModelDisplayName(model),
       ...(model.description.trim() ? { description: model.description.trim() } : {}),
       ...(model.supportedEffortLevels && model.supportedEffortLevels.length > 0
         ? {
@@ -712,15 +717,13 @@ const DEFAULT_WORKFLOW_RUNTIME_POLL_INTERVAL_MS = 2_000;
 const WORKFLOW_AGENTS_PROGRESS_DESCRIPTION = "Workflow agents";
 
 function resolveSelectedClaudeThinkingToggle(
-  model: string | null | undefined,
+  _model: string | null | undefined,
   selectedThinking: boolean | null | undefined,
 ): boolean | undefined {
   if (typeof selectedThinking !== "boolean") {
     return undefined;
   }
-  return getModelCapabilities("claudeAgent", model).supportsThinkingToggle
-    ? selectedThinking
-    : undefined;
+  return selectedThinking;
 }
 
 function asCanonicalTurnId(value: TurnId): TurnId {
@@ -1028,15 +1031,7 @@ function buildPromptText(input: ProviderSendTurnInput): string {
   const rawEffort =
     input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.options?.effort : null;
   const requestedEffort = trimOrNull(rawEffort);
-  const claudeModel =
-    input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.model : undefined;
-  const caps = getModelCapabilities("claudeAgent", claudeModel);
-  const promptEffort =
-    requestedEffort === "ultrathink" && caps.promptInjectedEffortLevels.includes("ultrathink")
-      ? "ultrathink"
-      : requestedEffort && hasEffortLevel(caps, requestedEffort)
-        ? requestedEffort
-        : null;
+  const promptEffort = requestedEffort === "ultrathink" ? "ultrathink" : null;
   return applyClaudePromptEffortPrefix(basePrompt, promptEffort);
 }
 
@@ -1706,6 +1701,22 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       const process = owner.process;
       if (!process) {
         return Effect.void;
+      }
+      // node:child_process leaves `pid` undefined when spawn never succeeded
+      // (for example, while the managed executable path is temporarily stale).
+      // There is no OS process tree to reap in that state. Retaining this owner
+      // would permanently poison every later discovery attempt: each retry would
+      // fail while trying to reap the same never-spawned child before reaching a
+      // newly repaired executable.
+      if (process.pid === undefined) {
+        return Effect.logWarning("claude.process.spawn_not_started", { threadId }).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              delete owner.process;
+            }),
+          ),
+          Effect.asVoid,
+        );
       }
       return Effect.tryPromise({
         try: () => teardownChildProcessTree(process, teardownProcessTree),
@@ -4576,21 +4587,19 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             null,
         );
         const effectiveClaudeModel = modelSelection?.model ?? getDefaultModel("claudeAgent");
-        const caps = getModelCapabilities("claudeAgent", effectiveClaudeModel);
         const requestedAutoCompactWindowTokens = resolveSelectedClaudeAutoCompactWindow(
           effectiveClaudeModel,
           requestedAutoCompactWindow,
         );
         const apiModelId = modelSelection ? resolveApiModelId(modelSelection) : undefined;
-        const effort =
-          requestedEffort && hasEffortLevel(caps, requestedEffort) ? requestedEffort : null;
-        const fastMode = modelSelection?.options?.fastMode === true && caps.supportsFastMode;
+        const effort = requestedEffort;
+        const fastMode = modelSelection?.options?.fastMode === true;
         const thinking = resolveSelectedClaudeThinkingToggle(
           effectiveClaudeModel,
           modelSelection?.options?.thinking,
         );
         const effectiveEffort = getEffectiveClaudeCodeEffort(effort);
-        const ultracode = effort === "ultracode" && hasEffortLevel(caps, "xhigh");
+        const ultracode = effort === "ultracode";
         const permissionMode =
           toPermissionMode(providerOptions?.permissionMode) ??
           (input.runtimeMode === "full-access" ? "bypassPermissions" : undefined);
@@ -4885,7 +4894,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             lastTurnId: undefined,
             interruptRequestedTurnId: undefined,
             lastKnownContextWindow: resolveClaudeApiModelIdContextWindowMaxTokens(
-              apiModelId ?? effectiveClaudeModel,
+              apiModelId ?? effectiveClaudeModel ?? undefined,
             ),
             currentAutoCompactWindow: requestedAutoCompactWindowTokens,
             currentAlwaysThinkingEnabled: thinking,
@@ -5179,17 +5188,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         // `max` effort has no Settings equivalent; transitions involving it
         // restart upstream (claudeSelectionRequiresRestart) before this runs.
         if (modelSelection) {
-          const turnCaps = getModelCapabilities("claudeAgent", modelSelection.model);
           const requestedEffortOption = trimOrNull(modelSelection.options?.effort ?? null);
-          const validEffort =
-            requestedEffortOption && hasEffortLevel(turnCaps, requestedEffortOption)
-              ? requestedEffortOption
-              : null;
-          const requestedEffort = getEffectiveClaudeCodeEffort(validEffort);
-          const requestedUltracode =
-            validEffort === "ultracode" && hasEffortLevel(turnCaps, "xhigh");
-          const requestedFastMode =
-            modelSelection.options?.fastMode === true && turnCaps.supportsFastMode;
+          const requestedEffort = getEffectiveClaudeCodeEffort(requestedEffortOption);
+          const requestedUltracode = requestedEffortOption === "ultracode";
+          const requestedFastMode = modelSelection.options?.fastMode === true;
           const effortChanged =
             requestedEffort !== context.currentEffort &&
             requestedEffort !== "max" &&
@@ -5472,6 +5474,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           return yield* new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "item/requestApproval/decision",
+            code: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
             detail: `Unknown pending approval request: ${requestId}`,
           });
         }
@@ -5492,6 +5495,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           return yield* new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "item/tool/respondToUserInput",
+            code: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
             detail: `Unknown pending user-input request: ${requestId}`,
           });
         }

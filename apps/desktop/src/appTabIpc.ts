@@ -18,6 +18,7 @@ function string(input: Record<string, unknown>, key: string): string {
 }
 
 export function parseOpenAppTabRequest(input: unknown): {
+  tabId?: string;
   appId: string;
   spaceId: string;
   threadId: string;
@@ -26,6 +27,7 @@ export function parseOpenAppTabRequest(input: unknown): {
 } {
   const value = record(input);
   return {
+    ...(value.tabId === undefined ? {} : { tabId: string(value, "tabId") }),
     appId: string(value, "appId"),
     spaceId: string(value, "spaceId"),
     threadId: string(value, "threadId"),

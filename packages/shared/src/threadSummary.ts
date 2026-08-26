@@ -18,6 +18,7 @@ export interface PendingThreadRequestIds {
 
 export type PendingThreadRequestKind = "approval" | "user-input";
 export type ApprovalRequestKind = "command" | "file-read" | "file-change";
+export const PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE = "PENDING_INTERACTION_NOT_FOUND" as const;
 
 export function pendingRequestInstanceKey(requestId: string, lifecycleGeneration?: string): string {
   return `${requestId}\u0000${lifecycleGeneration ?? "legacy"}`;
@@ -64,20 +65,8 @@ export function approvalRequestKindFromRequestType(
   }
 }
 
-function isStalePendingRequestFailureDetail(detail: string | undefined): boolean {
-  if (!detail) {
-    return false;
-  }
-  const normalized = detail.toLowerCase();
-  return (
-    normalized.includes("stale pending approval request") ||
-    normalized.includes("stale pending user-input request") ||
-    normalized.includes("unknown pending approval request") ||
-    normalized.includes("unknown pending permission request") ||
-    normalized.includes("unknown pending user-input request") ||
-    normalized.includes("stale pending user input request") ||
-    normalized.includes("unknown pending user input request")
-  );
+export function isPendingInteractionNotFoundFailure(payload: unknown): boolean {
+  return toPayloadRecord(payload)?.failureCode === PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE;
 }
 
 function lifecycleGenerationFromPayload(
@@ -158,7 +147,6 @@ export function derivePendingThreadRequestIds(input: {
   for (const activity of orderedActivities) {
     const payload = toPayloadRecord(activity.payload);
     const requestId = typeof payload?.requestId === "string" ? payload.requestId : null;
-    const detail = typeof payload?.detail === "string" ? payload.detail : undefined;
     const lifecycleGeneration = lifecycleGenerationFromPayload(payload);
 
     if (activity.kind === "approval.requested" && requestId) {
@@ -182,7 +170,7 @@ export function derivePendingThreadRequestIds(input: {
     if (
       activity.kind === "provider.approval.respond.failed" &&
       requestId &&
-      isStalePendingRequestFailureDetail(detail)
+      isPendingInteractionNotFoundFailure(payload)
     ) {
       deleteOpenRequest(openApprovals, requestId, lifecycleGeneration);
       continue;
@@ -203,7 +191,7 @@ export function derivePendingThreadRequestIds(input: {
     if (
       activity.kind === "provider.user-input.respond.failed" &&
       requestId &&
-      isStalePendingRequestFailureDetail(detail)
+      isPendingInteractionNotFoundFailure(payload)
     ) {
       deleteOpenRequest(openUserInputs, requestId, lifecycleGeneration);
     }

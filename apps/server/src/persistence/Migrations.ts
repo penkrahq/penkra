@@ -156,6 +156,7 @@ import Migration0147 from "./Migrations/147_RemoveAgentGatewayOperations.ts";
 import Migration0148 from "./Migrations/148_RemoveUnshippedProviders.ts";
 import Migration0149 from "./Migrations/149_FolderOnlyHierarchy.ts";
 import Migration0150 from "./Migrations/150_ResetConnectionUsageAccounting.ts";
+import Migration0151 from "./Migrations/151_FolderPersistenceNames.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -311,6 +312,7 @@ export const migrationEntries = [
   [148, "RemoveUnshippedProviders", Migration0148],
   [149, "FolderOnlyHierarchy", Migration0149],
   [150, "ResetConnectionUsageAccounting", Migration0150],
+  [151, "FolderPersistenceNames", Migration0151],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
@@ -431,6 +433,26 @@ export const reconcileMigrationLineage = Effect.gen(function* () {
   `;
   if (trackerTables.length === 0) {
     return;
+  }
+
+  // Migration 151 is a one-way schema vocabulary cutover. Its table name is a
+  // stronger completion marker than an incomplete tracker restored from an old
+  // backup. Once present, older migrations must never replay against the new
+  // schema; restore their canonical tracker identities in place instead.
+  const folderProjectionTables = yield* sql<{ readonly name: string }>`
+    SELECT name FROM sqlite_master
+    WHERE type = 'table' AND name = 'projection_folders'
+  `;
+  if (folderProjectionTables.length > 0) {
+    yield* Effect.forEach(
+      migrationEntries.filter(([id]) => id <= 151),
+      ([id, name]) => sql`
+        INSERT INTO effect_sql_migrations (migration_id, name)
+        VALUES (${id}, ${name})
+        ON CONFLICT (migration_id) DO NOTHING
+      `,
+      { discard: true },
+    );
   }
 
   let recorded = yield* sql<{ readonly migration_id: number; readonly name: string }>`

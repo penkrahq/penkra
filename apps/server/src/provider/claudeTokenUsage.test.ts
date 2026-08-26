@@ -155,18 +155,18 @@ describe("Claude context selection", () => {
     ["claude-opus-4-6", "200k", 200_000],
     ["claude-opus-4-6", "1m", 1_000_000],
     ["claude-opus-4-6", undefined, 200_000],
-    ["claude-opus-4-5", "1m", undefined],
+    ["claude-opus-4-5", "1m", 1_000_000],
     ["claude-opus-4-6", "2m", undefined],
   ] as const)("resolves model=%s selection=%s to %s", (model, selected, expected) => {
     expect(resolveSelectedClaudeAutoCompactWindow(model, selected)).toBe(expected);
   });
 
-  it("preserves known 1m model capacity when result metadata reports a stale 200k window", () => {
+  it("does not infer context capacity from a model name", () => {
     expect(
       resolveClaudeApiModelIdContextWindowMaxTokens(
         "claude-opus-4-6[thinking=true,context=1m,effort=high,fast=false]",
       ),
-    ).toBe(1_000_000);
+    ).toBeUndefined();
     expect(
       resolveEffectiveClaudeContextWindow({
         reportedContextWindow: 200_000,

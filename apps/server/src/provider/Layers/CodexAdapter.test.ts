@@ -1309,7 +1309,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         itemId: asItemId("tool-call-1"),
         payload: {
           tool: "penkra_exec_command",
-          arguments: { command: ["penkra", "--help"] },
+          arguments: { command: "penkra --help" },
         },
       } satisfies ProviderEvent);
 

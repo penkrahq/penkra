@@ -2,9 +2,8 @@ import { validatePenkraJsonSchema } from "./jsonSchema";
 import { isPenkraPermissionName } from "./permissions";
 
 /**
- * Runtime v2 is a hard compatibility boundary: visual entrypoints run in a
- * sandboxed cross-origin iframe and communicate with the host exclusively
- * through the SDK's MessagePort transport.
+ * Runtime v2 is a hard compatibility boundary for manifest and SDK contracts.
+ * Visual entrypoints run in sandboxed App×Space renderers behind the host-owned preload API.
  */
 export const PENKRA_APP_MANIFEST_VERSION = 2 as const;
 

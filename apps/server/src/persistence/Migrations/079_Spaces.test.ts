@@ -38,8 +38,8 @@ layer("079_Spaces", (it) => {
   it.effect("can be applied repeatedly without changing the schema", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 79 });
+      yield* runMigrations({ toMigrationInclusive: 79 });
 
       assert.include(yield* tableColumns(sql, "projection_projects"), "space_id");
       assert.include(yield* tableColumns(sql, "projection_spaces"), "space_id");

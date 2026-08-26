@@ -15,6 +15,21 @@ describe("App tab IPC boundary", () => {
     expect(
       parseOpenAppTabRequest({ appId: "app", spaceId: "space", threadId: "thread", route: "/" }),
     ).toEqual({ appId: "app", spaceId: "space", threadId: "thread", route: "/" });
+    expect(
+      parseOpenAppTabRequest({
+        tabId: "stable-tab",
+        appId: "app",
+        spaceId: "space",
+        threadId: "thread",
+        route: "/",
+      }),
+    ).toEqual({
+      tabId: "stable-tab",
+      appId: "app",
+      spaceId: "space",
+      threadId: "thread",
+      route: "/",
+    });
     expect(parseOpenAppFromAppsRequest({ appId: "target" })).toEqual({ appId: "target" });
     expect(parseAppTabIdRequest({ tabId: "tab" })).toEqual({ tabId: "tab" });
     expect(parseAppTabRendererRequest({ tabId: "tab", rendererId: 17 })).toEqual({

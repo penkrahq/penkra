@@ -1,5 +1,7 @@
 // FILE: appTabRestore.logic.ts
-// Purpose: Classifies the narrow startup race where the shell loads before the native App host.
+// Purpose: Classifies the narrow startup race where the shell loads before the App host.
+
+import type { RightDockPane } from "../../rightDockStore.logic";
 
 export const APP_TAB_HOST_READY_RETRY_LIMIT = 50;
 
@@ -16,4 +18,15 @@ export function shouldMountAppDockPane(
   confirmedTabIds: ReadonlySet<string>,
 ): boolean {
   return confirmedTabIds.has(tabId);
+}
+
+export function createAppTabRestoreRequest(pane: RightDockPane, spaceId: string, threadId: string) {
+  return {
+    tabId: pane.id,
+    appId: pane.appId,
+    spaceId,
+    threadId,
+    route: pane.appRoute,
+    ...(pane.appState === undefined ? {} : { state: pane.appState }),
+  };
 }

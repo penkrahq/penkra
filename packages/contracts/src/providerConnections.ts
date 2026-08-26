@@ -104,7 +104,12 @@ export const ProviderConnectionsSnapshot = Schema.Struct({
   connections: Schema.Array(ProviderConnection),
   installations: Schema.Array(ProviderInstallation),
   anonymousRoutes: Schema.Array(
-    Schema.Struct({ harness: ProviderKind, internalProviderId: TrimmedNonEmptyString }),
+    Schema.Struct({
+      harness: ProviderKind,
+      internalProviderId: TrimmedNonEmptyString,
+      groupLabel: Schema.optional(TrimmedNonEmptyString),
+      label: Schema.optional(TrimmedNonEmptyString),
+    }),
   ),
   authenticationMethods: Schema.Array(
     Schema.Union([
@@ -114,6 +119,7 @@ export const ProviderConnectionsSnapshot = Schema.Struct({
         authenticationMethodId: TrimmedNonEmptyString,
         kind: Schema.Literal("static-secret"),
         label: TrimmedNonEmptyString,
+        groupLabel: Schema.optional(TrimmedNonEmptyString),
         secretPlaceholder: TrimmedNonEmptyString,
         internalProviderIds: Schema.Array(Schema.NullOr(TrimmedNonEmptyString)),
       }),
@@ -123,6 +129,7 @@ export const ProviderConnectionsSnapshot = Schema.Struct({
         authenticationMethodId: TrimmedNonEmptyString,
         kind: Schema.Literal("managed-login"),
         label: TrimmedNonEmptyString,
+        groupLabel: Schema.optional(TrimmedNonEmptyString),
         internalProviderIds: Schema.Array(Schema.NullOr(TrimmedNonEmptyString)),
       }),
       Schema.Struct({
@@ -131,6 +138,7 @@ export const ProviderConnectionsSnapshot = Schema.Struct({
         authenticationMethodId: TrimmedNonEmptyString,
         kind: Schema.Literal("managed-secret"),
         label: TrimmedNonEmptyString,
+        groupLabel: Schema.optional(TrimmedNonEmptyString),
         secretPlaceholder: TrimmedNonEmptyString,
         internalProviderIds: Schema.Array(Schema.NullOr(TrimmedNonEmptyString)),
       }),

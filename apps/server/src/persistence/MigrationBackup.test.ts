@@ -639,13 +639,12 @@ describe("migration backups", () => {
         yield* sql`CREATE TABLE replay_recovery_probe(value TEXT NOT NULL)`;
         yield* sql`INSERT INTO replay_recovery_probe(value) VALUES ('preserved')`;
 
-        // Reproduce the tracker state left by lineage reconciliation after the
-        // released migration-54 renumbering. The schema already contains this
-        // range, so every replayed migration must be genuinely idempotent.
+        // A restored tracker can be older than the schema. The Folder table is
+        // the migration-151 completion marker, so reconciliation repairs the
+        // tracker without replaying pre-cutover migrations against new names.
         yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= 54`;
         const replayed = yield* runWithPreMigrationBackup(dbPath, runMigrations());
-        expect(replayed[0]?.[0]).toBe(54);
-        expect(replayed.at(-1)?.[0]).toBe(latestId);
+        expect(replayed).toEqual([]);
       }),
     );
 

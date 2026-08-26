@@ -1106,7 +1106,9 @@ export class WsTransport {
     const settled = new Promise<void>((resolve) => {
       resolveSettled = resolve;
     });
-    const cancel = this.getClientRuntime(client).runCallback(
+    let cancel: (() => void) | undefined;
+    let exitedSynchronously = false;
+    const registeredCancel = this.getClientRuntime(client).runCallback(
       Stream.runForEach(runnableStream, (event) =>
         Effect.sync(() => {
           if (this.streamCapacityRetries.has(key)) {
@@ -1127,6 +1129,10 @@ export class WsTransport {
             this.streamSettled.delete(key);
           }
           resolveSettled();
+          if (cancel === undefined) {
+            exitedSynchronously = true;
+            return;
+          }
           const wasReplacedOrStopped = this.streamCleanups.get(key) !== cancel;
           if (!wasReplacedOrStopped) {
             this.streamCleanups.delete(key);
@@ -1208,6 +1214,8 @@ export class WsTransport {
         },
       },
     );
+    cancel = registeredCancel;
+    if (exitedSynchronously) return;
     this.streamCleanups.set(key, cancel);
     this.streamSettled.set(key, settled);
   }

@@ -1,4 +1,3 @@
-import { getModelOptions } from "@penkra/shared/model";
 import { describe, expect, it } from "vitest";
 
 import { MAX_CUSTOM_MODEL_LENGTH } from "~/appSettings";
@@ -10,11 +9,6 @@ describe("validateCustomModelInput", () => {
     expect(validateCustomModelInput({ provider: "codex", value: "   ", savedModels: [] })).toEqual({
       error: "Enter a model slug.",
     });
-
-    const builtIn = getModelOptions("codex")[0]!.slug;
-    expect(
-      validateCustomModelInput({ provider: "codex", value: builtIn, savedModels: [] }),
-    ).toEqual({ error: "That model is already built in." });
 
     expect(
       validateCustomModelInput({

@@ -266,6 +266,8 @@ export type ProviderReadPluginResult = typeof ProviderReadPluginResult.Type;
 
 export const ProviderListModelsInput = Schema.Struct({
   provider: ProviderDiscoveryKind,
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
+  internalProviderId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   binaryPath: Schema.optional(TrimmedNonEmptyString),
   apiEndpoint: Schema.optional(TrimmedNonEmptyString),
   agentDir: Schema.optional(TrimmedNonEmptyString),
@@ -315,6 +317,8 @@ export type ProviderListModelsResult = typeof ProviderListModelsResult.Type;
 
 export const ProviderListAgentsInput = Schema.Struct({
   provider: ProviderDiscoveryKind,
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
+  internalProviderId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   binaryPath: Schema.optional(TrimmedNonEmptyString),
   cwd: Schema.optional(TrimmedNonEmptyString),
 });

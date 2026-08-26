@@ -320,6 +320,56 @@ describe("AppOperationBroker", () => {
     ).rejects.toMatchObject({ code: "invalid-output" });
   });
 
+  it("validates MCP-compatible rich content and its declared structured output", async () => {
+    const runtime = broker(enabledState);
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: {
+        "issues.create": async () => ({
+          content: [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }],
+          structuredContent: { created: true },
+        }),
+      },
+    });
+
+    await expect(
+      runtime.invoke({
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        threadId: "thread-1",
+        input: {},
+      }),
+    ).resolves.toEqual({
+      content: [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }],
+      structuredContent: { created: true },
+    });
+  });
+
+  it("rejects invalid rich media or structured output at the trusted broker", async () => {
+    const runtime = broker(enabledState);
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: {
+        "issues.create": async () => ({
+          content: [{ type: "image", data: "bytes", mimeType: "text/plain" }],
+          structuredContent: "not-an-object",
+        }),
+      },
+    });
+    await expect(
+      runtime.invoke({
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        threadId: "thread-1",
+        input: {},
+      }),
+    ).rejects.toMatchObject({ code: "invalid-output" });
+  });
+
   it("unregister callbacks cannot remove replacement endpoints", () => {
     const runtime = broker(enabledState);
     const first = tab("tab-a");

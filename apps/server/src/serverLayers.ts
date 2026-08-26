@@ -108,6 +108,7 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(providerLaunchResolverLayer),
     Layer.provideMerge(providerNativeStateMaterializerLayer),
+    Layer.provideMerge(ThreadDiagnosticsQueryLive),
   );
   const providerNativeStateDeletionCoordinatorLayer =
     ProviderNativeStateDeletionCoordinatorLive.pipe(

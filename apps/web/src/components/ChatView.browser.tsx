@@ -5451,6 +5451,30 @@ describe("ChatView timeline estimator parity (full app)", () => {
         targetText: "create project dialog test",
       }),
     });
+    // This test owns the sidebar create/sync contract. Keep its command boundary
+    // deterministic; WebSocket request and synchronous stream-exit behavior are
+    // exercised independently by wsTransport.test.ts.
+    const previousNativeApi = window.nativeApi;
+    const wsNativeApi = readNativeApi();
+    expect(wsNativeApi).toBeDefined();
+    Object.defineProperty(window, "nativeApi", {
+      configurable: true,
+      value: {
+        ...wsNativeApi,
+        orchestration: {
+          ...wsNativeApi?.orchestration,
+          dispatchCommand: vi.fn(async (command: unknown) => {
+            wsRequests.push({
+              _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+              command,
+            });
+            recordFolderCreateCommand(command);
+            return { sequence: fixture.snapshot.snapshotSequence };
+          }),
+          getShellSnapshot: vi.fn(async () => createShellSnapshotFromReadModel(fixture.snapshot)),
+        },
+      },
+    });
 
     try {
       await waitForServerConfigToApply();
@@ -5489,6 +5513,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
         .element(page.getByText("New Project", { exact: true }).first())
         .toBeInTheDocument();
     } finally {
+      if (previousNativeApi) {
+        Object.defineProperty(window, "nativeApi", {
+          configurable: true,
+          value: previousNativeApi,
+        });
+      } else {
+        Reflect.deleteProperty(window, "nativeApi");
+      }
       await mounted.cleanup();
     }
   });

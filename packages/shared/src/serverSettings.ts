@@ -1,5 +1,4 @@
 import {
-  DEFAULT_MODEL_BY_PROVIDER,
   type ModelSelection,
   type ProviderStartOptions,
   type ServerSettings,
@@ -19,20 +18,28 @@ export function applyServerSettingsPatch(
 ): ServerSettings {
   const selectionPatch = patch.textGenerationModelSelection;
   const next = deepMerge(current, patch as DeepPartial<ServerSettings>);
-  if (!selectionPatch) {
+  if (selectionPatch === undefined) {
     return next;
   }
+  if (selectionPatch === null) {
+    return { ...next, textGenerationModelSelection: null };
+  }
 
-  const provider = selectionPatch.provider ?? current.textGenerationModelSelection.provider;
-  const model =
-    selectionPatch.model ??
+  const currentSelection = current.textGenerationModelSelection;
+  const provider = selectionPatch.provider ?? currentSelection?.provider;
+  const model = selectionPatch.model ?? currentSelection?.model;
+  if (
+    !provider ||
+    !model ||
     (selectionPatch.provider &&
-    selectionPatch.provider !== current.textGenerationModelSelection.provider
-      ? DEFAULT_MODEL_BY_PROVIDER[selectionPatch.provider]
-      : current.textGenerationModelSelection.model);
+      selectionPatch.provider !== currentSelection?.provider &&
+      selectionPatch.model === undefined)
+  ) {
+    return { ...next, textGenerationModelSelection: null };
+  }
   const options = shouldReplaceTextGenerationModelSelection(selectionPatch)
     ? selectionPatch.options
-    : (selectionPatch.options ?? current.textGenerationModelSelection.options);
+    : (selectionPatch.options ?? currentSelection?.options);
 
   return {
     ...next,

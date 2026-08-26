@@ -1,5 +1,4 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { DEFAULT_MODEL_BY_PROVIDER } from "@penkra/contracts";
 import { Effect, FileSystem, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { ServerConfig } from "./config";
@@ -96,7 +95,7 @@ describe("ServerSettingsService", () => {
           ServerSettingsService.layerTest({
             textGenerationModelSelection: {
               provider: "opencode",
-              model: DEFAULT_MODEL_BY_PROVIDER.opencode,
+              model: "test/opencode-model",
             },
             providers: {
               opencode: { enabled: false },
@@ -106,7 +105,7 @@ describe("ServerSettingsService", () => {
       ),
     );
 
-    expect(settings.textGenerationModelSelection.provider).toBe("opencode");
-    expect(settings.textGenerationModelSelection.model).toBe(DEFAULT_MODEL_BY_PROVIDER.opencode);
+    expect(settings.textGenerationModelSelection?.provider).toBe("opencode");
+    expect(settings.textGenerationModelSelection?.model).toBe("test/opencode-model");
   });
 });

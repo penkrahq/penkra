@@ -11,6 +11,7 @@ export interface StaticCredentialMethodManifest {
   readonly authenticationMethodId: string;
   readonly credentialBackend: "desktop-static-secret";
   readonly label: string;
+  readonly groupLabel: string;
   readonly displayIdentity: ProviderConnectionDisplayIdentityStrategy;
   readonly secretPlaceholder: string;
   readonly internalProviderIds: readonly (string | null)[];
@@ -24,6 +25,7 @@ interface ManagedLoginMethodManifestBase {
   readonly authenticationMethodId: string;
   readonly credentialBackend: "provider-native-profile";
   readonly label: string;
+  readonly groupLabel: string;
   readonly displayIdentity: ProviderConnectionDisplayIdentityStrategy;
   readonly internalProviderIds: readonly (string | null)[];
   readonly authorizesInternalProvider: (internalProviderId: string | null) => boolean;
@@ -61,6 +63,8 @@ export interface ProviderConnectionManifest {
   readonly staticCredentialMethods: readonly StaticCredentialMethodManifest[];
   readonly managedLoginMethods: readonly ManagedLoginMethodManifest[];
   readonly anonymous?: {
+    readonly groupLabel: string;
+    readonly label: string;
     readonly internalProviderIds: readonly string[];
     readonly authorizesInternalProvider: (internalProviderId: string | null) => boolean;
   };
@@ -124,6 +128,7 @@ const MANIFESTS = new Map<ProviderKind, ProviderConnectionManifest>([
           credentialBackend: "provider-native-profile",
           loginMechanism: "browser",
           label: "Sign in",
+          groupLabel: "ChatGPT",
           displayIdentity: { kind: "account-email" },
           internalProviderIds: [null],
           authorizesInternalProvider: noInternalProvider,
@@ -134,6 +139,7 @@ const MANIFESTS = new Map<ProviderKind, ProviderConnectionManifest>([
           credentialBackend: "provider-native-profile",
           loginMechanism: "secret-import",
           label: "API key",
+          groupLabel: "OpenAI API",
           displayIdentity: { kind: "secret-suffix", prefix: "API" },
           secretPlaceholder: "OpenAI API key",
           internalProviderIds: [null],
@@ -176,6 +182,7 @@ const MANIFESTS = new Map<ProviderKind, ProviderConnectionManifest>([
           authenticationMethodId: "api-key",
           credentialBackend: "desktop-static-secret",
           label: "API key",
+          groupLabel: "Claude API",
           displayIdentity: { kind: "secret-suffix", prefix: "API" },
           secretPlaceholder: "Anthropic API key",
           internalProviderIds: [null],
@@ -201,6 +208,7 @@ const MANIFESTS = new Map<ProviderKind, ProviderConnectionManifest>([
           credentialBackend: "provider-native-profile",
           loginMechanism: "browser",
           label: "Sign in",
+          groupLabel: "Claude Auth",
           displayIdentity: { kind: "account-email" },
           internalProviderIds: [null],
           authorizesInternalProvider: noInternalProvider,
@@ -231,6 +239,7 @@ const MANIFESTS = new Map<ProviderKind, ProviderConnectionManifest>([
           authenticationMethodId: "api-key",
           credentialBackend: "desktop-static-secret",
           label: "OpenCode Zen",
+          groupLabel: "OpenCode Zen",
           displayIdentity: { kind: "secret-suffix", prefix: "OpenCode Zen" },
           secretPlaceholder: "OpenCode Zen key",
           internalProviderIds: ["opencode"],
@@ -252,6 +261,7 @@ const MANIFESTS = new Map<ProviderKind, ProviderConnectionManifest>([
           authenticationMethodId: "api-key",
           credentialBackend: "desktop-static-secret",
           label: "OpenCode Go",
+          groupLabel: "OpenCode Go",
           displayIdentity: { kind: "secret-suffix", prefix: "OpenCode Go" },
           secretPlaceholder: "OpenCode Go key",
           internalProviderIds: ["opencode-go"],
@@ -271,6 +281,8 @@ const MANIFESTS = new Map<ProviderKind, ProviderConnectionManifest>([
       ],
       managedLoginMethods: [],
       anonymous: {
+        groupLabel: "OpenCode Zen",
+        label: "Free",
         internalProviderIds: ["opencode"],
         authorizesInternalProvider: (internalProviderId) => internalProviderId === "opencode",
       },

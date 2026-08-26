@@ -15,9 +15,10 @@ import {
   type TurnId,
 } from "@penkra/contracts";
 import { normalizeModelSlug } from "@penkra/shared/model";
-import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
-
-import { isStalePendingRequestFailureDetail } from "./lib/pendingInteraction";
+import {
+  deriveThreadSummaryMetadata,
+  isPendingInteractionNotFoundFailure,
+} from "@penkra/shared/threadSummary";
 import { toAttachmentPreviewUrl } from "./lib/wsHttpUrl";
 import { latestTurnMatchesTurnId } from "./session-logic";
 import { getRememberedProjectUiState } from "./storePersistence";
@@ -1175,7 +1176,7 @@ function pendingInteractionRequestIds(
     if (
       (activity.kind === "provider.approval.respond.failed" ||
         activity.kind === "provider.user-input.respond.failed") &&
-      isStalePendingRequestFailureDetail(asActivityRecord(activity.payload)?.detail)
+      isPendingInteractionNotFoundFailure(activity.payload)
     ) {
       pendingRequestIds.delete(requestId);
     }

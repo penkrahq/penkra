@@ -78,7 +78,7 @@ describe("mergeDynamicModelOptions", () => {
     ).toEqual([{ slug: "gpt-5.6-luna", name: "GPT-5.6 Luna" }]);
   });
 
-  it("uses Claude's live catalog without rewriting future models through legacy aliases", () => {
+  it("uses Claude's provider-derived display label without rewriting future models", () => {
     expect(
       mergeDynamicModelOptions({
         provider: "claudeAgent",
@@ -89,7 +89,7 @@ describe("mergeDynamicModelOptions", () => {
         dynamicModels: [
           {
             slug: "claude-opus-6",
-            name: "Opus",
+            name: "Opus 6",
             description: "Opus 6",
           },
         ],
@@ -97,7 +97,7 @@ describe("mergeDynamicModelOptions", () => {
     ).toEqual([
       {
         slug: "claude-opus-6",
-        name: "Claude Opus 6",
+        name: "Opus 6",
         description: "Opus 6",
       },
       { slug: "custom/private-model", name: "Custom model", isCustom: true },

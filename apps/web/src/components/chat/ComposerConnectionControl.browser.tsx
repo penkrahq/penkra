@@ -74,11 +74,33 @@ const connections: ProviderConnection[] = [
 ];
 
 function Harness() {
-  const [selected, setSelected] = useState(connections[0]!.id);
+  const [selected, setSelected] = useState<ProviderConnectionId | null>(connections[0]!.id);
   return (
     <ComposerConnectionControl
       provider="claudeAgent"
       connections={connections}
+      authenticationMethods={[
+        {
+          harness: "claudeAgent",
+          authenticationTargetId: "anthropic-first-party",
+          authenticationMethodId: "claude-account",
+          kind: "managed-login",
+          label: "Sign in",
+          groupLabel: "Claude Auth",
+          internalProviderIds: [null],
+        },
+        {
+          harness: "claudeAgent",
+          authenticationTargetId: "anthropic-first-party",
+          authenticationMethodId: "api-key",
+          kind: "static-secret",
+          label: "API key",
+          groupLabel: "Claude API",
+          secretPlaceholder: "Anthropic API key",
+          internalProviderIds: [null],
+        },
+      ]}
+      anonymousRoutes={[]}
       selectedConnectionId={selected}
       onConnectionChange={setSelected}
     />
@@ -151,6 +173,8 @@ describe("ComposerConnectionControl", () => {
         exact: true,
       });
       await connectionSubmenuTrigger.click();
+      await expect.element(page.getByText("Claude Auth", { exact: true })).toBeVisible();
+      await expect.element(page.getByText("Claude API", { exact: true })).toBeVisible();
       await expect.element(page.getByText("e.atta@gigborg.com", { exact: true })).toBeVisible();
       await expect.element(page.getByText("18%", { exact: true })).toBeVisible();
       const apiKeyRow = page.getByRole("menuitem", { name: /sk-ant-…7Xq2/ });

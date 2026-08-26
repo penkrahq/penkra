@@ -4,7 +4,6 @@ import {
   type ModelSelection,
   ClaudeModelOptions,
   CodexModelOptions,
-  DEFAULT_MODEL_BY_PROVIDER,
   type OpenCodeModelOptions,
   type ProviderModelDescriptor,
   FolderId,
@@ -27,8 +26,83 @@ import {
 
 const CLAUDE_THREAD_ID = ThreadId.makeUnsafe("thread-claude-traits");
 
+const CLAUDE_EFFORT_OPTIONS = [
+  { id: "low", label: "Low" },
+  { id: "medium", label: "Medium" },
+  { id: "high", label: "High", isDefault: true as const },
+  { id: "max", label: "Max" },
+  { id: "ultrathink", label: "Ultrathink" },
+];
+
+function claudeRuntimeModel(input: {
+  slug: string;
+  effortOptions?: ReadonlyArray<
+    (typeof CLAUDE_EFFORT_OPTIONS)[number] | { id: string; label: string }
+  >;
+  supportsFastMode?: boolean;
+  supportsThinkingToggle?: boolean;
+}): ProviderModelDescriptor {
+  const effortOptions = input.effortOptions ?? CLAUDE_EFFORT_OPTIONS;
+  return {
+    slug: input.slug,
+    name: input.slug,
+    optionDescriptors: input.supportsThinkingToggle
+      ? [{ id: "thinking", label: "Thinking", type: "boolean", currentValue: true }]
+      : [
+          {
+            id: "effort",
+            label: "Effort",
+            type: "select",
+            options: effortOptions,
+            promptInjectedValues: ["ultrathink"],
+          },
+          {
+            id: "autoCompactWindow",
+            label: "Auto-compact",
+            type: "select",
+            options: [
+              { id: "200k", label: "200k", isDefault: true },
+              { id: "1m", label: "1M (model default)" },
+            ],
+          },
+          ...(input.supportsFastMode
+            ? [
+                {
+                  id: "fastMode" as const,
+                  label: "Fast mode",
+                  type: "boolean" as const,
+                  currentValue: false,
+                },
+              ]
+            : []),
+        ],
+    supportsFastMode: input.supportsFastMode === true,
+    supportsThinkingToggle: input.supportsThinkingToggle === true,
+  };
+}
+
+const CLAUDE_OPUS_46_RUNTIME_MODEL = claudeRuntimeModel({
+  slug: "claude-opus-4-6",
+  supportsFastMode: true,
+});
+const CLAUDE_SONNET_46_RUNTIME_MODEL = claudeRuntimeModel({ slug: "claude-sonnet-4-6" });
+const CLAUDE_OPUS_47_RUNTIME_MODEL = claudeRuntimeModel({
+  slug: "claude-opus-4-7",
+  supportsFastMode: true,
+  effortOptions: [
+    ...CLAUDE_EFFORT_OPTIONS.slice(0, 3),
+    { id: "xhigh", label: "Extra High" },
+    ...CLAUDE_EFFORT_OPTIONS.slice(3),
+  ],
+});
+const CLAUDE_HAIKU_RUNTIME_MODEL = claudeRuntimeModel({
+  slug: "claude-haiku-4-5-20251001",
+  supportsThinkingToggle: true,
+});
+
 function ClaudeTraitsPickerHarness(props: {
   model: string;
+  runtimeModel: ProviderModelDescriptor;
   fallbackModelSelection: ModelSelection | null;
 }) {
   const prompt = useComposerThreadDraft(CLAUDE_THREAD_ID).prompt;
@@ -53,6 +127,7 @@ function ClaudeTraitsPickerHarness(props: {
       provider="claudeAgent"
       threadId={CLAUDE_THREAD_ID}
       model={selectedModel ?? props.model}
+      runtimeModel={props.runtimeModel}
       prompt={prompt}
       modelOptions={modelOptions?.claudeAgent}
       onPromptChange={handlePromptChange}
@@ -72,6 +147,7 @@ async function mountClaudePicker(props?: {
     contextWindow?: string;
   } | null;
   skipDraftModelOptions?: boolean;
+  runtimeModel?: ProviderModelDescriptor;
 }) {
   const model = props?.model ?? "claude-opus-4-6";
   const claudeOptions = !props?.skipDraftModelOptions ? props?.options : undefined;
@@ -122,7 +198,11 @@ async function mountClaudePicker(props?: {
         } satisfies ModelSelection)
       : null;
   const screen = await render(
-    <ClaudeTraitsPickerHarness model={model} fallbackModelSelection={fallbackModelSelection} />,
+    <ClaudeTraitsPickerHarness
+      model={model}
+      runtimeModel={props?.runtimeModel ?? CLAUDE_OPUS_46_RUNTIME_MODEL}
+      fallbackModelSelection={fallbackModelSelection}
+    />,
     { container: host },
   );
 
@@ -191,7 +271,10 @@ describe("TraitsPicker (Claude)", () => {
   });
 
   it("hides fast mode controls for non-Opus models", async () => {
-    await using _ = await mountClaudePicker({ model: "claude-sonnet-4-6" });
+    await using _ = await mountClaudePicker({
+      model: "claude-sonnet-4-6",
+      runtimeModel: CLAUDE_SONNET_46_RUNTIME_MODEL,
+    });
 
     await page.getByRole("button").click();
 
@@ -204,6 +287,7 @@ describe("TraitsPicker (Claude)", () => {
   it("shows only the provided effort options", async () => {
     await using _ = await mountClaudePicker({
       model: "claude-sonnet-4-6",
+      runtimeModel: CLAUDE_SONNET_46_RUNTIME_MODEL,
     });
 
     await page.getByRole("button").click();
@@ -221,6 +305,7 @@ describe("TraitsPicker (Claude)", () => {
   it("shows Extra High for Claude Opus 4.7", async () => {
     await using _ = await mountClaudePicker({
       model: "claude-opus-4-7",
+      runtimeModel: CLAUDE_OPUS_47_RUNTIME_MODEL,
     });
 
     await page.getByRole("button").click();
@@ -232,9 +317,10 @@ describe("TraitsPicker (Claude)", () => {
     });
   });
 
-  it("shows a th  inking on/off dropdown for Haiku", async () => {
+  it("shows a thinking on/off dropdown for Haiku", async () => {
     await using _ = await mountClaudePicker({
       model: "claude-haiku-4-5-20251001",
+      runtimeModel: CLAUDE_HAIKU_RUNTIME_MODEL,
       options: { thinking: true },
     });
 
@@ -324,7 +410,19 @@ describe("TraitsPicker (Claude)", () => {
 
 async function mountCodexPicker(props: { model?: string; options?: CodexModelOptions }) {
   const threadId = ThreadId.makeUnsafe("thread-codex-traits");
-  const model = props.model ?? DEFAULT_MODEL_BY_PROVIDER.codex;
+  const model = props.model ?? "gpt-5.5";
+  const runtimeModel: ProviderModelDescriptor = {
+    slug: model,
+    name: model,
+    supportedReasoningEfforts: [
+      { value: "low" },
+      { value: "medium" },
+      { value: "high" },
+      { value: "xhigh" },
+    ],
+    defaultReasoningEffort: "medium",
+    supportsFastMode: true,
+  };
   const draftsByThreadId: Record<ThreadId, ComposerThreadDraftState> = {
     [threadId]: {
       prompt: "",
@@ -366,7 +464,8 @@ async function mountCodexPicker(props: { model?: string; options?: CodexModelOpt
     <TraitsPicker
       provider="codex"
       threadId={threadId}
-      model={props.model ?? DEFAULT_MODEL_BY_PROVIDER.codex}
+      model={model}
+      runtimeModel={runtimeModel}
       prompt=""
       modelOptions={props.options}
       onPromptChange={() => {}}
@@ -552,7 +651,7 @@ async function mountOpenCodePicker(props?: {
   runtimeModel?: ProviderModelDescriptor;
   fallbackModelOptions?: OpenCodeModelOptions | null;
 }) {
-  const model = props?.model ?? DEFAULT_MODEL_BY_PROVIDER.opencode;
+  const model = props?.model ?? "opencode/test-model";
   const draftsByThreadId: Record<ThreadId, ComposerThreadDraftState> = {
     [OPENCODE_THREAD_ID]: {
       prompt: "",

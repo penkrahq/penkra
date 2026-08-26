@@ -41,6 +41,7 @@ import { CommandId, EventId } from "@penkra/contracts";
 import {
   buildStalePendingRequestFailureDetail,
   derivePendingThreadRequestIds,
+  PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
   type PendingThreadRequestKind,
 } from "@penkra/shared/threadSummary";
 import { Effect, Option, Scope } from "effect";
@@ -184,6 +185,7 @@ function buildStalePendingRequestCommand(input: {
         : "Provider user input response failed",
       payload: {
         detail: buildStalePendingRequestFailureDetail(input.requestKind, input.requestId),
+        failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
         requestId: input.requestId,
       },
       turnId: null,

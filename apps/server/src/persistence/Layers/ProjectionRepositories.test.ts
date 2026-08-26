@@ -49,12 +49,12 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         readonly defaultModelSelection: string | null;
       }>`
         SELECT default_model_selection_json AS "defaultModelSelection"
-        FROM projection_projects
-        WHERE project_id = 'project-null-options'
+        FROM projection_folders
+        WHERE folder_id = 'project-null-options'
       `;
       const row = rows[0];
       if (!row) {
-        return yield* Effect.fail(new Error("Expected projection_projects row to exist."));
+        return yield* Effect.fail(new Error("Expected projection_folders row to exist."));
       }
 
       assert.strictEqual(

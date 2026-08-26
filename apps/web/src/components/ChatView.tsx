@@ -10,7 +10,6 @@ import {
   type ModelSlug,
   type ProviderKind,
   type ProviderConnectionId,
-  type ProviderConnectionsSnapshot,
   type ProjectEntry,
   type FolderId,
   type ProviderApprovalDecision,
@@ -70,10 +69,7 @@ import {
 } from "~/lib/providerConnectionsReactQuery";
 import { resolveThreadBindingRevisionAtAdmission as resolveBindingRevisionAtAdmission } from "~/lib/threadBindingAdmission";
 import {
-  anonymousRouteAuthorizesModel,
-  connectionAuthorizesModel,
-  reconcileComposerConnectionSelection,
-  resolveComposerConnection,
+  pruneUnavailableComposerConnectionSelections,
   resolveComposerConnectionAtAdmission,
 } from "~/lib/providerConnectionCapabilities";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
@@ -1598,8 +1594,39 @@ export default function ChatView({
       activeThread.session !== null),
   );
   const providerConnectionsQuery = useQuery(providerConnectionsQueryOptions());
+  useEffect(() => {
+    if (hasThreadStarted || providerConnectionsQuery.data === undefined) return;
+    useComposerDraftStore.setState((state) => {
+      const stickyConnectionByProvider = pruneUnavailableComposerConnectionSelections({
+        snapshot: providerConnectionsQuery.data!,
+        selections: state.stickyConnectionByProvider,
+      });
+      return stickyConnectionByProvider === state.stickyConnectionByProvider
+        ? state
+        : { stickyConnectionByProvider };
+    });
+  }, [hasThreadStarted, providerConnectionsQuery.data]);
   const threadProviderBindingQuery = useQuery(
     threadProviderBindingQueryOptions(activeThread?.id ?? null),
+  );
+  type PendingConnectionSelection = Partial<Record<ProviderKind, ProviderConnectionId | null>>;
+  const [selectedConnectionByThread, setSelectedConnectionByThread] = useState<
+    Partial<Record<ThreadId, PendingConnectionSelection>>
+  >({});
+  const selectedConnectionByProvider = useMemo(() => {
+    const pendingConnectionByProvider = selectedConnectionByThread[threadId] ?? {};
+    return hasThreadStarted
+      ? pendingConnectionByProvider
+      : { ...stickyConnectionByProvider, ...pendingConnectionByProvider };
+  }, [hasThreadStarted, selectedConnectionByThread, stickyConnectionByProvider, threadId]);
+  const setSelectedConnectionByProvider = useCallback(
+    (update: (current: PendingConnectionSelection) => PendingConnectionSelection) => {
+      setSelectedConnectionByThread((current) => ({
+        ...current,
+        [threadId]: update(current[threadId] ?? {}),
+      }));
+    },
+    [threadId],
   );
   const configuredProviderKinds = useMemo(() => {
     const activeInstallations = new Set(
@@ -1672,6 +1699,78 @@ export default function ChatView({
     activeThread?.modelSelection,
     composerDraft.modelSelectionByProvider,
   ]);
+  const discoveryRouteByProvider = useMemo(() => {
+    const snapshot = providerConnectionsQuery.data;
+    if (snapshot === undefined) return {};
+    const result: Partial<
+      Record<
+        ProviderKind,
+        { connectionId: ProviderConnectionId | null; internalProviderId: string | null }
+      >
+    > = {};
+    for (const provider of ["codex", "claudeAgent", "opencode"] as const) {
+      const explicitlySelected = Object.prototype.hasOwnProperty.call(
+        selectedConnectionByProvider,
+        provider,
+      );
+      let connectionId: ProviderConnectionId | null | undefined;
+      if (explicitlySelected) {
+        connectionId = selectedConnectionByProvider[provider];
+      } else if (hasThreadStarted) {
+        if (threadProviderBindingQuery.data === undefined) continue;
+        connectionId = threadProviderBindingQuery.data.binding?.connectionId;
+      } else {
+        const anonymous = snapshot.anonymousRoutes.find((route) => route.harness === provider);
+        connectionId =
+          anonymous !== undefined
+            ? null
+            : snapshot.connections.find(
+                (connection) =>
+                  connection.harness === provider && connection.lifecycle === "active",
+              )?.id;
+      }
+      if (connectionId === undefined) continue;
+      if (connectionId === null) {
+        const modelProviderId =
+          provider === "opencode"
+            ? (composerModelHintByProvider[provider]?.split("/", 1)[0] ?? null)
+            : null;
+        const route = snapshot.anonymousRoutes.find(
+          (candidate) =>
+            candidate.harness === provider &&
+            (modelProviderId === null || candidate.internalProviderId === modelProviderId),
+        );
+        if (route !== undefined) {
+          result[provider] = { connectionId: null, internalProviderId: route.internalProviderId };
+        }
+        continue;
+      }
+      const connection = snapshot.connections.find(
+        (candidate) =>
+          candidate.id === connectionId &&
+          candidate.harness === provider &&
+          candidate.lifecycle === "active",
+      );
+      if (connection === undefined) continue;
+      const method = snapshot.authenticationMethods.find(
+        (candidate) =>
+          candidate.harness === provider &&
+          candidate.authenticationTargetId === connection.authenticationTargetId &&
+          candidate.authenticationMethodId === connection.authenticationMethodId,
+      );
+      result[provider] = {
+        connectionId,
+        internalProviderId: method?.internalProviderIds[0] ?? null,
+      };
+    }
+    return result;
+  }, [
+    composerModelHintByProvider,
+    hasThreadStarted,
+    providerConnectionsQuery.data,
+    selectedConnectionByProvider,
+    threadProviderBindingQuery.data,
+  ]);
   const providerModelDiscoveryCwd = resolveProviderDiscoveryCwd({
     activeThreadWorkingDirectory: resolvedThreadWorkingDirectory,
     activeProjectCwd: activeProject?.cwd ?? null,
@@ -1689,6 +1788,7 @@ export default function ChatView({
     cwd: providerModelDiscoveryCwd,
     modelHintByProvider: composerModelHintByProvider,
     agentDiscoveryPolicy: "eager-core",
+    routeByProvider: discoveryRouteByProvider,
   });
   const selectableModelOptionsByProvider = useMemo(() => {
     const snapshot = providerConnectionsQuery.data;
@@ -1708,36 +1808,9 @@ export default function ChatView({
         const discoveredModelSlugs = new Set(
           runtimeModelsByProvider[provider].map((model) => model.slug),
         );
-        const authorized = options.filter((option) => {
-          if (isManagedHarness && !discoveredModelSlugs.has(option.slug)) return false;
-          const availableConnectionIds = runtimeModelsByProvider[provider].find(
-            (model) => model.slug === option.slug,
-          )?.availableConnectionIds;
-          if (
-            anonymousRouteAuthorizesModel({
-              snapshot,
-              provider,
-              model: option.slug,
-              ...(isManagedHarness ? { availableConnectionIds: availableConnectionIds ?? [] } : {}),
-            })
-          ) {
-            return true;
-          }
-          return snapshot.connections.some(
-            (connection) =>
-              connection.harness === provider &&
-              connection.lifecycle === "active" &&
-              connectionAuthorizesModel({
-                snapshot,
-                connectionId: connection.id,
-                provider,
-                model: option.slug,
-                ...(isManagedHarness
-                  ? { availableConnectionIds: availableConnectionIds ?? [] }
-                  : {}),
-              }),
-          );
-        });
+        const authorized = isManagedHarness
+          ? options.filter((option) => discoveredModelSlugs.has(option.slug))
+          : options;
         return [provider, authorized];
       }),
     );
@@ -1809,68 +1882,10 @@ export default function ChatView({
     selectedModelOptionsForDispatch,
     selectedProvider,
   ]);
-  type PendingConnectionSelection = Partial<Record<ProviderKind, ProviderConnectionId | null>>;
-  const [selectedConnectionByThread, setSelectedConnectionByThread] = useState<
-    Partial<Record<ThreadId, PendingConnectionSelection>>
-  >({});
-  const pendingConnectionByProvider = selectedConnectionByThread[threadId] ?? {};
-  const selectedConnectionByProvider = hasThreadStarted
-    ? pendingConnectionByProvider
-    : { ...stickyConnectionByProvider, ...pendingConnectionByProvider };
-  const setSelectedConnectionByProvider = useCallback(
-    (update: (current: PendingConnectionSelection) => PendingConnectionSelection) => {
-      setSelectedConnectionByThread((current) => ({
-        ...current,
-        [threadId]: update(current[threadId] ?? {}),
-      }));
-    },
-    [threadId],
-  );
-  const resolveSelectedConnectionFromSnapshot = useCallback(
-    (
-      snapshot: ProviderConnectionsSnapshot,
-      provider: ProviderKind,
-      model: string,
-    ): ProviderConnectionId | null | undefined => {
-      const isManagedHarness =
-        snapshot.authenticationMethods.some((method) => method.harness === provider) ||
-        snapshot.anonymousRoutes.some((route) => route.harness === provider);
-      const availableConnectionIds = runtimeModelsByProvider[provider].find(
-        (descriptor) => descriptor.slug === model,
-      )?.availableConnectionIds;
-      return resolveComposerConnection({
-        snapshot,
-        provider,
-        model,
-        ...(isManagedHarness && availableConnectionIds !== undefined
-          ? { availableConnectionIds }
-          : {}),
-        explicitSelection: {
-          specified: Object.prototype.hasOwnProperty.call(selectedConnectionByProvider, provider),
-          connectionId: selectedConnectionByProvider[provider],
-        },
-        startedThreadBinding: {
-          loaded: threadProviderBindingQuery.data !== undefined,
-          connectionId: threadProviderBindingQuery.data?.binding?.connectionId,
-        },
-        hasThreadStarted,
-      });
-    },
-    [
-      hasThreadStarted,
-      runtimeModelsByProvider,
-      selectedConnectionByProvider,
-      threadProviderBindingQuery.data,
-    ],
-  );
   const resolveSelectedConnection = useCallback(
-    (provider: ProviderKind, model: string): ProviderConnectionId | null | undefined => {
-      const snapshot = providerConnectionsQuery.data;
-      return snapshot === undefined
-        ? undefined
-        : resolveSelectedConnectionFromSnapshot(snapshot, provider, model);
-    },
-    [providerConnectionsQuery.data, resolveSelectedConnectionFromSnapshot],
+    (provider: ProviderKind, _model: string): ProviderConnectionId | null | undefined =>
+      discoveryRouteByProvider[provider]?.connectionId,
+    [discoveryRouteByProvider],
   );
   const selectedConnectionId = resolveSelectedConnection(
     selectedProvider,
@@ -1886,54 +1901,13 @@ export default function ChatView({
       ),
     [discoveredRuntimeAgents, selectedConnectionId],
   );
-  const selectedModelConnections = useMemo(() => {
+  const composerConnectionCandidates = useMemo(() => {
     const snapshot = providerConnectionsQuery.data;
     if (snapshot === undefined) return [];
-    const availableConnectionIds = runtimeModelsByProvider[selectedProvider].find(
-      (descriptor) => descriptor.slug === selectedModelSelection.model,
-    )?.availableConnectionIds;
     return snapshot.connections.filter(
-      (connection) =>
-        connection.harness === selectedProvider &&
-        connection.lifecycle === "active" &&
-        connectionAuthorizesModel({
-          snapshot,
-          connectionId: connection.id,
-          provider: selectedProvider,
-          model: selectedModelSelection.model,
-          ...(availableConnectionIds === undefined ? {} : { availableConnectionIds }),
-        }),
+      (connection) => connection.harness === selectedProvider && connection.lifecycle === "active",
     );
-  }, [
-    providerConnectionsQuery.data,
-    runtimeModelsByProvider,
-    selectedModelSelection.model,
-    selectedProvider,
-  ]);
-  const composerConnectionCandidates = useMemo(() => {
-    if (selectedModelConnections.length > 0 || hasThreadStarted) {
-      return selectedModelConnections;
-    }
-    const snapshot = providerConnectionsQuery.data;
-    if (snapshot === undefined) return selectedModelConnections;
-    return snapshot.connections.filter(
-      (connection) =>
-        connection.harness === selectedProvider &&
-        connection.lifecycle === "active" &&
-        connectionAuthorizesModel({
-          snapshot,
-          connectionId: connection.id,
-          provider: selectedProvider,
-          model: selectedModelSelection.model,
-        }),
-    );
-  }, [
-    hasThreadStarted,
-    providerConnectionsQuery.data,
-    selectedModelConnections,
-    selectedModelSelection.model,
-    selectedProvider,
-  ]);
+  }, [providerConnectionsQuery.data, selectedProvider]);
   const handleConnectionChange = (connectionId: ProviderConnectionId | null) => {
     setSelectedConnectionByProvider((current) => ({
       ...current,
@@ -4631,36 +4605,6 @@ export default function ChatView({
         provider,
         model: resolvedModel,
       };
-      const snapshot = providerConnectionsQuery.data;
-      if (snapshot !== undefined) {
-        const availableConnectionIds = runtimeModelsByProvider[provider].find(
-          (descriptor) => descriptor.slug === resolvedModel,
-        )?.availableConnectionIds;
-        const reconciled = reconcileComposerConnectionSelection({
-          snapshot,
-          provider,
-          model: resolvedModel,
-          ...(availableConnectionIds === undefined ? {} : { availableConnectionIds }),
-          current: {
-            specified: Object.prototype.hasOwnProperty.call(selectedConnectionByProvider, provider),
-            connectionId: selectedConnectionByProvider[provider],
-          },
-        });
-        setSelectedConnectionByProvider((current) => {
-          const next = { ...current };
-          if (reconciled.specified) next[provider] = reconciled.connectionId ?? null;
-          else delete next[provider];
-          return next;
-        });
-        if (!hasThreadStarted) {
-          useComposerDraftStore.setState((state) => {
-            const next = { ...state.stickyConnectionByProvider };
-            if (reconciled.specified) next[provider] = reconciled.connectionId ?? null;
-            else delete next[provider];
-            return { stickyConnectionByProvider: next };
-          });
-        }
-      }
       setComposerDraftModelSelectionAndSticky(activeThread.id, nextModelSelection);
       scheduleComposerFocus();
     },
@@ -4669,14 +4613,8 @@ export default function ChatView({
       lockedProvider,
       scheduleComposerFocus,
       setComposerDraftModelSelectionAndSticky,
-      setComposerDraftProviderModelOptions,
       customModelsByProvider,
-      providerConnectionsQuery.data,
-      hasThreadStarted,
-      runtimeModelsByProvider,
-      selectedConnectionByProvider,
       selectableModelOptionsByProvider,
-      setSelectedConnectionByProvider,
     ],
   );
 
@@ -7678,11 +7616,18 @@ export default function ChatView({
                         {!isVoiceRecording && !isVoiceTranscribing ? composerPickerControls : null}
                         {!isVoiceRecording &&
                         !isVoiceTranscribing &&
-                        selectedConnectionId !== null &&
-                        composerConnectionCandidates.length > 0 ? (
+                        providerConnectionsQuery.data !== undefined &&
+                        (composerConnectionCandidates.length > 0 ||
+                          providerConnectionsQuery.data.anonymousRoutes.some(
+                            (route) => route.harness === selectedProvider,
+                          )) ? (
                           <ComposerConnectionControl
                             provider={selectedProvider}
                             connections={composerConnectionCandidates}
+                            authenticationMethods={
+                              providerConnectionsQuery.data.authenticationMethods
+                            }
+                            anonymousRoutes={providerConnectionsQuery.data.anonymousRoutes}
                             selectedConnectionId={selectedConnectionId}
                             onConnectionChange={handleConnectionChange}
                             onManageConnections={handleManageConnections}

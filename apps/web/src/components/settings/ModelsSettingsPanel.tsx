@@ -7,7 +7,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
 } from "@penkra/contracts";
-import { getModelOptions, normalizeModelSlug } from "@penkra/shared/model";
+import { normalizeModelSlug } from "@penkra/shared/model";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
@@ -56,9 +56,6 @@ export function validateCustomModelInput(input: {
   const normalized = normalizeModelSlug(input.value, input.provider);
   if (!normalized) {
     return { error: "Enter a model slug." };
-  }
-  if (getModelOptions(input.provider).some((option) => option.slug === normalized)) {
-    return { error: "That model is already built in." };
   }
   if (normalized.length > MAX_CUSTOM_MODEL_LENGTH) {
     return { error: `Model slugs must be ${MAX_CUSTOM_MODEL_LENGTH} characters or less.` };

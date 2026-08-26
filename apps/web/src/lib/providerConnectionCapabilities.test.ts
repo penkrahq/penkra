@@ -2,6 +2,7 @@ import { ProviderConnectionId, type ProviderConnectionsSnapshot } from "@penkra/
 import { describe, expect, it } from "vitest";
 
 import {
+  pruneUnavailableComposerConnectionSelections,
   anonymousRouteAuthorizesModel,
   connectionAuthorizesModel,
   isManagedHarnessConfigured,
@@ -48,6 +49,22 @@ const snapshot = {
 } as unknown as ProviderConnectionsSnapshot;
 
 describe("provider Connection capabilities", () => {
+  it("drops only saved routes that are no longer active", () => {
+    const missingConnectionId = ProviderConnectionId.makeUnsafe(
+      "00000000-0000-4000-8000-000000000099",
+    );
+    expect(
+      pruneUnavailableComposerConnectionSelections({
+        snapshot,
+        selections: {
+          codex: missingConnectionId,
+          opencode: goConnectionId,
+          claudeAgent: null,
+        },
+      }),
+    ).toEqual({ opencode: goConnectionId });
+  });
+
   it("exposes a harness only through an active managed installation and an exact route", () => {
     expect(isManagedHarnessConfigured({ snapshot, provider: "opencode" })).toBe(false);
     const installedSnapshot = {

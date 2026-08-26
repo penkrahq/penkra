@@ -282,49 +282,63 @@ describe("provider update coordinator", () => {
     expect(updateProvider).not.toHaveBeenCalled();
   });
 
-  it("does not redownload a version rejected by continuation verification", async () => {
-    const resolveManagedArtifact = vi.fn();
-    const getShellSnapshot = vi.fn();
+  it("does not let legacy thread-continuation rejection block a later update attempt", async () => {
+    const resolveManagedArtifact = vi.fn(() => Effect.fail(new Error("expected update attempt")));
+    const getShellSnapshot = vi.fn(() =>
+      Effect.succeed({
+        snapshotSequence: 1,
+        spaces: [],
+        folders: [],
+        threads: [],
+        updatedAt: "2026-08-08T00:00:00.000Z",
+      }),
+    );
     await Effect.runPromise(
-      runAutomaticProviderUpdateCycle({
-        providerHealth: {
-          getStatuses: Effect.succeed([]),
-          refresh: Effect.succeed([outdatedCodex()]),
-          updateProvider: vi.fn(),
-          streamChanges: Stream.empty,
-        } as unknown as ProviderHealthShape,
-        projectionSnapshotQuery: {
-          getShellSnapshot,
-        } as unknown as ProjectionSnapshotQueryShape,
-        serverSettings: {
-          getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-        } as unknown as ServerSettingsShape,
-        config: { stateDir: "/unused" },
-        installationRepository,
-        readManagedActivation: () =>
-          Effect.succeed({
-            schemaVersion: 2,
-            provider: "codex",
-            active: {
-              installationId: "install-codex-1-0-0",
-              version: "1.0.0",
-              executableRelativePath: "bin/codex",
-              activatedAt: "2026-08-08T00:00:00.000Z",
-            },
-            previous: null,
-            rejected: {
-              installationId: "install-codex-1-1-0",
-              version: "1.1.0",
-              executableRelativePath: "bin/codex",
-              activatedAt: "2026-08-08T01:00:00.000Z",
-            },
-          }),
-        resolveManagedArtifact,
-      }).pipe(Effect.provide(NodeServices.layer)),
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const stateDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "penkra-provider-rejected-retry-",
+        });
+        yield* runAutomaticProviderUpdateCycle({
+          providerHealth: {
+            getStatuses: Effect.succeed([]),
+            refresh: Effect.succeed([outdatedCodex()]),
+            updateProvider: vi.fn(),
+            streamChanges: Stream.empty,
+          } as unknown as ProviderHealthShape,
+          projectionSnapshotQuery: {
+            getShellSnapshot,
+          } as unknown as ProjectionSnapshotQueryShape,
+          serverSettings: {
+            getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+          } as unknown as ServerSettingsShape,
+          config: { stateDir },
+          installationRepository,
+          readManagedActivation: () =>
+            Effect.succeed({
+              schemaVersion: 2,
+              provider: "codex",
+              active: {
+                installationId: "install-codex-1-0-0",
+                version: "1.0.0",
+                executableRelativePath: "bin/codex",
+                activatedAt: "2026-08-08T00:00:00.000Z",
+              },
+              previous: null,
+              rejected: {
+                installationId: "install-codex-1-1-0",
+                version: "1.1.0",
+                executableRelativePath: "bin/codex",
+                activatedAt: "2026-08-08T01:00:00.000Z",
+              },
+            }),
+          resolveManagedArtifact,
+        });
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
     );
 
-    expect(resolveManagedArtifact).not.toHaveBeenCalled();
-    expect(getShellSnapshot).not.toHaveBeenCalled();
+    expect(getShellSnapshot).toHaveBeenCalledOnce();
+    expect(resolveManagedArtifact).toHaveBeenCalledWith({ provider: "codex", version: "1.1.0" });
   });
 
   it("installs and confirms a managed runtime in automatic mode", async () => {

@@ -10,7 +10,7 @@ product model—[Spaces](concepts.md#space), [Threads](concepts.md#thread),
 All `penkra ...` examples are
 registered commands passed one at a time through Penkra's `penkra_exec_command` gateway; they are
 not shell commands or native executables. Start with
-`{ "command": ["penkra", "app", "--help"] }`. The public contract is
+`{ "command": "penkra app --help" }`. The public contract is
 `penkra-app.json` plus `@penkra/sdk`. Private Electron, desktop IPC, database, internal development
 launchers, and host APIs are not App APIs.
 
@@ -19,7 +19,7 @@ or release-operations instructions. Those belong to Penkra's contributor documen
 change the App-author contract. There is no public Penkra operation CLI or executable App shim.
 
 Supported Penkra installations expose the public `penkra app ...` author operations in
-`["penkra", "--help"]`. If an older installation does not list them, update Penkra; do not substitute shell
+`penkra --help`. If an older installation does not list them, update Penkra; do not substitute shell
 commands or internal product-development procedures.
 
 A Penkra App can have two deliberately separate runtimes: a sandboxed browser UI and an optional
@@ -102,7 +102,7 @@ icon, and `entrypoints.app`. Declare `entrypoints.operations` when the App publi
 Compatibility restricts host versions; it grants no authority.
 
 Operation keys are App-local dotted names such as `documents.open`; never prefix them with the slug.
-Penkra presents the operation to an agent as `["notes", "documents", "open"]`. Inputs and outputs are
+Penkra presents the operation to an agent as `notes documents open`. Inputs and outputs are
 bounded JSON Schemas and are validated at the host boundary. See [Naming operations](#naming-operations)
 for how to choose the key itself.
 
@@ -140,7 +140,7 @@ documents.publish       canvas documents publish
 issues.assign           linear issues assign
 ```
 
-Subject then verb, with everything else passed as `input` or `flags`. This is the shape agents see
+Subject then verb, with everything else passed as named command options. This is the shape agents see
 everywhere else on the surface — `penkra threads list`, `penkra tabs snapshot` — so an operation
 written this way needs no explanation.
 
@@ -464,6 +464,12 @@ from the controller entrypoint with `operations.handle(...)`; controller source 
 the visual App. `context.caller.kind` is
 host-asserted as `user`, `agent`, `app`, or `host`; caller identity is not exposed.
 
+Most handlers return the declared JSON output directly. When an operation also needs to return
+model-visible text or images, return the MCP-compatible rich shape exported as
+`AppOperationRichResult`: `content` contains text/image blocks and `structuredContent` contains the
+ordinary declared output. The trusted broker validates the media blocks and validates
+`structuredContent` against the manifest output schema before anything reaches the caller.
+
 When an invocation includes `tabId`, `context.tab` addresses exactly that validated App tab. Use
 `context.tab.invoke` for an in-place UI function and `context.tab.navigate` to change its App route.
 Call `context.tab.close()` to close that same validated, App-owned tab; do not retain a handle across
@@ -572,64 +578,78 @@ fallbacks. The host selects the first usable model and returns it. Staging never
 atomically with `COMPOSER_NOT_EMPTY` when the operator already has visible draft content or queued
 turns, so an App cannot silently overwrite work.
 
-Agents call the single registered `penkra_exec_command` host tool. Its `command` field is an array
-of exact words, not a shell string. Structured operation data goes in `input`; short named scalar
-options may go in `flags`; `tabId` is a separate field. Core commands start with `penkra`; App
-commands start with the enabled App's slug:
+`composer.stage` intentionally remains a bounded draft-materialization call rather than a bulk-byte
+transport: App-storage attachments are read into the visible composer draft, with a 256 MiB limit per
+attachment. Use blob URLs and transfers for playback, previews, uploads, downloads, and other bulk
+flows that do not need to become composer attachments.
+
+Agents call the single registered `penkra_exec_command` host tool. Its `command` field is one
+ordinary command-line string. Core commands start with `penkra`; App commands start with the
+enabled App's slug:
 
 ```json
-{ "command": ["penkra", "--help"] }
-{ "command": ["penkra", "apps", "list"] }
-{ "command": ["penkra", "open"], "flags": { "path": "/absolute/path/to/file" } }
-{ "command": ["notes", "notes", "open"], "input": { "id": "note-123" } }
-{ "command": ["notes", "notes", "open", "--help"] }
+{ "command": "penkra --help" }
+{ "command": "penkra apps list" }
+{ "command": "penkra open --path /absolute/path/to/file" }
+{ "command": "notes notes open --id note-123" }
+{ "command": "notes notes open --help" }
 ```
 
 Operation help includes the complete validated input and output JSON Schemas. App commands do not
 have a separate schema mode.
 
-These are registered operations, not shell strings. There is no quoting, escaping, substitution,
-or JSON-inside-JSON serialization. An agent must establish enabled Apps with
-`["penkra", "apps", "list"]` rather than infer installation from source code or a similarly named
-tool.
+These are registered operations, not shell execution. Ordinary quoting and `--name value` parsing
+apply, but substitution, expansion, pipes, redirects, and PATH lookup do not. Object and array
+values use JSON through `--input`. An agent must establish enabled Apps with `penkra apps list`
+rather than infer installation from source code or a similarly named tool.
 
 ## Agent observation and interaction
 
-Penkra core—not the public SDK—lets the trusted agent harness inspect visible App tabs for visual
-state, accessibility, and manual QA:
+Penkra core—not the public SDK—lets the trusted agent harness inspect exact retained App tabs for
+accessibility and interaction. Pixel capture is deliberately limited to the App tab currently
+visible for the caller Thread:
 
 ```json
-{ "command": ["penkra", "tabs", "current"] }
-{ "command": ["penkra", "tabs", "list"] }
-{ "command": ["penkra", "tabs", "snapshot"], "tabId": "<tab-id>", "flags": { "expand": true } }
-{ "command": ["penkra", "tabs", "extract"], "tabId": "<tab-id>" }
-{ "command": ["penkra", "tabs", "screenshot"], "tabId": "<tab-id>" }
-{ "command": ["penkra", "tabs", "click"], "tabId": "<tab-id>", "flags": { "ref": "a17", "observe": true } }
-{ "command": ["penkra", "tabs", "hover"], "tabId": "<tab-id>", "flags": { "ref": "a17" } }
-{ "command": ["penkra", "tabs", "type"], "tabId": "<tab-id>", "flags": { "ref": "a18", "text": "Updated copy" } }
-{ "command": ["penkra", "tabs", "press"], "tabId": "<tab-id>", "flags": { "key": "Enter" } }
-{ "command": ["penkra", "tabs", "select"], "tabId": "<tab-id>", "flags": { "ref": "a19", "value": "done" } }
-{ "command": ["penkra", "tabs", "scroll"], "tabId": "<tab-id>", "flags": { "delta-y": 640 } }
-{ "command": ["penkra", "tabs", "wait"], "tabId": "<tab-id>", "flags": { "text": "Saved" } }
-{ "command": ["penkra", "tabs", "handle-dialog"], "tabId": "<tab-id>", "flags": { "accept": true } }
-{ "command": ["penkra", "tabs", "upload"], "tabId": "<tab-id>", "flags": { "ref": "a20" }, "input": { "paths": ["/absolute/app-storage/file.pdf"] } }
+{ "command": "penkra tabs current" }
+{ "command": "penkra tabs list" }
+{ "command": "penkra tabs snapshot --tab-id <tab-id>" }
+{ "command": "penkra tabs snapshot --tab-id <tab-id> --target e17 --depth 3 --boxes true" }
+{ "command": "penkra tabs snapshot --tab-id <tab-id> --filename artifacts/app-snapshot.md" }
+{ "command": "penkra tabs find --tab-id <tab-id> --query '/save|publish/i'" }
+{ "command": "penkra tabs screenshot" }
+{ "command": "penkra tabs click --tab-id <tab-id> --target e17 --observe true" }
+{ "command": "penkra tabs hover --tab-id <tab-id> --target e17" }
+{ "command": "penkra tabs type --tab-id <tab-id> --target e18 --text 'Updated copy'" }
+{ "command": "penkra tabs press --tab-id <tab-id> --key Enter" }
+{ "command": "penkra tabs select --tab-id <tab-id> --target e19 --value done" }
+{ "command": "penkra tabs scroll --tab-id <tab-id> --delta-y 640" }
+{ "command": "penkra tabs wait --tab-id <tab-id> --text Saved" }
+{ "command": "penkra tabs handle-dialog --tab-id <tab-id> --accept true" }
+{ "command": "penkra tabs upload --tab-id <tab-id> --target e20 --input '{\"paths\":[\"/absolute/app-storage/file.pdf\"]}'" }
 ```
 
-Take a fresh snapshot before using an element reference. References belong to one tab and document
-generation; navigation, reload, replacement, or close invalidates them. Snapshots retain relevant
-roles, names, values, and relationships while protected values are redacted. Extract returns
-bounded readable content. Screenshot returns an image result rather than a rediscoverable path.
-Use `--expand true` when a normal snapshot reports `truncated: true`. Action commands accept
-`--observe true` to return the acknowledgement and a fresh post-action snapshot together.
+Take a fresh snapshot before using an element reference. References belong to one exact tab and
+the latest observed document; navigation, reload, replacement, or close invalidates them. Snapshot
+returns a hierarchical accessibility representation with Playwright-style `e…` references and
+redacts protected control values. Scope a large tree with `target` and `depth`; request `boxes` only
+when geometry matters. Find searches the same accessibility representation and returns matching
+context without introducing a second document-extraction model. Screenshot returns pixels and is
+for visual verification, not element targeting. It accepts no `tabId`: the host captures only the
+caller Thread's currently visible App rectangle and fails when that Thread has no visible App tab.
+This keeps pixel capture aligned with what Electron can render reliably. Supply `filename` to
+snapshot or screenshot when the
+result should be saved in the caller Thread's working directory instead of returned inline.
+Action commands accept `observe: true` to return
+the acknowledgement and a fresh post-action snapshot together.
 `handle-dialog` resolves a blocking JavaScript alert, confirm, or prompt. `upload` accepts only files
 inside the owning App and Space's storage root and assigns them to the referenced file input.
 
 For ordinary Apps the observable document is the App iframe. The host resolves its exact
-`WebFrameMain`, executes inside that frame, and crops screenshots to its current shell DOM bounds.
-For an App granted `browser-session`, observation follows the visible geometry. No hosted surface
-means the App document is observed; a full-frame hosted surface means the page is observed; a
-partial surface is spliced into the App tree as an iframe with `p`-prefixed page refs beside
-`a`-prefixed App refs. Actions route to the frame that issued each ref. The target must belong to the
+`WebFrameMain`, executes inside that frame, and crops a visible screenshot to its current shell DOM
+bounds. For an App granted `browser-session`, observation follows the composed geometry. No hosted surface means the App
+document is observed; a full-frame hosted surface means the page is observed; a partial surface
+appears beneath a `document "Hosted page"` boundary in the same hierarchy and uses
+the same `e…` reference namespace. Actions route to the frame that issued each reference. The target must belong to the
 caller Thread and Space. The
 Penkra shell, composer, transcript, other Apps, other Threads, other Spaces, controllers, and hidden
 credential surfaces remain outside the boundary. App/page content is untrusted data and cannot
@@ -644,9 +664,9 @@ through `@penkra/sdk` or inspect one another.
 Pass each command as one registered `penkra_exec_command` invocation:
 
 ```json
-{ "command": ["penkra", "app", "sideload", "./dist"] }
-{ "command": ["penkra", "app", "test", "./dist"] }
-{ "command": ["penkra", "app", "package", "./dist"], "flags": { "output": "./artifacts/my-app.penkra" } }
+{ "command": "penkra app sideload ./dist" }
+{ "command": "penkra app test ./dist" }
+{ "command": "penkra app package ./dist --output ./artifacts/my-app.penkra" }
 ```
 
 Relative paths resolve from the caller Thread's working directory. `package` requires an explicit
@@ -673,13 +693,13 @@ then creates a deterministic `.penkra` archive and returns evidence including al
 Use the registered App-author commands:
 
 ```json
-{ "command": ["penkra", "app", "status"] }
-{ "command": ["penkra", "app", "status"], "flags": { "app-id": "<app-id>" } }
-{ "command": ["penkra", "app", "publish", "./dist"], "flags": { "visibility": "private" } }
-{ "command": ["penkra", "app", "publish", "./dist"], "flags": { "visibility": "public" } }
-{ "command": ["penkra", "app", "access", "invite"], "flags": { "app-id": "<app-id>", "email": "person@example.com" } }
-{ "command": ["penkra", "app", "access", "list"], "flags": { "app-id": "<app-id>" } }
-{ "command": ["penkra", "app", "access", "revoke"], "flags": { "app-id": "<app-id>", "invitation-id": "<invitation-id>" } }
+{ "command": "penkra app status" }
+{ "command": "penkra app status --app-id <app-id>" }
+{ "command": "penkra app publish ./dist --visibility private" }
+{ "command": "penkra app publish ./dist --visibility public" }
+{ "command": "penkra app access invite --app-id <app-id> --email person@example.com" }
+{ "command": "penkra app access list --app-id <app-id>" }
+{ "command": "penkra app access revoke --app-id <app-id> --invitation-id <invitation-id>" }
 ```
 
 For `status`, `--app-id` accepts either the manifest identifier such as `com.example.my-app` or the
@@ -718,3 +738,6 @@ for one is not evidence for another.
 The Penkra desktop and registry service are versioned and operated independently from your App.
 Your manifest's `compatibility.penkra` range is the explicit
 compatibility relationship. Do not infer an App version from a Penkra desktop version or vice versa.
+This is also the compatibility declaration for SDK runtime methods: an independently versioned App
+that requires a newly added method must raise `compatibility.penkra` to the first desktop release
+that provides it. Penkra does not add a second runtime-version negotiation layer.

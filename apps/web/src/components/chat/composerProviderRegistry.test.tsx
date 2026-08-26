@@ -63,7 +63,7 @@ const PI_RUNTIME_MODEL_WITH_REASONING: ProviderModelDescriptor = {
 };
 
 describe("getComposerProviderState", () => {
-  it("returns codex defaults when no codex draft options exist", () => {
+  it("does not invent a Codex effort before discovery", () => {
     const state = getComposerProviderState({
       provider: "codex",
       model: "gpt-5.4",
@@ -73,7 +73,7 @@ describe("getComposerProviderState", () => {
 
     expect(state).toEqual({
       provider: "codex",
-      promptEffort: "high",
+      promptEffort: null,
       modelOptionsForDispatch: undefined,
     });
   });
@@ -137,7 +137,7 @@ describe("getComposerProviderState", () => {
     });
   });
 
-  it("rejects an unsupported effort for a known static Codex model before discovery", () => {
+  it("preserves an explicit Codex effort until discovery can validate it", () => {
     const state = getComposerProviderState({
       provider: "codex",
       model: "gpt-5.4",
@@ -151,8 +151,8 @@ describe("getComposerProviderState", () => {
 
     expect(state).toEqual({
       provider: "codex",
-      promptEffort: "high",
-      modelOptionsForDispatch: undefined,
+      promptEffort: "ultra",
+      modelOptionsForDispatch: { reasoningEffort: "ultra" },
     });
   });
 
@@ -222,7 +222,7 @@ describe("getComposerProviderState", () => {
     });
   });
 
-  it("preserves codex fast mode when it is the only active option", () => {
+  it("preserves explicit Codex fast mode until discovery resolves", () => {
     const state = getComposerProviderState({
       provider: "codex",
       model: "gpt-5.4",
@@ -236,7 +236,7 @@ describe("getComposerProviderState", () => {
 
     expect(state).toEqual({
       provider: "codex",
-      promptEffort: "high",
+      promptEffort: null,
       modelOptionsForDispatch: {
         fastMode: true,
       },
@@ -296,7 +296,7 @@ describe("getComposerProviderState", () => {
     });
   });
 
-  it("drops explicit codex default/off overrides from dispatch while keeping the selected effort label", () => {
+  it("drops explicit Codex off values while preserving the exact selected effort", () => {
     const state = getComposerProviderState({
       provider: "codex",
       model: "gpt-5.4",
@@ -312,11 +312,11 @@ describe("getComposerProviderState", () => {
     expect(state).toEqual({
       provider: "codex",
       promptEffort: "high",
-      modelOptionsForDispatch: undefined,
+      modelOptionsForDispatch: { reasoningEffort: "high" },
     });
   });
 
-  it("returns Claude defaults for effort-capable models", () => {
+  it("does not infer Claude effort support from a model name", () => {
     const state = getComposerProviderState({
       provider: "claudeAgent",
       model: "claude-sonnet-4-6",
@@ -326,12 +326,12 @@ describe("getComposerProviderState", () => {
 
     expect(state).toEqual({
       provider: "claudeAgent",
-      promptEffort: "high",
+      promptEffort: null,
       modelOptionsForDispatch: undefined,
     });
   });
 
-  it("tracks Claude ultrathink from the prompt without changing dispatch effort", () => {
+  it("does not infer prompt-injected Claude modes without runtime metadata", () => {
     const state = getComposerProviderState({
       provider: "claudeAgent",
       model: "claude-sonnet-4-6",
@@ -349,8 +349,6 @@ describe("getComposerProviderState", () => {
       modelOptionsForDispatch: {
         effort: "medium",
       },
-      composerFrameClassName: "ultrathink-frame",
-      modelPickerIconClassName: "ultrathink-chroma",
     });
   });
 
@@ -383,7 +381,7 @@ describe("getComposerProviderState", () => {
     expect(selection.ultrathinkPromptControlled).toBe(true);
   });
 
-  it("drops unsupported Claude effort options for models without effort controls", () => {
+  it("preserves explicit Claude options until discovery can validate them", () => {
     const state = getComposerProviderState({
       provider: "claudeAgent",
       model: "claude-haiku-4-5-20251001",
@@ -398,8 +396,9 @@ describe("getComposerProviderState", () => {
 
     expect(state).toEqual({
       provider: "claudeAgent",
-      promptEffort: null,
+      promptEffort: "max",
       modelOptionsForDispatch: {
+        effort: "max",
         thinking: false,
       },
     });
@@ -419,14 +418,14 @@ describe("getComposerProviderState", () => {
 
     expect(state).toEqual({
       provider: "claudeAgent",
-      promptEffort: "high",
+      promptEffort: null,
       modelOptionsForDispatch: {
         fastMode: true,
       },
     });
   });
 
-  it("drops explicit Claude default/off overrides from dispatch while keeping the selected effort label", () => {
+  it("drops explicit Claude off values while preserving the exact selected effort", () => {
     const state = getComposerProviderState({
       provider: "claudeAgent",
       model: "claude-opus-4-6",
@@ -442,7 +441,7 @@ describe("getComposerProviderState", () => {
     expect(state).toEqual({
       provider: "claudeAgent",
       promptEffort: "high",
-      modelOptionsForDispatch: undefined,
+      modelOptionsForDispatch: { effort: "high" },
     });
   });
 

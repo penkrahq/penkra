@@ -643,7 +643,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: () =>
       sql`
         SELECT
-          project_id AS "folderId",
+          folder_id AS "folderId",
           COALESCE(space_id, 'penkra-personal') AS "spaceId",
           title,
           workspace_root AS "workspaceRoot",
@@ -656,8 +656,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
           deleted_at AS "deletedAt"
-        FROM projection_projects
-        ORDER BY created_at ASC, project_id ASC
+        FROM projection_folders
+        ORDER BY created_at ASC, folder_id ASC
       `,
   });
 
@@ -668,7 +668,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
-          project_id AS "folderId",
+          folder_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -711,7 +711,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
-          project_id AS "folderId",
+          folder_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -886,25 +886,15 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   OR (
                     ranked.kind = 'approval.requested'
                     AND later.kind = 'provider.approval.respond.failed'
-                    AND (
-                      lower(COALESCE(json_extract(later.payload_json, '$.detail'), '')) LIKE
-                        '%stale pending approval request%'
-                      OR lower(COALESCE(json_extract(later.payload_json, '$.detail'), '')) LIKE
-                        '%unknown pending approval request%'
-                      OR lower(COALESCE(json_extract(later.payload_json, '$.detail'), '')) LIKE
-                        '%unknown pending permission request%'
-                    )
+                    AND json_extract(later.payload_json, '$.failureCode') =
+                      'PENDING_INTERACTION_NOT_FOUND'
                   )
                   OR (ranked.kind = 'user-input.requested' AND later.kind = 'user-input.resolved')
                   OR (
                     ranked.kind = 'user-input.requested'
                     AND later.kind = 'provider.user-input.respond.failed'
-                    AND (
-                      lower(COALESCE(json_extract(later.payload_json, '$.detail'), '')) LIKE
-                        '%stale pending user-input request%'
-                      OR lower(COALESCE(json_extract(later.payload_json, '$.detail'), '')) LIKE
-                        '%unknown pending user-input request%'
-                    )
+                    AND json_extract(later.payload_json, '$.failureCode') =
+                      'PENDING_INTERACTION_NOT_FOUND'
                   )
                 )
                 AND (
@@ -1020,7 +1010,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: () =>
       sql`
         SELECT
-          (SELECT COUNT(*) FROM projection_projects) AS "folderCount",
+          (SELECT COUNT(*) FROM projection_folders) AS "folderCount",
           (SELECT COUNT(*) FROM projection_threads) AS "threadCount"
       `,
   });
@@ -1031,7 +1021,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: ({ workspaceRoot }) =>
       sql`
         SELECT
-          project_id AS "folderId",
+          folder_id AS "folderId",
           title,
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
@@ -1043,10 +1033,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
-        FROM projection_projects
+        FROM projection_folders
         WHERE workspace_root = ${workspaceRoot}
           AND deleted_at IS NULL
-        ORDER BY created_at ASC, project_id ASC
+        ORDER BY created_at ASC, folder_id ASC
         LIMIT 1
       `,
   });
@@ -1081,7 +1071,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId"
         FROM projection_threads
-        WHERE project_id = ${folderId}
+        WHERE folder_id = ${folderId}
           AND deleted_at IS NULL
         ORDER BY created_at ASC, thread_id ASC
         LIMIT 1
@@ -1094,7 +1084,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: ({ folderId }) =>
       sql`
         SELECT
-          project_id AS "folderId",
+          folder_id AS "folderId",
           title,
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
@@ -1107,8 +1097,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
           deleted_at AS "deletedAt"
-        FROM projection_projects
-        WHERE project_id = ${folderId}
+        FROM projection_folders
+        WHERE folder_id = ${folderId}
           AND deleted_at IS NULL
         LIMIT 1
       `,
@@ -1121,7 +1111,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
-          project_id AS "folderId",
+          folder_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -1166,7 +1156,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
-          project_id AS "folderId",
+          folder_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -1345,25 +1335,15 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                     OR (
                       ranked.kind = 'approval.requested'
                       AND later.kind = 'provider.approval.respond.failed'
-                      AND (
-                        lower(COALESCE(json_extract(later.payload_json, '$.detail'), '')) LIKE
-                          '%stale pending approval request%'
-                        OR lower(COALESCE(json_extract(later.payload_json, '$.detail'), '')) LIKE
-                          '%unknown pending approval request%'
-                        OR lower(COALESCE(json_extract(later.payload_json, '$.detail'), '')) LIKE
-                          '%unknown pending permission request%'
-                      )
+                      AND json_extract(later.payload_json, '$.failureCode') =
+                        'PENDING_INTERACTION_NOT_FOUND'
                     )
                     OR (ranked.kind = 'user-input.requested' AND later.kind = 'user-input.resolved')
                     OR (
                       ranked.kind = 'user-input.requested'
                       AND later.kind = 'provider.user-input.respond.failed'
-                      AND (
-                        lower(COALESCE(json_extract(later.payload_json, '$.detail'), '')) LIKE
-                          '%stale pending user-input request%'
-                        OR lower(COALESCE(json_extract(later.payload_json, '$.detail'), '')) LIKE
-                          '%unknown pending user-input request%'
-                      )
+                      AND json_extract(later.payload_json, '$.failureCode') =
+                        'PENDING_INTERACTION_NOT_FOUND'
                     )
                   )
                   AND (

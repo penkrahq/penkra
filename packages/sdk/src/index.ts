@@ -44,6 +44,8 @@ export {
 
 export {
   OPERATION_CANCELLATION_CODES,
+  type AppOperationContent,
+  type AppOperationRichResult,
   type AppTabHandle,
   type AppTabs,
   type OperationAddress,

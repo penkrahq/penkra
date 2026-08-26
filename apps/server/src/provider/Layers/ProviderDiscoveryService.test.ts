@@ -273,7 +273,7 @@ describe("ProviderDiscoveryService.getComposerCapabilities", () => {
 });
 
 describe("ProviderDiscoveryService.listModels", () => {
-  it("discovers managed models through every exact Connection and anonymous route", async () => {
+  it("discovers models only through the selected Connection route", async () => {
     const connectionId = ProviderConnectionId.makeUnsafe("opencode-go-connection");
     const failedConnectionId = ProviderConnectionId.makeUnsafe("opencode-go-failed-connection");
     const zenConnectionId = ProviderConnectionId.makeUnsafe("opencode-zen-connection");
@@ -407,30 +407,30 @@ describe("ProviderDiscoveryService.listModels", () => {
     const result = await Effect.runPromise(
       Effect.gen(function* () {
         const discovery = yield* ProviderDiscoveryService;
-        return yield* discovery.listModels({ provider: "opencode" });
+        const anonymous = yield* discovery.listModels({ provider: "opencode" });
+        const go = yield* discovery.listModels({
+          provider: "opencode",
+          connectionId,
+          internalProviderId: "opencode-go",
+        });
+        return { anonymous, go };
       }).pipe(Effect.provide(ProviderDiscoveryServiceLive.pipe(Layer.provideMerge(baseLayer)))),
     );
 
     expect(resolvedRoutes).toEqual([
-      { connectionId, internalProviderId: "opencode-go" },
-      { connectionId: zenConnectionId, internalProviderId: "opencode" },
-      { connectionId: failedConnectionId, internalProviderId: "opencode-go" },
       { connectionId: null, internalProviderId: "opencode" },
+      { connectionId, internalProviderId: "opencode-go" },
     ]);
-    expect(adapterRoutes).toEqual(["opencode-go", "opencode", "opencode"]);
-    expect(result.models.map((model) => model.slug)).toEqual([
-      "opencode-go/model",
-      "opencode/model",
-    ]);
-    expect(result.models.map((model) => model.availableConnectionIds)).toEqual([
-      [connectionId],
-      [zenConnectionId, null],
-    ]);
+    expect(adapterRoutes).toEqual(["opencode", "opencode-go"]);
+    expect(result.anonymous.models.map((model) => model.slug)).toEqual(["opencode/model"]);
+    expect(result.go.models.map((model) => model.slug)).toEqual(["opencode-go/model"]);
+    expect(result.anonymous.models[0]?.availableConnectionIds).toBeUndefined();
+    expect(result.go.models[0]?.availableConnectionIds).toBeUndefined();
   });
 });
 
 describe("ProviderDiscoveryService.listAgents", () => {
-  it("discovers agents through exact managed Connection routes and reports availability", async () => {
+  it("discovers agents only through the selected managed Connection route", async () => {
     const connectionId = ProviderConnectionId.makeUnsafe("opencode-go-agent-connection");
     const installationId = ProviderInstallationId.makeUnsafe("managed-opencode-agents");
     const resolvedRoutes: Array<string | null> = [];
@@ -516,21 +516,23 @@ describe("ProviderDiscoveryService.listAgents", () => {
     const result = await Effect.runPromise(
       Effect.gen(function* () {
         const discovery = yield* ProviderDiscoveryService;
-        return yield* discovery.listAgents({ provider: "opencode" });
+        return yield* discovery.listAgents({
+          provider: "opencode",
+          connectionId,
+          internalProviderId: "opencode-go",
+        });
       }).pipe(Effect.provide(ProviderDiscoveryServiceLive.pipe(Layer.provideMerge(baseLayer)))),
     );
 
-    expect(resolvedRoutes).toEqual([connectionId, null]);
+    expect(resolvedRoutes).toEqual([connectionId]);
     expect(result.agents).toEqual([
       {
         name: "review",
         displayName: "Review",
-        availableConnectionIds: [connectionId, null],
       },
       {
         name: "work-only",
         displayName: "Work only",
-        availableConnectionIds: [connectionId],
       },
     ]);
   });

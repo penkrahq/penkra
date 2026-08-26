@@ -53,6 +53,9 @@ const threadId = ThreadId.makeUnsafe("switch-thread");
 const sourceConnectionId = ProviderConnectionId.makeUnsafe("connection-personal");
 const targetConnectionId = ProviderConnectionId.makeUnsafe("connection-work");
 const installationId = ProviderInstallationId.makeUnsafe("installation-opencode");
+const intermediateInstallationId = ProviderInstallationId.makeUnsafe(
+  "installation-opencode-intermediate",
+);
 const targetInstallationId = ProviderInstallationId.makeUnsafe("installation-opencode-new");
 const forkSourceThreadId = ThreadId.makeUnsafe("fork-source-thread");
 const runtimeStateDir = mkdtempSync(path.join(tmpdir(), "penkra-provider-switch-"));
@@ -126,6 +129,33 @@ const prepareRuntimeUpgrade = () =>
     rmSync(path.join(runtimeStateDir, "provider-runtimes"), { recursive: true, force: true });
     for (const [version, id] of [
       ["1.0.0", installationId],
+      ["2.0.0", targetInstallationId],
+    ] as const) {
+      const versionDirectory = resolveManagedProviderVersionDirectory({
+        stateDir: runtimeStateDir,
+        provider: "opencode",
+        version,
+      });
+      const executablePath = path.join(versionDirectory, "bin", "opencode");
+      mkdirSync(path.dirname(executablePath), { recursive: true });
+      writeFileSync(executablePath, "#!/bin/sh\n");
+      yield* activateManagedProviderRuntime({
+        stateDir: runtimeStateDir,
+        provider: "opencode",
+        installationId: id,
+        version,
+        executablePath,
+      });
+    }
+    repositoryActiveInstallationId = targetInstallationId;
+  });
+
+const prepareRuntimeUpgradeWithIntermediatePredecessor = () =>
+  Effect.gen(function* () {
+    rmSync(path.join(runtimeStateDir, "provider-runtimes"), { recursive: true, force: true });
+    for (const [version, id] of [
+      ["1.0.0", installationId],
+      ["1.5.0", intermediateInstallationId],
       ["2.0.0", targetInstallationId],
     ] as const) {
       const versionDirectory = resolveManagedProviderVersionDirectory({
@@ -562,7 +592,7 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
     }),
   );
 
-  it.effect("prunes the predecessor only after an old thread resumes on the new runtime", () =>
+  it.effect("does not delete a predecessor after an explicit thread-local migration", () =>
     Effect.gen(function* () {
       yield* prepareRuntimeUpgrade();
       hasBinding = true;
@@ -591,8 +621,8 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
       assert.strictEqual(result.sequence, 42);
       assert.include(order, "verify");
       assert.strictEqual(activation?.active.installationId, targetInstallationId);
-      assert.strictEqual(activation?.previous, null);
-      assert.isFalse(
+      assert.strictEqual(activation?.previous?.installationId, installationId);
+      assert.isTrue(
         existsSync(
           resolveManagedProviderVersionDirectory({
             stateDir: runtimeStateDir,
@@ -605,43 +635,89 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
     }),
   );
 
-  it.effect("rejects an incompatible runtime and dispatches the same turn on its predecessor", () =>
-    Effect.gen(function* () {
-      yield* prepareRuntimeUpgrade();
-      hasBinding = true;
-      activeTurn = false;
-      operation = undefined;
-      runtimeUpgradeSelection = true;
-      verificationFails = true;
-      dispatchCount = 0;
-      order.length = 0;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
+  it.effect(
+    "keeps a failed continuation scoped to the thread without changing provider activation",
+    () =>
+      Effect.gen(function* () {
+        yield* prepareRuntimeUpgrade();
+        hasBinding = true;
+        activeTurn = false;
+        operation = undefined;
+        runtimeUpgradeSelection = true;
+        verificationFails = true;
+        dispatchCount = 0;
+        order.length = 0;
+        const coordinator = yield* ProviderThreadSwitchCoordinator;
 
-      const result = yield* coordinator.dispatchTurnStart({
-        command: {
-          ...command,
-          commandId: CommandId.makeUnsafe("command-runtime-upgrade-fallback"),
-          connectionId: undefined,
-          bindingRevision: undefined,
-          modelSelection: undefined,
-        },
-        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-      });
-      const activation = yield* readManagedProviderRuntimeActivation({
-        stateDir: runtimeStateDir,
-        provider: "opencode",
-      });
+        const result = yield* Effect.exit(
+          coordinator.dispatchTurnStart({
+            command: {
+              ...command,
+              commandId: CommandId.makeUnsafe("command-runtime-upgrade-fallback"),
+              connectionId: undefined,
+              bindingRevision: undefined,
+              modelSelection: undefined,
+            },
+            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+          }),
+        );
+        const activation = yield* readManagedProviderRuntimeActivation({
+          stateDir: runtimeStateDir,
+          provider: "opencode",
+        });
 
-      assert.strictEqual(result.sequence, 42);
-      assert.strictEqual(dispatchCount, 1);
-      assert.strictEqual(repositoryActiveInstallationId, installationId);
-      assert.strictEqual(activation?.active.installationId, installationId);
-      assert.strictEqual(activation?.previous, null);
-      assert.strictEqual(activation?.rejected?.installationId, targetInstallationId);
-      assert.match(currentOperation()?.failureReason ?? "", /continuation-incompatible/);
-      verificationFails = false;
-      runtimeUpgradeSelection = false;
-    }),
+        assert.strictEqual(result._tag, "Failure");
+        assert.strictEqual(dispatchCount, 0);
+        assert.strictEqual(repositoryActiveInstallationId, targetInstallationId);
+        assert.strictEqual(activation?.active.installationId, targetInstallationId);
+        assert.strictEqual(activation?.previous?.installationId, installationId);
+        assert.strictEqual(activation?.rejected, null);
+        assert.match(currentOperation()?.failureReason ?? "", /resume rejected/);
+        verificationFails = false;
+        runtimeUpgradeSelection = false;
+      }),
+  );
+
+  it.effect(
+    "does not reactivate an unrelated predecessor when a thread-local migration fails",
+    () =>
+      Effect.gen(function* () {
+        yield* prepareRuntimeUpgradeWithIntermediatePredecessor();
+        hasBinding = true;
+        activeTurn = false;
+        operation = undefined;
+        runtimeUpgradeSelection = true;
+        verificationFails = true;
+        dispatchCount = 0;
+        order.length = 0;
+        const coordinator = yield* ProviderThreadSwitchCoordinator;
+
+        const result = yield* Effect.exit(
+          coordinator.dispatchTurnStart({
+            command: {
+              ...command,
+              commandId: CommandId.makeUnsafe("command-runtime-upgrade-intermediate-fallback"),
+              connectionId: undefined,
+              bindingRevision: undefined,
+              modelSelection: undefined,
+            },
+            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+          }),
+        );
+        const activation = yield* readManagedProviderRuntimeActivation({
+          stateDir: runtimeStateDir,
+          provider: "opencode",
+        });
+
+        assert.strictEqual(result._tag, "Failure");
+        assert.strictEqual(dispatchCount, 0);
+        assert.strictEqual(repositoryActiveInstallationId, targetInstallationId);
+        assert.strictEqual(activation?.active.installationId, targetInstallationId);
+        assert.strictEqual(activation?.previous?.installationId, intermediateInstallationId);
+        assert.strictEqual(activation?.rejected, null);
+        verificationFails = false;
+        runtimeUpgradeSelection = false;
+      }),
   );
 
   it.effect("resolves and commits the default initial binding with the first message", () =>

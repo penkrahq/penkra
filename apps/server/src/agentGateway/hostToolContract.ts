@@ -6,29 +6,15 @@ import { z } from "zod";
 export const PENKRA_EXEC_COMMAND_NAME = "penkra_exec_command";
 
 export const PENKRA_EXEC_COMMAND_DESCRIPTION =
-  'Execute exactly one registered Penkra operation in the caller Thread\'s trusted context. Pass the command as discrete words and send operation data through input or flags. This is not a shell: there is no quoting, escaping, substitution, PATH lookup, pipe, or redirect interpretation. Core commands begin with the reserved penkra root. Installed-App commands begin with the App slug and express dotted manifest keys as words, so issues.create becomes ["linear", "issues", "create"].';
+  "Execute exactly one registered Penkra command in the caller Thread's trusted context. This is a command-line parser, not a shell: it supports ordinary quoted arguments and --name value options but never searches PATH or evaluates pipes, redirects, substitutions, or environment expansion. Start with penkra --help, then use the relevant nested --help before an unfamiliar command.";
 
 export const PENKRA_EXEC_COMMAND_ZOD_SHAPE = {
   command: z
-    .array(z.string())
+    .string()
     .min(1)
     .describe(
-      'The command as discrete words, for example ["penkra", "threads", "list"] or ["linear", "issues", "create"]. Send each word exactly as Penkra should receive it; do not quote or escape values.',
+      'One registered command, for example "penkra threads list", "penkra tabs snapshot --tab-id <id>", or "linear issues create --title Fix".',
     ),
-  input: z
-    .unknown()
-    .optional()
-    .describe(
-      "Operation input matching the schema and examples returned by command help. Object-shaped operations normally receive a structured JSON object; the dispatcher also recovers once from an equivalent JSON-object string.",
-    ),
-  flags: z
-    .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
-    .optional()
-    .describe('Named options without leading dashes, for example { "document-id": "abc" }.'),
-  tabId: z
-    .string()
-    .optional()
-    .describe("The exact App tab to target when the command supports tab targeting."),
 };
 
 export const PENKRA_EXEC_COMMAND_INPUT_SCHEMA = z.toJSONSchema(

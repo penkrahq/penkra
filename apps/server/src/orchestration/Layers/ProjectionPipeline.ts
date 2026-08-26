@@ -5,6 +5,7 @@ import {
   setPinnedMessageDone,
   setPinnedMessageLabel,
 } from "@penkra/shared/pinnedMessages";
+import { isPendingInteractionNotFoundFailure } from "@penkra/shared/threadSummary";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -30,10 +31,7 @@ import {
   ProjectionThreadMessageRepository,
 } from "../../persistence/Services/ProjectionThreadMessages.ts";
 import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
-import {
-  type ProjectionTurn,
-  ProjectionTurnRepository,
-} from "../../persistence/Services/ProjectionTurns.ts";
+import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import {
   type ProjectionThread,
   ProjectionThreadRepository,
@@ -1476,7 +1474,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             activity.kind === "provider.approval.respond.failed" ||
             activity.kind === "provider.user-input.respond.failed"
           ) {
-            if (Option.isNone(existingRow) || existingRow.value.status !== "responding") {
+            if (Option.isNone(existingRow)) {
               return;
             }
             if (
@@ -1485,26 +1483,37 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ) {
               return;
             }
-            const responseCommandIdValue = payloadNonEmptyString(
-              activity.payload,
-              "responseCommandId",
-            );
-            const responseCommandId = responseCommandIdValue
-              ? CommandId.makeUnsafe(responseCommandIdValue)
-              : null;
-            if (
-              responseCommandId === null ||
-              existingRow.value.responseCommandId !== responseCommandId
-            ) {
-              return;
+            if (isPendingInteractionNotFoundFailure(activity.payload)) {
+              nextRow = {
+                ...existingRow.value,
+                status: "confirmed",
+                resolvedAt: activity.createdAt,
+              };
+            } else {
+              if (existingRow.value.status !== "responding") {
+                return;
+              }
+              const responseCommandIdValue = payloadNonEmptyString(
+                activity.payload,
+                "responseCommandId",
+              );
+              const responseCommandId = responseCommandIdValue
+                ? CommandId.makeUnsafe(responseCommandIdValue)
+                : null;
+              if (
+                responseCommandId === null ||
+                existingRow.value.responseCommandId !== responseCommandId
+              ) {
+                return;
+              }
+              const nextStatus =
+                extractApprovalFailureSettlementStatus(activity.payload) ?? "uncertain";
+              nextRow = {
+                ...existingRow.value,
+                status: nextStatus,
+                resolvedAt: null,
+              };
             }
-            const nextStatus =
-              extractApprovalFailureSettlementStatus(activity.payload) ?? "uncertain";
-            nextRow = {
-              ...existingRow.value,
-              status: nextStatus,
-              resolvedAt: null,
-            };
           } else {
             if (
               activity.kind !== "approval.requested" &&

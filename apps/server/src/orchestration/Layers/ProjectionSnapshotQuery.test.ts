@@ -33,7 +33,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
       yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`DELETE FROM projection_spaces`;
       yield* sql`DELETE FROM projection_state`;
       yield* sql`
@@ -49,8 +49,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
       `;
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id, title, workspace_root, default_model_selection_json,
+        INSERT INTO projection_folders (
+          folder_id, title, workspace_root, default_model_selection_json,
           scripts_json, space_id, created_at, updated_at, deleted_at
         ) VALUES (
           'project-space-snapshot', 'Space project', '/tmp/space-project', NULL,
@@ -77,7 +77,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       );
       assert.equal(full.folders[0]?.spaceId, SpaceId.makeUnsafe("space-snapshot"));
 
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`DELETE FROM projection_spaces`;
       yield* sql`DELETE FROM projection_state`;
     }),
@@ -88,13 +88,13 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
 
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`DELETE FROM projection_state`;
       yield* sql`DELETE FROM projection_turns`;
 
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id,
+        INSERT INTO projection_folders (
+          folder_id,
           title,
           workspace_root,
           default_model_selection_json,
@@ -118,7 +118,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`
         INSERT INTO projection_threads (
           thread_id,
-          project_id,
+          folder_id,
           title,
           model_selection_json,
           working_directory,
@@ -452,13 +452,13 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
 
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`DELETE FROM projection_threads`;
       yield* sql`DELETE FROM projection_thread_activities`;
 
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id,
+        INSERT INTO projection_folders (
+          folder_id,
           title,
           workspace_root,
           default_model_selection_json,
@@ -481,7 +481,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`
         INSERT INTO projection_threads (
           thread_id,
-          project_id,
+          folder_id,
           title,
           model_selection_json,
           working_directory,
@@ -729,10 +729,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_thread_activities`;
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id, title, workspace_root, default_model_selection_json,
+        INSERT INTO projection_folders (
+          folder_id, title, workspace_root, default_model_selection_json,
           scripts_json, created_at, updated_at, deleted_at
         ) VALUES (
           'project-canonical-window', 'Canonical window', '/tmp/canonical-window',
@@ -742,7 +742,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, working_directory,
+          thread_id, folder_id, title, model_selection_json, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES (
           'thread-canonical-window', 'project-canonical-window', 'Canonical Window',
@@ -803,10 +803,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_thread_activities`;
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id, title, workspace_root, default_model_selection_json,
+        INSERT INTO projection_folders (
+          folder_id, title, workspace_root, default_model_selection_json,
           scripts_json, created_at, updated_at, deleted_at
         ) VALUES (
           'project-turn-window', 'Turn window', '/tmp/turn-window',
@@ -816,7 +816,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, working_directory,
+          thread_id, folder_id, title, model_selection_json, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES (
           'thread-turn-window', 'project-turn-window', 'Turn Window',
@@ -906,10 +906,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_thread_activities`;
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id, title, workspace_root, default_model_selection_json,
+        INSERT INTO projection_folders (
+          folder_id, title, workspace_root, default_model_selection_json,
           scripts_json, created_at, updated_at, deleted_at
         ) VALUES (
           'project-oversized-turn', 'Oversized turn', '/tmp/oversized-turn',
@@ -919,7 +919,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, working_directory,
+          thread_id, folder_id, title, model_selection_json, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES (
           'thread-oversized-turn', 'project-oversized-turn', 'Oversized Turn',
@@ -988,11 +988,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_pending_interactions`;
       yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
 
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id,
+        INSERT INTO projection_folders (
+          folder_id,
           title,
           workspace_root,
           default_model_selection_json,
@@ -1015,7 +1015,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`
         INSERT INTO projection_threads (
           thread_id,
-          project_id,
+          folder_id,
           title,
           model_selection_json,
           working_directory,
@@ -1088,10 +1088,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_pending_interactions`;
       yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id, title, workspace_root, default_model_selection_json,
+        INSERT INTO projection_folders (
+          folder_id, title, workspace_root, default_model_selection_json,
           scripts_json, created_at, updated_at, deleted_at
         ) VALUES (
           'project-causal-message-snapshot', 'Causal Message Snapshot',
@@ -1102,7 +1102,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, working_directory,
+          thread_id, folder_id, title, model_selection_json, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES (
           'thread-causal-message-snapshot', 'project-causal-message-snapshot',
@@ -1184,7 +1184,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
 
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`DELETE FROM projection_threads`;
       yield* sql`DELETE FROM projection_state`;
       yield* sql`DELETE FROM projection_thread_messages`;
@@ -1193,8 +1193,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_thread_sessions`;
 
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id,
+        INSERT INTO projection_folders (
+          folder_id,
           title,
           workspace_root,
           default_model_selection_json,
@@ -1218,7 +1218,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`
         INSERT INTO projection_threads (
           thread_id,
-          project_id,
+          folder_id,
           title,
           model_selection_json,
           working_directory,
@@ -1319,12 +1319,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
 
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`DELETE FROM projection_threads`;
 
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id,
+        INSERT INTO projection_folders (
+          folder_id,
           title,
           workspace_root,
           default_model_selection_json,
@@ -1359,7 +1359,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`
         INSERT INTO projection_threads (
           thread_id,
-          project_id,
+          folder_id,
           title,
           model_selection_json,
           runtime_mode,
@@ -1442,7 +1442,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
 
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`DELETE FROM projection_threads`;
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_thread_activities`;
@@ -1451,8 +1451,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_state`;
 
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id,
+        INSERT INTO projection_folders (
+          folder_id,
           title,
           workspace_root,
           default_model_selection_json,
@@ -1476,7 +1476,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`
         INSERT INTO projection_threads (
           thread_id,
-          project_id,
+          folder_id,
           title,
           model_selection_json,
           runtime_mode,
@@ -1644,10 +1644,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_thread_sessions`;
       yield* sql`DELETE FROM projection_turns`;
       yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id, title, workspace_root, default_model_selection_json,
+        INSERT INTO projection_folders (
+          folder_id, title, workspace_root, default_model_selection_json,
           scripts_json, created_at, updated_at, deleted_at
         ) VALUES (
           'project-runtime-candidates', 'Runtime candidates', '/tmp/runtime-candidates',
@@ -1657,7 +1657,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, working_directory,
+          thread_id, folder_id, title, model_selection_json, working_directory,
           latest_turn_id, created_at, updated_at, archived_at, deleted_at
         ) VALUES
           (
@@ -1803,10 +1803,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_thread_activities`;
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`
-        INSERT INTO projection_projects (
-          project_id, title, workspace_root, default_model_selection_json,
+        INSERT INTO projection_folders (
+          folder_id, title, workspace_root, default_model_selection_json,
           scripts_json, created_at, updated_at, deleted_at
         ) VALUES (
           'project-soft-delete', 'Soft delete', '/tmp/soft-delete',
@@ -1816,7 +1816,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, working_directory,
+          thread_id, folder_id, title, model_selection_json, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES
           (

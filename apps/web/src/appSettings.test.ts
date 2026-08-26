@@ -36,7 +36,7 @@ import {
 } from "./appSettings";
 
 describe("normalizeCustomModelSlugs", () => {
-  it("normalizes aliases, removes built-ins, and deduplicates values", () => {
+  it("trims, preserves exact model identities, and deduplicates values", () => {
     expect(
       normalizeCustomModelSlugs([
         " custom/internal-model ",
@@ -46,7 +46,7 @@ describe("normalizeCustomModelSlugs", () => {
         "",
         null,
       ]),
-    ).toEqual(["custom/internal-model"]);
+    ).toEqual(["custom/internal-model", "gpt-5.3-codex", "5.3"]);
   });
 
   it("preserves exact unknown Claude model ids without selector-alias rewriting", () => {
@@ -58,19 +58,10 @@ describe("normalizeCustomModelSlugs", () => {
 });
 
 describe("getAppModelOptions", () => {
-  it("appends saved custom models after the built-in options", () => {
+  it("returns saved models without prepending a shipped catalog", () => {
     const options = getAppModelOptions("codex", ["custom/internal-model"]);
 
-    expect(options.map((option) => option.slug)).toEqual([
-      "gpt-5.5",
-      "gpt-5.4",
-      "gpt-5.4-mini",
-      "gpt-5.3-codex",
-      "gpt-5.3-codex-spark",
-      "gpt-5.2-codex",
-      "gpt-5.2",
-      "custom/internal-model",
-    ]);
+    expect(options.map((option) => option.slug)).toEqual(["custom/internal-model"]);
   });
 
   it("keeps the currently selected custom model available even if it is no longer saved", () => {
@@ -113,7 +104,7 @@ describe("getGitTextGenerationModelOptions", () => {
       textGenerationProvider: "opencode",
     });
 
-    expect(options.some((option) => option.slug === "gpt-5.4-mini")).toBe(true);
+    expect(options.some((option) => option.slug === "custom/codex-model")).toBe(true);
     expect(options.some((option) => option.slug === "openai/gpt-5")).toBe(true);
     expect(options.some((option) => option.slug === "openrouter/gpt-oss-120b")).toBe(true);
   });
@@ -180,7 +171,7 @@ describe("resolveAppModelSelection", () => {
     ).toBe("galapagos-alpha");
   });
 
-  it("falls back to the provider default when no model is selected", () => {
+  it("does not invent a provider default when no model is selected", () => {
     expect(
       resolveAppModelSelection(
         "codex",
@@ -191,10 +182,10 @@ describe("resolveAppModelSelection", () => {
         },
         "",
       ),
-    ).toBe("gpt-5.5");
+    ).toBe("");
   });
 
-  it("resolves display names through the shared resolver", () => {
+  it("preserves an unrecognized display-like value exactly", () => {
     expect(
       resolveAppModelSelection(
         "codex",
@@ -205,7 +196,7 @@ describe("resolveAppModelSelection", () => {
         },
         "GPT-5.3 Codex",
       ),
-    ).toBe("gpt-5.3-codex");
+    ).toBe("GPT-5.3 Codex");
   });
 
   it("preserves an exact selected Claude model id", () => {
@@ -330,7 +321,7 @@ describe("normalizeStoredAppSettings", () => {
       sidebarProjectSortOrder: "updated_at",
       chatFontSizePx: 18,
       terminalFontSizePx: 10,
-      customCodexModels: ["custom/internal-model"],
+      customCodexModels: ["custom/internal-model", "gpt-5.4"],
     });
   });
 });
@@ -378,5 +369,3 @@ describe("provider-indexed custom model settings", () => {
     });
   });
 });
-
-describe("AppSettingsSchema", () => {});

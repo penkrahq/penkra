@@ -7,6 +7,29 @@ import type {
   ProviderKind,
 } from "@penkra/contracts";
 
+export function pruneUnavailableComposerConnectionSelections(input: {
+  snapshot: ProviderConnectionsSnapshot;
+  selections: Partial<Record<ProviderKind, ProviderConnectionId | null>>;
+}): Partial<Record<ProviderKind, ProviderConnectionId | null>> {
+  let next = input.selections;
+  for (const [providerValue, connectionId] of Object.entries(input.selections)) {
+    const provider = providerValue as ProviderKind;
+    const available =
+      connectionId === null
+        ? input.snapshot.anonymousRoutes.some((route) => route.harness === provider)
+        : input.snapshot.connections.some(
+            (connection) =>
+              connection.id === connectionId &&
+              connection.harness === provider &&
+              connection.lifecycle === "active",
+          );
+    if (available) continue;
+    if (next === input.selections) next = { ...input.selections };
+    delete next[provider];
+  }
+  return next;
+}
+
 export function modelInternalProviderId(provider: ProviderKind, model: string): string | null {
   return provider === "opencode" ? (model.split("/", 1)[0] ?? null) : null;
 }

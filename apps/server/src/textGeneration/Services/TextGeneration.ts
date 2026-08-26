@@ -14,7 +14,7 @@ export interface ThreadTitleGenerationInput {
   cwd: string;
   message: string;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
-  /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
+  /** Exact provider model to use. When omitted, the provider selects its own default. */
   model?: string;
   /** Optional provider-aware selection for providers that need more than a raw model slug. */
   modelSelection?: ModelSelection;

@@ -1128,6 +1128,8 @@ const makeWsRpcHandlersLayer = () =>
                   return (anonymous?.internalProviderIds ?? []).map((internalProviderId) => ({
                     harness,
                     internalProviderId,
+                    groupLabel: anonymous!.groupLabel,
+                    label: anonymous!.label,
                   }));
                 }),
               ),
@@ -1142,6 +1144,7 @@ const makeWsRpcHandlersLayer = () =>
                             authenticationMethodId: method.authenticationMethodId,
                             kind: "managed-secret" as const,
                             label: method.label,
+                            groupLabel: method.groupLabel,
                             secretPlaceholder: method.secretPlaceholder,
                             internalProviderIds: [...method.internalProviderIds],
                           }
@@ -1151,6 +1154,7 @@ const makeWsRpcHandlersLayer = () =>
                             authenticationMethodId: method.authenticationMethodId,
                             kind: "managed-login" as const,
                             label: method.label,
+                            groupLabel: method.groupLabel,
                             internalProviderIds: [...method.internalProviderIds],
                           },
                     ),
@@ -1160,6 +1164,7 @@ const makeWsRpcHandlersLayer = () =>
                       authenticationMethodId: method.authenticationMethodId,
                       kind: "static-secret" as const,
                       label: method.label,
+                      groupLabel: method.groupLabel,
                       secretPlaceholder: method.secretPlaceholder,
                       internalProviderIds: [...method.internalProviderIds],
                     })),

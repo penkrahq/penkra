@@ -520,6 +520,31 @@ describe("AppInstallationService", () => {
     });
   });
 
+  it("grants a newly required permission during an explicit sideload update", async () => {
+    const test = fixture();
+    const initial = { ...verifiedPackage(), source: "sideload" as const };
+    initial.manifest.permissions = [];
+    await test.service.install(initial, "personal");
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
+
+    const update = { ...verifiedPackage(), source: "sideload" as const };
+    update.manifest = {
+      ...update.manifest,
+      version: "1.0.1-dev",
+      permissions: [
+        { name: "network-fetch", required: true, reason: "Load referenced design assets" },
+      ],
+    };
+    update.sha256 = "b".repeat(64);
+
+    await test.service.updateSideloadForSpace({ package: update, spaceId: "personal" });
+
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toMatchObject({
+      enabled: true,
+      permissions: { "network-fetch": "granted" },
+    });
+  });
+
   it("replaces a registry package with a newer sideload through the runtime-safe path", async () => {
     const test = fixture();
     const registryApp = verifiedPackage();

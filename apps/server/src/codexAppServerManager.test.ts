@@ -90,7 +90,7 @@ describe("Codex Penkra harness policy", () => {
           description: "Execute one registered Penkra command.",
           inputSchema: {
             type: "object",
-            properties: { command: { type: "array", items: { type: "string" } } },
+            properties: { command: { type: "string" } },
             required: ["command"],
           },
         },
@@ -102,7 +102,7 @@ describe("Codex Penkra harness policy", () => {
         description: "Execute one registered Penkra command.",
         inputSchema: {
           type: "object",
-          properties: { command: { type: "array", items: { type: "string" } } },
+          properties: { command: { type: "string" } },
           required: ["command"],
         },
         deferLoading: false,
@@ -169,14 +169,14 @@ describe("Codex Penkra harness policy", () => {
         callId: "call-native",
         namespace: null,
         tool: "penkra_exec_command",
-        arguments: { command: ["penkra", "apps", "list"] },
+        arguments: { command: "penkra apps list" },
       },
     });
 
     expect(invoke).toHaveBeenCalledWith({
       bearerToken: "thread-token",
       name: "penkra_exec_command",
-      arguments: { command: ["penkra", "apps", "list"] },
+      arguments: { command: "penkra apps list" },
     });
     expect(writeMessage).toHaveBeenCalledWith(context, {
       id: 71,
@@ -1255,9 +1255,9 @@ describe("handleStdoutLine", () => {
 });
 
 describe("normalizeCodexModelSlug", () => {
-  it("maps 5.3 aliases to gpt-5.3-codex", () => {
-    expect(normalizeCodexModelSlug("5.3")).toBe("gpt-5.3-codex");
-    expect(normalizeCodexModelSlug("gpt-5.3")).toBe("gpt-5.3-codex");
+  it("preserves exact model identities without aliases", () => {
+    expect(normalizeCodexModelSlug("5.3")).toBe("5.3");
+    expect(normalizeCodexModelSlug("gpt-5.3")).toBe("gpt-5.3");
   });
 
   it("prefers codex id when model differs", () => {
@@ -1271,7 +1271,7 @@ describe("normalizeCodexModelSlug", () => {
 });
 
 describe("readCodexAccountSnapshot", () => {
-  it("disables spark for chatgpt plus accounts", () => {
+  it("does not infer model availability from a chatgpt plan name", () => {
     expect(
       readCodexAccountSnapshot({
         type: "chatgpt",
@@ -1281,7 +1281,7 @@ describe("readCodexAccountSnapshot", () => {
     ).toEqual({
       type: "chatgpt",
       planType: "plus",
-      sparkEnabled: false,
+      sparkEnabled: true,
     });
   });
 
@@ -1313,14 +1313,14 @@ describe("readCodexAccountSnapshot", () => {
 });
 
 describe("resolveCodexModelForAccount", () => {
-  it("falls back from spark to default for unsupported chatgpt plans", () => {
+  it("does not substitute a different model based on account heuristics", () => {
     expect(
       resolveCodexModelForAccount("gpt-5.3-codex-spark", {
         type: "chatgpt",
         planType: "plus",
         sparkEnabled: false,
       }),
-    ).toBe("gpt-5.5");
+    ).toBe("gpt-5.3-codex-spark");
   });
 
   it("keeps spark for supported plans", () => {
@@ -1688,13 +1688,13 @@ describe("sendTurn", () => {
           url: "data:image/png;base64,AAAA",
         },
       ],
-      model: "gpt-5.3-codex",
+      model: "gpt-5.3",
       serviceTier: "fast",
       effort: "high",
       collaborationMode: {
         mode: "default",
         settings: {
-          model: "gpt-5.3-codex",
+          model: "gpt-5.3",
           reasoning_effort: "high",
           developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
         },
@@ -1872,7 +1872,7 @@ describe("sendTurn", () => {
     ).rejects.toThrow("Turn input must include text or attachments.");
   });
 
-  it("disables reasoning summaries for Codex Spark", async () => {
+  it("does not infer summary behavior from a model name", async () => {
     const { manager, context, sendRequest } = createSendTurnHarness();
 
     await manager.sendTurn({
@@ -1886,7 +1886,7 @@ describe("sendTurn", () => {
       "turn/start",
       expect.objectContaining({
         model: "gpt-5.3-codex-spark",
-        summary: "none",
+        summary: "auto",
       }),
     );
   });

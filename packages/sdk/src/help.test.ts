@@ -87,14 +87,11 @@ describe("generated App help", () => {
     expect(help).not.toContain("[--input '<json>']");
     expect(help).toContain("title <string>  required.");
     expect(help).toContain('priority <string>  optional; default "low"; one of "low", "high".');
-    expect(help).toContain('"command": [');
-    expect(help).toContain('"linear"');
-    expect(help).toContain('"issues"');
-    expect(help).toContain('"create"');
-    expect(help).toContain('"title": "Fix redirect"');
+    expect(help).toContain('"command": "linear issues create --input');
+    expect(help).toContain('\\"title\\":\\"Fix redirect\\"');
     expect(help).toContain('"required": [');
     expect(help).toContain("Validated output schema");
-    expect(help).toContain("Invocation\n  input");
+    expect(help).toContain("Invocation\n  --input");
     expect(help).toContain("Run linear --help for Linear operating instructions.");
     expect(help).not.toContain("Follow workspace conventions.");
   });

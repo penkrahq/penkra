@@ -135,7 +135,10 @@ function getProviderStateFromCapabilities(
         rawEffort !== defaultReasoningEffort
           ? rawEffort
           : undefined;
-      const fastModeEnabled = caps.supportsFastMode && providerOptions?.fastMode === true;
+      // With no runtime descriptor, preserve an explicit user selection. Once
+      // discovery resolves, its capability bit is authoritative.
+      const fastModeEnabled =
+        providerOptions?.fastMode === true && (runtimeModel === undefined || caps.supportsFastMode);
       const nextOptions = {
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(fastModeEnabled ? { fastMode: true } : {}),
@@ -176,6 +179,8 @@ function getProviderStateFromCapabilities(
   const isPromptInjected = draftEffort
     ? caps.promptInjectedEffortLevels.includes(draftEffort)
     : false;
+  const runtimeEfforts = runtimeModel?.supportedReasoningEfforts;
+  const hasAuthoritativeRuntimeEfforts = Boolean(runtimeEfforts?.length);
   const promptEffort =
     provider === "opencode"
       ? resolveLabeledOptionValue(caps.variantOptions, draftEffort)
@@ -187,7 +192,7 @@ function getProviderStateFromCapabilities(
                 effort: draftEffort,
                 ...(runtimeModel ? { runtimeModel } : {}),
               }) !== "unsupported"
-            : hasEffortLevel(caps, draftEffort))
+            : !hasAuthoritativeRuntimeEfforts || hasEffortLevel(caps, draftEffort))
         ? draftEffort
         : defaultEffort && hasEffortLevel(caps, defaultEffort)
           ? defaultEffort

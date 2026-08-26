@@ -36,8 +36,8 @@ const makeProjectionFolderRepository = Effect.gen(function* () {
     Request: ProjectionFolder,
     execute: (row) =>
       sql`
-        INSERT INTO projection_projects (
-          project_id,
+        INSERT INTO projection_folders (
+          folder_id,
           kind,
           title,
           workspace_root,
@@ -68,7 +68,7 @@ const makeProjectionFolderRepository = Effect.gen(function* () {
           ${row.archivedAt ?? null},
           ${row.deletedAt}
         )
-        ON CONFLICT (project_id)
+        ON CONFLICT (folder_id)
         DO UPDATE SET
           title = excluded.title,
           workspace_root = excluded.workspace_root,
@@ -91,7 +91,7 @@ const makeProjectionFolderRepository = Effect.gen(function* () {
     execute: ({ folderId }) =>
       sql`
         SELECT
-          project_id AS "folderId",
+          folder_id AS "folderId",
           title,
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
@@ -104,8 +104,8 @@ const makeProjectionFolderRepository = Effect.gen(function* () {
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
           deleted_at AS "deletedAt"
-        FROM projection_projects
-        WHERE project_id = ${folderId}
+        FROM projection_folders
+        WHERE folder_id = ${folderId}
       `,
   });
 
@@ -115,7 +115,7 @@ const makeProjectionFolderRepository = Effect.gen(function* () {
     execute: () =>
       sql`
         SELECT
-          project_id AS "folderId",
+          folder_id AS "folderId",
           title,
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
@@ -128,8 +128,8 @@ const makeProjectionFolderRepository = Effect.gen(function* () {
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
           deleted_at AS "deletedAt"
-        FROM projection_projects
-        ORDER BY created_at ASC, project_id ASC
+        FROM projection_folders
+        ORDER BY created_at ASC, folder_id ASC
       `,
   });
 
@@ -137,8 +137,8 @@ const makeProjectionFolderRepository = Effect.gen(function* () {
     Request: DeleteProjectionFolderInput,
     execute: ({ folderId }) =>
       sql`
-        DELETE FROM projection_projects
-        WHERE project_id = ${folderId}
+        DELETE FROM projection_folders
+        WHERE folder_id = ${folderId}
       `,
   });
 

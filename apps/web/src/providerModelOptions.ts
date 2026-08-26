@@ -61,11 +61,11 @@ function normalizeDynamicModelSlug(provider: ProviderKind, slug: string): string
 }
 
 /**
- * Folds runtime-discovered models into the static option list for a provider:
- * discovered models lead (with display names recovered from the static list when
- * possible), static built-ins fill gaps unless discovery fully owns the catalog,
- * and user-defined custom models always survive. Codex discovery is account-aware,
- * so its live list must not be widened with models the signed-in account cannot use.
+ * Folds runtime-discovered models into the local option list for a provider.
+ * Runtime descriptors own the identity and display name for every discovered
+ * slug; user-defined custom models survive only when discovery does not contain
+ * that slug. Codex discovery is account-aware, so its live list must not be
+ * widened with models the signed-in account cannot use.
  */
 export function mergeDynamicModelOptions(input: {
   provider: ProviderKind;
@@ -78,7 +78,6 @@ export function mergeDynamicModelOptions(input: {
     upstreamProviderName?: string | null | undefined;
   }>;
 }): ReadonlyArray<ProviderModelOption & { isCustom?: boolean }> {
-  const staticNameBySlug = new Map(input.staticOptions.map((model) => [model.slug, model.name]));
   const dynamicNormalizedSlugs = new Set<string>();
   const normalizedDynamicOptions: ProviderModelOption[] = [];
 
@@ -100,9 +99,6 @@ export function mergeDynamicModelOptions(input: {
       continue;
     }
     const rawSlug = dynamicModel.slug.trim().toLowerCase();
-    const isGenericClaudeFamilyName =
-      input.provider === "claudeAgent" &&
-      ["haiku", "sonnet", "opus", "fable"].includes(rawName.toLowerCase());
     const displayNameFallback = formatProviderModelOptionName({
       provider: input.provider,
       slug: normalizedSlug,
@@ -114,13 +110,11 @@ export function mergeDynamicModelOptions(input: {
     normalizedDynamicOptions.push({
       slug: normalizedSlug,
       name:
-        staticNameBySlug.get(normalizedSlug) ??
-        (rawName.length > 0 &&
-        !isGenericClaudeFamilyName &&
+        rawName.length > 0 &&
         rawName.toLowerCase() !== rawSlug &&
         rawName.toLowerCase() !== normalizedSlug.toLowerCase()
           ? rawName
-          : displayNameFallback),
+          : displayNameFallback,
       ...(dynamicModel.description?.trim() ? { description: dynamicModel.description.trim() } : {}),
       ...(dynamicModel.upstreamProviderId?.trim()
         ? { upstreamProviderId: dynamicModel.upstreamProviderId.trim() }

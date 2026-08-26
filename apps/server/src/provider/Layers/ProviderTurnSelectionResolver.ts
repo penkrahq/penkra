@@ -304,6 +304,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       yield* Effect.logInfo("initial provider admission resolved exact route", {
         threadId: input.threadId,
         harness,
+        requestedConnectionId: input.connectionId === undefined ? "omitted" : input.connectionId,
         connectionId,
         installationId: activeInstallation.id,
         modelId: modelSelection.model,
@@ -399,13 +400,6 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         connectionId !== binding.value.connectionId ||
         internalProviderId !== binding.value.internalProviderId ||
         modelId !== binding.value.modelId;
-      const activeInstallation = yield* requireActiveInstallation(state.value.harness);
-      const installationChanged = activeInstallation.id !== binding.value.installationId;
-      const changed = selectionChanged || installationChanged;
-      const requiresNativeStateMaterialization =
-        connectionId !== binding.value.connectionId ||
-        internalProviderId !== binding.value.internalProviderId ||
-        (installationChanged && state.value.providerSessionId !== null);
 
       if (selectionChanged) {
         if (input.bindingRevision === undefined) {
@@ -446,6 +440,18 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       ) {
         return yield* fail("The thread's exact managed installation is unavailable.");
       }
+      // Existing threads stay on the exact installation that already owns their
+      // native state. Provider updates are admitted for new threads; they do not
+      // silently turn the next message on an old thread into a migration.
+      const targetInstallation = selectionChanged
+        ? yield* requireActiveInstallation(state.value.harness)
+        : installation.value;
+      const installationChanged = targetInstallation.id !== binding.value.installationId;
+      const changed = selectionChanged || installationChanged;
+      const requiresNativeStateMaterialization =
+        connectionId !== binding.value.connectionId ||
+        internalProviderId !== binding.value.internalProviderId ||
+        (installationChanged && state.value.providerSessionId !== null);
 
       let connectionLabel: string | null = null;
       if (connectionId === null) {
@@ -465,7 +471,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         const availableModel = yield* requireAvailableModel({
           harness: state.value.harness,
           connectionId,
-          installationId: activeInstallation.id,
+          installationId: targetInstallation.id,
           internalProviderId,
           modelId,
           nativeStateIdentity: state.value.nativeStateGenerationId,
@@ -481,7 +487,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         previousConnectionId: binding.value.connectionId,
         previousModelId: binding.value.modelId,
         previousInstallationId: binding.value.installationId,
-        installationId: activeInstallation.id,
+        installationId: targetInstallation.id,
         internalProviderId,
         modelId,
         modelLabel,

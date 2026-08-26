@@ -9,24 +9,17 @@ import {
 } from "@penkra/contracts";
 import { Effect, Layer, Option, Result, Schema } from "effect";
 
-import { ServerConfig } from "../../config.ts";
 import {
   LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
   type ManagedAttachmentPrincipal,
 } from "../../managedAttachmentPrincipal.ts";
 import { ProviderThreadSwitchOperationRepository } from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
-import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import {
   ProviderNativeForkOperationRepository,
   type ProviderNativeForkOperationState,
 } from "../../persistence/Services/ProviderNativeForkOperations.ts";
 import { providerNativeResumeIdentity } from "../../provider/nativeResumeIdentity.ts";
-import {
-  confirmManagedProviderRuntimeCompatibility,
-  readManagedProviderRuntimeActivation,
-  rejectManagedProviderRuntimeUpdate,
-} from "../../provider/managedProviderRuntime.ts";
 import type { ProviderManagedLaunchContext } from "../../provider/Services/ProviderAdapter.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -65,20 +58,9 @@ const generationIdFor = (commandId: string) =>
   ProviderNativeStateGenerationId.makeUnsafe(`provider-switch-generation:${commandId}`);
 const anonymousConnectionLabel = (harness: string) =>
   harness === "opencode" ? "OpenCode" : "No Connection";
-const RUNTIME_COMPATIBILITY_FAILURE_PREFIX = "managed-runtime-continuation-incompatible:";
-
-class ManagedRuntimeContinuationCompatibilityError extends Error {}
-
-const isInstallationOnlyRuntimeUpgrade = (selection: typeof ResolvedProviderTurnSelection.Type) =>
-  selection.previousInstallationId !== null &&
-  selection.previousInstallationId !== selection.installationId &&
-  selection.previousConnectionId === selection.connectionId &&
-  selection.previousModelId === selection.modelId;
-
 export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
   const operations = yield* ProviderThreadSwitchOperationRepository;
-  const installations = yield* ProviderInstallationRepository;
   const forkOperations = yield* ProviderNativeForkOperationRepository;
   const threadBindings = yield* ThreadProviderBindingRepository;
   const provider = yield* ProviderService;
@@ -87,25 +69,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   const resolver = yield* ProviderTurnSelectionResolver;
   const verifier = yield* ProviderNativeContinuationVerifier;
   const materializer = yield* ProviderNativeStateMaterializer;
-  const config = yield* ServerConfig;
-
-  const confirmRuntimeUpgrade = (selection: typeof ResolvedProviderTurnSelection.Type) =>
-    isInstallationOnlyRuntimeUpgrade(selection) && selection.requiresNativeStateMaterialization
-      ? confirmManagedProviderRuntimeCompatibility({
-          stateDir: config.stateDir,
-          provider: selection.harness,
-          installationId: selection.installationId,
-        }).pipe(
-          Effect.catch((cause) =>
-            Effect.logWarning("could not prune proven provider runtime predecessor", {
-              provider: selection.harness,
-              installationId: selection.installationId,
-              cause: cause instanceof Error ? cause.message : String(cause),
-            }),
-          ),
-          Effect.asVoid,
-        )
-      : Effect.void;
 
   const decodeCommand = (json: string) =>
     Effect.try({
@@ -343,7 +306,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           .finalize(input.targetGenerationId)
           .pipe(mapOperationError("Could not finalize the committed provider-switch state."));
       }
-      yield* confirmRuntimeUpgrade(selection);
       return result;
     }
 
@@ -365,11 +327,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
               (cause) =>
                 new ProviderThreadSwitchCoordinatorError({
                   detail: cause.message,
-                  cause: isInstallationOnlyRuntimeUpgrade(selection)
-                    ? new ManagedRuntimeContinuationCompatibilityError(cause.message, {
-                        cause,
-                      })
-                    : cause,
+                  cause,
                 }),
             ),
           );
@@ -466,94 +424,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         .finalize(input.targetGenerationId)
         .pipe(mapOperationError("Could not finalize the committed provider-switch state."));
     }
-    yield* confirmRuntimeUpgrade(selection);
     return result;
-  });
-
-  const dispatchRuntimeUpgradeFallback = Effect.fnUntraced(function* (
-    input: Parameters<typeof runOperation>[0],
-  ) {
-    const selection = input.selection;
-    if (!isInstallationOnlyRuntimeUpgrade(selection)) {
-      return yield* fail("The failed provider switch was not a runtime-only upgrade.");
-    }
-    const predecessorId = selection.previousInstallationId;
-    if (predecessorId === null) {
-      return yield* fail("The failed provider runtime upgrade has no predecessor.");
-    }
-    const binding = yield* threadBindings
-      .getRuntimeBinding(input.command.threadId)
-      .pipe(mapOperationError("Could not read the provider fallback binding."));
-    if (
-      Option.isNone(binding) ||
-      binding.value.installationId !== predecessorId ||
-      binding.value.revision !== selection.bindingRevision
-    ) {
-      return yield* fail("The provider binding changed before runtime fallback.");
-    }
-
-    const activation = yield* readManagedProviderRuntimeActivation({
-      stateDir: config.stateDir,
-      provider: selection.harness,
-    }).pipe(mapOperationError("Could not inspect the provider runtime fallback."));
-    const now = new Date().toISOString();
-    if (activation?.active.installationId === selection.installationId) {
-      yield* installations
-        .reactivate(predecessorId, now)
-        .pipe(mapOperationError("Could not reactivate the provider runtime predecessor."));
-      const rejected = yield* rejectManagedProviderRuntimeUpdate({
-        stateDir: config.stateDir,
-        provider: selection.harness,
-        installationId: selection.installationId,
-        rejectedAt: now,
-      }).pipe(
-        Effect.catch((cause) =>
-          installations
-            .reactivate(selection.installationId, now)
-            .pipe(
-              Effect.ignore,
-              Effect.andThen(
-                fail("Could not reject the incompatible provider runtime update.", cause),
-              ),
-            ),
-        ),
-      );
-      if (!rejected) {
-        yield* installations.reactivate(selection.installationId, now).pipe(Effect.ignore);
-        return yield* fail("The incompatible provider runtime update could not be rolled back.");
-      }
-    } else if (activation?.active.installationId === predecessorId) {
-      yield* installations
-        .reactivate(predecessorId, now)
-        .pipe(mapOperationError("Could not restore the provider runtime predecessor."));
-    } else {
-      return yield* fail("The provider runtime activation changed before fallback.");
-    }
-
-    yield* Effect.logWarning("rejected incompatible managed provider runtime", {
-      provider: selection.harness,
-      rejectedInstallationId: selection.installationId,
-      restoredInstallationId: predecessorId,
-      threadId: input.command.threadId,
-    });
-    return yield* engine
-      .dispatch(
-        {
-          ...input.command,
-          connectionId: binding.value.connectionId,
-          bindingRevision: binding.value.revision,
-        },
-        { attachmentPrincipal: input.attachmentPrincipal },
-      )
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderThreadSwitchCoordinatorError({
-              detail: cause.message,
-              cause,
-            }),
-        ),
-      );
   });
 
   const runClientOperation = (input: Parameters<typeof runOperation>[0]) =>
@@ -568,19 +439,13 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
                   return runOperation({ ...input, startingState: "committed" });
                 }
                 if (current.state === "failed") {
-                  return current.failureReason?.startsWith(RUNTIME_COMPATIBILITY_FAILURE_PREFIX)
-                    ? dispatchRuntimeUpgradeFallback(input)
-                    : Effect.fail(cause);
+                  return Effect.fail(cause);
                 }
-                const compatibilityFailure =
-                  cause.cause instanceof ManagedRuntimeContinuationCompatibilityError;
                 return operations
                   .transition({
                     id: input.operationId,
                     state: "failed",
-                    failureReason: compatibilityFailure
-                      ? `${RUNTIME_COMPATIBILITY_FAILURE_PREFIX}${cause.message}`
-                      : cause.message,
+                    failureReason: cause.message,
                     updatedAt: new Date().toISOString(),
                   })
                   .pipe(
@@ -592,11 +457,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
                         : Effect.void,
                     ),
                     Effect.ignore,
-                    Effect.andThen(
-                      compatibilityFailure
-                        ? dispatchRuntimeUpgradeFallback(input)
-                        : Effect.fail(cause),
-                    ),
+                    Effect.andThen(Effect.fail(cause)),
                   );
               },
             }),
@@ -899,18 +760,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         }
         const persistedSelection = yield* decodeSelection(existing.selectionJson);
         if (existing.state === "failed") {
-          if (existing.failureReason?.startsWith(RUNTIME_COMPATIBILITY_FAILURE_PREFIX)) {
-            return yield* dispatchRuntimeUpgradeFallback({
-              command: persistedCommand,
-              attachmentPrincipal: input.attachmentPrincipal,
-              ...(existing.cwd === null ? {} : { cwd: existing.cwd }),
-              selection: persistedSelection,
-              operationId,
-              targetGenerationId: existing.targetNativeStateGenerationId,
-              startingState: "interrupted",
-              verificationJson: existing.verificationJson,
-            });
-          }
           return yield* fail(existing.failureReason ?? "The provider switch previously failed.");
         }
         return yield* runClientOperation({

@@ -31,7 +31,7 @@ type Request = {
     | "tabs.current"
     | "tabs.list"
     | "tabs.snapshot"
-    | "tabs.extract"
+    | "tabs.find"
     | "tabs.screenshot"
     | "tabs.click"
     | "tabs.hover"
@@ -67,9 +67,12 @@ type Request = {
 };
 
 interface AppTabObserverBridge {
-  snapshot(tabId: string, expand?: boolean): Promise<unknown>;
-  extract(tabId: string): Promise<unknown>;
-  screenshot(tabId: string): Promise<unknown>;
+  snapshot(
+    tabId: string,
+    options?: { target?: string; depth?: number; boxes?: boolean; outputPath?: string },
+  ): Promise<unknown>;
+  find(tabId: string, query: string): Promise<unknown>;
+  screenshot(tabId: string, outputPath?: string): Promise<unknown>;
   click(tabId: string, reference: string, observe?: boolean): Promise<unknown>;
   hover(tabId: string, reference: string, observe?: boolean): Promise<unknown>;
   type(tabId: string, reference: string, text: string, observe?: boolean): Promise<unknown>;
@@ -309,30 +312,40 @@ export class AppCommandPipeServer {
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.snapshot(
+          result: await this.#observer.snapshot(this.#tab(params).id, observationOptions(params)),
+        };
+      case "tabs.find":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observer.find(
             this.#tab(params).id,
-            optionalBoolean(params.expand, "expand") ?? false,
+            requiredString(params.query, "query"),
           ),
         };
-      case "tabs.extract":
+      case "tabs.screenshot": {
+        const tab = this.#scopedCurrentTab(params);
+        if (!tab) {
+          throw new Error(
+            "The caller Thread does not currently own the visible App tab. Open or focus its App tab before taking a screenshot.",
+          );
+        }
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.extract(this.#tab(params).id),
+          result: await this.#observer.screenshot(
+            tab.id,
+            optionalString(params.outputPath, "outputPath") ?? undefined,
+          ),
         };
-      case "tabs.screenshot":
-        return {
-          ok: true,
-          id: request.id,
-          result: await this.#observer.screenshot(this.#tab(params).id),
-        };
+      }
       case "tabs.click":
         return {
           ok: true,
           id: request.id,
           result: await this.#observer.click(
             this.#tab(params).id,
-            requiredString(params.ref, "ref"),
+            requiredString(params.target, "target"),
             optionalBoolean(params.observe, "observe") ?? false,
           ),
         };
@@ -342,7 +355,7 @@ export class AppCommandPipeServer {
           id: request.id,
           result: await this.#observer.hover(
             this.#tab(params).id,
-            requiredString(params.ref, "ref"),
+            requiredString(params.target, "target"),
             optionalBoolean(params.observe, "observe") ?? false,
           ),
         };
@@ -352,7 +365,7 @@ export class AppCommandPipeServer {
           id: request.id,
           result: await this.#observer.type(
             this.#tab(params).id,
-            requiredString(params.ref, "ref"),
+            requiredString(params.target, "target"),
             requiredStringAllowEmpty(params.text, "text"),
             optionalBoolean(params.observe, "observe") ?? false,
           ),
@@ -373,7 +386,7 @@ export class AppCommandPipeServer {
           id: request.id,
           result: await this.#observer.select(
             this.#tab(params).id,
-            requiredString(params.ref, "ref"),
+            requiredString(params.target, "target"),
             requiredStringAllowEmpty(params.value, "value"),
             optionalBoolean(params.observe, "observe") ?? false,
           ),
@@ -405,7 +418,7 @@ export class AppCommandPipeServer {
           id: request.id,
           result: await this.#observer.upload(
             this.#tab(params).id,
-            requiredString(params.ref, "ref"),
+            requiredString(params.target, "target"),
             requiredStringArray(params.paths, "paths"),
           ),
         };
@@ -652,11 +665,11 @@ export class AppCommandPipeServer {
           slug: "",
           name: "",
           iconDataUrl: null,
-          documentUrl: "",
           spaceId: explicitSpaceId,
           threadId: explicitThreadId,
           route: "/",
           status: "ready",
+          documentUrl: "",
         }
       );
     }
@@ -717,12 +730,6 @@ function requiredStringAllowEmpty(value: unknown, name: string): string {
   return value;
 }
 
-function requiredDigest(value: unknown, name: string): string {
-  const digest = requiredString(value, name);
-  if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error(`${name} must be a SHA-256 digest.`);
-  return digest;
-}
-
 function optionalNumber(value: unknown, name: string): number | null {
   if (value === undefined) return null;
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -757,6 +764,24 @@ function optionalString(value: unknown, name: string): string | null {
   if (typeof value !== "string" || !value.trim())
     throw new Error(`${name} must be a non-empty string.`);
   return value;
+}
+
+function observationOptions(params: Record<string, unknown>): {
+  target?: string;
+  depth?: number;
+  boxes?: boolean;
+  outputPath?: string;
+} {
+  const target = optionalString(params.target, "target");
+  const depth = optionalNumber(params.depth, "depth");
+  const boxes = optionalBoolean(params.boxes, "boxes");
+  const outputPath = optionalString(params.outputPath, "outputPath");
+  return {
+    ...(target === null ? {} : { target }),
+    ...(depth === null ? {} : { depth }),
+    ...(boxes === null ? {} : { boxes }),
+    ...(outputPath === null ? {} : { outputPath }),
+  };
 }
 
 function toError(value: unknown): Error {

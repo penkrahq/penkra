@@ -22,7 +22,7 @@ import {
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 
-import { Cause, Deferred, Effect, Exit, Fiber, Layer, Option, Schema, Stream } from "effect";
+import { Deferred, Effect, Fiber, Layer, Option, Schema, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
@@ -184,9 +184,11 @@ const TEST_TOOL_COMMANDS: Readonly<Record<string, ReadonlyArray<string>>> = {
 function testCommandForTool(
   name: string,
   args: Record<string, unknown>,
-): { command: ReadonlyArray<string>; input: Record<string, unknown> } | undefined {
+): { command: string } | undefined {
   const command = TEST_TOOL_COMMANDS[name];
-  return command ? { command, input: args } : undefined;
+  if (!command) return undefined;
+  const json = JSON.stringify(args).replaceAll("'", "\\u0027");
+  return { command: `${command.join(" ")} --input '${json}'` };
 }
 
 function makeHarnessLayer(
@@ -850,7 +852,19 @@ describe("AgentGateway", () => {
       ).result.tools;
       const names = tools.map((tool) => tool.name);
       assert.deepEqual(names, ["penkra_exec_command"]);
-      assert.property(tools[0]?.inputSchema.properties, "command");
+      const hostToolSchema = tools[0]!.inputSchema as {
+        type: string;
+        required: string[];
+        additionalProperties: boolean;
+        properties: Record<string, unknown>;
+      };
+      assert.equal(hostToolSchema.type, "object");
+      assert.deepEqual(hostToolSchema.required, ["command"]);
+      assert.isFalse(hostToolSchema.additionalProperties);
+      assert.deepInclude(hostToolSchema.properties.command as object, {
+        type: "string",
+        minLength: 1,
+      });
 
       assert.notInclude(names, "penkra_create_automation");
       assert.notInclude(names, "penkra_list_automations");

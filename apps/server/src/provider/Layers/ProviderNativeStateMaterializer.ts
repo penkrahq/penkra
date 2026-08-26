@@ -4,12 +4,14 @@
 import { cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import * as Path from "node:path";
 import { randomUUID } from "node:crypto";
+import { backup as backupSqlite, DatabaseSync } from "node:sqlite";
 import { Effect, Layer, Option } from "effect";
 
 import { ServerConfig } from "../../config.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import {
-  providerCredentialProfileRoot,
+  providerConnectionProfileRoot,
+  providerCredentialProfileIdentity,
   providerNativeStateRoot,
 } from "../providerNativeStatePaths.ts";
 import { requireOneExactCodexRollout } from "../codexManagedNativeState.ts";
@@ -87,7 +89,7 @@ type ClaudeProfileMutation = {
 };
 
 type ClaudeProfileRollbackManifest = {
-  readonly targetProfileRef: string;
+  readonly targetProfileIdentity: string;
   readonly mutations: ClaudeProfileMutation[];
 };
 
@@ -164,8 +166,15 @@ async function readClaudeRollbackManifest(
   });
   if (raw === null) return null;
   const decoded = JSON.parse(raw) as Partial<ClaudeProfileRollbackManifest>;
+  const legacyProfileRef = (decoded as { readonly targetProfileRef?: unknown }).targetProfileRef;
+  const targetProfileIdentity =
+    typeof decoded.targetProfileIdentity === "string"
+      ? decoded.targetProfileIdentity
+      : typeof legacyProfileRef === "string"
+        ? providerCredentialProfileIdentity(legacyProfileRef)
+        : null;
   if (
-    typeof decoded.targetProfileRef !== "string" ||
+    targetProfileIdentity === null ||
     !Array.isArray(decoded.mutations) ||
     decoded.mutations.some(
       (mutation) =>
@@ -177,7 +186,7 @@ async function readClaudeRollbackManifest(
   ) {
     throw new Error("Claude profile rollback metadata is invalid.");
   }
-  return decoded as ClaudeProfileRollbackManifest;
+  return { targetProfileIdentity, mutations: decoded.mutations as ClaudeProfileMutation[] };
 }
 
 async function collectExactClaudeSessionFiles(
@@ -185,7 +194,9 @@ async function collectExactClaudeSessionFiles(
   providerSessionId: string,
 ): Promise<string[]> {
   const matches: string[] = [];
-  const projectsRoot = Path.join(root, "claude-config", "folders");
+  // `projects` is part of Claude's provider-owned on-disk protocol. It is not
+  // Penkra's former Project hierarchy and must not follow Folder terminology.
+  const projectsRoot = Path.join(root, "claude-config", "projects");
   const visit = async (directory: string): Promise<void> => {
     for (const entry of await readdir(directory, { withFileTypes: true }).catch(
       (cause: NodeJS.ErrnoException) => {
@@ -222,6 +233,23 @@ async function collectExactClaudeSessionFiles(
 
 const OPEN_CODE_NATIVE_ENTRIES = ["snapshot", "storage", "tool-output", "repos", "plan"] as const;
 
+async function snapshotOpenCodeDatabase(sourceRoot: string, targetRoot: string): Promise<void> {
+  const sourcePath = Path.join(sourceRoot, "opencode.db");
+  if (!(await exists(sourcePath))) {
+    throw new Error("The exact OpenCode database is unavailable.");
+  }
+  const targetPath = Path.join(targetRoot, "opencode.db");
+  const source = new DatabaseSync(sourcePath, { readOnly: true });
+  try {
+    // SQLite's online backup API produces one transactionally consistent
+    // database even while the source is in WAL mode. Raw db/wal/shm copying
+    // cannot provide that guarantee while OpenCode's pooled server is alive.
+    await backupSqlite(source, targetPath);
+  } finally {
+    source.close();
+  }
+}
+
 async function exactNativeEntries(input: {
   readonly harness: Parameters<ProviderNativeStateMaterializerShape["clone"]>[0]["harness"];
   readonly providerSessionId: string;
@@ -239,17 +267,12 @@ async function exactNativeEntries(input: {
       return collectExactClaudeSessionFiles(input.sourceRoot, input.providerSessionId);
     case "opencode": {
       const entries: string[] = [];
-      for (const suffix of ["", "-wal", "-shm"] as const) {
-        const database = Path.join(input.sourceRoot, `opencode.db${suffix}`);
-        if (await exists(database)) entries.push(database);
-      }
-      if (!entries.some((entry) => entry.endsWith("opencode.db"))) {
-        throw new Error("The exact OpenCode database is unavailable.");
-      }
       for (const name of OPEN_CODE_NATIVE_ENTRIES) {
         const entry = Path.join(input.sourceRoot, "xdg-data", "opencode", name);
         if (await exists(entry)) entries.push(entry);
       }
+      const stateRoot = Path.join(input.sourceRoot, "xdg-state");
+      if (await exists(stateRoot)) entries.push(stateRoot);
       return entries;
     }
     default:
@@ -270,13 +293,16 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
         Option.match({
           onNone: () => Effect.fail(failure("The Connection credential profile does not exist.")),
           onSome: (connection) => {
-            const profileRoot =
+            const profileIdentity =
               connection.profileRef === null
-                ? null
-                : providerCredentialProfileRoot(config.stateDir, connection.profileRef);
-            return profileRoot === null
+                ? connection.id
+                : providerCredentialProfileIdentity(connection.profileRef);
+            return profileIdentity === null
               ? Effect.fail(failure("The Connection credential profile is invalid."))
-              : Effect.succeed({ profileRef: connection.profileRef!, profileRoot });
+              : Effect.succeed({
+                  profileIdentity,
+                  profileRoot: providerConnectionProfileRoot(config.stateDir, profileIdentity),
+                });
           },
         }),
       ),
@@ -344,7 +370,7 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
               await writeFile(
                 Path.join(staging, CLAUDE_PROFILE_ROLLBACK_MANIFEST),
                 JSON.stringify({
-                  targetProfileRef: targetConnectionProfile!.profileRef,
+                  targetProfileIdentity: targetConnectionProfile!.profileIdentity,
                   mutations,
                 } satisfies ClaudeProfileRollbackManifest),
                 { mode: 0o600 },
@@ -372,6 +398,9 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
           }
           try {
             await mkdir(staging, { mode: 0o700 });
+            if (input.harness === "opencode") {
+              await snapshotOpenCodeDatabase(generationSource, staging);
+            }
             const entries = await exactNativeEntries({
               harness: input.harness,
               providerSessionId: input.providerSessionId,
@@ -396,12 +425,10 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
         const generationRoot = providerNativeStateRoot(config.stateDir, generationId);
         const manifest = await readClaudeRollbackManifest(generationRoot);
         if (manifest !== null) {
-          const targetProfile = providerCredentialProfileRoot(
+          const targetProfile = providerConnectionProfileRoot(
             config.stateDir,
-            manifest.targetProfileRef,
+            manifest.targetProfileIdentity,
           );
-          if (targetProfile === null)
-            throw new Error("Claude target profile reference is invalid.");
           await rollbackClaudeProfileMutations({
             generationRoot,
             targetProfile,

@@ -498,7 +498,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const resetDerivedProjectionState = sql.withTransaction(
     Effect.gen(function* () {
       yield* sql`DELETE FROM projection_spaces`;
-      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         DELETE FROM projection_state
         WHERE projector IN ${sql.in(FOLDER_METADATA_SNAPSHOT_PROJECTORS)}
@@ -509,10 +509,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const backupDerivedProjectionState = sql.withTransaction(
     Effect.gen(function* () {
       yield* sql`DROP TABLE IF EXISTS temp_repair_projection_spaces`;
-      yield* sql`DROP TABLE IF EXISTS temp_repair_projection_projects`;
+      yield* sql`DROP TABLE IF EXISTS temp_repair_projection_folders`;
       yield* sql`DROP TABLE IF EXISTS temp_repair_projection_state`;
       yield* sql`CREATE TEMP TABLE temp_repair_projection_spaces AS SELECT * FROM projection_spaces`;
-      yield* sql`CREATE TEMP TABLE temp_repair_projection_projects AS SELECT * FROM projection_projects`;
+      yield* sql`CREATE TEMP TABLE temp_repair_projection_folders AS SELECT * FROM projection_folders`;
       yield* sql`CREATE TEMP TABLE temp_repair_projection_state AS SELECT * FROM projection_state`;
     }),
   );
@@ -521,8 +521,8 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     Effect.gen(function* () {
       yield* sql`DELETE FROM projection_spaces`;
       yield* sql`INSERT INTO projection_spaces SELECT * FROM temp_repair_projection_spaces`;
-      yield* sql`DELETE FROM projection_projects`;
-      yield* sql`INSERT INTO projection_projects SELECT * FROM temp_repair_projection_projects`;
+      yield* sql`DELETE FROM projection_folders`;
+      yield* sql`INSERT INTO projection_folders SELECT * FROM temp_repair_projection_folders`;
       yield* sql`DELETE FROM projection_state`;
       yield* sql`INSERT INTO projection_state SELECT * FROM temp_repair_projection_state`;
     }),
@@ -531,7 +531,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const dropProjectionRepairBackup = sql.withTransaction(
     Effect.gen(function* () {
       yield* sql`DROP TABLE IF EXISTS temp_repair_projection_spaces`;
-      yield* sql`DROP TABLE IF EXISTS temp_repair_projection_projects`;
+      yield* sql`DROP TABLE IF EXISTS temp_repair_projection_folders`;
       yield* sql`DROP TABLE IF EXISTS temp_repair_projection_state`;
     }),
   );

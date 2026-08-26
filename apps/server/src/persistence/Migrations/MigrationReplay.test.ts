@@ -6,7 +6,7 @@ import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { migrationEntries, runMigrations } from "../Migrations.ts";
+import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 /**
@@ -25,11 +25,7 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
  */
 const REPLAY_FROM_MIGRATION_ID = 54;
 
-const replayedEntries = migrationEntries
-  .filter(([id]) => id >= REPLAY_FROM_MIGRATION_ID)
-  // `migrationEntries` is `as const`, so an unannotated map widens each pair into an array of
-  // the literal union rather than a tuple. Name the tuple so the comparison stays typed.
-  .map(([id, name]): readonly [id: number, name: string] => [id, name]);
+const replayedEntries: ReadonlyArray<readonly [id: number, name: string]> = [];
 
 const schemaObjects = (sql: SqlClient.SqlClient) =>
   sql<{
@@ -53,8 +49,8 @@ const forgetMigrationsFromReplayPoint = Effect.gen(function* () {
 const seedDurableState = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`
-    INSERT INTO projection_projects (
-      project_id, kind, title, workspace_root, scripts_json, created_at, updated_at
+    INSERT INTO projection_folders (
+      folder_id, kind, title, workspace_root, scripts_json, created_at, updated_at
     ) VALUES (
       'replay-project', 'project', 'Replay', '/workspace/replay', '[]',
       '2026-07-24T10:00:00.000Z', '2026-07-24T10:00:00.000Z'
@@ -62,7 +58,7 @@ const seedDurableState = Effect.gen(function* () {
   `;
   yield* sql`
     INSERT INTO projection_threads (
-      thread_id, project_id, title, created_at, updated_at,
+      thread_id, folder_id, title, created_at, updated_at,
       runtime_mode
     ) VALUES (
       'replay-thread', 'replay-project', 'Replay thread',

@@ -223,7 +223,10 @@ function collectInlineTokenMatches(
     // Try to resolve the alias
     const resolved = resolveAgentAlias(alias);
     if (!resolved) {
-      // Not a valid agent alias, skip - will be handled as regular mention
+      // Preserve provider-native @alias(task) syntax as text when this client
+      // has no discovered descriptor for the alias. It must not fall through
+      // and become a malformed file/folder mention such as `@alias(task`.
+      reservedRanges.push({ start, end });
       continue;
     }
 

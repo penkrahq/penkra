@@ -310,7 +310,14 @@ const make = Effect.gen(function* () {
           cached: false,
         };
       }
-      if (!manifest) return yield* adapter.listModels(parsed);
+      if (!manifest) {
+        const { connectionId, internalProviderId, ...adapterInput } = parsed;
+        return yield* adapter.listModels({
+          ...adapterInput,
+          ...(connectionId !== undefined ? { connectionId } : {}),
+          ...(internalProviderId !== undefined ? { internalProviderId } : {}),
+        });
+      }
 
       const installation = (yield* installations
         .list()
@@ -329,20 +336,60 @@ const make = Effect.gen(function* () {
         )).filter(
         (connection) => connection.harness === parsed.provider && connection.lifecycle === "active",
       );
+      const requestedConnectionId =
+        parsed.connectionId !== undefined
+          ? parsed.connectionId
+          : (manifest.anonymous?.internalProviderIds.length ?? 0) > 0
+            ? null
+            : activeConnections[0]?.id;
       const routes: Array<{
         connectionId: ProviderConnectionId | null;
         internalProviderId: string | null;
-      }> = activeConnections.flatMap((connection) => {
-        const method = findConnectionAuthenticationMethod(connection);
-        if (!method) return [];
-        return method.internalProviderIds.map((internalProviderId) => ({
-          connectionId: connection.id,
-          internalProviderId,
-        }));
-      });
-      for (const internalProviderId of manifest.anonymous?.internalProviderIds ?? []) {
-        routes.push({ connectionId: null, internalProviderId });
+      }> = activeConnections
+        .filter((connection) => connection.id === requestedConnectionId)
+        .flatMap((connection) => {
+          const method = findConnectionAuthenticationMethod(connection);
+          if (!method) return [];
+          return method.internalProviderIds
+            .filter(
+              (internalProviderId) =>
+                parsed.internalProviderId === undefined ||
+                internalProviderId === parsed.internalProviderId,
+            )
+            .map((internalProviderId) => ({
+              connectionId: connection.id,
+              internalProviderId,
+            }));
+        });
+      if (requestedConnectionId === null) {
+        for (const internalProviderId of manifest.anonymous?.internalProviderIds ?? []) {
+          if (
+            parsed.internalProviderId !== undefined &&
+            internalProviderId !== parsed.internalProviderId
+          ) {
+            continue;
+          }
+          routes.push({ connectionId: null, internalProviderId });
+        }
       }
+      if (routes.length === 0) {
+        yield* Effect.logWarning("Managed model discovery has no eligible Connection route", {
+          provider: parsed.provider,
+          installationId: installation.id,
+          connectionId: requestedConnectionId ?? "unresolved",
+        });
+        return yield* new ProviderValidationError({
+          operation: "ProviderDiscoveryService.listModels",
+          issue: "The selected Connection cannot discover models for this provider.",
+        });
+      }
+      yield* Effect.logDebug("Managed model discovery selected one Connection", {
+        provider: parsed.provider,
+        connectionId: routes[0]!.connectionId ?? "anonymous",
+        internalProviderId: routes[0]!.internalProviderId ?? "first-party",
+        explicitlySelected: parsed.connectionId !== undefined,
+        routeCount: routes.length,
+      });
       const results = yield* Effect.forEach(
         routes,
         (route) =>
@@ -363,7 +410,7 @@ const make = Effect.gen(function* () {
                   internalProviderId: route.internalProviderId,
                 }),
               ),
-              Effect.map((result) => ({ route, result })),
+              Effect.map((result) => ({ _tag: "Success" as const, route, result })),
               Effect.catch((cause) =>
                 Effect.logWarning("Managed model discovery failed for one Connection route").pipe(
                   Effect.annotateLogs({
@@ -372,43 +419,50 @@ const make = Effect.gen(function* () {
                     internalProviderId: route.internalProviderId ?? "first-party",
                     cause,
                   }),
-                  Effect.as(null),
+                  Effect.as({ _tag: "Failure" as const, route, cause }),
                 ),
               ),
             ),
         { concurrency: 1 },
       );
-      const models = new Map<
-        string,
-        {
-          model: NonNullable<(typeof results)[number]>["result"]["models"][number];
-          connectionIds: Set<(typeof routes)[number]["connectionId"]>;
-        }
-      >();
+      if (results.every((entry) => entry._tag === "Failure")) {
+        yield* Effect.logWarning("Managed model discovery failed for every Connection route", {
+          provider: parsed.provider,
+          installationId: installation.id,
+          routeCount: results.length,
+        });
+        return yield* new ProviderValidationError({
+          operation: "ProviderDiscoveryService.listModels",
+          issue: "Live model discovery failed for every active Connection.",
+          cause: new AggregateError(
+            results.map((entry) => entry.cause),
+            "Every managed model-discovery route failed.",
+          ),
+        });
+      }
+      type SuccessfulDiscoveryResult = Extract<
+        (typeof results)[number],
+        { readonly _tag: "Success" }
+      >;
+      const models = new Map<string, SuccessfulDiscoveryResult["result"]["models"][number]>();
       for (const entry of results) {
-        if (entry === null) continue;
+        if (entry._tag === "Failure") continue;
         for (const model of entry.result.models) {
           const key = `${model.upstreamProviderId ?? ""}\u0000${model.slug}`;
-          const existing = models.get(key);
-          if (existing) {
-            existing.connectionIds.add(entry.route.connectionId);
-          } else {
-            models.set(key, {
-              model,
-              connectionIds: new Set([entry.route.connectionId]),
-            });
-          }
+          if (!models.has(key)) models.set(key, model);
         }
       }
+      yield* Effect.logDebug("Managed model discovery completed", {
+        provider: parsed.provider,
+        connectionId: routes[0]!.connectionId ?? "anonymous",
+        modelCount: models.size,
+      });
       return {
-        models: [...models.values()].map(({ model, connectionIds }) => ({
-          ...model,
-          availableConnectionIds: [...connectionIds],
-        })),
-        source: "managed-connections",
+        models: [...models.values()],
+        source: "managed-connection",
         cached:
           results.length > 0 &&
-          results.every((entry) => entry === null || entry.result.cached === true),
+          results.every((entry) => entry._tag === "Failure" || entry.result.cached === true),
       };
     });
 
@@ -428,7 +482,14 @@ const make = Effect.gen(function* () {
         };
       }
       const manifest = getProviderConnectionManifest(parsed.provider);
-      if (!manifest) return yield* adapter.listAgents(parsed);
+      if (!manifest) {
+        const { connectionId, internalProviderId, ...adapterInput } = parsed;
+        return yield* adapter.listAgents({
+          ...adapterInput,
+          ...(connectionId !== undefined ? { connectionId } : {}),
+          ...(internalProviderId !== undefined ? { internalProviderId } : {}),
+        });
+      }
 
       const installation = (yield* installations
         .list()
@@ -446,20 +507,55 @@ const make = Effect.gen(function* () {
         )).filter(
         (connection) => connection.harness === parsed.provider && connection.lifecycle === "active",
       );
+      const requestedConnectionId =
+        parsed.connectionId !== undefined
+          ? parsed.connectionId
+          : (manifest.anonymous?.internalProviderIds.length ?? 0) > 0
+            ? null
+            : activeConnections[0]?.id;
       const routes: Array<{
         connectionId: ProviderConnectionId | null;
         internalProviderId: string | null;
-      }> = activeConnections.flatMap((connection) => {
-        const method = findConnectionAuthenticationMethod(connection);
-        if (!method) return [];
-        return method.internalProviderIds.map((internalProviderId) => ({
-          connectionId: connection.id,
-          internalProviderId,
-        }));
-      });
-      for (const internalProviderId of manifest.anonymous?.internalProviderIds ?? []) {
-        routes.push({ connectionId: null, internalProviderId });
+      }> = activeConnections
+        .filter((connection) => connection.id === requestedConnectionId)
+        .flatMap((connection) => {
+          const method = findConnectionAuthenticationMethod(connection);
+          if (!method) return [];
+          return method.internalProviderIds
+            .filter(
+              (internalProviderId) =>
+                parsed.internalProviderId === undefined ||
+                internalProviderId === parsed.internalProviderId,
+            )
+            .map((internalProviderId) => ({
+              connectionId: connection.id,
+              internalProviderId,
+            }));
+        });
+      if (requestedConnectionId === null) {
+        for (const internalProviderId of manifest.anonymous?.internalProviderIds ?? []) {
+          if (
+            parsed.internalProviderId !== undefined &&
+            internalProviderId !== parsed.internalProviderId
+          ) {
+            continue;
+          }
+          routes.push({ connectionId: null, internalProviderId });
+        }
       }
+      if (routes.length === 0) {
+        return yield* new ProviderValidationError({
+          operation: "ProviderDiscoveryService.listAgents",
+          issue: "The selected Connection cannot discover agents for this provider.",
+        });
+      }
+      yield* Effect.logDebug("Managed agent discovery selected one Connection", {
+        provider: parsed.provider,
+        connectionId: routes[0]!.connectionId ?? "anonymous",
+        internalProviderId: routes[0]!.internalProviderId ?? "first-party",
+        explicitlySelected: parsed.connectionId !== undefined,
+        routeCount: routes.length,
+      });
       const results = yield* Effect.forEach(
         routes,
         (route) =>
@@ -497,31 +593,23 @@ const make = Effect.gen(function* () {
       );
       const agents = new Map<
         string,
-        {
-          agent: NonNullable<(typeof results)[number]>["result"]["agents"][number];
-          connectionIds: Set<ProviderConnectionId | null>;
-        }
+        NonNullable<(typeof results)[number]>["result"]["agents"][number]
       >();
       for (const entry of results) {
         if (entry === null) continue;
         for (const agent of entry.result.agents) {
           const key = `${agent.name}\u0000${agent.model ?? ""}`;
-          const existing = agents.get(key);
-          if (existing) existing.connectionIds.add(entry.route.connectionId);
-          else {
-            agents.set(key, {
-              agent,
-              connectionIds: new Set([entry.route.connectionId]),
-            });
-          }
+          if (!agents.has(key)) agents.set(key, agent);
         }
       }
+      yield* Effect.logDebug("Managed agent discovery completed", {
+        provider: parsed.provider,
+        connectionId: routes[0]!.connectionId ?? "anonymous",
+        agentCount: agents.size,
+      });
       return {
-        agents: [...agents.values()].map(({ agent, connectionIds }) => ({
-          ...agent,
-          availableConnectionIds: [...connectionIds],
-        })),
-        source: "managed-connections",
+        agents: [...agents.values()],
+        source: "managed-connection",
         cached:
           results.length > 0 &&
           results.every((entry) => entry === null || entry.result.cached === true),

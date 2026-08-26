@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 
 /**
  * ProviderAdapterValidationError - Invalid adapter API input.
@@ -58,6 +59,7 @@ export class ProviderAdapterRequestError extends Schema.TaggedErrorClass<Provide
     provider: Schema.String,
     method: Schema.String,
     detail: Schema.String,
+    code: Schema.optional(Schema.Literal(PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE)),
     cause: Schema.optional(Schema.Defect),
   },
 ) {

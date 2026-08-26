@@ -9,9 +9,11 @@ npm install @penkra/sdk
 
 Framework-neutral APIs for Apps running inside Penkra. The package contains manifest validation,
 typed operations, tab routing, settings, secrets, identity, permissions, mediated
-network and file access, hosted browser and simulator sessions, and native context menus. Visual
-Apps run as sandboxed App×Space-origin iframes connected to the trusted host by a tab-bound
-MessagePort. The SDK never exposes Electron, Node globals, raw IPC, or filesystem paths.
+network and file access, hosted browser and simulator sessions, and native context menus. Each
+visual tab runs in its own sandboxed, cross-origin App×Space iframe. Penkra injects the public SDK
+bootstrap and binds it to the exact tab with a `MessagePort`; visual Apps never receive Electron,
+Node globals, raw IPC, or ambient filesystem access. An optional operation entrypoint runs
+separately in a dedicated Node controller and may use ordinary Node facilities.
 
 ```ts
 import { defineApp, tab } from "@penkra/sdk";
@@ -39,7 +41,7 @@ restart. `tab.onNavigate` receives navigation initiated outside the App.
 Apps may use any browser-compatible framework. React is optional and available from
 `@penkra/sdk/react`. Runtime calls throw when used outside a Penkra App renderer; ordinary unit
 tests should test App logic separately. Penkra exposes the real isolated-host runner through the
-registered `{ "command": ["penkra", "app", "test", "<directory>"] }` invocation in
+registered `{ "command": "penkra app test <directory>" }` invocation in
 `penkra_exec_command`.
 
 Use `contextMenu.show(...)` from a direct pointer interaction when an App needs a platform-native

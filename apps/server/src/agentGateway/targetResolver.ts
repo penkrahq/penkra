@@ -188,7 +188,7 @@ const PROVIDER_TARGET_OPTION_RULES = {
 } as const satisfies Record<ProviderKind, ProviderTargetOptionConfig>;
 
 function providerDefaultModel(provider: ProviderKind): string | null {
-  return DEFAULT_MODEL_BY_PROVIDER[provider];
+  return DEFAULT_MODEL_BY_PROVIDER[provider] || null;
 }
 
 export function loadAgentGatewayProviderCatalog(input: {

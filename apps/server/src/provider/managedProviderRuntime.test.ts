@@ -136,7 +136,7 @@ describe("managed provider runtime", () => {
     expect(result.activation?.previous?.version).toBe("2.0.0");
   });
 
-  it("retains only the active runtime and its immediate predecessor", async () => {
+  it("retains every installed runtime while thread bindings may still reference it", async () => {
     const versions = await runInTemp((stateDir) =>
       Effect.gen(function* () {
         for (const version of ["1.0.0", "2.0.0", "3.0.0"]) {
@@ -153,10 +153,10 @@ describe("managed provider runtime", () => {
       }),
     );
 
-    expect(versions).toEqual(["2.0.0", "3.0.0"]);
+    expect(versions).toEqual(["1.0.0", "2.0.0", "3.0.0"]);
   });
 
-  it("prunes the predecessor after the active runtime proves continuation compatibility", async () => {
+  it("clears activation predecessor metadata without deleting the pinned version", async () => {
     const result = await runInTemp((stateDir) =>
       Effect.gen(function* () {
         const first = yield* createVersionExecutable(stateDir, "1.0.0");
@@ -191,7 +191,7 @@ describe("managed provider runtime", () => {
 
     expect(result.confirmed).toBe(true);
     expect(result.activation?.previous).toBeNull();
-    expect(result.versions).toEqual(["2.0.0"]);
+    expect(result.versions).toEqual(["1.0.0", "2.0.0"]);
   });
 
   it("does not replace the predecessor when the same active generation is reactivated", async () => {
@@ -227,7 +227,7 @@ describe("managed provider runtime", () => {
     expect(activation?.previous?.installationId).toBe("install-1");
   });
 
-  it("rejects an incompatible candidate, restores its predecessor, and blocks exact retry", async () => {
+  it("preserves pinned versions and allows a legacy-rejected installation to be activated again", async () => {
     const result = await runInTemp((stateDir) =>
       Effect.gen(function* () {
         const first = yield* createVersionExecutable(stateDir, "1.0.0");
@@ -279,9 +279,9 @@ describe("managed provider runtime", () => {
     expect(result.activation?.active.installationId).toBe("install-1");
     expect(result.activation?.previous).toBeNull();
     expect(result.activation?.rejected?.installationId).toBe("install-2");
-    expect(result.versionsAfterRejection).toEqual(["1.0.0"]);
-    expect(result.retry._tag).toBe("Failure");
-    expect(result.versionsAfterRetry).toEqual(["1.0.0"]);
+    expect(result.versionsAfterRejection).toEqual(["1.0.0", "2.0.0"]);
+    expect(result.retry._tag).toBe("Success");
+    expect(result.versionsAfterRetry).toEqual(["1.0.0", "2.0.0"]);
   });
 
   it("restores a retained predecessor when recording the new activation fails", async () => {

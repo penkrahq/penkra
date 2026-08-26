@@ -137,6 +137,23 @@ describe("AppRendererRpcHost", () => {
     ).rejects.toMatchObject({ code: "invalid-message" });
   });
 
+  it("allows bounded rich results without widening controller request inputs", async () => {
+    const test = fixture({ maxPayloadBytes: 32, maxResultPayloadBytes: 256 });
+    await expect(
+      test.host.request(17, "controller.invoke", { content: "x".repeat(64) }),
+    ).rejects.toMatchObject({ code: "payload-too-large" });
+
+    const result = test.host.request(17, "controller.invoke", {});
+    expect(
+      test.host.acceptResponse(17, {
+        type: "result",
+        id: "request-1",
+        result: { content: "x".repeat(128) },
+      }),
+    ).toBe(true);
+    await expect(result).resolves.toEqual({ content: "x".repeat(128) });
+  });
+
   it("rejects malformed renderer responses without settling valid pending work", async () => {
     const test = fixture();
     const result = test.host.request(17, "controller.invoke", {});

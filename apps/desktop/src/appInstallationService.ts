@@ -190,8 +190,18 @@ export class AppInstallationService {
         ),
       );
     }
-    const permissions =
+    const existingPermissions =
       current.spaceStateByKey[`${input.spaceId}\u0000${existing.appId}`]?.permissions ?? {};
+    // An explicit local sideload is already the developer's review boundary: fresh sideloads grant
+    // every required permission before enabling the App. Apply the same decision during an update
+    // so a newly required permission cannot deadlock the guarded swap before that grant step runs.
+    // Optional permissions retain their existing decision and registry updates remain review-gated.
+    const permissions = Object.fromEntries(
+      (input.package.manifest.permissions ?? []).map((permission) => [
+        permission.name,
+        permission.required ? "granted" : (existingPermissions[permission.name] ?? "denied"),
+      ]),
+    ) as Record<string, AppPermissionGrant>;
     return this.#updateForSpace({
       package: input.package,
       spaceId: input.spaceId,

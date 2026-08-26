@@ -4,7 +4,6 @@ import path from "node:path";
 import {
   ApprovalRequestId,
   CommandId,
-  DEFAULT_MODEL_BY_PROVIDER,
   EventId,
   MessageId,
   FolderId,
@@ -103,7 +102,7 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
   Effect.gen(function* () {
     const createdAt = nowIso();
     const provider = harness.adapterHarness?.provider ?? "codex";
-    const defaultModel = DEFAULT_MODEL_BY_PROVIDER[provider];
+    const defaultModel = `test-model-${provider}`;
     const personalSpaceId = SpaceId.makeUnsafe("penkra-personal");
 
     yield* harness.engine.dispatch({

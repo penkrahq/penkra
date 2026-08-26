@@ -23,7 +23,11 @@ import { toastManager } from "../ui/toast";
 import { AppsIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { AppDockPane } from "./AppDockPane";
-import { shouldMountAppDockPane, shouldRetryAppTabHostReady } from "./appTabRestore.logic";
+import {
+  createAppTabRestoreRequest,
+  shouldMountAppDockPane,
+  shouldRetryAppTabHostReady,
+} from "./appTabRestore.logic";
 import { resolveAppsLauncherAction, resolveAppsLauncherSpaceId } from "./appsLauncher.logic";
 import { DeferredChatView } from "./ChatThreadSurfacePrimitives";
 import {
@@ -166,7 +170,6 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
         .list()
         .then((tabs) => {
           if (cancelled) return;
-          const tabsForThread = tabs.filter((tab) => tab.threadId === props.threadId);
           const liveIds = new Set(tabs.map((tab) => tab.id));
           setConfirmedAppPaneIds(liveIds);
           const currentDockStates = useRightDockStore.getState().dockStateByThreadId;
@@ -188,18 +191,8 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           for (const pane of dockState.panes) {
             if (liveIds.has(pane.id) || restoringAppPaneIdsRef.current.has(pane.id)) continue;
             restoringAppPaneIdsRef.current.add(pane.id);
-            // A persisted pane ID belongs to the previous Electron process and cannot be attached.
-            // Remove it before opening the replacement so AppDockPane never races the main process
-            // with attach/visibility requests for a renderer that no longer exists.
-            closePane(props.threadId, pane.id);
             void bridge
-              .open({
-                appId: pane.appId,
-                spaceId: currentSpaceId,
-                threadId: props.threadId,
-                route: pane.appRoute,
-                ...(pane.appState === undefined ? {} : { state: pane.appState }),
-              })
+              .open(createAppTabRestoreRequest(pane, currentSpaceId, props.threadId))
               .catch((error: unknown) => {
                 toastManager.add({
                   type: "error",
@@ -230,7 +223,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
       cancelled = true;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
-  }, [closePane, currentSpaceId, dockState.panes, openPane, props.threadId]);
+  }, [currentSpaceId, dockState.panes, openPane, props.threadId, updatePane]);
 
   const openAppsListing = useCallback(
     (appId: string) => {

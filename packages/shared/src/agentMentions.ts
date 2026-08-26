@@ -72,7 +72,19 @@ export function parseAgentMentionInvocations(
       continue;
     }
 
-    const resolved = resolveAgentAlias(alias, provider);
+    const resolved =
+      resolveAgentAlias(alias, provider) ??
+      (provider === "claudeAgent"
+        ? {
+            provider: "claudeAgent" as const,
+            kind: "claude-subagent" as const,
+            agentName: alias,
+            displayName: alias,
+            color: "violet" as const,
+            description: `Provider agent ${alias}`,
+            prompt: "",
+          }
+        : null);
     if (!resolved) {
       continue;
     }

@@ -55,6 +55,7 @@ export interface McpToolCallResult {
     | { readonly type: "text"; readonly text: string }
     | { readonly type: "image"; readonly data: string; readonly mimeType: string }
   >;
+  readonly structuredContent?: unknown;
   readonly isError?: boolean;
 }
 
@@ -80,6 +81,41 @@ export function mcpToolResultImage(input: {
       { type: "text", text: input.description },
       { type: "image", data: input.data, mimeType: input.mimeType },
     ],
+  };
+}
+
+export function mcpToolResultRich(input: {
+  content: McpToolCallResult["content"];
+  structuredContent: unknown;
+}): McpToolCallResult {
+  return {
+    content: input.content,
+    structuredContent: input.structuredContent,
+  };
+}
+
+export function extractPenkraExecRichResult(value: unknown): {
+  content: McpToolCallResult["content"];
+  structuredContent: Record<string, unknown>;
+} | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const command = value as Record<string, unknown>;
+  const operation = command.result;
+  if (!operation || typeof operation !== "object" || Array.isArray(operation)) return null;
+  const rich = operation as Record<string, unknown>;
+  if (!Array.isArray(rich.content) || !Object.hasOwn(rich, "structuredContent")) return null;
+  const content = rich.content.filter((block): block is McpToolCallResult["content"][number] => {
+    if (!block || typeof block !== "object" || Array.isArray(block)) return false;
+    const item = block as Record<string, unknown>;
+    return (
+      (item.type === "text" && typeof item.text === "string") ||
+      (item.type === "image" && typeof item.data === "string" && typeof item.mimeType === "string")
+    );
+  });
+  if (content.length !== rich.content.length || content.length === 0) return null;
+  return {
+    content,
+    structuredContent: { ...command, result: rich.structuredContent },
   };
 }
 

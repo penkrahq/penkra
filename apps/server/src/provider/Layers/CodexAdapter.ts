@@ -50,6 +50,7 @@ import {
   ProviderAdapterValidationError,
   type ProviderAdapterError,
 } from "../Errors.ts";
+import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import {
   awaitProviderRuntimeEventsDrained,
@@ -269,6 +270,9 @@ function toRequestError(threadId: ThreadId, method: string, cause: unknown): Pro
     provider: PROVIDER,
     method,
     detail: toMessage(cause, `${method} failed`),
+    ...(asObject(cause)?.code === PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE
+      ? { code: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
+      : {}),
     cause,
   });
 }

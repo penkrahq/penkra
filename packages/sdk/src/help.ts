@@ -102,29 +102,28 @@ function operationHelp(manifest: PenkraAppManifest, declaration: OperationDeclar
     declaration.summary,
     "",
     "Call shape",
-    "  Send command words as an array and operation data as input. tabId is a separate",
-    "  invocation field when an operation targets an existing visible App tab.",
+    "  Send one ordinary command string. Use --name value for scalar fields and",
+    '  --input "{...}" for a complete JSON value. Use --tab-id for an exact App tab.',
     "",
     "Input fields",
     ...operationFlagHelp(declaration.input),
     "",
     "Invocation",
-    "  input  Complete structured operation input validated against the schema below.",
-    "  tabId  Exact existing App tab when required; this is not operation input.",
+    "  --input   Complete JSON operation input validated against the schema below.",
+    "  --tab-id  Exact existing App tab when required; this is not operation input.",
     "",
     "Examples",
-    ...(declaration.examples ?? []).flatMap((example) => [
-      "",
-      `  ${example.name}`,
-      "",
-      ...JSON.stringify(
-        { command: commandWords(manifest.slug, declaration.key), input: example.input },
-        null,
-        2,
-      )
-        .split("\n")
-        .map((line) => `  ${line}`),
-    ]),
+    ...(declaration.examples ?? []).flatMap((example) =>
+      ["", `  ${example.name}`, ""].concat(
+        JSON.stringify(
+          { command: commandExample(manifest.slug, declaration.key, example.input) },
+          null,
+          2,
+        )
+          .split("\n")
+          .map((line) => `  ${line}`),
+      ),
+    ),
     ...(declaration.guidance
       ? ["", "Guidance", "", ...declaration.guidance.trim().split("\n")]
       : []),
@@ -157,7 +156,7 @@ function operationFlagHelp(schema: Readonly<Record<string, unknown>>): string[] 
       ? schema.required.filter((value): value is string => typeof value === "string")
       : [],
   );
-  const names = Object.keys(properties).sort(
+  const names = Object.keys(properties).toSorted(
     (left, right) =>
       Number(required.has(right)) - Number(required.has(left)) || left.localeCompare(right),
   );
@@ -189,6 +188,7 @@ function commandPath(slug: string, operation: string): string {
   return `${slug} ${operation.split(".").join(" ")}`;
 }
 
-function commandWords(slug: string, operation: string): string[] {
-  return [slug, ...operation.split(".")];
+function commandExample(slug: string, operation: string, input: unknown): string {
+  const json = JSON.stringify(input).replaceAll("'", "\\u0027");
+  return `${commandPath(slug, operation)} --input '${json}'`;
 }

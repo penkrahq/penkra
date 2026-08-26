@@ -1,7 +1,7 @@
 // FILE: runtimeModelCapabilities.ts
-// Purpose: Bridges runtime-discovered model metadata into composer capabilities without replacing static defaults wholesale.
+// Purpose: Bridges runtime-discovered model metadata into composer capabilities.
 // Layer: Chat composer helpers
-// Exports: runtime model lookup and Codex capability overrides derived from provider discovery responses.
+// Exports: runtime model lookup and capability metadata derived from provider discovery responses.
 
 import type {
   EffortOption,
@@ -61,14 +61,14 @@ export function resolveRuntimeModelDescriptor(input: {
   });
 }
 
-// Reuses static capability flags but lets runtime-discovered models override exposed effort menus.
+// Runtime discovery is authoritative. The empty base represents capability
+// absence while discovery is unavailable; it never invents a provider model.
 export function getRuntimeAwareModelCapabilities(input: {
   provider: ProviderKind;
   model: string | null | undefined;
   runtimeModel?: ProviderModelDescriptor | undefined;
 }): ModelCapabilities {
   const staticCapabilities = getModelCapabilities(input.provider, input.model);
-  // Runtime discovery is authoritative when available; the static table is only a startup fallback.
   const supportsFastMode =
     (input.provider === "codex" || input.provider === "claudeAgent") && input.runtimeModel
       ? input.runtimeModel.supportsFastMode === true

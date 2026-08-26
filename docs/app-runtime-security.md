@@ -28,8 +28,9 @@ First-party App packages receive the same sandbox and permission checks as third
   identities. Apps cannot choose, enumerate, or attach to partitions.
 - Each App tab receives a host-minted stable `tabId` and is bound to one App ID, Space ID, and
   Penkra thread ID. A caller-supplied `tabId` is validated against all three before delivery.
-- App renderers and controllers run with sandboxing and context isolation enabled and Node,
-  `<webview>`, insecure content, and direct filesystem access disabled.
+- App renderers run with sandboxing and context isolation enabled and Node, `<webview>`, insecure
+  content, and direct filesystem access disabled. Controllers are separate Node processes governed
+  by the controller policy described in the development guide.
 - App package documents load only from their assigned `penkra-app://<app-id>` origin. Top-level
   navigation to another origin is denied. External links use a separate mediated host action.
 - Package-path resolution percent-decodes once, rejects invalid encoding and NUL bytes, and proves
@@ -59,7 +60,7 @@ First-party App packages receive the same sandbox and permission checks as third
 
 App and hosted-page text remains untrusted after Penkra validates, bounds, redacts, and returns an
 observation. The runtime enforces where an agent may observe and act: the exact tab must belong to
-the caller's Thread and Space, references expire with the observed document generation, protected
+the caller's Thread and Space, references expire after a newer snapshot or document navigation, protected
 values are redacted, and every later operation still crosses its own schema, capability, permission,
 and authorization boundary. App content cannot call agent tools or grant itself authority.
 

@@ -22,6 +22,20 @@ export interface OperationRequest<Input = unknown> extends OperationAddress {
   tabId?: string;
 }
 
+/** MCP-compatible content returned alongside an App operation's structured result. */
+export type AppOperationContent =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "image"; readonly data: string; readonly mimeType: string };
+
+/**
+ * Rich App-operation result. The host validates `structuredContent` against the
+ * operation's declared output schema and forwards `content` to capable callers.
+ */
+export interface AppOperationRichResult<Result = unknown> {
+  readonly content: ReadonlyArray<AppOperationContent>;
+  readonly structuredContent: Result;
+}
+
 export const OPERATION_CANCELLATION_CODES = [
   "user",
   "tab-closed",

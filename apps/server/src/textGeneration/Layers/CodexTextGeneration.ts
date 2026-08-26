@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { Effect, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { DEFAULT_TEXT_GENERATION_MODEL } from "@penkra/contracts";
 import { sanitizeGeneratedThreadTitle } from "@penkra/shared/chatThreads";
 import { resolveCodexHome } from "@penkra/shared/codexConfig";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
@@ -311,6 +310,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
           : yield* Effect.promise(() =>
               buildCodexProcessEnv({ homePath: isolatedCodexHome!.homePath }),
             );
+        const resolvedModel = resolveCodexModel(model, modelSelection);
         const args = [
           "exec",
           "--ephemeral",
@@ -319,8 +319,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
           'approval_policy="never"',
           "-s",
           "read-only",
-          "--model",
-          resolveCodexModel(model, modelSelection) ?? DEFAULT_TEXT_GENERATION_MODEL,
+          ...(resolvedModel ? ["--model", resolvedModel] : []),
           "--config",
           `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
           "--output-schema",

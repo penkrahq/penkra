@@ -3,7 +3,7 @@
 // Layer: Web transport tests
 // Depends on: the global WebSocket constructor shim and desktop bridge URL contract.
 
-import { Cause } from "effect";
+import { Cause, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ORCHESTRATION_WS_METHODS,
@@ -369,6 +369,26 @@ describe("WsTransport", () => {
     settleStream();
     await unsubscribe;
     expect(unsubscribeResolved).toBe(true);
+  });
+
+  it("settles a stream that exits synchronously during callback registration", async () => {
+    const { internals } = makeBareTransport();
+    const key = "server.synchronous-exit";
+    const cancel = vi.fn();
+    Object.assign(internals, {
+      disposed: false,
+      getClientRuntime: vi.fn(() => ({
+        runCallback: (_effect: unknown, options: { onExit: (exit: unknown) => void }) => {
+          options.onExit(Exit.succeed(undefined));
+          return cancel;
+        },
+      })),
+    });
+
+    expect(() => internals.startStream({}, key, {}, vi.fn())).not.toThrow();
+    expect(internals.streamCleanups.has(key)).toBe(false);
+    expect(internals.streamSettled.has(key)).toBe(false);
+    expect(cancel).not.toHaveBeenCalled();
   });
 
   it("cancels owned capacity retry timers when a stream stops", async () => {

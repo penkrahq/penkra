@@ -501,22 +501,12 @@ describe("agent gateway target resolver", () => {
     }),
   );
 
-  it.effect("allows only the configured default while model discovery is unavailable", () =>
+  it.effect("fails closed when model discovery is unavailable", () =>
     Effect.gen(function* () {
       const unavailableDiscovery = {
         listModels: () => Effect.fail(new Error("temporary discovery failure")),
       } as unknown as ProviderDiscoveryServiceShape;
-      const defaultTarget = { provider: "codex" as const, model: "gpt-5.5" };
-      assert.deepEqual(
-        yield* resolveAgentGatewayTarget({
-          target: defaultTarget,
-          discovery: unavailableDiscovery,
-          availability: { enabled: true, available: true, authStatus: "authenticated" },
-        }),
-        defaultTarget,
-      );
-
-      const customResult = yield* resolveAgentGatewayTarget({
+      const result = yield* resolveAgentGatewayTarget({
         target: { provider: "codex", model: "gpt-5.6-terra" },
         discovery: unavailableDiscovery,
         availability: { enabled: true, available: true, authStatus: "authenticated" },
@@ -524,21 +514,7 @@ describe("agent gateway target resolver", () => {
         Effect.map(() => ({ code: "unexpected-success" })),
         Effect.catch((error) => Effect.succeed(error)),
       );
-      assert.equal(customResult.code, "model_unavailable");
-
-      const invalidOption = yield* resolveAgentGatewayTarget({
-        target: {
-          provider: "codex",
-          model: "gpt-5.5",
-          options: { reasoningEffort: "invented" },
-        },
-        discovery: unavailableDiscovery,
-        availability: { enabled: true, available: true, authStatus: "authenticated" },
-      }).pipe(
-        Effect.map(() => ({ code: "unexpected-success" })),
-        Effect.catch((error) => Effect.succeed(error)),
-      );
-      assert.equal(invalidOption.code, "model_option_unavailable");
+      assert.equal(result.code, "provider_unavailable");
     }),
   );
 });

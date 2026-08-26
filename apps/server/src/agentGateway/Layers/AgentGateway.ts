@@ -39,7 +39,13 @@ import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscov
 import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type AgentGatewayProviderAvailability } from "../targetResolver.ts";
-import { mcpToolResultError, mcpToolResultImage, mcpToolResultJson } from "../protocol.ts";
+import {
+  extractPenkraExecRichResult,
+  mcpToolResultError,
+  mcpToolResultImage,
+  mcpToolResultJson,
+  mcpToolResultRich,
+} from "../protocol.ts";
 import { gatewayIsoNow as isoNow } from "../creationUtils.ts";
 import {
   MODEL_SELECTION_INPUT_SCHEMA,
@@ -47,7 +53,6 @@ import {
   ToolInputError,
   decodeCreateThreadInput,
   errorText,
-  readRecordArg,
   readStringArg,
 } from "../toolInput.ts";
 import {
@@ -71,7 +76,7 @@ import {
   loadPenkraServerManual,
   penkraRootInstructions,
 } from "../../appRuntimeCli.ts";
-import type { PenkraExecCommandInput, PenkraExecFlagValue } from "../../appRuntimeCli.ts";
+import type { PenkraExecCommandInput } from "../../appRuntimeCli.ts";
 import { requireThreadSpaceId } from "../threadSpaceContext.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderThreadSwitchCoordinator } from "../../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
@@ -82,6 +87,18 @@ import {
   PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
   PENKRA_EXEC_COMMAND_NAME,
 } from "../hostToolContract.ts";
+
+function isPenkraExecImage(
+  value: unknown,
+): value is { kind: "image"; data: string; mimeType: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.kind === "image" &&
+    typeof record.data === "string" &&
+    typeof record.mimeType === "string"
+  );
+}
 
 export const makeAgentGateway = Effect.gen(function* () {
   const credentials = yield* AgentGatewayCredentials;
@@ -505,44 +522,10 @@ export const makeAgentGateway = Effect.gen(function* () {
     handler: (args, context) =>
       Effect.gen(function* () {
         const rawCommand = args.command;
-        if (
-          !Array.isArray(rawCommand) ||
-          rawCommand.length === 0 ||
-          !rawCommand.every((word) => typeof word === "string" && word.length > 0)
-        ) {
-          return yield* Effect.fail(
-            new ToolInputError("command must be a non-empty array of non-empty strings."),
-          );
+        if (typeof rawCommand !== "string" || !rawCommand.trim()) {
+          return yield* Effect.fail(new ToolInputError("command must be a non-empty string."));
         }
-        const rawFlags = args.flags;
-        if (
-          rawFlags !== undefined &&
-          (!rawFlags ||
-            typeof rawFlags !== "object" ||
-            Array.isArray(rawFlags) ||
-            !Object.values(rawFlags).every(
-              (value) =>
-                typeof value === "string" ||
-                typeof value === "number" ||
-                typeof value === "boolean",
-            ))
-        ) {
-          return yield* Effect.fail(
-            new ToolInputError("flags must contain only string, number, or boolean values."),
-          );
-        }
-        const tabId = args.tabId;
-        if (tabId !== undefined && (typeof tabId !== "string" || !tabId)) {
-          return yield* Effect.fail(new ToolInputError("tabId must be a non-empty string."));
-        }
-        const commandInput: PenkraExecCommandInput = {
-          command: rawCommand,
-          ...(args.input === undefined ? {} : { input: args.input }),
-          ...(rawFlags === undefined
-            ? {}
-            : { flags: rawFlags as Record<string, PenkraExecFlagValue> }),
-          ...(tabId === undefined ? {} : { tabId }),
-        };
+        const commandInput: PenkraExecCommandInput = { command: rawCommand };
         const resolution = resolveAgentGatewayCommand(commandInput, gatewayCommands);
         if (resolution.kind === "result") return resolution.result;
         if (resolution.kind === "call") {
@@ -571,24 +554,22 @@ export const makeAgentGateway = Effect.gen(function* () {
           return mcpToolResultImage({
             data: result.data,
             mimeType: result.mimeType,
-            description: "Screenshot of the explicitly targeted Penkra App tab.",
+            description: "Screenshot of the App tab currently visible for the caller Thread.",
+          });
+        }
+        const rich = extractPenkraExecRichResult(result);
+        if (rich) {
+          return mcpToolResultRich({
+            content: [
+              { type: "text", text: JSON.stringify(rich.structuredContent, null, 2) },
+              ...rich.content,
+            ],
+            structuredContent: rich.structuredContent,
           });
         }
         return mcpToolResultJson(result);
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
-
-  function isPenkraExecImage(
-    value: unknown,
-  ): value is { kind: "image"; data: string; mimeType: string } {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-    const record = value as Record<string, unknown>;
-    return (
-      record.kind === "image" &&
-      typeof record.data === "string" &&
-      typeof record.mimeType === "string"
-    );
-  }
 
   const tools: ReadonlyArray<ToolEntry> = [penkraExecCommand];
   const handleMcpPost = makeAgentGatewayMcpTransport({

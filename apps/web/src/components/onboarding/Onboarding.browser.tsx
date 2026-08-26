@@ -168,6 +168,21 @@ describe("Pencil onboarding", () => {
     expect(lightFrame).not.toBe(lightCanvas);
   });
 
+  it("keeps the welcome provider icons in a compact row", async () => {
+    await render(<OnboardingWelcome />);
+
+    const row = document.querySelector<HTMLElement>('[aria-label="Supported agents"]');
+    expect(row).not.toBeNull();
+    const icons = Array.from(row!.children) as HTMLElement[];
+    expect(icons).toHaveLength(6);
+
+    const first = icons[0]!.getBoundingClientRect();
+    const second = icons[1]!.getBoundingClientRect();
+    const last = icons.at(-1)!.getBoundingClientRect();
+    expect(Math.round(second.left - first.right)).toBe(14);
+    expect(Math.round(last.right - first.left)).toBe(202);
+  });
+
   it("keeps the initial account check visually quiet", async () => {
     const bridge = {
       accountAuth: {

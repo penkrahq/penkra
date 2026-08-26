@@ -13,7 +13,7 @@ import type * as SqlClient from "effect/unstable/sql/SqlClient";
 interface SpaceNavigationRow {
   readonly active_space_id: string | null;
   readonly last_thread_id_by_space_json: string;
-  readonly last_project_id_by_space_json: string;
+  readonly last_folder_id_by_space_json: string;
   readonly updated_at: string;
 }
 
@@ -40,7 +40,7 @@ export function getSpaceNavigationState(sql: SqlClient.SqlClient) {
       SELECT
         active_space_id,
         last_thread_id_by_space_json,
-        last_project_id_by_space_json,
+        last_folder_id_by_space_json,
         updated_at
       FROM space_navigation_state
       WHERE singleton_id = 1
@@ -57,7 +57,7 @@ export function getSpaceNavigationState(sql: SqlClient.SqlClient) {
     return {
       activeSpaceId: row.active_space_id ? SpaceId.makeUnsafe(row.active_space_id) : null,
       lastThreadIdBySpace: parseIdRecord(row.last_thread_id_by_space_json, ThreadId.makeUnsafe),
-      lastFolderIdBySpace: parseIdRecord(row.last_project_id_by_space_json, FolderId.makeUnsafe),
+      lastFolderIdBySpace: parseIdRecord(row.last_folder_id_by_space_json, FolderId.makeUnsafe),
       updatedAt: row.updated_at,
     } satisfies ServerSpaceNavigationState;
   });
@@ -74,7 +74,7 @@ export function updateSpaceNavigationState(
         singleton_id,
         active_space_id,
         last_thread_id_by_space_json,
-        last_project_id_by_space_json,
+        last_folder_id_by_space_json,
         updated_at
       ) VALUES (
         1,
@@ -86,7 +86,7 @@ export function updateSpaceNavigationState(
       ON CONFLICT (singleton_id) DO UPDATE SET
         active_space_id = excluded.active_space_id,
         last_thread_id_by_space_json = excluded.last_thread_id_by_space_json,
-        last_project_id_by_space_json = excluded.last_project_id_by_space_json,
+        last_folder_id_by_space_json = excluded.last_folder_id_by_space_json,
         updated_at = excluded.updated_at
     `;
     return yield* getSpaceNavigationState(sql);

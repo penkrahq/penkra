@@ -3,11 +3,12 @@
 
 import type {
   ProviderAgentDescriptor,
+  ProviderConnectionId,
   ProviderKind,
   ProviderModelDescriptor,
 } from "@penkra/contracts";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 import { getAppModelOptions, getCustomModelsByProvider, useAppSettings } from "../appSettings";
 import { resolveRuntimeModelDescriptor } from "../components/chat/runtimeModelCapabilities";
@@ -46,6 +47,12 @@ export function useProviderModelCatalog(input: {
   modelHintByProvider?: Partial<Record<ProviderKind, string | null>>;
   prefetchProviders?: ReadonlyArray<ProviderKind>;
   agentDiscoveryPolicy?: "selected" | "eager-core";
+  routeByProvider?: Partial<
+    Record<
+      ProviderKind,
+      { connectionId: ProviderConnectionId | null; internalProviderId: string | null }
+    >
+  >;
 }): ProviderModelCatalog {
   const { settings, serverSettings } = useAppSettings();
   const cwd = input.cwd ?? null;
@@ -54,37 +61,49 @@ export function useProviderModelCatalog(input: {
     () => (input.prefetchProviders ? new Set(input.prefetchProviders) : null),
     [input.prefetchProviders],
   );
-  const shouldDiscover = (provider: ProviderKind, eager = input.discoveryEnabled) =>
-    serverSettings?.providers[provider]?.enabled !== false &&
-    (provider === input.selectedProvider ||
-      (eager && (prefetchProviderSet?.has(provider) ?? true)));
+  const shouldDiscover = useCallback(
+    (provider: ProviderKind, eager = input.discoveryEnabled) =>
+      serverSettings?.providers[provider]?.enabled !== false &&
+      (input.routeByProvider === undefined || input.routeByProvider[provider] !== undefined) &&
+      (provider === input.selectedProvider ||
+        (eager && (prefetchProviderSet?.has(provider) ?? true))),
+    [
+      input.discoveryEnabled,
+      input.routeByProvider,
+      input.selectedProvider,
+      prefetchProviderSet,
+      serverSettings,
+    ],
+  );
 
-  const codexModels = useQuery(
-    providerModelsQueryOptions({ provider: "codex", enabled: shouldDiscover("codex") }),
-  );
-  const claudeModels = useQuery(
-    providerModelsQueryOptions({ provider: "claudeAgent", enabled: shouldDiscover("claudeAgent") }),
-  );
+  const modelQueryInput = (provider: ProviderKind) => ({
+    provider,
+    ...input.routeByProvider?.[provider],
+    enabled: shouldDiscover(provider),
+  });
+
+  const codexModels = useQuery(providerModelsQueryOptions(modelQueryInput("codex")));
+  const claudeModels = useQuery(providerModelsQueryOptions(modelQueryInput("claudeAgent")));
   const openCodeModels = useQuery(
-    providerModelsQueryOptions({ provider: "opencode", cwd, enabled: shouldDiscover("opencode") }),
+    providerModelsQueryOptions({ ...modelQueryInput("opencode"), cwd }),
   );
-  const modelQueries = { codex: codexModels, claudeAgent: claudeModels, opencode: openCodeModels };
+  const modelQueries = useMemo(
+    () => ({ codex: codexModels, claudeAgent: claudeModels, opencode: openCodeModels }),
+    [claudeModels, codexModels, openCodeModels],
+  );
 
   const eagerCore = input.agentDiscoveryPolicy === "eager-core";
-  const codexAgents = useQuery(
-    providerAgentsQueryOptions({ provider: "codex", enabled: shouldDiscover("codex", eagerCore) }),
-  );
-  const claudeAgents = useQuery(
-    providerAgentsQueryOptions({
-      provider: "claudeAgent",
-      enabled: shouldDiscover("claudeAgent", eagerCore),
-    }),
-  );
+  const agentQueryInput = (provider: ProviderKind, eager = eagerCore) => ({
+    provider,
+    ...input.routeByProvider?.[provider],
+    enabled: shouldDiscover(provider, eager),
+  });
+  const codexAgents = useQuery(providerAgentsQueryOptions(agentQueryInput("codex")));
+  const claudeAgents = useQuery(providerAgentsQueryOptions(agentQueryInput("claudeAgent")));
   const openCodeAgents = useQuery(
     providerAgentsQueryOptions({
-      provider: "opencode",
+      ...agentQueryInput("opencode", input.discoveryEnabled),
       cwd,
-      enabled: shouldDiscover("opencode"),
     }),
   );
   const agentQueries = { codex: codexAgents, claudeAgent: claudeAgents, opencode: openCodeAgents };
@@ -125,7 +144,7 @@ export function useProviderModelCatalog(input: {
       result[provider] = shouldDiscover(provider) && isInitialModelDiscoveryPending(query);
     }
     return result;
-  }, [claudeModels, codexModels, openCodeModels]);
+  }, [modelQueries, shouldDiscover]);
 
   const unavailableModelProviders = useMemo(() => {
     const result: Partial<Record<ProviderKind, boolean>> = {};
@@ -136,7 +155,7 @@ export function useProviderModelCatalog(input: {
         runtimeModelsByProvider[provider].length === 0;
     }
     return result;
-  }, [claudeModels.isError, codexModels.isError, openCodeModels.isError, runtimeModelsByProvider]);
+  }, [modelQueries, runtimeModelsByProvider, shouldDiscover]);
 
   const selectedQuery = modelQueries[input.selectedProvider];
   const selectedProviderRuntimeModelDiscoveryPending =

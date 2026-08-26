@@ -18,12 +18,6 @@ import {
   CodexReasoningEffort,
 } from "@penkra/contracts";
 
-const MODEL_SLUG_SET_BY_PROVIDER: Record<ProviderKind, ReadonlySet<ModelSlug>> = {
-  claudeAgent: new Set(MODEL_OPTIONS_BY_PROVIDER.claudeAgent.map((option) => option.slug)),
-  codex: new Set(MODEL_OPTIONS_BY_PROVIDER.codex.map((option) => option.slug)),
-  opencode: new Set(MODEL_OPTIONS_BY_PROVIDER.opencode.map((option) => option.slug)),
-};
-
 export interface SelectableModelOption {
   slug: string;
   name: string;
@@ -432,13 +426,7 @@ export function resolveModelSlug(
   provider: ProviderKind = "codex",
 ): ModelSlug | null {
   const normalized = normalizeModelSlug(model, provider);
-  if (!normalized) {
-    return DEFAULT_MODEL_BY_PROVIDER[provider];
-  }
-
-  return MODEL_SLUG_SET_BY_PROVIDER[provider].has(normalized)
-    ? normalized
-    : DEFAULT_MODEL_BY_PROVIDER[provider];
+  return normalized;
 }
 
 export function resolveModelSlugForProvider(
@@ -456,49 +444,31 @@ export function trimOrNull<T extends string>(value: T | null | undefined): T | n
 }
 
 export function normalizeCodexModelOptions(
-  model: string | null | undefined,
+  _model: string | null | undefined,
   modelOptions: CodexModelOptions | null | undefined,
 ): CodexModelOptions | undefined {
-  const caps = getModelCapabilities("codex", model);
-  const defaultReasoningEffort = getDefaultEffort(caps) as CodexReasoningEffort;
-  const reasoningEffort = trimOrNull(modelOptions?.reasoningEffort) ?? defaultReasoningEffort;
+  const reasoningEffort = trimOrNull(modelOptions?.reasoningEffort) as CodexReasoningEffort | null;
   const fastModeEnabled = modelOptions?.fastMode === true;
   const nextOptions: CodexModelOptions = {
-    ...(reasoningEffort !== defaultReasoningEffort ? { reasoningEffort } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(fastModeEnabled ? { fastMode: true } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
 
 export function normalizeClaudeModelOptions(
-  model: string | null | undefined,
+  _model: string | null | undefined,
   modelOptions: ClaudeModelOptions | null | undefined,
 ): ClaudeModelOptions | undefined {
-  const caps = getModelCapabilities("claudeAgent", model);
-  const defaultReasoningEffort = getDefaultEffort(caps);
-  const defaultAutoCompactWindow = getDefaultAutoCompactWindow(caps);
   const resolvedEffort = trimOrNull(modelOptions?.effort);
   const resolvedAutoCompactWindow =
     trimOrNull(modelOptions?.autoCompactWindow) ?? trimOrNull(modelOptions?.contextWindow);
-  const isPromptInjected = caps.promptInjectedEffortLevels.includes(resolvedEffort ?? "");
-  const effort =
-    resolvedEffort &&
-    !isPromptInjected &&
-    hasEffortLevel(caps, resolvedEffort) &&
-    resolvedEffort !== defaultReasoningEffort
-      ? resolvedEffort
-      : undefined;
-  const autoCompactWindow =
-    resolvedAutoCompactWindow &&
-    hasAutoCompactWindowOption(caps, resolvedAutoCompactWindow) &&
-    resolvedAutoCompactWindow !== defaultAutoCompactWindow
-      ? resolvedAutoCompactWindow
-      : undefined;
-  const thinking =
-    caps.supportsThinkingToggle && modelOptions?.thinking === false ? false : undefined;
-  const fastMode = caps.supportsFastMode && modelOptions?.fastMode === true ? true : undefined;
+  const effort = resolvedEffort ?? undefined;
+  const autoCompactWindow = resolvedAutoCompactWindow ?? undefined;
+  const thinking = typeof modelOptions?.thinking === "boolean" ? modelOptions.thinking : undefined;
+  const fastMode = modelOptions?.fastMode === true ? true : undefined;
   const nextOptions: ClaudeModelOptions = {
-    ...(thinking === false ? { thinking: false } : {}),
+    ...(thinking !== undefined ? { thinking } : {}),
     ...(effort ? { effort } : {}),
     ...(fastMode ? { fastMode: true } : {}),
     ...(autoCompactWindow ? { autoCompactWindow } : {}),
@@ -534,11 +504,8 @@ interface ClaudeSpawnProfile {
 // plus fastMode/ultracode are Settings keys applied live via the SDK's
 // flag-settings control, and model/context window switch via `setModel`.
 function claudeSpawnProfile(selection: Extract<ModelSelection, { provider: "claudeAgent" }>) {
-  const caps = getModelCapabilities("claudeAgent", selection.model);
-  const requestedEffort = trimOrNull(selection.options?.effort ?? null);
-  const effort = requestedEffort && hasEffortLevel(caps, requestedEffort) ? requestedEffort : null;
   return {
-    maxEffort: getEffectiveClaudeCodeEffort(effort) === "max",
+    maxEffort: getEffectiveClaudeCodeEffort(selection.options?.effort) === "max",
   } satisfies ClaudeSpawnProfile;
 }
 
