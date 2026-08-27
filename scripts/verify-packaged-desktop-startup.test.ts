@@ -260,6 +260,39 @@ describe("Windows packaged desktop process inventory", () => {
     expect(findWindowsProcessesInsideRoot(inventory, temporaryRoot, 81)).toEqual([]);
   });
 
+  it("parses and excludes the PID-zero system process with null fields", () => {
+    const inventory = parseWindowsProcessInventory(
+      JSON.stringify([{ ProcessId: 0, ExecutablePath: null, CommandLine: null }]),
+    );
+
+    expect(inventory).toEqual([{ processId: 0, executablePath: null, commandLine: null }]);
+    expect(findWindowsProcessesInsideRoot(inventory, temporaryRoot, 999)).toEqual([]);
+  });
+
+  it("defensively excludes PID zero even when its command line references the root", () => {
+    const inventory = parseWindowsProcessInventory(
+      JSON.stringify([
+        {
+          ProcessId: 0,
+          ExecutablePath: null,
+          CommandLine: `System Idle Process "${temporaryRoot}"`,
+        },
+      ]),
+    );
+
+    expect(findWindowsProcessesInsideRoot(inventory, temporaryRoot, 999)).toEqual([]);
+  });
+
+  it("rejects negative and noninteger process IDs", () => {
+    for (const ProcessId of [-1, 1.5]) {
+      expect(() =>
+        parseWindowsProcessInventory(
+          JSON.stringify([{ ProcessId, ExecutablePath: null, CommandLine: null }]),
+        ),
+      ).toThrow("Windows process inventory entry 0 has an invalid ProcessId");
+    }
+  });
+
   it("fails clearly for empty or malformed PowerShell JSON", () => {
     expect(() => parseWindowsProcessInventory("  \n")).toThrow(
       "Windows process inventory returned empty PowerShell JSON",

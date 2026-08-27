@@ -86,7 +86,7 @@ export function parseWindowsProcessInventory(output: string): WindowsProcessInve
     }
     const record = value as Record<string, unknown>;
     const processId = record.ProcessId;
-    if (!Number.isInteger(processId) || (processId as number) <= 0) {
+    if (!Number.isInteger(processId) || (processId as number) < 0) {
       throw new Error(`Windows process inventory entry ${index} has an invalid ProcessId.`);
     }
     return {
@@ -147,6 +147,7 @@ export function findWindowsProcessesInsideRoot(
 ): WindowsProcessInventoryEntry[] {
   return inventory.filter(
     (entry) =>
+      entry.processId > 0 &&
       entry.processId !== currentProcessId &&
       ((entry.executablePath !== null && windowsPathIsInsideRoot(entry.executablePath, root)) ||
         (entry.commandLine !== null && windowsCommandLineReferencesRoot(entry.commandLine, root))),
