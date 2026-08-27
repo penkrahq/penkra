@@ -2,7 +2,7 @@
 // Purpose: Compiles bounded App operation schemas and validates invocation data.
 // Layer: Trusted desktop App operation boundary
 
-import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020";
+import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 
 import {
   validatePenkraJsonSchema,

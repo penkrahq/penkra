@@ -14,7 +14,7 @@ import {
   assertPublishableAppManifest,
   type PenkraAppManifest,
 } from "@penkra/sdk";
-import Ajv2020 from "ajv/dist/2020";
+import Ajv2020 from "ajv/dist/2020.js";
 import { valid, validRange } from "semver";
 import yazl from "yazl";
 

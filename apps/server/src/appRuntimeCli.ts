@@ -5,7 +5,7 @@
 import * as Crypto from "node:crypto";
 import * as Net from "node:net";
 import * as Path from "node:path";
-import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020";
+import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import parseArgs from "yargs-parser";
 import {
   assembleInstructions,
