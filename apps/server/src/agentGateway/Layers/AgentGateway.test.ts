@@ -818,13 +818,14 @@ describe("AgentGateway", () => {
       ] as const;
       for (const [provider, injectedText] of providerInjections) {
         const sessionDelivery = `${injectedText}\n${instructions}`;
+        const deliveredLines = sessionDelivery.split("\n");
         assert.equal(
-          sessionDelivery.split(PENKRA_HOST_POLICY_MARKER).length - 1,
+          deliveredLines.filter((line) => line === PENKRA_HOST_POLICY_MARKER).length,
           1,
           `${provider} host-policy delivery`,
         );
         assert.equal(
-          sessionDelivery.split(PENKRA_MCP_SERVER_INSTRUCTIONS_MARKER).length - 1,
+          deliveredLines.filter((line) => line === PENKRA_MCP_SERVER_INSTRUCTIONS_MARKER).length,
           1,
           `${provider} MCP-server-instruction delivery`,
         );

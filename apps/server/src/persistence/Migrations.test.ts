@@ -60,6 +60,8 @@ layer("removed provider data migration", (it) => {
         [149, "FolderOnlyHierarchy"],
         [150, "ResetConnectionUsageAccounting"],
         [151, "FolderPersistenceNames"],
+        [152, "TypedLegacyPendingInteractionFailures"],
+        [153, "TypedLegacyPendingInteractionProjectionRepair"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -900,48 +902,13 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
       `;
 
       const executed = yield* runMigrations();
-      if (executed.length > 0) {
-        assert.deepStrictEqual(executed.slice(0, 38), [
-          [79, "Spaces"],
-          [80, "PruneRejectedProductSurfaces"],
-          [86, "NormalizeStudioThreadWorkspaces"],
-          [87, "DropUnusedOrchestrationEventIndexes"],
-          [88, "ProjectionThreadsSpaces"],
-          [89, "ProjectionSpacesArchive"],
-          [90, "ThreadScopedProviderRuntimeProjection"],
-          [91, "SpaceNavigationState"],
-          [92, "RemoveProjectionThreadWorktreePath"],
-          [93, "VirtualFolders"],
-          [94, "RequireSpaces"],
-          [95, "SidebarManualOrdering"],
-          [96, "RemoveSidechatAndProviderHandoff"],
-          [97, "RenameGitThreadEnvironmentOperations"],
-          [98, "ProviderConnectionsAndBindings"],
-          [99, "ProviderThreadSwitchOperations"],
-          [100, "ReconcileProviderConnectionSchema"],
-          [101, "ExactProviderNativeStateMigration"],
-          [102, "ProviderConnectionLogins"],
-          [103, "DefaultNewSpacesAndConnections"],
-          [104, "ProviderNativeStateOwnership"],
-          [105, "ProviderNativeForkOperations"],
-          [106, "RemovePlanMode"],
-          [107, "ReconcileUnavailableSpaceConnectionDefaults"],
-          [108, "RemoveLegacyClaudeSetupTokenConnections"],
-          [109, "ProviderRuntimeBindingSwitchOperations"],
-          [110, "SettleProviderSwitchSource"],
-          [111, "DerivedProviderConnectionLabels"],
-          [112, "QueuedTurnActionIdentity"],
-          [113, "QueuedTurnEditAction"],
-          [114, "MessageDeliveryLifecycle"],
-          [115, "ProviderLoginCommittedConnection"],
-          [116, "RestartTurnRecoveries"],
-          [117, "BackfillRestartTurnRecoveries"],
-          [118, "CanonicalProviderConnectionIdentities"],
-          [119, "ProviderCredentialProfileGenerations"],
-          [120, "DefaultSpaceFolders"],
-          [121, "FolderIcons"],
-        ]);
-      }
+      // The compatibility reconciler records the canonical 79-151 lineage
+      // without replaying it over the private schema, then runs only migrations
+      // introduced after the folder-persistence cutover marker.
+      assert.deepStrictEqual(executed, [
+        [152, "TypedLegacyPendingInteractionFailures"],
+        [153, "TypedLegacyPendingInteractionProjectionRepair"],
+      ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(

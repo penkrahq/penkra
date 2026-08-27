@@ -80,8 +80,8 @@ describe("projection thread message row codec", () => {
       mentions: [{ name: "github" }],
       dispatchMode: "steer",
       dispatchOrigin: "automation",
+      sequence: 42,
     });
-    expect("sequence" in projected).toBe(false);
 
     const nullRow = decodeRow({
       ...baseRow,

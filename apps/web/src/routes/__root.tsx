@@ -33,7 +33,7 @@ import { WhatsNewPopoutCard } from "../whatsNew/WhatsNewPopoutCard";
 import { shouldRenderTerminalWorkspace } from "../components/ChatView.logic";
 import { Button, dialogActionButtonClassName } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
-import { resolveAndPersistPreferredEditor } from "../editorPreferences";
+import { ServerConfigUpdateNotifications } from "../components/ServerConfigUpdateNotifications";
 import { useFocusedChatContext } from "../focusedChatContext";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
 import type { FeedbackThreadContext } from "../feedback";
@@ -55,7 +55,6 @@ import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { terminalActivityFromEvent } from "../terminalActivity";
 import {
-  onServerConfigUpdated,
   onServerProviderStatusesUpdated,
   onServerSettingsUpdated,
   onServerWelcome,
@@ -217,6 +216,7 @@ function RootRouteView() {
             <AnchoredToastProvider>
               <DesktopActiveWorkPowerSync />
               <DesktopComposerStageBridge />
+              <ServerConfigUpdateNotifications />
               <EventRouter />
               <GlobalShortcutsDialog />
               <GlobalFeedbackDialog />
@@ -940,41 +940,6 @@ function EventRouter() {
       })().catch(() => undefined);
     });
 
-    let subscribed = false;
-    const unsubServerConfigUpdated = onServerConfigUpdated((payload) => {
-      void queryClient.invalidateQueries({
-        queryKey: serverQueryKeys.config(),
-      });
-      if (!subscribed) return;
-      const issue = payload.issues.find((entry) => entry.kind.startsWith("keybindings."));
-      if (!issue) return;
-
-      toastManager.add({
-        type: "warning",
-        title: "Invalid keybindings configuration",
-        description: issue.message,
-        actionProps: {
-          children: "Open keybindings.json",
-          onClick: () => {
-            void queryClient
-              .ensureQueryData(serverConfigQueryOptions())
-              .then((config) => {
-                const editor = resolveAndPersistPreferredEditor(config.availableEditors);
-                if (!editor) throw new Error("No available editors found.");
-                return api.shell.openInEditor(config.keybindingsConfigPath, editor);
-              })
-              .catch((error) => {
-                toastManager.add({
-                  type: "error",
-                  title: "Unable to open keybindings file",
-                  description:
-                    error instanceof Error ? error.message : "Unknown error opening file.",
-                });
-              });
-          },
-        },
-      });
-    });
     const unsubProviderStatusesUpdated = onServerProviderStatusesUpdated((payload) => {
       const nextProviderDiscoveryFingerprint = providerModelDiscoveryInvalidationFingerprint(
         payload.providers,
@@ -1013,8 +978,6 @@ function EventRouter() {
         queryKey: serverSettingsQueryOptions().queryKey,
       });
     });
-    subscribed = true;
-
     return () => {
       disposed = true;
       unsubSyncEvent();
@@ -1022,7 +985,6 @@ function EventRouter() {
       unsubDevServerEvent();
       unsubWorkspaceChange();
       unsubWelcome();
-      unsubServerConfigUpdated();
       unsubProviderStatusesUpdated();
       unsubWsTransportState();
       unsubServerSettingsUpdated();

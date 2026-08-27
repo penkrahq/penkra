@@ -644,7 +644,10 @@ describe("migration backups", () => {
         // tracker without replaying pre-cutover migrations against new names.
         yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= 54`;
         const replayed = yield* runWithPreMigrationBackup(dbPath, runMigrations());
-        expect(replayed).toEqual([]);
+        expect(replayed).toEqual([
+          [152, "TypedLegacyPendingInteractionFailures"],
+          [153, "TypedLegacyPendingInteractionProjectionRepair"],
+        ]);
       }),
     );
 
