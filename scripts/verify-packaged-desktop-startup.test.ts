@@ -7,8 +7,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createPackagedDesktopSmokeEnvironment,
   extractPackagedDesktopBackendPort,
+  findWindowsProcessesInsideRoot,
+  formatWindowsProcessSurvivorError,
   inspectPackagedDesktopStartupLog,
   parsePackagedDesktopStartupArgs,
+  parseWindowsProcessInventory,
   removePackagedDesktopSmokeRoot,
   resolvePackagedDesktopSmokeLogPath,
   resolvePackagedDesktopSmokePenkraRoot,
@@ -167,5 +170,128 @@ describe("packaged desktop startup verification", () => {
     expect(
       extractPackagedDesktopBackendPort("bootstrap resolved backend endpoint port=99999"),
     ).toBeNull();
+  });
+});
+
+describe("Windows packaged desktop process inventory", () => {
+  const temporaryRoot = "C:\\Users\\runner admin\\AppData\\Local\\Temp\\penkra smoke root";
+
+  it("parses PowerShell process JSON including paths with spaces", () => {
+    expect(
+      parseWindowsProcessInventory(
+        JSON.stringify([
+          {
+            ProcessId: 41,
+            ExecutablePath: `${temporaryRoot}\\application\\Penkra.exe`,
+            CommandLine: `"${temporaryRoot}\\application\\Penkra.exe" --flag`,
+          },
+          { ProcessId: 42, ExecutablePath: null, CommandLine: null },
+        ]),
+      ),
+    ).toEqual([
+      {
+        processId: 41,
+        executablePath: `${temporaryRoot}\\application\\Penkra.exe`,
+        commandLine: `"${temporaryRoot}\\application\\Penkra.exe" --flag`,
+      },
+      { processId: 42, executablePath: null, commandLine: null },
+    ]);
+    expect(parseWindowsProcessInventory("[]")).toEqual([]);
+  });
+
+  it("matches executable paths inside the root case-insensitively", () => {
+    const inventory = parseWindowsProcessInventory(
+      JSON.stringify([
+        {
+          ProcessId: 51,
+          ExecutablePath: `${temporaryRoot.toUpperCase()}\\APPLICATION\\PENKRA.EXE`,
+          CommandLine: null,
+        },
+      ]),
+    );
+
+    expect(findWindowsProcessesInsideRoot(inventory, temporaryRoot, 999)).toEqual(inventory);
+  });
+
+  it("matches command-line references to the exact root", () => {
+    const inventory = parseWindowsProcessInventory(
+      JSON.stringify([
+        {
+          ProcessId: 61,
+          ExecutablePath: "C:\\Program Files\\nodejs\\node.exe",
+          CommandLine: `node child.js --state-root="${temporaryRoot}\\penkra-root"`,
+        },
+      ]),
+    );
+
+    expect(findWindowsProcessesInsideRoot(inventory, temporaryRoot, 999)).toEqual(inventory);
+  });
+
+  it("ignores unrelated and sibling-root processes", () => {
+    const inventory = parseWindowsProcessInventory(
+      JSON.stringify([
+        {
+          ProcessId: 71,
+          ExecutablePath: "C:\\Program Files\\Penkra\\Penkra.exe",
+          CommandLine: "Penkra.exe --background",
+        },
+        {
+          ProcessId: 72,
+          ExecutablePath: `${temporaryRoot}-other\\Penkra.exe`,
+          CommandLine: `"${temporaryRoot}-other\\Penkra.exe"`,
+        },
+      ]),
+    );
+
+    expect(findWindowsProcessesInsideRoot(inventory, temporaryRoot, 999)).toEqual([]);
+  });
+
+  it("excludes the current process even when its command line references the root", () => {
+    const inventory = parseWindowsProcessInventory(
+      JSON.stringify([
+        {
+          ProcessId: 81,
+          ExecutablePath: "C:\\Program Files\\nodejs\\node.exe",
+          CommandLine: `node verify.js "${temporaryRoot}"`,
+        },
+      ]),
+    );
+
+    expect(findWindowsProcessesInsideRoot(inventory, temporaryRoot, 81)).toEqual([]);
+  });
+
+  it("fails clearly for empty or malformed PowerShell JSON", () => {
+    expect(() => parseWindowsProcessInventory("  \n")).toThrow(
+      "Windows process inventory returned empty PowerShell JSON",
+    );
+    expect(() => parseWindowsProcessInventory("not-json")).toThrow(
+      "Windows process inventory returned malformed PowerShell JSON",
+    );
+    expect(() => parseWindowsProcessInventory("{}")).toThrow(
+      "Windows process inventory PowerShell JSON must be an array",
+    );
+  });
+
+  it("reports every survivor with actionable process diagnostics", () => {
+    expect(
+      formatWindowsProcessSurvivorError(temporaryRoot, [
+        {
+          processId: 91,
+          executablePath: `${temporaryRoot}\\application\\Penkra.exe`,
+          commandLine: `"${temporaryRoot}\\application\\Penkra.exe" --type=utility`,
+        },
+        {
+          processId: 92,
+          executablePath: null,
+          commandLine: `node child.js --root="${temporaryRoot}"`,
+        },
+      ]),
+    ).toBe(
+      [
+        `Packaged desktop smoke left Windows processes referencing its temporary root ${JSON.stringify(temporaryRoot)}:`,
+        `- pid=91 executablePath=${JSON.stringify(`${temporaryRoot}\\application\\Penkra.exe`)} commandLine=${JSON.stringify(`"${temporaryRoot}\\application\\Penkra.exe" --type=utility`)}`,
+        `- pid=92 executablePath=null commandLine=${JSON.stringify(`node child.js --root="${temporaryRoot}"`)}`,
+      ].join("\n"),
+    );
   });
 });

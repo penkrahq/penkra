@@ -17,7 +17,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, win32 as windowsPath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type PackagedDesktopPlatform = "linux" | "mac" | "win";
@@ -28,6 +28,147 @@ export interface PackagedDesktopStartupOptions {
   readonly arch: string;
   readonly version: string;
   readonly timeoutMs: number;
+}
+
+export interface WindowsProcessInventoryEntry {
+  readonly processId: number;
+  readonly executablePath: string | null;
+  readonly commandLine: string | null;
+}
+
+const WINDOWS_PROCESS_INVENTORY_SCRIPT = [
+  "$ErrorActionPreference='Stop';",
+  "$processes=@(Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId,ExecutablePath,CommandLine);",
+  "[Console]::Out.Write((ConvertTo-Json -InputObject $processes -Compress -Depth 2))",
+].join("");
+
+function resolveWindowsPowerShellExecutable(environment: NodeJS.ProcessEnv = process.env): string {
+  const systemRoot = environment.SystemRoot?.trim() || "C:\\Windows";
+  return windowsPath.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+}
+
+function windowsProcessInventoryPowerShellArgs(): string[] {
+  return [
+    "-NoProfile",
+    "-NonInteractive",
+    "-InputFormat",
+    "None",
+    "-Command",
+    WINDOWS_PROCESS_INVENTORY_SCRIPT,
+  ];
+}
+
+function parseNullableInventoryString(value: unknown, fieldName: string): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return value;
+  throw new Error(`Windows process inventory field ${fieldName} must be a string or null.`);
+}
+
+export function parseWindowsProcessInventory(output: string): WindowsProcessInventoryEntry[] {
+  const trimmed = output.trim().replace(/^\uFEFF/u, "");
+  if (!trimmed) {
+    throw new Error("Windows process inventory returned empty PowerShell JSON.");
+  }
+
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(trimmed);
+  } catch (cause) {
+    throw new Error("Windows process inventory returned malformed PowerShell JSON.", { cause });
+  }
+  if (!Array.isArray(decoded)) {
+    throw new Error("Windows process inventory PowerShell JSON must be an array.");
+  }
+
+  return decoded.map((value, index) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(`Windows process inventory entry ${index} must be an object.`);
+    }
+    const record = value as Record<string, unknown>;
+    const processId = record.ProcessId;
+    if (!Number.isInteger(processId) || (processId as number) <= 0) {
+      throw new Error(`Windows process inventory entry ${index} has an invalid ProcessId.`);
+    }
+    return {
+      processId: processId as number,
+      executablePath: parseNullableInventoryString(record.ExecutablePath, "ExecutablePath"),
+      commandLine: parseNullableInventoryString(record.CommandLine, "CommandLine"),
+    };
+  });
+}
+
+function stripWindowsExtendedPathPrefix(value: string): string {
+  const lowercaseValue = value.toLowerCase();
+  if (lowercaseValue.startsWith("\\\\?\\unc\\")) return `\\\\${value.slice(8)}`;
+  if (lowercaseValue.startsWith("\\\\?\\")) return value.slice(4);
+  return value;
+}
+
+function normalizeWindowsPathForComparison(value: string): string {
+  return windowsPath
+    .normalize(stripWindowsExtendedPathPrefix(value.trim()))
+    .replace(/[\\/]+$/u, "")
+    .toLocaleLowerCase("en-US");
+}
+
+function windowsPathIsInsideRoot(candidate: string, root: string): boolean {
+  const normalizedCandidate = normalizeWindowsPathForComparison(candidate);
+  const normalizedRoot = normalizeWindowsPathForComparison(root);
+  return (
+    normalizedCandidate === normalizedRoot || normalizedCandidate.startsWith(`${normalizedRoot}\\`)
+  );
+}
+
+function windowsCommandLineReferencesRoot(commandLine: string, root: string): boolean {
+  const normalizedCommandLine = stripWindowsExtendedPathPrefix(commandLine)
+    .replaceAll("/", "\\")
+    .toLocaleLowerCase("en-US");
+  const normalizedRoot = normalizeWindowsPathForComparison(root);
+  let searchFrom = 0;
+  while (searchFrom <= normalizedCommandLine.length - normalizedRoot.length) {
+    const index = normalizedCommandLine.indexOf(normalizedRoot, searchFrom);
+    if (index < 0) return false;
+    const before = index === 0 ? "" : normalizedCommandLine[index - 1]!;
+    const afterIndex = index + normalizedRoot.length;
+    const after =
+      afterIndex >= normalizedCommandLine.length ? "" : normalizedCommandLine[afterIndex]!;
+    const hasStartBoundary = before === "" || /[\s"'=(:,;]/u.test(before);
+    const hasEndBoundary = after === "" || /[\\\s"'),;]/u.test(after);
+    if (hasStartBoundary && hasEndBoundary) return true;
+    searchFrom = index + 1;
+  }
+  return false;
+}
+
+export function findWindowsProcessesInsideRoot(
+  inventory: ReadonlyArray<WindowsProcessInventoryEntry>,
+  root: string,
+  currentProcessId: number,
+): WindowsProcessInventoryEntry[] {
+  return inventory.filter(
+    (entry) =>
+      entry.processId !== currentProcessId &&
+      ((entry.executablePath !== null && windowsPathIsInsideRoot(entry.executablePath, root)) ||
+        (entry.commandLine !== null && windowsCommandLineReferencesRoot(entry.commandLine, root))),
+  );
+}
+
+function describeWindowsProcessInventoryEntry(entry: WindowsProcessInventoryEntry): string {
+  return [
+    `pid=${entry.processId}`,
+    `executablePath=${JSON.stringify(entry.executablePath)}`,
+    `commandLine=${JSON.stringify(entry.commandLine)}`,
+  ].join(" ");
+}
+
+export function formatWindowsProcessSurvivorError(
+  root: string,
+  survivors: ReadonlyArray<WindowsProcessInventoryEntry>,
+): string {
+  return [
+    `Packaged desktop smoke left Windows processes referencing its temporary root ${JSON.stringify(root)}:`,
+    ...survivors.map((entry) => `- ${describeWindowsProcessInventoryEntry(entry)}`),
+  ].join("\n");
 }
 
 export function parsePackagedDesktopStartupArgs(
@@ -345,8 +486,59 @@ async function terminateMacApplication(executablePath: string): Promise<void> {
   }
 }
 
+function inventoryWindowsProcessesInsideRoot(root: string): WindowsProcessInventoryEntry[] {
+  const result = spawnSync(
+    resolveWindowsPowerShellExecutable(),
+    windowsProcessInventoryPowerShellArgs(),
+    {
+      encoding: "utf8",
+      maxBuffer: 8 * 1024 * 1024,
+      shell: false,
+      timeout: 10_000,
+      windowsHide: true,
+    },
+  );
+  if (result.error) {
+    throw new Error(`Windows process inventory could not start: ${result.error.message}`, {
+      cause: result.error,
+    });
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `Windows process inventory failed with exit ${result.status ?? "unknown"}: ${result.stderr.trim() || "<no stderr>"}`,
+    );
+  }
+  if (result.stderr.trim()) {
+    throw new Error(`Windows process inventory wrote stderr: ${result.stderr.trim()}`);
+  }
+  return findWindowsProcessesInsideRoot(
+    parseWindowsProcessInventory(result.stdout),
+    root,
+    process.pid,
+  );
+}
+
+function terminateWindowsProcessTree(processId: number): void {
+  spawnSync("taskkill", ["/pid", String(processId), "/t", "/f"], {
+    encoding: "utf8",
+    shell: false,
+    timeout: 10_000,
+    windowsHide: true,
+  });
+}
+
 async function terminateProcessesInsideRoot(root: string): Promise<void> {
-  if (process.platform === "win32") return;
+  if (process.platform === "win32") {
+    const processes = inventoryWindowsProcessesInsideRoot(root);
+    for (const entry of processes) {
+      terminateWindowsProcessTree(entry.processId);
+    }
+    const survivors = inventoryWindowsProcessesInsideRoot(root);
+    if (survivors.length > 0) {
+      throw new Error(formatWindowsProcessSurvivorError(root, survivors));
+    }
+    return;
+  }
   const findPids = (): number[] => {
     const result = spawnSync("pgrep", ["-f", root], {
       encoding: "utf8",
