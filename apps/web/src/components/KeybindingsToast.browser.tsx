@@ -132,7 +132,9 @@ describe("Keybindings update toast", () => {
   });
 
   it("does not show a toast from the replayed cached value on subscribe", async () => {
-    const issue = [{ kind: "keybindings.malformed-config", message: "Expected JSON array" }];
+    const issue: ServerConfigUpdatedPayload["issues"] = [
+      { kind: "keybindings.malformed-config", message: "Expected JSON array" },
+    ];
     latestPayload = { issues: issue, providers: [] };
 
     const cleanup = await mountNotifications();
