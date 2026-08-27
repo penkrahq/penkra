@@ -9,6 +9,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
+
 import {
   PENKRA_DESKTOP_UPDATE_CHANNEL,
   PENKRA_PRODUCTION_BUNDLE_ID,
@@ -19,6 +21,7 @@ import {
   RELEASE_PATCHES_PATH,
   RELEASE_WORKSPACE_MANIFEST_PATHS,
 } from "./lib/release-workspace-manifests.ts";
+import { releasePackageFiles } from "./update-release-package-versions.ts";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -83,6 +86,33 @@ function assertNotContains(haystack: string, needle: string, message: string): v
   }
 }
 
+function assertReleaseLockImporterVersions(
+  rootDir: string,
+  expectedVersion: string,
+  phase: string,
+): void {
+  const lockfilePath = resolve(rootDir, RELEASE_LOCKFILE_PATH);
+  const errors: ParseError[] = [];
+  const lockfile = parse(readFileSync(lockfilePath, "utf8"), errors, {
+    allowTrailingComma: true,
+  }) as { workspaces?: Record<string, { version?: unknown }> } | undefined;
+  if (!lockfile || errors.length > 0) {
+    const detail = errors
+      .map((error) => `${printParseErrorCode(error.error)} at offset ${error.offset}`)
+      .join(", ");
+    throw new Error(`Invalid smoke lockfile after ${phase}: ${detail || "missing JSONC root"}.`);
+  }
+  for (const manifestPath of releasePackageFiles) {
+    const workspacePath = dirname(manifestPath);
+    const actualVersion = lockfile.workspaces?.[workspacePath]?.version;
+    if (actualVersion !== expectedVersion) {
+      throw new Error(
+        `Expected bun.lock importer ${workspacePath} to be ${expectedVersion} after ${phase}, got ${String(actualVersion)}.`,
+      );
+    }
+  }
+}
+
 function verifyCanonicalIdentity(): void {
   const serverPackage = JSON.parse(
     readFileSync(resolve(repoRoot, "apps/server/package.json"), "utf8"),
@@ -110,8 +140,43 @@ function verifyCanonicalIdentity(): void {
 
 function verifyReleaseWorkflowSafety(): void {
   const workflow = readFileSync(resolve(repoRoot, ".github/workflows/release.yml"), "utf8");
+  const npmPublishWorkflow = readFileSync(
+    resolve(repoRoot, ".github/workflows/npm-publish.yml"),
+    "utf8",
+  );
+  const setupWorkspaceAction = readFileSync(
+    resolve(repoRoot, ".github/actions/setup-workspace/action.yml"),
+    "utf8",
+  );
   const ciWorkflow = readFileSync(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
   const desktopTurbo = readFileSync(resolve(repoRoot, "apps/desktop/turbo.jsonc"), "utf8");
+  const copyfileInstall = "bun install --frozen-lockfile --backend=copyfile";
+  assertContains(
+    setupWorkspaceAction,
+    copyfileInstall,
+    "Expected shared workspace setup to isolate install-time patches from Bun's global cache.",
+  );
+  assertContains(
+    workflow,
+    copyfileInstall,
+    "Expected release installs to isolate install-time patches from Bun's global cache.",
+  );
+  assertContains(
+    npmPublishWorkflow,
+    copyfileInstall,
+    "Expected npm publication installs to isolate install-time patches from Bun's global cache.",
+  );
+  for (const cacheKey of [
+    "key: ${{ runner.os }}-${{ inputs.cache-suffix }}-copyfile-v1-bun-${{ hashFiles('bun.lock') }}-${{ hashFiles('turbo.json') }}",
+    "${{ runner.os }}-${{ inputs.cache-suffix }}-copyfile-v1-bun-${{ hashFiles('bun.lock') }}-",
+    "${{ runner.os }}-${{ inputs.cache-suffix }}-copyfile-v1-bun-",
+  ]) {
+    assertContains(
+      setupWorkspaceAction,
+      cacheKey,
+      `Expected setup cache namespace ${cacheKey} to exclude polluted hardlink caches.`,
+    );
+  }
   assertContains(ciWorkflow, "pull_request:", "Expected CI on pull requests.");
   assertContains(
     ciWorkflow,
@@ -353,6 +418,44 @@ function verifyReleaseWorkflowSafety(): void {
   }
 }
 
+function verifyEffectPatchOwnership(): void {
+  const rootManifest = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8")) as {
+    scripts?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  if (rootManifest.scripts?.prepare !== "effect-language-service patch") {
+    throw new Error("Expected the root manifest to own the Effect language-service patch.");
+  }
+  if (rootManifest.devDependencies?.["@effect/language-service"] !== "catalog:") {
+    throw new Error("Expected the root manifest to own @effect/language-service via the catalog.");
+  }
+  if (rootManifest.devDependencies?.typescript !== "catalog:") {
+    throw new Error("Expected the root manifest to own TypeScript via the catalog.");
+  }
+
+  for (const manifestPath of [
+    "scripts/package.json",
+    "packages/contracts/package.json",
+    "apps/server/package.json",
+    "packages/shared/package.json",
+    "apps/web/package.json",
+  ]) {
+    const manifest = JSON.parse(readFileSync(resolve(repoRoot, manifestPath), "utf8")) as {
+      scripts?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    if (manifest.scripts?.prepare === "effect-language-service patch") {
+      throw new Error(`Expected ${manifestPath} not to run the Effect patch.`);
+    }
+    if (manifest.devDependencies?.["@effect/language-service"] !== undefined) {
+      throw new Error(`Expected ${manifestPath} not to own @effect/language-service.`);
+    }
+    if (manifest.devDependencies?.typescript !== "catalog:") {
+      throw new Error(`Expected ${manifestPath} to retain its catalog TypeScript declaration.`);
+    }
+  }
+}
+
 function verifyCiOwnedReleasePublication(): void {
   const packageJson = readFileSync(resolve(repoRoot, "package.json"), "utf8");
   const releaseGuide = readFileSync(resolve(repoRoot, "docs/release.md"), "utf8");
@@ -510,6 +613,7 @@ const tempRoot = mkdtempSync(join(tmpdir(), "penkra-release-smoke-"));
 try {
   verifyCanonicalIdentity();
   verifyReleaseWorkflowSafety();
+  verifyEffectPatchOwnership();
   verifyCiOwnedReleasePublication();
   verifyDesktopStageLockAuthority();
   copyWorkspaceManifestFixture(tempRoot);
@@ -528,17 +632,13 @@ try {
     },
   );
 
+  assertReleaseLockImporterVersions(tempRoot, "9.9.9-smoke.0", "the version updater");
+
   execFileSync("bun", ["install", "--lockfile-only", "--ignore-scripts"], {
     cwd: tempRoot,
     stdio: "inherit",
   });
-
-  const lockfile = readFileSync(resolve(tempRoot, "bun.lock"), "utf8");
-  assertContains(
-    lockfile,
-    `"version": "9.9.9-smoke.0"`,
-    "Expected bun.lock to contain the smoke version.",
-  );
+  assertReleaseLockImporterVersions(tempRoot, "9.9.9-smoke.0", "the Bun consistency install");
 
   const { arm64Path, x64Path } = writeMacManifestFixtures(tempRoot);
   execFileSync(

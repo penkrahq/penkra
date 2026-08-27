@@ -121,7 +121,7 @@ jobs:
         run: npm install --global npm@12.0.2
 
       - name: Install exact workspace dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --backend=copyfile
 
       - name: Refuse an existing registry version
         env:

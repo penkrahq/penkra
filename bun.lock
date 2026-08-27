@@ -5,10 +5,12 @@
     "": {
       "name": "@penkra/monorepo",
       "devDependencies": {
+        "@effect/language-service": "catalog:",
         "@types/node": "catalog:",
         "oxfmt": "^0.40.0",
         "oxlint": "^1.55.0",
         "turbo": "^2.9.14",
+        "typescript": "catalog:",
         "vitest": "catalog:",
       },
     },
@@ -84,7 +86,6 @@
         "yazl": "3.3.1",
       },
       "devDependencies": {
-        "@effect/language-service": "catalog:",
         "@effect/vitest": "catalog:",
         "@penkra/contracts": "workspace:*",
         "@penkra/shared": "workspace:*",
@@ -153,7 +154,6 @@
       },
       "devDependencies": {
         "@babel/core": "^8.0.1",
-        "@effect/language-service": "catalog:",
         "@penkra/sdk": "workspace:*",
         "@rolldown/plugin-babel": "^0.2.0",
         "@storybook/addon-a11y": "10.5.5",
@@ -192,7 +192,6 @@
         "effect": "catalog:",
       },
       "devDependencies": {
-        "@effect/language-service": "catalog:",
         "@effect/vitest": "catalog:",
         "tsdown": "catalog:",
         "typescript": "catalog:",
@@ -228,7 +227,6 @@
         "yazl": "3.3.1",
       },
       "devDependencies": {
-        "@effect/language-service": "catalog:",
         "@effect/vitest": "catalog:",
         "@types/node": "catalog:",
         "@types/semver": "^7.7.1",
@@ -263,9 +261,9 @@
         "@penkra/contracts": "workspace:*",
         "@penkra/shared": "workspace:*",
         "effect": "catalog:",
+        "jsonc-parser": "3.3.1",
       },
       "devDependencies": {
-        "@effect/language-service": "catalog:",
         "@effect/vitest": "catalog:",
         "@types/bun": "catalog:",
         "app-builder-lib": "26.15.3",

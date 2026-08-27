@@ -19,7 +19,6 @@
   "scripts": {
     "dev": "tsdown src/index.ts --format cjs --watch --clean",
     "build": "tsdown src/index.ts --format esm,cjs --dts --clean",
-    "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -27,7 +26,6 @@
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@effect/language-service": "catalog:",
     "@effect/vitest": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",

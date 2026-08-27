@@ -82,6 +82,10 @@ node scripts/update-release-package-versions.ts "$approved_version"
 bun install --lockfile-only --ignore-scripts
 ```
 
+The version updater is authoritative for both the release package manifests and their matching
+`bun.lock` workspace importer metadata. The lockfile-only Bun install then verifies dependency
+consistency without owning release-version synchronization.
+
 Commit the resulting package manifests and lockfile before creating the matching tag. Do not create
 a release tag from an uncommitted or unreviewed worktree.
 

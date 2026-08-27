@@ -222,7 +222,6 @@
     }
   },
   "scripts": {
-    "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -235,7 +234,6 @@
     "yazl": "3.3.1"
   },
   "devDependencies": {
-    "@effect/language-service": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "@types/semver": "^7.7.1",

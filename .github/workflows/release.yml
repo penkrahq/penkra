@@ -141,7 +141,7 @@ jobs:
           bun-version-file: package.json
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --backend=copyfile
 
       - name: Install Linux desktop runtime
         if: matrix.platform == 'linux'

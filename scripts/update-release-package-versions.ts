@@ -1,6 +1,15 @@
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import {
+  applyEdits,
+  findNodeAtLocation,
+  modify,
+  parseTree,
+  printParseErrorCode,
+  type ParseError,
+} from "jsonc-parser";
 
 export const releasePackageFiles = [
   "apps/server/package.json",
@@ -18,26 +27,113 @@ interface MutablePackageJson {
   [key: string]: unknown;
 }
 
+interface PackageVersionUpdate {
+  readonly filePath: string;
+  readonly manifest: MutablePackageJson;
+  readonly workspacePath: string;
+}
+
+const releaseLockfilePath = "bun.lock";
+
+function parseLockfileTree(lockfile: string, lockfilePath: string) {
+  const errors: ParseError[] = [];
+  const tree = parseTree(lockfile, errors, { allowTrailingComma: true });
+  if (!tree || errors.length > 0) {
+    const detail = errors
+      .map((error) => `${printParseErrorCode(error.error)} at offset ${error.offset}`)
+      .join(", ");
+    throw new Error(`Invalid release lockfile ${lockfilePath}: ${detail || "missing JSONC root"}.`);
+  }
+  return tree;
+}
+
+function updateReleaseLockfileVersions(
+  lockfilePath: string,
+  version: string,
+  updates: ReadonlyArray<PackageVersionUpdate>,
+): boolean {
+  let lockfile: string;
+  try {
+    lockfile = readFileSync(lockfilePath, "utf8");
+  } catch (error) {
+    throw new Error(`Unable to read release lockfile ${lockfilePath}.`, { cause: error });
+  }
+
+  const tree = parseLockfileTree(lockfile, lockfilePath);
+  for (const update of updates) {
+    const importer = findNodeAtLocation(tree, ["workspaces", update.workspacePath]);
+    if (!importer || importer.type !== "object") {
+      throw new Error(
+        `Release lockfile ${lockfilePath} is missing workspace importer ${update.workspacePath}.`,
+      );
+    }
+    const importerVersion = findNodeAtLocation(tree, [
+      "workspaces",
+      update.workspacePath,
+      "version",
+    ]);
+    if (!importerVersion || importerVersion.type !== "string") {
+      throw new Error(
+        `Release lockfile importer ${update.workspacePath} is missing a valid string version field.`,
+      );
+    }
+  }
+
+  const edits = updates.flatMap((update) =>
+    modify(lockfile, ["workspaces", update.workspacePath, "version"], version, {
+      formattingOptions: { insertSpaces: true, tabSize: 2, eol: "\n" },
+    }),
+  );
+  const updatedLockfile = applyEdits(lockfile, edits);
+  const updatedTree = parseLockfileTree(updatedLockfile, lockfilePath);
+  for (const update of updates) {
+    const importerVersion = findNodeAtLocation(updatedTree, [
+      "workspaces",
+      update.workspacePath,
+      "version",
+    ]);
+    if (importerVersion?.value !== version) {
+      throw new Error(
+        `Failed to update release lockfile importer ${update.workspacePath} to ${version}.`,
+      );
+    }
+  }
+
+  if (updatedLockfile === lockfile) return false;
+  writeFileSync(lockfilePath, updatedLockfile);
+  return true;
+}
+
 export function updateReleasePackageVersions(
   version: string,
   options: UpdateReleasePackageVersionsOptions = {},
 ): { changed: boolean } {
   const rootDir = resolve(options.rootDir ?? process.cwd());
-  let changed = false;
-
-  for (const relativePath of releasePackageFiles) {
+  const updates = releasePackageFiles.map((relativePath): PackageVersionUpdate => {
     const filePath = resolve(rootDir, relativePath);
     const packageJson = JSON.parse(readFileSync(filePath, "utf8")) as MutablePackageJson;
-    if (packageJson.version === version) {
-      continue;
-    }
+    return {
+      filePath,
+      manifest: packageJson,
+      workspacePath: dirname(relativePath),
+    };
+  });
 
-    packageJson.version = version;
-    writeFileSync(filePath, `${JSON.stringify(packageJson, null, 2)}\n`);
-    changed = true;
+  const lockfileChanged = updateReleaseLockfileVersions(
+    resolve(rootDir, releaseLockfilePath),
+    version,
+    updates,
+  );
+  let manifestChanged = false;
+
+  for (const update of updates) {
+    if (update.manifest.version === version) continue;
+    update.manifest.version = version;
+    writeFileSync(update.filePath, `${JSON.stringify(update.manifest, null, 2)}\n`);
+    manifestChanged = true;
   }
 
-  return { changed };
+  return { changed: manifestChanged || lockfileChanged };
 }
 
 function parseArgs(argv: ReadonlyArray<string>): {

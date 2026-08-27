@@ -3,7 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare": "effect-language-service patch",
     "claude-fast-mode-probe": "bun run claude-fast-mode-probe.ts",
     "claude-haiku-thinking-probe": "bun run claude-haiku-thinking-probe.ts",
     "typecheck": "tsc --noEmit",
@@ -14,10 +13,10 @@
     "@effect/platform-node": "catalog:",
     "@penkra/contracts": "workspace:*",
     "@penkra/shared": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "jsonc-parser": "3.3.1"
   },
   "devDependencies": {
-    "@effect/language-service": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/bun": "catalog:",
     "app-builder-lib": "26.15.3",

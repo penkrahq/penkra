@@ -25,11 +25,11 @@ runs:
         path: |
           ~/.bun/install/cache
           .turbo
-        key: ${{ runner.os }}-${{ inputs.cache-suffix }}-bun-${{ hashFiles('bun.lock') }}-${{ hashFiles('turbo.json') }}
+        key: ${{ runner.os }}-${{ inputs.cache-suffix }}-copyfile-v1-bun-${{ hashFiles('bun.lock') }}-${{ hashFiles('turbo.json') }}
         restore-keys: |
-          ${{ runner.os }}-${{ inputs.cache-suffix }}-bun-${{ hashFiles('bun.lock') }}-
-          ${{ runner.os }}-${{ inputs.cache-suffix }}-bun-
+          ${{ runner.os }}-${{ inputs.cache-suffix }}-copyfile-v1-bun-${{ hashFiles('bun.lock') }}-
+          ${{ runner.os }}-${{ inputs.cache-suffix }}-copyfile-v1-bun-
 
     - name: Install dependencies
       shell: bash
-      run: bun install --frozen-lockfile
+      run: bun install --frozen-lockfile --backend=copyfile

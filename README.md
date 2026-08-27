@@ -74,11 +74,13 @@ Penkra is built with Electron and React. If you want to contribute or run it loc
 
 ```sh
 # Install dependencies
-bun install --frozen-lockfile
+bun install --frozen-lockfile --backend=copyfile
 
 # Install the macOS development launcher
 bun run dev:desktop:install-app
 ```
+
+The copyfile backend isolates Effect's intentional TypeScript patch from Bun's global package cache.
 
 Open **Penkra Dev**, **Penkra Dev 2**, or **Penkra Dev 3** from `/Applications`. The first app starts Docker and the shared local services; each numbered app has its own login, local database, tabs, Threads, Chromium profile, and logs. Closing one app leaves the others running, and the shared services stop after the last app closes.
 
