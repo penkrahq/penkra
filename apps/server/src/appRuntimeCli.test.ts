@@ -7,6 +7,11 @@ const context = { spaceId: "personal", threadId: "thread-1" };
 const command = (...words: string[]) => ({ command: words.join(" ") });
 const catalog = [
   {
+    slug: "apps",
+    summary: "Manage Apps.",
+    operations: [{ key: "list", input: { type: "object", properties: {} } }],
+  },
+  {
     slug: "explorer",
     summary: "Open local resources.",
     operations: [{ key: "resources.open", input: { type: "object", properties: {} } }],
@@ -46,10 +51,12 @@ describe("App runtime CLI operation flags", () => {
       title: "Fix redirect",
       confirm: true,
     });
-    expect(parseOperationInput(schema, '"{\\"title\\":\\"nested\\"}"', {})).toBe(
-      '"{\\"title\\":\\"nested\\"}"',
+    expect(() => parseOperationInput(schema, '"{\\"title\\":\\"nested\\"}"', {})).toThrow(
+      "declared schema",
     );
-    expect(parseOperationInput(schema, '["not","an","object"]', {})).toBe('["not","an","object"]');
+    expect(() => parseOperationInput(schema, '["not","an","object"]', {})).toThrow(
+      "declared schema",
+    );
     expect(
       parseOperationInput(
         { $ref: "#/$defs/input", $defs: { input: schema } },
@@ -67,6 +74,26 @@ describe("App runtime CLI operation flags", () => {
     expect(() => parseOperationInput(schema, undefined, { confirm: "yes" })).toThrow(
       "true or false",
     );
+  });
+
+  it("enforces required fields and schema constraints after decoding flags", () => {
+    const constrained = {
+      type: "object",
+      properties: {
+        ref: { type: "string", pattern: "^e[0-9]+$" },
+        visibility: { type: "string", enum: ["private", "public"] },
+      },
+      required: ["ref"],
+      additionalProperties: false,
+    } as const;
+    expect(() => parseOperationInput(constrained, undefined, {})).toThrow("required property");
+    expect(() => parseOperationInput(constrained, undefined, { ref: "button" })).toThrow("pattern");
+    expect(() =>
+      parseOperationInput(constrained, undefined, { ref: "e7", visibility: "shared" }),
+    ).toThrow("allowed values");
+    expect(
+      parseOperationInput(constrained, undefined, { ref: "e7", visibility: "private" }),
+    ).toEqual({ ref: "e7", visibility: "private" });
   });
 });
 
@@ -93,18 +120,14 @@ describe("penkra_exec_command structure", () => {
 });
 
 describe("penkra_exec_command discovery", () => {
-  it("documents every core discovery path and the enabled App roots", async () => {
-    const bridge = async (method: string) => {
-      expect(method).toBe("catalog.list");
-      return catalog;
-    };
+  it("documents Penkra operations without injecting the Space's App catalog", async () => {
+    const bridge = vi.fn(async () => catalog);
 
     const help = await executePenkraExecCommand(command("penkra", "--help"), context, {}, bridge);
     expect(help).toContain(PENKRA_SERVER_MANUAL_MARKER);
-    expect(help).toContain("`penkra apps list`");
-    expect(help).toContain("### explorer");
-    expect(help).toContain("Open local resources.");
-    expect(help).toContain("`resources.open`");
+    expect(help).toContain("`penkra tabs snapshot`");
+    expect(help).not.toContain("### explorer");
+    expect(bridge).not.toHaveBeenCalled();
   });
 
   it("discovers and scopes every App developer command", async () => {
@@ -116,11 +139,11 @@ describe("penkra_exec_command discovery", () => {
     const env = {};
 
     const help = await executePenkraExecCommand(command("penkra", "--help"), context, env, bridge);
-    expect(help).toContain("penkra app test <directory>");
-    expect(help).toContain("penkra app sideload <directory>");
+    expect(help).toContain("penkra app test");
+    expect(help).toContain("penkra app sideload");
     await expect(
       executePenkraExecCommand(
-        command("penkra", "app", "sideload", "./dist"),
+        command("penkra", "app", "sideload", "--directory", "./dist"),
         { ...context, workingDirectory: "/workspace" },
         env,
         bridge,
@@ -140,11 +163,11 @@ describe("penkra_exec_command discovery", () => {
     };
 
     const help = await executePenkraExecCommand(command("penkra", "--help"), context, {}, bridge);
-    expect(help).toContain("penkra app test <directory>");
-    expect(help).toContain("penkra app sideload <directory>");
+    expect(help).toContain("penkra app test");
+    expect(help).toContain("penkra app sideload");
     await expect(
       executePenkraExecCommand(
-        command("penkra", "app", "sideload", "./dist"),
+        command("penkra", "app", "sideload", "--directory", "./dist"),
         { ...context, workingDirectory: "/workspace" },
         {},
         bridge,
@@ -186,7 +209,7 @@ describe("penkra_exec_command discovery", () => {
 
     await expect(
       executePenkraExecCommand(
-        command("penkra", "app", "test", "./dist"),
+        command("penkra", "app", "test", "--directory", "./dist"),
         developmentContext,
         env,
         bridge,
@@ -198,7 +221,15 @@ describe("penkra_exec_command discovery", () => {
     });
     await expect(
       executePenkraExecCommand(
-        command("penkra", "app", "package", "./dist", "--output", "./build/app.penkra"),
+        command(
+          "penkra",
+          "app",
+          "package",
+          "--directory",
+          "./dist",
+          "--output",
+          "./build/app.penkra",
+        ),
         developmentContext,
         env,
         bridge,
@@ -228,7 +259,7 @@ describe("penkra_exec_command discovery", () => {
       appId: "app-1",
     });
     await executePenkraExecCommand(
-      command("penkra", "app", "publish", "./dist", "--visibility", "public"),
+      command("penkra", "app", "publish", "--directory", "./dist", "--visibility", "public"),
       developmentContext,
       env,
       bridge,
@@ -267,9 +298,27 @@ describe("penkra_exec_command discovery", () => {
     const env = { PENKRA_DESKTOP_FLAVOR: "development" };
     const developerContext = { ...context, workingDirectory: "/workspace" };
     for (const invalid of [
-      command("penkra", "app", "test", "./dist", "--input", "{}"),
-      command("penkra", "app", "package", "./dist", "--output", "./app.penkra", "--extra", "value"),
-      command("penkra", "app", "publish", "./dist", "--visibility", "shared"),
+      command(
+        "penkra",
+        "app",
+        "test",
+        "--directory",
+        "./dist",
+        "--input",
+        '{"directory":"./other"}',
+      ),
+      command(
+        "penkra",
+        "app",
+        "package",
+        "--directory",
+        "./dist",
+        "--output",
+        "./app.penkra",
+        "--extra",
+        "value",
+      ),
+      command("penkra", "app", "publish", "--directory", "./dist", "--visibility", "shared"),
     ]) {
       await expect(
         executePenkraExecCommand(invalid, developerContext, env, async () => []),
@@ -277,18 +326,29 @@ describe("penkra_exec_command discovery", () => {
     }
   });
 
-  it("lists only the Apps and operation keys returned for the caller Space", async () => {
-    const bridge = async (_method: string, params: unknown) => {
-      expect(params).toEqual(context);
-      return catalog;
+  it("routes App discovery through the Apps App without a Penkra-owned alias", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const bridge = async (method: string, params: unknown) => {
+      calls.push({ method, params });
+      if (method === "catalog.list") return catalog;
+      return { apps: [{ slug: "explorer" }], pageInfo: { nextCursor: null } };
     };
 
     await expect(
-      executePenkraExecCommand(command("penkra", "apps", "list"), context, {}, bridge),
+      executePenkraExecCommand(command("apps", "list"), context, {}, bridge),
     ).resolves.toEqual({
-      spaceId: "personal",
-      apps: [{ slug: "explorer", operations: ["resources.open"] }],
+      app: "apps",
+      operation: "list",
+      tabId: null,
+      result: { apps: [{ slug: "explorer" }], pageInfo: { nextCursor: null } },
     });
+    expect(calls).toEqual([
+      { method: "catalog.list", params: context },
+      {
+        method: "operations.invoke",
+        params: { app: "apps", operation: "list", input: {}, ...context },
+      },
+    ]);
   });
 
   it("scopes tab discovery and observation to the caller Thread and Space", async () => {
@@ -312,7 +372,7 @@ describe("penkra_exec_command discovery", () => {
         "type",
         "--tab-id",
         "tab-A",
-        "--target",
+        "--ref",
         "e7",
         "--text",
         "'Updated copy'",
@@ -343,18 +403,20 @@ describe("penkra_exec_command discovery", () => {
       async () => [],
     );
 
-    expect(help).toMatchObject({
-      commands: expect.arrayContaining([
-        "penkra tabs list",
-        "penkra tabs snapshot --tab-id <id>",
-        "penkra tabs screenshot",
-      ]),
-      examples: expect.arrayContaining([
-        { command: "penkra tabs list" },
-        { command: "penkra tabs screenshot" },
-        { command: "penkra tabs click --tab-id <tab-id> --target e17 --observe true" },
-      ]),
-    });
+    expect(help).toContain("# Penkra tabs");
+    expect(help).toContain("`penkra tabs list`");
+    expect(help).toContain("`penkra tabs snapshot`");
+    expect(help).toContain("`penkra tabs screenshot`");
+
+    const clickHelp = await executePenkraExecCommand(
+      command("penkra", "tabs", "click", "--help"),
+      context,
+      {},
+      async () => [],
+    );
+    expect(clickHelp).toContain("Instructions");
+    expect(clickHelp).toContain("penkra tabs click --tab-id <tab-id> --ref e17");
+    expect(clickHelp).toContain('"ref"');
   });
 
   it("parses scoped snapshots, observed actions, dialogs, and App-storage uploads", async () => {
@@ -370,7 +432,7 @@ describe("penkra_exec_command discovery", () => {
         "snapshot",
         "--tab-id",
         "tab-A",
-        "--target",
+        "--ref",
         "e3",
         "--depth",
         "2",
@@ -382,17 +444,7 @@ describe("penkra_exec_command discovery", () => {
       bridge,
     );
     await executePenkraExecCommand(
-      command(
-        "penkra",
-        "tabs",
-        "click",
-        "--tab-id",
-        "tab-A",
-        "--target",
-        "e1",
-        "--observe",
-        "true",
-      ),
+      command("penkra", "tabs", "click", "--tab-id", "tab-A", "--ref", "e1", "--observe", "true"),
       context,
       {},
       bridge,
@@ -410,7 +462,7 @@ describe("penkra_exec_command discovery", () => {
         "upload",
         "--tab-id",
         "tab-A",
-        "--target",
+        "--ref",
         "e2",
         "--input",
         '\'{"paths":["/app/report.pdf"]}\'',

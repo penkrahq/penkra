@@ -68,7 +68,7 @@ to a declared handler and validates its data at the boundary.
 ## Controller
 
 An App's **controller** is its isolated, non-visual execution context for operations. Penkra starts
-one controller for an enabled App in a Space and routes declared operation calls to it. The
+one controller for an active App installation in a Space and routes declared operation calls to it. The
 controller is a permission-bounded Node process: ordinary Node filesystem, HTTP, crypto, Buffer,
 stream, and packaged JavaScript facilities are available, while child processes, worker threads,
 WASI, and native add-ons are disabled by the initial controller policy. Penkra-owned capabilities
@@ -81,7 +81,7 @@ hosted browser or simulator control, context menus, and tab-local routing are no
 
 ## Tab
 
-An App **tab** is one visible instance of an App inside a Penkra Thread. Penkra gives it a stable,
+An App **tab** is one retained instance of an App inside a Penkra Thread. Penkra gives it a stable,
 host-owned tab identifier so operations and observation commands can target the exact surface.
 
 An App tab is not a browser tab. An App such as Browser may host web pages inside its own App tab,

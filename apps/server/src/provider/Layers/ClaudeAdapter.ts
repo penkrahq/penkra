@@ -4856,7 +4856,12 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             ...(threadId ? { threadId } : {}),
             resumeCursor: {
               ...(threadId ? { threadId } : {}),
-              ...(sessionId ? { resume: sessionId } : {}),
+              // A caller-supplied resume id already names an established native
+              // conversation. A fresh SDK session id is only provisional until
+              // Claude emits a durable conversation message through
+              // `ensureThreadId`; persisting it here strands auth-first failures
+              // on a native conversation that was never created.
+              ...(existingResumeSessionId ? { resume: existingResumeSessionId } : {}),
               ...(resumeState?.resumeSessionAt
                 ? { resumeSessionAt: resumeState.resumeSessionAt }
                 : {}),
@@ -4884,7 +4889,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             spawnPermissionMode: permissionMode ?? "default",
             firstTurnSpawnModeAuthoritative: true,
             currentApiModelId: apiModelId,
-            resumeSessionId: sessionId,
+            resumeSessionId: existingResumeSessionId,
             pendingApprovals,
             pendingUserInputs,
             turns: [],

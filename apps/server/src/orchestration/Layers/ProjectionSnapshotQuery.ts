@@ -8,6 +8,7 @@ import {
   OrchestrationSpaceShell,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
+  OrchestrationGetThreadTurnsPageResult,
   OrchestrationThreadDetailSnapshot,
   ThreadPinnedMessages,
   ProjectScript,
@@ -30,6 +31,7 @@ import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
 import {
   isPersistenceError,
+  PersistenceDecodeError,
   toPersistenceDecodeError,
   toPersistenceSqlOrDecodeError,
   toPersistenceSqlError,
@@ -62,6 +64,7 @@ const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const decodeShellSnapshot = Schema.decodeUnknownEffect(OrchestrationShellSnapshot);
 const decodeThreadDetail = Schema.decodeUnknownEffect(OrchestrationThread);
 const decodeThreadDetailSnapshot = Schema.decodeUnknownEffect(OrchestrationThreadDetailSnapshot);
+const decodeThreadTurnsPage = Schema.decodeUnknownEffect(OrchestrationGetThreadTurnsPageResult);
 const decodeModelSelection = Schema.decodeUnknownEffect(ModelSelection);
 const ModelSelectionJsonUnknown = Schema.fromJsonString(Schema.Unknown);
 const MAX_THREAD_MESSAGES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.messages;
@@ -72,6 +75,7 @@ const MAX_SNAPSHOT_THREAD_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.sum
 // activity rows per turn, so a 500-row tail dropped the previous turns' work log.
 const MAX_THREAD_DETAIL_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.detailActivities;
 const MAX_TURN_GENERATED_IMAGE_ACTIVITY_RECORDS = 64;
+const THREAD_TURN_PAGE_SIZE = 20;
 const ProjectionFolderDbRowSchema = ProjectionFolder.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(ModelSelectionJsonUnknown),
@@ -113,6 +117,7 @@ const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   threadId: ProjectionThread.fields.threadId,
   turnId: TurnId,
   providerTurnId: Schema.NullOr(TurnId),
+  pendingMessageId: Schema.NullOr(MessageId),
   state: Schema.String,
   requestedAt: IsoDateTime,
   startedAt: Schema.NullOr(IsoDateTime),
@@ -157,6 +162,32 @@ const ThreadTurnLookupInput = Schema.Struct({
 const ThreadMessagesByThreadLookupInput = Schema.Struct({
   threadId: ThreadId,
   maxMessages: Schema.NullOr(Schema.Number),
+});
+const ThreadConversationBoundaryLookupInput = Schema.Struct({
+  threadId: ThreadId,
+  beforeSequence: Schema.NullOr(NonNegativeInt),
+  beforeCreatedAt: Schema.NullOr(IsoDateTime),
+  beforeMessageId: Schema.NullOr(MessageId),
+  limit: Schema.Number,
+});
+const ThreadTranscriptRangeLookupInput = Schema.Struct({
+  threadId: ThreadId,
+  lowerSequence: Schema.NullOr(NonNegativeInt),
+  lowerCreatedAt: Schema.NullOr(IsoDateTime),
+  lowerMessageId: Schema.NullOr(MessageId),
+  upperSequence: Schema.NullOr(NonNegativeInt),
+  upperCreatedAt: Schema.NullOr(IsoDateTime),
+  upperMessageId: Schema.NullOr(MessageId),
+});
+const ThreadTurnPageCursorSchema = Schema.Struct({
+  sequence: Schema.NullOr(NonNegativeInt),
+  createdAt: IsoDateTime,
+  messageId: MessageId,
+});
+const ThreadConversationBoundaryRowSchema = Schema.Struct({
+  messageId: MessageId,
+  presentationSequence: Schema.NullOr(NonNegativeInt),
+  createdAt: IsoDateTime,
 });
 const SyntheticSubagentParentLookupInput = Schema.Struct({
   threadId: ThreadId,
@@ -980,6 +1011,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           provider_turn_id AS "providerTurnId",
+          pending_message_id AS "pendingMessageId",
           state,
           requested_at AS "requestedAt",
           started_at AS "startedAt",
@@ -1243,6 +1275,262 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  const listThreadConversationBoundaries = SqlSchema.findAll({
+    Request: ThreadConversationBoundaryLookupInput,
+    Result: ThreadConversationBoundaryRowSchema,
+    execute: ({ threadId, beforeSequence, beforeCreatedAt, beforeMessageId, limit }) =>
+      sql`
+        WITH boundaries AS (
+          SELECT
+            message_id,
+            CASE
+              WHEN delivery_queued = 1
+                AND delivery_state <> 'queued'
+                AND delivery_sequence IS NOT NULL
+              THEN delivery_sequence
+              ELSE sequence
+            END AS presentation_sequence,
+            created_at
+          FROM projection_thread_messages
+          WHERE thread_id = ${threadId} AND role = 'user'
+        )
+        SELECT
+          message_id AS "messageId",
+          presentation_sequence AS "presentationSequence",
+          created_at AS "createdAt"
+        FROM boundaries
+        WHERE (
+            ${beforeMessageId} IS NULL
+            OR (
+              ${beforeSequence} IS NOT NULL
+              AND (
+                presentation_sequence IS NULL
+                OR presentation_sequence < ${beforeSequence}
+                OR (
+                  presentation_sequence = ${beforeSequence}
+                  AND (
+                    created_at < ${beforeCreatedAt}
+                    OR (created_at = ${beforeCreatedAt} AND message_id < ${beforeMessageId})
+                  )
+                )
+              )
+            )
+            OR (
+              ${beforeSequence} IS NULL
+              AND presentation_sequence IS NULL
+              AND (
+                created_at < ${beforeCreatedAt}
+                OR (created_at = ${beforeCreatedAt} AND message_id < ${beforeMessageId})
+              )
+            )
+          )
+        ORDER BY
+          CASE WHEN presentation_sequence IS NULL THEN 0 ELSE 1 END DESC,
+          presentation_sequence DESC,
+          created_at DESC,
+          message_id DESC
+        LIMIT ${limit}
+      `,
+  });
+
+  const listThreadMessageRowsByConversationRange = SqlSchema.findAll({
+    Request: ThreadTranscriptRangeLookupInput,
+    Result: ProjectionThreadMessageDbRowSchema,
+    execute: ({
+      threadId,
+      lowerSequence,
+      lowerCreatedAt,
+      lowerMessageId,
+      upperSequence,
+      upperCreatedAt,
+      upperMessageId,
+    }) =>
+      sql`
+        WITH positioned AS (
+          SELECT
+            *,
+            CASE
+              WHEN role = 'user'
+                AND delivery_queued = 1
+                AND delivery_state <> 'queued'
+                AND delivery_sequence IS NOT NULL
+              THEN delivery_sequence
+              ELSE sequence
+            END AS presentation_sequence
+          FROM projection_thread_messages
+          WHERE thread_id = ${threadId}
+        )
+        SELECT
+          message_id AS "messageId",
+          thread_id AS "threadId",
+          turn_id AS "turnId",
+          role,
+          text,
+          attachments_json AS "attachments",
+          skills_json AS "skills",
+          mentions_json AS "mentions",
+          dispatch_mode AS "dispatchMode",
+          dispatch_origin AS "dispatchOrigin",
+          delivery_state AS "deliveryState",
+          delivery_queued AS "deliveryQueued",
+          delivery_sequence AS "deliverySequence",
+          is_streaming AS "isStreaming",
+          source,
+          sequence,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM positioned
+        WHERE (
+            ${lowerMessageId} IS NULL
+            OR (
+              ${lowerSequence} IS NOT NULL
+              AND presentation_sequence IS NOT NULL
+              AND (
+                presentation_sequence > ${lowerSequence}
+                OR (
+                  presentation_sequence = ${lowerSequence}
+                  AND (
+                    created_at > ${lowerCreatedAt}
+                    OR (created_at = ${lowerCreatedAt} AND message_id >= ${lowerMessageId})
+                  )
+                )
+              )
+            )
+            OR (
+              ${lowerSequence} IS NULL
+              AND (
+                presentation_sequence IS NOT NULL
+                OR (
+                  presentation_sequence IS NULL
+                  AND (
+                    created_at > ${lowerCreatedAt}
+                    OR (created_at = ${lowerCreatedAt} AND message_id >= ${lowerMessageId})
+                  )
+                )
+              )
+            )
+          )
+          AND (
+            ${upperMessageId} IS NULL
+            OR (
+              ${upperSequence} IS NOT NULL
+              AND (
+                presentation_sequence IS NULL
+                OR presentation_sequence < ${upperSequence}
+                OR (
+                  presentation_sequence = ${upperSequence}
+                  AND (
+                    created_at < ${upperCreatedAt}
+                    OR (created_at = ${upperCreatedAt} AND message_id < ${upperMessageId})
+                  )
+                )
+              )
+            )
+            OR (
+              ${upperSequence} IS NULL
+              AND presentation_sequence IS NULL
+              AND (
+                created_at < ${upperCreatedAt}
+                OR (created_at = ${upperCreatedAt} AND message_id < ${upperMessageId})
+              )
+            )
+          )
+        ORDER BY
+          CASE WHEN presentation_sequence IS NULL THEN 0 ELSE 1 END ASC,
+          presentation_sequence ASC,
+          created_at ASC,
+          message_id ASC
+      `,
+  });
+
+  const listThreadActivityRowsByConversationRange = SqlSchema.findAll({
+    Request: ThreadTranscriptRangeLookupInput,
+    Result: ProjectionThreadActivityDbRowSchema,
+    execute: ({
+      threadId,
+      lowerSequence,
+      lowerCreatedAt,
+      lowerMessageId,
+      upperSequence,
+      upperCreatedAt,
+      upperMessageId,
+    }) =>
+      sql`
+        SELECT
+          activity_id AS "activityId",
+          thread_id AS "threadId",
+          turn_id AS "turnId",
+          tone,
+          kind,
+          summary,
+          payload_json AS "payload",
+          sequence,
+          created_at AS "createdAt"
+        FROM thread_activities_read
+        WHERE thread_id = ${threadId}
+          AND (
+            ${lowerMessageId} IS NULL
+            OR (
+              ${lowerSequence} IS NOT NULL
+              AND sequence IS NOT NULL
+              AND (
+                sequence > ${lowerSequence}
+                OR (
+                  sequence = ${lowerSequence}
+                  AND (
+                    created_at > ${lowerCreatedAt}
+                    OR (created_at = ${lowerCreatedAt} AND activity_id >= ${lowerMessageId})
+                  )
+                )
+              )
+            )
+            OR (
+              ${lowerSequence} IS NULL
+              AND (
+                sequence IS NOT NULL
+                OR (
+                  sequence IS NULL
+                  AND (
+                    created_at > ${lowerCreatedAt}
+                    OR (created_at = ${lowerCreatedAt} AND activity_id >= ${lowerMessageId})
+                  )
+                )
+              )
+            )
+          )
+          AND (
+            ${upperMessageId} IS NULL
+            OR (
+              ${upperSequence} IS NOT NULL
+              AND (
+                sequence IS NULL
+                OR sequence < ${upperSequence}
+                OR (
+                  sequence = ${upperSequence}
+                  AND (
+                    created_at < ${upperCreatedAt}
+                    OR (created_at = ${upperCreatedAt} AND activity_id < ${upperMessageId})
+                  )
+                )
+              )
+            )
+            OR (
+              ${upperSequence} IS NULL
+              AND sequence IS NULL
+              AND (
+                created_at < ${upperCreatedAt}
+                OR (created_at = ${upperCreatedAt} AND activity_id < ${upperMessageId})
+              )
+            )
+          )
+        ORDER BY
+          CASE WHEN sequence IS NULL THEN 0 ELSE 1 END ASC,
+          sequence ASC,
+          created_at ASC,
+          activity_id ASC
+      `,
+  });
+
   const listThreadActivityRowsByThread = SqlSchema.findAll({
     Request: ThreadIdLookupInput,
     Result: ProjectionThreadActivityDbRowSchema,
@@ -1431,6 +1719,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           provider_turn_id AS "providerTurnId",
+          pending_message_id AS "pendingMessageId",
           state,
           requested_at AS "requestedAt",
           started_at AS "startedAt",
@@ -2341,6 +2630,166 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         }),
       );
 
+  const decodeThreadTurnPageCursor = (cursor: string) =>
+    Effect.try({
+      try: () => JSON.parse(cursor) as unknown,
+      catch: (cause) =>
+        new PersistenceDecodeError({
+          operation: "ProjectionSnapshotQuery.getThreadTurnsPage:parseCursor",
+          issue: "The turn-page cursor is not valid JSON",
+          cause,
+        }),
+    }).pipe(
+      Effect.flatMap((value) => Schema.decodeUnknownEffect(ThreadTurnPageCursorSchema)(value)),
+      Effect.mapError((error) =>
+        isPersistenceError(error)
+          ? error
+          : toPersistenceDecodeError("ProjectionSnapshotQuery.getThreadTurnsPage:decodeCursor")(
+              error,
+            ),
+      ),
+    );
+
+  const getThreadTurnsPage: ProjectionSnapshotQueryShape["getThreadTurnsPage"] = (input) =>
+    Effect.gen(function* () {
+      const pageLoadStartedAt = Date.now();
+      const before = input.before ? yield* decodeThreadTurnPageCursor(input.before) : null;
+
+      return yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const [boundariesWithLookahead, stateRows] = yield* Effect.all([
+              listThreadConversationBoundaries({
+                threadId: input.threadId,
+                beforeSequence: before?.sequence ?? null,
+                beforeCreatedAt: before?.createdAt ?? null,
+                beforeMessageId: before?.messageId ?? null,
+                limit: THREAD_TURN_PAGE_SIZE + 1,
+              }).pipe(
+                Effect.mapError(
+                  toPersistenceSqlOrDecodeError(
+                    "ProjectionSnapshotQuery.getThreadTurnsPage:listBoundaries:query",
+                    "ProjectionSnapshotQuery.getThreadTurnsPage:listBoundaries:decodeRows",
+                  ),
+                ),
+              ),
+              listProjectionStateRows(undefined).pipe(
+                Effect.mapError(
+                  toPersistenceSqlOrDecodeError(
+                    "ProjectionSnapshotQuery.getThreadTurnsPage:listProjectionState:query",
+                    "ProjectionSnapshotQuery.getThreadTurnsPage:listProjectionState:decodeRows",
+                  ),
+                ),
+              ),
+            ]);
+
+            const hasOlder = boundariesWithLookahead.length > THREAD_TURN_PAGE_SIZE;
+            const boundaries = boundariesWithLookahead.slice(0, THREAD_TURN_PAGE_SIZE);
+            // If this is the oldest page, leave the lower edge open so legacy
+            // system/imported content before the first user message remains reachable.
+            const lowerBoundary = hasOlder ? boundaries.at(-1) : undefined;
+            const range = {
+              threadId: input.threadId,
+              lowerSequence: lowerBoundary?.presentationSequence ?? null,
+              lowerCreatedAt: lowerBoundary?.createdAt ?? null,
+              lowerMessageId: lowerBoundary?.messageId ?? null,
+              upperSequence: before?.sequence ?? null,
+              upperCreatedAt: before?.createdAt ?? null,
+              upperMessageId: before?.messageId ?? null,
+            } as const;
+            const emptyInteractions: ReadonlyArray<PendingInteractionRow> = [];
+
+            const [messageRows, activityRows, pendingInteractionRows] = yield* Effect.all([
+              listThreadMessageRowsByConversationRange(range).pipe(
+                Effect.mapError(
+                  toPersistenceSqlOrDecodeError(
+                    "ProjectionSnapshotQuery.getThreadTurnsPage:listMessages:query",
+                    "ProjectionSnapshotQuery.getThreadTurnsPage:listMessages:decodeRows",
+                  ),
+                ),
+              ),
+              listThreadActivityRowsByConversationRange(range).pipe(
+                Effect.mapError(
+                  toPersistenceSqlOrDecodeError(
+                    "ProjectionSnapshotQuery.getThreadTurnsPage:listActivities:query",
+                    "ProjectionSnapshotQuery.getThreadTurnsPage:listActivities:decodeRows",
+                  ),
+                ),
+              ),
+              // Pending interactions are unresolved thread state, not archival
+              // transcript rows. Always surface them with the newest page.
+              before === null
+                ? listPendingInteractionRowsByThread({ threadId: input.threadId }).pipe(
+                    Effect.mapError(
+                      toPersistenceSqlOrDecodeError(
+                        "ProjectionSnapshotQuery.getThreadTurnsPage:listPendingInteractions:query",
+                        "ProjectionSnapshotQuery.getThreadTurnsPage:listPendingInteractions:decodeRows",
+                      ),
+                    ),
+                  )
+                : Effect.succeed(emptyInteractions),
+            ]);
+
+            const oldestBoundary = boundaries.at(-1);
+            const result: OrchestrationGetThreadTurnsPageResult = {
+              threadId: input.threadId,
+              snapshotSequence: computeSnapshotSequence(stateRows),
+              conversationTurnCount: boundaries.length,
+              messages: messageRows.map(orchestrationMessageFromProjectionRow),
+              activities: activityRows.map(toProjectedActivity),
+              pendingInteractions: pendingInteractionRows,
+              hasOlder,
+              nextCursor:
+                hasOlder && oldestBoundary
+                  ? JSON.stringify({
+                      sequence: oldestBoundary.presentationSequence,
+                      createdAt: oldestBoundary.createdAt,
+                      messageId: oldestBoundary.messageId,
+                    })
+                  : null,
+            };
+
+            const decodedResult = yield* decodeThreadTurnsPage(result).pipe(
+              Effect.mapError(
+                toPersistenceDecodeError("ProjectionSnapshotQuery.getThreadTurnsPage:decodeResult"),
+              ),
+            );
+            yield* Effect.logInfo("orchestration Thread turn page loaded").pipe(
+              Effect.annotateLogs({
+                threadId: input.threadId,
+                pageKind: before === null ? "newest" : "older",
+                durationMs: Date.now() - pageLoadStartedAt,
+                conversationTurnCount: decodedResult.conversationTurnCount,
+                messageCount: decodedResult.messages.length,
+                userMessageCount: decodedResult.messages.filter(
+                  (message) => message.role === "user",
+                ).length,
+                assistantMessageCount: decodedResult.messages.filter(
+                  (message) => message.role === "assistant",
+                ).length,
+                restartRecoveryMessageCount: decodedResult.messages.filter((message) =>
+                  String(message.turnId).startsWith("turn:restart-recovery:"),
+                ).length,
+                activityCount: decodedResult.activities.length,
+                pendingInteractionCount: decodedResult.pendingInteractions.length,
+                hasOlder: decodedResult.hasOlder,
+                nextCursorPresent: decodedResult.nextCursor !== null,
+                snapshotSequence: decodedResult.snapshotSequence,
+              }),
+            );
+            return decodedResult;
+          }),
+        )
+        .pipe(
+          Effect.mapError((error) => {
+            if (isPersistenceError(error)) {
+              return error;
+            }
+            return toPersistenceSqlError("ProjectionSnapshotQuery.getThreadTurnsPage:query")(error);
+          }),
+        );
+    });
+
   return {
     getCommandReadModel,
     getSnapshot,
@@ -2359,6 +2808,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadDetailById,
     getThreadDetailForExportById,
     getThreadDetailSnapshotById,
+    getThreadTurnsPage,
   } satisfies ProjectionSnapshotQueryShape;
 });
 

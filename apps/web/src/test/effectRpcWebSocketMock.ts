@@ -160,6 +160,7 @@ export function createShellSnapshotFromReadModel(
         forkSourceThreadId: thread.forkSourceThreadId ?? null,
         latestTurn: thread.latestTurn,
         latestUserMessageAt: thread.latestUserMessageAt ?? null,
+        lastVisitedAt: thread.lastVisitedAt ?? null,
         hasPendingApprovals: thread.hasPendingApprovals ?? false,
         hasPendingUserInput: thread.hasPendingUserInput ?? false,
         workStatus: thread.workStatus ?? "idle",

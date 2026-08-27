@@ -33,6 +33,7 @@ import {
   isFileChangeWorkLogEntry,
   type WorkLogEntry,
 } from "../../session-logic";
+import { recordChatPaginationDiagnostic } from "../../chatScrollDiagnostics";
 import ChatMarkdown from "../ChatMarkdown";
 import { InlineLinkChip } from "../InlineLinkChip";
 import {
@@ -265,6 +266,7 @@ interface MessagesTimelineProps {
   onMessagesTouchMove?: ComponentProps<"div">["onTouchMove"];
   onMessagesTouchStart?: ComponentProps<"div">["onTouchStart"];
   onMessagesWheel?: ComponentProps<"div">["onWheel"];
+  onNearStart?: () => void;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
   chatFontSizePx?: number;
@@ -312,6 +314,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onMessagesTouchMove,
   onMessagesTouchStart,
   onMessagesWheel,
+  onNearStart,
   markdownCwd,
   resolvedTheme,
   chatFontSizePx: chatFontSizePxProp,
@@ -413,6 +416,47 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [timelineEntries, isWorking, activeTurnInProgress, activeTurnId, activeTurnStartedAt],
   );
   const rows = useStableRows(rawRows);
+  useEffect(() => {
+    if (!viewportMemoryKey) return;
+    const inputMessages = timelineEntries.flatMap((entry) =>
+      entry.kind === "message" ? [entry.message] : [],
+    );
+    const messageRows = rows.filter(
+      (row): row is Extract<MessagesTimelineRow, { kind: "message" }> => row.kind === "message",
+    );
+    const collapsedOwners = messageRows.filter((row) => (row.collapsedTurnItems?.length ?? 0) > 0);
+    recordChatPaginationDiagnostic({
+      event: "timeline-derived",
+      threadId: viewportMemoryKey,
+      dataCount: rows.length,
+      element: resolvedListRef.current?.getScrollableNode() ?? null,
+      detail: {
+        timelineEntryCount: timelineEntries.length,
+        inputMessageCount: inputMessages.length,
+        inputUserMessageCount: inputMessages.filter((message) => message.role === "user").length,
+        inputAssistantMessageCount: inputMessages.filter((message) => message.role === "assistant")
+          .length,
+        inputWorkEntryCount: timelineEntries.filter((entry) => entry.kind === "work").length,
+        renderedRowCount: rows.length,
+        renderedMessageRowCount: messageRows.length,
+        renderedUserMessageCount: messageRows.filter((row) => row.message.role === "user").length,
+        renderedAssistantMessageCount: messageRows.filter((row) => row.message.role === "assistant")
+          .length,
+        collapsedOwnerCount: collapsedOwners.length,
+        collapsedNarrationCount: collapsedOwners.reduce(
+          (count, row) =>
+            count +
+            (row.collapsedTurnItems?.filter((item) => item.kind === "narration").length ?? 0),
+          0,
+        ),
+        collapsedWorkItemCount: collapsedOwners.reduce(
+          (count, row) =>
+            count + (row.collapsedTurnItems?.filter((item) => item.kind === "work").length ?? 0),
+          0,
+        ),
+      },
+    });
+  }, [resolvedListRef, rows, timelineEntries, viewportMemoryKey]);
   const transcriptAnchorRevision = useMemo(() => {
     const messageRows = rows.filter(
       (row): row is Extract<MessagesTimelineRow, { kind: "message" }> => row.kind === "message",
@@ -1708,6 +1752,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         onTouchMove={onMessagesTouchMove}
         onTouchStart={onMessagesTouchStart}
         onWheel={onMessagesWheel}
+        {...(onNearStart === undefined ? {} : { onNearStart })}
         data-chat-scroll-container="true"
         // `scroll-fade-b` (vendored shadcn 4.12.0 util in index.css) masks the bottom
         // edge so streamed content dissolves toward the composer. It is scroll-aware

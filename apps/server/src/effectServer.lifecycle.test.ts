@@ -8,6 +8,7 @@ describe("server runtime pipeline shutdown", () => {
     const order: string[] = [];
     let terminalAccepted = false;
     let providerCommandsSettled = false;
+    let queuePromotionsQuiesced = false;
     let terminalPersisted = false;
     let attachmentsDrained = false;
     let workspaceWatcherClosed = false;
@@ -41,10 +42,16 @@ describe("server runtime pipeline shutdown", () => {
             providerCommandsSettled = true;
             order.push("provider-commands-settled");
           }),
+          quiesceQueuePromotions: Effect.sync(() => {
+            expect(providerCommandsSettled).toBe(true);
+            queuePromotionsQuiesced = true;
+            order.push("queue-promotions-quiesced");
+          }),
         },
         providerService: {
           closeRuntimeEvents: Effect.sync(() => {
             expect(providerCommandsSettled).toBe(true);
+            expect(queuePromotionsQuiesced).toBe(true);
             terminalAccepted = true;
             order.push("provider-terminal-events-fenced");
           }),
@@ -72,6 +79,7 @@ describe("server runtime pipeline shutdown", () => {
       "engine-quiesced",
       "admitted-commands-drained",
       "provider-commands-settled",
+      "queue-promotions-quiesced",
       "provider-terminal-events-fenced",
       "reactors-drained-and-persisted",
       "workspace-watcher-closed",

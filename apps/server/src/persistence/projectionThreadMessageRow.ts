@@ -93,6 +93,7 @@ export function orchestrationMessageFromProjectionRow(
           },
         }
       : {}),
+    ...(row.sequence !== null ? { sequence: row.sequence } : {}),
     turnId: row.turnId,
     streaming: row.isStreaming === 1,
     source: row.source,

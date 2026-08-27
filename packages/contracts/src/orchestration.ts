@@ -22,12 +22,15 @@ export const ORCHESTRATION_WS_METHODS = {
   getSnapshot: "orchestration.getSnapshot",
   getShellSnapshot: "orchestration.getShellSnapshot",
   getThreadDetailSnapshot: "orchestration.getThreadDetailSnapshot",
+  getThreadTurnsPage: "orchestration.getThreadTurnsPage",
   dispatchCommand: "orchestration.dispatchCommand",
   importThread: "orchestration.importThread",
   repairState: "orchestration.repairState",
   replayEvents: "orchestration.replayEvents",
   listProviderDeliveryBlockers: "orchestration.listProviderDeliveryBlockers",
   reconcileProviderDelivery: "orchestration.reconcileProviderDelivery",
+  subscribeSync: "orchestration.subscribeSync",
+  acknowledgeSync: "orchestration.acknowledgeSync",
   subscribeShell: "orchestration.subscribeShell",
   unsubscribeShell: "orchestration.unsubscribeShell",
   subscribeThread: "orchestration.subscribeThread",
@@ -35,6 +38,7 @@ export const ORCHESTRATION_WS_METHODS = {
 } as const;
 
 export const ORCHESTRATION_WS_CHANNELS = {
+  syncEvent: "orchestration.syncEvent",
   domainEvent: "orchestration.domainEvent",
   shellEvent: "orchestration.shellEvent",
   threadEvent: "orchestration.threadEvent",
@@ -406,6 +410,8 @@ export const OrchestrationMessage = Schema.Struct({
   dispatchMode: Schema.optional(TurnDispatchMode),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
   delivery: Schema.optional(MessageDelivery),
+  /** First durable message event sequence. Delivery sequence may supersede it for presentation. */
+  sequence: Schema.optional(NonNegativeInt),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   source: OrchestrationMessageSource.pipe(Schema.withDecodingDefault(() => "native")),
@@ -1168,6 +1174,7 @@ const ThreadActivityReadModelTouchCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   turnId: Schema.NullOr(TurnId),
+  activity: Schema.optional(OrchestrationThreadActivity),
   createdAt: IsoDateTime,
 });
 
@@ -1728,6 +1735,7 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
 export const ThreadActivityReadModelUpdatedPayload = Schema.Struct({
   threadId: ThreadId,
   turnId: Schema.NullOr(TurnId),
+  activity: Schema.optional(OrchestrationThreadActivity),
   updatedAt: IsoDateTime,
 });
 
@@ -2117,6 +2125,64 @@ export const OrchestrationGetThreadDetailSnapshotResult = Schema.NullOr(
 export type OrchestrationGetThreadDetailSnapshotResult =
   typeof OrchestrationGetThreadDetailSnapshotResult.Type;
 
+export const OrchestrationGetThreadTurnsPageInput = Schema.Struct({
+  threadId: ThreadId,
+  before: Schema.optional(TrimmedNonEmptyString),
+});
+export type OrchestrationGetThreadTurnsPageInput = typeof OrchestrationGetThreadTurnsPageInput.Type;
+
+export const OrchestrationGetThreadTurnsPageResult = Schema.Struct({
+  threadId: ThreadId,
+  snapshotSequence: NonNegativeInt,
+  /** User-message conversation boundaries represented by this page. */
+  conversationTurnCount: NonNegativeInt,
+  messages: Schema.Array(OrchestrationMessage),
+  activities: Schema.Array(OrchestrationThreadActivity),
+  pendingInteractions: Schema.Array(OrchestrationPendingInteraction),
+  hasOlder: Schema.Boolean,
+  nextCursor: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type OrchestrationGetThreadTurnsPageResult =
+  typeof OrchestrationGetThreadTurnsPageResult.Type;
+
+/**
+ * One authoritative cold-start projection for the uniform orchestration feed.
+ * The shell contains every lightweight Thread row. Running Threads additionally
+ * carry their newest complete-turn page so a renderer restart never postpones
+ * live synchronization until the user visits the Thread.
+ */
+export const OrchestrationSyncSnapshot = Schema.Struct({
+  snapshotSequence: NonNegativeInt,
+  shell: OrchestrationShellSnapshot,
+  activeThreadPages: Schema.Array(OrchestrationGetThreadTurnsPageResult),
+});
+export type OrchestrationSyncSnapshot = typeof OrchestrationSyncSnapshot.Type;
+
+export const OrchestrationSyncStreamItem = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("snapshot"),
+    deliveryId: TrimmedNonEmptyString,
+    snapshot: OrchestrationSyncSnapshot,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("event"),
+    deliveryId: TrimmedNonEmptyString,
+    event: OrchestrationEvent,
+  }),
+]);
+export type OrchestrationSyncStreamItem = typeof OrchestrationSyncStreamItem.Type;
+
+export const OrchestrationSubscribeSyncInput = Schema.Struct({
+  afterSequenceExclusive: Schema.optional(NonNegativeInt),
+});
+export type OrchestrationSubscribeSyncInput = typeof OrchestrationSubscribeSyncInput.Type;
+
+export const OrchestrationAcknowledgeSyncInput = Schema.Struct({
+  deliveryId: TrimmedNonEmptyString,
+  appliedSequence: NonNegativeInt,
+});
+export type OrchestrationAcknowledgeSyncInput = typeof OrchestrationAcknowledgeSyncInput.Type;
+
 export const OrchestrationImportThreadInput = Schema.Struct({
   threadId: ThreadId,
   externalId: TrimmedNonEmptyString,
@@ -2146,6 +2212,10 @@ export const OrchestrationRpcSchemas = {
     input: OrchestrationGetThreadDetailSnapshotInput,
     output: OrchestrationGetThreadDetailSnapshotResult,
   },
+  getThreadTurnsPage: {
+    input: OrchestrationGetThreadTurnsPageInput,
+    output: OrchestrationGetThreadTurnsPageResult,
+  },
   repairState: {
     input: OrchestrationRepairStateInput,
     output: OrchestrationRepairStateResult,
@@ -2169,6 +2239,14 @@ export const OrchestrationRpcSchemas = {
   reconcileProviderDelivery: {
     input: OrchestrationReconcileProviderDeliveryInput,
     output: OrchestrationReconcileProviderDeliveryResult,
+  },
+  subscribeSync: {
+    input: OrchestrationSubscribeSyncInput,
+    output: OrchestrationSyncStreamItem,
+  },
+  acknowledgeSync: {
+    input: OrchestrationAcknowledgeSyncInput,
+    output: Schema.Void,
   },
   subscribeShell: {
     input: OrchestrationSubscribeShellInput,

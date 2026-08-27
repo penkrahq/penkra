@@ -1942,18 +1942,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.message.delivery.set": {
-      const thread = yield* requireThread({
+      yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
-      const message = thread.messages.find((entry) => entry.id === command.messageId);
-      if (!message || message.role !== "user") {
-        // A provider acknowledgement can race an explicit pre-acceptance
-        // cancellation. The cancelled message is already gone; settling the
-        // late acknowledgement as an idempotent no-op keeps replay safe.
-        return [];
-      }
+      // The command read model deliberately hydrates thread shells without
+      // transcript messages. Delivery acknowledgements must therefore remain
+      // valid across process restart without consulting `thread.messages`.
+      // If an acknowledgement raced a pre-acceptance cancellation, projection
+      // treats this event as an idempotent no-op because its target row is gone.
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -2018,6 +2016,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           turnId: command.turnId,
+          ...(command.activity === undefined ? {} : { activity: command.activity }),
           updatedAt: command.createdAt,
         },
       };

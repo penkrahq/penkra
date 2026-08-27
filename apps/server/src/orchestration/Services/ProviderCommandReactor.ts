@@ -44,6 +44,12 @@ export interface ProviderCommandReactorShape {
    */
   readonly drain: Effect.Effect<void>;
 
+  /**
+   * Stops admitting queued-turn promotions while leaving provider terminal
+   * event ingestion alive long enough to persist shutdown state.
+   */
+  readonly quiesceQueuePromotions: Effect.Effect<void>;
+
   readonly listBlockingDeliveries: (input: {
     readonly threadId?: string | undefined;
     readonly limit: number;

@@ -22,6 +22,7 @@ import {
   WsRpcError,
   type OrchestrationEvent,
   type OrchestrationShellStreamItem,
+  type OrchestrationSyncStreamItem,
   type OrchestrationThreadStreamItem,
   type ProjectDevServerEvent,
   type ProjectWorkspaceChangeEvent,
@@ -36,7 +37,7 @@ import {
   type WsBootstrapNegotiateResult,
 } from "@penkra/contracts";
 import { Cause, Data, Effect, Exit, Layer, ManagedRuntime, Schema, Scope, Stream } from "effect";
-import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
+import { RpcClient, RpcClientError, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
 
 import { APP_VERSION } from "./branding";
@@ -121,6 +122,17 @@ export function makeRequestAbortScope(options?: WsRequestOptions): RequestAbortS
   };
 }
 
+export function shouldReconnectAfterRequestFailure(error: unknown): boolean {
+  if (Socket.SocketError.is(error)) return true;
+  if (!Schema.is(RpcClientError.RpcClientError)(error)) return false;
+  return (
+    error.reason._tag === "SocketReadError" ||
+    error.reason._tag === "SocketWriteError" ||
+    error.reason._tag === "SocketOpenError" ||
+    error.reason._tag === "SocketCloseError"
+  );
+}
+
 function awaitWithAbort<A>(promise: Promise<A>, signal: AbortSignal | undefined): Promise<A> {
   if (!signal) return promise;
   if (signal.aborted) return Promise.reject(signal.reason);
@@ -143,6 +155,7 @@ function awaitWithAbort<A>(promise: Promise<A>, signal: AbortSignal | undefined)
 const makeRpcClient = RpcClient.make(WsFeatureRpcGroup);
 const makeBootstrapRpcClient = RpcClient.make(WsBootstrapRpcGroup);
 const REQUEST_TIMEOUT_MS = 60_000;
+export const WS_RECONNECT_ATTEMPT_TIMEOUT_MS = 3_000;
 
 function resolveRpcUrl(rawUrl: string, path: string): string {
   const url = new URL(rawUrl);
@@ -462,6 +475,7 @@ export class WsTransport {
   private readonly streamCapacityRetryTimers = new Map<string, number>();
   private readonly activeThreadStreamInputs = new Map<string, unknown>();
   private shellSubscribed = false;
+  private syncAppliedSequence: number | undefined;
   private readonly threadSubscriptions = new Map<string, unknown>();
   private compatibility: WsBootstrapNegotiateResult | null = null;
   private compatibilityIssue: WsCompatibilityError | null = null;
@@ -471,7 +485,7 @@ export class WsTransport {
     const session = this.createSession();
     this.runtime = session.runtime;
     this.clientScope = session.clientScope;
-    this.clientPromise = session.clientPromise;
+    this.clientPromise = this.withConnectionAttemptTimeout(session.clientPromise);
   }
 
   async request<T = unknown>(
@@ -536,10 +550,16 @@ export class WsTransport {
         if (!call) throw new WsTransportRpcError({ message: `Unknown RPC method: ${method}` });
         const clientRuntime = this.getClientRuntime(client);
         try {
-          return (await clientRuntime.runPromise(
+          const result = await clientRuntime.runPromise(
             call(normalizedRpcInput),
             abortScope.signal ? { signal: abortScope.signal } : undefined,
-          )) as T;
+          );
+          if (method === ORCHESTRATION_WS_METHODS.acknowledgeSync) {
+            const appliedSequence = (normalizedRpcInput as { appliedSequence: number })
+              .appliedSequence;
+            this.syncAppliedSequence = Math.max(this.syncAppliedSequence ?? 0, appliedSequence);
+          }
+          return result as T;
         } catch (error) {
           // Orchestration commands carry a durable command ID and fingerprint.
           // Reissuing the identical request after connection loss is therefore
@@ -548,11 +568,15 @@ export class WsTransport {
           // enter this branch.
           if (
             requestOptions.retryOnReconnect !== true ||
-            Schema.is(WsRpcError)(error) ||
-            isTerminalCompatibilityFailure(error)
+            isTerminalCompatibilityFailure(error) ||
+            !shouldReconnectAfterRequestFailure(error)
           ) {
             throw error;
           }
+          console.warn("WebSocket RPC request failed before reconnect", {
+            method,
+            error,
+          });
           client = await awaitWithAbort(this.reconnect(), abortScope.signal);
         }
       }
@@ -752,6 +776,28 @@ export class WsTransport {
     return { runtime, clientScope, clientPromise };
   }
 
+  private async withConnectionAttemptTimeout(
+    clientPromise: Promise<RpcClientInstance>,
+  ): Promise<RpcClientInstance> {
+    let timeoutId: number | undefined;
+    // Closing a timed-out scope can settle the raw client promise later. The
+    // bounded attempt owns that settlement so it never becomes unhandled.
+    void clientPromise.catch(() => undefined);
+    try {
+      return await Promise.race([
+        clientPromise,
+        new Promise<never>((_, reject) => {
+          timeoutId = window.setTimeout(
+            () => reject(new Error("WebSocket connection attempt timed out.")),
+            WS_RECONNECT_ATTEMPT_TIMEOUT_MS,
+          );
+        }),
+      ]);
+    } finally {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    }
+  }
+
   private async getClient(): Promise<RpcClientInstance> {
     // Reconnect retires the current runtime before the replacement session is
     // ready. Requests arriving in that window must join the replacement instead
@@ -790,17 +836,25 @@ export class WsTransport {
 
     this.setState("connecting");
 
-    void oldRuntime
-      .runPromise(Scope.close(oldClientScope, Exit.void))
-      .catch(() => undefined)
-      .finally(() => {
-        void oldRuntime.dispose().catch(() => undefined);
-      });
-
-    this.reconnectPromise = this.openReconnectSession().finally(() => {
-      this.reconnectPromise = null;
+    // Publish the replacement promise before retiring the old scope. Closing
+    // that scope settles its streams and pending requests, and any of those
+    // callbacks may re-enter reconnect(). The replacement must not open until
+    // every old-scope callback and finalizer has drained; otherwise a late exit
+    // can mistake the new session for the failed one and retire it while its
+    // WebSocket is still connecting.
+    const reconnect = Promise.resolve().then(async () => {
+      await oldRuntime.runPromise(Scope.close(oldClientScope, Exit.void)).catch(() => undefined);
+      await oldRuntime.dispose().catch(() => undefined);
+      return this.openReconnectSession();
     });
-    return this.reconnectPromise;
+    const trackedReconnect = reconnect.finally(() => {
+      if (this.reconnectPromise === trackedReconnect) {
+        this.reconnectPromise = null;
+      }
+    });
+    this.reconnectPromise = trackedReconnect;
+
+    return trackedReconnect;
   }
 
   private setState(state: WsTransportState): void {
@@ -852,30 +906,46 @@ export class WsTransport {
   }
 
   private async openReconnectSession(): Promise<RpcClientInstance> {
-    const delayMs = Math.min(500 * 2 ** this.reconnectFailures, 5_000);
-    this.reconnectFailures += 1;
-    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
-    if (this.disposed) {
-      throw new Error("Transport disposed");
-    }
+    while (!this.disposed) {
+      const delayMs = Math.min(500 * 2 ** this.reconnectFailures, 5_000);
+      this.reconnectFailures += 1;
+      await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+      if (this.disposed) break;
 
-    const session = this.createSession();
-    this.runtime = session.runtime;
-    this.clientScope = session.clientScope;
-    this.clientPromise = session.clientPromise;
+      this.setState("connecting");
+      const session = this.createSession();
+      this.runtime = session.runtime;
+      this.clientScope = session.clientScope;
+      this.clientPromise = this.withConnectionAttemptTimeout(session.clientPromise);
 
-    const client = await session.clientPromise;
-    this.reconnectFailures = 0;
-    for (const channel of this.listeners.keys()) {
-      this.startChannelStream(channel as WsPushChannel);
+      try {
+        // A WebSocket open can remain pending across an embedded-backend restart.
+        // Bound each individual attempt so one half-open socket cannot become the
+        // permanent reconnectPromise joined by every later command.
+        const client = await this.clientPromise;
+        this.reconnectFailures = 0;
+        for (const channel of this.listeners.keys()) {
+          this.startChannelStream(channel as WsPushChannel);
+        }
+        if (this.shellSubscribed) {
+          this.startShellStream(client);
+        }
+        for (const [threadId, input] of this.threadSubscriptions) {
+          await this.startThreadStream(client, threadId, input);
+        }
+        return client;
+      } catch (error) {
+        if (isTerminalCompatibilityFailure(error)) throw error;
+        // Closing the failed attempt also makes its client promise settle. Mark
+        // it handled because the reconnect loop, not an individual attempt,
+        // owns recovery.
+        const failedRuntime = this.runtime;
+        const failedScope = this.clientScope;
+        await failedRuntime.runPromise(Scope.close(failedScope, Exit.void)).catch(() => undefined);
+        await failedRuntime.dispose().catch(() => undefined);
+      }
     }
-    if (this.shellSubscribed) {
-      this.startShellStream(client);
-    }
-    for (const [threadId, input] of this.threadSubscriptions) {
-      await this.startThreadStream(client, threadId, input);
-    }
-    return client;
+    throw new Error("Transport disposed");
   }
 
   private emit<C extends WsPushChannel>(channel: C, data: WsPushMessage<C>["data"]): void {
@@ -968,6 +1038,26 @@ export class WsTransport {
               this.emit(WS_CHANNELS.projectWorkspaceChange, event),
             restartChannel,
           );
+        } else if (channel === ORCHESTRATION_WS_CHANNELS.syncEvent) {
+          this.startStream(
+            client,
+            "orchestration.sync",
+            client[ORCHESTRATION_WS_METHODS.subscribeSync](
+              this.syncAppliedSequence === undefined
+                ? {}
+                : { afterSequenceExclusive: this.syncAppliedSequence },
+            ),
+            (event: OrchestrationSyncStreamItem) => {
+              // A snapshot is an authoritative cursor reset (initial attach or a
+              // server log replacement). Its acknowledgement establishes the new
+              // resume point instead of retaining a cursor from the old log.
+              if (event.kind === "snapshot") {
+                this.syncAppliedSequence = undefined;
+              }
+              this.emit(ORCHESTRATION_WS_CHANNELS.syncEvent, event);
+            },
+            restartChannel,
+          );
         } else if (channel === ORCHESTRATION_WS_CHANNELS.domainEvent) {
           this.startStream(
             client,
@@ -1001,6 +1091,7 @@ export class WsTransport {
     else if (channel === WS_CHANNELS.projectDevServerEvent) this.stopStream("project.devServers");
     else if (channel === WS_CHANNELS.projectWorkspaceChange)
       this.stopStream("project.workspaceChanges");
+    else if (channel === ORCHESTRATION_WS_CHANNELS.syncEvent) this.stopStream("orchestration.sync");
     else if (channel === ORCHESTRATION_WS_CHANNELS.domainEvent)
       this.stopStream("orchestration.domain");
   }
@@ -1142,11 +1233,18 @@ export class WsTransport {
             return;
           }
           // Subscription streams are intentionally unbounded. A clean completion is therefore
-          // a dropped lease, not success; re-establish it instead of silently freezing the UI.
+          // a dropped connection, not success. Retire the whole session before
+          // recreating any streams: the resolved RPC client belongs to the socket
+          // that just closed and cannot safely service later commands. Reconnect
+          // synchronously so it clears the other stream owners before their exit
+          // callbacks can each schedule a stale reconnect against the replacement
+          // session. openReconnectSession restores every declared subscription.
           if (restart && Exit.isSuccess(exit)) {
-            window.setTimeout(() => {
-              if (!this.disposed && !this.streamCleanups.has(key)) restart();
-            }, 100);
+            void this.reconnect().catch((error) => {
+              if (!this.disposed) {
+                console.warn("WebSocket RPC stream reconnect failed", error);
+              }
+            });
             return;
           }
           if (restart && Exit.isFailure(exit)) {
@@ -1183,20 +1281,11 @@ export class WsTransport {
             }
           }
           if (restart && Exit.isFailure(exit) && shouldReconnectAfterStreamFailure(exit.cause)) {
-            window.setTimeout(
-              () => {
-                if (!this.disposed && !this.streamCleanups.has(key)) {
-                  void this.reconnect()
-                    .then(() => restart())
-                    .catch((error) => {
-                      if (!this.disposed) {
-                        console.warn("WebSocket RPC stream reconnect failed", error);
-                      }
-                    });
-                }
-              },
-              Cause.hasInterruptsOnly(exit.cause) ? 0 : 500,
-            );
+            void this.reconnect().catch((error) => {
+              if (!this.disposed) {
+                console.warn("WebSocket RPC stream reconnect failed", error);
+              }
+            });
             return;
           }
           if (Exit.isFailure(exit) && !this.disposed && !Cause.hasInterruptsOnly(exit.cause)) {

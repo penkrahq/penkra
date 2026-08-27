@@ -1879,4 +1879,220 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.deepEqual(deleted?.activities, []);
     }),
   );
+
+  it.effect("pages transcript history by twenty complete turns with a stable cursor", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = asThreadId("thread-turn-pages");
+
+      yield* sql`DELETE FROM projection_pending_interactions`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_thread_messages`;
+      yield* sql`DELETE FROM projection_turns`;
+      yield* sql`DELETE FROM projection_state`;
+
+      for (let index = 1; index <= 21; index += 1) {
+        const turnId = asTurnId(`turn-page-${String(index).padStart(2, "0")}`);
+        const requestedAt = `2026-08-01T00:00:${String(index).padStart(2, "0")}.000Z`;
+        yield* sql`
+          INSERT INTO projection_turns (
+            thread_id, turn_id, pending_message_id, assistant_message_id,
+            state, requested_at, started_at, completed_at
+          ) VALUES (
+            ${threadId}, ${turnId}, NULL, NULL,
+            'completed', ${requestedAt}, ${requestedAt}, ${requestedAt}
+          )
+        `;
+        yield* sql`
+          INSERT INTO projection_thread_messages (
+            message_id, thread_id, turn_id, role, text, is_streaming,
+            sequence, created_at, updated_at
+          ) VALUES (
+            ${asMessageId(`message-page-${String(index).padStart(2, "0")}`)},
+            ${threadId}, ${turnId}, 'user', ${`message ${index}`}, 0,
+            ${index}, ${requestedAt}, ${requestedAt}
+          )
+        `;
+      }
+      yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id, thread_id, turn_id, role, text, is_streaming, created_at, updated_at
+        ) VALUES (
+          'message-unscoped-page', ${threadId}, NULL, 'system', 'unscoped', 0,
+          '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z'
+        )
+      `;
+
+      const newest = yield* snapshotQuery.getThreadTurnsPage({ threadId });
+      assert.equal(newest.conversationTurnCount, 20);
+      assert.deepEqual(
+        newest.messages.map((message) => message.text),
+        Array.from({ length: 20 }, (_, index) => `message ${index + 2}`),
+      );
+      assert.isTrue(newest.hasOlder);
+      assert.isNotNull(newest.nextCursor);
+
+      const older = yield* snapshotQuery.getThreadTurnsPage({
+        threadId,
+        before: newest.nextCursor!,
+      });
+      assert.equal(older.conversationTurnCount, 1);
+      assert.deepEqual(
+        older.messages.map((message) => message.text),
+        ["unscoped", "message 1"],
+      );
+      assert.isFalse(older.hasOlder);
+      assert.isNull(older.nextCursor);
+    }),
+  );
+
+  it.effect("hydrates promoted queued turns through canonical and provider turn aliases", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = asThreadId("thread-promoted-turn-page");
+      const canonicalTurnId = asTurnId("turn:server:dispatch-queued-turn:42");
+      const queuedTurnId = asTurnId("turn:composer-queue:queued-message");
+      const providerTurnId = asTurnId("provider-turn-promoted-42");
+      const pendingMessageId = asMessageId("message-promoted-user");
+
+      yield* sql`DELETE FROM projection_pending_interactions`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_thread_messages`;
+      yield* sql`DELETE FROM projection_turns`;
+      yield* sql`DELETE FROM projection_state`;
+
+      yield* sql`
+        INSERT INTO projection_turns (
+          thread_id, turn_id, provider_turn_id, pending_message_id, assistant_message_id,
+          state, requested_at, started_at, completed_at
+        ) VALUES (
+          ${threadId}, ${canonicalTurnId}, ${providerTurnId}, ${pendingMessageId},
+          'message-promoted-assistant', 'completed',
+          '2026-08-02T00:00:01.000Z', '2026-08-02T00:00:02.000Z',
+          '2026-08-02T00:00:03.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id, thread_id, turn_id, role, text, is_streaming,
+          sequence, created_at, updated_at
+        ) VALUES
+          (
+            ${pendingMessageId}, ${threadId}, ${queuedTurnId}, 'user', 'Ground yourself', 0,
+            41, '2026-08-02T00:00:01.000Z', '2026-08-02T00:00:01.000Z'
+          ),
+          (
+            'message-promoted-assistant', ${threadId}, ${providerTurnId}, 'assistant',
+            'Grounded.', 0, 43,
+            '2026-08-02T00:00:03.000Z', '2026-08-02T00:00:03.000Z'
+          )
+      `;
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id, thread_id, turn_id, tone, kind, summary,
+          payload_json, sequence, created_at
+        ) VALUES (
+          'activity-promoted-provider-turn', ${threadId}, ${providerTurnId}, 'info',
+          'runtime.note', 'provider activity', '{}', 42, '2026-08-02T00:00:02.000Z'
+        )
+      `;
+
+      const page = yield* snapshotQuery.getThreadTurnsPage({ threadId });
+      assert.equal(page.conversationTurnCount, 1);
+      assert.deepEqual(
+        page.messages.map((message) => message.text),
+        ["Ground yourself", "Grounded."],
+      );
+      assert.deepEqual(
+        page.messages.map((message) => message.turnId),
+        [queuedTurnId, providerTurnId],
+      );
+      assert.deepEqual(
+        page.activities.map((activity) => activity.summary),
+        ["provider activity"],
+      );
+    }),
+  );
+
+  it.effect(
+    "keeps restart continuations and provider retries in the originating conversation turn",
+    () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+        const threadId = asThreadId("thread-restart-conversation-page");
+
+        yield* sql`DELETE FROM projection_pending_interactions`;
+        yield* sql`DELETE FROM projection_thread_activities`;
+        yield* sql`DELETE FROM projection_thread_messages`;
+        yield* sql`DELETE FROM projection_turns`;
+        yield* sql`DELETE FROM projection_state`;
+
+        yield* sql`
+        INSERT INTO projection_turns (
+          thread_id, turn_id, provider_turn_id, pending_message_id,
+          assistant_message_id, state, requested_at, started_at, completed_at
+        ) VALUES
+          (
+            ${threadId}, 'turn-original', 'provider-attempt-one', 'message-user',
+            'message-assistant-one', 'interrupted', '2026-08-03T00:00:01.000Z',
+            '2026-08-03T00:00:02.000Z', '2026-08-03T00:00:03.000Z'
+          ),
+          (
+            ${threadId}, 'turn:restart-recovery:one', NULL, 'restart-recovery:one',
+            NULL, 'interrupted', '2026-08-03T00:00:04.000Z', NULL,
+            '2026-08-03T00:00:05.000Z'
+          ),
+          (
+            ${threadId}, 'turn-provider-retry', 'provider-attempt-two', NULL,
+            'message-assistant-two', 'completed', '2026-08-03T00:00:05.000Z',
+            '2026-08-03T00:00:05.000Z', '2026-08-03T00:00:07.000Z'
+          )
+      `;
+        yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id, thread_id, turn_id, role, text, is_streaming,
+          sequence, created_at, updated_at
+        ) VALUES
+          (
+            'message-user', ${threadId}, 'turn-original', 'user', 'Continue the task', 0,
+            1, '2026-08-03T00:00:01.000Z', '2026-08-03T00:00:01.000Z'
+          ),
+          (
+            'message-assistant-one', ${threadId}, 'provider-attempt-one', 'assistant',
+            'First attempt', 0, 2, '2026-08-03T00:00:02.000Z',
+            '2026-08-03T00:00:03.000Z'
+          ),
+          (
+            'message-assistant-two', ${threadId}, 'provider-attempt-two', 'assistant',
+            'Recovered attempt', 0, 4, '2026-08-03T00:00:06.000Z',
+            '2026-08-03T00:00:07.000Z'
+          )
+      `;
+        yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id, thread_id, turn_id, tone, kind, summary,
+          payload_json, sequence, created_at
+        ) VALUES (
+          'activity-recovery', ${threadId}, 'provider-attempt-two', 'info',
+          'runtime.note', 'continued after restart', '{}', 3,
+          '2026-08-03T00:00:05.000Z'
+        )
+      `;
+
+        const page = yield* snapshotQuery.getThreadTurnsPage({ threadId });
+        assert.equal(page.conversationTurnCount, 1);
+        assert.deepEqual(
+          page.messages.map((message) => message.text),
+          ["Continue the task", "First attempt", "Recovered attempt"],
+        );
+        assert.deepEqual(
+          page.activities.map((activity) => activity.summary),
+          ["continued after restart"],
+        );
+        assert.isFalse(page.hasOlder);
+      }),
+  );
 });

@@ -6807,7 +6807,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
-  it.effect("uses an app-generated Claude session id for fresh sessions", () => {
+  it.effect("keeps an app-generated Claude session id provisional for fresh sessions", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -6825,14 +6825,15 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         turnCount?: number;
       };
       assert.equal(sessionResumeCursor.threadId, THREAD_ID);
-      assert.equal(typeof sessionResumeCursor.resume, "string");
+      assert.equal(sessionResumeCursor.resume, undefined);
       assert.equal(sessionResumeCursor.turnCount, 0);
+      const provisionalSessionId = createInput?.options.sessionId;
+      assert.equal(typeof provisionalSessionId, "string");
       assert.match(
-        sessionResumeCursor.resume ?? "",
+        provisionalSessionId ?? "",
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
       );
       assert.equal(createInput?.options.resume, undefined);
-      assert.equal(createInput?.options.sessionId, sessionResumeCursor.resume);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

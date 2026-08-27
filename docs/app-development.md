@@ -76,7 +76,7 @@ rejected. `README.md` and `INSTRUCTIONS.md` must be nonempty UTF-8 documents.
     {
       "key": "documents.open",
       "summary": "Open one exact note in an App tab and return its tab ID.",
-      "guidance": "Use the returned tab ID for visible review. Opening does not change note content.",
+      "instructions": "Use the returned tab ID for visible review. Opening does not change note content.",
       "input": {
         "type": "object",
         "properties": { "id": { "type": "string" } },
@@ -109,7 +109,7 @@ for how to choose the key itself.
 Every operation requires at least one named example whose `input` matches the declared input
 schema. Penkra renders examples as complete `penkra_exec_command` calls in generated help and
 rejects missing, malformed, or schema-invalid examples during App testing, packaging, sideloading,
-and publication. Use optional `guidance` for operation-specific procedure, limits, and recovery;
+and publication. Use optional `instructions` for operation-specific procedure, limits, and recovery;
 keep the summary concise enough for discovery.
 
 Handler contributions declare resources an App can open through one of its public operations:
@@ -267,7 +267,7 @@ state; messages cannot select another origin or renderer. Reload creates a new p
 old tab references without changing the App×Space origin.
 
 The operation controller is not a hidden webpage and cannot inspect the shell or any App tab DOM.
-Penkra starts one dedicated Node process for each enabled App and Space, loads the declared
+Penkra starts one dedicated Node process for each active App installation and Space, loads the declared
 `operations.js`, and exposes the SDK as `globalThis.penkra` and through `@penkra/sdk`. Controller
 code may use standard Node facilities such as `node:fs`, `Buffer`, `fetch`, `node:crypto`, streams,
 and packaged JavaScript dependencies. The initial controller policy disables child processes,
@@ -495,7 +495,7 @@ waits for a person. Cancellation includes tab close, timeout, disable, uninstall
 Inside the visual App, `tab.setRoute` records App-owned navigation without causing a second
 navigation event. Penkra uses that latest recorded route and state when it recreates the tab.
 
-Apps may invoke another enabled App's public operation through `context.operations.invoke`; the
+Apps may invoke another installed App's public operation through `context.operations.invoke`; the
 callee's schemas and permissions still apply. Apps cannot invoke private installation operations.
 
 ## Visual-tab storage, byte movement, and composer staging
@@ -657,11 +657,11 @@ flows that do not need to become composer attachments.
 
 Agents call the single registered `penkra_exec_command` host tool. Its `command` field is one
 ordinary command-line string. Core commands start with `penkra`; App commands start with the
-enabled App's slug:
+installed App's slug:
 
 ```json
 { "command": "penkra --help" }
-{ "command": "penkra apps list" }
+{ "command": "apps list" }
 { "command": "penkra open --path /absolute/path/to/file" }
 { "command": "notes notes open --id note-123" }
 { "command": "notes notes open --help" }
@@ -672,7 +672,7 @@ have a separate schema mode.
 
 These are registered operations, not shell execution. Ordinary quoting and `--name value` parsing
 apply, but substitution, expansion, pipes, redirects, and PATH lookup do not. Object and array
-values use JSON through `--input`. An agent must establish enabled Apps with `penkra apps list`
+values use JSON through `--input`. An agent must establish installed Apps with `apps list`
 rather than infer installation from source code or a similarly named tool.
 
 ## Agent observation and interaction
@@ -685,19 +685,19 @@ visible for the caller Thread:
 { "command": "penkra tabs current" }
 { "command": "penkra tabs list" }
 { "command": "penkra tabs snapshot --tab-id <tab-id>" }
-{ "command": "penkra tabs snapshot --tab-id <tab-id> --target e17 --depth 3 --boxes true" }
+{ "command": "penkra tabs snapshot --tab-id <tab-id> --ref e17 --depth 3 --boxes true" }
 { "command": "penkra tabs snapshot --tab-id <tab-id> --filename artifacts/app-snapshot.md" }
 { "command": "penkra tabs find --tab-id <tab-id> --query '/save|publish/i'" }
 { "command": "penkra tabs screenshot" }
-{ "command": "penkra tabs click --tab-id <tab-id> --target e17 --observe true" }
-{ "command": "penkra tabs hover --tab-id <tab-id> --target e17" }
-{ "command": "penkra tabs type --tab-id <tab-id> --target e18 --text 'Updated copy'" }
+{ "command": "penkra tabs click --tab-id <tab-id> --ref e17 --observe true" }
+{ "command": "penkra tabs hover --tab-id <tab-id> --ref e17" }
+{ "command": "penkra tabs type --tab-id <tab-id> --ref e18 --text 'Updated copy'" }
 { "command": "penkra tabs press --tab-id <tab-id> --key Enter" }
-{ "command": "penkra tabs select --tab-id <tab-id> --target e19 --value done" }
+{ "command": "penkra tabs select --tab-id <tab-id> --ref e19 --value done" }
 { "command": "penkra tabs scroll --tab-id <tab-id> --delta-y 640" }
 { "command": "penkra tabs wait --tab-id <tab-id> --text Saved" }
 { "command": "penkra tabs handle-dialog --tab-id <tab-id> --accept true" }
-{ "command": "penkra tabs upload --tab-id <tab-id> --target e20 --input '{\"paths\":[\"/absolute/app-storage/file.pdf\"]}'" }
+{ "command": "penkra tabs upload --input '{\"tabId\":\"<tab-id>\",\"ref\":\"e20\",\"paths\":[\"/absolute/app-storage/file.pdf\"]}'" }
 ```
 
 Take a fresh snapshot before using an element reference. References belong to one exact tab and
@@ -736,9 +736,9 @@ through `@penkra/sdk` or inspect one another.
 Pass each command as one registered `penkra_exec_command` invocation:
 
 ```json
-{ "command": "penkra app sideload ./dist" }
-{ "command": "penkra app test ./dist" }
-{ "command": "penkra app package ./dist --output ./artifacts/my-app.penkra" }
+{ "command": "penkra app sideload --directory ./dist" }
+{ "command": "penkra app test --directory ./dist" }
+{ "command": "penkra app package --directory ./dist --output ./artifacts/my-app.penkra" }
 ```
 
 Relative paths resolve from the caller Thread's working directory. `package` requires an explicit
@@ -767,8 +767,8 @@ Use the registered App-author commands:
 ```json
 { "command": "penkra app status" }
 { "command": "penkra app status --app-id <app-id>" }
-{ "command": "penkra app publish ./dist --visibility private" }
-{ "command": "penkra app publish ./dist --visibility public" }
+{ "command": "penkra app publish --directory ./dist --visibility private" }
+{ "command": "penkra app publish --directory ./dist --visibility public" }
 { "command": "penkra app access invite --app-id <app-id> --email person@example.com" }
 { "command": "penkra app access list --app-id <app-id>" }
 { "command": "penkra app access revoke --app-id <app-id> --invitation-id <invitation-id>" }

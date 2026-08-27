@@ -60,6 +60,36 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
       }),
   ).pipe(Scope.provide(scope));
 
+  webSocketServer.on("connection", (socket, request) => {
+    const openedAtMs = Date.now();
+    const requestPath = (() => {
+      try {
+        return new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+      } catch {
+        return "unknown";
+      }
+    })();
+    socket.on("close", (code, reason) => {
+      Effect.runFork(
+        Effect.logInfo("WebSocket connection closed").pipe(
+          Effect.annotateLogs({
+            requestPath,
+            code,
+            reason: reason.toString("utf8") || null,
+            durationMs: Math.max(0, Date.now() - openedAtMs),
+          }),
+        ),
+      );
+    });
+    socket.on("error", (error) => {
+      Effect.runFork(
+        Effect.logWarning("WebSocket connection error").pipe(
+          Effect.annotateLogs({ requestPath, error: error.message }),
+        ),
+      );
+    });
+  });
+
   return HttpServer.make({
     address:
       typeof address === "string"

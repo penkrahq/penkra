@@ -78,6 +78,14 @@ interface TabCapture {
   cssHeight: number;
 }
 
+interface PendingJavaScriptDialog {
+  type: string;
+  message: string;
+  url: string;
+  defaultPrompt: string;
+  target: AppTabObservationTarget;
+}
+
 export interface AppTabObservationTarget {
   descriptor: DesktopAppTabDescriptor;
   webContents: WebContents;
@@ -141,6 +149,10 @@ export class AppTabObserver {
   readonly #resolver: AppTabObserverResolver;
   readonly #states = new Map<string, TabSnapshotState>();
   readonly #protocolSessions = new Map<string, string>();
+  readonly #dialogTargets = new Map<string, { tabId: string; target: AppTabObservationTarget }>();
+  readonly #dialogTabsByContents = new Map<number, Set<string>>();
+  readonly #dialogListeners = new Set<number>();
+  readonly #pendingDialogs = new Map<string, PendingJavaScriptDialog>();
 
   constructor(resolver: AppTabObserverResolver) {
     this.#resolver = resolver;
@@ -148,6 +160,14 @@ export class AppTabObserver {
 
   invalidate(tabId: string): void {
     this.#states.delete(tabId);
+    this.#pendingDialogs.delete(tabId);
+    for (const [key, owner] of this.#dialogTargets) {
+      if (owner.tabId === tabId) this.#dialogTargets.delete(key);
+    }
+    for (const [contentsId, tabIds] of this.#dialogTabsByContents) {
+      tabIds.delete(tabId);
+      if (tabIds.size === 0) this.#dialogTabsByContents.delete(contentsId);
+    }
   }
 
   async snapshot(
@@ -607,10 +627,15 @@ export class AppTabObserver {
   }
 
   async handleDialog(tabId: string, accept: boolean, text?: string): Promise<unknown> {
-    const sourceTarget = await this.#target(tabId);
-    const target = sourceTarget.frame
-      ? (await this.#protocolTarget(sourceTarget)).target
-      : sourceTarget;
+    await this.#target(tabId, true);
+    const pending = this.#pendingDialogs.get(tabId);
+    if (!pending) {
+      throw observerError(
+        "DIALOG_NOT_REPORTED",
+        "No browser JavaScript dialog has been reported for this tab.",
+      );
+    }
+    const target = pending.target;
     await this.#cdp(
       target.webContents,
       "Page.handleJavaScriptDialog",
@@ -620,7 +645,13 @@ export class AppTabObserver {
       },
       target.cdpSessionId,
     );
-    return { tabId, accepted: accept };
+    this.#pendingDialogs.delete(tabId);
+    return {
+      tabId,
+      accepted: accept,
+      dialog: dialogResult(pending),
+      ...(text === undefined ? {} : { promptText: bounded(text) }),
+    };
   }
 
   async upload(tabId: string, reference: string, paths: ReadonlyArray<string>): Promise<unknown> {
@@ -663,17 +694,75 @@ export class AppTabObserver {
     action: Record<string, unknown>,
     observe: boolean,
   ): Promise<unknown> {
+    const dialog = this.#pendingDialogs.get(tabId);
+    if (dialog) return { ...action, dialog: dialogResult(dialog) };
     if (!observe) return action;
     return { ...action, observation: await this.snapshot(tabId) };
   }
 
-  async #target(tabId: string): Promise<AppTabObservationTarget> {
+  async #target(tabId: string, allowDialog = false): Promise<AppTabObservationTarget> {
+    const existingDialog = this.#pendingDialogs.get(tabId);
+    if (existingDialog && !allowDialog) {
+      throw observerError(
+        "DIALOG_OPEN",
+        `A browser JavaScript ${existingDialog.type} dialog is open: ${JSON.stringify(bounded(existingDialog.message))}. Handle it with penkra tabs handle-dialog before continuing.`,
+      );
+    }
     const target = await this.#resolver.resolve(tabId);
     if (target.webContents.isDestroyed())
       throw observerError("TAB_CLOSED", `App tab ${tabId} is closed.`);
     if (target.embedded?.target.webContents.isDestroyed())
       throw observerError("TAB_CLOSED", `Hosted page in App tab ${tabId} is closed.`);
+    if (existingDialog) return target;
+    await this.#observeDialogs(tabId, target);
+    if (target.embedded) await this.#observeDialogs(tabId, target.embedded.target);
+    const pending = this.#pendingDialogs.get(tabId);
+    if (pending && !allowDialog) {
+      throw observerError(
+        "DIALOG_OPEN",
+        `A browser JavaScript ${pending.type} dialog is open: ${JSON.stringify(bounded(pending.message))}. Handle it with penkra tabs handle-dialog before continuing.`,
+      );
+    }
     return target;
+  }
+
+  async #observeDialogs(tabId: string, target: AppTabObservationTarget): Promise<void> {
+    const contents = target.webContents;
+    if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
+    const tabs = this.#dialogTabsByContents.get(contents.id) ?? new Set<string>();
+    tabs.add(tabId);
+    this.#dialogTabsByContents.set(contents.id, tabs);
+    this.#dialogTargets.set(dialogTargetKey(contents.id, target.cdpSessionId), { tabId, target });
+    const url = target.frame?.url ?? contents.getURL();
+    if (url) this.#dialogTargets.set(dialogUrlKey(contents.id, url), { tabId, target });
+    if (!this.#dialogListeners.has(contents.id)) {
+      this.#dialogListeners.add(contents.id);
+      contents.debugger.on("message", (_event, method, params, sessionId) => {
+        if (method !== "Page.javascriptDialogOpening" || !isRecord(params)) return;
+        const url = typeof params.url === "string" ? params.url : "";
+        const owner =
+          this.#dialogTargets.get(dialogTargetKey(contents.id, sessionId)) ??
+          (url ? this.#dialogTargets.get(dialogUrlKey(contents.id, url)) : undefined) ??
+          singleDialogOwner(
+            this.#dialogTabsByContents.get(contents.id),
+            this.#dialogTargets,
+            contents.id,
+          );
+        if (!owner) return;
+        this.#pendingDialogs.set(owner.tabId, {
+          type: typeof params.type === "string" ? params.type : "dialog",
+          message: typeof params.message === "string" ? params.message : "",
+          url,
+          defaultPrompt: typeof params.defaultPrompt === "string" ? params.defaultPrompt : "",
+          target: owner.target,
+        });
+      });
+      contents.once("destroyed", () => {
+        this.#dialogListeners.delete(contents.id);
+        this.#dialogTabsByContents.delete(contents.id);
+      });
+    }
+    await this.#cdp(contents, "Page.enable", undefined, target.cdpSessionId);
   }
 
   #state(tabId: string, target: AppTabObservationTarget): TabSnapshotState {
@@ -985,6 +1074,37 @@ function withoutHash(value: string): string {
 
 function observerError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
+}
+
+function dialogTargetKey(contentsId: number, sessionId: unknown): string {
+  return `${contentsId}:session:${typeof sessionId === "string" ? sessionId : "top"}`;
+}
+
+function dialogUrlKey(contentsId: number, url: string): string {
+  return `${contentsId}:url:${withoutHash(url)}`;
+}
+
+function singleDialogOwner(
+  tabIds: ReadonlySet<string> | undefined,
+  targets: ReadonlyMap<string, { tabId: string; target: AppTabObservationTarget }>,
+  contentsId: number,
+): { tabId: string; target: AppTabObservationTarget } | undefined {
+  if (!tabIds || tabIds.size !== 1) return undefined;
+  return targets.get(dialogTargetKey(contentsId, undefined));
+}
+
+function dialogResult(dialog: PendingJavaScriptDialog): {
+  type: string;
+  message: string;
+  url: string;
+  defaultPrompt: string;
+} {
+  return {
+    type: dialog.type,
+    message: bounded(dialog.message),
+    url: dialog.url,
+    defaultPrompt: bounded(dialog.defaultPrompt),
+  };
 }
 
 async function writeFileAtomically(path: string, contents: Buffer): Promise<void> {

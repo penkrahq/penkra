@@ -10,6 +10,7 @@ interface ScrollGeometrySource {
 
 interface VirtualItemSnapshot {
   readonly index: number;
+  readonly key?: string | number | bigint;
   readonly start: number;
   readonly end: number;
   readonly size: number;
@@ -47,6 +48,18 @@ export interface ChatScrollDiagnosticSample {
     readonly renderedEnd: number | null;
     readonly renderedCount: number;
   } | null;
+  /**
+   * The first virtual row intersecting the viewport. Keeping both TanStack's
+   * calculated offset and the painted DOM offset makes transform/scrollTop
+   * paint skew visible instead of reducing every jump to an ambiguous range.
+   */
+  readonly anchor: {
+    readonly key: string;
+    readonly index: number;
+    readonly virtualOffset: number;
+    readonly domOffset: number | null;
+    readonly domHeight: number | null;
+  } | null;
 }
 
 interface RecordChatScrollDiagnosticInput {
@@ -56,6 +69,14 @@ interface RecordChatScrollDiagnosticInput {
   readonly anchorRevision: string;
   readonly element?: ScrollGeometrySource | null;
   readonly virtualizer?: TranscriptVirtualizerDiagnosticsSource | null;
+  readonly detail?: Readonly<Record<string, unknown>>;
+}
+
+interface RecordChatPaginationDiagnosticInput {
+  readonly event: string;
+  readonly threadId: string;
+  readonly dataCount: number;
+  readonly element?: ScrollGeometrySource | null;
   readonly detail?: Readonly<Record<string, unknown>>;
 }
 
@@ -145,6 +166,43 @@ function readVirtualSnapshot(
   };
 }
 
+function readSemanticAnchor(
+  element: ScrollGeometrySource | null | undefined,
+  virtualizer: TranscriptVirtualizerDiagnosticsSource | null | undefined,
+): ChatScrollDiagnosticSample["anchor"] {
+  if (!element || !virtualizer?.getVirtualItems) return null;
+  let virtualItems: readonly VirtualItemSnapshot[];
+  try {
+    virtualItems = virtualizer.getVirtualItems();
+  } catch {
+    return null;
+  }
+  const anchor =
+    virtualItems.find((item) => item.end > element.scrollTop + 0.5) ?? virtualItems.at(0) ?? null;
+  if (!anchor) return null;
+
+  let key = anchor.key === undefined ? String(anchor.index) : String(anchor.key);
+  let domOffset: number | null = null;
+  let domHeight: number | null = null;
+  if (typeof HTMLElement !== "undefined" && element instanceof HTMLElement) {
+    const row = element.querySelector<HTMLElement>(`[data-index="${anchor.index}"]`);
+    if (row) {
+      key = row.getAttribute("data-row-key") ?? key;
+      const rowRect = row.getBoundingClientRect();
+      const viewportRect = element.getBoundingClientRect();
+      domOffset = finiteOrNull(rowRect.top - viewportRect.top);
+      domHeight = finiteOrNull(rowRect.height);
+    }
+  }
+  return {
+    key,
+    index: anchor.index,
+    virtualOffset: anchor.start - element.scrollTop,
+    domOffset,
+    domHeight,
+  };
+}
+
 export function nextChatScrollDiagnosticInstanceId(): number {
   const instanceId = state.nextInstanceId;
   state.nextInstanceId += 1;
@@ -155,8 +213,11 @@ export function areChatScrollDiagnosticsEnabled(): boolean {
   return state.enabled && diagnosticsAvailable();
 }
 
-export function recordChatScrollDiagnostic(input: RecordChatScrollDiagnosticInput): void {
-  if (!state.enabled || !diagnosticsAvailable()) return;
+function appendChatDiagnostic(
+  input: RecordChatScrollDiagnosticInput,
+  options: { alwaysInDev: boolean; consoleLabel: string },
+): void {
+  if (!diagnosticsAvailable() || (!options.alwaysInDev && !state.enabled)) return;
   const sample: ChatScrollDiagnosticSample = {
     sequence: state.nextSequence,
     recordedAt: performance.now(),
@@ -167,15 +228,43 @@ export function recordChatScrollDiagnostic(input: RecordChatScrollDiagnosticInpu
     detail: input.detail ?? {},
     dom: readDomSnapshot(input.element),
     virtual: readVirtualSnapshot(input.virtualizer),
+    anchor: readSemanticAnchor(input.element, input.virtualizer),
   };
   state.nextSequence += 1;
   state.samples.push(sample);
   if (state.samples.length > MAX_SAMPLES) {
     state.samples.splice(0, state.samples.length - MAX_SAMPLES);
   }
-  if (state.logToConsole) {
-    console.debug("[chat-scroll]", sample);
+  if (options.alwaysInDev || state.logToConsole) {
+    console.debug(options.consoleLabel, sample);
   }
+}
+
+export function recordChatScrollDiagnostic(input: RecordChatScrollDiagnosticInput): void {
+  appendChatDiagnostic(input, { alwaysInDev: false, consoleLabel: "[chat-scroll]" });
+}
+
+/**
+ * Adds page-request, merge, row-derivation, and prepend checkpoints to the same
+ * bounded trace as transcript geometry. Pagination deliberately uses a stable
+ * synthetic instance so its records can be correlated by `threadId` and the
+ * request id carried in `detail` without coupling the store to a mounted list.
+ */
+export function recordChatPaginationDiagnostic(input: RecordChatPaginationDiagnosticInput): void {
+  appendChatDiagnostic(
+    {
+      instanceId: 0,
+      event: `pagination:${input.event}`,
+      dataCount: input.dataCount,
+      anchorRevision: input.threadId,
+      ...(input.element === undefined ? {} : { element: input.element }),
+      detail: {
+        threadId: input.threadId,
+        ...(input.detail ?? {}),
+      },
+    },
+    { alwaysInDev: true, consoleLabel: "[chat-pagination]" },
+  );
 }
 
 export function enableChatScrollDiagnostics(options?: { logToConsole?: boolean }): void {
@@ -202,6 +291,7 @@ export function getChatScrollDiagnosticSamples(): readonly ChatScrollDiagnosticS
     detail: { ...sample.detail },
     dom: sample.dom ? { ...sample.dom } : null,
     virtual: sample.virtual ? { ...sample.virtual } : null,
+    anchor: sample.anchor ? { ...sample.anchor } : null,
   }));
 }
 

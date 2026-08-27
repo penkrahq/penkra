@@ -1,10 +1,9 @@
 import * as Crypto from "node:crypto";
 
 import { WS_STREAM_LIMITS, WsRpcError } from "@penkra/contracts";
-import { Effect, Ref, Stream } from "effect";
+import { Cause, Effect, Exit, Ref, Stream } from "effect";
 
 export const MAX_STREAMS_PER_RPC_CLIENT = WS_STREAM_LIMITS.totalPerClient;
-export const MAX_THREAD_STREAMS_PER_RPC_CLIENT = WS_STREAM_LIMITS.threadPerClient;
 const STREAM_CAPACITY_RETRY_AFTER_MS = 1_000;
 
 export interface WsStreamSubscription {
@@ -15,6 +14,7 @@ export interface WsStreamSubscription {
 export interface WsStreamLease extends WsStreamSubscription {
   readonly clientId: number;
   readonly leaseId: string;
+  readonly acquiredAtMs: number;
 }
 
 interface ClientLedger {
@@ -43,7 +43,7 @@ type AdmissionOutcome =
   | {
       readonly _tag: "Rejected";
       readonly error: WsRpcError;
-      readonly reason: "duplicate" | "stream-capacity" | "thread-capacity";
+      readonly reason: "duplicate" | "stream-capacity";
       readonly active: number;
       readonly activeThreads: number;
     };
@@ -68,7 +68,7 @@ export const makeWsStreamAdmission = (
   options: {
     readonly recordRejection?: (input: {
       readonly threadId?: string;
-      readonly reason: "duplicate" | "stream-capacity" | "thread-capacity";
+      readonly reason: "duplicate" | "stream-capacity";
       readonly errorCode: string;
       readonly active: number;
       readonly activeThreads: number;
@@ -120,31 +120,11 @@ export const makeWsStreamAdmission = (
             { ...ledger, rejectedCapacityTotal: ledger.rejectedCapacityTotal + 1 },
           ];
         }
-        if (
-          subscription.threadId !== undefined &&
-          activeThreads >= MAX_THREAD_STREAMS_PER_RPC_CLIENT
-        ) {
-          return [
-            {
-              _tag: "Rejected",
-              reason: "thread-capacity",
-              active,
-              activeThreads,
-              error: new WsRpcError({
-                message: "Thread streaming RPC capacity exceeded.",
-                code: "THREAD_STREAM_CAPACITY_EXCEEDED",
-                retryable: true,
-                retryAfterMs: STREAM_CAPACITY_RETRY_AFTER_MS,
-              }),
-            },
-            { ...ledger, rejectedCapacityTotal: ledger.rejectedCapacityTotal + 1 },
-          ];
-        }
-
         const lease: WsStreamLease = {
           ...subscription,
           clientId,
           leaseId: Crypto.randomUUID(),
+          acquiredAtMs: Date.now(),
         };
         const nextLeases = new Map(leases);
         nextLeases.set(lease.leaseId, lease);
@@ -165,7 +145,6 @@ export const makeWsStreamAdmission = (
                     active: outcome.active,
                     activeThreads: outcome.activeThreads,
                     streamLimit: MAX_STREAMS_PER_RPC_CLIENT,
-                    threadLimit: MAX_THREAD_STREAMS_PER_RPC_CLIENT,
                     requestedThreadId: subscription.threadId ?? null,
                   }),
                 );
@@ -189,20 +168,37 @@ export const makeWsStreamAdmission = (
       );
 
     const release = (lease: WsStreamLease) =>
-      Ref.update(ledgerRef, (ledger) => {
+      Ref.modify(ledgerRef, (ledger): readonly [boolean, AdmissionLedger] => {
         const client = ledger.clients.get(lease.clientId);
-        if (!client?.leases.has(lease.leaseId)) return ledger;
+        if (!client?.leases.has(lease.leaseId)) return [false, ledger];
         const nextLeases = new Map(client.leases);
         nextLeases.delete(lease.leaseId);
         const nextClients = new Map(ledger.clients);
         if (nextLeases.size === 0) nextClients.delete(lease.clientId);
         else nextClients.set(lease.clientId, { leases: nextLeases });
-        return {
-          ...ledger,
-          clients: nextClients,
-          releasedTotal: ledger.releasedTotal + 1,
-        };
-      });
+        return [
+          true,
+          {
+            ...ledger,
+            clients: nextClients,
+            releasedTotal: ledger.releasedTotal + 1,
+          },
+        ];
+      }).pipe(
+        Effect.tap((released) =>
+          released
+            ? Effect.logInfo("streaming RPC lease released").pipe(
+                Effect.annotateLogs({
+                  clientId: lease.clientId,
+                  streamKey: lease.key,
+                  threadId: lease.threadId ?? null,
+                  durationMs: Math.max(0, Date.now() - lease.acquiredAtMs),
+                }),
+              )
+            : Effect.void,
+        ),
+        Effect.asVoid,
+      );
 
     const guard = <A, E, R>(
       clientId: number,
@@ -210,7 +206,26 @@ export const makeWsStreamAdmission = (
       stream: Stream.Stream<A, E, R>,
     ): Stream.Stream<A, E | WsRpcError, R> =>
       Stream.unwrap(
-        Effect.acquireRelease(acquire(clientId, subscription), release).pipe(Effect.as(stream)),
+        Effect.acquireRelease(acquire(clientId, subscription), release).pipe(
+          Effect.map((lease) =>
+            stream.pipe(
+              Stream.onExit((exit) =>
+                Effect.logInfo("streaming RPC stream exited").pipe(
+                  Effect.annotateLogs({
+                    clientId: lease.clientId,
+                    streamKey: lease.key,
+                    threadId: lease.threadId ?? null,
+                    exitKind: Exit.isSuccess(exit)
+                      ? "success"
+                      : Cause.hasInterruptsOnly(exit.cause)
+                        ? "interrupted"
+                        : "failure",
+                  }),
+                ),
+              ),
+            ),
+          ),
+        ),
       );
 
     const snapshot = Ref.get(ledgerRef).pipe(

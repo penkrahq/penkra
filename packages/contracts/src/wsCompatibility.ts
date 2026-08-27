@@ -9,12 +9,11 @@ export const WS_BOOTSTRAP_METHOD = "bootstrap.negotiate";
 export const WS_BOOTSTRAP_PATH = "/ws/bootstrap";
 export const WS_FEATURE_PATH = "/ws";
 
-// These are protocol budgets, not server implementation details. Keeping the
-// browser's desired lease set and server admission on the same values prevents
-// prewarming from creating subscriptions the connection can never admit.
+// The total is a per-socket abuse boundary for legacy streaming RPCs, not a
+// Thread-activity policy. The unified orchestration stream uses one slot, and
+// legacy Thread streams share the ordinary total without a separate cap.
 export const WS_STREAM_LIMITS = {
   totalPerClient: 20,
-  threadPerClient: 8,
 } as const;
 
 export const WS_COMPATIBILITY_QUERY = {
@@ -25,6 +24,8 @@ export const WS_COMPATIBILITY_QUERY = {
 } as const;
 
 export const WS_SERVER_CAPABILITIES = [
+  "orchestration.global-fifo-sync",
+  "orchestration.turn-pagination",
   "orchestration.cursor-safe-streams",
   "orchestration.thread-detail-snapshot",
   "rpc.typed-errors",

@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+### Added
+
+- Added operation-specific `instructions` to canonical leaf help alongside validated input and
+  output schemas and required named examples.
+- Added `apps list` as an ordinary operation of the always-installed Apps App; it returns only App
+  identities installed in the current Space, leaving each App's operations to `<slug> --help`.
+- Added durable browser JavaScript-dialog reporting for retained tabs. Immediate actions return the
+  reported dialog, delayed dialogs block the next tab command with `DIALOG_OPEN`, and
+  `penkra tabs handle-dialog` closes only a previously reported native dialog.
+- Added one acknowledged, replayable orchestration synchronization stream and turn-boundary
+  transcript pagination so reconnects and long Threads recover from durable sequence cursors.
+
+### Changed
+
+- Separated always-loaded host policy, MCP server instructions, the compact command-tool
+  description, Penkra root help, App root help, and operation leaf help into distinct delivery
+  layers with one declaration-driven help format.
+- Removed the live App catalog from automatically delivered instructions and from `penkra --help`.
+  Agents discover installed Apps with `apps list`, read an App's operating manual with
+  `<slug> --help`, and read exact contracts with `<operation> --help`.
+- Replaced the host-owned `penkra apps list` alias with the canonical `apps list` operation and
+  removed user-facing enable/disable vocabulary from discovery errors.
+- Standardized Tabs element arguments on `--ref`, matching the references returned by snapshot and
+  find, and generated every Tabs leaf help document from the same declaration used for parsing.
+- Standardized App-development commands on named `--directory` input and canonical generated help.
+- Unified shell, active-Thread, and live event hydration behind the durable synchronization stream;
+  recently viewed Thread detail remains a bounded client-side cache rather than another live
+  subscription.
+
+### Fixed
+
+- Fixed every `penkra tabs <operation> --help` call being rejected even though family help told
+  agents to inspect unfamiliar leaf contracts.
+- Fixed browser JavaScript dialogs having a close command but no reliable discovery/reporting path,
+  especially when a dialog appeared after the triggering action returned.
+- Fixed restart and update shutdown consuming the next queued turn while provider runtimes were
+  closing; queue promotion now quiesces before shutdown and resumes after restart recovery settles.
+- Fixed stale approval and user-input failures surviving as false sidebar attention badges, including
+  typed repair migrations for databases that already materialized the orphaned interactions.
+- Fixed fresh Claude sessions persisting a provisional native session ID before Claude had created
+  the conversation, which could strand authentication-first failures on an unusable resume target.
+- Fixed transcript page merging, promoted-queue ordering, detached-reader scrolling, and WebSocket
+  recovery after clean completion or hung connection attempts.
+
 ## 0.9.2 - 2026-08-07
 
 ### Added
@@ -9,7 +53,7 @@
 - Added automatic updates for installed registry Apps when a newer release is compatible and does
   not request new authority; releases that add permissions keep the working version active and
   surface an explicit permission-review action instead.
-- Added the runtime `penkra app sideload <directory>` development workflow, including validation,
+- Added the runtime `penkra app sideload --directory <directory>` development workflow, including validation,
   multiple watched Apps, and live replacement in an already-running Penkra Dev instance.
 - Added permission-gated, credential-hidden Account data requests and realtime subscriptions inside
   each App's own backend namespace.

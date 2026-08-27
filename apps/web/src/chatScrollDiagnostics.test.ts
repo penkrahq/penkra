@@ -5,6 +5,7 @@ import {
   disableChatScrollDiagnostics,
   enableChatScrollDiagnostics,
   getChatScrollDiagnosticSamples,
+  recordChatPaginationDiagnostic,
   recordChatScrollDiagnostic,
   resetChatScrollDiagnostics,
 } from "./chatScrollDiagnostics";
@@ -71,6 +72,39 @@ describe("chat scroll diagnostics", () => {
           renderedEnd: 186,
           renderedCount: 2,
         }),
+        anchor: {
+          key: "164",
+          index: 164,
+          virtualOffset: 6_000,
+          domOffset: null,
+          domHeight: null,
+        },
+      }),
+    ]);
+  });
+
+  it("records pagination lifecycle evidence in the shared bounded trace", () => {
+    recordChatPaginationDiagnostic({
+      event: "response-received",
+      threadId: "thread-long",
+      dataCount: 20,
+      element: { scrollTop: 40, clientHeight: 600, scrollHeight: 4_000 },
+      detail: { requestId: 3, messageCount: 49, userMessageCount: 0 },
+    });
+
+    expect(getChatScrollDiagnosticSamples()).toEqual([
+      expect.objectContaining({
+        instanceId: 0,
+        event: "pagination:response-received",
+        dataCount: 20,
+        anchorRevision: "thread-long",
+        detail: {
+          threadId: "thread-long",
+          requestId: 3,
+          messageCount: 49,
+          userMessageCount: 0,
+        },
+        dom: expect.objectContaining({ scrollTop: 40, distanceFromEnd: 3_360 }),
       }),
     ]);
   });

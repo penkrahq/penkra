@@ -1638,6 +1638,35 @@ describe("deriveWorkLogEntries", () => {
 });
 
 describe("deriveTimelineEntries", () => {
+  it("uses queue promotion sequence instead of admission time for transcript placement", () => {
+    const queuedMessageId = MessageId.makeUnsafe("message-queued-follow-up");
+    const assistantMessageId = MessageId.makeUnsafe("message-preceding-assistant");
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: queuedMessageId,
+          role: "user",
+          text: "Ground yourself",
+          createdAt: "2026-08-27T11:00:36.000Z",
+          sequence: 2,
+          delivery: { state: "starting", queued: true, sequence: 5 },
+          streaming: false,
+        },
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          text: "Quite a lot.",
+          createdAt: "2026-08-27T11:00:38.000Z",
+          sequence: 3,
+          streaming: false,
+        },
+      ],
+      [],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual([assistantMessageId, queuedMessageId]);
+  });
+
   it("places a same-timestamp Connection change before the message that uses it", () => {
     const createdAt = "2026-02-23T00:00:01.000Z";
     const entries = deriveTimelineEntries(

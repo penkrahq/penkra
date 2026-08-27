@@ -1,20 +1,16 @@
 // FILE: threadDetailSubscriptionRetention.ts
-// Purpose: Keep recently used thread-detail subscriptions warm across route/sidebar switches.
-// Layer: Web subscription retention utility
-// Exports: retain/release helpers, the connection lease selector, and a React listener.
+// Purpose: Keep recently used normalized thread detail warm across route/sidebar switches.
+// Layer: Web detail-cache retention utility
+// Exports: retain/release helpers and a React listener.
 
-import { WS_STREAM_LIMITS, type ThreadId } from "@penkra/contracts";
+import type { ThreadId } from "@penkra/contracts";
 import { useSyncExternalStore } from "react";
 import { useStore } from "./store";
 import { getThreadFromState } from "./threadDerivation";
 
 const THREAD_DETAIL_RETENTION_EVICTION_MS = 15 * 60 * 1000;
-// This is a client-side memory cache, not a stream budget: concurrent server
-// subscriptions stay capped at `WS_STREAM_LIMITS.threadPerClient` by
-// `resolveThreadDetailSubscriptionLeaseIds`, so a larger cache never widens
-// admission. It must exceed everything that retains at once (sidebar prewarm
-// window + split-view threads + a parent's live subagent children), otherwise the
-// map sits permanently over capacity and evicts warm detail on every store write.
+// This is only a client-side memory cache bound. It does not control or suppress
+// delivery from the unified orchestration stream.
 export const MAX_CACHED_THREAD_DETAIL_SUBSCRIPTIONS = 32;
 
 type RetainedThreadEntry = {
@@ -286,34 +282,6 @@ export function getRetainedThreadDetailIdsSnapshot(): readonly ThreadId[] {
  */
 export function isThreadDetailRetained(threadId: ThreadId): boolean {
   return retainedThreadEntries.has(threadId);
-}
-
-export function resolveThreadDetailSubscriptionLeaseIds(input: {
-  readonly visibleThreadIds: readonly ThreadId[];
-  readonly retainedThreadIds: readonly ThreadId[];
-  readonly serverThreadIds: ReadonlySet<ThreadId>;
-  readonly draftThreadIds: ReadonlySet<ThreadId>;
-}): ThreadId[] {
-  const threadIds = new Set<ThreadId>();
-  for (const threadId of input.visibleThreadIds) {
-    if (threadIds.size >= WS_STREAM_LIMITS.threadPerClient) break;
-    // A known local draft has no authoritative snapshot until `thread.create`
-    // folders its shell row. Subscribing earlier turns that expected state into
-    // THREAD_SNAPSHOT_NOT_FOUND after the bounded bootstrap retry. Once the row
-    // exists, snapshot-then-replay covers every event committed before the lease.
-    // Unknown visible ids still subscribe so invalid/deleted routes fail visibly.
-    if (!input.serverThreadIds.has(threadId) && input.draftThreadIds.has(threadId)) {
-      continue;
-    }
-    threadIds.add(threadId);
-  }
-  for (const threadId of input.retainedThreadIds) {
-    if (threadIds.size >= WS_STREAM_LIMITS.threadPerClient) break;
-    if (input.serverThreadIds.has(threadId)) {
-      threadIds.add(threadId);
-    }
-  }
-  return [...threadIds];
 }
 
 export function useRetainedThreadDetailIds(): readonly ThreadId[] {

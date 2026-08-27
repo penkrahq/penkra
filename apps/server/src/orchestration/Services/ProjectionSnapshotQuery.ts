@@ -13,6 +13,8 @@ import type {
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   OrchestrationThreadDetailSnapshot,
+  OrchestrationGetThreadTurnsPageInput,
+  OrchestrationGetThreadTurnsPageResult,
   OrchestrationThread,
   OrchestrationThreadShell,
   FolderId,
@@ -178,6 +180,11 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadDetailSnapshotById: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThreadDetailSnapshot>, ProjectionRepositoryError>;
+
+  /** Read one cursor page of complete turns for transcript history. */
+  readonly getThreadTurnsPage: (
+    input: OrchestrationGetThreadTurnsPageInput,
+  ) => Effect.Effect<OrchestrationGetThreadTurnsPageResult, ProjectionRepositoryError>;
 }
 
 /**

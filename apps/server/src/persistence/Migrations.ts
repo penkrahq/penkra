@@ -157,6 +157,8 @@ import Migration0148 from "./Migrations/148_RemoveUnshippedProviders.ts";
 import Migration0149 from "./Migrations/149_FolderOnlyHierarchy.ts";
 import Migration0150 from "./Migrations/150_ResetConnectionUsageAccounting.ts";
 import Migration0151 from "./Migrations/151_FolderPersistenceNames.ts";
+import Migration0152 from "./Migrations/152_TypedLegacyPendingInteractionFailures.ts";
+import Migration0153 from "./Migrations/153_TypedLegacyPendingInteractionProjectionRepair.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -313,6 +315,8 @@ export const migrationEntries = [
   [149, "FolderOnlyHierarchy", Migration0149],
   [150, "ResetConnectionUsageAccounting", Migration0150],
   [151, "FolderPersistenceNames", Migration0151],
+  [152, "TypedLegacyPendingInteractionFailures", Migration0152],
+  [153, "TypedLegacyPendingInteractionProjectionRepair", Migration0153],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

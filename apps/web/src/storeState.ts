@@ -21,6 +21,11 @@ import type {
  */
 export type ThreadDetailSyncState = "synced" | "failed";
 
+export interface ThreadTurnPaginationState {
+  readonly hasOlder: boolean;
+  readonly nextCursor: string | null;
+}
+
 export interface AppState {
   /** Highest authoritative snapshot integrated by this store instance. */
   shellSnapshotSequence?: number;
@@ -39,6 +44,7 @@ export interface AppState {
   activityIdsByThreadId?: Record<ThreadId, string[]>;
   activityByThreadId?: Record<ThreadId, Record<string, Thread["activities"][number]>>;
   threadDetailSyncById?: Record<ThreadId, ThreadDetailSyncState>;
+  threadTurnPaginationById?: Record<ThreadId, ThreadTurnPaginationState>;
   /**
    * Deletion tombstones, keyed by id, valued by the snapshot sequence at (or after) which the
    * deletion is guaranteed to be visible server-side. They stop a snapshot generated before the
@@ -81,6 +87,7 @@ export const initialState: AppState = {
   activityIdsByThreadId: {},
   activityByThreadId: {},
   threadDetailSyncById: {},
+  threadTurnPaginationById: {},
   deletedFolderIdsById: {},
   deletedThreadIdsById: {},
 };

@@ -2,7 +2,11 @@
 // Purpose: Own dynamic transcript virtualization and end-anchored chat scrolling.
 // Layer: Web chat infrastructure
 
-import { measureElement as measureVirtualElement, useVirtualizer } from "@tanstack/react-virtual";
+import {
+  elementScroll,
+  measureElement as measureVirtualElement,
+  useVirtualizer,
+} from "@tanstack/react-virtual";
 import {
   forwardRef,
   useCallback,
@@ -43,11 +47,14 @@ interface TranscriptVirtualListProps<TItem> extends Omit<
   keyExtractor: (item: TItem) => string;
   renderItem: (item: TItem) => ReactNode;
   paddingEnd: number;
+  /** Requests the next history page when the reader approaches the transcript start. */
+  onNearStart?: () => void;
   /** In-memory identity used to restore a detached viewport after switching transcripts. */
   viewportMemoryKey?: string;
 }
 
 const END_THRESHOLD_PX = 80;
+const START_PAGINATION_THRESHOLD_PX = 320;
 const OVERSCAN_ROWS = 6;
 const INITIAL_END_CORRECTION_DELAY_MS = 16;
 
@@ -66,10 +73,12 @@ function TranscriptVirtualListInner<TItem>(
     keyExtractor,
     renderItem,
     paddingEnd,
+    onNearStart,
     viewportMemoryKey,
     onKeyDown,
     onPointerDown,
     onScroll,
+    onTouchMove,
     onTouchStart,
     onWheel,
     ...scrollProps
@@ -82,7 +91,10 @@ function TranscriptVirtualListInner<TItem>(
     viewportMemoryKey ? (readTranscriptViewportSnapshot(viewportMemoryKey) ?? null) : null,
   );
   const diagnosticInstanceIdRef = useRef<number | null>(null);
-  diagnosticInstanceIdRef.current ??= nextChatScrollDiagnosticInstanceId();
+  if (diagnosticInstanceIdRef.current === null) {
+    diagnosticInstanceIdRef.current = nextChatScrollDiagnosticInstanceId();
+  }
+  const previousDataKeysRef = useRef<readonly string[]>([]);
   const getItemKey = useCallback(
     (index: number) => keyExtractor(data[index]!),
     [data, keyExtractor],
@@ -90,6 +102,10 @@ function TranscriptVirtualListInner<TItem>(
   const previousAnchorRevisionRef = useRef(anchorRevision);
   const hasSemanticAppend = previousAnchorRevisionRef.current !== anchorRevision;
   const wasAtEndRef = useRef(initialViewportSnapshotRef.current?.isAtEnd !== false);
+  // Rendered-tail heuristics compensate for provisional virtual measurements,
+  // but explicit reader intent outranks those heuristics until real DOM
+  // geometry reaches the end again.
+  const readerDetachedRef = useRef(initialViewportSnapshotRef.current?.isAtEnd === false);
   const shouldEndAnchor = hasSemanticAppend && wasAtEndRef.current;
   const initialEndFollowEligibleRef = useRef(initialViewportSnapshotRef.current?.isAtEnd !== false);
   const initialEndFollowRef = useRef(false);
@@ -125,14 +141,63 @@ function TranscriptVirtualListInner<TItem>(
       const viewportHeight = scrollElementRef.current?.clientHeight ?? 0;
       return Math.max(0, data.length * estimatedItemSize + paddingEnd - viewportHeight);
     },
-    // Only real message-tail changes end-anchor. Tool/status rows preserve the
-    // viewport even when their insertion changes the virtual row count.
-    anchorTo: shouldEndAnchor ? "end" : "start",
+    // TanStack's chat anchoring preserves a stable keyed row when history is
+    // prepended, follows growth only while genuinely end-pinned, and leaves a
+    // detached reader in place. `start` anchoring cannot distinguish prepends
+    // after every existing index shifts.
+    anchorTo: "end",
     followOnAppend: false,
     scrollEndThreshold: END_THRESHOLD_PX,
     overscan: OVERSCAN_ROWS,
     paddingEnd,
     directDomUpdates: true,
+    // Virtual Core calculates an exact above-viewport measurement delta, but
+    // its default element scroller writes scrollTop before the React adapter's
+    // synchronous onChange grows the virtual spacer. A large first measure can
+    // therefore be clamped against the old scrollHeight even though the core
+    // eagerly records the unclamped target. Defer only adjustment writes to a
+    // microtask: resizeItem completes its synchronous notify/direct-DOM update
+    // first, then the browser receives the same exact offset against the new
+    // geometry. Ordinary reader and imperative scrolls remain synchronous.
+    scrollToFn: (offset, options, instance) => {
+      const apply = () => {
+        const element = scrollElementRef.current;
+        const before = element?.scrollTop ?? null;
+        elementScroll(offset, options, instance);
+        recordChatScrollDiagnostic({
+          instanceId: diagnosticInstanceIdRef.current!,
+          event: "virtual-scroll-write:applied",
+          dataCount: data.length,
+          anchorRevision,
+          element,
+          virtualizer: instance,
+          detail: {
+            offset,
+            adjustments: options.adjustments ?? 0,
+            behavior: options.behavior ?? null,
+            before,
+            after: element?.scrollTop ?? null,
+          },
+        });
+      };
+      if ((options.adjustments ?? 0) !== 0 && options.behavior === undefined) {
+        recordChatScrollDiagnostic({
+          instanceId: diagnosticInstanceIdRef.current!,
+          event: "virtual-scroll-write:deferred",
+          dataCount: data.length,
+          anchorRevision,
+          element: scrollElementRef.current,
+          virtualizer: instance,
+          detail: {
+            offset,
+            adjustments: options.adjustments,
+          },
+        });
+        window.queueMicrotask(apply);
+        return;
+      }
+      apply();
+    },
     measureElement: (element, entry, instance) => {
       const size = measureVirtualElement(element, entry, instance);
       if (initialAnchorRestoreActiveRef.current) {
@@ -159,16 +224,17 @@ function TranscriptVirtualListInner<TItem>(
       });
       return size;
     },
-    // Streaming measurements can arrive while React is committing an
-    // adjacent transcript update. TanStack supports ordinary scheduled
-    // rerenders here; avoiding flushSync keeps that valid timing warning-free.
-    useFlushSync: false,
+    // Keep TanStack's synchronous correction enabled. In direct-DOM mode the
+    // scrollTop compensation and row transforms must commit in the same paint;
+    // deferring React's update produces a visible jump for heterogeneous chat
+    // rows. Lifecycle-sensitive imperative placement is scheduled outside the
+    // commit phase below so this does not trade the jump for nested flushSync.
+    useFlushSync: true,
     // Streaming Markdown can resize the measured tail again from inside the
     // observer delivery cycle. Frame-batching prevents Chromium's undelivered
     // ResizeObserver loop without adding a second scroll correction owner.
     useAnimationFrameWithResizeObserver: true,
   });
-
   const diagnosticTimeoutsRef = useRef<number[]>([]);
   const isAtRenderedTail = useCallback(
     (threshold = END_THRESHOLD_PX) => {
@@ -215,12 +281,15 @@ function TranscriptVirtualListInner<TItem>(
       }
       scrollElement?.removeAttribute("aria-busy");
       scrollElement?.setAttribute("data-initial-placement", "resolved");
+      if (scrollElement && scrollElement.scrollTop <= START_PAGINATION_THRESHOLD_PX) {
+        onNearStart?.();
+      }
       recordDiagnostic("initial-placement:revealed", {
         source,
         memoryKey: viewportMemoryKey ?? null,
       });
     },
-    [recordDiagnostic, viewportMemoryKey],
+    [onNearStart, recordDiagnostic, viewportMemoryKey],
   );
   const scheduleDiagnosticCheckpoints = useCallback(
     (source: string) => {
@@ -256,7 +325,8 @@ function TranscriptVirtualListInner<TItem>(
       0,
       element.scrollHeight - element.clientHeight - element.scrollTop,
     );
-    const isAtEnd = initialEndFollowEligibleRef.current || isAtRenderedTail();
+    const isAtEnd =
+      !readerDetachedRef.current && (initialEndFollowEligibleRef.current || isAtRenderedTail());
     const virtualItems = virtualizer.getVirtualItems();
     const anchor =
       virtualItems.find((item) => item.end > element.scrollTop + 0.5) ?? virtualItems.at(0) ?? null;
@@ -314,7 +384,25 @@ function TranscriptVirtualListInner<TItem>(
           initialPlacementResolved: initialPlacementResolvedRef.current,
           memoryKey: viewportMemoryKey ?? null,
         });
-        virtualizer.scrollToEnd({ behavior: options?.animated ? "smooth" : "auto" });
+        const element = scrollElementRef.current;
+        if (element) {
+          // TanStack's scrollToEnd owns a target-reconciliation loop that can
+          // outlive an upward wheel/touch gesture and snap the reader back for
+          // up to five seconds. DOM scrolling has the ownership semantics a
+          // chat needs: native input cancels smooth motion, and an auto write
+          // has no latent target to replay after detachment.
+          element.scrollTo({
+            top: element.scrollHeight,
+            behavior: options?.animated ? "smooth" : "auto",
+          });
+          if (
+            options?.animated !== true &&
+            virtualizer.scrollOffset !== null &&
+            Math.abs(virtualizer.scrollOffset - element.scrollTop) > 0.5
+          ) {
+            element.dispatchEvent(new Event("scroll"));
+          }
+        }
         recordDiagnostic("imperative-scroll-to-end:after", {
           animated: options?.animated ?? false,
         });
@@ -331,7 +419,8 @@ function TranscriptVirtualListInner<TItem>(
         // While the list still owns initial end-follow, transient virtual
         // estimates must not advertise a reader-authored scroll-away to the
         // parent. Explicit reader input revokes this ownership synchronously.
-        isAtEnd: initialEndFollowEligibleRef.current || isAtRenderedTail(),
+        isAtEnd:
+          !readerDetachedRef.current && (initialEndFollowEligibleRef.current || isAtRenderedTail()),
       }),
     }),
     [
@@ -546,13 +635,27 @@ function TranscriptVirtualListInner<TItem>(
   }, [recordDiagnostic, viewportMemoryKey]);
 
   useLayoutEffect(() => {
+    const previousKeys = previousDataKeysRef.current;
+    const currentKeys = data.map((item) => keyExtractor(item));
+    const previousFirstKey = previousKeys.at(0) ?? null;
+    const preservedFirstIndex =
+      previousFirstKey === null ? -1 : currentKeys.indexOf(previousFirstKey);
     recordDiagnostic("data-committed", {
       hasSemanticAppend,
       shouldEndAnchor,
       wasAtEnd: wasAtEndRef.current,
       memoryKey: viewportMemoryKey ?? null,
+      previousDataCount: previousKeys.length,
+      currentDataCount: currentKeys.length,
+      previousFirstKey,
+      currentFirstKey: currentKeys.at(0) ?? null,
+      previousLastKey: previousKeys.at(-1) ?? null,
+      currentLastKey: currentKeys.at(-1) ?? null,
+      preservedFirstIndex,
+      prependedRowCount: preservedFirstIndex > 0 ? preservedFirstIndex : 0,
     });
-  }, [hasSemanticAppend, recordDiagnostic, shouldEndAnchor, viewportMemoryKey]);
+    previousDataKeysRef.current = currentKeys;
+  }, [data, hasSemanticAppend, keyExtractor, recordDiagnostic, shouldEndAnchor, viewportMemoryKey]);
 
   useLayoutEffect(() => {
     if (!initialAnchorRestoreActiveRef.current || data.length === 0) return;
@@ -590,19 +693,34 @@ function TranscriptVirtualListInner<TItem>(
     (event: React.UIEvent<HTMLDivElement>) => {
       const element = event.currentTarget;
       const distanceFromEnd = element.scrollHeight - element.clientHeight - element.scrollTop;
+      if (distanceFromEnd <= END_THRESHOLD_PX) {
+        readerDetachedRef.current = false;
+      }
       // ResizeObserver and virtualizer corrections also emit scroll events.
       // They are not reader intent and may temporarily move geometry away from
       // the end while dynamic tail rows settle. Explicit input handlers below
       // revoke ownership before their resulting scroll event reaches here.
-      wasAtEndRef.current = initialEndFollowEligibleRef.current || isAtRenderedTail();
+      wasAtEndRef.current =
+        !readerDetachedRef.current && (initialEndFollowEligibleRef.current || isAtRenderedTail());
       recordDiagnostic("dom-scroll", {
         wasAtEnd: wasAtEndRef.current,
         distanceFromEnd,
       });
+      if (element.scrollTop <= START_PAGINATION_THRESHOLD_PX) {
+        onNearStart?.();
+      }
       onScroll?.(event);
     },
-    [isAtRenderedTail, onScroll, recordDiagnostic],
+    [isAtRenderedTail, onNearStart, onScroll, recordDiagnostic],
   );
+
+  useLayoutEffect(() => {
+    if (!initialPlacementResolvedRef.current) return;
+    const element = scrollElementRef.current;
+    if (element && element.scrollTop <= START_PAGINATION_THRESHOLD_PX) {
+      onNearStart?.();
+    }
+  }, [data.length, onNearStart]);
 
   return (
     <div
@@ -611,10 +729,20 @@ function TranscriptVirtualListInner<TItem>(
       aria-busy={data.length > 0 && !initialPlacementResolvedRef.current ? true : undefined}
       data-initial-placement={initialPlacementResolvedRef.current ? "resolved" : "pending"}
       onKeyDown={(event) => {
+        if (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home") {
+          readerDetachedRef.current = true;
+          wasAtEndRef.current = false;
+        }
         cancelInitialPlacement("keyboard");
         onKeyDown?.(event);
       }}
       onPointerDown={(event) => {
+        // A pointer directly on the scroll viewport can be a scrollbar drag.
+        // Nested transcript interaction does not imply scroll ownership.
+        if (event.target === event.currentTarget) {
+          readerDetachedRef.current = true;
+          wasAtEndRef.current = false;
+        }
         cancelInitialPlacement("pointer");
         onPointerDown?.(event);
       }}
@@ -623,7 +751,21 @@ function TranscriptVirtualListInner<TItem>(
         cancelInitialPlacement("touch");
         onTouchStart?.(event);
       }}
+      onTouchMove={(event) => {
+        readerDetachedRef.current = true;
+        wasAtEndRef.current = false;
+        onTouchMove?.(event);
+      }}
       onWheel={(event) => {
+        recordDiagnostic("reader-wheel", {
+          deltaX: event.deltaX,
+          deltaY: event.deltaY,
+          deltaMode: event.deltaMode,
+        });
+        if (event.deltaY < 0) {
+          readerDetachedRef.current = true;
+          wasAtEndRef.current = false;
+        }
         cancelInitialPlacement("wheel");
         onWheel?.(event);
       }}
@@ -634,6 +776,7 @@ function TranscriptVirtualListInner<TItem>(
             key={virtualItem.key}
             ref={virtualizer.measureElement}
             data-index={virtualItem.index}
+            data-row-key={String(virtualItem.key)}
             style={{ position: "absolute", top: 0, left: 0, width: "100%" }}
           >
             {renderItem(data[virtualItem.index]!)}

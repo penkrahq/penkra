@@ -17,6 +17,8 @@ import {
   type ProjectDevServerEvent,
   type OrchestrationShellStreamEvent,
   type OrchestrationShellStreamItem,
+  type OrchestrationSyncSnapshot,
+  type OrchestrationSyncStreamItem,
   type OrchestrationThreadDetailSnapshot,
   type OrchestrationThreadStreamItem,
   type ServerConfigStreamEvent,
@@ -84,11 +86,7 @@ import { TerminalManager } from "./terminal/Services/Manager";
 import { TerminalThreadTitleTracker } from "./terminal/terminalThreadTitleTracker";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
-import {
-  MAX_STREAMS_PER_RPC_CLIENT,
-  MAX_THREAD_STREAMS_PER_RPC_CLIENT,
-  makeWsStreamAdmission,
-} from "./wsStreamAdmission";
+import { MAX_STREAMS_PER_RPC_CLIENT, makeWsStreamAdmission } from "./wsStreamAdmission";
 import { ThreadDiagnosticsQuery } from "./diagnostics/Services/ThreadDiagnosticsQuery";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
@@ -105,7 +103,9 @@ import {
   shouldRejectUntrustedRequestOrigin,
 } from "./trustedOrigins";
 import { bufferLiveUiStream, type LiveUiStreamDropReport } from "./wsStreamBackpressure";
+import { makeDurableOrchestrationStream } from "./wsDurableOrchestrationStream";
 import { makeCursorSafeSnapshotLiveStream } from "./wsSnapshotLiveStream";
+import { makeSyncAcknowledgements } from "./wsSyncAcknowledgements";
 import { bindingRevisionErrorCode } from "./wsRpcErrorMapping";
 
 const MAX_DIAGNOSTIC_CHILD_PROCESSES = 80;
@@ -304,6 +304,7 @@ const makeWsRpcHandlersLayer = () =>
       const workspaceFileSystem = yield* WorkspaceFileSystem;
       const workspaceWatcher = yield* WorkspaceWatcher;
       const threadDiagnostics = yield* ThreadDiagnosticsQuery;
+      const syncAcknowledgements = makeSyncAcknowledgements();
       const streamAdmission = yield* makeWsStreamAdmission({
         recordRejection: (incident) =>
           threadDiagnostics
@@ -318,7 +319,6 @@ const makeWsRpcHandlersLayer = () =>
                 active: incident.active,
                 activeThreads: incident.activeThreads,
                 streamLimit: MAX_STREAMS_PER_RPC_CLIENT,
-                threadLimit: MAX_THREAD_STREAMS_PER_RPC_CLIENT,
               },
               occurredAt: new Date().toISOString(),
             })
@@ -580,6 +580,59 @@ const makeWsRpcHandlersLayer = () =>
         ),
       );
 
+      const loadOrchestrationSyncSnapshot: Effect.Effect<OrchestrationSyncSnapshot, WsRpcError> =
+        Effect.gen(function* () {
+          const startedAt = Date.now();
+          const shell = yield* projectionReadModelQuery
+            .getShellSnapshot()
+            .pipe(
+              Effect.mapError((cause) =>
+                toWsRpcError(cause, "Failed to load orchestration synchronization shell"),
+              ),
+            );
+          const activeThreadIds = shell.threads
+            .filter(
+              (thread) =>
+                (thread.session?.activeTurnId !== null &&
+                  thread.session?.activeTurnId !== undefined) ||
+                thread.session?.status === "starting" ||
+                thread.session?.status === "running" ||
+                thread.latestTurn?.state === "running",
+            )
+            .map((thread) => thread.id);
+          yield* Effect.logInfo("orchestration synchronization shell loaded").pipe(
+            Effect.annotateLogs({
+              snapshotSequence: shell.snapshotSequence,
+              threadCount: shell.threads.length,
+              activeThreadCount: activeThreadIds.length,
+              durationMs: Date.now() - startedAt,
+            }),
+          );
+          const activeThreadPages = yield* Effect.all(
+            activeThreadIds.map((threadId) =>
+              projectionReadModelQuery
+                .getThreadTurnsPage({ threadId })
+                .pipe(
+                  Effect.mapError((cause) =>
+                    toWsRpcError(cause, "Failed to load an active Thread for synchronization"),
+                  ),
+                ),
+            ),
+          );
+          yield* Effect.logInfo("orchestration synchronization snapshot loaded").pipe(
+            Effect.annotateLogs({
+              snapshotSequence: shell.snapshotSequence,
+              activeThreadPageCount: activeThreadPages.length,
+              durationMs: Date.now() - startedAt,
+            }),
+          );
+          return {
+            snapshotSequence: shell.snapshotSequence,
+            shell,
+            activeThreadPages,
+          };
+        });
+
       const toShellStreamEvent = (
         event: OrchestrationEvent,
       ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, WsRpcError> => {
@@ -715,45 +768,50 @@ const makeWsRpcHandlersLayer = () =>
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           rpcEffect(
             Effect.gen(function* () {
+              yield* Effect.logInfo("orchestration command received").pipe(
+                Effect.annotateLogs({
+                  commandId: command.commandId,
+                  commandType: command.type,
+                  ...(command.type === "thread.turn.start" || "threadId" in command
+                    ? { threadId: command.threadId }
+                    : {}),
+                  ...("folderId" in command ? { folderId: command.folderId } : {}),
+                }),
+              );
               const { command: normalizedCommand } = yield* normalizeDispatchCommand({ command });
-              const observeFirstTurnLifecycle =
-                normalizedCommand.type === "thread.create" ||
-                normalizedCommand.type === "thread.turn.start" ||
-                normalizedCommand.type === "thread.delete";
-              const lifecycleLogContext = observeFirstTurnLifecycle
-                ? {
-                    commandId: normalizedCommand.commandId,
-                    commandType: normalizedCommand.type,
-                    threadId: normalizedCommand.threadId,
-                    ...(normalizedCommand.type === "thread.turn.start"
-                      ? {
-                          bindingRevision: normalizedCommand.bindingRevision ?? null,
-                          modelProvider: normalizedCommand.modelSelection?.provider ?? null,
-                          modelSlug: normalizedCommand.modelSelection?.model ?? null,
-                        }
-                      : {}),
-                  }
-                : null;
+              const lifecycleLogContext = {
+                commandId: normalizedCommand.commandId,
+                commandType: normalizedCommand.type,
+                ...("threadId" in normalizedCommand
+                  ? { threadId: normalizedCommand.threadId }
+                  : {}),
+                ...("folderId" in normalizedCommand
+                  ? { folderId: normalizedCommand.folderId }
+                  : {}),
+                ...(normalizedCommand.type === "thread.turn.start"
+                  ? {
+                      bindingRevision: normalizedCommand.bindingRevision ?? null,
+                      modelProvider: normalizedCommand.modelSelection?.provider ?? null,
+                      modelSlug: normalizedCommand.modelSelection?.model ?? null,
+                    }
+                  : {}),
+              };
               const result = yield* dispatchOrchestrationCommand(normalizedCommand).pipe(
                 Effect.tap((receipt) =>
-                  lifecycleLogContext === null
-                    ? Effect.void
-                    : Effect.logInfo("orchestration lifecycle command accepted").pipe(
-                        Effect.annotateLogs({
-                          ...lifecycleLogContext,
-                          resultSequence: receipt.sequence,
-                        }),
-                      ),
+                  Effect.logInfo("orchestration command accepted").pipe(
+                    Effect.annotateLogs({
+                      ...lifecycleLogContext,
+                      resultSequence: receipt.sequence,
+                    }),
+                  ),
                 ),
                 Effect.tapError((cause) =>
-                  lifecycleLogContext === null
-                    ? Effect.void
-                    : Effect.logWarning("orchestration lifecycle command rejected").pipe(
-                        Effect.annotateLogs({
-                          ...lifecycleLogContext,
-                          cause: cause instanceof Error ? cause.message : String(cause),
-                        }),
-                      ),
+                  Effect.logWarning("orchestration command rejected").pipe(
+                    Effect.annotateLogs({
+                      ...lifecycleLogContext,
+                      cause: cause instanceof Error ? cause.message : String(cause),
+                    }),
+                  ),
                 ),
               );
               return result;
@@ -778,6 +836,11 @@ const makeWsRpcHandlersLayer = () =>
               .getThreadDetailSnapshotById(input.threadId)
               .pipe(Effect.map(Option.getOrNull)),
             "Failed to load orchestration thread detail snapshot",
+          ),
+        [ORCHESTRATION_WS_METHODS.getThreadTurnsPage]: (input) =>
+          rpcEffect(
+            projectionReadModelQuery.getThreadTurnsPage(input),
+            "Failed to load orchestration Thread turns",
           ),
         [ORCHESTRATION_WS_METHODS.repairState]: () =>
           rpcEffect(orchestrationEngine.repairState(), "Failed to repair orchestration state"),
@@ -825,6 +888,90 @@ const makeWsRpcHandlersLayer = () =>
             }),
             "Failed to reconcile provider delivery",
           ),
+        [ORCHESTRATION_WS_METHODS.subscribeSync]: (input, { clientId }) =>
+          streamAdmission.guard(
+            clientId,
+            { key: "orchestration.sync" },
+            Stream.unwrap(
+              Effect.gen(function* () {
+                const acknowledgementLease = yield* syncAcknowledgements.open(clientId);
+                yield* Effect.addFinalizer(() =>
+                  acknowledgementLease.close.pipe(
+                    Effect.andThen(
+                      Effect.logInfo("orchestration synchronization closed").pipe(
+                        Effect.annotateLogs({ clientId }),
+                      ),
+                    ),
+                  ),
+                );
+                yield* Effect.logInfo("orchestration synchronization subscribed").pipe(
+                  Effect.annotateLogs({
+                    clientId,
+                    resumeAfterSequence: input.afterSequenceExclusive ?? null,
+                  }),
+                );
+                const source = makeDurableOrchestrationStream({
+                  ...(input.afterSequenceExclusive === undefined
+                    ? {}
+                    : { afterSequenceExclusive: input.afterSequenceExclusive }),
+                  subscribeLive: orchestrationEngine.subscribeDomainEvents,
+                  snapshot: loadOrchestrationSyncSnapshot,
+                  getHighWaterSequence: getOrchestrationHighWaterSequence,
+                  onReplayRange: (range) =>
+                    Effect.logDebug("orchestration synchronization durable replay").pipe(
+                      Effect.annotateLogs({ clientId, ...range }),
+                    ),
+                  replay: (fromSequenceExclusive, throughSequenceInclusive) =>
+                    orchestrationEngine
+                      .readEventsThrough(fromSequenceExclusive, throughSequenceInclusive)
+                      .pipe(
+                        Stream.mapError((cause) =>
+                          toWsRpcError(cause, "Failed to replay orchestration synchronization"),
+                        ),
+                      ),
+                });
+
+                return source.pipe(
+                  Stream.tap((item) =>
+                    Effect.logInfo("orchestration synchronization delivery prepared").pipe(
+                      Effect.annotateLogs({
+                        clientId,
+                        deliveryKind: item.kind,
+                        sequence:
+                          item.kind === "snapshot"
+                            ? item.snapshot.snapshotSequence
+                            : item.event.sequence,
+                      }),
+                    ),
+                  ),
+                  Stream.flatMap((item) =>
+                    Stream.unwrap(
+                      acknowledgementLease
+                        .beginDelivery(
+                          item.kind === "snapshot"
+                            ? item.snapshot.snapshotSequence
+                            : item.event.sequence,
+                        )
+                        .pipe(
+                          Effect.map(({ deliveryId, wait }) => {
+                            const delivered: OrchestrationSyncStreamItem =
+                              item.kind === "snapshot"
+                                ? { kind: "snapshot", deliveryId, snapshot: item.snapshot }
+                                : { kind: "event", deliveryId, event: item.event };
+                            return Stream.concat(
+                              Stream.succeed(delivered),
+                              Stream.fromEffect(wait).pipe(Stream.drain),
+                            );
+                          }),
+                        ),
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+        [ORCHESTRATION_WS_METHODS.acknowledgeSync]: (input, { clientId }) =>
+          syncAcknowledgements.acknowledge(clientId, input),
         [ORCHESTRATION_WS_METHODS.subscribeShell]: (_, { clientId }) =>
           streamAdmission.guard(
             clientId,

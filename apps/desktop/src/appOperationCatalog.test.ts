@@ -84,7 +84,9 @@ describe("App operation catalog", () => {
     await expect(catalog.help({ spaceId: "personal", slug: "linear" })).resolves.toContain(
       "Confirm the destination project first.",
     );
-    await expect(catalog.help({ spaceId: "work", slug: "linear" })).rejects.toThrow("not enabled");
+    await expect(catalog.help({ spaceId: "work", slug: "linear" })).rejects.toThrow(
+      "not installed",
+    );
     await expect(catalog.skills("personal")).resolves.toEqual([
       expect.objectContaining({
         appId: "com.acme.linear",

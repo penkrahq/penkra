@@ -19,6 +19,7 @@ import {
   type ThreadId,
   type OrchestrationEvent,
   type OrchestrationShellStreamItem,
+  type OrchestrationSyncStreamItem,
   type OrchestrationThreadStreamItem,
   type ProjectDevServerEvent,
   type ProjectWorkspaceChangeEvent,
@@ -119,6 +120,7 @@ const terminalEventListeners = createListenerRegistry<TerminalEvent>();
 const projectDevServerEventListeners = createListenerRegistry<ProjectDevServerEvent>();
 const projectWorkspaceChangeListeners = createListenerRegistry<ProjectWorkspaceChangeEvent>();
 const orchestrationDomainEventListeners = createListenerRegistry<OrchestrationEvent>();
+const orchestrationSyncEventListeners = createListenerRegistry<OrchestrationSyncStreamItem>();
 const orchestrationShellEventListeners = createListenerRegistry<OrchestrationShellStreamItem>();
 const orchestrationThreadEventListeners = createListenerRegistry<OrchestrationThreadStreamItem>();
 const threadStreamFailureListeners = createListenerRegistry<WsThreadStreamFailure>();
@@ -133,6 +135,7 @@ function clearWsNativeApiListeners(): void {
   projectDevServerEventListeners.clear();
   projectWorkspaceChangeListeners.clear();
   orchestrationDomainEventListeners.clear();
+  orchestrationSyncEventListeners.clear();
   orchestrationShellEventListeners.clear();
   orchestrationThreadEventListeners.clear();
   threadStreamFailureListeners.clear();
@@ -292,6 +295,7 @@ export function createWsNativeApi(): NativeApi {
 
   const transport = new WsTransport();
   let unsubscribeDomainEventTransport: (() => void) | null = null;
+  let unsubscribeSyncEventTransport: (() => void) | null = null;
   transport.onStateChange((state) => emitWsTransportState(state));
   transport.onCompatibilityIssue((issue) => emitWsCompatibilityIssue(issue), {
     replayCurrent: true,
@@ -524,6 +528,10 @@ export function createWsNativeApi(): NativeApi {
       getShellSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getShellSnapshot),
       getThreadDetailSnapshot: (input) =>
         transport.request(ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot, input),
+      getThreadTurnsPage: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.getThreadTurnsPage, input),
+      acknowledgeSync: (input) =>
+        transport.request<void>(ORCHESTRATION_WS_METHODS.acknowledgeSync, input),
       dispatchCommand: (command) => {
         return transport.request(
           ORCHESTRATION_WS_METHODS.dispatchCommand,
@@ -567,6 +575,23 @@ export function createWsNativeApi(): NativeApi {
           if (orchestrationDomainEventListeners.size === 0) {
             unsubscribeDomainEventTransport?.();
             unsubscribeDomainEventTransport = null;
+          }
+        };
+      },
+      onSyncEvent: (callback) => {
+        const shouldStartTransport = orchestrationSyncEventListeners.size === 0;
+        const unsubscribe = orchestrationSyncEventListeners.subscribe(callback);
+        if (shouldStartTransport) {
+          unsubscribeSyncEventTransport = transport.subscribe(
+            ORCHESTRATION_WS_CHANNELS.syncEvent,
+            (message) => orchestrationSyncEventListeners.emit(message.data),
+          );
+        }
+        return () => {
+          unsubscribe();
+          if (orchestrationSyncEventListeners.size === 0) {
+            unsubscribeSyncEventTransport?.();
+            unsubscribeSyncEventTransport = null;
           }
         };
       },

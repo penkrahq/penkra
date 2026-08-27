@@ -52,12 +52,12 @@ import { AgentGatewayLive } from "./AgentGateway.ts";
 import { AgentGatewayToolBridgeLive } from "./AgentGatewayToolBridge.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderThreadSwitchCoordinator } from "../../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
-import { penkraRootInstructions } from "../../appRuntimeCli.ts";
 import { CODEX_DEVELOPER_INSTRUCTIONS } from "../../codexAppServerManager.ts";
 import { PENKRA_SYSTEM_PROMPT } from "../../provider/Layers/ClaudeAdapter.ts";
 import {
   PENKRA_HOST_POLICY_MARKER,
-  PENKRA_SERVER_MANUAL_MARKER,
+  PENKRA_MCP_SERVER_INSTRUCTIONS_MARKER,
+  renderPenkraMcpServerInstructions,
   takePenkraHostPolicyForSession,
 } from "../harnessPolicy.ts";
 
@@ -809,13 +809,8 @@ describe("AgentGateway", () => {
       const instructions = initResult.instructions;
       assert.isString(instructions);
       if (typeof instructions !== "string") return;
-      assert.equal(
-        instructions,
-        penkraRootInstructions(
-          [],
-          Object.values(TEST_TOOL_COMMANDS).map((words) => words.join(" ")),
-        ),
-      );
+      assert.equal(instructions, renderPenkraMcpServerInstructions());
+      assert.include(instructions, PENKRA_MCP_SERVER_INSTRUCTIONS_MARKER);
       const providerInjections = [
         ["Claude", PENKRA_SYSTEM_PROMPT],
         ["Codex", CODEX_DEVELOPER_INSTRUCTIONS],
@@ -829,9 +824,9 @@ describe("AgentGateway", () => {
           `${provider} host-policy delivery`,
         );
         assert.equal(
-          sessionDelivery.split(PENKRA_SERVER_MANUAL_MARKER).length - 1,
+          sessionDelivery.split(PENKRA_MCP_SERVER_INSTRUCTIONS_MARKER).length - 1,
           1,
-          `${provider} server-manual delivery`,
+          `${provider} MCP-server-instruction delivery`,
         );
       }
 

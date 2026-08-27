@@ -13,6 +13,7 @@ import {
   OrchestrationImportThreadResult,
   OrchestrationRpcSchemas,
   OrchestrationShellStreamItem,
+  OrchestrationSyncStreamItem,
   OrchestrationThreadStreamItem,
 } from "./orchestration";
 import { ProviderCompactThreadInput } from "./provider";
@@ -176,6 +177,15 @@ export const WsOrchestrationGetThreadDetailSnapshotRpc = Rpc.make(
   },
 );
 
+export const WsOrchestrationGetThreadTurnsPageRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getThreadTurnsPage,
+  {
+    payload: OrchestrationRpcSchemas.getThreadTurnsPage.input,
+    success: OrchestrationRpcSchemas.getThreadTurnsPage.output,
+    error: WsRpcError,
+  },
+);
+
 export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.replayEvents, {
   payload: OrchestrationRpcSchemas.replayEvents.input,
   success: OrchestrationRpcSchemas.replayEvents.output,
@@ -196,6 +206,22 @@ export const WsOrchestrationReconcileProviderDeliveryRpc = Rpc.make(
   {
     payload: OrchestrationRpcSchemas.reconcileProviderDelivery.input,
     success: OrchestrationRpcSchemas.reconcileProviderDelivery.output,
+    error: WsRpcError,
+  },
+);
+
+export const WsOrchestrationSubscribeSyncRpc = Rpc.make(ORCHESTRATION_WS_METHODS.subscribeSync, {
+  payload: OrchestrationRpcSchemas.subscribeSync.input,
+  success: OrchestrationSyncStreamItem,
+  error: WsRpcError,
+  stream: true,
+});
+
+export const WsOrchestrationAcknowledgeSyncRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.acknowledgeSync,
+  {
+    payload: OrchestrationRpcSchemas.acknowledgeSync.input,
+    success: Schema.Void,
     error: WsRpcError,
   },
 );
@@ -627,10 +653,13 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsOrchestrationGetSnapshotRpc,
   WsOrchestrationGetShellSnapshotRpc,
   WsOrchestrationGetThreadDetailSnapshotRpc,
+  WsOrchestrationGetThreadTurnsPageRpc,
   WsOrchestrationRepairStateRpc,
   WsOrchestrationReplayEventsRpc,
   WsOrchestrationListProviderDeliveryBlockersRpc,
   WsOrchestrationReconcileProviderDeliveryRpc,
+  WsOrchestrationSubscribeSyncRpc,
+  WsOrchestrationAcknowledgeSyncRpc,
   WsOrchestrationSubscribeShellRpc,
   WsOrchestrationUnsubscribeShellRpc,
   WsOrchestrationSubscribeThreadRpc,

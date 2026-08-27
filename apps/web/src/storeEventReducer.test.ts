@@ -167,6 +167,113 @@ describe("store event reducer", () => {
     });
   });
 
+  it("places a promoted queued message after the assistant turn it waited behind", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const firstUserMessageId = MessageId.makeUnsafe("message-first-user");
+    const queuedMessageId = MessageId.makeUnsafe("message-queued-follow-up");
+    const firstAssistantMessageId = MessageId.makeUnsafe("message-first-assistant");
+    const firstTurnId = TurnId.makeUnsafe("turn-first");
+
+    const whileQueued = applyOrchestrationEvents(makeState(makeThread()), [
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId: firstUserMessageId,
+          role: "user",
+          text: "Hey, what can you do?",
+          attachments: [],
+          turnId: firstTurnId,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-08-27T11:00:31.000Z",
+          updatedAt: "2026-08-27T11:00:31.000Z",
+        },
+        { sequence: 1 },
+      ),
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId: queuedMessageId,
+          role: "user",
+          text: "Ground yourself",
+          attachments: [],
+          dispatchMode: "queue",
+          delivery: { state: "queued", queued: true },
+          turnId: TurnId.makeUnsafe("turn-queued"),
+          streaming: false,
+          source: "native",
+          createdAt: "2026-08-27T11:00:36.000Z",
+          updatedAt: "2026-08-27T11:00:36.000Z",
+        },
+        { sequence: 2 },
+      ),
+      // The provider's first visible assistant output can arrive after the
+      // follow-up was admitted to the hidden durable queue.
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId: firstAssistantMessageId,
+          role: "assistant",
+          text: "Quite a lot.",
+          attachments: [],
+          turnId: firstTurnId,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-08-27T11:00:38.000Z",
+          updatedAt: "2026-08-27T11:00:40.000Z",
+        },
+        { sequence: 3 },
+      ),
+      makeDomainEvent(
+        "thread.turn-queued",
+        {
+          threadId,
+          turnId: TurnId.makeUnsafe("turn-queued"),
+          messageId: queuedMessageId,
+          dispatchMode: "queue",
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          createdAt: "2026-08-27T11:00:36.000Z",
+        },
+        { sequence: 4 },
+      ),
+    ]);
+
+    expect(threadsOf(whileQueued)[0]?.messages.map((message) => message.id)).toEqual([
+      firstUserMessageId,
+      queuedMessageId,
+      firstAssistantMessageId,
+    ]);
+
+    const promoted = applyOrchestrationEvents(whileQueued, [
+      makeDomainEvent(
+        "thread.turn-start-requested",
+        {
+          threadId,
+          turnId: TurnId.makeUnsafe("turn-queued"),
+          messageId: queuedMessageId,
+          dispatchMode: "queue",
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          createdAt: "2026-08-27T11:00:36.000Z",
+        },
+        { sequence: 5 },
+      ),
+    ]);
+
+    expect(threadsOf(promoted)[0]?.messages.map((message) => message.id)).toEqual([
+      firstUserMessageId,
+      firstAssistantMessageId,
+      queuedMessageId,
+    ]);
+    expect(threadsOf(promoted)[0]?.messages.at(-1)?.delivery).toEqual({
+      state: "starting",
+      queued: true,
+      sequence: 5,
+    });
+  });
+
   it("removes only the cancelled pre-acceptance prompt and clears its pending identity", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const pendingMessageId = MessageId.makeUnsafe("message-pending-start");

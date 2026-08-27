@@ -23,6 +23,7 @@ const descriptor: DesktopAppTabDescriptor = {
 
 function makeContents() {
   const listeners = new Map<string, () => void>();
+  const debuggerListeners = new Map<string, (...args: unknown[]) => void>();
   const sendCommand = vi.fn(async (method: string) => {
     if (method === "Accessibility.getFullAXTree") {
       return {
@@ -54,6 +55,8 @@ function makeContents() {
       isAttached: () => true,
       attach: vi.fn(),
       sendCommand,
+      on: (event: string, listener: (...args: unknown[]) => void) =>
+        debuggerListeners.set(event, listener),
     },
     isDestroyed: () => false,
     getURL: () => "penkra-app://com.acme.canvas/app.html",
@@ -70,7 +73,13 @@ function makeContents() {
     once: (event: string, listener: () => void) => listeners.set(event, listener),
     on: (event: string, listener: () => void) => listeners.set(event, listener),
   } as unknown as WebContents;
-  return { contents, listeners, sendCommand };
+  return {
+    contents,
+    listeners,
+    sendCommand,
+    emitDebugger: (method: string, params: Record<string, unknown>, sessionId?: string) =>
+      debuggerListeners.get("message")?.({}, method, params, sessionId),
+  };
 }
 
 describe("resolveAppTabObservationTarget", () => {
@@ -173,6 +182,29 @@ describe("resolveAppTabObservationTarget", () => {
 });
 
 describe("AppTabObserver", () => {
+  it("reports delayed browser JavaScript dialogs and requires explicit handling", async () => {
+    const { contents, emitDebugger, sendCommand } = makeContents();
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents }),
+    });
+
+    await observer.snapshot("tab-1");
+    emitDebugger("Page.javascriptDialogOpening", {
+      type: "confirm",
+      message: "Delete this record?",
+      url: "penkra-app://com.acme.canvas/app.html",
+      defaultPrompt: "",
+    });
+
+    await expect(observer.snapshot("tab-1")).rejects.toMatchObject({ code: "DIALOG_OPEN" });
+    await expect(observer.handleDialog("tab-1", false)).resolves.toMatchObject({
+      accepted: false,
+      dialog: { type: "confirm", message: "Delete this record?" },
+    });
+    expect(sendCommand).toHaveBeenCalledWith("Page.handleJavaScriptDialog", { accept: false });
+    await expect(observer.snapshot("tab-1")).resolves.toMatchObject({ tabId: "tab-1" });
+  });
+
   it("returns Playwright-shaped semantic refs and redacts protected values", async () => {
     const { contents } = makeContents();
     const observer = new AppTabObserver({

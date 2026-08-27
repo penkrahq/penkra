@@ -20,6 +20,7 @@ import {
   arraysShallowEqual,
   asActivityRecord,
   createThreadActivityAccumulator,
+  compareChatMessagesForTranscript,
   deepEqualJson,
   normalizeActivities,
   normalizeChatMessage,
@@ -421,6 +422,7 @@ function applyThreadMessageSentEvent(thread: Thread, event: ThreadMessageSentEve
       ...(payload.delivery !== undefined
         ? { delivery: { ...payload.delivery, sequence: event.sequence } }
         : {}),
+      sequence: event.sequence,
       turnId: payload.turnId,
       attachments: payload.attachments ?? [],
       ...(payload.skills !== undefined ? { skills: payload.skills } : {}),
@@ -801,21 +803,23 @@ function applyOrchestrationEvent(
         event.payload.threadId,
         (thread) => ({
           ...thread,
-          messages: thread.messages.map((message) =>
-            message.id === event.payload.messageId &&
-            message.delivery !== undefined &&
-            event.sequence >= message.delivery.sequence
-              ? {
-                  ...message,
-                  delivery: {
-                    ...message.delivery,
-                    state: event.payload.state,
-                    sequence: event.sequence,
-                  },
-                  completedAt: event.payload.updatedAt,
-                }
-              : message,
-          ),
+          messages: thread.messages
+            .map((message) =>
+              message.id === event.payload.messageId &&
+              message.delivery !== undefined &&
+              event.sequence >= message.delivery.sequence
+                ? {
+                    ...message,
+                    delivery: {
+                      ...message.delivery,
+                      state: event.payload.state,
+                      sequence: event.sequence,
+                    },
+                    completedAt: event.payload.updatedAt,
+                  }
+                : message,
+            )
+            .toSorted(compareChatMessagesForTranscript),
           updatedAt: resolveEventUpdatedAt(thread, event.payload.updatedAt),
         }),
         { ...options, updateSidebarSummary: false },
@@ -954,6 +958,8 @@ function applyOrchestrationEvent(
               ? normalizeModelSelection(event.payload.modelSelection, thread.modelSelection)
               : thread.modelSelection;
           const runtimeMode = event.payload.runtimeMode;
+          const deliveryState: NonNullable<ChatMessage["delivery"]>["state"] =
+            event.payload.dispatchMode === "steer" ? "steering" : "starting";
           const existingQueuedMessageIds = thread.queuedMessageIds ?? [];
           const queuedMessageIds = existingQueuedMessageIds.filter(
             (messageId) => messageId !== event.payload.messageId,
@@ -966,8 +972,7 @@ function applyOrchestrationEvent(
             thread.messages.some(
               (message) =>
                 message.id === event.payload.messageId &&
-                message.delivery?.state ===
-                  (event.payload.dispatchMode === "steer" ? "steering" : "starting") &&
+                message.delivery?.state === deliveryState &&
                 message.delivery.sequence >= event.sequence,
             ) &&
             (thread.updatedAt ?? thread.createdAt) >= event.payload.createdAt
@@ -978,20 +983,22 @@ function applyOrchestrationEvent(
             ...thread,
             modelSelection,
             runtimeMode,
-            messages: thread.messages.map((message) =>
-              message.id === event.payload.messageId &&
-              message.delivery !== undefined &&
-              event.sequence >= message.delivery.sequence
-                ? {
-                    ...message,
-                    delivery: {
-                      ...message.delivery,
-                      state: event.payload.dispatchMode === "steer" ? "steering" : "starting",
-                      sequence: event.sequence,
-                    },
-                  }
-                : message,
-            ),
+            messages: thread.messages
+              .map((message) =>
+                message.id === event.payload.messageId &&
+                message.delivery !== undefined &&
+                event.sequence >= message.delivery.sequence
+                  ? {
+                      ...message,
+                      delivery: {
+                        ...message.delivery,
+                        state: deliveryState,
+                        sequence: event.sequence,
+                      },
+                    }
+                  : message,
+              )
+              .toSorted(compareChatMessagesForTranscript),
             pendingTurnStartMessageId: event.payload.messageId,
             queuedMessageIds,
             updatedAt:
@@ -1041,6 +1048,39 @@ function applyOrchestrationEvent(
                 ? thread.updatedAt
                 : event.payload.createdAt,
           };
+        },
+        {
+          ...options,
+          updateSidebarSummary: true,
+        },
+      );
+
+    case "thread.activity-read-model-updated":
+      if (event.payload.activity === undefined) {
+        return state;
+      }
+      return applyThreadUpdate(
+        state,
+        event.payload.threadId,
+        (thread) => {
+          const sequencedActivity = withOrchestrationEventSequence(
+            event.payload.activity!,
+            event.sequence,
+          );
+          const nextActivities = normalizeActivities(
+            [...thread.activities, sequencedActivity],
+            thread.activities,
+          );
+          return nextActivities === thread.activities
+            ? thread
+            : {
+                ...thread,
+                activities: nextActivities,
+                updatedAt:
+                  (thread.updatedAt ?? thread.createdAt) > sequencedActivity.createdAt
+                    ? thread.updatedAt
+                    : sequencedActivity.createdAt,
+              };
         },
         {
           ...options,

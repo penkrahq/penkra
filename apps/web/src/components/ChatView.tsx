@@ -46,6 +46,7 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type WheelEvent,
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Debouncer, useDebouncedValue } from "@tanstack/react-pacer";
@@ -97,6 +98,10 @@ import {
 } from "../confirmedCustomBinaryPathStore";
 import { isElectron } from "../env";
 import { isScrollContainerNearBottom } from "../chat-scroll";
+import {
+  nextChatScrollDiagnosticInstanceId,
+  recordChatScrollDiagnostic,
+} from "../chatScrollDiagnostics";
 import { parseChatRouteSearch } from "../chatRouteSearch";
 import { openThreadUrlReference, useThreadResourceOpener } from "../lib/threadResourceOpener";
 import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
@@ -1079,6 +1084,10 @@ export default function ChatView({
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
   const [isTraitsPickerOpen, setIsTraitsPickerOpen] = useState(false);
   const transcriptListRef = useRef<TranscriptVirtualListRef | null>(null);
+  const transcriptControllerDiagnosticInstanceIdRef = useRef<number | null>(null);
+  if (transcriptControllerDiagnosticInstanceIdRef.current === null) {
+    transcriptControllerDiagnosticInstanceIdRef.current = nextChatScrollDiagnosticInstanceId();
+  }
   const isAtEndRef = useRef(true);
   const autoFollowThreadIdRef = useRef<ThreadId | null>(null);
   const pendingInteractionAnchorRef = useRef<{
@@ -2363,8 +2372,24 @@ export default function ChatView({
   );
   const isSendBusy = localDispatch !== null && !serverAcknowledgedLocalDispatch;
   const hasLiveTurn = phase === "running";
+  const authoritativePendingTurnStartMessageId = useMemo(() => {
+    if (activeThread?.pendingTurnStartMessageId) {
+      return activeThread.pendingTurnStartMessageId;
+    }
+    const messages = activeThread?.messages ?? EMPTY_MESSAGES;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (
+        message?.role === "user" &&
+        (message.delivery?.state === "starting" || message.delivery?.state === "steering")
+      ) {
+        return message.id;
+      }
+    }
+    return null;
+  }, [activeThread?.messages, activeThread?.pendingTurnStartMessageId]);
   const hasPendingTurnStart = hasActivePendingTurnStart({
-    pendingMessageId: activeThread?.pendingTurnStartMessageId,
+    pendingMessageId: authoritativePendingTurnStartMessageId,
     messages: activeThread?.messages ?? EMPTY_MESSAGES,
     session: activeThread?.session,
   });
@@ -3641,17 +3666,44 @@ export default function ChatView({
     messageCount: transcriptMessageCount,
     tailKey: transcriptTailKey,
   });
-  const onIsAtEndChange = useCallback((isAtEnd: boolean) => {
-    if (isAtEndRef.current === isAtEnd) return;
-    if (!isAtEnd && performance.now() < programmaticScrollUntilRef.current) return;
-    isAtEndRef.current = isAtEnd;
-    if (isAtEnd) {
-      showScrollDebouncer.current.cancel();
-      setShowScrollToBottom(false);
-    } else {
-      showScrollDebouncer.current.maybeExecute();
-    }
-  }, []);
+  const recordTranscriptControllerDiagnostic = useCallback(
+    (event: string, detail?: Readonly<Record<string, unknown>>) => {
+      const element = transcriptListRef.current?.getScrollableNode?.();
+      recordChatScrollDiagnostic({
+        instanceId: transcriptControllerDiagnosticInstanceIdRef.current!,
+        event,
+        dataCount: transcriptMessageCount,
+        anchorRevision: transcriptAutoFollowSignal,
+        ...(element === undefined ? {} : { element }),
+        ...(detail === undefined ? {} : { detail }),
+      });
+    },
+    [transcriptAutoFollowSignal, transcriptMessageCount],
+  );
+  const onIsAtEndChange = useCallback(
+    (isAtEnd: boolean) => {
+      if (isAtEndRef.current === isAtEnd) return;
+      if (!isAtEnd && performance.now() < programmaticScrollUntilRef.current) {
+        recordTranscriptControllerDiagnostic("controller:at-end-change-ignored", {
+          requestedIsAtEnd: false,
+          programmaticGuardRemainingMs: Math.max(
+            0,
+            programmaticScrollUntilRef.current - performance.now(),
+          ),
+        });
+        return;
+      }
+      isAtEndRef.current = isAtEnd;
+      recordTranscriptControllerDiagnostic("controller:at-end-changed", { isAtEnd });
+      if (isAtEnd) {
+        showScrollDebouncer.current.cancel();
+        setShowScrollToBottom(false);
+      } else {
+        showScrollDebouncer.current.maybeExecute();
+      }
+    },
+    [recordTranscriptControllerDiagnostic],
+  );
   useLayoutEffect(() => {
     // MessagesTimeline remounts per thread. Resolve its initial placement before
     // the auto-follow layout effect below: a remembered detached viewport must
@@ -3710,14 +3762,39 @@ export default function ChatView({
   const onMessagesScrollBase = useCallback(() => {}, []);
   const onMessagesTouchEndBase = useCallback(() => {}, []);
   const onMessagesTouchMoveBase = useCallback(() => {
+    const wasAtEnd = isAtEndRef.current;
+    const guardRemainingMs = Math.max(0, programmaticScrollUntilRef.current - performance.now());
+    programmaticScrollUntilRef.current = 0;
     clearTranscriptAutoFollow();
-  }, [clearTranscriptAutoFollow]);
+    isAtEndRef.current = false;
+    showScrollDebouncer.current.maybeExecute();
+    recordTranscriptControllerDiagnostic("controller:reader-detached", {
+      source: "touch-move",
+      wasAtEnd,
+      programmaticGuardRemainingMs: guardRemainingMs,
+    });
+  }, [clearTranscriptAutoFollow, recordTranscriptControllerDiagnostic]);
   const onMessagesTouchStartBase = useCallback(() => {
     clearTranscriptAutoFollow();
   }, [clearTranscriptAutoFollow]);
-  const onMessagesWheelBase = useCallback(() => {
-    clearTranscriptAutoFollow();
-  }, [clearTranscriptAutoFollow]);
+  const onMessagesWheelBase = useCallback(
+    (event: WheelEvent<HTMLDivElement>) => {
+      if (event.deltaY >= 0) return;
+      const wasAtEnd = isAtEndRef.current;
+      const guardRemainingMs = Math.max(0, programmaticScrollUntilRef.current - performance.now());
+      programmaticScrollUntilRef.current = 0;
+      clearTranscriptAutoFollow();
+      isAtEndRef.current = false;
+      showScrollDebouncer.current.maybeExecute();
+      recordTranscriptControllerDiagnostic("controller:reader-detached", {
+        source: "wheel-up",
+        deltaY: event.deltaY,
+        wasAtEnd,
+        programmaticGuardRemainingMs: guardRemainingMs,
+      });
+    },
+    [clearTranscriptAutoFollow, recordTranscriptControllerDiagnostic],
+  );
   useLayoutEffect(() => {
     if (
       latestTranscriptMessageIsStreamingAssistant &&
@@ -3729,6 +3806,10 @@ export default function ChatView({
     const shouldFollowPendingTurn =
       activeThread?.id !== undefined && autoFollowThreadIdRef.current === activeThread.id;
     if (!isAtEndRef.current && !shouldFollowPendingTurn) {
+      recordTranscriptControllerDiagnostic("controller:auto-follow-skipped", {
+        isAtEnd: false,
+        ownsPendingTurn: false,
+      });
       return;
     }
     // Re-apply the bottom stick only for real transcript messages; tool/work
@@ -3747,6 +3828,7 @@ export default function ChatView({
   }, [
     activeThread?.id,
     latestTranscriptMessageIsStreamingAssistant,
+    recordTranscriptControllerDiagnostic,
     scrollToEnd,
     transcriptAutoFollowSignal,
   ]);
@@ -4436,7 +4518,7 @@ export default function ChatView({
     const candidatePendingMessageId = isPreAcceptanceStop
       ? (localDispatch?.expectedUserMessageId ??
         pendingTurnStartMessageRef.current?.messageId ??
-        activeThread.pendingTurnStartMessageId ??
+        authoritativePendingTurnStartMessageId ??
         undefined)
       : undefined;
     const candidatePendingMessage = candidatePendingMessageId
@@ -4494,6 +4576,20 @@ export default function ChatView({
     };
     try {
       await api.orchestration.dispatchCommand(interruptCommand);
+      // Command acceptance means the cancellation event is durably committed.
+      // Restore the composer from that authoritative receipt instead of
+      // depending on a second, best-effort domain-event subscription that may
+      // lag or be absent under uniform sync.
+      if (pendingMessageId) {
+        const restoration = pendingTurnStartRestorationsRef.current.get(pendingMessageId);
+        pendingTurnStartRestorationsRef.current.delete(pendingMessageId);
+        cancelPendingTurnStartMessageIdsRef.current.delete(pendingMessageId);
+        if (restoration !== undefined) {
+          if (restoration.threadId === activeThread.id) {
+            await restoration.restore();
+          }
+        }
+      }
     } catch (error) {
       if (pendingMessageId) {
         pendingTurnStartRestorationsRef.current.delete(pendingMessageId);
@@ -4503,6 +4599,7 @@ export default function ChatView({
     }
   }, [
     activeThread,
+    authoritativePendingTurnStartMessageId,
     hasPendingTurnStart,
     localDispatch?.expectedUserMessageId,
     isSendBusy,

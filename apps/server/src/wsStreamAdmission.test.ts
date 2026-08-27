@@ -1,11 +1,7 @@
 import { Deferred, Effect, Fiber, Ref, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
-import {
-  MAX_STREAMS_PER_RPC_CLIENT,
-  MAX_THREAD_STREAMS_PER_RPC_CLIENT,
-  makeWsStreamAdmission,
-} from "./wsStreamAdmission";
+import { MAX_STREAMS_PER_RPC_CLIENT, makeWsStreamAdmission } from "./wsStreamAdmission";
 
 describe("WsStreamAdmission", () => {
   it("reports thread-scoped rejection evidence without changing admission semantics", async () => {
@@ -142,12 +138,11 @@ describe("WsStreamAdmission", () => {
     }).pipe(Effect.runPromise);
   });
 
-  it("caps unique thread subscriptions independently and releases exact leases", async () => {
+  it("does not impose a separate Thread-stream cap", async () => {
     await Effect.gen(function* () {
       const admission = yield* makeWsStreamAdmission();
-      const singleton = yield* admission.acquire(7, { key: "server.lifecycle" });
       const threadLeases = yield* Effect.forEach(
-        Array.from({ length: MAX_THREAD_STREAMS_PER_RPC_CLIENT }, (_, index) => index),
+        Array.from({ length: MAX_STREAMS_PER_RPC_CLIENT }, (_, index) => index),
         (index) =>
           admission.acquire(7, {
             key: `orchestration.thread:thread-${index}`,
@@ -161,16 +156,16 @@ describe("WsStreamAdmission", () => {
         })
         .pipe(Effect.flip);
 
-      expect(rejected.code).toBe("THREAD_STREAM_CAPACITY_EXCEEDED");
+      expect(rejected.code).toBe("STREAM_CAPACITY_EXCEEDED");
       expect(rejected.retryable).toBe(true);
-      expect((yield* admission.snapshot).active).toBe(MAX_THREAD_STREAMS_PER_RPC_CLIENT + 1);
+      expect((yield* admission.snapshot).active).toBe(MAX_STREAMS_PER_RPC_CLIENT);
 
       yield* admission.release(threadLeases[0]!);
       const replacement = yield* admission.acquire(7, {
         key: "orchestration.thread:replacement",
         threadId: "replacement",
       });
-      yield* Effect.forEach([singleton, replacement, ...threadLeases.slice(1)], admission.release, {
+      yield* Effect.forEach([replacement, ...threadLeases.slice(1)], admission.release, {
         discard: true,
       });
       expect(yield* admission.snapshot).toMatchObject({ clients: 0, active: 0 });

@@ -169,14 +169,14 @@ describe("Codex Penkra harness policy", () => {
         callId: "call-native",
         namespace: null,
         tool: "penkra_exec_command",
-        arguments: { command: "penkra apps list" },
+        arguments: { command: "apps list" },
       },
     });
 
     expect(invoke).toHaveBeenCalledWith({
       bearerToken: "thread-token",
       name: "penkra_exec_command",
-      arguments: { command: "penkra apps list" },
+      arguments: { command: "apps list" },
     });
     expect(writeMessage).toHaveBeenCalledWith(context, {
       id: 71,

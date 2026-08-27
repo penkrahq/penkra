@@ -458,6 +458,7 @@ const make = Effect.gen(function* () {
   const editResendTurnStartKeys = new Set<string>();
   const quarantinedThreads = new Set<string>();
   const drainingQueuedTurns = new Set<string>();
+  let queuePromotionsQuiesced = false;
   // Provider sessions with a drained queued turn whose promotion is in flight.
   // The reservation survives provider startup and binds to the exact turn that
   // must settle before another queue can drain, preventing late terminal events
@@ -2140,6 +2141,15 @@ const make = Effect.gen(function* () {
     threadId: ThreadId,
     options?: { readonly allowStartingSession?: boolean },
   ) {
+    // Shutdown closes provider runtimes while this reactor is still subscribed
+    // so their terminal state is durable before SQLite closes. Those terminal
+    // events must not start fresh queued work: the reactor scope is about to be
+    // interrupted, which would consume the durable promotion without ever
+    // accepting the message at the provider. The next process recovers the
+    // still-queued row after restart continuation settles.
+    if (queuePromotionsQuiesced) {
+      return;
+    }
     const providerThread = yield* resolveProviderSessionThread(threadId);
     const sessionThreadId = providerThread?.id ?? threadId;
     // A queued follow-up can arrive while the predecessor is admitted but has
@@ -2344,7 +2354,7 @@ const make = Effect.gen(function* () {
           JOIN projection_thread_sessions AS session
             ON session.thread_id = recovery.thread_id
           WHERE recovery.thread_id = ${threadId}
-            AND session.status = 'interrupted'
+            AND session.status IN ('stopped', 'interrupted')
           LIMIT 1
         `;
         if (restartRecoveries.length > 0) {
@@ -4004,6 +4014,12 @@ const make = Effect.gen(function* () {
     }
   }).pipe(Effect.orDie);
 
+  const quiesceQueuePromotions: ProviderCommandReactorShape["quiesceQueuePromotions"] = Effect.sync(
+    () => {
+      queuePromotionsQuiesced = true;
+    },
+  );
+
   const listBlockingDeliveries: ProviderCommandReactorShape["listBlockingDeliveries"] = (input) =>
     deliveryRepository.listBlockingDeliveries({
       consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
@@ -4021,6 +4037,7 @@ const make = Effect.gen(function* () {
   return {
     start,
     drain,
+    quiesceQueuePromotions,
     listBlockingDeliveries,
     reconcileDelivery,
   } satisfies ProviderCommandReactorShape;

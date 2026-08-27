@@ -63,6 +63,36 @@ function VirtualListHarness() {
   );
 }
 
+function PrependingListHarness({ onNearStart }: { onNearStart?: () => void }) {
+  const [firstIndex, setFirstIndex] = useState(0);
+  const rows = Array.from({ length: 60 - firstIndex }, (_, index) => ({
+    id: `prepend-row-${firstIndex + index}`,
+    height: 40,
+  }));
+  return (
+    <div>
+      <button type="button" onClick={() => setFirstIndex((current) => Math.max(-20, current - 20))}>
+        Prepend history
+      </button>
+      <TranscriptVirtualList
+        data={rows}
+        anchorRevision={`prepend-row-${rows.at(-1)?.id ?? "empty"}`}
+        estimatedItemSize={40}
+        keyExtractor={(row) => row.id}
+        renderItem={(row) => (
+          <div data-row-id={row.id} style={{ height: row.height }}>
+            {row.id}
+          </div>
+        )}
+        paddingEnd={16}
+        {...(onNearStart === undefined ? {} : { onNearStart })}
+        data-testid="prepend-virtual-scroll"
+        style={{ height: 300, overflowY: "auto" }}
+      />
+    </div>
+  );
+}
+
 function LongDynamicListHarness() {
   const rows = Array.from({ length: 193 }, (_, index) => ({
     id: `long-row-${index}`,
@@ -101,6 +131,66 @@ function ProgressivelyHydratedLongListHarness() {
       renderItem={(row) => <div style={{ height: row.height }}>{row.id}</div>}
       paddingEnd={16}
       data-testid="hydrated-virtual-scroll"
+      style={{ height: 300, overflowY: "auto" }}
+    />
+  );
+}
+
+function HeterogeneousRemeasureListHarness() {
+  const [expanded, setExpanded] = useState(false);
+  const rows = Array.from({ length: 120 }, (_, index) => ({
+    id: `remeasure-row-${index}`,
+    height: index === 48 && expanded ? 304 : 48,
+  }));
+  return (
+    <div>
+      <button type="button" onClick={() => setExpanded(true)}>
+        Settle offscreen Markdown
+      </button>
+      <TranscriptVirtualList
+        data={rows}
+        anchorRevision="120:remeasure-row-119:settled"
+        estimatedItemSize={48}
+        keyExtractor={(row) => row.id}
+        renderItem={(row) => (
+          <div data-row-id={row.id} style={{ height: row.height }}>
+            {row.id}
+          </div>
+        )}
+        paddingEnd={16}
+        data-testid="remeasure-virtual-scroll"
+        style={{ height: 300, overflowY: "auto" }}
+      />
+    </div>
+  );
+}
+
+function LongChatFirstMeasureHarness() {
+  const measuredHeights = new Map<number, number>([
+    [27, 309],
+    [28, 140],
+    [29, 286],
+    [30, 97],
+    [31, 6_894],
+    [32, 302],
+  ]);
+  const rows = Array.from({ length: 40 }, (_, index) => ({
+    id: `first-measure-row-${index}`,
+    height: measuredHeights.get(index) ?? 90,
+  }));
+  return (
+    <TranscriptVirtualList
+      data={rows}
+      anchorRevision="40:first-measure-row-39:settled"
+      estimatedItemSize={90}
+      keyExtractor={(row) => row.id}
+      renderItem={(row) => (
+        <div data-row-id={row.id} style={{ height: row.height }}>
+          {row.id}
+        </div>
+      )}
+      paddingEnd={16}
+      data-testid="first-measure-virtual-scroll"
       style={{ height: 300, overflowY: "auto" }}
     />
   );
@@ -171,6 +261,22 @@ function ThreadSwitchingListHarness() {
 async function settleLayout(): Promise<void> {
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+async function sampleAnimationFrameOffsets(
+  scrollElement: HTMLElement,
+  rowId: string,
+  frameCount: number,
+): Promise<number[]> {
+  const offsets: number[] = [];
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const row = scrollElement.querySelector<HTMLElement>(`[data-row-id="${rowId}"]`);
+    if (row) {
+      offsets.push(row.getBoundingClientRect().top - scrollElement.getBoundingClientRect().top);
+    }
+  }
+  return offsets;
 }
 
 describe("TranscriptVirtualList", () => {
@@ -333,6 +439,162 @@ describe("TranscriptVirtualList", () => {
       await screen.getByText("Append row").click();
       await settleLayout();
       expect(scrollElement.scrollTop).toBeLessThanOrEqual(1);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("requests history near the top and preserves the visible keyed row after prepend", async () => {
+    const onNearStart = vi.fn();
+    const screen = await render(<PrependingListHarness onNearStart={onNearStart} />);
+    try {
+      const scrollElement = screen.container.querySelector<HTMLElement>(
+        '[data-testid="prepend-virtual-scroll"]',
+      )!;
+      await vi.waitFor(() => expect(scrollElement.scrollTop).toBeGreaterThan(0));
+      scrollElement.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -800 }));
+      scrollElement.scrollTop = 200;
+      scrollElement.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await vi.waitFor(() => expect(onNearStart).toHaveBeenCalled());
+
+      let anchor: HTMLElement | null = null;
+      await vi.waitFor(() => {
+        anchor = scrollElement.querySelector<HTMLElement>('[data-row-id="prepend-row-5"]');
+        expect(anchor).not.toBeNull();
+      });
+      const anchorOffset =
+        anchor!.getBoundingClientRect().top - scrollElement.getBoundingClientRect().top;
+
+      await screen.getByText("Prepend history").click();
+      await vi.waitFor(() => {
+        const preservedAnchor = scrollElement.querySelector<HTMLElement>(
+          '[data-row-id="prepend-row-5"]',
+        );
+        expect(preservedAnchor).not.toBeNull();
+        expect(
+          preservedAnchor!.getBoundingClientRect().top - scrollElement.getBoundingClientRect().top,
+        ).toBeCloseTo(anchorOffset, 0);
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("keeps a visible semantic row stable while above-viewport Markdown rows remeasure", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    enableChatScrollDiagnostics();
+    const screen = await render(
+      <StrictMode>
+        <HeterogeneousRemeasureListHarness />
+      </StrictMode>,
+    );
+    try {
+      const scrollElement = screen.container.querySelector<HTMLElement>(
+        '[data-testid="remeasure-virtual-scroll"]',
+      )!;
+      await vi.waitFor(() => expect(scrollElement.scrollTop).toBeGreaterThan(0));
+
+      // Measure the target region once at its compact size and record the
+      // reader's semantic position inside row 52.
+      scrollElement.scrollTop = 2_520;
+      scrollElement.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await vi.waitFor(() => {
+        expect(
+          scrollElement.querySelector<HTMLElement>('[data-row-id="remeasure-row-52"]'),
+        ).not.toBeNull();
+      });
+      const originalAnchor = scrollElement.querySelector<HTMLElement>(
+        '[data-row-id="remeasure-row-52"]',
+      )!;
+      const originalAnchorOffset =
+        originalAnchor.getBoundingClientRect().top - scrollElement.getBoundingClientRect().top;
+
+      // Unmount row 48 while retaining its 48px measurement, then let its
+      // Markdown settle offscreen. It will be rediscovered at 304px while the
+      // reader is scrolling backward—the exact path that used to skip the
+      // virtualizer's scroll compensation.
+      scrollElement.scrollTop = 3_500;
+      scrollElement.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await vi.waitFor(() => {
+        expect(
+          scrollElement.querySelector<HTMLElement>('[data-row-id="remeasure-row-48"]'),
+        ).toBeNull();
+      });
+      await screen.getByText("Settle offscreen Markdown").click();
+
+      scrollElement.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -980 }));
+      scrollElement.scrollTop = 2_520;
+      scrollElement.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await vi.waitFor(() => {
+        expect(
+          getChatScrollDiagnosticSamples().some(
+            (sample) =>
+              sample.event === "row-measured" &&
+              sample.detail.index === 48 &&
+              sample.detail.size === 304,
+          ),
+        ).toBe(true);
+      });
+      const frameOffsets = await sampleAnimationFrameOffsets(scrollElement, "remeasure-row-52", 8);
+
+      expect(frameOffsets.length).toBeGreaterThan(0);
+      expect(
+        Math.max(...frameOffsets.map((offset) => Math.abs(offset - originalAnchorOffset))),
+      ).toBeLessThanOrEqual(1);
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("preserves the painted anchor when a backward scroll first measures a giant chat row", async () => {
+    enableChatScrollDiagnostics();
+    const screen = await render(<LongChatFirstMeasureHarness />);
+    try {
+      const scrollElement = screen.container.querySelector<HTMLElement>(
+        '[data-testid="first-measure-virtual-scroll"]',
+      )!;
+      await vi.waitFor(() => {
+        expect(scrollElement.scrollTop).toBeGreaterThan(0);
+        expect(
+          scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop,
+        ).toBeLessThanOrEqual(16);
+      });
+
+      for (let step = 0; step < 4; step += 1) {
+        const anchor = scrollElement.querySelector<HTMLElement>(
+          '[data-row-id="first-measure-row-37"]',
+        );
+        expect(anchor).not.toBeNull();
+        const before =
+          anchor!.getBoundingClientRect().top - scrollElement.getBoundingClientRect().top;
+        scrollElement.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -122 }));
+        scrollElement.scrollBy({ top: -122, behavior: "instant" });
+        await settleLayout();
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 40));
+        const afterAnchor = scrollElement.querySelector<HTMLElement>(
+          '[data-row-id="first-measure-row-37"]',
+        );
+        expect(afterAnchor).not.toBeNull();
+        expect(
+          afterAnchor!.getBoundingClientRect().top - scrollElement.getBoundingClientRect().top,
+        ).toBeCloseTo(before + 122, 0);
+      }
+
+      await vi.waitFor(() => {
+        const samples = getChatScrollDiagnosticSamples();
+        const deferred = samples.find(
+          (sample) =>
+            sample.event === "virtual-scroll-write:deferred" && sample.detail.adjustments === 6_804,
+        );
+        expect(deferred).toBeDefined();
+        const applied = samples.find(
+          (sample) =>
+            sample.event === "virtual-scroll-write:applied" && sample.detail.adjustments === 6_804,
+        );
+        expect(applied).toBeDefined();
+        expect(Number(applied!.detail.after) - Number(applied!.detail.before)).toBe(6_804);
+      });
     } finally {
       await screen.unmount();
     }

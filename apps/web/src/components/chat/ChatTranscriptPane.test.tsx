@@ -87,5 +87,6 @@ describe("ChatTranscriptPane", () => {
 
     expect(markup).toContain('style="padding-right:360px"');
     expect(markup).toContain("Scroll to bottom");
+    expect(markup).not.toContain("Load earlier turns");
   });
 });

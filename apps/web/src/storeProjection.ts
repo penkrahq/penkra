@@ -8,19 +8,24 @@ import {
   type OrchestrationShellSnapshot,
   type OrchestrationShellStreamEvent,
   type OrchestrationSpaceShell,
+  type OrchestrationGetThreadTurnsPageResult,
   type ThreadId,
 } from "@penkra/contracts";
 import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
 
+import { recordChatPaginationDiagnostic } from "./chatScrollDiagnostics";
 import { getThreadFromState, getThreadsFromState } from "./threadDerivation";
 import {
   arraysShallowEqual,
   capThreadActivities,
+  compareChatMessagesForTranscript,
   dedupeActivitiesById,
   deepEqualJson,
   mapFolders,
   mapSpaces,
   mergeReadModelThreadDetailWithLiveHotPath,
+  normalizeActivities,
+  normalizeChatMessage,
   normalizeProject,
   normalizeSpace,
   normalizeThreadFromReadModel,
@@ -754,6 +759,8 @@ function removeThreadState(state: AppState, threadId: ThreadId): AppState {
     state.activityIdsByThreadId ?? EMPTY_ACTIVITY_IDS_BY_THREAD;
   const { [threadId]: _removedActivities, ...activityByThreadId } =
     state.activityByThreadId ?? EMPTY_ACTIVITY_BY_THREAD;
+  const { [threadId]: _removedPagination, ...threadTurnPaginationById } =
+    state.threadTurnPaginationById ?? {};
   const { [threadId]: _removedSummary, ...sidebarThreadSummaryById } =
     state.sidebarThreadSummaryById;
   const nextThreadIds = (state.threadIds ?? EMPTY_THREAD_IDS).filter((id) => id !== threadId);
@@ -776,6 +783,7 @@ function removeThreadState(state: AppState, threadId: ThreadId): AppState {
       messageByThreadId,
       activityIdsByThreadId,
       activityByThreadId,
+      threadTurnPaginationById,
       sidebarThreadSummaryById,
     },
     threadId,
@@ -805,6 +813,8 @@ export function evictThreadDetailFromClientState(state: AppState, threadId: Thre
     state.activityIdsByThreadId ?? EMPTY_ACTIVITY_IDS_BY_THREAD;
   const { [threadId]: _removedActivities, ...activityByThreadId } =
     state.activityByThreadId ?? EMPTY_ACTIVITY_BY_THREAD;
+  const { [threadId]: _removedPagination, ...threadTurnPaginationById } =
+    state.threadTurnPaginationById ?? {};
 
   return clearThreadDetailSyncState(
     {
@@ -813,6 +823,7 @@ export function evictThreadDetailFromClientState(state: AppState, threadId: Thre
       messageByThreadId,
       activityIdsByThreadId,
       activityByThreadId,
+      threadTurnPaginationById,
     },
     threadId,
   );
@@ -1134,6 +1145,10 @@ export function syncServerShellSnapshot(
     activityIdsByThreadId: retainThreadScopedRecord(state.activityIdsByThreadId, nextThreadIds),
     activityByThreadId: retainThreadScopedRecord(state.activityByThreadId, nextThreadIds),
     threadDetailSyncById: retainThreadScopedRecord(state.threadDetailSyncById, nextThreadIds),
+    threadTurnPaginationById: retainThreadScopedRecord(
+      state.threadTurnPaginationById,
+      nextThreadIds,
+    ),
   };
 
   const threads = getThreadsFromState(normalizedState);
@@ -1216,6 +1231,102 @@ export function syncServerThreadDetailHotPath(state: AppState, thread: ReadModel
   return syncServerThreadDetailWithOptions(state, thread, {
     mergeLiveHotPath: true,
   });
+}
+
+export function syncServerThreadTurnsPage(
+  state: AppState,
+  page: OrchestrationGetThreadTurnsPageResult,
+): AppState {
+  const currentThread = getThreadFromState(state, page.threadId);
+  if (!currentThread) return state;
+
+  const incomingMessages = page.messages;
+  const previousMessageIds = new Set(currentThread.messages.map((message) => message.id));
+  const uniqueIncomingMessageIds = new Set(incomingMessages.map((message) => message.id));
+  const messageById = new Map(currentThread.messages.map((message) => [message.id, message]));
+  for (const incoming of incomingMessages) {
+    messageById.set(incoming.id, normalizeChatMessage(incoming, messageById.get(incoming.id)));
+  }
+  const messages = [...messageById.values()].toSorted(compareChatMessagesForTranscript);
+
+  const incomingActivities = page.activities;
+  const previousActivityIds = new Set(currentThread.activities.map((activity) => activity.id));
+  const uniqueIncomingActivityIds = new Set(incomingActivities.map((activity) => activity.id));
+  // Put the authoritative page rows last so a canonical operation replaces a
+  // provisional streamed row with the same operation identity. Re-sort after
+  // the merge because an older page is normally prepended to newer live work.
+  const activities = normalizeActivities(
+    [...currentThread.activities, ...incomingActivities],
+    currentThread.activities,
+  ).toSorted((left, right) => {
+    const byCreatedAt = left.createdAt.localeCompare(right.createdAt);
+    if (byCreatedAt !== 0) return byCreatedAt;
+    const bySequence = (left.sequence ?? 0) - (right.sequence ?? 0);
+    return bySequence !== 0 ? bySequence : left.id.localeCompare(right.id);
+  });
+  const pendingInteractionById = new Map(
+    (currentThread.pendingInteractions ?? []).map((interaction) => [
+      `${interaction.interactionKind}:${interaction.requestId}`,
+      interaction,
+    ]),
+  );
+  for (const interaction of page.pendingInteractions) {
+    pendingInteractionById.set(
+      `${interaction.interactionKind}:${interaction.requestId}`,
+      interaction,
+    );
+  }
+
+  const withPage = applyThreadUpdate(
+    state,
+    page.threadId,
+    (thread) => ({
+      ...thread,
+      messages,
+      activities,
+      pendingInteractions: [...pendingInteractionById.values()],
+    }),
+    { updateSidebarSummary: false },
+  );
+  recordChatPaginationDiagnostic({
+    event: "store-merged",
+    threadId: page.threadId,
+    dataCount: messages.length,
+    detail: {
+      conversationTurnCount: page.conversationTurnCount,
+      previousMessageCount: currentThread.messages.length,
+      incomingMessageCount: incomingMessages.length,
+      uniqueIncomingMessageCount: uniqueIncomingMessageIds.size,
+      insertedMessageCount: [...uniqueIncomingMessageIds].filter(
+        (messageId) => !previousMessageIds.has(messageId),
+      ).length,
+      replacedMessageCount: [...uniqueIncomingMessageIds].filter((messageId) =>
+        previousMessageIds.has(messageId),
+      ).length,
+      mergedMessageCount: messages.length,
+      previousActivityCount: currentThread.activities.length,
+      incomingActivityCount: incomingActivities.length,
+      uniqueIncomingActivityCount: uniqueIncomingActivityIds.size,
+      insertedActivityCount: [...uniqueIncomingActivityIds].filter(
+        (activityId) => !previousActivityIds.has(activityId),
+      ).length,
+      mergedActivityCount: activities.length,
+      pendingInteractionCount: pendingInteractionById.size,
+      hasOlder: page.hasOlder,
+      nextCursorPresent: page.nextCursor !== null,
+    },
+  });
+  return writeThreadDetailSyncState(
+    {
+      ...withPage,
+      threadTurnPaginationById: {
+        ...(withPage.threadTurnPaginationById ?? {}),
+        [page.threadId]: { hasOlder: page.hasOlder, nextCursor: page.nextCursor },
+      },
+    },
+    page.threadId,
+    "synced",
+  );
 }
 
 export function applyShellEvent(state: AppState, event: OrchestrationShellStreamEvent): AppState {
@@ -1359,6 +1470,10 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     activityIdsByThreadId: retainThreadScopedRecord(state.activityIdsByThreadId, nextThreadIds),
     activityByThreadId: retainThreadScopedRecord(state.activityByThreadId, nextThreadIds),
     threadDetailSyncById: retainThreadScopedRecord(state.threadDetailSyncById, nextThreadIds),
+    threadTurnPaginationById: retainThreadScopedRecord(
+      state.threadTurnPaginationById,
+      nextThreadIds,
+    ),
   };
   for (const thread of nextThreads) {
     // Read-model threads carry full detail (messages, activities), so they are synced by definition.

@@ -67,7 +67,7 @@ export class AppOperationCatalog {
     const state = this.#installationState();
     const app = findInstalledAppBySlug(state, input.slug, input.spaceId);
     if (!app || !isEnabled(state, app.appId, input.spaceId)) {
-      throw new Error(`App ${input.slug} is not enabled in Space ${input.spaceId}.`);
+      throw new Error(`App ${input.slug} is not installed in Space ${input.spaceId}.`);
     }
     return generateAppHelp({
       manifest: app.manifest,

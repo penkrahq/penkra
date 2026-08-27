@@ -1,6 +1,6 @@
 {
   "name": "@penkra/cli",
-  "version": "0.11.14",
+  "version": "0.11.15",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -34,6 +34,7 @@
     "@penkra/sdk": "workspace:*",
     "@pierre/diffs": "^1.2.12",
     "@xterm/headless": "^6.0.0",
+    "ajv": "8.18.0",
     "effect": "catalog:",
     "jsonc-parser": "3.3.1",
     "node-pty": "^1.1.0",

@@ -8,7 +8,6 @@ import {
   SpaceId,
   ThreadId,
   type DesktopUpdateState,
-  type OrchestrationShellSnapshot,
   type ResolvedKeybindingsConfig,
   type SidebarItemMovePosition,
   type SidebarItemParent,
@@ -66,7 +65,6 @@ import {
   threadJumpIndexFromCommand,
 } from "../keybindings";
 import { useLatestProjectStore } from "../latestProjectStore";
-import { waitForRecoverableProjectInReadModel } from "../lib/projectCreateRecovery";
 import {
   resolveCurrentProjectTargetId,
   resolveLatestProjectTargetIdWithFallback,
@@ -233,8 +231,6 @@ const THREAD_PREVIEW_LIMIT = 5;
 // Each "Show more" click reveals this many extra rows; collapsing resets the preview.
 const THREAD_PREVIEW_PAGE_SIZE = 5;
 const EMPTY_THREAD_JUMP_LABELS = new Map<ThreadId, string>();
-const ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS = 6;
-const ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS = 50;
 
 function projectThreadListPagingKey(project: { id: FolderId; cwd: string }): string {
   return normalizeSidebarProjectThreadListCwd(project.cwd) || `project:${project.id}`;
@@ -899,24 +895,6 @@ export default function Sidebar() {
     [appSettings.sidebarThreadSortOrder, navigate, sidebarThreads],
   );
 
-  // Poll the server read model briefly after folder.create so we only recover from fresh state.
-  const waitForProjectInSnapshot = useCallback(
-    async (
-      api: NonNullable<ReturnType<typeof readNativeApi>>,
-      folderId: FolderId,
-    ): Promise<{
-      project: OrchestrationShellSnapshot["folders"][number] | null;
-      snapshot: OrchestrationShellSnapshot | null;
-    }> =>
-      waitForRecoverableProjectInReadModel({
-        folderId,
-        loadSnapshot: () => api.orchestration.getShellSnapshot().catch(() => null),
-        maxAttempts: ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS,
-        delayMs: ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS,
-      }),
-    [],
-  );
-
   const handleOpenProjectFromSearch = useCallback(
     (folderId: string) => {
       const typedFolderId = FolderId.makeUnsafe(folderId);
@@ -1545,6 +1523,7 @@ export default function Sidebar() {
       const api = readNativeApi();
       if (!api) throw new Error("The app server is unavailable.");
       const folderId = newFolderId();
+      const defaultCodexModel = getDefaultModel("codex");
       handleSelectSpaceForIncomingProject(value.spaceId);
       try {
         await api.orchestration.dispatchCommand({
@@ -1553,31 +1532,23 @@ export default function Sidebar() {
           folderId,
           title: value.name,
           workspaceRoot: null,
-          defaultModelSelection: {
-            provider: "codex",
-            model: getDefaultModel("codex"),
-          },
+          ...(defaultCodexModel
+            ? { defaultModelSelection: { provider: "codex", model: defaultCodexModel } }
+            : {}),
           spaceId: value.spaceId,
           createdAt: new Date().toISOString(),
         });
-        const { project, snapshot } = await waitForProjectInSnapshot(api, folderId);
-        if (snapshot) syncServerShellSnapshot(snapshot);
-        if (!project) throw new Error("The folder was created but has not synced yet.");
         setProjectExpanded(folderId, true);
-        await handleNewThread(folderId, { fresh: true });
+        // The accepted command is already durable. The unified synchronization
+        // stream installs the Folder in the canonical store independently; the
+        // draft only needs the known parent Space to open immediately.
+        await handleNewThread(folderId, { fresh: true, spaceId: value.spaceId });
       } catch (error) {
         if (previousSpaceId) handleSelectSpaceForIncomingProject(previousSpaceId);
         throw error;
       }
     },
-    [
-      activeSpaceId,
-      handleNewThread,
-      handleSelectSpaceForIncomingProject,
-      setProjectExpanded,
-      syncServerShellSnapshot,
-      waitForProjectInSnapshot,
-    ],
+    [activeSpaceId, handleNewThread, handleSelectSpaceForIncomingProject, setProjectExpanded],
   );
   const handleProjectContextMenuAction = useCallback(
     async (folderId: FolderId, clicked: ProjectContextMenuId) => {

@@ -71,11 +71,7 @@ import {
 import { makeCreateThreadHandler } from "../creationCoordinator.ts";
 import { makeThreadReadTools } from "../threadReadTools.ts";
 import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
-import {
-  executePenkraExecCommand,
-  loadPenkraServerManual,
-  penkraRootInstructions,
-} from "../../appRuntimeCli.ts";
+import { executePenkraExecCommand } from "../../appRuntimeCli.ts";
 import type { PenkraExecCommandInput } from "../../appRuntimeCli.ts";
 import { requireThreadSpaceId } from "../threadSpaceContext.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
@@ -87,6 +83,7 @@ import {
   PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
   PENKRA_EXEC_COMMAND_NAME,
 } from "../hostToolContract.ts";
+import { renderPenkraMcpServerInstructions } from "../harnessPolicy.ts";
 
 function isPenkraExecImage(
   value: unknown,
@@ -98,6 +95,20 @@ function isPenkraExecImage(
     typeof record.data === "string" &&
     typeof record.mimeType === "string"
   );
+}
+
+function command(
+  words: ReadonlyArray<string>,
+  tool: ToolEntry,
+  example: string,
+  instructions?: string,
+): AgentGatewayCommandEntry {
+  return {
+    words,
+    tool,
+    examples: [{ name: `Use ${["penkra", ...words].join(" ")}`, command: example }],
+    ...(instructions === undefined ? {} : { instructions }),
+  };
 }
 
 export const makeAgentGateway = Effect.gen(function* () {
@@ -477,38 +488,83 @@ export const makeAgentGateway = Effect.gen(function* () {
     return tool;
   };
   const gatewayCommands: ReadonlyArray<AgentGatewayCommandEntry> = [
-    { words: ["context"], tool: requireInternalTool("penkra_context") },
-    { words: ["capabilities"], tool: requireInternalTool("penkra_capabilities") },
-    { words: ["folders", "list"], tool: requireInternalTool("penkra_list_folders") },
-    { words: ["threads", "list"], tool: requireInternalTool("penkra_list_threads") },
-    { words: ["threads", "read"], tool: requireInternalTool("penkra_read_thread") },
-    { words: ["threads", "wait"], tool: requireInternalTool("penkra_wait_for_threads") },
-    {
-      words: ["threads", "activity"],
-      tool: requireInternalTool("penkra_read_thread_activity"),
-    },
-    { words: ["threads", "events"], tool: requireInternalTool("penkra_read_thread_events") },
-    {
-      words: ["threads", "runtime-events"],
-      tool: requireInternalTool("penkra_read_thread_runtime_events"),
-    },
-    { words: ["threads", "diagnose"], tool: requireInternalTool("penkra_diagnose_thread") },
-    {
-      words: ["threads", "retry-projection"],
-      tool: requireInternalTool("penkra_retry_thread_projection"),
-    },
-    { words: ["threads", "create"], tool: createThread },
-    { words: ["threads", "send"], tool: sendMessage },
-    { words: ["threads", "interrupt"], tool: interruptThread },
-    { words: ["threads", "rename"], tool: setThreadTitle },
-    {
-      words: ["threads", "archive"],
-      tool: archiveThread,
-    },
-    {
-      words: ["threads", "unarchive"],
-      tool: unarchiveThread,
-    },
+    command(["context"], requireInternalTool("penkra_context"), "penkra context"),
+    command(
+      ["capabilities"],
+      requireInternalTool("penkra_capabilities"),
+      "penkra capabilities --provider codex",
+    ),
+    command(["folders", "list"], requireInternalTool("penkra_list_folders"), "penkra folders list"),
+    command(
+      ["threads", "list"],
+      requireInternalTool("penkra_list_threads"),
+      "penkra threads list --limit 50",
+    ),
+    command(
+      ["threads", "read"],
+      requireInternalTool("penkra_read_thread"),
+      "penkra threads read --thread-id <thread-id>",
+    ),
+    command(
+      ["threads", "wait"],
+      requireInternalTool("penkra_wait_for_threads"),
+      'penkra threads wait --input \'{"threadIds":["<thread-id>"]}\'',
+    ),
+    command(
+      ["threads", "activity"],
+      requireInternalTool("penkra_read_thread_activity"),
+      "penkra threads activity --thread-id <thread-id> --include-details true",
+    ),
+    command(
+      ["threads", "events"],
+      requireInternalTool("penkra_read_thread_events"),
+      "penkra threads events --thread-id <thread-id>",
+    ),
+    command(
+      ["threads", "runtime-events"],
+      requireInternalTool("penkra_read_thread_runtime_events"),
+      "penkra threads runtime-events --thread-id <thread-id>",
+    ),
+    command(
+      ["threads", "diagnose"],
+      requireInternalTool("penkra_diagnose_thread"),
+      "penkra threads diagnose --thread-id <thread-id>",
+    ),
+    command(
+      ["threads", "retry-projection"],
+      requireInternalTool("penkra_retry_thread_projection"),
+      "penkra threads retry-projection --thread-id <thread-id>",
+    ),
+    command(
+      ["threads", "create"],
+      createThread,
+      'penkra threads create --input \'{"requestId":"review-api","prompt":"Review the API contract.","target":{...}}\'',
+    ),
+    command(
+      ["threads", "send"],
+      sendMessage,
+      "penkra threads send --thread-id <thread-id> --message 'Continue the review.'",
+    ),
+    command(
+      ["threads", "interrupt"],
+      interruptThread,
+      "penkra threads interrupt --thread-id <thread-id>",
+    ),
+    command(
+      ["threads", "rename"],
+      setThreadTitle,
+      "penkra threads rename --thread-id <thread-id> --title 'API review'",
+    ),
+    command(
+      ["threads", "archive"],
+      archiveThread,
+      "penkra threads archive --thread-id <thread-id>",
+    ),
+    command(
+      ["threads", "unarchive"],
+      unarchiveThread,
+      "penkra threads unarchive --thread-id <thread-id>",
+    ),
   ];
 
   const penkraExecCommand: ToolEntry = {
@@ -576,24 +632,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     credentials,
     snapshotQuery,
     tools,
-    instructions: (context) =>
-      Effect.tryPromise({
-        try: async () => {
-          const caller = await Effect.runPromise(requireThreadShell(context.callerThreadId));
-          const spaceId = await Effect.runPromise(requireThreadSpaceId(snapshotQuery, caller));
-          const coreCommands = agentGatewayCommandCatalog(gatewayCommands);
-          if (!process.env.PENKRA_APP_COMMAND_PIPE) {
-            return penkraRootInstructions([], coreCommands);
-          }
-          return loadPenkraServerManual({
-            spaceId,
-            threadId: caller.id,
-            workingDirectory: caller.workingDirectory ?? null,
-            additionalCoreCommands: coreCommands,
-          });
-        },
-        catch: (error) => new ToolInputError(errorText(error)),
-      }),
+    instructions: () => Effect.succeed(renderPenkraMcpServerInstructions()),
     requireThreadShell,
   });
   const invokeTool: AgentGatewayShape["invokeTool"] = (input) =>

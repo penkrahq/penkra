@@ -32,8 +32,8 @@ export interface OperationDeclaration {
   key: string;
   /** Concise help text used by generated CLI and agent help. */
   summary: string;
-  /** Optional operation-specific procedure, limits, and recovery guidance rendered by help. */
-  guidance?: string;
+  /** Optional operation-specific instructions, limits, and recovery procedure rendered by help. */
+  instructions?: string;
   /** JSON Schema for caller-supplied input. */
   input: JsonSchema;
   /** JSON Schema for the successful result. */
@@ -377,8 +377,8 @@ export function validateAppManifest(
           }
         }
         requireString(candidate.summary, `${path}.summary`, issues);
-        if (candidate.guidance !== undefined) {
-          requireString(candidate.guidance, `${path}.guidance`, issues);
+        if (candidate.instructions !== undefined) {
+          requireString(candidate.instructions, `${path}.instructions`, issues);
         }
         if (!isRecord(candidate.input)) {
           issue(issues, `${path}.input`, "invalid-format", "input must be a JSON Schema object.");

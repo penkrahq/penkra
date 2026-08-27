@@ -104,6 +104,8 @@ export interface ChatMessage {
   dispatchMode?: TurnDispatchMode;
   dispatchOrigin?: MessageDispatchOrigin;
   delivery?: MessageDelivery;
+  /** First durable message event sequence, used with delivery.sequence for causal placement. */
+  sequence?: number;
   turnId?: TurnId | null;
   createdAt: string;
   completedAt?: string | undefined;

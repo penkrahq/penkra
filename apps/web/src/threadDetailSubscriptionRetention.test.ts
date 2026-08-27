@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ThreadId, TurnId, WS_STREAM_LIMITS } from "@penkra/contracts";
+import { ThreadId, TurnId } from "@penkra/contracts";
 import { useStore } from "./store";
 import {
   MAX_CACHED_THREAD_DETAIL_SUBSCRIPTIONS,
   getRetainedThreadDetailIdsSnapshot,
   isThreadDetailRetained,
   resetRetainedThreadDetailSubscriptionsForTests,
-  resolveThreadDetailSubscriptionLeaseIds,
   retainThreadDetailSubscription,
   setVisibleThreadDetailIds,
   subscribeThreadDetailEvictions,
@@ -298,40 +297,6 @@ describe("threadDetailSubscriptionRetention", () => {
     expect(getRetainedThreadDetailIdsSnapshot().length).toBeLessThanOrEqual(
       MAX_CACHED_THREAD_DETAIL_SUBSCRIPTIONS,
     );
-  });
-
-  it("prioritizes visible leases and stays within connection admission", () => {
-    const visible = [ThreadId.makeUnsafe("visible-1"), ThreadId.makeUnsafe("visible-2")];
-    const retained = Array.from({ length: WS_STREAM_LIMITS.threadPerClient }, (_, index) =>
-      ThreadId.makeUnsafe(`retained-${index}`),
-    );
-
-    expect(
-      resolveThreadDetailSubscriptionLeaseIds({
-        visibleThreadIds: visible,
-        retainedThreadIds: retained,
-        serverThreadIds: new Set(retained),
-        draftThreadIds: new Set(),
-      }),
-    ).toEqual([
-      ...visible,
-      ...retained.slice(0, WS_STREAM_LIMITS.threadPerClient - visible.length),
-    ]);
-  });
-
-  it("waits to lease a known local draft but still surfaces an unknown visible route", () => {
-    const draft = ThreadId.makeUnsafe("draft-thread");
-    const unknown = ThreadId.makeUnsafe("unknown-thread");
-    const authoritative = ThreadId.makeUnsafe("authoritative-thread");
-
-    expect(
-      resolveThreadDetailSubscriptionLeaseIds({
-        visibleThreadIds: [draft, unknown, authoritative],
-        retainedThreadIds: [],
-        serverThreadIds: new Set([authoritative]),
-        draftThreadIds: new Set([draft]),
-      }),
-    ).toEqual([unknown, authoritative]);
   });
 
   it("notifies eviction subscribers so lease owners can refresh wiped detail", () => {

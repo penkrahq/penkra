@@ -5,8 +5,12 @@ import {
   ClientOrchestrationCommand,
   OrchestrationEvent,
   OrchestrationImportThreadInput,
+  OrchestrationAcknowledgeSyncInput,
+  OrchestrationGetThreadTurnsPageInput,
   OrchestrationShellStreamItem,
+  OrchestrationSubscribeSyncInput,
   OrchestrationSubscribeShellInput,
+  OrchestrationSyncStreamItem,
   OrchestrationSubscribeThreadInput,
   OrchestrationThreadStreamItem,
   OrchestrationUnsubscribeShellInput,
@@ -194,8 +198,11 @@ const WebSocketRequestBody = Schema.Union([
     ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot,
     OrchestrationGetThreadDetailSnapshotInput,
   ),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.getThreadTurnsPage, OrchestrationGetThreadTurnsPageInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.repairState, OrchestrationRepairStateInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.replayEvents, OrchestrationReplayEventsInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeSync, OrchestrationSubscribeSyncInput),
+  tagRequestBody(ORCHESTRATION_WS_METHODS.acknowledgeSync, OrchestrationAcknowledgeSyncInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeShell, OrchestrationSubscribeShellInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.unsubscribeShell, OrchestrationUnsubscribeShellInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeThread, OrchestrationSubscribeThreadInput),
@@ -313,6 +320,7 @@ export interface WsPushPayloadByChannel {
   readonly [WS_CHANNELS.projectDevServerEvent]: typeof ProjectDevServerEvent.Type;
   readonly [WS_CHANNELS.projectWorkspaceChange]: typeof ProjectWorkspaceChangeEvent.Type;
   readonly [ORCHESTRATION_WS_CHANNELS.domainEvent]: OrchestrationEvent;
+  readonly [ORCHESTRATION_WS_CHANNELS.syncEvent]: OrchestrationSyncStreamItem;
   readonly [ORCHESTRATION_WS_CHANNELS.shellEvent]: OrchestrationShellStreamItem;
   readonly [ORCHESTRATION_WS_CHANNELS.threadEvent]: OrchestrationThreadStreamItem;
 }
@@ -361,6 +369,10 @@ export const WsPushOrchestrationDomainEvent = makeWsPushSchema(
   ORCHESTRATION_WS_CHANNELS.domainEvent,
   OrchestrationEvent,
 );
+export const WsPushOrchestrationSyncEvent = makeWsPushSchema(
+  ORCHESTRATION_WS_CHANNELS.syncEvent,
+  OrchestrationSyncStreamItem,
+);
 export const WsPushOrchestrationShellEvent = makeWsPushSchema(
   ORCHESTRATION_WS_CHANNELS.shellEvent,
   OrchestrationShellStreamItem,
@@ -380,6 +392,7 @@ export const WsPushChannelSchema = Schema.Literals([
   WS_CHANNELS.projectDevServerEvent,
   WS_CHANNELS.projectWorkspaceChange,
   ORCHESTRATION_WS_CHANNELS.domainEvent,
+  ORCHESTRATION_WS_CHANNELS.syncEvent,
   ORCHESTRATION_WS_CHANNELS.shellEvent,
   ORCHESTRATION_WS_CHANNELS.threadEvent,
 ]);
@@ -395,6 +408,7 @@ export const WsPush = Schema.Union([
   WsPushProjectDevServerEvent,
   WsPushProjectWorkspaceChange,
   WsPushOrchestrationDomainEvent,
+  WsPushOrchestrationSyncEvent,
   WsPushOrchestrationShellEvent,
   WsPushOrchestrationThreadEvent,
 ]);

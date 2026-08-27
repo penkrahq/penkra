@@ -1,4 +1,9 @@
 import { Effect } from "effect";
+import {
+  assembleInstructions,
+  generateOperationHelp,
+  type InstructionOperation,
+} from "@penkra/sdk";
 
 import {
   parseOperationInput,
@@ -6,7 +11,7 @@ import {
   structuredArguments,
   type PenkraExecCommandInput,
 } from "../appRuntimeCli.ts";
-import { mcpToolResultJson, type McpToolCallResult } from "./protocol.ts";
+import { mcpToolResultText, type McpToolCallResult } from "./protocol.ts";
 import {
   GatewayToolError,
   gatewayToolErrorResult,
@@ -18,6 +23,8 @@ export interface AgentGatewayCommandEntry {
   readonly words: ReadonlyArray<string>;
   readonly tool: ToolEntry;
   readonly fixedArguments?: Readonly<Record<string, unknown>>;
+  readonly instructions?: string;
+  readonly examples: ReadonlyArray<{ readonly name: string; readonly command: string }>;
 }
 
 export type AgentGatewayCommandResolution =
@@ -34,17 +41,26 @@ function commandText(entry: AgentGatewayCommandEntry): string {
 }
 
 function commandHelp(entry: AgentGatewayCommandEntry): McpToolCallResult {
-  return mcpToolResultJson({
-    command: ["penkra", ...entry.words].join(" "),
-    description: entry.tool.definition.description,
-    inputSchema: entry.tool.definition.inputSchema,
-  });
+  const parent = entry.words.slice(0, -1);
+  return mcpToolResultText(
+    generateOperationHelp({
+      command: commandText(entry),
+      summary: entry.tool.definition.description,
+      ...(entry.instructions === undefined ? {} : { instructions: entry.instructions }),
+      input: entry.tool.definition.inputSchema,
+      examples: entry.examples,
+      parentHelp: `Run ${parent.length ? `penkra ${parent.join(" ")}` : "penkra"} --help for operating instructions.`,
+    }),
+  );
 }
 
 export function agentGatewayCommandCatalog(
   entries: ReadonlyArray<AgentGatewayCommandEntry>,
-): ReadonlyArray<string> {
-  return entries.map(commandText);
+): ReadonlyArray<InstructionOperation> {
+  return entries.map((entry) => ({
+    command: commandText(entry),
+    summary: entry.tool.definition.description,
+  }));
 }
 
 export function resolveAgentGatewayCommand(
@@ -74,10 +90,15 @@ export function resolveAgentGatewayCommand(
       if (children.length > 0) {
         return {
           kind: "result",
-          result: mcpToolResultJson({
-            command: ["penkra", ...groupWords].join(" "),
-            commands: children.map(commandText),
-          }),
+          result: mcpToolResultText(
+            assembleInstructions({
+              document: `# ${["Penkra", ...groupWords].join(" ")}\n\nUse the operation summaries below to choose the semantic action, then run the exact operation with --help for its validated schemas, operation-specific instructions, and examples.`,
+              operations: children.map((entry) => ({
+                command: commandText(entry),
+                summary: entry.tool.definition.description,
+              })),
+            }),
+          ),
         };
       }
     }

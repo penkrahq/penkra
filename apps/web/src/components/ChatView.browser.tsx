@@ -82,6 +82,7 @@ const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' heig
 let attachmentResponseDelayMs = 0;
 let attachmentUploadSequence = 0;
 let emitDomainEvent: ((event: OrchestrationEvent) => void) | null = null;
+let emitSyncDomainEvent: ((event: OrchestrationEvent) => void) | null = null;
 
 interface WsRequestEnvelope {
   id: string;
@@ -480,6 +481,23 @@ function findThreadDetailFromFixtureSnapshot(
   threadId: ThreadId,
 ): OrchestrationReadModel["threads"][number] | null {
   return fixture.snapshot.threads.find((entry) => entry.id === threadId) ?? null;
+}
+
+function createThreadTurnsPageFromFixtureSnapshot(threadId: ThreadId) {
+  const thread = findThreadDetailFromFixtureSnapshot(threadId);
+  if (!thread) {
+    throw new Error(`Unable to create a fixture turn page for missing Thread ${threadId}.`);
+  }
+  return {
+    threadId,
+    snapshotSequence: fixture.snapshot.snapshotSequence,
+    conversationTurnCount: thread.messages.filter((message) => message.role === "user").length,
+    messages: thread.messages,
+    activities: thread.activities,
+    pendingInteractions: thread.pendingInteractions,
+    hasOlder: false,
+    nextCursor: null,
+  };
 }
 
 function addThreadToSnapshot(
@@ -974,6 +992,20 @@ function recordFolderCreateCommand(command: unknown): boolean {
   }
 
   const folderId = command.folderId as FolderId;
+  const submittedDefaultModelSelection =
+    "defaultModelSelection" in command &&
+    command.defaultModelSelection &&
+    typeof command.defaultModelSelection === "object" &&
+    "provider" in command.defaultModelSelection &&
+    typeof command.defaultModelSelection.provider === "string" &&
+    "model" in command.defaultModelSelection &&
+    typeof command.defaultModelSelection.model === "string" &&
+    command.defaultModelSelection.model.length > 0
+      ? (command.defaultModelSelection as OrchestrationReadModel["folders"][number]["defaultModelSelection"])
+      : {
+          provider: "codex" as const,
+          model: "gpt-5",
+        };
   fixture = {
     ...fixture,
     snapshot: {
@@ -989,15 +1021,7 @@ function recordFolderCreateCommand(command: unknown): boolean {
               : TEST_SPACE_ID,
           title: String(command.title),
           workspaceRoot: command.workspaceRoot === null ? null : String(command.workspaceRoot),
-          defaultModelSelection:
-            "defaultModelSelection" in command &&
-            command.defaultModelSelection &&
-            typeof command.defaultModelSelection === "object"
-              ? (command.defaultModelSelection as OrchestrationReadModel["folders"][number]["defaultModelSelection"])
-              : {
-                  provider: "codex" as const,
-                  model: "gpt-5",
-                },
+          defaultModelSelection: submittedDefaultModelSelection,
           scripts: [],
           createdAt:
             "createdAt" in command && typeof command.createdAt === "string"
@@ -1058,6 +1082,14 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   }
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
+  }
+  if (tag === ORCHESTRATION_WS_METHODS.getThreadTurnsPage && typeof body.threadId === "string") {
+    return createThreadTurnsPageFromFixtureSnapshot(ThreadId.makeUnsafe(body.threadId));
+  }
+  if (tag === ORCHESTRATION_WS_METHODS.acknowledgeSync) {
+    // Effect RPC encodes Schema.Void as null on the wire; returning undefined
+    // would omit the success value from the serialized Exit.
+    return null;
   }
   if (tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
     if (recordSpaceCreateCommand(body.command) || recordFolderCreateCommand(body.command)) {
@@ -1346,6 +1378,24 @@ const worker = setupWorker(
         sendEffectRpcChunk(client, parsed.request.id, {
           kind: "snapshot",
           snapshot: createShellSnapshotFromReadModel(fixture.snapshot),
+        });
+        return;
+      }
+      if (method === ORCHESTRATION_WS_METHODS.subscribeSync) {
+        emitSyncDomainEvent = (event) =>
+          sendEffectRpcChunk(client, parsed.request.id, {
+            kind: "event",
+            deliveryId: `fixture-sync-event-${event.sequence}`,
+            event,
+          });
+        sendEffectRpcChunk(client, parsed.request.id, {
+          kind: "snapshot",
+          deliveryId: `fixture-sync-${fixture.snapshot.snapshotSequence}`,
+          snapshot: {
+            snapshotSequence: fixture.snapshot.snapshotSequence,
+            shell: createShellSnapshotFromReadModel(fixture.snapshot),
+            activeThreadPages: [],
+          },
         });
         return;
       }
@@ -2007,6 +2057,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     attachmentResponseDelayMs = 0;
     attachmentUploadSequence = 0;
     emitDomainEvent = null;
+    emitSyncDomainEvent = null;
     localStorage.clear();
     useLatestProjectStore.setState({ latestFolderId: null });
     document.body.innerHTML = "";
@@ -2847,7 +2898,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const liveAssistantMessage = {
         ...createAssistantMessage({
           id: MessageId.makeUnsafe("msg-assistant-auto-follow-live"),
-          text: "A real live assistant tail",
+          text: "A real live assistant tail with enough content to overflow the viewport. ".repeat(
+            80,
+          ),
           offsetSeconds: 1_206,
         }),
         turnId: activeTurnId,
@@ -2863,6 +2916,40 @@ describe("ChatView timeline estimator parity (full app)", () => {
         interval: 16,
       });
 
+      // A real upward gesture transfers ownership to the reader immediately,
+      // even while the preceding auto-follow scroll is still inside its
+      // programmatic-scroll guard. The next streamed token must not fight the
+      // reader back to the live edge.
+      scrollToCalls.length = 0;
+      scrollContainer.dispatchEvent(
+        new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -120 }),
+      );
+      scrollContainer.scrollTop = Math.max(
+        0,
+        scrollContainer.scrollHeight - scrollContainer.clientHeight - 120,
+      );
+      scrollContainer.dispatchEvent(new Event("scroll"));
+      expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(0);
+      syncActiveThread((thread) => ({
+        ...thread,
+        messages: thread.messages.map((message) =>
+          message.id === liveAssistantMessage.id
+            ? {
+                ...message,
+                text: `${message.text} with another streamed token`,
+                updatedAt: isoAt(1_207),
+              }
+            : message,
+        ),
+        updatedAt: isoAt(1_207),
+      }));
+      await waitForLayout();
+      expect(scrollToCalls).toHaveLength(0);
+
+      // Explicitly returning to the tail restores live-follow ownership.
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      scrollContainer.dispatchEvent(new Event("scroll"));
+      await waitForLayout();
       scrollToCalls.length = 0;
       syncActiveThread((thread) => ({
         ...thread,
@@ -2872,12 +2959,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
                 ...message,
                 text: `${message.text} ${"with additional streamed completion details ".repeat(24)}`,
                 streaming: false,
-                completedAt: isoAt(1_207),
-                updatedAt: isoAt(1_207),
+                completedAt: isoAt(1_208),
+                updatedAt: isoAt(1_208),
               }
             : message,
         ),
-        updatedAt: isoAt(1_207),
+        updatedAt: isoAt(1_208),
       }));
       await vi.waitFor(() => expect(scrollToCalls.length).toBeGreaterThan(0), {
         timeout: 4_000,
@@ -3749,7 +3836,20 @@ describe("ChatView timeline estimator parity (full app)", () => {
       })),
       threads: startingSnapshot.threads.map((thread) =>
         thread.id === THREAD_ID
-          ? { ...thread, spaceId, pendingTurnStartMessageId: pendingMessageId }
+          ? {
+              ...thread,
+              spaceId,
+              pendingTurnStartMessageId: pendingMessageId,
+              messages: thread.messages.map((message) =>
+                message.id === pendingMessageId
+                  ? {
+                      ...message,
+                      delivery: { state: "starting" as const, queued: false, sequence: 10 },
+                      sequence: 10,
+                    }
+                  : message,
+              ),
+            }
           : thread,
       ),
     };
@@ -3806,19 +3906,23 @@ describe("ChatView timeline estimator parity (full app)", () => {
             .find((command) => command?.type === "thread.turn.interrupt");
           expect(interrupt?.pendingMessageId).toBe(pendingMessageId);
           expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe(
-            "",
+            "pending provider start prompt",
           );
         },
         { timeout: 8_000, interval: 16 },
       );
 
-      expect(emitDomainEvent).not.toBeNull();
-      emitDomainEvent!(
-        makeDomainEvent("thread.turn-start-cancelled", {
-          threadId: THREAD_ID,
-          messageId: pendingMessageId,
-          cancelledAt: NOW_ISO,
-        }),
+      expect(emitSyncDomainEvent).not.toBeNull();
+      emitSyncDomainEvent!(
+        makeDomainEvent(
+          "thread.turn-start-cancelled",
+          {
+            threadId: THREAD_ID,
+            messageId: pendingMessageId,
+            cancelledAt: NOW_ISO,
+          },
+          { sequence: 11 },
+        ),
       );
 
       await vi.waitFor(
@@ -3984,6 +4088,112 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("reveals a promoted queued follow-up after the assistant response it waited behind", async () => {
+    const queuedMessageId = "msg-queued-after-assistant" as MessageId;
+    const assistantMessageId = "msg-assistant-before-queued" as MessageId;
+    const queuedTurnId = "turn-promoted-queued" as TurnId;
+    const firstTurnId = "turn-before-promoted-queue" as TurnId;
+    const base = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-before-queue" as MessageId,
+      targetText: "Hey, what can you do?",
+      sessionStatus: "running",
+    });
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      threads: base.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? {
+              ...thread,
+              queuedMessageIds: [queuedMessageId],
+              messages: [
+                ...thread.messages
+                  .filter((message) => message.id === ("msg-user-before-queue" as MessageId))
+                  .map((message) => ({
+                    ...message,
+                    sequence: 1,
+                    turnId: firstTurnId,
+                  })),
+                // Admitted before the provider produced visible assistant text.
+                // It remains hidden in the queue until sequence 5 promotes it.
+                {
+                  id: queuedMessageId,
+                  role: "user" as const,
+                  text: "Ground yourself",
+                  dispatchMode: "queue" as const,
+                  delivery: { state: "queued" as const, queued: true, sequence: 2 },
+                  sequence: 2,
+                  turnId: queuedTurnId,
+                  streaming: false,
+                  source: "native" as const,
+                  createdAt: isoAt(1_002),
+                  updatedAt: isoAt(1_002),
+                },
+                {
+                  id: assistantMessageId,
+                  role: "assistant" as const,
+                  text: "Quite a lot. I can help with code and research.",
+                  sequence: 3,
+                  turnId: firstTurnId,
+                  streaming: false,
+                  source: "native" as const,
+                  createdAt: isoAt(1_003),
+                  updatedAt: isoAt(1_004),
+                },
+              ],
+            }
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+
+    try {
+      await vi.waitFor(() => {
+        expect(document.querySelector(`[data-message-id="${queuedMessageId}"]`)).toBeNull();
+        expect(document.querySelector(`[data-message-id="${assistantMessageId}"]`)).not.toBeNull();
+        expect(
+          document.querySelector('[data-testid="queued-follow-up-row"]')?.textContent,
+        ).toContain("Ground yourself");
+        expect(
+          useStore.getState().messageByThreadId?.[THREAD_ID]?.[assistantMessageId]?.sequence,
+        ).toBe(3);
+      });
+
+      expect(emitSyncDomainEvent).not.toBeNull();
+      emitSyncDomainEvent!(
+        makeDomainEvent(
+          "thread.turn-start-requested",
+          {
+            threadId: THREAD_ID,
+            turnId: queuedTurnId,
+            messageId: queuedMessageId,
+            dispatchMode: "queue",
+            runtimeMode: "full-access",
+            createdAt: isoAt(1_002),
+          },
+          { sequence: 5 },
+        ),
+      );
+
+      await vi.waitFor(() => {
+        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
+        expect(useStore.getState().messageIdsByThreadId?.[THREAD_ID]).toEqual([
+          "msg-user-before-queue" as MessageId,
+          assistantMessageId,
+          queuedMessageId,
+        ]);
+        const transcriptMessageIds = Array.from(
+          document.querySelectorAll<HTMLElement>("[data-message-id]"),
+        ).map((element) => element.dataset.messageId);
+        expect(transcriptMessageIds.indexOf(assistantMessageId)).toBeGreaterThanOrEqual(0);
+        expect(transcriptMessageIds.indexOf(queuedMessageId)).toBeGreaterThan(
+          transcriptMessageIds.indexOf(assistantMessageId),
+        );
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("restores a server-authoritative queued row without duplicating it in the transcript", async () => {
     const queuedMessageId = "msg-server-authoritative-queue" as MessageId;
     const base = createSnapshotForTargetUser({
@@ -4005,6 +4215,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
                   role: "user" as const,
                   text: "restored durable queue item",
                   dispatchMode: "queue" as const,
+                  delivery: { state: "queued" as const, queued: true, sequence: 200 },
+                  sequence: 200,
                   turnId: null,
                   streaming: false,
                   source: "native" as const,
@@ -5457,6 +5669,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const previousNativeApi = window.nativeApi;
     const wsNativeApi = readNativeApi();
     expect(wsNativeApi).toBeDefined();
+    const getShellSnapshot = vi.fn(async () => createShellSnapshotFromReadModel(fixture.snapshot));
     Object.defineProperty(window, "nativeApi", {
       configurable: true,
       value: {
@@ -5469,9 +5682,33 @@ describe("ChatView timeline estimator parity (full app)", () => {
               command,
             });
             recordFolderCreateCommand(command);
+            const createdFolder = fixture.snapshot.folders.at(-1);
+            if (createdFolder) {
+              queueMicrotask(() => {
+                emitSyncDomainEvent?.(
+                  makeDomainEvent(
+                    "folder.created",
+                    {
+                      folderId: createdFolder.id,
+                      title: createdFolder.title,
+                      workspaceRoot: createdFolder.workspaceRoot,
+                      defaultModelSelection: createdFolder.defaultModelSelection,
+                      scripts: createdFolder.scripts,
+                      iconDataUrl: createdFolder.iconDataUrl ?? null,
+                      isPinned: createdFolder.isPinned ?? false,
+                      spaceId: createdFolder.spaceId,
+                      sidebarSortOrder: createdFolder.sidebarSortOrder ?? 0,
+                      createdAt: createdFolder.createdAt,
+                      updatedAt: createdFolder.updatedAt,
+                    },
+                    { sequence: fixture.snapshot.snapshotSequence },
+                  ),
+                );
+              });
+            }
             return { sequence: fixture.snapshot.snapshotSequence };
           }),
-          getShellSnapshot: vi.fn(async () => createShellSnapshotFromReadModel(fixture.snapshot)),
+          getShellSnapshot,
         },
       },
     });
@@ -5504,14 +5741,15 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      // The inline draft closes on success and the sidebar picks the folder up
-      // from the refreshed shell snapshot.
+      // The command opens its draft immediately. The canonical sync event—not
+      // a command-local polling lifecycle—installs the new Folder.
       await expect
         .element(page.getByRole("textbox", { name: "New folder name" }))
         .not.toBeInTheDocument();
       await expect
         .element(page.getByText("New Project", { exact: true }).first())
         .toBeInTheDocument();
+      expect(getShellSnapshot).not.toHaveBeenCalled();
     } finally {
       if (previousNativeApi) {
         Object.defineProperty(window, "nativeApi", {

@@ -2279,6 +2279,7 @@ const make = Effect.gen(function* () {
       const canonicalOperationMaterialized =
         canonicalOperationFromRuntimeEvent(canonicalActivityEvent) !== null;
       const canonicalNoticeMaterialized = canonicalActivityEvent.type === "runtime.warning";
+      const canonicalActivity = projectProviderRuntimeActivities(canonicalActivityEvent)[0];
       yield* commitCanonical(canonicalActivityEvent);
       if (canonicalOperationMaterialized || canonicalNoticeMaterialized) {
         yield* dispatchProviderCommandOnce({
@@ -2290,6 +2291,7 @@ const make = Effect.gen(function* () {
           ),
           threadId: thread.id,
           turnId: canonicalActivityEvent.turnId ?? null,
+          ...(canonicalActivity === undefined ? {} : { activity: canonicalActivity }),
           createdAt: canonicalActivityEvent.createdAt,
         });
       }

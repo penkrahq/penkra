@@ -4461,6 +4461,49 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("keeps queued work behind a restart marker before stopped-session reconciliation", async () => {
+    const harness = await createHarness({
+      queuedTurnRecoveryInterval: Duration.millis(10),
+    });
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const interruptedTurnId = asTurnId("turn-stopped-before-restart-reconcile");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: interruptedTurnId,
+      messageId: asMessageId("msg-waits-through-stopped-restart-session"),
+      text: "queued until restart continuation settles",
+    });
+    await harness.setRestartRecoveryMarker({ threadId, turnId: interruptedTurnId });
+    const stoppedAt = new Date().toISOString();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-queue-restart-stopped"),
+        threadId,
+        session: {
+          threadId,
+          status: "stopped",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: stoppedAt,
+        },
+        createdAt: stoppedAt,
+      }),
+    );
+
+    harness.setRuntimeSessionTurnState({ threadId, status: "ready" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+
+    await harness.setRestartRecoveryMarker({ threadId, turnId: null });
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId,
+      input: "queued until restart continuation settles",
+    });
+  });
+
   it("drains a thread again after a promotion dispatch failed", async () => {
     const harness = await createHarness();
     const queuedSequence = await seedQueuedTurnBehindLiveTurn(harness, {
@@ -4613,6 +4656,32 @@ describe("ProviderCommandReactor", () => {
     expect(secondPromotion.pipe(Option.getOrThrow)).toMatchObject({
       state: "queued",
       claimOwner: null,
+    });
+  });
+
+  it("keeps the first queued turn durable when provider shutdown settles its predecessor", async () => {
+    const harness = await createHarness();
+    const queuedSequence = await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: asTurnId("turn-running-before-provider-shutdown"),
+      messageId: asMessageId("msg-queued-across-provider-shutdown"),
+      text: "run after restart recovery",
+    });
+
+    await Effect.runPromise(harness.reactor.quiesceQueuePromotions);
+    await settleLiveTurn(harness, {
+      turnId: asTurnId("turn-running-before-provider-shutdown"),
+      eventId: "evt-provider-shutdown-settled-predecessor",
+    });
+    await harness.drain();
+
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+    const promotion = await Effect.runPromise(
+      harness.queuedTurnPromotionRepository.getBySequence(queuedSequence),
+    );
+    expect(promotion.pipe(Option.getOrThrow)).toMatchObject({
+      state: "queued",
+      claimOwner: null,
+      attemptCount: 0,
     });
   });
 

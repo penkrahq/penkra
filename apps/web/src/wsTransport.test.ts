@@ -3,9 +3,12 @@
 // Layer: Web transport tests
 // Depends on: the global WebSocket constructor shim and desktop bridge URL contract.
 
-import { Cause, Exit } from "effect";
+import { Cause, Effect, Exit, Scope } from "effect";
+import { RpcClientError } from "effect/unstable/rpc";
+import * as Socket from "effect/unstable/socket/Socket";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
   WS_CHANNELS,
   WS_COMPATIBILITY_QUERY,
@@ -29,9 +32,11 @@ import {
   MAX_STREAM_DUPLICATE_RETRY_ATTEMPTS,
   MAX_THREAD_SNAPSHOT_BOOTSTRAP_RETRY_ATTEMPTS,
   resolveStreamAdmissionRetry,
+  shouldReconnectAfterRequestFailure,
   shouldReconnectAfterStreamFailure,
   threadStreamInputsEqual,
   WsTransport,
+  WS_RECONNECT_ATTEMPT_TIMEOUT_MS,
   type WsThreadStreamFailure,
 } from "./wsTransport";
 import {
@@ -90,6 +95,9 @@ class MockWebSocket {
 const originalWebSocket = globalThis.WebSocket;
 
 interface WsTransportInternals {
+  syncAppliedSequence: number | undefined;
+  readonly listeners: Map<string, Set<(message: unknown) => void>>;
+  readonly latestPushByChannel: Map<string, unknown>;
   readonly streamCleanups: Map<string, () => void>;
   readonly streamSettled: Map<string, Promise<void>>;
   readonly streamCapacityRetries: Map<string, number>;
@@ -107,6 +115,7 @@ interface WsTransportInternals {
   ): Promise<void>;
   stopStream(key: string, options?: { readonly resetCapacityRetry?: boolean }): Promise<void>;
   startStream(...args: unknown[]): void;
+  startChannelStream(channel: string): void;
   emitThreadStreamFailure(failure: WsThreadStreamFailure): void;
 }
 
@@ -126,6 +135,8 @@ function makeBareTransport(): {
     activeThreadStreamInputs: new Map(),
     threadSubscriptions: new Map(),
     threadStreamFailureListeners: new Set(),
+    listeners: new Map(),
+    latestPushByChannel: new Map(),
   });
   return { transport, internals };
 }
@@ -391,6 +402,31 @@ describe("WsTransport", () => {
     expect(cancel).not.toHaveBeenCalled();
   });
 
+  it("replaces the RPC session when an unbounded stream completes cleanly", async () => {
+    const { internals } = makeBareTransport();
+    const key = "orchestration.sync";
+    const reconnect = vi.fn().mockResolvedValue({ id: "replacement" });
+    const restart = vi.fn();
+    let onExit: ((exit: Exit.Exit<unknown, unknown>) => void) | undefined;
+    Object.assign(internals, {
+      disposed: false,
+      reconnect,
+      getClientRuntime: vi.fn(() => ({
+        runCallback: (_effect: unknown, options: { onExit: typeof onExit }) => {
+          onExit = options.onExit;
+          return vi.fn();
+        },
+      })),
+    });
+
+    internals.startStream({}, key, {}, vi.fn(), restart);
+    onExit?.(Exit.succeed(undefined));
+    await Promise.resolve();
+
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    expect(restart).not.toHaveBeenCalled();
+  });
+
   it("cancels owned capacity retry timers when a stream stops", async () => {
     vi.useFakeTimers();
     try {
@@ -636,7 +672,11 @@ describe("WsTransport", () => {
     const firstClient = { [method]: vi.fn(() => ({ attempt: 1 })) };
     const secondClient = { [method]: vi.fn(() => ({ attempt: 2 })) };
     const firstRuntime = {
-      runPromise: vi.fn().mockRejectedValue(new Error("socket closed")),
+      runPromise: vi.fn().mockRejectedValue(
+        new RpcClientError.RpcClientError({
+          reason: new Socket.SocketCloseError({ code: 1006 }),
+        }),
+      ),
     };
     const secondRuntime = {
       runPromise: vi.fn().mockResolvedValue({ sequence: 42 }),
@@ -666,6 +706,78 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("reconnects requests only for transport failures", () => {
+    expect(
+      shouldReconnectAfterRequestFailure(
+        new RpcClientError.RpcClientError({
+          reason: new Socket.SocketCloseError({ code: 1006 }),
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldReconnectAfterRequestFailure(
+        new RpcClientError.RpcClientError({
+          reason: new RpcClientError.RpcClientDefect({
+            message: "invalid payload",
+            cause: new Error("schema failure"),
+          }),
+        }),
+      ),
+    ).toBe(false);
+    expect(shouldReconnectAfterRequestFailure(new Error("invalid payload"))).toBe(false);
+  });
+
+  it("advances the synchronization resume cursor only after the acknowledgement succeeds", async () => {
+    const transport = new WsTransport();
+    const method = ORCHESTRATION_WS_METHODS.acknowledgeSync;
+    const client = { [method]: vi.fn(() => ({})) };
+    const runtime = { runPromise: vi.fn() };
+    const internals = transport as unknown as WsTransportInternals & {
+      getClient: () => Promise<typeof client>;
+      getClientRuntime: () => typeof runtime;
+    };
+    internals.getClient = vi.fn().mockResolvedValue(client);
+    internals.getClientRuntime = vi.fn(() => runtime);
+    runtime.runPromise.mockRejectedValueOnce(new Error("ack failed"));
+
+    await expect(
+      transport.request(method, { deliveryId: "delivery-1", appliedSequence: 17 }),
+    ).rejects.toThrow("ack failed");
+    expect(internals.syncAppliedSequence).toBeUndefined();
+
+    runtime.runPromise.mockResolvedValueOnce(undefined);
+    await expect(
+      transport.request(method, { deliveryId: "delivery-1", appliedSequence: 17 }),
+    ).resolves.toBeUndefined();
+    expect(internals.syncAppliedSequence).toBe(17);
+    await transport.dispose();
+  });
+
+  it("resumes the unified stream from the acknowledged cursor and resets it on a snapshot", async () => {
+    const { internals } = makeBareTransport();
+    const subscribeSync = vi.fn(() => ({ stream: true }));
+    const client = { [ORCHESTRATION_WS_METHODS.subscribeSync]: subscribeSync };
+    let onEvent: ((event: { kind: string }) => void) | undefined;
+    Object.assign(internals, {
+      syncAppliedSequence: 23,
+      getClient: vi.fn().mockResolvedValue(client),
+      startStream: vi.fn(
+        (_client: unknown, _key: unknown, _stream: unknown, callback: typeof onEvent) => {
+          onEvent = callback;
+        },
+      ),
+    });
+
+    internals.startChannelStream(ORCHESTRATION_WS_CHANNELS.syncEvent);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(subscribeSync).toHaveBeenCalledWith({ afterSequenceExclusive: 23 });
+    expect(onEvent).toBeDefined();
+    onEvent?.({ kind: "snapshot" });
+    expect(internals.syncAppliedSequence).toBeUndefined();
+  });
+
   it("joins an active reconnect instead of returning the retired client", async () => {
     const transport = new WsTransport();
     const retiredClient = { id: "retired" };
@@ -688,6 +800,139 @@ describe("WsTransport", () => {
     await expect(clientPromise).resolves.toBe(replacementClient);
     internals.reconnectPromise = null;
     await transport.dispose();
+  });
+
+  it("publishes one reconnect before old-scope teardown can re-enter", async () => {
+    const { internals } = makeBareTransport();
+    const replacementClient = { id: "replacement" };
+    let reentrantReconnect: Promise<typeof replacementClient> | undefined;
+    const openReconnectSession = vi.fn().mockResolvedValue(replacementClient);
+    const oldRuntime = {
+      runPromise: vi.fn(() => {
+        reentrantReconnect = transportInternals.reconnect();
+        return Promise.resolve(undefined);
+      }),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    };
+    const transportInternals = internals as unknown as {
+      runtime: typeof oldRuntime;
+      clientScope: Scope.Scope;
+      state: string;
+      readonly stateListeners: Set<(state: string) => void>;
+      reconnectPromise: Promise<typeof replacementClient> | null;
+      reconnect: () => Promise<typeof replacementClient>;
+      openReconnectSession: () => Promise<typeof replacementClient>;
+    };
+    Object.assign(transportInternals, {
+      runtime: oldRuntime,
+      clientScope: Effect.runSync(Scope.make()),
+      state: "open",
+      stateListeners: new Set(),
+      reconnectPromise: null,
+      openReconnectSession,
+    });
+
+    const reconnect = transportInternals.reconnect();
+    await Promise.resolve();
+
+    expect(reentrantReconnect).toBe(reconnect);
+    await expect(reconnect).resolves.toBe(replacementClient);
+    expect(openReconnectSession).toHaveBeenCalledTimes(1);
+    expect(oldRuntime.runPromise).toHaveBeenCalledTimes(1);
+    expect(oldRuntime.dispose).toHaveBeenCalledTimes(1);
+    expect(transportInternals.reconnectPromise).toBeNull();
+  });
+
+  it("moves a hung initial connection into the reconnect path", async () => {
+    vi.useFakeTimers();
+    try {
+      window.setTimeout = globalThis.setTimeout.bind(globalThis);
+      window.clearTimeout = globalThis.clearTimeout.bind(globalThis);
+      const transport = new WsTransport();
+      const recoveredClient = { id: "recovered-after-initial-timeout" };
+      const reconnect = vi.fn().mockResolvedValue(recoveredClient);
+      const internals = transport as unknown as {
+        clientPromise: Promise<typeof recoveredClient>;
+        reconnectPromise: Promise<typeof recoveredClient> | null;
+        withConnectionAttemptTimeout: (
+          promise: Promise<typeof recoveredClient>,
+        ) => Promise<typeof recoveredClient>;
+        getClient: () => Promise<typeof recoveredClient>;
+        reconnect: typeof reconnect;
+      };
+      void internals.clientPromise.catch(() => undefined);
+      internals.reconnectPromise = null;
+      internals.reconnect = reconnect;
+      internals.clientPromise = internals.withConnectionAttemptTimeout(
+        new Promise(() => undefined),
+      );
+
+      const client = internals.getClient();
+      await vi.advanceTimersByTimeAsync(WS_RECONNECT_ATTEMPT_TIMEOUT_MS);
+
+      await expect(client).resolves.toBe(recoveredClient);
+      expect(reconnect).toHaveBeenCalledTimes(1);
+      await transport.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("abandons a hung reconnect attempt and keeps recovering", async () => {
+    vi.useFakeTimers();
+    try {
+      window.setTimeout = globalThis.setTimeout.bind(globalThis);
+      window.clearTimeout = globalThis.clearTimeout.bind(globalThis);
+      const transport = new WsTransport();
+      const firstScope = Effect.runSync(Scope.make());
+      const secondScope = Effect.runSync(Scope.make());
+      const firstRuntime = {
+        runPromise: vi.fn().mockResolvedValue(undefined),
+        dispose: vi.fn().mockResolvedValue(undefined),
+      };
+      const secondRuntime = {
+        runPromise: vi.fn().mockResolvedValue(undefined),
+        dispose: vi.fn().mockResolvedValue(undefined),
+      };
+      const recoveredClient = { id: "recovered" };
+      const createSession = vi
+        .fn()
+        .mockReturnValueOnce({
+          runtime: firstRuntime,
+          clientScope: firstScope,
+          clientPromise: new Promise(() => undefined),
+        })
+        .mockReturnValueOnce({
+          runtime: secondRuntime,
+          clientScope: secondScope,
+          clientPromise: Promise.resolve(recoveredClient),
+        });
+      const internals = transport as unknown as {
+        disposed: boolean;
+        reconnectFailures: number;
+        clientPromise: Promise<unknown>;
+        createSession: typeof createSession;
+        openReconnectSession: () => Promise<typeof recoveredClient>;
+      };
+      void internals.clientPromise.catch(() => undefined);
+      internals.createSession = createSession;
+      internals.reconnectFailures = 0;
+
+      const reconnect = internals.openReconnectSession();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(createSession).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(WS_RECONNECT_ATTEMPT_TIMEOUT_MS + 1_000);
+
+      await expect(reconnect).resolves.toBe(recoveredClient);
+      expect(createSession).toHaveBeenCalledTimes(2);
+      expect(firstRuntime.dispose).toHaveBeenCalledTimes(1);
+      internals.disposed = true;
+      await secondRuntime.runPromise(Scope.close(secondScope, Exit.void));
+      await secondRuntime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not retry an explicit orchestration rejection", async () => {

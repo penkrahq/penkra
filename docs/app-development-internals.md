@@ -26,11 +26,11 @@ Every supported desktop flavor exposes the public App-author commands through
 `penkra_exec_command`:
 
 ```json
-{ "command": "penkra app test <directory>" }
-{ "command": "penkra app package <directory> --output <path>" }
-{ "command": "penkra app sideload <directory>" }
+{ "command": "penkra app test --directory <directory>" }
+{ "command": "penkra app package --directory <directory> --output <path>" }
+{ "command": "penkra app sideload --directory <directory>" }
 { "command": "penkra app status --app-id <app-id>" }
-{ "command": "penkra app publish <directory> --visibility private" }
+{ "command": "penkra app publish --directory <directory> --visibility private" }
 { "command": "penkra app access <invite|list|revoke>" }
 ```
 
@@ -52,7 +52,7 @@ declared size and digest, runs the package validators, and signs the resulting r
 with the registry key. App publication does not introduce a second identity provider or a
 developer-held signing credential.
 
-`penkra app sideload <directory>` is a public App-author command in every desktop flavor. It installs
+`penkra app sideload --directory <directory>` is a public App-author command in every desktop flavor. It installs
 an unpacked directory into the caller Thread's Space, watches successful rebuilds, atomically swaps
 valid packages, restores App tabs, and preserves the last working package after an invalid rebuild.
 A registry installation may transition to a sideload only when the sideload version is newer; an

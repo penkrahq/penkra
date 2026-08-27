@@ -60,6 +60,40 @@ const MAX_THREAD_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.detailActivi
 const LOCAL_USER_MESSAGE_RETENTION_MS = 10_000;
 const PENDING_INTERACTION_REQUEST_KINDS = new Set(["approval.requested", "user-input.requested"]);
 
+/**
+ * Transcript order follows durable causality, not wall-clock admission alone.
+ * A queued message is composed earlier but does not become a transcript turn
+ * until promotion, so its delivery transition is its presentation sequence.
+ */
+export function compareChatMessagesForTranscript(
+  left: {
+    readonly id: string;
+    readonly createdAt: string;
+    readonly delivery?: ChatMessage["delivery"] | undefined;
+    readonly sequence?: number | undefined;
+  },
+  right: {
+    readonly id: string;
+    readonly createdAt: string;
+    readonly delivery?: ChatMessage["delivery"] | undefined;
+    readonly sequence?: number | undefined;
+  },
+): number {
+  const leftSequence =
+    left.delivery?.queued === true && left.delivery.state !== "queued"
+      ? left.delivery.sequence
+      : left.sequence;
+  const rightSequence =
+    right.delivery?.queued === true && right.delivery.state !== "queued"
+      ? right.delivery.sequence
+      : right.sequence;
+  if (leftSequence !== undefined && rightSequence !== undefined && leftSequence !== rightSequence) {
+    return leftSequence - rightSequence;
+  }
+  const byCreatedAt = left.createdAt.localeCompare(right.createdAt);
+  return byCreatedAt !== 0 ? byCreatedAt : left.id.localeCompare(right.id);
+}
+
 function basenameOfPath(value: string | null): string | null {
   if (!value) return null;
   const segments = value.split(/[/\\]/).filter((segment) => segment.length > 0);
@@ -474,6 +508,7 @@ export function normalizeChatMessage(
     previous.dispatchMode === incoming.dispatchMode &&
     previous.dispatchOrigin === incoming.dispatchOrigin &&
     previous.delivery === delivery &&
+    previous.sequence === incoming.sequence &&
     previous.turnId === incoming.turnId &&
     previous.createdAt === incoming.createdAt &&
     previous.streaming === incoming.streaming &&
@@ -493,6 +528,7 @@ export function normalizeChatMessage(
     ...(incoming.dispatchMode ? { dispatchMode: incoming.dispatchMode } : {}),
     ...(incoming.dispatchOrigin ? { dispatchOrigin: incoming.dispatchOrigin } : {}),
     ...(delivery !== undefined ? { delivery } : {}),
+    ...(incoming.sequence !== undefined ? { sequence: incoming.sequence } : {}),
     turnId: incoming.turnId,
     createdAt: incoming.createdAt,
     streaming: incoming.streaming,
@@ -554,6 +590,7 @@ function readModelMessageFromChatMessage(
     text: message.text,
     ...(message.dispatchMode ? { dispatchMode: message.dispatchMode } : {}),
     ...(message.dispatchOrigin ? { dispatchOrigin: message.dispatchOrigin } : {}),
+    ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
     turnId: message.turnId ?? null,
     streaming: message.streaming,
     source: message.source ?? "native",
@@ -708,12 +745,7 @@ function mergeReadModelMessagesWithLiveHotPath(
     return incomingMessages;
   }
 
-  // `toSorted` is stable, so equal `createdAt` values keep insertion order
-  // (incoming order first, then retained local rows). Tie-breaking on the random
-  // message id instead would reshuffle same-millisecond rows on every merge.
-  return [...mergedById.values()].toSorted((left, right) =>
-    left.createdAt.localeCompare(right.createdAt),
-  );
+  return [...mergedById.values()].toSorted(compareChatMessagesForTranscript);
 }
 
 function hasLiveAssistantIntro(previousThread: Thread | undefined): boolean {
@@ -1040,7 +1072,7 @@ export function createThreadActivityAccumulator(
     if (!indexById) {
       const nextIndexById = new Map<string, number>();
       for (let index = 0; index < working.length; index += 1) {
-        nextIndexById.set(working[index]!.id, index);
+        nextIndexById.set(activityIdentity(working[index]!), index);
       }
       indexById = nextIndexById;
     }
@@ -1057,12 +1089,13 @@ export function createThreadActivityAccumulator(
   return {
     append: (activity) => {
       const activityIndexById = ensureIndexById();
-      const existingIndex = activityIndexById.get(activity.id);
+      const identity = activityIdentity(activity);
+      const existingIndex = activityIndexById.get(identity);
       let changed = false;
       if (existingIndex === undefined) {
         ensureOwned();
         working.push(activity);
-        activityIndexById.set(activity.id, working.length - 1);
+        activityIndexById.set(identity, working.length - 1);
         changed = true;
       } else {
         const existing = working[existingIndex]!;
@@ -1190,15 +1223,24 @@ export function dedupeActivitiesById<TActivity extends Thread["activities"][numb
   const indexById = new Map<string, number>();
   const result: TActivity[] = [];
   for (const activity of activities) {
-    const existingIndex = indexById.get(activity.id);
+    const identity = activityIdentity(activity);
+    const existingIndex = indexById.get(identity);
     if (existingIndex === undefined) {
-      indexById.set(activity.id, result.length);
+      indexById.set(identity, result.length);
       result.push(activity);
       continue;
     }
     result[existingIndex] = preferRicherActivity(result[existingIndex]!, activity);
   }
   return arraysShallowEqual(activities, result) ? (activities as TActivity[]) : result;
+}
+
+function activityIdentity(activity: Thread["activities"][number]): string {
+  const payload = asActivityRecord(activity.payload);
+  const operationId = payload?.operationId;
+  return typeof operationId === "string" && operationId.length > 0
+    ? `operation:${activity.turnId ?? "unscoped"}:${operationId}`
+    : activity.id;
 }
 
 function preferRicherActivity<TActivity extends Thread["activities"][number]>(

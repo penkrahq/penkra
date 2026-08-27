@@ -8,6 +8,7 @@ import {
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
   type OrchestrationShellStreamEvent,
+  type OrchestrationGetThreadTurnsPageResult,
   type SpaceId,
   type ThreadId,
 } from "@penkra/contracts";
@@ -27,6 +28,7 @@ import {
   syncServerShellSnapshot,
   syncServerThreadDetail,
   syncServerThreadDetailHotPath,
+  syncServerThreadTurnsPage,
 } from "./storeProjection";
 import { applyOrchestrationEvents, applyOrchestrationEventsHotPath } from "./storeEventReducer";
 import {
@@ -54,6 +56,7 @@ export {
   syncServerShellSnapshot,
   syncServerThreadDetail,
   syncServerThreadDetailHotPath,
+  syncServerThreadTurnsPage,
 } from "./storeProjection";
 export { applyOrchestrationEvents, applyOrchestrationEventsHotPath } from "./storeEventReducer";
 
@@ -213,6 +216,7 @@ interface AppStore extends AppState {
   syncServerShellSnapshot: (snapshot: OrchestrationShellSnapshot) => void;
   syncServerThreadDetail: (thread: ReadModelThread) => void;
   syncServerThreadDetailHotPath: (thread: ReadModelThread) => void;
+  syncServerThreadTurnsPage: (page: OrchestrationGetThreadTurnsPageResult) => void;
   syncServerReadModel: (readModel: OrchestrationReadModel) => void;
   applyShellEvent: (event: OrchestrationShellStreamEvent) => void;
   applyOrchestrationEvents: (events: ReadonlyArray<OrchestrationEvent>) => void;
@@ -242,6 +246,7 @@ export const useStore = create<AppStore>((set) => ({
   syncServerThreadDetail: (thread) => set((state) => syncServerThreadDetail(state, thread)),
   syncServerThreadDetailHotPath: (thread) =>
     set((state) => syncServerThreadDetailHotPath(state, thread)),
+  syncServerThreadTurnsPage: (page) => set((state) => syncServerThreadTurnsPage(state, page)),
   syncServerReadModel: (readModel) => set((state) => syncServerReadModel(state, readModel)),
   applyShellEvent: (event) => set((state) => applyShellEvent(state, event)),
   applyOrchestrationEvents: (events) => set((state) => applyOrchestrationEvents(state, events)),

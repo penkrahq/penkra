@@ -94,7 +94,10 @@ export class ServerLifecycleError extends Schema.TaggedErrorClass<ServerLifecycl
 
 export function closeServerRuntimePipeline(input: {
   readonly orchestrationEngine: Pick<OrchestrationEngineShape, "quiesce" | "drain" | "stop">;
-  readonly providerCommandReactor: Pick<ProviderCommandReactorShape, "drain">;
+  readonly providerCommandReactor: Pick<
+    ProviderCommandReactorShape,
+    "drain" | "quiesceQueuePromotions"
+  >;
   readonly providerService: Pick<ProviderServiceShape, "closeRuntimeEvents">;
   readonly managedAttachmentCleanup: Pick<ManagedAttachmentCleanupShape, "drain">;
   readonly workspaceWatcher: Pick<WorkspaceWatcherShape, "close">;
@@ -114,6 +117,12 @@ export function closeServerRuntimePipeline(input: {
     // recorded, which quarantines the thread after restart.
     Effect.andThen(runStage("orchestration.drain", input.orchestrationEngine.drain)),
     Effect.andThen(runStage("provider-command-reactor.drain", input.providerCommandReactor.drain)),
+    Effect.andThen(
+      runStage(
+        "provider-command-reactor.quiesce-queue-promotions",
+        input.providerCommandReactor.quiesceQueuePromotions,
+      ),
+    ),
     // Provider close now fences terminal runtime events into subscriber workers;
     // scope close drains those workers before the engine accepts its final stop.
     Effect.andThen(runStage("provider-runtime.close", input.providerService.closeRuntimeEvents)),

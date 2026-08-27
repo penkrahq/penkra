@@ -3,9 +3,11 @@
 // Layer: Chat transcript shell
 // Depends on: MessagesTimeline and ChatView's list-owned scroll contract.
 
-import { type MessageId, type ThreadId, type TurnId } from "@penkra/contracts";
+import { type MessageId, ThreadId, type TurnId } from "@penkra/contracts";
 import {
   memo,
+  useCallback,
+  useRef,
   type ComponentProps,
   type CSSProperties,
   type MouseEventHandler,
@@ -17,6 +19,11 @@ import {
 } from "react";
 import { type TimestampFormat } from "../../appSettings";
 import { recordChatTranscriptPropChanges } from "../../chatPerformanceDiagnostics";
+import { recordChatPaginationDiagnostic } from "../../chatScrollDiagnostics";
+import {
+  readPaginationViewportAnchor,
+  summarizeThreadTurnsPage,
+} from "../../chatPaginationDiagnostics";
 import { ArrowDownIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { DISCLOSURE_CONTENT_MOTION_CLASS } from "~/lib/disclosureMotion";
@@ -26,6 +33,9 @@ import { MessagesTimeline } from "./MessagesTimeline";
 import { AgentActivityDetailView } from "./AgentActivityDetailView";
 import type { AgentActivityDetail } from "./agentActivity.logic";
 import type { TranscriptVirtualListRef } from "./TranscriptVirtualList";
+import { useStore } from "../../store";
+import { readNativeApi } from "../../nativeApi";
+import { toastManager } from "../ui/toast";
 
 interface ChatTranscriptPaneProps {
   activeThreadId: string;
@@ -120,6 +130,95 @@ function ChatTranscriptPaneImpl({
   timestampFormat,
   workspaceRoot,
 }: ChatTranscriptPaneProps) {
+  const threadId = ThreadId.makeUnsafe(activeThreadId);
+  const pagination = useStore((state) => state.threadTurnPaginationById?.[threadId]);
+  const syncServerThreadTurnsPage = useStore((state) => state.syncServerThreadTurnsPage);
+  const paginationRequestSequenceRef = useRef(0);
+  const paginationRequestInFlightRef = useRef(false);
+  const loadOlderTurns = useCallback(() => {
+    if (
+      paginationRequestInFlightRef.current ||
+      !pagination?.hasOlder ||
+      pagination.nextCursor === null
+    ) {
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) return;
+    paginationRequestInFlightRef.current = true;
+    const cursor = pagination.nextCursor;
+    const requestId = ++paginationRequestSequenceRef.current;
+    const element = listRef.current?.getScrollableNode() ?? null;
+    recordChatPaginationDiagnostic({
+      event: "request-started",
+      threadId,
+      dataCount: timelineEntries.length,
+      element,
+      detail: {
+        requestId,
+        trigger: "near-start",
+        cursorPresent: true,
+        ...readPaginationViewportAnchor(element),
+      },
+    });
+    void api.orchestration
+      .getThreadTurnsPage({ threadId, before: cursor })
+      .then((page) => {
+        recordChatPaginationDiagnostic({
+          event: "response-received",
+          threadId,
+          dataCount: page.messages.length,
+          element: listRef.current?.getScrollableNode() ?? null,
+          detail: { requestId, ...summarizeThreadTurnsPage(page) },
+        });
+        syncServerThreadTurnsPage(page);
+        const recordViewportCheckpoint = (checkpoint: string) => {
+          const nextElement = listRef.current?.getScrollableNode() ?? null;
+          recordChatPaginationDiagnostic({
+            event: "viewport-after-merge",
+            threadId,
+            dataCount: page.messages.length,
+            element: nextElement,
+            detail: {
+              requestId,
+              checkpoint,
+              elementMatchesRequest: nextElement === element,
+              elementConnected: nextElement?.isConnected ?? false,
+              ...readPaginationViewportAnchor(nextElement),
+            },
+          });
+        };
+        recordViewportCheckpoint("sync-after-store");
+        window.requestAnimationFrame(() => {
+          recordViewportCheckpoint("next-frame");
+          window.requestAnimationFrame(() => {
+            recordViewportCheckpoint("second-frame");
+          });
+        });
+        window.setTimeout(() => recordViewportCheckpoint("100ms"), 100);
+        window.setTimeout(() => recordViewportCheckpoint("500ms"), 500);
+      })
+      .catch((error) => {
+        recordChatPaginationDiagnostic({
+          event: "request-failed",
+          threadId,
+          dataCount: timelineEntries.length,
+          element: listRef.current?.getScrollableNode() ?? null,
+          detail: {
+            requestId,
+            errorName: error instanceof Error ? error.name : "unknown",
+          },
+        });
+        toastManager.add({
+          type: "error",
+          title: "Unable to load earlier turns",
+          description: error instanceof Error ? error.message : "The history request failed.",
+        });
+      })
+      .finally(() => {
+        paginationRequestInFlightRef.current = false;
+      });
+  }, [listRef, pagination, syncServerThreadTurnsPage, threadId, timelineEntries.length]);
   const scrollButtonFrameStyle: CSSProperties | undefined = contentInsetRightPx
     ? { paddingRight: contentInsetRightPx }
     : undefined;
@@ -166,6 +265,7 @@ function ChatTranscriptPaneImpl({
             onMessagesClickCapture={onMessagesClickCapture}
             onMessagesMouseUp={onMessagesMouseUp}
             onMessagesWheel={onMessagesWheel}
+            onNearStart={loadOlderTurns}
             onMessagesPointerDown={onMessagesPointerDown}
             onMessagesPointerUp={onMessagesPointerUp}
             onMessagesPointerCancel={onMessagesPointerCancel}

@@ -48,6 +48,8 @@ export function isThreadSelectionWorkEntry(entry: Pick<WorkLogEntry, "activityKi
 export interface WorkLogEntry {
   id: string;
   createdAt: string;
+  /** Durable activity sequence for causal interleaving with transcript messages. */
+  sequence?: number;
   turnId?: TurnId | null;
   label: string;
   detail?: string;
@@ -448,6 +450,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   const entry: DerivedWorkLogEntry = {
     id: activity.id,
     createdAt: activity.createdAt,
+    ...(activity.sequence !== undefined ? { sequence: activity.sequence } : {}),
     ...(activity.turnId !== null ? { turnId: activity.turnId } : {}),
     label: activity.summary,
     tone: activity.tone === "approval" ? "info" : activity.tone,
@@ -1949,6 +1952,22 @@ function compareActivityLifecycleRank(kind: string): number {
 }
 
 function compareTimelineEntries(left: TimelineEntry, right: TimelineEntry): number {
+  const leftSequence =
+    left.kind === "message"
+      ? left.message.delivery?.queued === true && left.message.delivery.state !== "queued"
+        ? left.message.delivery.sequence
+        : left.message.sequence
+      : left.entry.sequence;
+  const rightSequence =
+    right.kind === "message"
+      ? right.message.delivery?.queued === true && right.message.delivery.state !== "queued"
+        ? right.message.delivery.sequence
+        : right.message.sequence
+      : right.entry.sequence;
+  if (leftSequence !== undefined && rightSequence !== undefined && leftSequence !== rightSequence) {
+    return leftSequence - rightSequence;
+  }
+
   const createdAtComparison = left.createdAt.localeCompare(right.createdAt);
   if (createdAtComparison !== 0) {
     return createdAtComparison;

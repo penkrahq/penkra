@@ -7328,6 +7328,8 @@ async function bootstrap(): Promise<void> {
           permissionReviewUpdatesForSpace(spaceId),
         );
       switch (method) {
+        case "installations.getState":
+          return installationSnapshot();
         case "installations.installRegistry": {
           if (!appRegistryClient) throw new Error("The App registry is not ready.");
           const request = parseInstallRegistryAppRequest(input);

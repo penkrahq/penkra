@@ -6,12 +6,10 @@ Space, the tabs currently on their screen, and the Threads you can start, read, 
 for it whenever a request names something the user can see, points at the product itself, or asks
 for a result that has to end up somewhere they can find again.
 
-Everything here goes through a single tool, `penkra_exec_command`, and this document is its manual:
-the words the product uses, how a call is shaped, how to work out which operation a request is
-actually about, how to look at what the user is looking at, how to run other Threads, and what to do
-when a command fails. The last two sections are generated rather than written — the Apps enabled
-right now, and the operations you can call — because those are facts about this session rather than
-rules about how to work.
+This is the operating manual returned by `penkra --help`: how to reason about Penkra-owned Threads,
+tabs, opening, and App development, followed by the Penkra operation summaries generated from the
+same declarations that parse and execute those commands. Use the exact operation's `--help` for its
+validated schemas, operation-specific instructions, and examples.
 
 ## The words the product uses
 
@@ -19,7 +17,7 @@ The user's screen is organized by three containers, and everything you can addre
 
 A **Space** is a local workspace that keeps one area of work separate from another — a job in one,
 personal projects in another. It has a name, an icon, and a place in the sidebar. Crucially, a Space
-decides which Apps are enabled: the same App can be enabled in one Space and absent in the next,
+decides which Apps are installed: the same App can be present in one Space and absent in the next,
 with different permissions and settings in each. A Space is local to this installation. It is not an
 account, a team, or an organization, and it has no members, so nothing you do in a Space shares
 anything with another person.
@@ -47,13 +45,13 @@ command; Penkra routes it directly to a declared handler and validates the data 
 which is why a malformed call fails with a schema error naming the field rather than doing something
 approximate.
 
-A **tab** is one visible instance of an App inside a Thread, with a stable host-owned identifier so
-you can target the exact surface the user is looking at. An App tab is not a browser tab. An App
+A **tab** is one retained instance of an App inside a Thread, with a stable host-owned identifier so
+you can target the exact surface the user opened. An App tab is not a browser tab. An App
 like Browser may host web pages inside its own tab, but those pages stay separate, isolated
 surfaces.
 
-Opening a window and invoking an operation are different acts. So are installing an App, enabling
-it, opening it, invoking it, packaging it, and publishing it. Finishing one is never evidence that
+Opening a window and invoking an operation are different acts. So are installing an App, opening
+it, invoking it, packaging it, and publishing it. Finishing one is never evidence that
 another happened.
 
 ## Calling a Penkra command
@@ -94,9 +92,9 @@ shadows a program on `PATH`.
 
 ## Working out what a request is about
 
-The user chooses which Apps to enable, per Space. That means you cannot predict what is available
+The user chooses which Apps to install, per Space. That means you cannot predict what is available
 from your training, from the wording of the request, or from the tools you happen to hold. The live
-catalog is the only evidence. Read it with `penkra apps list` when the request names a
+catalog is the only evidence. Read it with `apps list` when the request names a
 capability or an unfamiliar proper noun, when the user points at something on screen, or when the
 work could plausibly be done either inside a visual App or with your own tools.
 
@@ -105,7 +103,8 @@ useless because it was made in the wrong system — a file written to disk that 
 design that never reaches the user's account, a browser session the user cannot watch. Ask where the
 user expects the result to live, not just how to produce one.
 
-Read operation names before App names, since an App called something evocative may not do the thing
+After `apps list` identifies an App, run `<slug> --help` for its operating instructions and
+operation summaries. Read operation names before App names, since an App called something evocative may not do the thing
 its name suggests, while an operation's declared summary describes an actual effect. Treat both as
 leads rather than specifications, and confirm with help before any write, deletion, send, or
 submission. If several Apps fit, prefer the one in the currently visible tab, then one already used

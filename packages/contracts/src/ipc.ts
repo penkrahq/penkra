@@ -74,8 +74,11 @@ import type {
 } from "./terminal";
 import type {
   ClientOrchestrationCommand,
+  OrchestrationAcknowledgeSyncInput,
   OrchestrationGetThreadDetailSnapshotInput,
   OrchestrationGetThreadDetailSnapshotResult,
+  OrchestrationGetThreadTurnsPageInput,
+  OrchestrationGetThreadTurnsPageResult,
   OrchestrationImportThreadInput,
   OrchestrationImportThreadResult,
   OrchestrationListProviderDeliveryBlockersInput,
@@ -87,6 +90,7 @@ import type {
   OrchestrationShellSnapshot,
   OrchestrationShellStreamItem,
   OrchestrationSubscribeThreadInput,
+  OrchestrationSyncStreamItem,
   OrchestrationThreadStreamItem,
 } from "./orchestration";
 import type { EditorId } from "./editor";
@@ -1096,6 +1100,10 @@ export interface NativeApi {
     getThreadDetailSnapshot: (
       input: OrchestrationGetThreadDetailSnapshotInput,
     ) => Promise<OrchestrationGetThreadDetailSnapshotResult>;
+    getThreadTurnsPage: (
+      input: OrchestrationGetThreadTurnsPageInput,
+    ) => Promise<OrchestrationGetThreadTurnsPageResult>;
+    acknowledgeSync: (input: OrchestrationAcknowledgeSyncInput) => Promise<void>;
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     importThread: (
       input: OrchestrationImportThreadInput,
@@ -1113,6 +1121,7 @@ export interface NativeApi {
     subscribeThread: (input: OrchestrationSubscribeThreadInput) => Promise<void>;
     unsubscribeThread: (input: OrchestrationSubscribeThreadInput) => Promise<void>;
     onDomainEvent: (callback: (event: OrchestrationEvent) => void) => () => void;
+    onSyncEvent: (callback: (event: OrchestrationSyncStreamItem) => void) => () => void;
     onShellEvent: (callback: (event: OrchestrationShellStreamItem) => void) => () => void;
     onThreadEvent: (callback: (event: OrchestrationThreadStreamItem) => void) => () => void;
   };

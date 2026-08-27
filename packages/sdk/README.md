@@ -44,7 +44,7 @@ controller receives the narrower `PenkraControllerRuntimeApi`: operation registr
 context, Account requests, settings, secrets, identity, and permission queries. Controllers use
 ordinary Node APIs for filesystem, HTTP, crypto, Buffer, and stream work. Ordinary unit tests should
 test App logic separately. Penkra exposes the real isolated-host runner through the registered
-`{ "command": "penkra app test <directory>" }` invocation in `penkra_exec_command`.
+`{ "command": "penkra app test --directory <directory>" }` invocation in `penkra_exec_command`.
 
 Use `contextMenu.show(...)` from a direct pointer interaction when an App needs a platform-native
 right-click menu. Penkra returns the selected item ID or `null`; Apps never receive Electron menu

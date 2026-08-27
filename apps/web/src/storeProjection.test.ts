@@ -8,6 +8,7 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
+  type OrchestrationGetThreadTurnsPageResult,
   type OrchestrationReadModel,
   type OrchestrationShellStreamEvent,
 } from "@penkra/contracts";
@@ -23,6 +24,7 @@ import {
   syncServerShellSnapshot,
   syncServerReadModel,
   syncServerThreadDetailHotPath,
+  syncServerThreadTurnsPage,
 } from "./storeProjection";
 import type { AppState } from "./storeState";
 import { getThreadFromState } from "./threadDerivation";
@@ -41,6 +43,155 @@ import { DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 import { resolveSidebarWorkStatus, resolveThreadStatusPill } from "./components/Sidebar.logic";
 
 describe("store projection", () => {
+  it("preserves promoted queue order when a turn page hydrates or reconciles", () => {
+    const threadId = ThreadId.makeUnsafe("thread-queue-order");
+    const firstTurnId = TurnId.makeUnsafe("turn-first");
+    const queuedTurnId = TurnId.makeUnsafe("turn-queued");
+    const firstUserMessageId = MessageId.makeUnsafe("message-first-user");
+    const queuedMessageId = MessageId.makeUnsafe("message-queued-follow-up");
+    const firstAssistantMessageId = MessageId.makeUnsafe("message-first-assistant");
+    const page = {
+      threadId,
+      snapshotSequence: 20,
+      conversationTurnCount: 2,
+      messages: [
+        {
+          id: queuedMessageId,
+          role: "user",
+          text: "Ground yourself",
+          attachments: [],
+          dispatchMode: "queue",
+          delivery: { state: "accepted", queued: true, sequence: 5 },
+          sequence: 2,
+          turnId: queuedTurnId,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-08-27T11:00:36.000Z",
+          updatedAt: "2026-08-27T11:00:41.000Z",
+        },
+        {
+          id: firstUserMessageId,
+          role: "user",
+          text: "Hey, what can you do?",
+          attachments: [],
+          sequence: 1,
+          turnId: firstTurnId,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-08-27T11:00:31.000Z",
+          updatedAt: "2026-08-27T11:00:31.000Z",
+        },
+        {
+          id: firstAssistantMessageId,
+          role: "assistant",
+          text: "Quite a lot.",
+          attachments: [],
+          sequence: 3,
+          turnId: firstTurnId,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-08-27T11:00:38.000Z",
+          updatedAt: "2026-08-27T11:00:40.000Z",
+        },
+      ],
+      activities: [],
+      pendingInteractions: [],
+      hasOlder: false,
+      nextCursor: null,
+    } satisfies OrchestrationGetThreadTurnsPageResult;
+
+    const next = syncServerThreadTurnsPage(
+      makeState(makeThread({ id: threadId, messages: [] })),
+      page,
+    );
+
+    expect(getThreadFromState(next, threadId)?.messages.map((message) => message.id)).toEqual([
+      firstUserMessageId,
+      firstAssistantMessageId,
+      queuedMessageId,
+    ]);
+  });
+
+  it("merges turn pages without replacing newer live detail or duplicating tool operations", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const liveTurnId = TurnId.makeUnsafe("turn-live");
+    const pagedTurnId = TurnId.makeUnsafe("turn-paged");
+    const liveMessage = {
+      id: MessageId.makeUnsafe("message-live"),
+      role: "assistant" as const,
+      text: "still streaming",
+      attachments: [],
+      turnId: liveTurnId,
+      streaming: true,
+      source: "native" as const,
+      createdAt: "2026-02-27T00:03:00.000Z",
+      updatedAt: "2026-02-27T00:03:00.000Z",
+    };
+    const streamedActivity = makeActivity({
+      id: "streamed-operation",
+      turnId: pagedTurnId,
+      summary: "Running",
+      payload: { operationId: "operation-1" },
+    });
+    const page = {
+      threadId,
+      snapshotSequence: 10,
+      conversationTurnCount: 1,
+      messages: [
+        {
+          id: MessageId.makeUnsafe("message-paged"),
+          role: "assistant",
+          text: "complete",
+          attachments: [],
+          turnId: pagedTurnId,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-02-27T00:02:00.000Z",
+          updatedAt: "2026-02-27T00:02:00.000Z",
+        },
+      ],
+      activities: [
+        makeActivity({
+          id: "canonical-operation",
+          turnId: pagedTurnId,
+          summary: "Completed",
+          payload: { operationId: "operation-1" },
+        }),
+      ],
+      pendingInteractions: [],
+      hasOlder: true,
+      nextCursor: "older-cursor",
+    } satisfies OrchestrationGetThreadTurnsPageResult;
+
+    const next = syncServerThreadTurnsPage(
+      makeState(
+        makeThread({
+          id: threadId,
+          messages: [liveMessage],
+          activities: [streamedActivity],
+        }),
+      ),
+      page,
+    );
+    const thread = getThreadFromState(next, threadId);
+
+    expect(thread?.messages.map((message) => message.id)).toEqual([
+      MessageId.makeUnsafe("message-paged"),
+      MessageId.makeUnsafe("message-live"),
+    ]);
+    expect(thread?.messages[1]).toMatchObject({ text: "still streaming", streaming: true });
+    expect(thread?.activities).toHaveLength(1);
+    expect(thread?.activities[0]).toMatchObject({
+      id: EventId.makeUnsafe("canonical-operation"),
+      summary: "Completed",
+    });
+    expect(next.threadTurnPaginationById?.[threadId]).toEqual({
+      hasOlder: true,
+      nextCursor: "older-cursor",
+    });
+    expect(next.threadDetailSyncById?.[threadId]).toBe("synced");
+  });
+
   it("preserves message mention references from read-model snapshots", () => {
     const next = syncServerReadModel(
       makeState(makeThread()),

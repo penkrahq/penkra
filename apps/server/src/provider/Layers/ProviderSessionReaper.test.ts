@@ -65,6 +65,7 @@ function makeLayer(input: {
         getThreadDetailById: () => unsupported(),
         getThreadDetailForExportById: () => unsupported(),
         getThreadDetailSnapshotById: () => unsupported(),
+        getThreadTurnsPage: () => unsupported(),
       }),
     ),
   );
