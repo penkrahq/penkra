@@ -46,17 +46,104 @@ describe("registered App publication lifecycle", () => {
       if (method === "developer.apps.list") {
         return [{ id: "registry-app-1", identifier: "com.penkra.canvas" }];
       }
-      if (method === "developer.submissions.list") return [{ version: "0.1.1" }];
+      if (method === "developer.submissions.list") {
+        return [{ submissionId: "submission-1", version: "0.1.1", status: "published" }];
+      }
       throw new Error(`Unexpected bridge method ${method}`);
     });
 
     await expect(appPublicationStatus("com.penkra.canvas", bridge)).resolves.toEqual({
       appId: "com.penkra.canvas",
       registryAppId: "registry-app-1",
-      submissions: [{ version: "0.1.1" }],
+      submissions: [{ submissionId: "submission-1", version: "0.1.1", status: "published" }],
     });
     expect(bridge).toHaveBeenCalledWith("developer.submissions.list", {
       appId: "registry-app-1",
+    });
+    expect(bridge).not.toHaveBeenCalledWith("developer.submissions.get", expect.anything());
+  });
+
+  it("enriches failed and nonterminal submissions with exact validator findings", async () => {
+    const summary = {
+      submissionId: "submission-1",
+      version: "0.2.6",
+      packageDigest: digest("a"),
+      status: "validation-failed",
+      failure: {
+        code: "AUTOMATED_VALIDATION_FAILED",
+        detail: "manifest, identity, version, compatibility, permissions",
+      },
+    };
+    const validations = [
+      {
+        validator: "manifest",
+        status: "failed",
+        findings: [
+          {
+            code: "invalid-manifest",
+            message: 'Unrecognized key: "instructions"',
+            path: "operations.0",
+          },
+        ],
+      },
+      ...["identity", "version", "compatibility", "permissions"].map((validator) => ({
+        validator,
+        status: "failed",
+        findings: [
+          {
+            code: "dependency-failed",
+            message: "Validation could not run because manifest is invalid.",
+          },
+        ],
+      })),
+    ];
+    const bridge = vi.fn(async (method: string) => {
+      if (method === "developer.publishers.list") return [{ id: "publisher-1" }];
+      if (method === "developer.apps.list") {
+        return [{ id: "registry-app-1", identifier: "com.penkra.apps" }];
+      }
+      if (method === "developer.submissions.list") return [summary];
+      if (method === "developer.submissions.get") {
+        return { ...summary, validations };
+      }
+      throw new Error(`Unexpected bridge method ${method}`);
+    });
+
+    await expect(appPublicationStatus("com.penkra.apps", bridge)).resolves.toEqual({
+      appId: "com.penkra.apps",
+      registryAppId: "registry-app-1",
+      submissions: [{ ...summary, validations }],
+    });
+    expect(bridge).toHaveBeenCalledWith("developer.submissions.get", {
+      submissionId: "submission-1",
+    });
+  });
+
+  it("retains submission history when a detail lookup fails", async () => {
+    const summary = {
+      submissionId: "submission-1",
+      version: "0.2.6",
+      status: "validating",
+    };
+    const bridge = vi.fn(async (method: string) => {
+      if (method === "developer.publishers.list") return [{ id: "publisher-1" }];
+      if (method === "developer.apps.list") {
+        return [{ id: "registry-app-1", identifier: "com.penkra.apps" }];
+      }
+      if (method === "developer.submissions.list") return [summary];
+      if (method === "developer.submissions.get") throw new Error("Registry detail unavailable");
+      throw new Error(`Unexpected bridge method ${method}`);
+    });
+
+    await expect(appPublicationStatus("com.penkra.apps", bridge)).resolves.toEqual({
+      appId: "com.penkra.apps",
+      registryAppId: "registry-app-1",
+      submissions: [
+        {
+          ...summary,
+          detailError: { message: "Registry detail unavailable" },
+        },
+      ],
     });
   });
 

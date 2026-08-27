@@ -117,6 +117,90 @@ describe("penkra_exec_command structure", () => {
       "only once",
     );
   });
+
+  it("reports exact App publication validator findings through the status command", async () => {
+    const bridge = vi.fn(async (method: string) => {
+      if (method === "developer.publishers.list") return [{ id: "publisher-1" }];
+      if (method === "developer.apps.list") {
+        return [{ id: "registry-app-1", identifier: "com.penkra.apps" }];
+      }
+      if (method === "developer.submissions.list") {
+        return [
+          {
+            submissionId: "submission-1",
+            version: "0.2.6",
+            status: "validation-failed",
+          },
+        ];
+      }
+      if (method === "developer.submissions.get") {
+        return {
+          submissionId: "submission-1",
+          version: "0.2.6",
+          status: "validation-failed",
+          validations: [
+            {
+              validator: "manifest",
+              status: "failed",
+              findings: [
+                {
+                  code: "invalid-manifest",
+                  message: 'Unrecognized key: "instructions"',
+                  path: "operations.0",
+                },
+              ],
+            },
+            {
+              validator: "identity",
+              status: "failed",
+              findings: [
+                {
+                  code: "dependency-failed",
+                  message: "Validation could not run because manifest is invalid.",
+                },
+              ],
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected bridge method ${method}`);
+    });
+
+    await expect(
+      executePenkraExecCommand(
+        command("penkra", "app", "status", "--app-id", "com.penkra.apps"),
+        context,
+        {},
+        bridge,
+      ),
+    ).resolves.toMatchObject({
+      submissions: [
+        {
+          validations: [
+            {
+              validator: "manifest",
+              findings: [
+                {
+                  code: "invalid-manifest",
+                  message: 'Unrecognized key: "instructions"',
+                  path: "operations.0",
+                },
+              ],
+            },
+            {
+              validator: "identity",
+              findings: [
+                {
+                  code: "dependency-failed",
+                  message: "Validation could not run because manifest is invalid.",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+  });
 });
 
 describe("penkra_exec_command discovery", () => {

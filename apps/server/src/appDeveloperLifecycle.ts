@@ -117,12 +117,17 @@ export async function appPublicationStatus(
       return { appId, registryAppId: null, submissions: [] };
     }
     const registryAppId = requiredText(match.app, "id", "App");
+    const submissions = records(
+      await bridge("developer.submissions.list", {
+        appId: registryAppId,
+      }),
+    );
     return {
       appId,
       registryAppId,
-      submissions: await bridge("developer.submissions.list", {
-        appId: registryAppId,
-      }),
+      submissions: await Promise.all(
+        submissions.map((submission) => enrichSubmissionStatus(submission, bridge)),
+      ),
     };
   }
   const publishers = records(await bridge("developer.publishers.list"));
@@ -133,6 +138,37 @@ export async function appPublicationStatus(
     owned.push({ publisher, apps });
   }
   return { publishers: owned };
+}
+
+const submissionStatusesWithDetail = new Set([
+  "draft",
+  "uploaded",
+  "validating",
+  "validation-failed",
+  "ready",
+  "publication-failed",
+]);
+
+async function enrichSubmissionStatus(
+  submission: Record<string, unknown>,
+  bridge: AppDeveloperBridge,
+): Promise<Record<string, unknown>> {
+  if (!submissionStatusesWithDetail.has(text(submission.status) ?? "")) return submission;
+  const submissionId = requiredText(submission, "submissionId", "submission");
+  try {
+    const detail = record(
+      await bridge("developer.submissions.get", { submissionId }),
+      "submission detail",
+    );
+    return { ...submission, ...detail };
+  } catch (error) {
+    return {
+      ...submission,
+      detailError: {
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
 }
 
 async function listOwnedRegistryApps(bridge: AppDeveloperBridge): Promise<
