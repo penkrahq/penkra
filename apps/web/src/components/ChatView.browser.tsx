@@ -494,7 +494,7 @@ function createThreadTurnsPageFromFixtureSnapshot(threadId: ThreadId) {
     conversationTurnCount: thread.messages.filter((message) => message.role === "user").length,
     messages: thread.messages,
     activities: thread.activities,
-    pendingInteractions: thread.pendingInteractions,
+    pendingInteractions: thread.pendingInteractions ?? [],
     hasOlder: false,
     nextCursor: null,
   };
@@ -2291,6 +2291,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
+      expect(
+        wsRequests.filter(
+          (request) => request._tag === ORCHESTRATION_WS_METHODS.getThreadTurnsPage,
+        ),
+      ).toEqual([
+        {
+          _tag: ORCHESTRATION_WS_METHODS.getThreadTurnsPage,
+          threadId: THREAD_ID,
+        },
+      ]);
+      expect(useStore.getState().threadDetailSyncById?.[THREAD_ID]).toBe("synced");
       await vi.waitFor(
         () => {
           expect(document.body.textContent).toContain(THREAD_TITLE);

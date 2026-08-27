@@ -997,6 +997,7 @@ function EventRouter() {
     setProjectExpanded,
     setServerWorkspacePaths,
     syncServerShellSnapshot,
+    syncServerThreadTurnsPage,
   ]);
 
   useLayoutEffect(() => {

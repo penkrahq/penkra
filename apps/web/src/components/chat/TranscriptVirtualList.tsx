@@ -107,6 +107,10 @@ function TranscriptVirtualListInner<TItem>(
   // geometry reaches the end again.
   const readerDetachedRef = useRef(initialViewportSnapshotRef.current?.isAtEnd === false);
   const shouldEndAnchor = hasSemanticAppend && wasAtEndRef.current;
+  const previousFirstKey = previousDataKeysRef.current.at(0);
+  const hasLeadingPrepend =
+    previousFirstKey !== undefined &&
+    data.findIndex((item) => keyExtractor(item) === previousFirstKey) > 0;
   const initialEndFollowEligibleRef = useRef(initialViewportSnapshotRef.current?.isAtEnd !== false);
   const initialEndFollowRef = useRef(false);
   const initialEndTimerRef = useRef<number | null>(null);
@@ -141,11 +145,11 @@ function TranscriptVirtualListInner<TItem>(
       const viewportHeight = scrollElementRef.current?.clientHeight ?? 0;
       return Math.max(0, data.length * estimatedItemSize + paddingEnd - viewportHeight);
     },
-    // TanStack's chat anchoring preserves a stable keyed row when history is
-    // prepended, follows growth only while genuinely end-pinned, and leaves a
-    // detached reader in place. `start` anchoring cannot distinguish prepends
-    // after every existing index shifts.
-    anchorTo: "end",
+    // End anchoring preserves the existing keyed row when history is prepended
+    // and follows real transcript growth while the reader is at the tail.
+    // Synthetic tool/status rows are not transcript growth, so start anchoring
+    // keeps those layout changes from pulling the viewport to the end.
+    anchorTo: hasLeadingPrepend || shouldEndAnchor ? "end" : "start",
     followOnAppend: false,
     scrollEndThreshold: END_THRESHOLD_PX,
     overscan: OVERSCAN_ROWS,
@@ -642,6 +646,7 @@ function TranscriptVirtualListInner<TItem>(
       previousFirstKey === null ? -1 : currentKeys.indexOf(previousFirstKey);
     recordDiagnostic("data-committed", {
       hasSemanticAppend,
+      hasLeadingPrepend,
       shouldEndAnchor,
       wasAtEnd: wasAtEndRef.current,
       memoryKey: viewportMemoryKey ?? null,
@@ -655,7 +660,15 @@ function TranscriptVirtualListInner<TItem>(
       prependedRowCount: preservedFirstIndex > 0 ? preservedFirstIndex : 0,
     });
     previousDataKeysRef.current = currentKeys;
-  }, [data, hasSemanticAppend, keyExtractor, recordDiagnostic, shouldEndAnchor, viewportMemoryKey]);
+  }, [
+    data,
+    hasLeadingPrepend,
+    hasSemanticAppend,
+    keyExtractor,
+    recordDiagnostic,
+    shouldEndAnchor,
+    viewportMemoryKey,
+  ]);
 
   useLayoutEffect(() => {
     if (!initialAnchorRestoreActiveRef.current || data.length === 0) return;
