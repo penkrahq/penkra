@@ -9,6 +9,11 @@ export const APP_INSTALLATION_STATE_SCHEMA_VERSION = 4 as const;
 export type InstalledAppSource = "registry" | "sideload";
 export type AppPermissionGrant = "denied" | "granted";
 
+export interface RegistryAppIdentity {
+  appId: string;
+  publisherId: string;
+}
+
 export interface InstalledAppPackage {
   appId: string;
   slug: string;
@@ -29,6 +34,8 @@ export interface InstalledAppPackage {
     keyId: string;
     publishedAt: string;
   };
+  /** Registry ownership proven independently of the currently installed package bytes. */
+  registryIdentity?: RegistryAppIdentity;
 }
 
 export interface SpaceAppState {
@@ -77,6 +84,7 @@ export interface VerifiedAppPackageInput {
   sha256: string;
   installedAt: string;
   registryRelease?: InstalledAppPackage["registryRelease"];
+  registryIdentity?: RegistryAppIdentity;
 }
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
@@ -181,6 +189,16 @@ function parseInstalledPackage(value: unknown, recordKey: string): InstalledAppP
       `Package ${recordKey} manifest is invalid: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  const registryRelease =
+    value.registryRelease === undefined
+      ? undefined
+      : parseRegistryRelease(value.registryRelease, recordKey);
+  const registryIdentity =
+    value.registryIdentity === undefined
+      ? registryRelease?.publisherId
+        ? { appId: registryRelease.appId, publisherId: registryRelease.publisherId }
+        : undefined
+      : parseRegistryIdentity(value.registryIdentity, recordKey);
   const installedPackage: InstalledAppPackage = {
     appId,
     slug: requireNonEmptyString(value.slug, `Package ${recordKey} slug`),
@@ -192,9 +210,8 @@ function parseInstalledPackage(value: unknown, recordKey: string): InstalledAppP
     sha256,
     installedAt: requireNonEmptyString(value.installedAt, `Package ${recordKey} installedAt`),
     manifest: value.manifest,
-    ...(value.registryRelease === undefined
-      ? {}
-      : { registryRelease: parseRegistryRelease(value.registryRelease, recordKey) }),
+    ...(registryRelease === undefined ? {} : { registryRelease }),
+    ...(registryIdentity === undefined ? {} : { registryIdentity }),
   };
   if (
     installedPackage.manifest.id !== installedPackage.appId ||
@@ -466,6 +483,16 @@ function toInstalledPackage(input: VerifiedAppPackageInput): InstalledAppPackage
       "Only registry packages may carry registry release evidence.",
     );
   }
+  const registryRelease =
+    input.registryRelease === undefined
+      ? undefined
+      : parseRegistryRelease(input.registryRelease, input.manifest.id);
+  const registryIdentity =
+    input.registryIdentity === undefined
+      ? registryRelease?.publisherId
+        ? { appId: registryRelease.appId, publisherId: registryRelease.publisherId }
+        : undefined
+      : parseRegistryIdentity(input.registryIdentity, input.manifest.id);
   return {
     appId: input.manifest.id,
     slug: input.manifest.slug,
@@ -477,10 +504,30 @@ function toInstalledPackage(input: VerifiedAppPackageInput): InstalledAppPackage
     sha256: input.sha256,
     installedAt: input.installedAt,
     manifest: input.manifest,
-    ...(input.registryRelease === undefined
-      ? {}
-      : { registryRelease: parseRegistryRelease(input.registryRelease, input.manifest.id) }),
+    ...(registryRelease === undefined ? {} : { registryRelease }),
+    ...(registryIdentity === undefined ? {} : { registryIdentity }),
   };
+}
+
+function parseRegistryIdentity(value: unknown, recordKey: string): RegistryAppIdentity {
+  if (!isRecord(value)) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      `Package ${recordKey} registry identity must be an object.`,
+    );
+  }
+  const appId = requireNonEmptyString(value.appId, `Package ${recordKey} registry App id`);
+  const publisherId = requireNonEmptyString(
+    value.publisherId,
+    `Package ${recordKey} registry publisher id`,
+  );
+  if (!UUID_PATTERN.test(appId) || !UUID_PATTERN.test(publisherId)) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      `Package ${recordKey} registry identity is invalid.`,
+    );
+  }
+  return { appId, publisherId };
 }
 
 function parseRegistryRelease(
@@ -617,6 +664,34 @@ export function replaceVerifiedAppPackage(
     packagesByInstallationKey: {
       ...state.packagesByInstallationKey,
       [key]: installedPackage,
+    },
+  };
+}
+
+export function setSideloadRegistryIdentity(
+  state: AppInstallationState,
+  input: { appId: string; spaceId: string; registryIdentity: RegistryAppIdentity },
+): AppInstallationState {
+  const key = appInstallationKey(input.spaceId, input.appId);
+  const existing = state.packagesByInstallationKey[key];
+  if (!existing) {
+    throw new AppInstallationStateError(
+      "app-not-installed",
+      `${input.appId} is not installed in Space ${input.spaceId}.`,
+    );
+  }
+  if (existing.source !== "sideload") {
+    throw new AppInstallationStateError(
+      "source-mismatch",
+      "Registry ownership recovery applies only to sideloaded Apps.",
+    );
+  }
+  const registryIdentity = parseRegistryIdentity(input.registryIdentity, input.appId);
+  return {
+    ...state,
+    packagesByInstallationKey: {
+      ...state.packagesByInstallationKey,
+      [key]: { ...existing, registryIdentity },
     },
   };
 }

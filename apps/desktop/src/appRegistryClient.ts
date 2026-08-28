@@ -23,6 +23,11 @@ import {
 const APP_SLUG = /^[a-z][a-z0-9-]{1,62}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export type RegistryAppIdentifierOwnership =
+  | { status: "unregistered" }
+  | { status: "registered-to-another-account" }
+  | { status: "owned"; appId: string; publisherId: string; slug: string };
+
 export class AppRegistryClient {
   readonly #apiUrl: string;
   readonly #fetch: typeof fetch;
@@ -301,6 +306,31 @@ export class AppRegistryClient {
   async developerListApps(publisherId: string): Promise<unknown[]> {
     assertUuid(publisherId, "publisher");
     return this.#collectPages(`/api/registry/publishers/${encodeURIComponent(publisherId)}/apps`);
+  }
+
+  async developerGetAppIdentifierOwnership(
+    identifier: string,
+  ): Promise<RegistryAppIdentifierOwnership> {
+    const normalized = identifier.trim().toLowerCase();
+    if (!/^[a-z][a-z0-9.-]{2,254}$/.test(normalized)) {
+      throw new Error("Invalid App identifier.");
+    }
+    const query = new URLSearchParams({ identifier: normalized });
+    const value = await this.#request(`/api/registry/developer/apps/identifier-ownership?${query}`);
+    if (!isRecord(value)) throw invalidResponse();
+    if (value.status === "unregistered") return { status: "unregistered" };
+    if (value.status === "registered-to-another-account") {
+      return { status: "registered-to-another-account" };
+    }
+    if (value.status !== "owned") throw invalidResponse();
+    const slug = stringField(value, "slug");
+    if (!APP_SLUG.test(slug)) throw invalidResponse();
+    return {
+      status: "owned",
+      appId: uuidField(value, "appId"),
+      publisherId: uuidField(value, "publisherId"),
+      slug,
+    };
   }
 
   async developerSetAppVisibility(input: {

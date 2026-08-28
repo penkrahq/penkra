@@ -64,12 +64,35 @@ describe("hasActivePendingTurnStart", () => {
         messages: [
           {
             id: pendingMessageId,
+            createdAt: "2026-02-27T21:10:01.000Z",
             delivery: { state: "starting", queued: false, sequence: 4 },
           },
         ],
-        session: { orchestrationStatus: "ready" },
+        session: {
+          orchestrationStatus: "ready",
+          updatedAt: "2026-02-27T21:10:00.000Z",
+        },
       }),
     ).toBe(true);
+  });
+
+  it("expires a stale steering delivery once a newer session-ready boundary arrives", () => {
+    expect(
+      hasActivePendingTurnStart({
+        pendingMessageId,
+        messages: [
+          {
+            id: pendingMessageId,
+            createdAt: "2026-02-27T21:10:01.000Z",
+            delivery: { state: "steering", queued: false, sequence: 4 },
+          },
+        ],
+        session: {
+          orchestrationStatus: "ready",
+          updatedAt: "2026-02-27T21:10:06.000Z",
+        },
+      }),
+    ).toBe(false);
   });
 
   it("does not let a stale pending identity resurrect a settled accepted delivery", () => {
@@ -79,10 +102,14 @@ describe("hasActivePendingTurnStart", () => {
         messages: [
           {
             id: pendingMessageId,
+            createdAt: "2026-02-27T21:10:01.000Z",
             delivery: { state: "accepted", queued: true, sequence: 9 },
           },
         ],
-        session: { orchestrationStatus: "stopped" },
+        session: {
+          orchestrationStatus: "stopped",
+          updatedAt: "2026-02-27T21:10:06.000Z",
+        },
       }),
     ).toBe(false);
   });
@@ -91,15 +118,21 @@ describe("hasActivePendingTurnStart", () => {
     expect(
       hasActivePendingTurnStart({
         pendingMessageId,
-        messages: [{ id: pendingMessageId }],
-        session: { orchestrationStatus: "starting" },
+        messages: [{ id: pendingMessageId, createdAt: "2026-02-27T21:10:01.000Z" }],
+        session: {
+          orchestrationStatus: "starting",
+          updatedAt: "2026-02-27T21:10:00.000Z",
+        },
       }),
     ).toBe(true);
     expect(
       hasActivePendingTurnStart({
         pendingMessageId,
-        messages: [{ id: pendingMessageId }],
-        session: { orchestrationStatus: "ready" },
+        messages: [{ id: pendingMessageId, createdAt: "2026-02-27T21:10:01.000Z" }],
+        session: {
+          orchestrationStatus: "ready",
+          updatedAt: "2026-02-27T21:10:06.000Z",
+        },
       }),
     ).toBe(false);
   });
@@ -399,7 +432,7 @@ describe("isLatestTurnSettled", () => {
     ).toBe(true);
   });
 
-  it("returns false when turn timestamps are incomplete", () => {
+  it("settles a completed turn even when its start timestamp was not projected", () => {
     expect(
       isLatestTurnSettled(
         {
@@ -410,7 +443,24 @@ describe("isLatestTurnSettled", () => {
         },
         null,
       ),
-    ).toBe(false);
+    ).toBe(true);
+  });
+
+  it("settles a stale running turn after the authoritative session becomes ready", () => {
+    expect(
+      isLatestTurnSettled(
+        {
+          turnId: TurnId.makeUnsafe("turn-1"),
+          state: "running",
+          startedAt: "2026-02-27T21:10:00.000Z",
+          completedAt: null,
+        },
+        {
+          orchestrationStatus: "ready",
+          activeTurnId: undefined,
+        },
+      ),
+    ).toBe(true);
   });
 
   it("returns true for interrupted turns even while the session is still running", () => {

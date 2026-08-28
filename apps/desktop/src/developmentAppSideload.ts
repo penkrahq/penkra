@@ -5,7 +5,12 @@
 import * as Path from "node:path";
 
 import type { DesktopAppRuntime } from "./desktopAppRuntime";
-import { getInstalledAppPackage } from "./appInstallationState";
+import {
+  getInstalledAppPackage,
+  type InstalledAppPackage,
+  type RegistryAppIdentity,
+  type VerifiedAppPackageInput,
+} from "./appInstallationState";
 
 export interface DevelopmentAppSideloadResult {
   appId: string;
@@ -14,29 +19,39 @@ export interface DevelopmentAppSideloadResult {
   status: "installed" | "current" | "updated";
 }
 
+export type AuthorizeDevelopmentSideload = (input: {
+  package: VerifiedAppPackageInput & { source: "sideload" };
+  existing: InstalledAppPackage | undefined;
+}) => Promise<RegistryAppIdentity | undefined>;
+
 export async function bootstrapDevelopmentSideload(
   runtime: Pick<DesktopAppRuntime, "packages" | "installations">,
   sourcePath: string,
   spaceId: string,
+  authorize?: AuthorizeDevelopmentSideload,
 ): Promise<DevelopmentAppSideloadResult> {
   const resolvedSourcePath = Path.resolve(sourcePath);
   const verified = await runtime.packages.ingestDirectory({
     sourcePath: resolvedSourcePath,
     source: "sideload",
   });
+  const sideloadPackage = { ...verified, source: "sideload" as const };
   const existing = getInstalledAppPackage(
     runtime.installations.snapshot(),
     verified.manifest.id,
     spaceId,
   );
+  const registryIdentity = await authorize?.({ package: sideloadPackage, existing });
+  const authorizedPackage =
+    registryIdentity === undefined ? sideloadPackage : { ...sideloadPackage, registryIdentity };
   if (!existing) {
-    await runtime.installations.install(verified, spaceId);
+    await runtime.installations.install(authorizedPackage, spaceId);
     await ensureDevelopmentSideloadEnabled(runtime, verified.manifest, spaceId);
     return result("installed");
   }
   if (existing.source !== "sideload") {
     await runtime.installations.updateSideloadForSpace({
-      package: { ...verified, source: "sideload" },
+      package: { ...authorizedPackage, source: "sideload" },
       spaceId,
     });
     await ensureDevelopmentSideloadEnabled(runtime, verified.manifest, spaceId);
@@ -45,7 +60,7 @@ export async function bootstrapDevelopmentSideload(
   const status = existing.sha256 === verified.sha256 ? "current" : "updated";
   if (status === "updated") {
     await runtime.installations.updateSideloadForSpace({
-      package: { ...verified, source: "sideload" },
+      package: { ...authorizedPackage, source: "sideload" },
       spaceId,
     });
   }

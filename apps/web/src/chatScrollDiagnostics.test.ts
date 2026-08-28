@@ -84,6 +84,7 @@ describe("chat scroll diagnostics", () => {
   });
 
   it("records pagination lifecycle evidence in the shared bounded trace", () => {
+    enableChatScrollDiagnostics();
     recordChatPaginationDiagnostic({
       event: "response-received",
       threadId: "thread-long",

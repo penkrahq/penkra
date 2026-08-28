@@ -15,9 +15,11 @@ import {
   setSpaceAppSetting,
   setSpaceAppSettingMigration,
   setSpaceAppSkillEnabled,
+  setSideloadRegistryIdentity,
   unregisterAppPackage,
   type AppInstallationState,
   type AppPermissionGrant,
+  type RegistryAppIdentity,
   type VerifiedAppPackageInput,
 } from "./appInstallationState";
 import { permissionsRequiringUpdateReview } from "@penkra/sdk";
@@ -207,6 +209,14 @@ export class AppInstallationService {
       spaceId: input.spaceId,
       permissions,
     });
+  }
+
+  recordSideloadRegistryIdentity(input: {
+    appId: string;
+    spaceId: string;
+    registryIdentity: RegistryAppIdentity;
+  }): Promise<AppInstallationState> {
+    return this.#mutate((state) => setSideloadRegistryIdentity(state, input));
   }
 
   #updateForSpace(input: {

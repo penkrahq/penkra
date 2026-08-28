@@ -96,6 +96,7 @@ const originalWebSocket = globalThis.WebSocket;
 
 interface WsTransportInternals {
   syncAppliedSequence: number | undefined;
+  syncDeliveryId: string | undefined;
   readonly listeners: Map<string, Set<(message: unknown) => void>>;
   readonly latestPushByChannel: Map<string, unknown>;
   readonly streamCleanups: Map<string, () => void>;
@@ -753,11 +754,43 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("does not let an old lease acknowledgement overwrite a newer snapshot cursor", async () => {
+    const transport = new WsTransport();
+    const method = ORCHESTRATION_WS_METHODS.acknowledgeSync;
+    const client = { [method]: vi.fn(() => ({})) };
+    let resolveOldAcknowledgement!: (value: undefined) => void;
+    const oldAcknowledgement = new Promise<undefined>((resolve) => {
+      resolveOldAcknowledgement = resolve;
+    });
+    const runtime = { runPromise: vi.fn(() => oldAcknowledgement) };
+    const internals = transport as unknown as WsTransportInternals & {
+      getClient: () => Promise<typeof client>;
+      getClientRuntime: () => typeof runtime;
+    };
+    internals.getClient = vi.fn().mockResolvedValue(client);
+    internals.getClientRuntime = vi.fn(() => runtime);
+    internals.syncDeliveryId = "old-lease";
+
+    const request = transport.request(method, {
+      deliveryId: "old-lease",
+      appliedSequence: 41,
+    });
+    await Promise.resolve();
+    internals.syncDeliveryId = "new-lease";
+    internals.syncAppliedSequence = undefined;
+    resolveOldAcknowledgement(undefined);
+    await request;
+
+    expect(internals.syncDeliveryId).toBe("new-lease");
+    expect(internals.syncAppliedSequence).toBeUndefined();
+    await transport.dispose();
+  });
+
   it("resumes the unified stream from the acknowledged cursor and resets it on a snapshot", async () => {
     const { internals } = makeBareTransport();
     const subscribeSync = vi.fn(() => ({ stream: true }));
     const client = { [ORCHESTRATION_WS_METHODS.subscribeSync]: subscribeSync };
-    let onEvent: ((event: { kind: string }) => void) | undefined;
+    let onEvent: ((event: { kind: string; deliveryId: string }) => void) | undefined;
     Object.assign(internals, {
       syncAppliedSequence: 23,
       getClient: vi.fn().mockResolvedValue(client),
@@ -774,8 +807,9 @@ describe("WsTransport", () => {
 
     expect(subscribeSync).toHaveBeenCalledWith({ afterSequenceExclusive: 23 });
     expect(onEvent).toBeDefined();
-    onEvent?.({ kind: "snapshot" });
+    onEvent?.({ kind: "snapshot", deliveryId: "new-lease" });
     expect(internals.syncAppliedSequence).toBeUndefined();
+    expect(internals.syncDeliveryId).toBe("new-lease");
   });
 
   it("joins an active reconnect instead of returning the retired client", async () => {

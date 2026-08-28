@@ -27,6 +27,35 @@ const summary = {
 };
 
 describe("desktop App registry client", () => {
+  it("reads the signed-in developer's authoritative identifier ownership", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      jsonResponse({
+        status: "owned",
+        appId: summary.id,
+        publisherId: "00000000-0000-4000-8000-000000000399",
+        slug: "canvas",
+      }),
+    );
+    const client = new AppRegistryClient({
+      apiUrl: "https://api.penkra.com",
+      getCookie: () => "cookie=value",
+      fetch,
+    });
+
+    await expect(client.developerGetAppIdentifierOwnership(" com.penkra.canvas ")).resolves.toEqual(
+      {
+        status: "owned",
+        appId: summary.id,
+        publisherId: "00000000-0000-4000-8000-000000000399",
+        slug: "canvas",
+      },
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.penkra.com/api/registry/developer/apps/identifier-ownership?identifier=com.penkra.canvas",
+      expect.objectContaining({ headers: expect.objectContaining({ cookie: "cookie=value" }) }),
+    );
+  });
+
   it("uses the encrypted account cookie without exposing it in the result", async () => {
     const fetch = vi.fn().mockResolvedValue(
       jsonResponse({

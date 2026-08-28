@@ -116,6 +116,8 @@ function TranscriptVirtualListInner<TItem>(
   const initialEndTimerRef = useRef<number | null>(null);
   const initialEndFrameCountRef = useRef(0);
   const initialEndStableFramesRef = useRef(0);
+  const endFollowAnchorRevisionRef = useRef<string | null>(null);
+  const endFollowHadDataRef = useRef(false);
   const scheduleInitialEndCorrectionRef = useRef<((source: string) => void) | null>(null);
   const initialAnchorRestoreActiveRef = useRef(
     initialViewportSnapshotRef.current?.isAtEnd === false,
@@ -209,8 +211,7 @@ function TranscriptVirtualListInner<TItem>(
         initialAnchorRestoreLastTargetOffsetRef.current = null;
         scheduleInitialAnchorRestoreRef.current?.();
       }
-      if (initialEndFollowEligibleRef.current) {
-        initialEndFollowRef.current = true;
+      if (initialEndFollowRef.current) {
         initialEndStableFramesRef.current = 0;
         scheduleInitialEndCorrectionRef.current?.("row-measured");
       }
@@ -228,12 +229,12 @@ function TranscriptVirtualListInner<TItem>(
       });
       return size;
     },
-    // Keep TanStack's synchronous correction enabled. In direct-DOM mode the
-    // scrollTop compensation and row transforms must commit in the same paint;
-    // deferring React's update produces a visible jump for heterogeneous chat
-    // rows. Lifecycle-sensitive imperative placement is scheduled outside the
-    // commit phase below so this does not trade the jump for nested flushSync.
-    useFlushSync: true,
+    // Direct-DOM mode applies container size and row positions synchronously;
+    // the remaining React update only changes which rows belong to the rendered
+    // range. Let React batch that update. Forcing it through flushSync from a
+    // measurement ref can run inside React's own commit and create nested
+    // lifecycle updates during streaming or queue-row insertion.
+    useFlushSync: false,
     // Streaming Markdown can resize the measured tail again from inside the
     // observer delivery cycle. Frame-batching prevents Chromium's undelivered
     // ResizeObserver loop without adding a second scroll correction owner.
@@ -678,8 +679,16 @@ function TranscriptVirtualListInner<TItem>(
     scheduleInitialAnchorRestore();
   }, [data.length, recordDiagnostic, scheduleInitialAnchorRestore]);
 
+  const hasData = data.length > 0;
   useLayoutEffect(() => {
-    if (data.length === 0 || !initialEndFollowEligibleRef.current) return;
+    const dataBecameNonEmpty = hasData && !endFollowHadDataRef.current;
+    const semanticRevisionChanged =
+      endFollowAnchorRevisionRef.current !== null &&
+      endFollowAnchorRevisionRef.current !== anchorRevision;
+    endFollowHadDataRef.current = hasData;
+    endFollowAnchorRevisionRef.current = anchorRevision;
+    if (!dataBecameNonEmpty && !semanticRevisionChanged) return;
+    if (!hasData || !initialEndFollowEligibleRef.current) return;
     // End placement owns the brief dynamic-measurement phase rather than
     // jumping once against estimates. Unlike TanStack's absolute scroll state,
     // this raw-DOM convergence is cancellable the instant a reader interacts.
@@ -690,7 +699,7 @@ function TranscriptVirtualListInner<TItem>(
     initialEndStableFramesRef.current = 0;
     recordDiagnostic("initial-end-follow:started", { source });
     scheduleInitialEndCorrection(source);
-  }, [anchorRevision, data.length, recordDiagnostic, scheduleInitialEndCorrection]);
+  }, [anchorRevision, hasData, recordDiagnostic, scheduleInitialEndCorrection]);
 
   const virtualItems = virtualizer.getVirtualItems();
   const containerStyle: CSSProperties = {

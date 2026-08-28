@@ -7,6 +7,7 @@ import * as Path from "node:path";
 import type { DesktopAppRuntime } from "./desktopAppRuntime";
 import {
   bootstrapDevelopmentSideload,
+  type AuthorizeDevelopmentSideload,
   type DevelopmentAppSideloadResult,
 } from "./developmentAppSideload";
 import {
@@ -33,6 +34,7 @@ export class DevelopmentAppSideloadRegistry {
     error: unknown,
     context: { appId: string; sourcePath: string; spaceId: string },
   ) => void;
+  readonly #authorize: AuthorizeDevelopmentSideload | undefined;
   readonly #registrations = new Map<string, RegisteredDevelopmentApp>();
   #operations: Promise<void> = Promise.resolve();
   #closed = false;
@@ -46,18 +48,25 @@ export class DevelopmentAppSideloadRegistry {
     ) => void;
     load?: LoadDevelopmentApp;
     watch?: WatchDevelopmentApp;
+    authorize?: AuthorizeDevelopmentSideload;
   }) {
     this.#runtime = input.runtime;
     this.#load = input.load ?? bootstrapDevelopmentSideload;
     this.#watch = input.watch ?? watchDevelopmentAppSideload;
     this.#onApplied = input.onApplied ?? (() => undefined);
     this.#onError = input.onError ?? (() => undefined);
+    this.#authorize = input.authorize;
   }
 
   register(sourcePath: string, spaceId: string): Promise<DevelopmentAppSideloadResult> {
     return this.#enqueue(async () => {
       if (this.#closed) throw new Error("The development App sideload registry is closed.");
-      const result = await this.#load(this.#runtime, Path.resolve(sourcePath), spaceId);
+      const result = await this.#load(
+        this.#runtime,
+        Path.resolve(sourcePath),
+        spaceId,
+        this.#authorize,
+      );
       const key = registrationKey(result.spaceId, result.appId);
       const existing = this.#registrations.get(key);
       if (existing?.sourcePath === result.sourcePath) return result;
@@ -74,7 +83,12 @@ export class DevelopmentAppSideloadRegistry {
       const watcher = this.#watch({
         sourcePath: result.sourcePath,
         reload: async () => {
-          const reloaded = await this.#load(this.#runtime, result.sourcePath, result.spaceId);
+          const reloaded = await this.#load(
+            this.#runtime,
+            result.sourcePath,
+            result.spaceId,
+            this.#authorize,
+          );
           if (reloaded.status !== "current") await this.#onApplied(reloaded);
         },
         onError: (error) => this.#onError(error, context),

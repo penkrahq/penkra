@@ -13,7 +13,6 @@ import React, {
   isValidElement,
   memo,
   use,
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -34,7 +33,6 @@ import { getFileIconName } from "../file-icons";
 import { CentralIcon } from "~/lib/central-icons";
 import { isLocalImageMarkdownSrc } from "../lib/localImageUrls";
 import { useTheme } from "../hooks/useTheme";
-import { useSmoothStreamedText } from "../hooks/useSmoothStreamedText";
 import { openThreadFileReference, useThreadResourceOpener } from "../lib/threadResourceOpener";
 import { resolveMarkdownFileLinkTarget, rewriteMarkdownFileUriHref } from "../markdown-links";
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -842,23 +840,12 @@ function ChatMarkdown({
   const resourceOpener = useThreadResourceOpener();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const isUserVariant = variant === "user";
-  // Reveal streamed text at a steady, adaptive cadence so tokens appear fluidly instead of
-  // in the ~100ms network clumps that land in the store. No-ops (returns `text`) when not
-  // streaming or under reduced motion. Governs cadence only; the deferred value below still
-  // bounds the markdown re-parse cost.
-  const smoothedText = useSmoothStreamedText(text, isStreaming);
   // The dollar rewrite exists to disambiguate math from currency; the user
   // variant has no math, so its text must stay byte-for-byte what was typed.
   const normalizedText = useMemo(
-    () => (isUserVariant ? smoothedText : protectLiteralMarkdownDollars(smoothedText)),
-    [isUserVariant, smoothedText],
+    () => (isUserVariant ? text : protectLiteralMarkdownDollars(text)),
+    [isUserVariant, text],
   );
-  // While streaming, let React deprioritize and coalesce the markdown re-parse so a
-  // fast token stream (one flush per ~100ms) doesn't re-render the full ReactMarkdown
-  // tree on every flush. The deferred value always converges to the latest text, and
-  // completed messages render the exact current text immediately (no visual change).
-  const deferredNormalizedText = useDeferredValue(normalizedText);
-  const renderedText = isStreaming ? deferredNormalizedText : normalizedText;
   const composerChipsRemarkPlugin = useMemo(
     () =>
       isUserVariant
@@ -1063,7 +1050,7 @@ function ChatMarkdown({
         components={markdownComponents}
         urlTransform={markdownUrlTransform}
       >
-        {renderedText}
+        {normalizedText}
       </ReactMarkdown>
     </div>
   );

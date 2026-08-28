@@ -932,40 +932,36 @@ const makeWsRpcHandlersLayer = () =>
                 });
 
                 return source.pipe(
-                  Stream.tap((item) =>
-                    Effect.logInfo("orchestration synchronization delivery prepared").pipe(
-                      Effect.annotateLogs({
-                        clientId,
-                        deliveryKind: item.kind,
-                        sequence:
-                          item.kind === "snapshot"
-                            ? item.snapshot.snapshotSequence
-                            : item.event.sequence,
-                      }),
-                    ),
-                  ),
-                  Stream.flatMap((item) =>
-                    Stream.unwrap(
-                      acknowledgementLease
-                        .beginDelivery(
-                          item.kind === "snapshot"
-                            ? item.snapshot.snapshotSequence
-                            : item.event.sequence,
-                        )
-                        .pipe(
-                          Effect.map(({ deliveryId, wait }) => {
-                            const delivered: OrchestrationSyncStreamItem =
-                              item.kind === "snapshot"
-                                ? { kind: "snapshot", deliveryId, snapshot: item.snapshot }
-                                : { kind: "event", deliveryId, event: item.event };
-                            return Stream.concat(
-                              Stream.succeed(delivered),
-                              Stream.fromEffect(wait).pipe(Stream.drain),
-                            );
+                  Stream.mapEffect((item) => {
+                    const sequence =
+                      item.kind === "snapshot"
+                        ? item.snapshot.snapshotSequence
+                        : item.event.sequence;
+                    return acknowledgementLease.recordDelivery(sequence).pipe(
+                      Effect.tap(() =>
+                        Effect.logDebug("orchestration synchronization delivery prepared").pipe(
+                          Effect.annotateLogs({
+                            clientId,
+                            deliveryKind: item.kind,
+                            sequence,
                           }),
                         ),
-                    ),
-                  ),
+                      ),
+                      Effect.as<OrchestrationSyncStreamItem>(
+                        item.kind === "snapshot"
+                          ? {
+                              kind: "snapshot",
+                              deliveryId: acknowledgementLease.deliveryId,
+                              snapshot: item.snapshot,
+                            }
+                          : {
+                              kind: "event",
+                              deliveryId: acknowledgementLease.deliveryId,
+                              event: item.event,
+                            },
+                      ),
+                    );
+                  }),
                 );
               }),
             ),

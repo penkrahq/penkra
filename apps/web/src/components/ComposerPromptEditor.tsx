@@ -504,6 +504,7 @@ function collectTerminalContextIds(node: LexicalNode): string[] {
 
 export interface ComposerPromptEditorHandle {
   blur: () => void;
+  clear: () => void;
   focus: () => void;
   focusAt: (cursor: number) => void;
   focusAtEnd: () => void;
@@ -1083,6 +1084,24 @@ function ComposerPromptEditorInner({
     editor.getRootElement()?.blur();
   }, [editor]);
 
+  const clearEditor = useCallback(() => {
+    pendingInputInteractionIdRef.current = null;
+    snapshotRef.current = {
+      value: "",
+      cursor: 0,
+      expandedCursor: 0,
+      selectionCollapsed: true,
+      terminalContextIds: [],
+    };
+    editor.update(
+      () => {
+        $setComposerEditorPrompt("", [], []);
+        $setSelectionAtComposerOffset(0);
+      },
+      { tag: CONTROLLED_COMPOSER_UPDATE_TAG },
+    );
+  }, [editor]);
+
   // Keep global shortcuts decoupled from Lexical's root element details.
   const isEditorFocused = useCallback(() => {
     const rootElement = editor.getRootElement();
@@ -1133,6 +1152,7 @@ function ComposerPromptEditorInner({
     editorRef,
     () => ({
       blur: blurEditor,
+      clear: clearEditor,
       focus: () => {
         focusAt(snapshotRef.current.cursor);
       },
@@ -1148,7 +1168,7 @@ function ComposerPromptEditorInner({
       isFocused: isEditorFocused,
       readSnapshot,
     }),
-    [blurEditor, focusAt, isEditorFocused, readSnapshot],
+    [blurEditor, clearEditor, focusAt, isEditorFocused, readSnapshot],
   );
 
   const handleEditorChange = useCallback(

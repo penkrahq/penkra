@@ -748,7 +748,10 @@ output path and rejects output inside the packaged directory.
 its required permissions, restores its open tabs after valid rebuilds, and watches the directory
 for further changes. An existing sideload may rebuild without changing its version. When the same
 App is installed from the registry, the sideload version must be newer; otherwise uninstall the
-registry App before sideloading. Invalid rebuilds leave the last working package active.
+registry App before sideloading. If the manifest identifier is registered, the signed-in developer
+account must own that registry App and the registered slug must match. An unregistered identifier
+may be sideloaded directly; an identifier registered to another account is rejected before the
+installation changes. Invalid rebuilds leave the last working package active.
 
 `test` asks the installed Penkra desktop to relaunch its own App runtime in a hidden, disposable
 profile and Space. It ingests the App through the immutable package path, starts its controller and

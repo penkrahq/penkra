@@ -21,7 +21,9 @@ import {
 import type { DesktopAppRuntime } from "./desktopAppRuntime";
 import {
   getInstalledAppPackage,
+  type InstalledAppPackage,
   type AppPermissionGrant,
+  type RegistryAppIdentity,
   type VerifiedAppPackageInput,
 } from "./appInstallationState";
 export {
@@ -137,6 +139,9 @@ export async function reconcileRequiredAppsForSpaces(input: {
   spaceIds: ReadonlyArray<string>;
   allowDevelopmentSideload?: boolean;
   developmentSourcePackage?: boolean;
+  verifySideloadOwnership?: (
+    installed: InstalledAppPackage,
+  ) => Promise<RegistryAppIdentity | undefined>;
 }): Promise<ReadonlyArray<RequiredAppsReconciliationResult>> {
   const results: RequiredAppsReconciliationResult[] = [];
   for (const spaceId of new Set(input.spaceIds)) {
@@ -153,8 +158,18 @@ export async function reconcileRequiredAppsForSpaces(input: {
     }
 
     if (existing.source === "sideload") {
-      if (!input.allowDevelopmentSideload) {
-        throw new Error("Required Apps is unexpectedly installed from a development sideload.");
+      if (!input.allowDevelopmentSideload && !existing.registryIdentity) {
+        const registryIdentity = await input.verifySideloadOwnership?.(existing);
+        if (!registryIdentity) {
+          throw new Error(
+            "Required Apps sideload ownership could not be verified for this developer account.",
+          );
+        }
+        await input.runtime.installations.recordSideloadRegistryIdentity({
+          appId: existing.appId,
+          spaceId,
+          registryIdentity,
+        });
       }
       await ensureRequiredAppEnabled(input.runtime.installations, spaceId);
       results.push({ spaceId, status: "development-sideload" });

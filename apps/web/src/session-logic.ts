@@ -136,14 +136,28 @@ export function isLatestTurnSettled(
   latestTurn: LatestTurnTiming | null,
   session: SessionActivityState | null,
 ): boolean {
-  if (!latestTurn?.startedAt) return false;
-  if (!latestTurn.completedAt) return false;
+  if (!latestTurn) return false;
   if (latestTurn.state === "interrupted" || latestTurn.state === "error") {
     return true;
   }
-  if (!session) return true;
-  if (session.orchestrationStatus === "running") return false;
-  return true;
+  if (session?.orchestrationStatus === "running") return false;
+
+  // Session readiness is the authoritative provider boundary. During a
+  // reconnect or a batched snapshot/event merge, latestTurn can briefly retain
+  // its running shape (or a terminal turn can lack startedAt) after the session
+  // has already cleared activeTurnId. Requiring the lagging turn projection to
+  // become internally complete leaves transcript chrome in a false-live limbo.
+  if (
+    session !== null &&
+    session.activeTurnId == null &&
+    session.orchestrationStatus !== "starting"
+  ) {
+    return true;
+  }
+
+  // A terminal turn remains authoritative when no session projection is
+  // available. startedAt is useful timing metadata, not a completion gate.
+  return latestTurn.completedAt !== null;
 }
 
 export function hasLiveLatestTurn(
@@ -417,16 +431,31 @@ export function derivePhase(session: ThreadSession | null): SessionPhase {
  */
 export function hasActivePendingTurnStart(input: {
   pendingMessageId: ChatMessage["id"] | null | undefined;
-  messages: ReadonlyArray<Pick<ChatMessage, "id" | "delivery">>;
-  session: Pick<ThreadSession, "orchestrationStatus"> | null | undefined;
+  messages: ReadonlyArray<Pick<ChatMessage, "id" | "createdAt" | "delivery">>;
+  session: Pick<ThreadSession, "orchestrationStatus" | "updatedAt"> | null | undefined;
 }): boolean {
   if (input.pendingMessageId == null) {
     return false;
   }
-  const delivery = input.messages.find(
-    (message) => message.id === input.pendingMessageId,
-  )?.delivery;
+  const pendingMessage = input.messages.find((message) => message.id === input.pendingMessageId);
+  const delivery = pendingMessage?.delivery;
   if (delivery?.state === "starting" || delivery?.state === "steering") {
+    // A message-local delivery marker can lag after the turn it admitted has
+    // already completed. Compare the ordered timestamps instead of treating
+    // `starting` / `steering` as an immortal source of truth: a terminal
+    // session written after this message is the authoritative completion
+    // boundary. Conversely, a message created after the last ready session is
+    // a genuinely new optimistic admission and must remain live.
+    if (
+      input.session !== null &&
+      input.session !== undefined &&
+      input.session.orchestrationStatus !== "starting" &&
+      input.session.orchestrationStatus !== "running" &&
+      pendingMessage !== undefined &&
+      input.session.updatedAt >= pendingMessage.createdAt
+    ) {
+      return false;
+    }
     return true;
   }
   return input.session?.orchestrationStatus === "starting";

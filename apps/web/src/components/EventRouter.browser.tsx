@@ -66,6 +66,8 @@ let syncStreamRequestId: string | null = null;
 let syncStreamClient: EffectRpcWebSocketClient | null = null;
 let getThreadTurnsPageRequests: ThreadId[] = [];
 let acknowledgementObservations: AcknowledgementObservation[] = [];
+let holdSyncAcknowledgements = false;
+let heldSyncAcknowledgementExits: Array<() => void> = [];
 
 const wsLink = ws.link(/ws(s)?:\/\/.*/);
 
@@ -235,7 +237,12 @@ const worker = setupWorker(
       }
       if (method === ORCHESTRATION_WS_METHODS.acknowledgeSync) {
         observeAcknowledgement(requestBody);
-        sendEffectRpcExit(client, request.id, null);
+        const respond = () => sendEffectRpcExit(client, request.id, null);
+        if (holdSyncAcknowledgements) {
+          heldSyncAcknowledgementExits.push(respond);
+        } else {
+          respond();
+        }
         return;
       }
       if (method === WS_METHODS.subscribeServerLifecycle) {
@@ -336,6 +343,8 @@ describe("EventRouter uniform orchestration sync", () => {
     syncStreamClient = null;
     getThreadTurnsPageRequests = [];
     acknowledgementObservations = [];
+    holdSyncAcknowledgements = false;
+    for (const respond of heldSyncAcknowledgementExits.splice(0)) respond();
     document.body.innerHTML = "";
     localStorage.clear();
     useComposerDraftStore.setState({
@@ -406,7 +415,7 @@ describe("EventRouter uniform orchestration sync", () => {
     }
   });
 
-  it("applies streamed events in order and acknowledges each after application", async () => {
+  it("applies streamed events in order and cumulatively acknowledges applied state", async () => {
     activePageThreadIds = [THREAD_ID];
     const mounted = await mountApp();
 
@@ -426,25 +435,69 @@ describe("EventRouter uniform orchestration sync", () => {
       sendSyncDelivery({ kind: "event", deliveryId: "sync-event-2", event: firstEvent });
       sendSyncDelivery({ kind: "event", deliveryId: "sync-event-3", event: secondEvent });
 
-      await vi.waitFor(() => expect(acknowledgementObservations).toHaveLength(3));
+      await vi.waitFor(() => {
+        expect(acknowledgementObservations.at(-1)?.appliedSequence).toBe(3);
+      });
 
-      expect(acknowledgementObservations.slice(1)).toMatchObject([
-        {
-          deliveryId: "sync-event-2",
-          appliedSequence: 2,
-          rootTitle: "First streamed title",
-        },
-        {
-          deliveryId: "sync-event-3",
-          appliedSequence: 3,
-          rootTitle: "Second streamed title",
-        },
-      ]);
+      expect(acknowledgementObservations.at(-1)).toMatchObject({
+        deliveryId: "sync-event-3",
+        appliedSequence: 3,
+        rootTitle: "Second streamed title",
+      });
       expect(getThreadFromState(useStore.getState(), THREAD_ID)?.title).toBe(
         "Second streamed title",
       );
       expect(subscribeSyncRequestCount).toBe(1);
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("applies a large FIFO backlog while a cumulative acknowledgement is still pending", async () => {
+    activePageThreadIds = [THREAD_ID];
+    const mounted = await mountApp();
+    let streamedTitleStoreUpdates = 0;
+    const unsubscribeStoreUpdates = useStore.subscribe((state, previousState) => {
+      const title = getThreadFromState(state, THREAD_ID)?.title;
+      const previousTitle = getThreadFromState(previousState, THREAD_ID)?.title;
+      if (title !== previousTitle && title?.startsWith("Streamed title ")) {
+        streamedTitleStoreUpdates += 1;
+      }
+    });
+
+    try {
+      await vi.waitFor(() => expect(acknowledgementObservations).toHaveLength(1));
+      holdSyncAcknowledgements = true;
+
+      for (let sequence = 2; sequence <= 201; sequence += 1) {
+        sendSyncDelivery({
+          kind: "event",
+          deliveryId: "sync-lease-1",
+          event: createThreadUpdatedEvent({
+            sequence,
+            title: `Streamed title ${sequence}`,
+            occurredAt: new Date(Date.parse(NOW_ISO) + sequence * 1_000).toISOString(),
+          }),
+        });
+      }
+
+      await vi.waitFor(() => {
+        expect(getThreadFromState(useStore.getState(), THREAD_ID)?.title).toBe(
+          "Streamed title 201",
+        );
+      });
+      expect(streamedTitleStoreUpdates).toBe(1);
+      await vi.waitFor(() => expect(acknowledgementObservations).toHaveLength(2));
+
+      holdSyncAcknowledgements = false;
+      for (const respond of heldSyncAcknowledgementExits.splice(0)) respond();
+      await vi.waitFor(() => {
+        expect(acknowledgementObservations.at(-1)?.appliedSequence).toBe(201);
+      });
+    } finally {
+      unsubscribeStoreUpdates();
+      holdSyncAcknowledgements = false;
+      for (const respond of heldSyncAcknowledgementExits.splice(0)) respond();
       await mounted.cleanup();
     }
   });

@@ -99,6 +99,11 @@ for every effect even if a model misinterprets a malicious summary.
   Erasing retained data is a separate explicit operation.
 - Registry install receipts are backend adoption facts, not the source of truth for local installed
   state. Updates, reinstalls, additional devices, and sideloads do not create new install counts.
+- A sideload cannot claim a registry identifier owned by another developer account. The desktop
+  checks the identifier through an authenticated, read-only registry ownership endpoint before any
+  installation mutation. Owned identifiers also require their registered slug; unregistered
+  identifiers remain available for local development. The resulting registry identity is durable
+  provenance, separate from the mutable sideload bytes and from immutable release evidence.
 
 ## Navigation and network policy
 

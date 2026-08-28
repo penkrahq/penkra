@@ -52,6 +52,7 @@ function runtimeWithState(state: {
       snapshot: vi.fn(() => state),
       installForSpace: vi.fn(async () => undefined),
       updateForSpace: vi.fn(async () => undefined),
+      recordSideloadRegistryIdentity: vi.fn(async () => undefined),
       setEnabled: vi.fn(async () => undefined),
     },
   };
@@ -293,6 +294,74 @@ describe("required registry Apps bootstrap", () => {
       }),
     ).resolves.toEqual([{ spaceId: "personal", status: "development-existing" }]);
     expect(runtime.installations.updateForSpace).not.toHaveBeenCalled();
+  });
+
+  it("keeps an ownership-proven Required Apps sideload active in a packaged desktop", async () => {
+    const existing = {
+      ...installed("0.2.0", "b".repeat(64)),
+      source: "sideload" as const,
+      registryIdentity: {
+        appId: "00000000-0000-4000-8000-000000000701",
+        publisherId: "00000000-0000-4000-8000-000000000702",
+      },
+    };
+    const runtime = runtimeWithState({
+      packagesByInstallationKey: { "personal\0com.penkra.apps": existing },
+      spaceStateByKey: {
+        "personal\0com.penkra.apps": {
+          appId: "com.penkra.apps",
+          spaceId: "personal",
+          enabled: true,
+          permissions: {},
+        },
+      },
+    });
+
+    await expect(
+      reconcileRequiredAppsForSpaces({
+        runtime: runtime as never,
+        requiredPackage: verified() as never,
+        hostVersion: "0.9.3",
+        spaceIds: ["personal"],
+      }),
+    ).resolves.toEqual([{ spaceId: "personal", status: "development-sideload" }]);
+  });
+
+  it("recovers legacy Required Apps sideload ownership once and persists the proof", async () => {
+    const existing = {
+      ...installed("0.2.0", "b".repeat(64)),
+      source: "sideload" as const,
+    };
+    const runtime = runtimeWithState({
+      packagesByInstallationKey: { "personal\0com.penkra.apps": existing },
+      spaceStateByKey: {
+        "personal\0com.penkra.apps": {
+          appId: "com.penkra.apps",
+          spaceId: "personal",
+          enabled: true,
+          permissions: {},
+        },
+      },
+    });
+    const registryIdentity = {
+      appId: "00000000-0000-4000-8000-000000000701",
+      publisherId: "00000000-0000-4000-8000-000000000702",
+    };
+
+    await expect(
+      reconcileRequiredAppsForSpaces({
+        runtime: runtime as never,
+        requiredPackage: verified() as never,
+        hostVersion: "0.9.3",
+        spaceIds: ["personal"],
+        verifySideloadOwnership: vi.fn(async () => registryIdentity),
+      }),
+    ).resolves.toEqual([{ spaceId: "personal", status: "development-sideload" }]);
+    expect(runtime.installations.recordSideloadRegistryIdentity).toHaveBeenCalledWith({
+      appId: "com.penkra.apps",
+      spaceId: "personal",
+      registryIdentity,
+    });
   });
 
   it("retains a newer compatible registry version", async () => {

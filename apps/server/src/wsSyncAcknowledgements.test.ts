@@ -4,35 +4,57 @@ import { describe, expect, it } from "vitest";
 import { makeSyncAcknowledgements } from "./wsSyncAcknowledgements";
 
 describe("makeSyncAcknowledgements", () => {
-  it("holds a delivery until its cumulative sequence is acknowledged", async () => {
+  it("records an arbitrary delivery backlog without waiting for an acknowledgement", async () => {
     const acknowledgements = makeSyncAcknowledgements();
     const lease = await Effect.runPromise(acknowledgements.open(1));
-    const delivery = await Effect.runPromise(lease.beginDelivery(42));
-    let settled = false;
-    const waiting = Effect.runPromise(delivery.wait).then(() => {
-      settled = true;
-    });
 
-    await Promise.resolve();
-    expect(settled).toBe(false);
+    await Effect.runPromise(
+      Effect.forEach(
+        Array.from({ length: 1_000 }, (_, index) => index + 1),
+        (sequence) => lease.recordDelivery(sequence),
+      ),
+    );
     await Effect.runPromise(
       acknowledgements.acknowledge(1, {
-        deliveryId: delivery.deliveryId,
-        appliedSequence: 42,
+        deliveryId: lease.deliveryId,
+        appliedSequence: 1_000,
       }),
     );
-    await waiting;
-    expect(settled).toBe(true);
   });
 
-  it("rejects stale delivery IDs and acknowledgements behind the delivered sequence", async () => {
+  it("accepts monotonic cumulative cursors and ignores redundant older cursors", async () => {
     const acknowledgements = makeSyncAcknowledgements();
     const lease = await Effect.runPromise(acknowledgements.open(2));
-    const delivery = await Effect.runPromise(lease.beginDelivery(9));
+    await Effect.runPromise(lease.recordDelivery(9));
+
+    await Effect.runPromise(
+      acknowledgements.acknowledge(2, {
+        deliveryId: lease.deliveryId,
+        appliedSequence: 7,
+      }),
+    );
+    await Effect.runPromise(
+      acknowledgements.acknowledge(2, {
+        deliveryId: lease.deliveryId,
+        appliedSequence: 6,
+      }),
+    );
+    await Effect.runPromise(
+      acknowledgements.acknowledge(2, {
+        deliveryId: lease.deliveryId,
+        appliedSequence: 9,
+      }),
+    );
+  });
+
+  it("rejects stale delivery identities and cursors ahead of delivery", async () => {
+    const acknowledgements = makeSyncAcknowledgements();
+    const lease = await Effect.runPromise(acknowledgements.open(3));
+    await Effect.runPromise(lease.recordDelivery(9));
 
     await expect(
       Effect.runPromise(
-        acknowledgements.acknowledge(2, {
+        acknowledgements.acknowledge(3, {
           deliveryId: "stale",
           appliedSequence: 9,
         }),
@@ -40,26 +62,24 @@ describe("makeSyncAcknowledgements", () => {
     ).rejects.toMatchObject({ code: "SYNC_ACKNOWLEDGEMENT_STALE" });
     await expect(
       Effect.runPromise(
-        acknowledgements.acknowledge(2, {
-          deliveryId: delivery.deliveryId,
-          appliedSequence: 8,
+        acknowledgements.acknowledge(3, {
+          deliveryId: lease.deliveryId,
+          appliedSequence: 10,
         }),
       ),
-    ).rejects.toMatchObject({ code: "SYNC_ACKNOWLEDGEMENT_BEHIND" });
+    ).rejects.toMatchObject({ code: "SYNC_ACKNOWLEDGEMENT_AHEAD" });
     await Effect.runPromise(lease.close);
   });
 
-  it("supersedes the old connection lease and releases its pending wait", async () => {
+  it("supersedes the old connection lease without waiting for an in-flight cursor", async () => {
     const acknowledgements = makeSyncAcknowledgements();
-    const oldLease = await Effect.runPromise(acknowledgements.open(3));
-    const oldDelivery = await Effect.runPromise(oldLease.beginDelivery(1));
-    const oldWait = Effect.runPromise(oldDelivery.wait);
+    const oldLease = await Effect.runPromise(acknowledgements.open(4));
+    await Effect.runPromise(oldLease.recordDelivery(1));
+    const newLease = await Effect.runPromise(acknowledgements.open(4));
 
-    await Effect.runPromise(acknowledgements.open(3));
-
-    await expect(oldWait).rejects.toMatchObject({ code: "SYNC_SUBSCRIPTION_SUPERSEDED" });
-    await expect(Effect.runPromise(oldLease.beginDelivery(2))).rejects.toMatchObject({
+    await expect(Effect.runPromise(oldLease.recordDelivery(2))).rejects.toMatchObject({
       code: "SYNC_SUBSCRIPTION_SUPERSEDED",
     });
+    await Effect.runPromise(newLease.recordDelivery(2));
   });
 });

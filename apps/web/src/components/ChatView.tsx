@@ -102,6 +102,7 @@ import {
   nextChatScrollDiagnosticInstanceId,
   recordChatScrollDiagnostic,
 } from "../chatScrollDiagnostics";
+import { recordChatLifecycleDiagnostic } from "../chatLifecycleDiagnostics";
 import { parseChatRouteSearch } from "../chatRouteSearch";
 import { openThreadUrlReference, useThreadResourceOpener } from "../lib/threadResourceOpener";
 import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
@@ -441,6 +442,7 @@ const EMPTY_PROVIDER_SKILLS: ProviderSkillDescriptor[] = [];
 const EMPTY_SUBAGENT_TOOL_TRACES: ReadonlyMap<string, SubagentToolTrace> = new Map();
 const DRAFT_PROJECT_SYNC_MAX_ATTEMPTS = 6;
 const DRAFT_PROJECT_SYNC_DELAY_MS = 50;
+const COMPOSER_INPUT_BURST_IDLE_MS = 50;
 
 class PendingTurnStartCancelled extends Error {
   override readonly name = "PendingTurnStartCancelled";
@@ -1164,11 +1166,83 @@ export default function ChatView({
     );
   }, [composerPromptHistorySavedDraft, restoreComposerDraftPromptHistorySavedDraft, threadId]);
 
+  const pendingPromptPersistenceRef = useRef<{
+    readonly threadId: ThreadId;
+    readonly prompt: string;
+    readonly cursor: number;
+    readonly expandedCursor: number;
+    readonly cursorAdjacentToMention: boolean;
+  } | null>(null);
+  const promptPersistenceTimeoutRef = useRef<number | null>(null);
+  const cancelPendingPromptPersistence = useCallback(() => {
+    if (promptPersistenceTimeoutRef.current !== null) {
+      window.clearTimeout(promptPersistenceTimeoutRef.current);
+      promptPersistenceTimeoutRef.current = null;
+    }
+    pendingPromptPersistenceRef.current = null;
+  }, []);
+  const flushPendingPromptPersistence = useCallback(() => {
+    promptPersistenceTimeoutRef.current = null;
+    const pending = pendingPromptPersistenceRef.current;
+    pendingPromptPersistenceRef.current = null;
+    if (pending) {
+      setComposerDraftPrompt(pending.threadId, pending.prompt);
+      setComposerCursor(pending.cursor);
+      setComposerTrigger(
+        pending.cursorAdjacentToMention
+          ? null
+          : detectComposerTrigger(pending.prompt, pending.expandedCursor),
+      );
+    }
+  }, [setComposerDraftPrompt]);
+  const schedulePromptPersistence = useCallback(
+    (
+      nextPrompt: string,
+      nextCursor: number,
+      expandedCursor: number,
+      cursorAdjacentToMention: boolean,
+    ) => {
+      pendingPromptPersistenceRef.current = {
+        threadId,
+        prompt: nextPrompt,
+        cursor: nextCursor,
+        expandedCursor,
+        cursorAdjacentToMention,
+      };
+      if (promptPersistenceTimeoutRef.current !== null) {
+        window.clearTimeout(promptPersistenceTimeoutRef.current);
+      }
+      // Lexical can report one accessibility, dictation, or type-text insertion
+      // as hundreds of character updates. Wait for that input burst to settle
+      // before projecting it into controlled React/store state; a paint-time
+      // projection can otherwise rewrite Lexical with an intermediate value.
+      // promptRef and Lexical remain immediate for send and command handlers.
+      promptPersistenceTimeoutRef.current = window.setTimeout(
+        flushPendingPromptPersistence,
+        COMPOSER_INPUT_BURST_IDLE_MS,
+      );
+    },
+    [flushPendingPromptPersistence, threadId],
+  );
+  useEffect(() => {
+    return () => {
+      if (promptPersistenceTimeoutRef.current !== null) {
+        window.clearTimeout(promptPersistenceTimeoutRef.current);
+        promptPersistenceTimeoutRef.current = null;
+      }
+      const pending = pendingPromptPersistenceRef.current;
+      pendingPromptPersistenceRef.current = null;
+      if (pending) {
+        setComposerDraftPrompt(pending.threadId, pending.prompt);
+      }
+    };
+  }, [setComposerDraftPrompt]);
   const setPrompt = useCallback(
     (nextPrompt: string) => {
+      cancelPendingPromptPersistence();
       setComposerDraftPrompt(threadId, nextPrompt);
     },
-    [setComposerDraftPrompt, threadId],
+    [cancelPendingPromptPersistence, setComposerDraftPrompt, threadId],
   );
   const discardPromptHistoryNavigationForComposerMutation = useCallback(() => {
     if (promptHistoryNavigationRef.current === null) {
@@ -1402,6 +1476,30 @@ export default function ChatView({
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
+  const previousIsServerThreadRef = useRef(isServerThread);
+  const composerPromotionClearPendingRef = useRef(false);
+  useLayoutEffect(() => {
+    const wasServerThread = previousIsServerThreadRef.current;
+    previousIsServerThreadRef.current = isServerThread;
+    if (!wasServerThread && isServerThread) {
+      composerPromotionClearPendingRef.current = true;
+    } else if (!isServerThread) {
+      composerPromotionClearPendingRef.current = false;
+    }
+    if (!composerPromotionClearPendingRef.current || prompt.length > 0) {
+      return;
+    }
+
+    // Promotion can clear the draft before the 50ms editor-input burst has
+    // reached Zustand. In that ordering the selected prompt is already the
+    // shared empty value, so deleting the draft produces no prompt-prop change
+    // for Lexical to observe. Cancel the obsolete buffered write and apply the
+    // promotion clear directly at the editor boundary.
+    composerPromotionClearPendingRef.current = false;
+    cancelPendingPromptPersistence();
+    promptRef.current = "";
+    composerEditorRef.current?.clear();
+  }, [cancelPendingPromptPersistence, isServerThread, prompt]);
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const activeLatestTurnId = activeLatestTurn?.turnId ?? null;
@@ -2393,9 +2491,7 @@ export default function ChatView({
     messages: activeThread?.messages ?? EMPTY_MESSAGES,
     session: activeThread?.session,
   });
-  const hasCanonicalRunningWork = activeThread?.workStatus === "running";
-  const isTurnWorking =
-    hasCanonicalRunningWork || hasLiveTurn || latestTurnLive || isSendBusy || hasPendingTurnStart;
+  const isTurnWorking = hasLiveTurn || latestTurnLive || isSendBusy || hasPendingTurnStart;
   // One working predicate owns both Stop and the transcript status so the
   // provider-connection handoff cannot make Thinking disappear between durable
   // turn projections.
@@ -2421,6 +2517,80 @@ export default function ChatView({
     : hasLiveTurn
       ? deriveActiveWorkStartedAt(activeLatestTurn, activeThread?.session ?? null, null)
       : null;
+  const latestLifecycleMessage = activeThread?.messages.at(-1) ?? null;
+  useEffect(() => {
+    if (!activeThreadId) return;
+    recordChatLifecycleDiagnostic({
+      threadId: activeThreadId,
+      threadWorkStatus: activeThread?.workStatus ?? null,
+      sessionStatus: activeThread?.session?.status ?? null,
+      sessionUpdatedAt: activeThread?.session?.updatedAt ?? null,
+      threadUpdatedAt: activeThread?.updatedAt ?? null,
+      orchestrationStatus: activeThread?.session?.orchestrationStatus ?? null,
+      activeTurnId: activeThread?.session?.activeTurnId ?? null,
+      latestTurnId: activeLatestTurn?.turnId ?? null,
+      latestTurnState: activeLatestTurn?.state ?? null,
+      latestTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+      latestTurnCompletedAt: activeLatestTurn?.completedAt ?? null,
+      pendingTurnStartMessageId: authoritativePendingTurnStartMessageId ?? null,
+      phase,
+      hasLiveTurnTail,
+      latestTurnSettledByProvider,
+      latestTurnSettled,
+      latestTurnLive,
+      hasLiveTurn,
+      isSendBusy,
+      hasPendingTurnStart,
+      isConnecting,
+      isEditingMessageHistory,
+      isTurnWorking,
+      isWorking,
+      showThinking,
+      activeWorkStartedAt,
+      streamingAssistantMessageCount:
+        activeThread?.messages.filter(
+          (message) => message.role === "assistant" && message.streaming,
+        ).length ?? 0,
+      latestMessageId: latestLifecycleMessage?.id ?? null,
+      latestMessageRole: latestLifecycleMessage?.role ?? null,
+      latestMessageCreatedAt: latestLifecycleMessage?.createdAt ?? null,
+      latestMessageStreaming:
+        latestLifecycleMessage?.role === "assistant" && latestLifecycleMessage.streaming === true,
+    });
+  }, [
+    activeLatestTurn?.completedAt,
+    activeLatestTurn?.startedAt,
+    activeLatestTurn?.state,
+    activeLatestTurn?.turnId,
+    activeThread?.messages,
+    activeThread?.pendingTurnStartMessageId,
+    activeThread?.session?.activeTurnId,
+    activeThread?.session?.orchestrationStatus,
+    activeThread?.session?.status,
+    activeThread?.session?.updatedAt,
+    activeThread?.updatedAt,
+    activeThread?.workStatus,
+    activeThreadId,
+    activeWorkStartedAt,
+    authoritativePendingTurnStartMessageId,
+    hasLiveTurn,
+    hasLiveTurnTail,
+    hasPendingTurnStart,
+    isConnecting,
+    isEditingMessageHistory,
+    isSendBusy,
+    isTurnWorking,
+    isWorking,
+    latestTurnLive,
+    latestTurnSettled,
+    latestTurnSettledByProvider,
+    latestLifecycleMessage?.createdAt,
+    latestLifecycleMessage?.id,
+    latestLifecycleMessage?.role,
+    latestLifecycleMessage?.streaming,
+    phase,
+    showThinking,
+  ]);
   const activeTurnLayoutKey =
     activeThreadId === null ? null : `${activeThreadId}:${activeLatestTurn?.turnId ?? "idle"}`;
   const activeTurnInProgress = activeTurnLayoutLive || keepSettledActiveTurnLayout;
@@ -4986,6 +5156,7 @@ export default function ChatView({
       applyingPromptHistoryNavigationRef.current = false;
       expectedPromptHistoryPromptRef.current = null;
       promptRef.current = "";
+      cancelPendingPromptPersistence();
       clearComposerDraftContent(threadId);
       updateSelectedComposerSkills([]);
       updateSelectedComposerMentions([]);
@@ -4993,7 +5164,12 @@ export default function ChatView({
       setComposerCursor(0);
       setComposerTrigger(null);
     },
-    [clearComposerDraftContent, updateSelectedComposerMentions, updateSelectedComposerSkills],
+    [
+      cancelPendingPromptPersistence,
+      clearComposerDraftContent,
+      updateSelectedComposerMentions,
+      updateSelectedComposerSkills,
+    ],
   );
 
   const restoreQueuedTurnToComposer = useCallback(
@@ -5007,6 +5183,7 @@ export default function ChatView({
       const restoredAssistantSelections = queuedTurn.assistantSelections;
       const restoredFileComments = queuedTurn.fileComments;
       promptRef.current = nextPrompt;
+      cancelPendingPromptPersistence();
       clearComposerDraftContent(activeThread.id);
       setComposerDraftPrompt(activeThread.id, nextPrompt);
       // Editing a queued turn should recreate the same draft state the user queued.
@@ -5049,6 +5226,7 @@ export default function ChatView({
       addComposerImagesToDraft,
       addComposerTerminalContextsToDraft,
       addComposerPastedTextsToDraft,
+      cancelPendingPromptPersistence,
       clearComposerDraftContent,
       scheduleComposerFocus,
       setDraftThreadContext,
@@ -5708,7 +5886,12 @@ export default function ChatView({
       applyingPromptHistoryNavigationRef.current = false;
       expectedPromptHistoryPromptRef.current = null;
       promptRef.current = "";
+      cancelPendingPromptPersistence();
       clearComposerDraftContent(threadIdForSend, { preservePreviewUrls: true });
+      // Clear Lexical in the same input event as admission. Waiting for the
+      // controlled-store round trip leaves accessibility/type-text insertions
+      // visible long enough to survive a steer and reappear as a stale draft.
+      composerEditorRef.current?.clear();
       setComposerHighlightedItemId(null);
       setComposerCursor(0);
       setComposerTrigger(null);
@@ -6838,12 +7021,13 @@ export default function ChatView({
 
   const clearComposerSlashDraft = useCallback(() => {
     promptRef.current = "";
+    cancelPendingPromptPersistence();
     clearComposerDraftContent(threadId);
     setComposerHighlightedItemId(null);
     setComposerCursor(0);
     setComposerTrigger(null);
     scheduleComposerFocus();
-  }, [clearComposerDraftContent, scheduleComposerFocus, threadId]);
+  }, [cancelPendingPromptPersistence, clearComposerDraftContent, scheduleComposerFocus, threadId]);
 
   const slashEditorActions = useMemo(
     () => ({
@@ -7142,7 +7326,7 @@ export default function ChatView({
         }
       }
       promptRef.current = nextPrompt;
-      setPrompt(nextPrompt);
+      schedulePromptPersistence(nextPrompt, nextCursor, expandedCursor, cursorAdjacentToMention);
       if (composerCommandPicker !== null && nextPrompt.trim().length > 0) {
         setComposerCommandPicker(null);
       }
@@ -7152,10 +7336,6 @@ export default function ChatView({
           syncTerminalContextsByIds(composerTerminalContexts, terminalContextIds),
         );
       }
-      setComposerCursor(nextCursor);
-      setComposerTrigger(
-        cursorAdjacentToMention ? null : detectComposerTrigger(nextPrompt, expandedCursor),
-      );
     },
     [
       activePendingQuestion,
@@ -7165,6 +7345,7 @@ export default function ChatView({
       onChangeActivePendingUserInputCustomAnswer,
       promptHistory,
       restoreComposerDraftPromptHistorySavedDraft,
+      schedulePromptPersistence,
       setPrompt,
       setComposerDraftPromptHistorySavedDraft,
       setComposerDraftTerminalContexts,

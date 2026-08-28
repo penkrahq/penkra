@@ -7,6 +7,7 @@ import {
   registerVerifiedAppPackage,
   removeRetainedAppState,
   replaceVerifiedRegistryAppPackage,
+  setSideloadRegistryIdentity,
   setSpaceAppEnabled,
   setSpaceAppPermission,
   unregisterAppPackage,
@@ -117,6 +118,48 @@ describe("App installation state", () => {
       "personal",
     );
     expect(updated.packagesByInstallationKey[`personal\0${manifest.id}`]?.version).toBe("0.2.0");
+  });
+
+  it("derives registry identity from release evidence and can recover it for a sideload", () => {
+    const registryRelease = {
+      appId: "00000000-0000-4000-8000-000000000701",
+      versionId: "00000000-0000-4000-8000-000000000702",
+      publisherId: "00000000-0000-4000-8000-000000000703",
+      packageDigest: "b".repeat(64),
+      keyId: "a".repeat(16),
+      publishedAt: "2026-08-01T00:00:00.000Z",
+    };
+    const registry = registerVerifiedAppPackage(
+      createEmptyAppInstallationState(),
+      verifiedPackage({ registryRelease }),
+      "personal",
+    );
+    expect(
+      registry.packagesByInstallationKey[`personal\0${manifest.id}`]?.registryIdentity,
+    ).toEqual({
+      appId: registryRelease.appId,
+      publisherId: registryRelease.publisherId,
+    });
+
+    const sideload = registerVerifiedAppPackage(
+      createEmptyAppInstallationState(),
+      verifiedPackage({ source: "sideload" }),
+      "personal",
+    );
+    const recovered = setSideloadRegistryIdentity(sideload, {
+      appId: manifest.id,
+      spaceId: "personal",
+      registryIdentity: {
+        appId: registryRelease.appId,
+        publisherId: registryRelease.publisherId,
+      },
+    });
+    expect(
+      recovered.packagesByInstallationKey[`personal\0${manifest.id}`]?.registryIdentity,
+    ).toEqual({
+      appId: registryRelease.appId,
+      publisherId: registryRelease.publisherId,
+    });
   });
 
   it("retains Space state on uninstall until explicitly erased", () => {

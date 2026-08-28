@@ -33,7 +33,11 @@ import {
   isFileChangeWorkLogEntry,
   type WorkLogEntry,
 } from "../../session-logic";
-import { recordChatPaginationDiagnostic } from "../../chatScrollDiagnostics";
+import {
+  areChatScrollDiagnosticsEnabled,
+  recordChatPaginationDiagnostic,
+} from "../../chatScrollDiagnostics";
+import { recordChatLifecycleUiDiagnostic } from "../../chatLifecycleDiagnostics";
 import ChatMarkdown from "../ChatMarkdown";
 import { InlineLinkChip } from "../InlineLinkChip";
 import {
@@ -416,8 +420,80 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [timelineEntries, isWorking, activeTurnInProgress, activeTurnId, activeTurnStartedAt],
   );
   const rows = useStableRows(rawRows);
+  const thinkingRowDerivedVisible = rows.some((row) => row.kind === "working");
+  const workingTimerDerivedVisible = rows.some((row) => row.kind === "working-header");
+  const previousLifecycleRowsRef = useRef<{
+    threadId: string;
+    thinking: boolean;
+    timer: boolean;
+  } | null>(null);
   useEffect(() => {
     if (!viewportMemoryKey) return;
+    const previous = previousLifecycleRowsRef.current;
+    if (!previous || previous.threadId !== viewportMemoryKey) {
+      previousLifecycleRowsRef.current = {
+        threadId: viewportMemoryKey,
+        thinking: thinkingRowDerivedVisible,
+        timer: workingTimerDerivedVisible,
+      };
+      if (thinkingRowDerivedVisible) {
+        recordChatLifecycleUiDiagnostic({
+          event: "thinking-row-derived-visible",
+          threadId: viewportMemoryKey,
+          activeTurnId: activeTurnId ?? null,
+          activeTurnStartedAt,
+          isWorking,
+        });
+      }
+      if (workingTimerDerivedVisible) {
+        recordChatLifecycleUiDiagnostic({
+          event: "working-timer-derived-visible",
+          threadId: viewportMemoryKey,
+          activeTurnId: activeTurnId ?? null,
+          activeTurnStartedAt,
+          isWorking,
+        });
+      }
+      return;
+    }
+
+    if (previous.thinking !== thinkingRowDerivedVisible) {
+      recordChatLifecycleUiDiagnostic({
+        event: thinkingRowDerivedVisible
+          ? "thinking-row-derived-visible"
+          : "thinking-row-derived-hidden",
+        threadId: viewportMemoryKey,
+        activeTurnId: activeTurnId ?? null,
+        activeTurnStartedAt,
+        isWorking,
+      });
+    }
+    if (previous.timer !== workingTimerDerivedVisible) {
+      recordChatLifecycleUiDiagnostic({
+        event: workingTimerDerivedVisible
+          ? "working-timer-derived-visible"
+          : "working-timer-derived-hidden",
+        threadId: viewportMemoryKey,
+        activeTurnId: activeTurnId ?? null,
+        activeTurnStartedAt,
+        isWorking,
+      });
+    }
+    previousLifecycleRowsRef.current = {
+      threadId: viewportMemoryKey,
+      thinking: thinkingRowDerivedVisible,
+      timer: workingTimerDerivedVisible,
+    };
+  }, [
+    activeTurnId,
+    activeTurnStartedAt,
+    isWorking,
+    thinkingRowDerivedVisible,
+    viewportMemoryKey,
+    workingTimerDerivedVisible,
+  ]);
+  useEffect(() => {
+    if (!viewportMemoryKey || !areChatScrollDiagnosticsEnabled()) return;
     const inputMessages = timelineEntries.flatMap((entry) =>
       entry.kind === "message" ? [entry.message] : [],
     );
@@ -490,128 +566,149 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   useEffect(() => {
     rowsRef.current = rows;
   }, [rows]);
-  // Keep the search projection as a normal render value so React Compiler can
-  // cache it from its inputs. Writing it to a ref during render bailed out the
-  // entire timeline and repeated every Markdown parse on unrelated updates.
-  const transcriptFindEntries = rows.flatMap((row, index): TimelineVirtualFindEntry[] => {
-    if (row.kind === "message") {
-      const sourceText =
-        row.message.role === "assistant"
-          ? resolveAssistantMessageDisplayText(row)
-          : deriveDisplayedUserMessageState(row.message.text).visibleText;
-      const assistantWorkText = (
-        workEntries: readonly WorkLogEntry[],
-        workGroupId: string | null,
-        placement: "leading" | "inline",
-      ): string[] => {
-        const displayEntries = workEntries.filter((entry) => !entry.penkraThreadCreation);
-        const toolEntries = displayEntries.filter((entry) => entry.tone === "tool");
-        const statusEntries = displayEntries.filter((entry) => entry.tone !== "tool");
-        const hasGenericFileChangeEntry = toolEntries.some(
-          (entry) => isFileChangeWorkLogEntry(entry) && (entry.changedFiles?.length ?? 0) === 0,
-        );
-        const orderedRenderableEntries = displayEntries.filter(
-          (entry) =>
-            !(
-              hasGenericFileChangeEntry &&
-              isFileChangeWorkLogEntry(entry) &&
-              (entry.changedFiles?.length ?? 0) === 0
+  // Building the virtual Find index parses the visible text of every Markdown
+  // message. Keep that full-history work out of the live streaming render path
+  // and perform it only when Find actually asks for entries.
+  const buildTranscriptFindEntries = useCallback(
+    () =>
+      rows.flatMap((row, index): TimelineVirtualFindEntry[] => {
+        if (row.kind === "message") {
+          const sourceText =
+            row.message.role === "assistant"
+              ? resolveAssistantMessageDisplayText(row)
+              : deriveDisplayedUserMessageState(row.message.text).visibleText;
+          const assistantWorkText = (
+            workEntries: readonly WorkLogEntry[],
+            workGroupId: string | null,
+            placement: "leading" | "inline",
+          ): string[] => {
+            const displayEntries = workEntries.filter((entry) => !entry.penkraThreadCreation);
+            const toolEntries = displayEntries.filter((entry) => entry.tone === "tool");
+            const statusEntries = displayEntries.filter((entry) => entry.tone !== "tool");
+            const hasGenericFileChangeEntry = toolEntries.some(
+              (entry) => isFileChangeWorkLogEntry(entry) && (entry.changedFiles?.length ?? 0) === 0,
+            );
+            const orderedRenderableEntries = displayEntries.filter(
+              (entry) =>
+                !(
+                  hasGenericFileChangeEntry &&
+                  isFileChangeWorkLogEntry(entry) &&
+                  (entry.changedFiles?.length ?? 0) === 0
+                ),
+            );
+            const toolGroupId = toolEntries.length > 0 ? workGroupId : null;
+            const toolExpanded =
+              toolGroupId !== null ? (expandedWorkGroupsState[toolGroupId] ?? false) : false;
+            const isLiveGroup =
+              toolGroupId !== null &&
+              toolGroupId === lastLiveWorkGroupId &&
+              (activeTurnInProgress || isWorking);
+            const renderPlan = capOpenWorkEntryRenderChunks(
+              planWorkEntryRenderChunks(orderedRenderableEntries, {
+                tailIsLive: placement === "inline" && isLiveGroup,
+              }),
+              {
+                expanded: toolExpanded,
+                maxVisibleEntries: MAX_VISIBLE_INLINE_TOOL_ENTRIES,
+                keep: activeTurnInProgress ? "last" : "first",
+                shouldCapEntry: (entry) => entry.tone === "tool",
+              },
+            );
+            const toolText = renderPlan.chunks.flatMap((chunk) => {
+              if (!chunk.summary) {
+                return chunk.entries
+                  .filter((entry) => entry.tone === "tool")
+                  .map(workEntryFindText);
+              }
+              const summaryKey = `${placement}:${row.message.id}:${chunk.id}`;
+              return (toolGroupSummaryOverrides[summaryKey] ?? false)
+                ? [chunk.summary.label, ...chunk.entries.map(workEntryFindText)]
+                : [chunk.summary.label];
+            });
+            return [...toolText, ...statusEntries.map(workEntryFindText)];
+          };
+          const hasCollapsedWork = Boolean(
+            row.collapsedTurnItems?.some(
+              (item) => item.kind !== "work" || !item.entry.penkraThreadCreation,
             ),
-        );
-        const toolGroupId = toolEntries.length > 0 ? workGroupId : null;
-        const toolExpanded =
-          toolGroupId !== null ? (expandedWorkGroupsState[toolGroupId] ?? false) : false;
-        const isLiveGroup =
-          toolGroupId !== null &&
-          toolGroupId === lastLiveWorkGroupId &&
-          (activeTurnInProgress || isWorking);
+          );
+          const leadingWorkText =
+            row.message.role === "assistant" && !hasCollapsedWork
+              ? assistantWorkText(
+                  row.leadingWorkEntries ?? [],
+                  row.leadingWorkGroupId ?? null,
+                  "leading",
+                )
+              : [];
+          const inlineWorkText =
+            row.message.role === "assistant" && !hasCollapsedWork
+              ? assistantWorkText(
+                  row.inlineWorkEntries ?? [],
+                  row.inlineWorkGroupId ?? null,
+                  "inline",
+                )
+              : [];
+          const text = [
+            ...leadingWorkText,
+            sourceText ? markdownVisibleText(sourceText) : "",
+            ...inlineWorkText,
+          ]
+            .filter(Boolean)
+            .join("\n");
+          if (!text) return [];
+          return [
+            {
+              id: row.id,
+              index,
+              text,
+              targetSelector: row.message.role === "assistant" ? "" : "[data-find-primary-text]",
+            },
+          ];
+        }
+        if (row.kind !== "work") return [];
+        const displayEntries = row.groupedEntries.filter((entry) => !entry.penkraThreadCreation);
+        const isLiveGroup = row.id === lastLiveWorkGroupId && (activeTurnInProgress || isWorking);
         const renderPlan = capOpenWorkEntryRenderChunks(
-          planWorkEntryRenderChunks(orderedRenderableEntries, {
-            tailIsLive: placement === "inline" && isLiveGroup,
-          }),
+          planWorkEntryRenderChunks(displayEntries, { tailIsLive: isLiveGroup }),
           {
-            expanded: toolExpanded,
-            maxVisibleEntries: MAX_VISIBLE_INLINE_TOOL_ENTRIES,
-            keep: activeTurnInProgress ? "last" : "first",
-            shouldCapEntry: (entry) => entry.tone === "tool",
+            expanded: expandedWorkGroupsState[row.id] ?? false,
+            maxVisibleEntries: MAX_VISIBLE_WORK_LOG_ENTRIES,
+            keep: "last",
           },
         );
-        const toolText = renderPlan.chunks.flatMap((chunk) => {
-          if (!chunk.summary) {
-            return chunk.entries.filter((entry) => entry.tone === "tool").map(workEntryFindText);
-          }
-          const summaryKey = `${placement}:${row.message.id}:${chunk.id}`;
-          return (toolGroupSummaryOverrides[summaryKey] ?? false)
-            ? [chunk.summary.label, ...chunk.entries.map(workEntryFindText)]
-            : [chunk.summary.label];
-        });
-        return [...toolText, ...statusEntries.map(workEntryFindText)];
-      };
-      const hasCollapsedWork = Boolean(
-        row.collapsedTurnItems?.some(
-          (item) => item.kind !== "work" || !item.entry.penkraThreadCreation,
-        ),
-      );
-      const leadingWorkText =
-        row.message.role === "assistant" && !hasCollapsedWork
-          ? assistantWorkText(
-              row.leadingWorkEntries ?? [],
-              row.leadingWorkGroupId ?? null,
-              "leading",
-            )
-          : [];
-      const inlineWorkText =
-        row.message.role === "assistant" && !hasCollapsedWork
-          ? assistantWorkText(row.inlineWorkEntries ?? [], row.inlineWorkGroupId ?? null, "inline")
-          : [];
-      const text = [
-        ...leadingWorkText,
-        sourceText ? markdownVisibleText(sourceText) : "",
-        ...inlineWorkText,
-      ]
-        .filter(Boolean)
-        .join("\n");
-      if (!text) return [];
-      return [
-        {
-          id: row.id,
-          index,
-          text,
-          targetSelector: row.message.role === "assistant" ? "" : "[data-find-primary-text]",
-        },
-      ];
-    }
-    if (row.kind !== "work") return [];
-    const displayEntries = row.groupedEntries.filter((entry) => !entry.penkraThreadCreation);
-    const isLiveGroup = row.id === lastLiveWorkGroupId && (activeTurnInProgress || isWorking);
-    const renderPlan = capOpenWorkEntryRenderChunks(
-      planWorkEntryRenderChunks(displayEntries, { tailIsLive: isLiveGroup }),
-      {
-        expanded: expandedWorkGroupsState[row.id] ?? false,
-        maxVisibleEntries: MAX_VISIBLE_WORK_LOG_ENTRIES,
-        keep: "last",
-      },
-    );
-    const visibleText = renderPlan.chunks
-      .flatMap((chunk) => {
-        if (!chunk.summary) return chunk.entries.map(workEntryFindText);
-        const summaryKey = `${row.id}:${chunk.id}`;
-        return (toolGroupSummaryOverrides[summaryKey] ?? false)
-          ? [chunk.summary.label, ...chunk.entries.map(workEntryFindText)]
-          : [chunk.summary.label];
-      })
-      .filter(Boolean)
-      .join("\n");
-    if (!visibleText) return [];
-    return [
-      {
-        id: row.id,
-        index,
-        text: visibleText,
-        targetSelector: "",
-      },
-    ];
-  });
+        const visibleText = renderPlan.chunks
+          .flatMap((chunk) => {
+            if (!chunk.summary) return chunk.entries.map(workEntryFindText);
+            const summaryKey = `${row.id}:${chunk.id}`;
+            return (toolGroupSummaryOverrides[summaryKey] ?? false)
+              ? [chunk.summary.label, ...chunk.entries.map(workEntryFindText)]
+              : [chunk.summary.label];
+          })
+          .filter(Boolean)
+          .join("\n");
+        if (!visibleText) return [];
+        return [
+          {
+            id: row.id,
+            index,
+            text: visibleText,
+            targetSelector: "",
+          },
+        ];
+      }),
+    [
+      activeTurnInProgress,
+      expandedWorkGroupsState,
+      isWorking,
+      lastLiveWorkGroupId,
+      rows,
+      toolGroupSummaryOverrides,
+    ],
+  );
+  const transcriptFindEntriesFactoryRef = useRef(buildTranscriptFindEntries);
+  useLayoutEffect(() => {
+    transcriptFindEntriesFactoryRef.current = buildTranscriptFindEntries;
+  }, [buildTranscriptFindEntries]);
   // A new thread initially renders without the timeline root. Track the
   // empty-to-populated boundary independently of the rows array identity so
   // the find surface registers as soon as the first row mounts.
@@ -630,7 +727,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         // that this virtualized transcript belongs to the open view.
         isVisible: () =>
           isFindSurfaceVisible(root.querySelector<HTMLElement>("[data-find-row-id]")),
-        getEntries: () => transcriptFindEntries,
+        getEntries: () => transcriptFindEntriesFactoryRef.current(),
         reveal: async (entry) => {
           scrollTranscriptToIndex(resolvedListRef, {
             index: entry.index,
@@ -692,15 +789,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       }),
     );
   }, [
-    activeTurnInProgress,
-    expandedWorkGroupsState,
     hasRenderableTranscriptContent,
-    isWorking,
-    lastLiveWorkGroupId,
     registerFindSurface,
     resolvedListRef,
-    rows,
-    toolGroupSummaryOverrides,
     transcriptFindSurfaceId,
   ]);
   const jumpHighlightTimeoutRef = useRef<number | null>(null);

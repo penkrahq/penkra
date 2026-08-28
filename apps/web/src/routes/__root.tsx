@@ -2,6 +2,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
   ThreadId,
   type OrchestrationShellSnapshot,
+  type OrchestrationSyncStreamItem,
   type ServerConfig,
   type ServerProviderStatus,
   type WsCompatibilityError,
@@ -804,7 +805,48 @@ function EventRouter() {
     if (!api) return;
 
     let disposed = false;
-    let syncDeliveryChain = Promise.resolve();
+    let pendingSyncDeliveries: OrchestrationSyncStreamItem[] = [];
+    let syncDeliveryFlushScheduled = false;
+    let syncApplicationFailed = false;
+    let pendingSyncAcknowledgement: {
+      readonly deliveryId: string;
+      readonly appliedSequence: number;
+    } | null = null;
+    let syncAcknowledgementWorker: Promise<void> | null = null;
+
+    const startSyncAcknowledgementWorker = () => {
+      if (syncAcknowledgementWorker || disposed) return;
+      syncAcknowledgementWorker = (async () => {
+        while (!disposed && pendingSyncAcknowledgement) {
+          const acknowledgement = pendingSyncAcknowledgement;
+          pendingSyncAcknowledgement = null;
+          try {
+            await api.orchestration.acknowledgeSync(acknowledgement);
+          } catch (error) {
+            if (!disposed) {
+              console.error("Failed to acknowledge orchestration synchronization", error);
+            }
+          }
+        }
+      })().finally(() => {
+        syncAcknowledgementWorker = null;
+        if (!disposed && pendingSyncAcknowledgement) {
+          startSyncAcknowledgementWorker();
+        }
+      });
+    };
+
+    const acknowledgeAppliedSyncSequence = (input: {
+      readonly deliveryId: string;
+      readonly appliedSequence: number;
+    }) => {
+      const pending = pendingSyncAcknowledgement;
+      pendingSyncAcknowledgement =
+        pending?.deliveryId === input.deliveryId && pending.appliedSequence >= input.appliedSequence
+          ? pending
+          : input;
+      startSyncAcknowledgementWorker();
+    };
     let providerDiscoveryInvalidationFingerprint: string | null = null;
 
     const removeOrphanedTerminalsForCurrentState = () => {
@@ -822,12 +864,17 @@ function EventRouter() {
       removeOrphanedTerminalStates(activeThreadIds);
     };
 
-    const unsubSyncEvent = api.orchestration.onSyncEvent((item) => {
-      syncDeliveryChain = syncDeliveryChain
-        .then(async () => {
-          if (disposed) return;
-          const appliedSequence =
-            item.kind === "snapshot" ? item.snapshot.snapshotSequence : item.event.sequence;
+    const flushSyncDeliveries = () => {
+      syncDeliveryFlushScheduled = false;
+      if (disposed || syncApplicationFailed || pendingSyncDeliveries.length === 0) return;
+      const deliveries = pendingSyncDeliveries;
+      pendingSyncDeliveries = [];
+      let latestApplied:
+        | { readonly deliveryId: string; readonly appliedSequence: number }
+        | undefined;
+      try {
+        for (let index = 0; index < deliveries.length; index += 1) {
+          const item = deliveries[index]!;
           if (item.kind === "snapshot") {
             syncServerShellSnapshot(item.snapshot.shell);
             reconcilePromotedDraftsFromShellThreads(item.snapshot.shell.threads);
@@ -837,28 +884,55 @@ function EventRouter() {
               if (thread) reconcilePromotedDraftFromThreadDetail(thread);
             }
             removeOrphanedTerminalsForCurrentState();
-          } else {
-            applyOrchestrationEvents([item.event]);
-            if (item.event.aggregateKind === "thread") {
-              const thread = getThreadFromState(
-                useStore.getState(),
-                ThreadId.makeUnsafe(String(item.event.aggregateId)),
-              );
-              if (thread) {
-                reconcilePromotedDraftFromThreadDetail(thread);
-              }
-            }
+            latestApplied = {
+              deliveryId: item.deliveryId,
+              appliedSequence: item.snapshot.snapshotSequence,
+            };
+            continue;
           }
-          await api.orchestration.acknowledgeSync({
-            deliveryId: item.deliveryId,
-            appliedSequence,
-          });
-        })
-        .catch((error) => {
-          if (!disposed) {
-            console.error("Failed to apply orchestration synchronization delivery", error);
+
+          const eventDeliveries = [item];
+          while (deliveries[index + 1]?.kind === "event") {
+            eventDeliveries.push(
+              deliveries[(index += 1)] as Extract<OrchestrationSyncStreamItem, { kind: "event" }>,
+            );
           }
-        });
+          applyOrchestrationEvents(eventDeliveries.map((delivery) => delivery.event));
+          const affectedThreadIds = new Set(
+            eventDeliveries.flatMap((delivery) =>
+              delivery.event.aggregateKind === "thread"
+                ? [ThreadId.makeUnsafe(String(delivery.event.aggregateId))]
+                : [],
+            ),
+          );
+          for (const threadId of affectedThreadIds) {
+            const thread = getThreadFromState(useStore.getState(), threadId);
+            if (thread) reconcilePromotedDraftFromThreadDetail(thread);
+          }
+          const latestEventDelivery = eventDeliveries.at(-1)!;
+          latestApplied = {
+            deliveryId: latestEventDelivery.deliveryId,
+            appliedSequence: latestEventDelivery.event.sequence,
+          };
+        }
+      } catch (error) {
+        syncApplicationFailed = true;
+        console.error("Failed to apply orchestration synchronization delivery", error);
+        return;
+      }
+
+      if (latestApplied) acknowledgeAppliedSyncSequence(latestApplied);
+    };
+
+    const unsubSyncEvent = api.orchestration.onSyncEvent((item) => {
+      if (disposed || syncApplicationFailed) return;
+      pendingSyncDeliveries.push(item);
+      if (syncDeliveryFlushScheduled) return;
+      // Collapse only deliveries already accepted in this JavaScript task. This
+      // keeps canonical state independent of painting/background throttling while
+      // avoiding duplicate store commits when one socket read yields a burst.
+      syncDeliveryFlushScheduled = true;
+      queueMicrotask(flushSyncDeliveries);
     });
 
     const unsubTerminalEvent = api.terminal.onEvent((event) => {
@@ -980,6 +1054,7 @@ function EventRouter() {
     });
     return () => {
       disposed = true;
+      pendingSyncDeliveries = [];
       unsubSyncEvent();
       unsubTerminalEvent();
       unsubDevServerEvent();

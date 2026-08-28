@@ -476,6 +476,7 @@ export class WsTransport {
   private readonly activeThreadStreamInputs = new Map<string, unknown>();
   private shellSubscribed = false;
   private syncAppliedSequence: number | undefined;
+  private syncDeliveryId: string | undefined;
   private readonly threadSubscriptions = new Map<string, unknown>();
   private compatibility: WsBootstrapNegotiateResult | null = null;
   private compatibilityIssue: WsCompatibilityError | null = null;
@@ -555,9 +556,20 @@ export class WsTransport {
             abortScope.signal ? { signal: abortScope.signal } : undefined,
           );
           if (method === ORCHESTRATION_WS_METHODS.acknowledgeSync) {
-            const appliedSequence = (normalizedRpcInput as { appliedSequence: number })
-              .appliedSequence;
-            this.syncAppliedSequence = Math.max(this.syncAppliedSequence ?? 0, appliedSequence);
+            const acknowledgement = normalizedRpcInput as {
+              deliveryId: string;
+              appliedSequence: number;
+            };
+            if (
+              this.syncDeliveryId === undefined ||
+              this.syncDeliveryId === acknowledgement.deliveryId
+            ) {
+              this.syncDeliveryId = acknowledgement.deliveryId;
+              this.syncAppliedSequence = Math.max(
+                this.syncAppliedSequence ?? 0,
+                acknowledgement.appliedSequence,
+              );
+            }
           }
           return result as T;
         } catch (error) {
@@ -1054,6 +1066,7 @@ export class WsTransport {
               if (event.kind === "snapshot") {
                 this.syncAppliedSequence = undefined;
               }
+              this.syncDeliveryId = event.deliveryId;
               this.emit(ORCHESTRATION_WS_CHANNELS.syncEvent, event);
             },
             restartChannel,

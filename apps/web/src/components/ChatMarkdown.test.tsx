@@ -163,6 +163,13 @@ describe("ChatMarkdown", () => {
     expect(messagesTimelineSource).toContain('import ChatMarkdown from "../ChatMarkdown"');
     expect(messagesTimelineSource).toContain("<ChatMarkdown");
   });
+
+  it("does not defer text that the stream store has already delivered", () => {
+    const chatMarkdownSource = readFileSync(new URL("./ChatMarkdown.tsx", import.meta.url), "utf8");
+
+    expect(chatMarkdownSource).not.toContain("useDeferredValue");
+    expect(chatMarkdownSource).toContain("{normalizedText}");
+  });
 });
 
 describe("ChatMarkdown user variant", () => {

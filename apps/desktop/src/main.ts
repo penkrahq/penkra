@@ -301,6 +301,7 @@ import {
   REQUIRED_APPS_SOURCE_PATH_ENV,
 } from "./requiredRegistryAppBootstrap";
 import { DevelopmentAppSideloadRegistry } from "./developmentAppSideloadRegistry";
+import { authorizeAppSideloadIdentity } from "./appSideloadOwnership";
 import { createInitialWindowPresenter } from "./initialWindowVisibility";
 import {
   parseAppTabIdRequest,
@@ -807,6 +808,15 @@ async function reconcileConfiguredRequiredApps(spaceIds: ReadonlyArray<string>):
       spaceIds,
       allowDevelopmentSideload: isDevelopment,
       developmentSourcePackage: requiredAppsPackageIsDevelopmentSource,
+      verifySideloadOwnership: async (installed) => {
+        if (!appRegistryClient) {
+          throw new Error("The App registry is unavailable for sideload ownership recovery.");
+        }
+        return authorizeAppSideloadIdentity({
+          manifest: installed.manifest,
+          registry: appRegistryClient,
+        });
+      },
     });
     writeDesktopLogHeader(
       `bootstrap required Apps controller ready spaces=${spaceIds.length} version=${embedded.manifest.version}`,
@@ -7543,6 +7553,15 @@ async function bootstrap(): Promise<void> {
   });
   developmentSideloadRegistry = new DevelopmentAppSideloadRegistry({
     runtime: desktopAppRuntime,
+    authorize: async ({ package: candidate }) => {
+      if (!appRegistryClient) {
+        throw new Error("The App registry is unavailable for sideload ownership verification.");
+      }
+      return authorizeAppSideloadIdentity({
+        manifest: candidate.manifest,
+        registry: appRegistryClient,
+      });
+    },
     onApplied: async (result) => {
       console.info(
         `[penkra-app] Local sideload ${result.status} after rebuild in Space ${result.spaceId}: ${result.sourcePath}`,

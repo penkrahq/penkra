@@ -2641,7 +2641,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("does not let a stale pending identity trap the next message in the local queue", async () => {
+  it("settles transcript chrome despite stale shell and turn detail after session readiness", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     const staleMessageId = MessageId.makeUnsafe("msg-stale-steer-pending");
     const staleTurnId = TurnId.makeUnsafe("turn-stale-steer-completed");
@@ -2656,12 +2656,15 @@ describe("ChatView timeline estimator parity (full app)", () => {
           ? {
               ...thread,
               pendingTurnStartMessageId: staleMessageId,
+              // Shell and latest-turn projections can lag the authoritative
+              // session-ready event independently after a tool-heavy turn.
+              workStatus: "running" as const,
               latestTurn: {
                 turnId: staleTurnId,
-                state: "completed",
+                state: "running",
                 requestedAt: isoAt(2_200),
                 startedAt: isoAt(2_201),
-                completedAt: isoAt(2_202),
+                completedAt: null,
                 assistantMessageId: null,
               },
               messages: thread.messages.map((message) =>
@@ -2669,7 +2672,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
                   ? {
                       ...message,
                       dispatchMode: "steer" as const,
-                      delivery: { state: "accepted" as const, queued: true, sequence: 12 },
+                      // The message-local steer marker can lag the terminal
+                      // session event. It must not keep Thinking alive after
+                      // the session's newer ready timestamp.
+                      delivery: { state: "steering" as const, queued: false, sequence: 12 },
                     }
                   : message,
               ),
@@ -2690,6 +2696,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       expect(document.body.textContent).not.toContain("Thinking");
+      expect(document.body.textContent).not.toContain("Working for");
       expect(
         document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
       ).toBeNull();
@@ -3949,7 +3956,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("shows a durable queued row while submitting a running-turn follow-up", async () => {
-    useComposerDraftStore.getState().setPrompt(THREAD_ID, "queue this follow-up");
+    const consoleError = vi.spyOn(console, "error");
     let currentSnapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-running-queue-button" as MessageId,
       targetText: "running queue button target",
@@ -3962,6 +3969,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
+      const composerEditor = await waitForComposerEditor();
+      await page.getByTestId("composer-editor").fill("queue this follow-up");
+      await expect
+        .element(page.getByTestId("composer-editor"))
+        .toHaveTextContent("queue this follow-up");
       const composerForm = await waitForElement(
         () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
         "Unable to find composer form.",
@@ -3989,6 +4001,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           ).toBeTruthy();
           expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
           expect(document.body.textContent).toContain("Steer");
+          expect(composerEditor.textContent).toBe("");
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -4094,7 +4107,52 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "Unable to find stop generation button.",
       );
       expect(stopButton).not.toBeNull();
+      expect(
+        consoleError.mock.calls.some((call) =>
+          call.some((value) => String(value).includes("Maximum update depth exceeded")),
+        ),
+      ).toBe(false);
     } finally {
+      consoleError.mockRestore();
+      await mounted.cleanup();
+    }
+  });
+
+  it("coalesces bulk editor input without corrupting text or nesting React updates", async () => {
+    const consoleError = vi.spyOn(console, "error");
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-bulk-composer-input" as MessageId,
+        targetText: "bulk composer input target",
+      }),
+    });
+
+    try {
+      const composerEditor = await waitForComposerEditor();
+      const bulkPrompt = Array.from(
+        { length: 8 },
+        (_, index) =>
+          `Item ${index + 1} covers architecture workflows performance reliability and testing.`,
+      ).join(" ");
+      await userEvent.type(composerEditor, bulkPrompt);
+
+      await vi.waitFor(
+        () => {
+          expect(composerEditor.textContent).toBe(bulkPrompt);
+          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+            bulkPrompt,
+          );
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      expect(
+        consoleError.mock.calls.some((call) =>
+          call.some((value) => String(value).includes("Maximum update depth exceeded")),
+        ),
+      ).toBe(false);
+    } finally {
+      consoleError.mockRestore();
       await mounted.cleanup();
     }
   });
@@ -4441,6 +4499,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe(
             "",
           );
+          expect(composerEditor.textContent).toBe("");
           expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
         },
         { timeout: 8_000, interval: 16 },

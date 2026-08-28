@@ -136,6 +136,38 @@ function ProgressivelyHydratedLongListHarness() {
   );
 }
 
+function SyntheticWorkRowHarness() {
+  const [rows, setRows] = useState<TestRow[]>(() =>
+    Array.from({ length: 60 }, (_, index) => ({ id: `message-row-${index}`, height: 32 })),
+  );
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() =>
+          setRows((current) => [
+            ...current,
+            { id: `synthetic-work-row-${current.length}`, height: 48 },
+          ])
+        }
+      >
+        Append work row
+      </button>
+      <TranscriptVirtualList
+        data={rows}
+        // Work/status rows do not advance the semantic transcript revision.
+        anchorRevision="60:message-row-59:settled"
+        estimatedItemSize={32}
+        keyExtractor={(row) => row.id}
+        renderItem={(row) => <div style={{ height: row.height }}>{row.id}</div>}
+        paddingEnd={16}
+        data-testid="synthetic-work-virtual-scroll"
+        style={{ height: 300, overflowY: "auto" }}
+      />
+    </div>
+  );
+}
+
 function HeterogeneousRemeasureListHarness() {
   const [expanded, setExpanded] = useState(false);
   const rows = Array.from({ length: 120 }, (_, index) => ({
@@ -360,6 +392,34 @@ describe("TranscriptVirtualList", () => {
     }
   });
 
+  it("does not restart end convergence when only a synthetic work row is appended", async () => {
+    enableChatScrollDiagnostics();
+    const screen = await render(<SyntheticWorkRowHarness />);
+    try {
+      await vi.waitFor(() => {
+        expect(
+          getChatScrollDiagnosticSamples().some(
+            (sample) => sample.event === "initial-end-follow:settled",
+          ),
+        ).toBe(true);
+      });
+      resetChatScrollDiagnostics();
+
+      await screen.getByText("Append work row").click();
+      await settleLayout();
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 80));
+
+      const samples = getChatScrollDiagnosticSamples();
+      expect(samples.some((sample) => sample.event === "data-committed")).toBe(true);
+      expect(samples.some((sample) => sample.event === "initial-end-follow:started")).toBe(false);
+      expect(samples.some((sample) => sample.event === "initial-end-follow:correction")).toBe(
+        false,
+      );
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("places the initial tail when animation frames are suspended", async () => {
     vi.spyOn(window, "requestAnimationFrame").mockReturnValue(1);
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
@@ -498,6 +558,7 @@ describe("TranscriptVirtualList", () => {
       // reader's semantic position inside row 52.
       scrollElement.scrollTop = 2_520;
       scrollElement.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await settleLayout();
       await vi.waitFor(() => {
         expect(
           scrollElement.querySelector<HTMLElement>('[data-row-id="remeasure-row-52"]'),
@@ -515,6 +576,7 @@ describe("TranscriptVirtualList", () => {
       // virtualizer's scroll compensation.
       scrollElement.scrollTop = 3_500;
       scrollElement.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await settleLayout();
       await vi.waitFor(() => {
         expect(
           scrollElement.querySelector<HTMLElement>('[data-row-id="remeasure-row-48"]'),
@@ -525,6 +587,7 @@ describe("TranscriptVirtualList", () => {
       scrollElement.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -980 }));
       scrollElement.scrollTop = 2_520;
       scrollElement.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await settleLayout();
       await vi.waitFor(() => {
         expect(
           getChatScrollDiagnosticSamples().some(

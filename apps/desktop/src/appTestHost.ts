@@ -12,12 +12,14 @@ import { bootstrapDevelopmentSideload } from "./developmentAppSideload";
 import { PENKRA_APP_SCHEME } from "./appRuntimePolicy";
 import { resolveAppTestHandshake } from "./appTestHostHandshake";
 import { withAppTestPhaseTimeout } from "./appTestHostPhases";
+import { createAppTestHostDiagnosticWriter } from "./appTestHostDiagnostics";
 
 const sourcePath = requiredEnvironment("PENKRA_APP_TEST_SOURCE");
 const profilePath = requiredEnvironment("PENKRA_APP_TEST_PROFILE");
 const resultPath = requiredEnvironment("PENKRA_APP_TEST_RESULT");
 const TEST_SPACE_ID = "app-test-space";
 const TEST_THREAD_ID = "app-test-thread";
+const hostDiagnostics = createAppTestHostDiagnosticWriter(process.stderr);
 
 // The disposable test profile must not prompt for or block on the operator's
 // real OS keychain. This still exercises Electron safeStorage through
@@ -237,17 +239,17 @@ async function runHostPhase<T>(
   run: () => Promise<T> | T,
   timeoutMs?: number,
 ): Promise<T> {
-  process.stderr.write(`[penkra-app-test] phase=${phase} state=start\n`);
+  hostDiagnostics.write(`[penkra-app-test] phase=${phase} state=start\n`);
   try {
     const result = await withAppTestPhaseTimeout({
       phase,
       run,
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
     });
-    process.stderr.write(`[penkra-app-test] phase=${phase} state=complete\n`);
+    hostDiagnostics.write(`[penkra-app-test] phase=${phase} state=complete\n`);
     return result;
   } catch (error) {
-    process.stderr.write(
+    hostDiagnostics.write(
       `[penkra-app-test] phase=${phase} state=failed error=${JSON.stringify(error instanceof Error ? error.message : String(error))}\n`,
     );
     throw error;

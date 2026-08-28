@@ -13,6 +13,33 @@ const verified = {
 };
 
 describe("development App sideload bootstrap", () => {
+  it("authorizes the validated manifest before installing and persists registry identity", async () => {
+    const install = vi.fn(async () => undefined);
+    const registryIdentity = {
+      appId: "00000000-0000-4000-8000-000000000701",
+      publisherId: "00000000-0000-4000-8000-000000000702",
+    };
+    const authorize = vi.fn(async () => registryIdentity);
+
+    await bootstrapDevelopmentSideload(
+      {
+        packages: { ingestDirectory: vi.fn(async () => verified) },
+        installations: {
+          snapshot: () => ({ packagesByInstallationKey: {}, spaceStateByKey: {} }),
+          install,
+          setPermission: vi.fn(async () => undefined),
+          setEnabled: vi.fn(async () => undefined),
+        },
+      } as never,
+      "/work/canvas",
+      "personal",
+      authorize,
+    );
+
+    expect(authorize).toHaveBeenCalledWith({ package: verified, existing: undefined });
+    expect(install).toHaveBeenCalledWith({ ...verified, registryIdentity }, "personal");
+  });
+
   it("installs a new validated unpacked package", async () => {
     const install = vi.fn(async () => undefined);
     const setPermission = vi.fn(async () => undefined);
