@@ -229,12 +229,13 @@ function TranscriptVirtualListInner<TItem>(
       });
       return size;
     },
-    // Direct-DOM mode applies container size and row positions synchronously;
-    // the remaining React update only changes which rows belong to the rendered
-    // range. Let React batch that update. Forcing it through flushSync from a
-    // measurement ref can run inside React's own commit and create nested
-    // lifecycle updates during streaming or queue-row insertion.
-    useFlushSync: false,
+    // Keep TanStack's range commit atomic with its direct-DOM scroll correction.
+    // If React batches the rendered-range update, a corrected viewport can paint
+    // against the previous row range and briefly detach or displace its anchor.
+    // End-follow scheduling remains separately gated below by semantic revision,
+    // so synthetic work rows do not turn this measurement commit into a new
+    // bottom-convergence cycle.
+    useFlushSync: true,
     // Streaming Markdown can resize the measured tail again from inside the
     // observer delivery cycle. Frame-batching prevents Chromium's undelivered
     // ResizeObserver loop without adding a second scroll correction owner.
