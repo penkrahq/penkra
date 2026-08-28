@@ -556,6 +556,7 @@ describe("TranscriptVirtualList", () => {
 
       // Measure the target region once at its compact size and record the
       // reader's semantic position inside row 52.
+      scrollElement.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -800 }));
       scrollElement.scrollTop = 2_520;
       scrollElement.dispatchEvent(new Event("scroll", { bubbles: true }));
       await settleLayout();
