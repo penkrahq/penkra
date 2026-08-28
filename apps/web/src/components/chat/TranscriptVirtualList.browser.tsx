@@ -228,6 +228,36 @@ function LongChatFirstMeasureHarness() {
   );
 }
 
+function HeterogeneousTailPlacementHarness() {
+  const tailHeights = new Map<number, number>([
+    [226, 2_900],
+    [229, 7_200],
+    [232, 1_450],
+    [235, 5_800],
+    [238, 3_600],
+  ]);
+  const rows = Array.from({ length: 241 }, (_, index) => ({
+    id: `heterogeneous-tail-row-${index}`,
+    height: tailHeights.get(index) ?? 52,
+  }));
+  return (
+    <TranscriptVirtualList
+      data={rows}
+      anchorRevision="241:heterogeneous-tail-row-240:settled"
+      estimatedItemSize={90}
+      keyExtractor={(row) => row.id}
+      renderItem={(row) => (
+        <div data-row-id={row.id} style={{ height: row.height }}>
+          {row.id}
+        </div>
+      )}
+      paddingEnd={16}
+      data-testid="heterogeneous-tail-virtual-scroll"
+      style={{ height: 300, overflowY: "auto" }}
+    />
+  );
+}
+
 function AnimationFrameSuspendedListHarness() {
   const rows = Array.from({ length: 120 }, (_, index) => ({
     id: `timer-row-${index}`,
@@ -370,6 +400,41 @@ describe("TranscriptVirtualList", () => {
           scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop,
         ).toBeLessThanOrEqual(16);
       });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("settles a long heterogeneous tail without re-entering a measurement scroll loop", async () => {
+    enableChatScrollDiagnostics();
+    const screen = await render(<HeterogeneousTailPlacementHarness />);
+    try {
+      const scrollElement = screen.container.querySelector<HTMLElement>(
+        '[data-testid="heterogeneous-tail-virtual-scroll"]',
+      )!;
+      await vi.waitFor(() => {
+        expect(scrollElement.textContent).toContain("heterogeneous-tail-row-240");
+        expect(
+          getChatScrollDiagnosticSamples().some(
+            (sample) => sample.event === "initial-end-follow:settled",
+          ),
+        ).toBe(true);
+      });
+
+      resetChatScrollDiagnostics();
+      const offsets: number[] = [];
+      for (let frame = 0; frame < 12; frame += 1) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        offsets.push(scrollElement.scrollTop);
+      }
+
+      expect(Math.max(...offsets) - Math.min(...offsets)).toBeLessThanOrEqual(1);
+      expect(scrollElement.textContent).toContain("heterogeneous-tail-row-240");
+      expect(
+        getChatScrollDiagnosticSamples().some(
+          (sample) => sample.event === "initial-end-follow:correction",
+        ),
+      ).toBe(false);
     } finally {
       await screen.unmount();
     }

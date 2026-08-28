@@ -64,7 +64,7 @@ type SidebarResizableOptions = {
     side: "left" | "right";
     sidebarRoot: HTMLElement;
     wrapper: HTMLElement;
-  }) => boolean;
+  }) => boolean | number;
   storageKey?: string;
 };
 
@@ -79,7 +79,7 @@ type SidebarResolvedResizableOptions = {
     side: "left" | "right";
     sidebarRoot: HTMLElement;
     wrapper: HTMLElement;
-  }) => boolean;
+  }) => boolean | number;
   storageKey: string | null;
 };
 
@@ -481,8 +481,10 @@ function SidebarRail({
       return;
     }
 
-    activeResizeState.wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
-    activeResizeState.width = nextWidth;
+    const acceptedWidth =
+      typeof accepted === "number" ? clampSidebarWidth(accepted, resolvedResizable) : nextWidth;
+    activeResizeState.wrapper.style.setProperty("--sidebar-width", `${acceptedWidth}px`);
+    activeResizeState.width = acceptedWidth;
   }, [resolvedResizable]);
 
   const stopResize = React.useCallback(

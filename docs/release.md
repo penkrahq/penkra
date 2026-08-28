@@ -1,10 +1,10 @@
 # Penkra Desktop Releases
 
 Penkra publishes its public desktop application through GitHub Releases. Stable releases are built
-only by the protected GitHub workflow from an exact semantic-version tag. The workflow validates
-every native artifact, assembles one immutable release, and publishes those same bytes after every
-platform succeeds. Published update-capable artifacts are then visible to `electron-updater`; the
-initial unsigned Windows installer remains manual-only.
+only by the protected GitHub workflow from an explicitly selected version and exact `main` commit.
+The workflow validates every native artifact before it creates the immutable semantic-version tag,
+then assembles one release and publishes those same bytes. Published update-capable artifacts are
+then visible to `electron-updater`; the initial unsigned Windows installer remains manual-only.
 
 The current release matrix is macOS arm64, macOS x64, Linux x64, and Windows x64. Each macOS
 architecture uses a signed/notarized DMG plus update ZIP; release assembly merges both ZIP entries
@@ -28,7 +28,7 @@ operating system. In particular, Canvas does not claim `.pen` files at the OS bo
 
 The public desktop package does not contain the private Penkra backend or CLI. Account and hosted
 service requests use the authenticated Penkra API. The desktop's local application runtime is built
-from this repository at the same tagged commit as the Electron application.
+from this repository at the same certified commit as the Electron application.
 
 This release workflow versions and publishes only the Penkra desktop product in this repository. It
 does not publish registry Apps and does not version or deploy the Penkra backend. Registry Apps use
@@ -86,35 +86,37 @@ The version updater is authoritative for both the release package manifests and 
 `bun.lock` workspace importer metadata. The lockfile-only Bun install then verifies dependency
 consistency without owning release-version synchronization.
 
-Commit the resulting package manifests and lockfile before creating the matching tag. Do not create
-a release tag from an uncommitted or unreviewed worktree.
+Commit the resulting package manifests and lockfile before starting the release workflow. Do not
+create the matching tag manually: the workflow creates it only after every native artifact passes.
 
 ## Creating a release
 
-1. Merge the intended release changes into `main` and confirm CI passes. The blocking CI gate builds
-   unsigned native QA packages on Windows x64 and Linux x64, then launches each from isolated state.
-   This catches platform-native PTY, packaging, installer extraction, desktop bootstrap, and embedded
-   server failures before a release tag exists. Release signing remains isolated to the protected
-   `desktop-release` environment.
+1. Merge the intended release changes into `main` and confirm the fast aggregate CI gate passes for
+   the exact commit. Commit CI covers static contracts, the complete unit and integration suites,
+   deterministic browser partitions, the desktop build, and the React compiler hot-path contract.
+   Native installer construction is intentionally reserved for the one release-candidate run.
 2. In a signed-in Production Penkra task, ask the agent to run the registered command
    `penkra app status --app-id com.penkra.apps`. This is a Penkra host command available to agents;
    it is not a command provided by the client-workspace `penkra` shell executable. Confirm its
    result reports the lockfile's version and package digest as public on the production registry
    target. Stop if the target, version, or digest differs.
 3. Update every product package to the intended version and commit the exact release source locally.
-4. Complete the repository's required fresh Penkra Dev manual QA for the affected user flows. This
-   validates the source candidate without replacing the operator's installed production app. Record
-   the exercised flows and result in the release handoff.
-5. Create and push the exact stable tag from the same approved commit, for example:
+4. Complete the repository's required fresh Penkra Dev manual QA for the affected user flows, then
+   build and launch an isolated local production package for final macOS QA. The local artifact is
+   evidence, not publication authority, and must not replace or quit the installed Production app.
+   Record the commands, timings, exercised flows, and result in the release handoff.
+5. Dispatch the protected workflow with the approved version and exact current `main` commit:
 
    ```sh
-   git tag -a "v$approved_version" -m "Penkra v$approved_version"
-   git push origin "v$approved_version"
+   release_commit="$(git rev-parse HEAD)"
+   gh workflow run release.yml --repo penkrahq/penkra \
+     -f release_version="$approved_version" \
+     -f source_commit="$release_commit"
    ```
 
 6. The `Release Penkra Desktop` workflow:
-   - verifies the tag and package versions;
-   - requires the aggregate Penkra CI quality gate to have passed for the exact tagged commit;
+   - verifies the requested version, current `main` commit, and package versions;
+   - requires the aggregate Penkra CI quality gate to have passed for that exact commit;
    - consumes that commit-bound result instead of repeating the same validation suite;
    - builds each advertised platform on a native GitHub-hosted runner;
    - signs/notarizes macOS and emits Linux and explicitly unsigned Windows checksum/provenance
@@ -123,17 +125,19 @@ a release tag from an uncommitted or unreviewed worktree.
      together;
    - rejects any package containing the private `penkra-cli`;
    - records SHA-256 checksums and GitHub artifact attestations;
+   - creates the immutable tag only after every native artifact passes;
    - creates or refreshes a draft solely to assemble all native outputs atomically;
    - publishes that exact draft as the latest stable release after every build and verification job
      succeeds, without a second build or a local artifact upload.
 7. Query the canonical GitHub Release and verify that it is public stable, contains the complete
-   platform matrix, and points to the tagged commit. Then verify the normal production update UI
+   platform matrix, and points to the certified commit. Then verify the normal production update UI
    discovers the published version. Installation and restart happen only when an operator chooses
    the released update; the release procedure never replaces the Penkra instance hosting itself.
 
-If any platform fails, the workflow does not publish the draft. Fix the source with a new explicitly
-approved version; published assets are never replaced. A workflow retry is appropriate only when the
-tagged source is unchanged and the failure was in release infrastructure.
+If any platform fails, the workflow creates neither a tag nor a release. Fix the source, rerun source
+CI and local QA, and dispatch the same still-unpublished approved version against the new exact
+commit. Published assets are never replaced. A workflow retry is appropriate only when the source
+commit is unchanged and the failure was in release infrastructure.
 
 ## Required GitHub configuration
 
@@ -222,7 +226,8 @@ production installation and let Penkra's normal update UI own the user-approved 
 
 ## Release invariants
 
-- A release is built from the exact tagged commit and repository lockfile.
+- A release is built from the exact certified commit and repository lockfile; its tag is created
+  only after the native artifacts pass.
 - Stable tags are exact `vMAJOR.MINOR.PATCH` values.
 - Public artifacts never contain the private Penkra backend or CLI.
 - macOS artifacts are Developer ID signed and Apple notarized.

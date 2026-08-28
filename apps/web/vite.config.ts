@@ -7,11 +7,95 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
-import babel from "@rolldown/plugin-babel";
+import babel, { defineRolldownBabelPreset } from "@rolldown/plugin-babel";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig, type Plugin } from "vite";
 import pkg from "./package.json" with { type: "json" };
-import { reactRefreshHookTopologyGuard } from "./viteReactRefreshGuard";
+import { reactRefreshHookTopologyGuard } from "./viteReactRefreshGuard.js";
+
+interface ReactCompilerEvent {
+  readonly kind: string;
+  readonly fnName?: string | null | undefined;
+  readonly detail?: { readonly reason?: string; readonly description?: string } | undefined;
+}
+
+const REACT_COMPILER_CONTRACTS = [
+  { relativePath: "src/components/ChatView.tsx", allowedBailoutReasons: [] },
+  {
+    relativePath: "src/components/chat/MessagesTimeline.tsx",
+    // useStableRows intentionally reuses row identities through a render-time ref.
+    allowedBailoutReasons: ["Cannot access refs during render"],
+  },
+  { relativePath: "src/components/chat/ChatTranscriptPane.tsx", allowedBailoutReasons: [] },
+  { relativePath: "src/components/ChatMarkdown.tsx", allowedBailoutReasons: [] },
+] as const;
+
+function reactCompilerContract() {
+  const eventsByRelativePath = new Map<string, ReactCompilerEvent[]>();
+  const compilerPreset = reactCompilerPreset();
+
+  return {
+    preset: defineRolldownBabelPreset({
+      ...compilerPreset,
+      preset: () => ({
+        plugins: [
+          [
+            "babel-plugin-react-compiler",
+            {
+              panicThreshold: "none",
+              logger: {
+                logEvent: (filename: string | null, event: ReactCompilerEvent) => {
+                  const normalizedFilename = filename?.replaceAll("\\", "/");
+                  if (!normalizedFilename) return;
+                  const contract = REACT_COMPILER_CONTRACTS.find(({ relativePath }) =>
+                    normalizedFilename.endsWith(`/${relativePath}`),
+                  );
+                  if (!contract) return;
+                  const events = eventsByRelativePath.get(contract.relativePath) ?? [];
+                  events.push(event);
+                  eventsByRelativePath.set(contract.relativePath, events);
+                },
+              },
+            },
+          ],
+        ],
+      }),
+    }),
+    verifier: {
+      name: "penkra:react-compiler-contract",
+      apply: "build" as const,
+      closeBundle() {
+        const failures: string[] = [];
+        for (const contract of REACT_COMPILER_CONTRACTS) {
+          const events = eventsByRelativePath.get(contract.relativePath) ?? [];
+          const bailoutReasons = events
+            .filter((event) => event.kind === "CompileError")
+            .map((event) => event.detail?.reason ?? event.detail?.description ?? "unknown")
+            .toSorted();
+          const allowedBailoutReasons = [...contract.allowedBailoutReasons].toSorted();
+          if (JSON.stringify(bailoutReasons) !== JSON.stringify(allowedBailoutReasons)) {
+            failures.push(
+              `${contract.relativePath}: expected bailouts ${JSON.stringify(allowedBailoutReasons)}, received ${JSON.stringify(bailoutReasons)}`,
+            );
+          }
+          if (!events.some((event) => event.kind === "CompileSuccess")) {
+            failures.push(
+              `${contract.relativePath}: React Compiler reported no successful function.`,
+            );
+          }
+        }
+        if (failures.length > 0) {
+          throw new Error(`React Compiler contract failed:\n${failures.join("\n")}`);
+        }
+        console.info(
+          `[react-compiler-contract] verified ${REACT_COMPILER_CONTRACTS.length} production hot-path modules.`,
+        );
+      },
+    } satisfies Plugin,
+  };
+}
+
+const reactCompiler = reactCompilerContract();
 
 const port = Number(process.env.PORT ?? 5733);
 const sourcemapEnv = process.env.PENKRA_WEB_SOURCEMAP?.trim().toLowerCase();
@@ -115,8 +199,9 @@ export default defineConfig({
       // whereas the previous version of the plugin parsed all files with a .ts extension.
       // This is causing our packages/ directory to fail to parse, as they are not relative to the CWD.
       parserOpts: { plugins: ["typescript", "jsx"] },
-      presets: [reactCompilerPreset()],
+      presets: [reactCompiler.preset],
     }),
+    reactCompiler.verifier,
     tailwindcss(),
     centralIconPrunePlugin(),
   ],

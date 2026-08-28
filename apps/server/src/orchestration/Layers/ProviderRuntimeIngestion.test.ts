@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync, StatementSync } from "node:sqlite";
 
 import type {
   OrchestrationEvent,
@@ -423,6 +424,91 @@ describe("ProviderRuntimeIngestion", () => {
       `,
     );
     expect(rows).toEqual([{ count: 1, summary: "Runtime warning" }]);
+  });
+
+  it("amortizes burst journal scans and cursor transactions", async () => {
+    const sqlCounts = new Map<string, number>();
+    const statementSql = new WeakMap<StatementSync, string>();
+    const databasePrototype = DatabaseSync.prototype;
+    const statementPrototype = StatementSync.prototype;
+    const originalPrepare = databasePrototype.prepare;
+    const originalExec = databasePrototype.exec;
+    const originalRun = statementPrototype.run;
+    const originalAll = statementPrototype.all;
+    const recordSql = (sql: string) => {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      sqlCounts.set(normalized, (sqlCounts.get(normalized) ?? 0) + 1);
+    };
+    databasePrototype.prepare = function (sql) {
+      const statement = originalPrepare.call(this, sql);
+      statementSql.set(statement, sql);
+      return statement;
+    };
+    databasePrototype.exec = function (sql) {
+      recordSql(sql);
+      return originalExec.call(this, sql);
+    };
+    statementPrototype.run = function (...params) {
+      const sql = statementSql.get(this);
+      if (sql) recordSql(sql);
+      return Reflect.apply(originalRun, this, params);
+    };
+    statementPrototype.all = function (...params) {
+      const sql = statementSql.get(this);
+      if (sql) recordSql(sql);
+      return Reflect.apply(originalAll, this, params);
+    };
+
+    try {
+      const harness = await createHarness();
+      sqlCounts.clear();
+      const initialHighWater = await Effect.runPromise(
+        harness.runtimeEventRepository.getHighWaterSequence,
+      );
+      const eventCount = 64;
+      for (let index = 0; index < eventCount; index += 1) {
+        harness.emit({
+          type: "content.delta",
+          eventId: asEventId(`evt-batched-command-output-${index}`),
+          provider: "codex",
+          createdAt: new Date().toISOString(),
+          threadId: asThreadId("thread-1"),
+          turnId: asTurnId("turn-batched-command-output"),
+          itemId: asItemId("item-batched-command-output"),
+          payload: { streamKind: "command_output", delta: `line ${index}\n` },
+        });
+      }
+
+      const expectedHighWater = initialHighWater + eventCount;
+      const deadline = Date.now() + 2_000;
+      while (
+        (await Effect.runPromise(harness.runtimeEventRepository.getHighWaterSequence)) <
+        expectedHighWater
+      ) {
+        if (Date.now() >= deadline) throw new Error("Timed out waiting for journal burst");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      await harness.drain();
+      expect(
+        await Effect.runPromise(
+          harness.runtimeEventRepository.getThreadCursor(asThreadId("thread-1")),
+        ),
+      ).toBe(expectedHighWater);
+    } finally {
+      databasePrototype.prepare = originalPrepare;
+      databasePrototype.exec = originalExec;
+      statementPrototype.run = originalRun;
+      statementPrototype.all = originalAll;
+    }
+
+    const eligibilityScans = Array.from(sqlCounts.entries())
+      .filter(([sql]) => sql.includes("WITH eligible AS"))
+      .reduce((total, [, count]) => total + count, 0);
+    const openedTransactions = Array.from(sqlCounts.entries())
+      .filter(([sql]) => sql === "BEGIN")
+      .reduce((total, [, count]) => total + count, 0);
+    expect(eligibilityScans).toBeLessThanOrEqual(4);
+    expect(openedTransactions).toBeLessThanOrEqual(4);
   });
 
   it("REL-01C gate: rebuilds accepted buffered output before a terminal event", async () => {
@@ -1070,6 +1156,15 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(rejected._tag).toBe("Failure");
     const failed = await Effect.runPromise(harness.runtimeEventRepository.append(failedEvent));
+    const blockedTailEvent: ProviderRuntimeEvent = {
+      type: "runtime.warning",
+      eventId: asEventId("evt-thread-1-blocked-tail"),
+      provider: "codex",
+      createdAt,
+      threadId: asThreadId("thread-1"),
+      payload: { message: "Must remain behind the failed head" },
+    };
+    await Effect.runPromise(harness.runtimeEventRepository.append(blockedTailEvent));
     const healthyEvent: ProviderRuntimeEvent = {
       type: "runtime.warning",
       eventId: asEventId("evt-thread-2-independent-progress"),
@@ -1091,6 +1186,12 @@ describe("ProviderRuntimeIngestion", () => {
     expect(
       await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(failedEvent.threadId)),
     ).toBe(0);
+    const blockedThread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
+      (thread) => thread.id === failedEvent.threadId,
+    );
+    expect(
+      blockedThread?.activities.some((activity) => activity.id === blockedTailEvent.eventId),
+    ).toBe(false);
     expect(
       await Effect.runPromise(
         harness.runtimeEventRepository.getThreadCursor(healthyEvent.threadId),

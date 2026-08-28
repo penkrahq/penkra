@@ -1,6 +1,6 @@
 {
   "name": "@penkra/web",
-  "version": "0.11.16",
+  "version": "0.11.17",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,10 +10,10 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --passWithNoTests --silent=passed-only",
     "test:browser": "vitest run --config vitest.browser.config.ts",
-    "test:browser:stable": "vitest run --config vitest.browser.stable.config.ts",
-    "test:browser:geometry": "vitest run --config vitest.browser.geometry.config.ts",
+    "test:browser:chat-view": "vitest run --config vitest.browser.chat-view.config.ts",
+    "test:browser:components": "vitest run --config vitest.browser.components.config.ts",
     "test:browser:install": "playwright install --with-deps chromium",
     "measure:lcp": "node scripts/measure-lcp.mjs"
   },

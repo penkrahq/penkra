@@ -54,6 +54,7 @@ type Request = {
     | "developer.submissions.get"
     | "developer.submissions.retry-validation"
     | "developer.submissions.retry-publication"
+    | "developer.submissions.resume-upload"
     | "developer.submissions.create"
     | "developer.sideload"
     | "providers.credentials.store"
@@ -598,6 +599,25 @@ export class AppCommandPipeServer {
             requiredString(params.submissionId, "submissionId"),
           ),
         };
+      case "developer.submissions.resume-upload": {
+        if (
+          !params.evidence ||
+          typeof params.evidence !== "object" ||
+          Array.isArray(params.evidence)
+        )
+          throw new Error("evidence is required.");
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerResumeSubmissionUpload({
+            submissionId: requiredString(params.submissionId, "submissionId"),
+            packagePath: requiredString(params.packagePath, "packagePath"),
+            evidence: params.evidence as Parameters<
+              AppRegistryClient["developerResumeSubmissionUpload"]
+            >[0]["evidence"],
+          }),
+        };
+      }
       case "developer.submissions.create": {
         if (
           !params.evidence ||

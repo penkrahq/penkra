@@ -187,7 +187,7 @@ describe("required registry Apps bootstrap", () => {
         }),
       ).resolves.toEqual(packageValue);
       expect(ingestRegistryArchive).toHaveBeenCalledWith({
-        packageBytes,
+        archivePath,
         expectedArchiveDigest: packageDigest,
       });
     } finally {
@@ -213,7 +213,11 @@ describe("required registry Apps bootstrap", () => {
           sourceCommit: "b".repeat(40),
         }),
       );
-      const ingestRegistryArchive = vi.fn();
+      const ingestRegistryArchive = vi
+        .fn()
+        .mockRejectedValue(
+          new Error("Registry App package digest does not match the release lock."),
+        );
 
       await expect(
         loadRequiredAppsPackage({
@@ -222,7 +226,10 @@ describe("required registry Apps bootstrap", () => {
           hostVersion: "0.9.3",
         }),
       ).rejects.toThrow("does not match");
-      expect(ingestRegistryArchive).not.toHaveBeenCalled();
+      expect(ingestRegistryArchive).toHaveBeenCalledWith({
+        archivePath,
+        expectedArchiveDigest: "a".repeat(64),
+      });
     } finally {
       FS.rmSync(root, { recursive: true, force: true });
     }

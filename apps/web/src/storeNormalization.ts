@@ -33,6 +33,7 @@ import type {
   ThreadShell,
   ThreadTurnState,
 } from "./types";
+import { recordTranscriptOrderingRepair } from "./transcriptOrderingDiagnostics";
 
 type ReadModelProject = OrchestrationReadModel["folders"][number];
 type ReadModelSpace = OrchestrationReadModel["spaces"][number];
@@ -92,6 +93,28 @@ export function compareChatMessagesForTranscript(
   }
   const byCreatedAt = left.createdAt.localeCompare(right.createdAt);
   return byCreatedAt !== 0 ? byCreatedAt : left.id.localeCompare(right.id);
+}
+
+type TranscriptSortableMessage = Parameters<typeof compareChatMessagesForTranscript>[0] & {
+  readonly role: string;
+};
+
+function orderMessagesForTranscript<TMessage extends TranscriptSortableMessage>(
+  messages: TMessage[],
+  source: string,
+): TMessage[];
+function orderMessagesForTranscript<TMessage extends TranscriptSortableMessage>(
+  messages: readonly TMessage[],
+  source: string,
+): readonly TMessage[];
+function orderMessagesForTranscript<TMessage extends TranscriptSortableMessage>(
+  messages: readonly TMessage[],
+  source: string,
+): readonly TMessage[] {
+  const ordered = messages.toSorted(compareChatMessagesForTranscript);
+  if (arraysShallowEqual(messages, ordered)) return messages;
+  recordTranscriptOrderingRepair(source, messages, ordered);
+  return ordered;
 }
 
 function basenameOfPath(value: string | null): string | null {
@@ -544,9 +567,10 @@ function normalizeChatMessages(
   previous: ChatMessage[] | undefined,
 ): ChatMessage[] {
   const previousById = new Map(previous?.map((message) => [message.id, message] as const));
-  const nextMessages = incoming
+  const normalizedMessages = incoming
     .slice(-MAX_THREAD_MESSAGES)
     .map((message) => normalizeChatMessage(message, previousById.get(message.id)));
+  const nextMessages = orderMessagesForTranscript(normalizedMessages, "read-model-normalization");
   return arraysShallowEqual(previous, nextMessages) ? previous : nextMessages;
 }
 
@@ -667,7 +691,10 @@ function mergeReadModelMessagesWithLiveHotPath(
   },
 ): ReadModelThread["messages"] {
   if (!previousThread || previousThread.messages.length === 0) {
-    return incomingMessages;
+    return orderMessagesForTranscript(
+      incomingMessages,
+      "thread-detail-hot-path:without-live-messages",
+    );
   }
   const authoritativeTurnId = options?.authoritativeTurnId ?? null;
 
@@ -742,7 +769,7 @@ function mergeReadModelMessagesWithLiveHotPath(
   }
 
   if (!changed) {
-    return incomingMessages;
+    return orderMessagesForTranscript(incomingMessages, "thread-detail-hot-path:unchanged");
   }
 
   return [...mergedById.values()].toSorted(compareChatMessagesForTranscript);

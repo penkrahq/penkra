@@ -216,6 +216,10 @@
       "types": "./src/appPackaging.ts",
       "import": "./src/appPackaging.ts"
     },
+    "./appPackageLimits": {
+      "types": "./src/appPackageLimits.ts",
+      "import": "./src/appPackageLimits.ts"
+    },
     "./requiredAppsRelease": {
       "types": "./src/requiredAppsRelease.ts",
       "import": "./src/requiredAppsRelease.ts"

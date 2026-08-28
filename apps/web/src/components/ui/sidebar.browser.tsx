@@ -34,15 +34,36 @@ describe("live sidebar resizing", () => {
     expect(onResize).toHaveBeenCalledOnce();
     expect(onResize).toHaveBeenCalledWith(470);
   });
+
+  it("commits a constrained width when a rapid move crosses the boundary", async () => {
+    const onResize = vi.fn();
+    const { wrapper, rail } = await renderResizableSidebar(onResize, ({ nextWidth }) =>
+      Math.min(nextWidth, 400),
+    );
+
+    dispatchPointer(rail, "pointerdown", { button: 0, clientX: 800, pointerId: 11 });
+    dispatchPointer(rail, "pointermove", { clientX: 500, pointerId: 11 });
+    dispatchPointer(rail, "pointerup", { button: 0, clientX: 500, pointerId: 11 });
+
+    expect(wrapper.style.getPropertyValue("--sidebar-width")).toBe("400px");
+    expect(onResize).toHaveBeenCalledWith(400);
+  });
 });
 
-async function renderResizableSidebar(onResize?: (width: number) => void) {
+async function renderResizableSidebar(
+  onResize?: (width: number) => void,
+  shouldAcceptWidth?: (context: { nextWidth: number }) => boolean | number,
+) {
   await page.viewport(1_280, 720);
   await render(
     <SidebarProvider open style={{ "--sidebar-width": "320px" } as CSSProperties}>
       <Sidebar
         positioning="inline"
-        resizable={{ minWidth: 240, ...(onResize ? { onResize } : {}) }}
+        resizable={{
+          minWidth: 240,
+          ...(onResize ? { onResize } : {}),
+          ...(shouldAcceptWidth ? { shouldAcceptWidth } : {}),
+        }}
         side="right"
       >
         <div>Hosted surface</div>

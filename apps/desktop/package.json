@@ -1,6 +1,6 @@
 {
   "name": "@penkra/desktop",
-  "version": "0.11.16",
+  "version": "0.11.17",
   "private": true,
   "main": "dist-electron/entry.js",
   "scripts": {
@@ -11,7 +11,7 @@
     "build:native": "node scripts/build-apple-speech-helper.mjs",
     "start": "bun run scripts/start-electron.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --passWithNoTests --silent=passed-only",
     "smoke-test": "node scripts/smoke-test.mjs",
     "probe:hosted-surface-resize": "node scripts/hosted-surface-resize-probe.mjs"
   },

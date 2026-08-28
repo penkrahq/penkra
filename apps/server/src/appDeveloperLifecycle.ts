@@ -46,11 +46,18 @@ export async function publishAppDirectory(input: {
         throw versionCollision(evidence.version);
       }
       const submissionId = requiredText(existingSubmission, "submissionId", "submission");
-      const submission = retryableValidationFailure(existingSubmission)
-        ? await input.bridge("developer.submissions.retry-validation", { submissionId })
-        : publicationInfrastructureFailure(existingSubmission)
-          ? await input.bridge("developer.submissions.retry-publication", { submissionId })
-          : existingSubmission;
+      const submission =
+        existingSubmission.status === "draft"
+          ? await input.bridge("developer.submissions.resume-upload", {
+              submissionId,
+              packagePath: evidence.path,
+              evidence,
+            })
+          : retryableValidationFailure(existingSubmission)
+            ? await input.bridge("developer.submissions.retry-validation", { submissionId })
+            : publicationInfrastructureFailure(existingSubmission)
+              ? await input.bridge("developer.submissions.retry-publication", { submissionId })
+              : existingSubmission;
       await input.bridge("developer.apps.visibility.set", {
         appId: identity.appId,
         visibility: input.visibility,

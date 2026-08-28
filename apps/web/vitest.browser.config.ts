@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vitest/config";
 
-import viteConfig from "./vite.config";
+import viteConfig from "./vite.config.ts";
 
 const srcPath = fileURLToPath(new URL("./src", import.meta.url));
 const browserViteConfig = {
@@ -49,9 +49,13 @@ export default mergeConfig(
         api: {
           // Vitest's default 63315 falls inside common Windows/Hyper-V
           // excluded-port ranges. Keep the local browser harness on IPv4 and
-          // allow CI or developers to override the fallback port.
+          // allow CI or developers to override the starting port. Browser QA
+          // is independent of the desktop development server, so an occupied
+          // starting port must advance to the next available port instead of
+          // inheriting Vite's strict development-server policy.
           host: process.env.VITEST_BROWSER_API_HOST ?? "127.0.0.1",
           port: Number(process.env.VITEST_BROWSER_API_PORT ?? 51_100),
+          strictPort: false,
         },
       },
       // The full desktop route graph can take more than 30 seconds to compile

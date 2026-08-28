@@ -81,8 +81,32 @@ interface RecordChatPaginationDiagnosticInput {
 }
 
 const MAX_SAMPLES = 2_000;
+const DIAGNOSTICS_SESSION_KEY = "penkra:chat-scroll-diagnostics-enabled";
+
+function readSessionEnabled(): boolean {
+  if (!import.meta.env.DEV || typeof sessionStorage === "undefined") return false;
+  try {
+    return sessionStorage.getItem(DIAGNOSTICS_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeSessionEnabled(enabled: boolean): void {
+  if (!import.meta.env.DEV || typeof sessionStorage === "undefined") return;
+  try {
+    if (enabled) {
+      sessionStorage.setItem(DIAGNOSTICS_SESSION_KEY, "1");
+    } else {
+      sessionStorage.removeItem(DIAGNOSTICS_SESSION_KEY);
+    }
+  } catch {
+    // Diagnostics must remain optional when renderer storage is unavailable.
+  }
+}
+
 const state = {
-  enabled: false,
+  enabled: readSessionEnabled(),
   logToConsole: false,
   nextInstanceId: 1,
   nextSequence: 1,
@@ -248,11 +272,13 @@ export function enableChatScrollDiagnostics(options?: { logToConsole?: boolean }
   if (!diagnosticsAvailable()) return;
   state.enabled = true;
   state.logToConsole = options?.logToConsole ?? false;
+  writeSessionEnabled(true);
 }
 
 export function disableChatScrollDiagnostics(): void {
   state.enabled = false;
   state.logToConsole = false;
+  writeSessionEnabled(false);
 }
 
 export function resetChatScrollDiagnostics(): void {

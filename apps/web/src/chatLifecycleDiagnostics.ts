@@ -81,7 +81,7 @@ const state: ChatLifecycleDiagnosticBuffer =
     ? window.__penkraChatLifecycleDiagnosticBuffer
     : {
         nextSequence: 1,
-        logToConsole: true,
+        logToConsole: false,
         samples: [],
         lastSignatureByThreadId: new Map<string, string>(),
       };

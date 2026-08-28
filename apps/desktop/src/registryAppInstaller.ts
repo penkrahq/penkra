@@ -29,47 +29,47 @@ export async function installRegistryApp(input: {
   packages: Pick<AppPackageIngestor, "ingestRegistryArchive">;
   installations: Pick<AppInstallationService, "installForSpace">;
 }): Promise<AppInstallationState> {
-  const app = await input.registry.get({ slug: input.request.slug });
-  const version = app.versions.find((candidate) => candidate.version === input.request.version);
-  if (!version) throw new Error("The selected App version is no longer available.");
-  if (!satisfies(input.hostVersion, version.compatibilityRange, { includePrerelease: true })) {
-    throw new Error(
-      `App ${app.displayName} ${version.version} is not compatible with Penkra ${input.hostVersion}.`,
+  const trace = new RegistryInstallTrace("install", input.request.slug, input.request.version);
+  return trace.run(async () => {
+    trace.stage("listing");
+    const app = await input.registry.get({ slug: input.request.slug });
+    const version = app.versions.find((candidate) => candidate.version === input.request.version);
+    if (!version) throw new Error("The selected App version is no longer available.");
+    if (!satisfies(input.hostVersion, version.compatibilityRange, { includePrerelease: true })) {
+      throw new Error(
+        `App ${app.displayName} ${version.version} is not compatible with Penkra ${input.hostVersion}.`,
+      );
+    }
+    const grants = resolvePermissionGrants(version.permissions, input.request.permissions);
+    trace.stage("download-and-policy");
+    const [verified, policy] = await downloadReleaseAndPolicy(
+      input.registry.downloadVerifiedRelease({ app, version }),
+      input.registry.getSecurityPolicy(),
     );
-  }
-  const grants = resolvePermissionGrants(version.permissions, input.request.permissions);
-  const [verified, policy] = await Promise.all([
-    input.registry.downloadVerifiedRelease({ app, version }),
-    input.registry.getSecurityPolicy(),
-  ]);
-  assertRegistryReleaseAllowed(policy, {
-    appId: verified.release.appId,
-    versionId: verified.release.versionId,
-    publisherId: verified.release.publisher.id,
-  });
-  const installedPackage = await input.packages.ingestRegistryArchive({
-    packageBytes: verified.packageBytes,
-    expectedArchiveDigest: verified.release.packageDigest,
-  });
-  assertPackageMatchesRegistry(installedPackage, app, version);
-  const state = await input.installations.installForSpace({
-    package: {
-      ...installedPackage,
-      source: "registry",
-      registryRelease: {
-        appId: app.id,
-        versionId: version.id,
-        publisherId: verified.release.publisher.id,
-        packageDigest: verified.release.packageDigest,
-        keyId: verified.release.keyId,
-        publishedAt: verified.release.publishedAt,
+    await assertDownloadedReleaseAllowed(verified, policy);
+    trace.stage("ingestion");
+    const installedPackage = await ingestVerifiedRelease(input.packages, verified);
+    assertPackageMatchesRegistry(installedPackage, app, version);
+    trace.stage("commit");
+    const state = await input.installations.installForSpace({
+      package: {
+        ...installedPackage,
+        source: "registry",
+        registryRelease: {
+          appId: app.id,
+          versionId: version.id,
+          publisherId: verified.release.publisher.id,
+          packageDigest: verified.release.packageDigest,
+          keyId: verified.release.keyId,
+          publishedAt: verified.release.publishedAt,
+        },
       },
-    },
-    spaceId: input.request.spaceId,
-    permissions: grants,
+      spaceId: input.request.spaceId,
+      permissions: grants,
+    });
+    await input.registry.recordSuccessfulInstallDurably({ appId: app.id, versionId: version.id });
+    return state;
   });
-  await input.registry.recordSuccessfulInstallDurably({ appId: app.id, versionId: version.id });
-  return state;
 }
 
 export async function updateRegistryApp(input: {
@@ -117,62 +117,155 @@ async function replaceRegistryApp(
   },
   direction: "update" | "rollback",
 ): Promise<AppInstallationState> {
-  const app = await input.registry.get({ slug: input.request.slug });
-  const version = app.versions.find((candidate) => candidate.version === input.request.version);
-  if (!version) throw new Error("The selected App version is no longer available.");
-  const current = getInstalledAppPackage(
-    input.installations.snapshot(),
-    app.identifier,
-    input.request.spaceId,
-  );
-  if (!current || current.source !== "registry")
-    throw new Error(`${app.displayName} is not installed from the registry.`);
-  const correctDirection =
-    direction === "update"
-      ? gt(version.version, current.version)
-      : lt(version.version, current.version);
-  if (!correctDirection) {
-    throw new Error(
+  const trace = new RegistryInstallTrace(direction, input.request.slug, input.request.version);
+  return trace.run(async () => {
+    trace.stage("listing");
+    const app = await input.registry.get({ slug: input.request.slug });
+    const version = app.versions.find((candidate) => candidate.version === input.request.version);
+    if (!version) throw new Error("The selected App version is no longer available.");
+    const current = getInstalledAppPackage(
+      input.installations.snapshot(),
+      app.identifier,
+      input.request.spaceId,
+    );
+    if (!current || current.source !== "registry")
+      throw new Error(`${app.displayName} is not installed from the registry.`);
+    const correctDirection =
       direction === "update"
-        ? `App updates must move forward from ${current.version} to a newer version.`
-        : `App rollback must select a version older than ${current.version}.`,
+        ? gt(version.version, current.version)
+        : lt(version.version, current.version);
+    if (!correctDirection) {
+      throw new Error(
+        direction === "update"
+          ? `App updates must move forward from ${current.version} to a newer version.`
+          : `App rollback must select a version older than ${current.version}.`,
+      );
+    }
+    if (!satisfies(input.hostVersion, version.compatibilityRange, { includePrerelease: true })) {
+      throw new Error(
+        `App ${app.displayName} ${version.version} is not compatible with Penkra ${input.hostVersion}.`,
+      );
+    }
+    trace.stage("download-and-policy");
+    const [verified, policy] = await downloadReleaseAndPolicy(
+      input.registry.downloadVerifiedRelease({ app, version }),
+      input.registry.getSecurityPolicy(),
     );
-  }
-  if (!satisfies(input.hostVersion, version.compatibilityRange, { includePrerelease: true })) {
-    throw new Error(
-      `App ${app.displayName} ${version.version} is not compatible with Penkra ${input.hostVersion}.`,
-    );
-  }
-  const [verified, policy] = await Promise.all([
-    input.registry.downloadVerifiedRelease({ app, version }),
-    input.registry.getSecurityPolicy(),
-  ]);
-  assertRegistryReleaseAllowed(policy, {
-    appId: verified.release.appId,
-    versionId: verified.release.versionId,
-    publisherId: verified.release.publisher.id,
-  });
-  const installedPackage = await input.packages.ingestRegistryArchive({
-    packageBytes: verified.packageBytes,
-    expectedArchiveDigest: verified.release.packageDigest,
-  });
-  assertPackageMatchesRegistry(installedPackage, app, version);
-  return input.installations.updateForSpace({
-    package: {
-      ...installedPackage,
-      source: "registry",
-      registryRelease: {
-        appId: app.id,
-        versionId: version.id,
-        publisherId: verified.release.publisher.id,
-        packageDigest: verified.release.packageDigest,
-        keyId: verified.release.keyId,
-        publishedAt: verified.release.publishedAt,
+    await assertDownloadedReleaseAllowed(verified, policy);
+    trace.stage("ingestion");
+    const installedPackage = await ingestVerifiedRelease(input.packages, verified);
+    assertPackageMatchesRegistry(installedPackage, app, version);
+    trace.stage("commit");
+    return input.installations.updateForSpace({
+      package: {
+        ...installedPackage,
+        source: "registry",
+        registryRelease: {
+          appId: app.id,
+          versionId: version.id,
+          publisherId: verified.release.publisher.id,
+          packageDigest: verified.release.packageDigest,
+          keyId: verified.release.keyId,
+          publishedAt: verified.release.publishedAt,
+        },
       },
-    },
-    spaceId: input.request.spaceId,
-    permissions: input.request.permissions,
+      spaceId: input.request.spaceId,
+      permissions: input.request.permissions,
+    });
   });
+}
+
+class RegistryInstallTrace {
+  readonly #startedAt = Date.now();
+  #stage = "starting";
+
+  constructor(
+    readonly operation: "install" | "update" | "rollback",
+    readonly appSlug: string,
+    readonly version: string,
+  ) {}
+
+  stage(stage: string): void {
+    this.#stage = stage;
+    this.#log("stage");
+  }
+
+  async run<T>(operation: () => Promise<T>): Promise<T> {
+    this.#log("started");
+    try {
+      const result = await operation();
+      this.#stage = "completed";
+      this.#log("completed");
+      return result;
+    } catch (error) {
+      this.#log("failed", error);
+      throw error;
+    }
+  }
+
+  #log(event: "started" | "stage" | "completed" | "failed", error?: unknown): void {
+    const details = {
+      event,
+      operation: this.operation,
+      appSlug: this.appSlug,
+      version: this.version,
+      stage: this.#stage,
+      elapsedMs: Date.now() - this.#startedAt,
+      ...(error === undefined
+        ? {}
+        : { error: error instanceof Error ? error.message : String(error) }),
+    };
+    const method = event === "failed" ? console.warn : console.info;
+    method("[penkra-app-install] Registry installation", details);
+  }
+}
+
+async function assertDownloadedReleaseAllowed(
+  verified: Awaited<ReturnType<AppRegistryClient["downloadVerifiedRelease"]>>,
+  policy: Parameters<typeof assertRegistryReleaseAllowed>[0],
+): Promise<void> {
+  try {
+    assertRegistryReleaseAllowed(policy, {
+      appId: verified.release.appId,
+      versionId: verified.release.versionId,
+      publisherId: verified.release.publisher.id,
+    });
+  } catch (error) {
+    await verified.package.dispose();
+    throw error;
+  }
+}
+
+async function downloadReleaseAndPolicy(
+  download: ReturnType<AppRegistryClient["downloadVerifiedRelease"]>,
+  policy: ReturnType<AppRegistryClient["getSecurityPolicy"]>,
+): Promise<
+  [
+    Awaited<ReturnType<AppRegistryClient["downloadVerifiedRelease"]>>,
+    Awaited<ReturnType<AppRegistryClient["getSecurityPolicy"]>>,
+  ]
+> {
+  const [downloadResult, policyResult] = await Promise.allSettled([download, policy]);
+  if (downloadResult.status === "rejected") throw downloadResult.reason;
+  if (policyResult.status === "rejected") {
+    await downloadResult.value.package.dispose();
+    throw policyResult.reason;
+  }
+  return [downloadResult.value, policyResult.value];
+}
+
+async function ingestVerifiedRelease(
+  packages: Pick<AppPackageIngestor, "ingestRegistryArchive">,
+  verified: Awaited<ReturnType<AppRegistryClient["downloadVerifiedRelease"]>>,
+): Promise<Awaited<ReturnType<AppPackageIngestor["ingestRegistryArchive"]>>> {
+  try {
+    return await packages.ingestRegistryArchive({
+      archivePath: verified.package.archivePath,
+      expectedArchiveDigest: verified.release.packageDigest,
+    });
+  } finally {
+    await verified.package.dispose();
+  }
 }
 
 function resolvePermissionGrants(

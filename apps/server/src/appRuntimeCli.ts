@@ -1024,7 +1024,9 @@ async function request(method: string, params: unknown, env: NodeJS.ProcessEnv):
     const socket = Net.createConnection(path);
     let bytes = Buffer.alloc(0);
     const timeoutMs =
-      method === "developer.submissions.create" || method === "developer.sideload"
+      method === "developer.submissions.create" ||
+      method === "developer.submissions.resume-upload" ||
+      method === "developer.sideload"
         ? DEVELOPER_MUTATION_TIMEOUT_MS
         : TIMEOUT_MS;
     const timer = setTimeout(

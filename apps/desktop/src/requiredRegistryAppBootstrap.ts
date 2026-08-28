@@ -2,7 +2,6 @@
 // Purpose: Loads Penkra's embedded Apps archive and reconciles its required per-Space installation.
 // Layer: Trusted desktop App bootstrap
 
-import { createHash } from "node:crypto";
 import * as FS from "node:fs";
 import * as Path from "node:path";
 
@@ -36,7 +35,6 @@ export {
 } from "@penkra/shared/requiredAppsRelease";
 
 const REQUIRED_APPS_LOCK_MAX_BYTES = 16 * 1024;
-const REQUIRED_APPS_ARCHIVE_MAX_BYTES = 64 * 1024 * 1024;
 
 export type RequiredAppsBundleSource =
   | { kind: "archive"; archivePath: string; lockPath: string }
@@ -90,17 +88,8 @@ export async function loadRequiredAppsPackage(input: {
   let lockedVersion: string | null = null;
   if (input.source.kind === "archive") {
     const lock = await readReleaseLock(input.source.lockPath);
-    const archive = await readBoundedFile(
-      input.source.archivePath,
-      REQUIRED_APPS_ARCHIVE_MAX_BYTES,
-      "Required Apps archive",
-    );
-    const packageDigest = createHash("sha256").update(archive).digest("hex");
-    if (packageDigest !== lock.packageDigest) {
-      throw new Error("Embedded Apps archive does not match its release lock.");
-    }
     verified = await input.runtime.packages.ingestRegistryArchive({
-      packageBytes: archive,
+      archivePath: input.source.archivePath,
       expectedArchiveDigest: lock.packageDigest,
     });
     lockedVersion = lock.version;

@@ -31,6 +31,15 @@ const app = {
   versions: [version],
 };
 
+function downloadedPackage(archivePath: string) {
+  return {
+    archivePath,
+    byteLength: 3,
+    sha256: version.packageDigest,
+    dispose: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 describe("registry App installer", () => {
   it("passes only a verified, compatible package and reviewed grants to installation", async () => {
     const installForSpace = vi.fn().mockResolvedValue(createEmptyAppInstallationState());
@@ -42,7 +51,7 @@ describe("registry App installer", () => {
       revocations: [],
       keyId: "a".repeat(16),
     });
-    const packageBytes = Uint8Array.from([1, 2, 3]);
+    const downloaded = downloadedPackage("/downloads/canvas-1.0.0.penkra");
     const ingestRegistryArchive = vi.fn().mockResolvedValue({
       source: "registry",
       packagePath: "/profile/apps/canvas",
@@ -72,7 +81,7 @@ describe("registry App installer", () => {
       registry: {
         get: vi.fn().mockResolvedValue(app),
         downloadVerifiedRelease: vi.fn().mockResolvedValue({
-          packageBytes,
+          package: downloaded,
           release: {
             appId: app.id,
             versionId: version.id,
@@ -90,9 +99,10 @@ describe("registry App installer", () => {
     });
 
     expect(ingestRegistryArchive).toHaveBeenCalledWith({
-      packageBytes,
+      archivePath: downloaded.archivePath,
       expectedArchiveDigest: version.packageDigest,
     });
+    expect(downloaded.dispose).toHaveBeenCalledOnce();
     expect(installForSpace).toHaveBeenCalledWith(
       expect.objectContaining({
         spaceId: "space",
@@ -128,7 +138,7 @@ describe("registry App installer", () => {
     const updatedVersion = { ...version, version: "2.0.0" };
     const updatedApp = { ...app, latestVersion: "2.0.0", versions: [updatedVersion] };
     const updateForSpace = vi.fn().mockResolvedValue(createEmptyAppInstallationState());
-    const packageBytes = Uint8Array.from([4, 5, 6]);
+    const downloaded = downloadedPackage("/downloads/canvas-2.0.0.penkra");
     const installedPackage = {
       source: "registry" as const,
       packagePath: "/profile/apps/canvas/2.0.0",
@@ -157,7 +167,7 @@ describe("registry App installer", () => {
       registry: {
         get: vi.fn().mockResolvedValue(updatedApp),
         downloadVerifiedRelease: vi.fn().mockResolvedValue({
-          packageBytes,
+          package: downloaded,
           release: {
             appId: app.id,
             versionId: updatedVersion.id,
@@ -214,7 +224,7 @@ describe("registry App installer", () => {
     const rollbackApp = { ...app, latestVersion: "2.0.0", versions: [version, currentVersion] };
     const updateForSpace = vi.fn().mockResolvedValue(createEmptyAppInstallationState());
     const downloadVerifiedRelease = vi.fn().mockResolvedValue({
-      packageBytes: Uint8Array.from([7, 8, 9]),
+      package: downloadedPackage("/downloads/canvas-1.0.0.penkra"),
       release: {
         appId: app.id,
         versionId: version.id,

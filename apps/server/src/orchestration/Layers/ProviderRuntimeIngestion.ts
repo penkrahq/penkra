@@ -15,7 +15,18 @@ import {
   type RuntimeMode,
 } from "@penkra/contracts";
 import { createHash } from "node:crypto";
-import { Cache, Cause, Deferred, Duration, Effect, Layer, Option, Ref, Stream } from "effect";
+import {
+  Cache,
+  Cause,
+  Deferred,
+  Duration,
+  Effect,
+  Layer,
+  Option,
+  Queue,
+  Ref,
+  Stream,
+} from "effect";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { makeDrainableWorker, startDrainableWorkerProducers } from "@penkra/shared/DrainableWorker";
@@ -77,6 +88,7 @@ const providerCommandId = (event: ProviderRuntimeEvent, tag: string, target = "e
 const DEFAULT_ASSISTANT_DELIVERY_MODE: AssistantDeliveryMode = "buffered";
 const PROVIDER_RUNTIME_INGESTION_CAPACITY = 1_024;
 const PROVIDER_RUNTIME_REPLAY_PAGE_SIZE = 128;
+const PROVIDER_RUNTIME_REPLAY_EVENTS_PER_THREAD = 32;
 const PROVIDER_RUNTIME_REPLAY_POLL_INTERVAL = Duration.millis(250);
 const TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY = 2_048;
 const TURN_MESSAGE_IDS_BY_TURN_TTL = Duration.minutes(60);
@@ -589,12 +601,11 @@ const make = Effect.gen(function* () {
   const materializeCanonicalOperation = (event: ProviderRuntimeEvent) => {
     const operation = canonicalOperationFromRuntimeEvent(event);
     if (operation === null) return Effect.succeed(false);
-    return sql.withTransaction(
-      Effect.gen(function* () {
-        const existing = yield* sql<{
-          readonly operationId: string;
-          readonly lastSourceEventId: string;
-        }>`
+    return Effect.gen(function* () {
+      const existing = yield* sql<{
+        readonly operationId: string;
+        readonly lastSourceEventId: string;
+      }>`
           SELECT operation_id AS "operationId", last_source_event_id AS "lastSourceEventId"
           FROM operations
           WHERE provider = ${operation.provider}
@@ -602,10 +613,10 @@ const make = Effect.gen(function* () {
             AND COALESCE(turn_id, '') = COALESCE(${operation.turnId}, '')
             AND provider_operation_id = ${operation.providerOperationId}
         `;
-        if (existing[0]?.lastSourceEventId === operation.sourceEventId) return true;
-        const operationId = existing[0]?.operationId ?? `operation:${crypto.randomUUID()}`;
+      if (existing[0]?.lastSourceEventId === operation.sourceEventId) return true;
+      const operationId = existing[0]?.operationId ?? `operation:${crypto.randomUUID()}`;
 
-        yield* sql`
+      yield* sql`
           INSERT INTO operations (
             operation_id, provider_operation_id, thread_id, turn_id, provider,
             item_type, title, status, input_json, started_at,
@@ -646,22 +657,20 @@ const make = Effect.gen(function* () {
             last_source_event_id = excluded.last_source_event_id,
             updated_at = excluded.updated_at
         `;
-        return true;
-      }),
-    );
+      return true;
+    });
   };
 
   const materializeCanonicalNotice = (event: ProviderRuntimeEvent) => {
     if (event.type !== "runtime.warning") return Effect.succeed(false);
     const activity = projectProviderRuntimeActivities(event)[0];
     if (!activity) return Effect.succeed(false);
-    return sql.withTransaction(
-      Effect.gen(function* () {
-        const existing = yield* sql<{ readonly present: number }>`
+    return Effect.gen(function* () {
+      const existing = yield* sql<{ readonly present: number }>`
           SELECT 1 AS present FROM notices WHERE notice_id = ${event.eventId}
         `;
-        if (existing.length > 0) return true;
-        yield* sql`
+      if (existing.length > 0) return true;
+      yield* sql`
           INSERT INTO notices (
             notice_id, thread_id, turn_id, kind, tone, summary,
             detail_json, created_at
@@ -671,9 +680,8 @@ const make = Effect.gen(function* () {
             ${JSON.stringify(activity.payload)}, ${event.createdAt}
           )
         `;
-        return true;
-      }),
-    );
+      return true;
+    });
   };
 
   const resolveEventConnectionId = (event: ProviderRuntimeEvent) =>
@@ -706,14 +714,13 @@ const make = Effect.gen(function* () {
           rateLimits !== null && typeof rateLimits === "object" && "status" in rateLimits
             ? String((rateLimits as { readonly status?: unknown }).status ?? "") || null
             : null;
-        yield* sql.withTransaction(
-          Effect.gen(function* () {
-            const existing = yield* sql<{ readonly sourceEventId: string }>`
+        yield* Effect.gen(function* () {
+          const existing = yield* sql<{ readonly sourceEventId: string }>`
               SELECT last_source_event_id AS "sourceEventId"
               FROM connection_rate_limits WHERE connection_id = ${connectionId}
             `;
-            if (existing[0]?.sourceEventId === event.eventId) return;
-            yield* sql`
+          if (existing[0]?.sourceEventId === event.eventId) return;
+          yield* sql`
               INSERT INTO connection_rate_limits (
                 connection_id, provider, limits_json, status,
                 last_source_event_id, updated_at
@@ -728,22 +735,20 @@ const make = Effect.gen(function* () {
                 last_source_event_id = excluded.last_source_event_id,
                 updated_at = excluded.updated_at
             `;
-          }),
-        );
+        });
         return;
       }
 
       const tokenUsage = completedTurnTokenUsage(event);
-      yield* sql.withTransaction(
-        Effect.gen(function* () {
-          const inserted = yield* sql<{ readonly sourceEventId: string }>`
+      yield* Effect.gen(function* () {
+        const inserted = yield* sql<{ readonly sourceEventId: string }>`
             INSERT INTO connection_usage_turn_events (source_event_id, connection_id, utc_day)
             VALUES (${event.eventId}, ${connectionId}, ${utcDay})
             ON CONFLICT(source_event_id) DO NOTHING
             RETURNING source_event_id AS "sourceEventId"
           `;
-          if (inserted.length === 0) return;
-          yield* sql`
+        if (inserted.length === 0) return;
+        yield* sql`
             INSERT INTO connection_usage_daily (
               utc_day, connection_id, provider, input_tokens, output_tokens,
               reasoning_output_tokens, turns, updated_at
@@ -760,8 +765,7 @@ const make = Effect.gen(function* () {
               turns = connection_usage_daily.turns + 1,
               updated_at = excluded.updated_at
           `;
-        }),
-      );
+      });
     });
   const outstandingTurnIdsByThreadRef = yield* Ref.make<ReadonlyMap<ThreadId, ReadonlySet<TurnId>>>(
     new Map(),
@@ -1281,6 +1285,29 @@ const make = Effect.gen(function* () {
     );
   };
 
+  const bufferNonAssistantContentDelta = (
+    event: Extract<ProviderRuntimeEvent, { readonly type: "content.delta" }>,
+  ) =>
+    Effect.gen(function* () {
+      if (event.payload.delta.length === 0) return;
+      if (
+        event.itemId &&
+        (event.payload.streamKind === "command_output" ||
+          event.payload.streamKind === "file_change_output")
+      ) {
+        yield* appendBufferedToolOutput(
+          [event.threadId, event.turnId ?? "no-turn", event.itemId].join(":"),
+          event.payload.delta,
+        );
+      }
+      if (event.payload.streamKind === "reasoning_summary_text") {
+        const reasoningKey = reasoningSummaryBufferKey(event, event.threadId);
+        if (reasoningKey) {
+          yield* appendBufferedReasoningSummary(reasoningKey, event);
+        }
+      }
+    });
+
   const clearAssistantMessageState = (messageId: MessageId) =>
     Cache.invalidate(bufferedAssistantTextByMessageId, messageId);
 
@@ -1633,12 +1660,15 @@ const make = Effect.gen(function* () {
       );
     });
 
-  const commitCanonicalRuntimeEvent = (event: ProviderRuntimeEvent) =>
+  const commitCanonicalRuntimeEventInCurrentTransaction = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
       yield* materializeCanonicalOperation(event);
       yield* materializeCanonicalNotice(event);
       yield* materializeConnectionFacts(event);
     });
+
+  const commitCanonicalRuntimeEvent = (event: ProviderRuntimeEvent) =>
+    sql.withTransaction(commitCanonicalRuntimeEventInCurrentTransaction(event));
 
   const processRuntimeEvent = (
     event: ProviderRuntimeEvent,
@@ -2012,24 +2042,9 @@ const make = Effect.gen(function* () {
       const toolOutputKey = event.itemId
         ? [event.threadId, event.turnId ?? "no-turn", event.itemId].join(":")
         : null;
-      if (
-        toolOutputKey &&
-        event.type === "content.delta" &&
-        (event.payload.streamKind === "command_output" ||
-          event.payload.streamKind === "file_change_output") &&
-        event.payload.delta.length > 0
-      ) {
-        yield* appendBufferedToolOutput(toolOutputKey, event.payload.delta);
-      }
-
       const reasoningSummaryKey = reasoningSummaryBufferKey(event, thread.id);
-      if (
-        reasoningSummaryKey &&
-        event.type === "content.delta" &&
-        event.payload.streamKind === "reasoning_summary_text" &&
-        event.payload.delta.length > 0
-      ) {
-        yield* appendBufferedReasoningSummary(reasoningSummaryKey, event);
+      if (event.type === "content.delta") {
+        yield* bufferNonAssistantContentDelta(event);
       }
 
       const assistantDelta =
@@ -2386,8 +2401,28 @@ const make = Effect.gen(function* () {
       });
     });
 
+  let runtimeCommitsPendingThisPage: Array<{
+    readonly input: Extract<RuntimeIngestionInput, { readonly source: "runtime" }>;
+    readonly canonicalEvent: ProviderRuntimeEvent | undefined;
+  }> = [];
+
   const processInput = (input: RuntimeIngestionInput): Effect.Effect<void, unknown> => {
     if (input.source !== "runtime") return processDomainEvent(input.event);
+    if (
+      input.event.type === "content.delta" &&
+      input.event.providerRefs === undefined &&
+      (input.event.payload.streamKind === "command_output" ||
+        input.event.payload.streamKind === "file_change_output" ||
+        input.event.payload.streamKind === "reasoning_summary_text")
+    ) {
+      return bufferNonAssistantContentDelta(input.event).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            runtimeCommitsPendingThisPage.push({ input, canonicalEvent: undefined });
+          }),
+        ),
+      );
+    }
     let canonicalEvent: ProviderRuntimeEvent | undefined;
     return processRuntimeEvent(input.event, (event) =>
       Effect.sync(() => {
@@ -2395,25 +2430,9 @@ const make = Effect.gen(function* () {
       }),
     ).pipe(
       Effect.andThen(
-        sql.withTransaction(
-          Effect.gen(function* () {
-            if (canonicalEvent !== undefined) {
-              yield* commitCanonicalRuntimeEvent(canonicalEvent);
-            }
-            const advanced = yield* runtimeEvents.advanceThreadCursor({
-              threadId: input.event.threadId,
-              eventSequence: input.sequence,
-              updatedAt: new Date().toISOString(),
-            });
-            if (!advanced) {
-              return yield* Effect.die(
-                new Error(
-                  `Provider runtime thread cursor could not advance through event ${input.sequence}`,
-                ),
-              );
-            }
-          }),
-        ),
+        Effect.sync(() => {
+          runtimeCommitsPendingThisPage.push({ input, canonicalEvent });
+        }),
       ),
     );
   };
@@ -2546,6 +2565,9 @@ const make = Effect.gen(function* () {
     capacity: PROVIDER_RUNTIME_INGESTION_CAPACITY,
   });
   const runtimeJournalDrainLock = yield* Semaphore.make(1);
+  // The journal is the durable queue. Live notifications only wake its single
+  // drainer, so a provider burst cannot create one scan/drain cycle per event.
+  const runtimeJournalWake = yield* Queue.sliding<void>(1);
 
   const drainRuntimeJournalThrough = (throughSequenceInclusive?: number) =>
     runtimeJournalDrainLock.withPermits(1)(
@@ -2553,9 +2575,10 @@ const make = Effect.gen(function* () {
         const replayFence = throughSequenceInclusive ?? (yield* runtimeEvents.getHighWaterSequence);
         runtimeThreadsBlockedThisDrain = new Set<string>();
         while (true) {
-          const page = yield* runtimeEvents.readPendingThreadHeads({
+          const page = yield* runtimeEvents.readPendingThreadEvents({
             throughSequenceInclusive: replayFence,
             limit: PROVIDER_RUNTIME_REPLAY_PAGE_SIZE,
+            maxPerThread: PROVIDER_RUNTIME_REPLAY_EVENTS_PER_THREAD,
           });
           if (page.length === 0) return;
 
@@ -2564,6 +2587,7 @@ const make = Effect.gen(function* () {
           );
           if (processablePage.length === 0) return;
 
+          runtimeCommitsPendingThisPage = [];
           yield* Effect.forEach(processablePage, (entry) =>
             worker.enqueue({
               source: "runtime",
@@ -2572,6 +2596,34 @@ const make = Effect.gen(function* () {
             }),
           );
           yield* worker.drain;
+          const pendingCommits = runtimeCommitsPendingThisPage;
+          runtimeCommitsPendingThisPage = [];
+          if (pendingCommits.length > 0) {
+            yield* sql.withTransaction(
+              Effect.forEach(
+                pendingCommits,
+                ({ input, canonicalEvent }) =>
+                  Effect.gen(function* () {
+                    if (canonicalEvent !== undefined) {
+                      yield* commitCanonicalRuntimeEventInCurrentTransaction(canonicalEvent);
+                    }
+                    const advanced = yield* runtimeEvents.advanceThreadCursorInCurrentTransaction({
+                      threadId: input.event.threadId,
+                      eventSequence: input.sequence,
+                      updatedAt: new Date().toISOString(),
+                    });
+                    if (!advanced) {
+                      return yield* Effect.die(
+                        new Error(
+                          `Provider runtime thread cursor could not advance through event ${input.sequence}`,
+                        ),
+                      );
+                    }
+                  }),
+                { concurrency: 1, discard: true },
+              ),
+            );
+          }
         }
       }),
     );
@@ -2781,11 +2833,16 @@ const make = Effect.gen(function* () {
     worker,
     Effect.gen(function* () {
       yield* Effect.forkScoped(
+        Effect.forever(
+          Queue.take(runtimeJournalWake).pipe(Effect.andThen(drainRuntimeJournalSafely)),
+        ),
+      );
+      yield* Effect.forkScoped(
         Stream.runForEach(providerService.streamEvents, (event) =>
           runtimeEvents.append(event).pipe(
-            Effect.flatMap((persisted) =>
+            Effect.andThen(
               Deferred.await(startupRuntimeReplayComplete).pipe(
-                Effect.andThen(drainRuntimeJournalThrough(persisted.sequence)),
+                Effect.andThen(Queue.offer(runtimeJournalWake, undefined)),
               ),
             ),
             Effect.catchCause((cause) =>

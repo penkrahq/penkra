@@ -190,63 +190,68 @@ function verifyReleaseWorkflowSafety(): void {
   );
   assertContains(
     ciWorkflow,
-    "test:browser:stable",
-    "Expected stable browser behavior to block CI.",
+    "test:browser:chat-view",
+    "Expected full ChatView behavior to block CI in its own deterministic partition.",
   );
   assertContains(
     ciWorkflow,
-    "test:browser:geometry",
-    "Expected quarantined Linux geometry checks to remain independently visible.",
+    "test:browser:components",
+    "Expected component browser behavior to block CI in its own deterministic partition.",
+  );
+  assertNotContains(
+    ciWorkflow,
+    "continue-on-error: true",
+    "Required CI must not convert a failing test lane into a successful quality gate.",
+  );
+  assertNotContains(
+    ciWorkflow,
+    "Native Desktop Package",
+    "Commit CI must leave final native artifact certification to the release workflow.",
   );
   assertContains(
     ciWorkflow,
-    "name: Native Desktop Package (${{ matrix.name }})",
-    "Expected native Windows and Linux packages to be tested before release tagging.",
+    "bun run --cwd apps/server test",
+    "Expected the isolated parallel server suite to block CI.",
   );
   assertContains(
     ciWorkflow,
-    "runner: windows-2025",
-    "Expected pre-release packaged startup evidence from native Windows.",
+    "bun run build:desktop",
+    "Expected the production desktop build to enforce its integrated React compiler contract.",
   );
-  assertContains(
-    ciWorkflow,
-    '--platform "${{ matrix.platform }}"',
-    "Expected CI to build and launch each native desktop package.",
-  );
-  assertContains(
-    ciWorkflow,
-    "DESKTOP_PLATFORM_RESULT: ${{ needs.desktop_platform.result }}",
-    "Expected native packaged startup to block the aggregate quality gate.",
+  assertNotContains(
+    workflow,
+    "push:\n    tags:",
+    "A release tag must not exist before native artifacts have passed certification.",
   );
   assertContains(
     workflow,
-    'tags:\n      - "v*.*.*"',
-    "Expected stable desktop releases to build from version tags.",
+    "workflow_dispatch:\n    inputs:\n      release_version:",
+    "Expected releases to begin from an explicit stable version.",
   );
   assertContains(
     workflow,
-    "workflow_dispatch:\n    inputs:\n      release_tag:",
-    "Expected failed native builds to be recoverable only from an explicitly named stable tag.",
+    "source_commit:",
+    "Expected releases to certify one explicit source commit.",
   );
   assertContains(
     workflow,
-    "RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}",
-    "Expected push and manual release runs to resolve one explicit tag identity.",
+    "ref: ${{ env.SOURCE_COMMIT }}",
+    "Expected every release job to check out the explicitly certified source.",
   );
   assertContains(
     workflow,
-    "ref: ${{ env.RELEASE_TAG }}",
-    "Expected manual release recovery to check out the tagged source, not main.",
+    "Create immutable tag after artifact certification",
+    "Expected the immutable tag to be created only after every native build passes.",
   );
   assertContains(
     workflow,
-    '[[ ! "$version" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]',
-    "Expected release tags to require stable semantic versions.",
+    'git tag "$RELEASE_TAG" "$SOURCE_COMMIT"',
+    "Expected the certified release tag to bind the exact requested source commit.",
   );
   assertContains(
     workflow,
     'select(.name == "Penkra CI Quality Gate" and .conclusion == "success"',
-    "Expected releases to require successful CI for the exact tagged commit.",
+    "Expected releases to require successful CI for the exact certified commit.",
   );
   assertNotContains(
     workflow,
@@ -353,7 +358,7 @@ function verifyReleaseWorkflowSafety(): void {
   assertContains(
     workflow,
     "--source-commit",
-    "Expected release artifacts to be bound to the tagged commit.",
+    "Expected release artifacts to be bound to the certified commit.",
   );
   assertContains(
     workflow,

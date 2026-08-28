@@ -28,6 +28,30 @@ describe("chat scroll diagnostics", () => {
     expect(getChatScrollDiagnosticSamples()).toEqual([]);
   });
 
+  it("keeps the opt-in armed for renderer reloads and clears it when disabled", () => {
+    const sessionKey = "penkra:chat-scroll-diagnostics-enabled";
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    };
+    Object.defineProperty(globalThis, "sessionStorage", {
+      configurable: true,
+      value: storage,
+    });
+    try {
+      expect(storage.getItem(sessionKey)).toBeNull();
+      enableChatScrollDiagnostics();
+      expect(storage.getItem(sessionKey)).toBe("1");
+
+      disableChatScrollDiagnostics();
+      expect(storage.getItem(sessionKey)).toBeNull();
+    } finally {
+      Reflect.deleteProperty(globalThis, "sessionStorage");
+    }
+  });
+
   it("captures both DOM and virtualizer end-state without transcript content", () => {
     enableChatScrollDiagnostics();
     expect(areChatScrollDiagnosticsEnabled()).toBe(true);

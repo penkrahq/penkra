@@ -151,9 +151,7 @@ export function parseAppNetworkUrl(value: string): URL {
     throw new Error("Mediated App requests cannot use embedded credentials.");
   }
   if (url.protocol !== "https:" && !loopbackHttp) {
-    throw new Error(
-      "Mediated App requests require HTTPS, except for loopback development URLs.",
-    );
+    throw new Error("Mediated App requests require HTTPS, except for loopback development URLs.");
   }
   return url;
 }

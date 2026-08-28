@@ -13,12 +13,14 @@ concurrency:
 
 jobs:
   static:
-    name: Format, Lint, and Typecheck
+    name: Static and Repository Contracts
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
@@ -37,10 +39,16 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Verify released migration lineage
+        run: bun run migrations:check
+
+      - name: Exercise release contracts
+        run: bun run release:smoke
+
   workspace_tests:
     name: Workspace Tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -56,14 +64,10 @@ jobs:
       - name: Test non-server packages
         run: bunx turbo run test --filter='!@penkra/cli'
 
-  server_serial:
-    name: Serial Server Tests (${{ matrix.shard }}/2)
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
+  server_tests:
+    name: Server Tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -71,22 +75,26 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          cache-suffix: server-serial-${{ matrix.shard }}
+          cache-suffix: server-tests
 
       - name: Build server test dependencies
         run: bunx turbo run build --filter='@penkra/cli^...' --filter='penkra-sample-app^...'
 
-      - name: Run serial server shard
-        run: bun run --cwd apps/server test:serial -- --shard=${{ matrix.shard }}/2
+      - name: Run isolated server suite
+        run: bun run --cwd apps/server test
 
-  browser_stable:
-    name: Stable Browser Tests (${{ matrix.shard }}/2)
+  browser_tests:
+    name: Browser Tests (${{ matrix.name }})
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
-        shard: [1, 2]
+        include:
+          - name: ChatView
+            command: test:browser:chat-view
+          - name: Components
+            command: test:browser:components
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -94,7 +102,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          cache-suffix: browser-stable-${{ matrix.shard }}
+          cache-suffix: browser-${{ matrix.command }}
 
       - name: Cache Playwright browser
         uses: actions/cache@v5
@@ -105,20 +113,29 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Chromium runtime
-        timeout-minutes: 15
+        timeout-minutes: 10
         env:
           DEBIAN_FRONTEND: noninteractive
         working-directory: apps/web
         run: ./node_modules/.bin/playwright install --with-deps chromium
 
-      - name: Run stable browser tests
-        timeout-minutes: 20
-        run: bun run --cwd apps/web test:browser:stable -- --shard=${{ matrix.shard }}/2
+      - name: Run browser partition
+        timeout-minutes: 10
+        run: bun run --cwd apps/web ${{ matrix.command }}
 
-  browser_geometry:
-    name: Linux Browser Geometry Signal
+      - name: Retain browser failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: browser-failure-${{ matrix.command }}
+          path: apps/web/src/**/__screenshots__/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  build_contracts:
+    name: Desktop Build and Compiler Contract
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -126,40 +143,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          cache-suffix: browser-geometry
-
-      - name: Cache Playwright browser
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      - name: Install Chromium runtime
-        timeout-minutes: 15
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        working-directory: apps/web
-        run: ./node_modules/.bin/playwright install --with-deps chromium
-
-      - name: Run quarantined Linux geometry tests
-        continue-on-error: true
-        timeout-minutes: 20
-        run: bun run --cwd apps/web test:browser:geometry
-
-  build:
-    name: Desktop Build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-        with:
-          cache-suffix: build
+          cache-suffix: build-contracts
 
       - name: Build desktop pipeline
         run: bun run build:desktop
@@ -169,184 +153,28 @@ jobs:
           test -f apps/desktop/dist-electron/preload.js
           grep -nE "desktopBridge|getWsUrl|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.js
 
-  desktop_platform:
-    name: Native Desktop Package (${{ matrix.name }})
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 35
-    env:
-      PENKRA_REQUIRED_APPS_SOURCE_PATH: .release-inputs/penkra-apps/apps
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Windows x64
-            runner: windows-2025
-            platform: win
-            target: nsis
-            arch: x64
-          - name: Linux x64
-            runner: ubuntu-24.04
-            platform: linux
-            target: AppImage
-            arch: x64
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Resolve required Apps source
-        id: required_apps
-        shell: bash
-        run: node -e "process.stdout.write('commit=' + require('./required-apps.lock.json').sourceCommit + '\n')" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout pinned required Apps source
-        uses: actions/checkout@v6
-        with:
-          repository: penkrahq/penkra-apps
-          ref: ${{ steps.required_apps.outputs.commit }}
-          path: .release-inputs/penkra-apps
-          persist-credentials: false
-
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-        with:
-          cache-suffix: desktop-platform-${{ matrix.platform }}
-
-      - name: Install Linux desktop runtime
-        if: matrix.platform == 'linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools xvfb
-
-      - name: Verify native terminal PTY
-        run: node scripts/node-pty-smoke.mjs
-
-      - name: Build desktop pipeline
-        run: bun run build:desktop
-
-      - name: Resolve package version
-        id: package
-        shell: bash
-        run: node -e "process.stdout.write('version=' + require('./apps/desktop/package.json').version + '\n')" >> "$GITHUB_OUTPUT"
-
-      - name: Build unsigned native QA package
-        shell: bash
-        run: >-
-          bun run dist:desktop:artifact --
-          --platform "${{ matrix.platform }}"
-          --target "${{ matrix.target }}"
-          --arch "${{ matrix.arch }}"
-          --skip-build
-          --output-dir release-platform-qa
-
-      - name: Launch Linux packaged desktop from isolated secured state
-        if: matrix.platform == 'linux'
-        shell: bash
-        env:
-          PENKRA_CI_KEYRING_PASSWORD: penkra-ci-isolated-keyring
-          PENKRA_PACKAGE_VERSION: ${{ steps.package.outputs.version }}
-        run: |
-          set -euo pipefail
-          dbus-run-session -- bash -euo pipefail -c '
-            export XDG_CURRENT_DESKTOP=GNOME
-            keyring_environment="$(printf "%s" "$PENKRA_CI_KEYRING_PASSWORD" | gnome-keyring-daemon --unlock --components=secrets)"
-            eval "$keyring_environment"
-            node scripts/verify-packaged-desktop-startup.ts \
-              --assets-dir release-platform-qa \
-              --platform linux \
-              --arch x64 \
-              --version "$PENKRA_PACKAGE_VERSION"
-          '
-
-      - name: Launch Windows packaged desktop from isolated state
-        if: matrix.platform == 'win'
-        shell: bash
-        run: >-
-          node scripts/verify-packaged-desktop-startup.ts
-          --assets-dir release-platform-qa
-          --platform win
-          --arch x64
-          --version "${{ steps.package.outputs.version }}"
-
-  migration_lineage:
-    name: Migration Lineage
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: package.json
-
-      - name: Verify released migration lineage
-        run: node scripts/check-migration-lineage.ts
-
-  release_smoke:
-    name: Release Smoke
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: package.json
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile --ignore-scripts
-
-      - name: Verify Penkra identity
-        run: bun run brand:check
-
-      - name: Exercise release-only workflow steps
-        run: node scripts/release-smoke.ts
-
   quality_gate:
     name: Penkra CI Quality Gate
     if: ${{ always() }}
     needs:
       - static
       - workspace_tests
-      - server_serial
-      - browser_stable
-      - browser_geometry
-      - build
-      - desktop_platform
-      - migration_lineage
-      - release_smoke
+      - server_tests
+      - browser_tests
+      - build_contracts
     runs-on: ubuntu-24.04
     steps:
-      - name: Require every blocking quality lane
+      - name: Require every source quality lane
         env:
           STATIC_RESULT: ${{ needs.static.result }}
           WORKSPACE_TEST_RESULT: ${{ needs.workspace_tests.result }}
-          SERVER_SERIAL_RESULT: ${{ needs.server_serial.result }}
-          BROWSER_STABLE_RESULT: ${{ needs.browser_stable.result }}
-          BROWSER_GEOMETRY_RESULT: ${{ needs.browser_geometry.result }}
-          BUILD_RESULT: ${{ needs.build.result }}
-          DESKTOP_PLATFORM_RESULT: ${{ needs.desktop_platform.result }}
-          MIGRATION_RESULT: ${{ needs.migration_lineage.result }}
-          RELEASE_SMOKE_RESULT: ${{ needs.release_smoke.result }}
+          SERVER_TEST_RESULT: ${{ needs.server_tests.result }}
+          BROWSER_TEST_RESULT: ${{ needs.browser_tests.result }}
+          BUILD_CONTRACT_RESULT: ${{ needs.build_contracts.result }}
         run: |
           set -euo pipefail
           test "$STATIC_RESULT" = success
           test "$WORKSPACE_TEST_RESULT" = success
-          test "$SERVER_SERIAL_RESULT" = success
-          test "$BROWSER_STABLE_RESULT" = success
-          test "$BROWSER_GEOMETRY_RESULT" = success
-          test "$BUILD_RESULT" = success
-          test "$DESKTOP_PLATFORM_RESULT" = success
-          test "$MIGRATION_RESULT" = success
-          test "$RELEASE_SMOKE_RESULT" = success
+          test "$SERVER_TEST_RESULT" = success
+          test "$BROWSER_TEST_RESULT" = success
+          test "$BUILD_CONTRACT_RESULT" = success

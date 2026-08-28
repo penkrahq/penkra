@@ -62,6 +62,19 @@ export interface ProviderRuntimeEventRepositoryShape {
     ReadonlyArray<PersistedProviderRuntimeEvent>,
     ProviderRuntimeEventRepositoryError
   >;
+  /**
+   * Returns a bounded ordered prefix for each non-quarantined thread.
+   * This is the replay/drain path: it amortizes the eligibility scan while
+   * preserving per-thread order and poison-head isolation.
+   */
+  readonly readPendingThreadEvents: (input: {
+    readonly throughSequenceInclusive: number;
+    readonly limit: number;
+    readonly maxPerThread: number;
+  }) => Effect.Effect<
+    ReadonlyArray<PersistedProviderRuntimeEvent>,
+    ProviderRuntimeEventRepositoryError
+  >;
   readonly getThreadCoverage: (threadId: string) => Effect.Effect<
     {
       readonly retainedCount: number;
@@ -94,6 +107,12 @@ export interface ProviderRuntimeEventRepositoryShape {
     threadId: string,
   ) => Effect.Effect<number, ProviderRuntimeEventRepositoryError>;
   readonly advanceThreadCursor: (input: {
+    readonly threadId: string;
+    readonly eventSequence: number;
+    readonly updatedAt: string;
+  }) => Effect.Effect<boolean, PersistenceSqlError>;
+  /** Same cursor transition, for callers that already own the SQL transaction. */
+  readonly advanceThreadCursorInCurrentTransaction: (input: {
     readonly threadId: string;
     readonly eventSequence: number;
     readonly updatedAt: string;

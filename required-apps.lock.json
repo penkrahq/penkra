@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "appId": "com.penkra.apps",
   "slug": "apps",
-  "version": "0.2.5",
-  "packageDigest": "9b5f942c413ef833002d33f1ff6b59c3290c33902933b7ee816f9ceb39fa4083",
+  "version": "0.2.8",
+  "packageDigest": "c0dd8a205e754a26725ac0134bb16263fd8d4f3310d71913a4f22ed37370125f",
   "sourceRepository": "penkrahq/penkra-apps",
-  "sourceCommit": "807f0663ff43c2e2bf4078852c91af4e0ca31545"
+  "sourceCommit": "90bcd3e80a9861ea6b71b4240fce2fdad2746785"
 }

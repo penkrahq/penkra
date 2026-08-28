@@ -1855,11 +1855,16 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const updateResumeCursor = (context: ClaudeSessionContext): Effect.Effect<void> =>
       Effect.gen(function* () {
         const threadId = context.session.threadId;
-        if (!threadId) return;
+        // Every cursor exposed to ProviderService is treated as an exact native
+        // continuation and is persisted into the Thread binding. Local task or
+        // model bookkeeping can run before Claude emits its first durable
+        // `session_id`; it must not turn that provisional state into a
+        // metadata-only cursor.
+        if (!threadId || !context.resumeSessionId) return;
 
         const resumeCursor = {
           threadId,
-          ...(context.resumeSessionId ? { resume: context.resumeSessionId } : {}),
+          resume: context.resumeSessionId,
           ...(context.lastAssistantUuid ? { resumeSessionAt: context.lastAssistantUuid } : {}),
           turnCount: context.turns.length,
           ...(context.trackedTasks.size > 0
@@ -4854,20 +4859,27 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             ...(input.cwd ? { cwd: input.cwd } : {}),
             ...(modelSelection?.model ? { model: modelSelection.model } : {}),
             ...(threadId ? { threadId } : {}),
-            resumeCursor: {
-              ...(threadId ? { threadId } : {}),
-              // A caller-supplied resume id already names an established native
-              // conversation. A fresh SDK session id is only provisional until
-              // Claude emits a durable conversation message through
-              // `ensureThreadId`; persisting it here strands auth-first failures
-              // on a native conversation that was never created.
-              ...(existingResumeSessionId ? { resume: existingResumeSessionId } : {}),
-              ...(resumeState?.resumeSessionAt
-                ? { resumeSessionAt: resumeState.resumeSessionAt }
-                : {}),
-              turnCount: resumeState?.turnCount ?? 0,
-              ...(trackedTasks.size > 0 ? { trackedTasks: Array.from(trackedTasks.values()) } : {}),
-            },
+            // A caller-supplied resume id already names an established native
+            // conversation and can be persisted immediately. A fresh SDK
+            // session id is only provisional until Claude emits a durable
+            // conversation message through `ensureThreadId`; exposing even a
+            // metadata-only cursor here makes ProviderService try to persist an
+            // exact native identity that does not exist yet.
+            ...(existingResumeSessionId
+              ? {
+                  resumeCursor: {
+                    ...(threadId ? { threadId } : {}),
+                    resume: existingResumeSessionId,
+                    ...(resumeState?.resumeSessionAt
+                      ? { resumeSessionAt: resumeState.resumeSessionAt }
+                      : {}),
+                    turnCount: resumeState?.turnCount ?? 0,
+                    ...(trackedTasks.size > 0
+                      ? { trackedTasks: Array.from(trackedTasks.values()) }
+                      : {}),
+                  },
+                }
+              : {}),
             createdAt: startedAt,
             updatedAt: startedAt,
           };

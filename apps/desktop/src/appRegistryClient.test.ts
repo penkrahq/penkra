@@ -152,6 +152,74 @@ describe("desktop App registry client", () => {
         status: "uploaded",
       });
       expect(fetch).toHaveBeenCalledTimes(3);
+      expect(fetch).toHaveBeenNthCalledWith(
+        2,
+        "https://uploads.test/package",
+        expect.objectContaining({
+          method: "PUT",
+          headers: {
+            "content-type": "application/vnd.penkra.app+zip",
+            "content-length": String(packageBytes.length),
+          },
+        }),
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("refreshes and finishes the exact upload for an existing draft", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "penkra-registry-resume-"));
+    try {
+      const packageBytes = Buffer.from("resumed-package");
+      const packagePath = join(directory, "app.penkra");
+      const submissionId = "00000000-0000-4000-8000-000000000311";
+      await writeFile(packagePath, packageBytes);
+      const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const value = String(url);
+        if (value.endsWith(`/submissions/${submissionId}/upload`)) {
+          return jsonResponse({
+            submissionId,
+            uploads: {
+              package: {
+                url: "https://uploads.test/resumed-package",
+                headers: { "content-type": "application/vnd.penkra.app+zip" },
+              },
+            },
+          });
+        }
+        if (value === "https://uploads.test/resumed-package") {
+          expect(init).toMatchObject({
+            method: "PUT",
+            headers: {
+              "content-type": "application/vnd.penkra.app+zip",
+              "content-length": String(packageBytes.length),
+            },
+          });
+          return new Response(null, { status: 200 });
+        }
+        if (value.endsWith(`/submissions/${submissionId}/finalize`)) {
+          return jsonResponse({ submissionId, status: "uploaded" });
+        }
+        throw new Error(`Unexpected request ${value}`);
+      });
+      const client = new AppRegistryClient({
+        apiUrl: "https://api.penkra.com",
+        getCookie: () => "cookie=value",
+        fetch,
+      });
+
+      await expect(
+        client.developerResumeSubmissionUpload({
+          submissionId,
+          packagePath,
+          evidence: {
+            packageDigest: createHash("sha256").update(packageBytes).digest("hex"),
+            packageSizeBytes: packageBytes.length,
+          },
+        }),
+      ).resolves.toEqual({ submissionId, status: "uploaded" });
+      expect(fetch).toHaveBeenCalledTimes(3);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -224,10 +292,16 @@ describe("desktop App registry client", () => {
       trustedRegistryKeys: [signed.trustKey],
     });
 
-    await expect(client.downloadVerifiedRelease({ app: detail, version })).resolves.toMatchObject({
-      packageBytes: new Uint8Array(packageBytes),
-      release: { packageDigest, keyId: signed.trustKey.kid },
-    });
+    const downloaded = await client.downloadVerifiedRelease({ app: detail, version });
+    try {
+      await expect(readFile(downloaded.package.archivePath)).resolves.toEqual(packageBytes);
+      expect(downloaded).toMatchObject({
+        package: { byteLength: packageBytes.length, sha256: packageDigest },
+        release: { packageDigest, keyId: signed.trustKey.kid },
+      });
+    } finally {
+      await downloaded.package.dispose();
+    }
   });
 
   it("keeps arbitrary URLs and methods out of the Apps renderer API", async () => {

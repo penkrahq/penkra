@@ -1551,6 +1551,93 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     });
   });
 
+  it("maps OpenCode compaction parts to visible context compaction progress", async () => {
+    const eventQueue = createSubscribedEventQueue();
+    const runtime = createMockOpenCodeRuntime();
+    const client = runtime.runtime.createOpenCodeSdkClient({
+      baseUrl: "http://127.0.0.1:4099",
+      directory: process.cwd(),
+    }) as unknown as {
+      event: {
+        subscribe: () => Promise<{ stream: AsyncIterable<unknown> }>;
+      };
+    };
+    client.event.subscribe = async () => ({ stream: eventQueue.stream });
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        const eventFiber = yield* adapter.streamEvents.pipe(
+          Stream.filter((event) => event.type === "item.updated"),
+          Stream.runHead,
+          Effect.forkChild,
+        );
+
+        const threadId = asThreadId("thread-context-compaction-progress");
+        yield* adapter.startSession({
+          provider: "opencode",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const turn = yield* adapter.sendTurn({
+          threadId,
+          input: "continue",
+          attachments: [],
+          modelSelection: {
+            provider: "opencode",
+            model: "openai/gpt-5.4",
+          },
+        });
+
+        eventQueue.push({
+          type: "message.part.updated",
+          properties: {
+            sessionID: "opencode-session-1",
+            part: {
+              id: "compaction-part-1",
+              messageID: "assistant-message-1",
+              type: "compaction",
+              auto: true,
+              overflow: false,
+            },
+          },
+        });
+
+        const event = yield* Fiber.join(eventFiber);
+        eventQueue.close();
+        return { event, turn };
+      }).pipe(
+        Effect.provide(
+          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), {
+                prefix: "opencode-adapter-test-",
+              }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+
+    expect(result.event._tag).toBe("Some");
+    if (result.event._tag !== "Some") return;
+    expect(result.event.value).toMatchObject({
+      type: "item.updated",
+      threadId: asThreadId("thread-context-compaction-progress"),
+      turnId: result.turn.turnId,
+      payload: {
+        itemType: "context_compaction",
+        status: "inProgress",
+        detail: "Compacting context",
+        data: {
+          auto: true,
+          overflow: false,
+        },
+      },
+    });
+  });
+
   it("applies the current Full Access permissions when resuming", async () => {
     const runtime = createMockOpenCodeRuntime();
 

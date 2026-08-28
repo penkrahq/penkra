@@ -5227,26 +5227,9 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         },
       });
 
-      assert.deepEqual((session.resumeCursor as { trackedTasks?: unknown })?.trackedTasks, [
-        {
-          id: "task-1",
-          subject: "Inspect files",
-          description: "Find the relevant files",
-          activeForm: "Inspecting files",
-          status: "in_progress",
-          owner: undefined,
-          blockedBy: [],
-        },
-        {
-          id: "task-2",
-          subject: "Patch UI",
-          description: undefined,
-          activeForm: undefined,
-          status: "pending",
-          owner: undefined,
-          blockedBy: ["task-1"],
-        },
-      ]);
+      // Metadata-only legacy cursors can restore the local task projection, but
+      // must not be re-advertised as an exact provider-native continuation.
+      assert.equal(session.resumeCursor, undefined);
 
       yield* adapter.sendTurn({
         threadId: session.threadId,
@@ -5298,7 +5281,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         input: "start unrelated work",
         attachments: [],
       });
-      assert.equal("trackedTasks" in (turn.resumeCursor as Record<string, unknown>), false);
+      assert.equal(turn.resumeCursor, undefined);
 
       harness.query.emit({
         type: "stream_event",
@@ -6819,14 +6802,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       });
 
       const createInput = harness.getLastCreateQueryInput();
-      const sessionResumeCursor = session.resumeCursor as {
-        threadId?: string;
-        resume?: string;
-        turnCount?: number;
-      };
-      assert.equal(sessionResumeCursor.threadId, THREAD_ID);
-      assert.equal(sessionResumeCursor.resume, undefined);
-      assert.equal(sessionResumeCursor.turnCount, 0);
+      assert.equal(session.resumeCursor, undefined);
       const provisionalSessionId = createInput?.options.sessionId;
       assert.equal(typeof provisionalSessionId, "string");
       assert.match(
@@ -6834,6 +6810,41 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
       );
       assert.equal(createInput?.options.resume, undefined);
+
+      const durableSessionId = "550e8400-e29b-41d4-a716-446655440001";
+      const threadStartedFiber = yield* Stream.filter(
+        adapter.streamEvents,
+        (event) => event.type === "thread.started",
+      ).pipe(Stream.runHead, Effect.forkChild);
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "hello",
+        attachments: [],
+      });
+      assert.equal(
+        (yield* adapter.listSessions())[0]?.resumeCursor,
+        undefined,
+        "pre-durable turn bookkeeping must not advertise a native cursor",
+      );
+      harness.query.emit({
+        type: "stream_event",
+        session_id: durableSessionId,
+        uuid: "fresh-session-durable",
+        parent_tool_use_id: null,
+        event: {
+          type: "message_start",
+          message: { id: "fresh-session-message" },
+        },
+      } as unknown as SDKMessage);
+
+      const threadStarted = yield* Fiber.join(threadStartedFiber);
+      assert.equal(threadStarted._tag, "Some");
+      const activeSessions = yield* adapter.listSessions();
+      assert.deepEqual(activeSessions[0]?.resumeCursor, {
+        threadId: THREAD_ID,
+        resume: durableSessionId,
+        turnCount: 0,
+      });
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

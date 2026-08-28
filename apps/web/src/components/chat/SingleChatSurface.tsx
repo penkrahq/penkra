@@ -40,11 +40,21 @@ import { RightDock } from "./RightDock";
 
 const APP_PANEL_DEFAULT_WIDTH = "max(28rem, calc(50vw - 8rem))";
 const APP_PANEL_MIN_WIDTH = 26 * 16;
+const THREAD_PANEL_MIN_WIDTH = 400;
 
 function shouldAcceptAppPanelWidth(input: { nextWidth: number; wrapper: HTMLElement }) {
+  const shellWidth = input.wrapper.parentElement?.getBoundingClientRect().width;
+  const nextWidth =
+    shellWidth === undefined
+      ? input.nextWidth
+      : Math.max(
+          APP_PANEL_MIN_WIDTH,
+          Math.min(input.nextWidth, shellWidth - THREAD_PANEL_MIN_WIDTH),
+        );
+
   const previousSidebarWidth = input.wrapper.style.getPropertyValue("--sidebar-width");
-  return canComposerHandlePanelWidth({
-    nextWidth: input.nextWidth,
+  const accepted = canComposerHandlePanelWidth({
+    nextWidth,
     paneScopeId: SINGLE_CHAT_PANE_SCOPE_ID,
     applyWidth: (width) => input.wrapper.style.setProperty("--sidebar-width", `${width}px`),
     resetWidth: () => {
@@ -55,6 +65,7 @@ function shouldAcceptAppPanelWidth(input: { nextWidth: number; wrapper: HTMLElem
       }
     },
   });
+  return accepted ? nextWidth : false;
 }
 
 function appPaneFromTab(tab: DesktopAppTabDescriptor) {
@@ -355,7 +366,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           "relative",
         )}
       >
-        <div className="flex h-full min-h-0 min-w-0 flex-1">
+        <div className="flex h-full min-h-0 flex-1" style={{ minWidth: THREAD_PANEL_MIN_WIDTH }}>
           <RouteInsetSurface
             compensateForLeftSidebar={false}
             surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}
@@ -373,6 +384,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           state={dockState}
           retainedPanes={retainedAppPanes}
           minWidth={APP_PANEL_MIN_WIDTH}
+          contentMinWidth={THREAD_PANEL_MIN_WIDTH}
           defaultWidth={APP_PANEL_DEFAULT_WIDTH}
           shouldAcceptWidth={shouldAcceptAppPanelWidth}
           motionKey={props.threadId}

@@ -1797,7 +1797,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
         {row.kind === "working" && (
           <div
-            className="shimmer pt-0.5 text-muted-foreground/70 font-system-ui"
+            className="pt-0.5 text-muted-foreground/70 font-system-ui"
             style={{ fontSize: `${appTypographyScale.chatPx}px` }}
           >
             Thinking

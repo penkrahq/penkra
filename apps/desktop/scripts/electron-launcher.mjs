@@ -271,7 +271,13 @@ function buildMacLauncher(electronBinaryPath) {
   if (legacyRebrandedBundlePath !== targetAppBundlePath) {
     rmSync(legacyRebrandedBundlePath, { recursive: true, force: true });
   }
-  cpSync(sourceAppBundlePath, targetAppBundlePath, { recursive: true });
+  // Electron's framework bundles rely on relative symlinks beneath `Versions/Current`.
+  // Node otherwise resolves those links against the source while copying, which leaves
+  // absolute links in the cloned bundle and makes macOS reject its code signature.
+  cpSync(sourceAppBundlePath, targetAppBundlePath, {
+    recursive: true,
+    verbatimSymlinks: true,
+  });
   patchMainBundleInfoPlist(targetAppBundlePath, iconPath);
   patchHelperBundleInfoPlists(targetAppBundlePath);
   signMacAppInsideOut(targetAppBundlePath, expectedMetadata.signingIdentity);

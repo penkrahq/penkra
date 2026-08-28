@@ -164,8 +164,14 @@ interface CodexSessionContext {
   lifecycleGeneration?: string;
   account: CodexAccountSnapshot;
   child: ChildProcessWithoutNullStreams;
+  binaryPath?: string;
   stdoutFramer: CodexJsonlFramer;
   stdinWriter: CodexJsonlWriter;
+  stderrTail?: string;
+  lastRequestMethod?: string;
+  threadOpenRequestSent?: boolean;
+  transportFailureHandled?: boolean;
+  stdoutEndTimer?: ReturnType<typeof setTimeout>;
   detachStdout?: () => void;
   pending: Map<PendingRequestKey, PendingRequest>;
   pendingApprovals: Map<ApprovalRequestId, PendingApprovalRequest>;
@@ -339,6 +345,63 @@ const BENIGN_ERROR_LOG_SNIPPETS = [
 const BENIGN_PROCESS_OUTPUT_REGEXES = [/^(?:\^C)?Token usage:/i];
 const CODEX_DISCOVERY_SESSION_IDLE_MS = 10 * 60 * 1000;
 const CODEX_PENDING_SETTLE_DEADLINE_MS = 2_000;
+const CODEX_STDERR_TAIL_MAX_BYTES = 64 * 1024;
+const CODEX_STDOUT_END_GRACE_MS = 100;
+
+function redactCodexProcessOutput(value: string): string {
+  return value
+    .replace(
+      /((?:authorization|bearer|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token)\s*[:=]\s*)[^\s,;]+/gi,
+      "$1[redacted]",
+    )
+    .replace(/\b(?:sk|sess|eyJ)[A-Za-z0-9._-]{16,}\b/g, "[redacted]");
+}
+
+function appendCodexStderrTail(context: CodexSessionContext, chunk: Buffer): void {
+  // Redact after joining so a credential split across stream chunks cannot
+  // bypass the diagnostic scrubber.
+  const combined = redactCodexProcessOutput(`${context.stderrTail ?? ""}${chunk.toString()}`);
+  const bytes = Buffer.from(combined);
+  context.stderrTail =
+    bytes.byteLength <= CODEX_STDERR_TAIL_MAX_BYTES
+      ? combined
+      : bytes.subarray(bytes.byteLength - CODEX_STDERR_TAIL_MAX_BYTES).toString();
+}
+
+function formatCodexProcessFailure(
+  context: CodexSessionContext,
+  reason: string,
+  code: number | null = context.child.exitCode,
+  signal: NodeJS.Signals | null = context.child.signalCode,
+): string {
+  const stderr = context.stderrTail?.trim();
+  const metadata = [
+    `reason=${reason}`,
+    `pid=${context.child.pid ?? "unknown"}`,
+    `code=${code ?? "null"}`,
+    `signal=${signal ?? "null"}`,
+    `request=${context.lastRequestMethod ?? "none"}`,
+    `binary=${context.binaryPath ?? "unknown"}`,
+    `cwd=${context.session.cwd ?? "unknown"}`,
+  ].join(", ");
+  return stderr
+    ? `Codex app-server failed (${metadata}). stderr:\n${stderr}`
+    : `Codex app-server failed (${metadata}).`;
+}
+
+export function shouldRetryCodexPreThreadOpenFailure(input: {
+  readonly startupAttempt: number;
+  readonly aborted: boolean;
+  readonly transportFailed: boolean;
+  readonly threadOpenRequestSent: boolean;
+}): boolean {
+  return (
+    input.startupAttempt === 0 &&
+    !input.aborted &&
+    input.transportFailed &&
+    !input.threadOpenRequestSent
+  );
+}
 
 // Bounds the best-effort answers written to parked server requests: a child that
 // stopped draining stdin must never hold session teardown hostage.
@@ -893,6 +956,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     input: CodexAppServerStartSessionInput,
     signal?: AbortSignal,
   ): Promise<ProviderSession> {
+    return this.startSessionAttempt(input, signal, 0);
+  }
+
+  private async startSessionAttempt(
+    input: CodexAppServerStartSessionInput,
+    signal: AbortSignal | undefined,
+    startupAttempt: number,
+  ): Promise<ProviderSession> {
     const threadId = input.threadId;
     const now = new Date().toISOString();
     let context: CodexSessionContext | undefined;
@@ -951,6 +1022,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           sparkEnabled: true,
         },
         child,
+        binaryPath: codexBinaryPath,
         stdoutFramer: new CodexJsonlFramer(),
         stdinWriter: new CodexJsonlWriter(child.stdin),
         pending: new Map(),
@@ -1054,6 +1126,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       let threadOpenMethod: "thread/start" | "thread/resume" = "thread/start";
       let threadOpenResponse: unknown;
+      // Any retry after this boundary could create a duplicate native thread or
+      // race a resume whose response was lost. Startup retries are therefore
+      // limited to app-server failures before this flag is set.
+      context.threadOpenRequestSent = true;
       if (resumeThreadId) {
         try {
           threadOpenMethod = "thread/resume";
@@ -1179,15 +1255,32 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       return { ...context.session };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start Codex session.";
+      const retryPreThreadOpen = shouldRetryCodexPreThreadOpenFailure({
+        startupAttempt,
+        aborted: signal?.aborted === true,
+        transportFailed: context?.transportFailureHandled === true,
+        threadOpenRequestSent: context?.threadOpenRequestSent === true,
+      });
       if (context) {
         this.updateSession(context, {
           status: "error",
           lastError: message,
         });
-        this.emitErrorEvent(context, "session/startFailed", message);
         await this.stopSession(threadId);
       } else {
         gatewaySessionLease?.release();
+      }
+      if (retryPreThreadOpen) {
+        log.warn("retrying Codex app-server after pre-thread-open process failure", {
+          threadId,
+          startupAttempt,
+          message,
+        });
+        return this.startSessionAttempt(input, signal, startupAttempt + 1);
+      }
+      if (context) {
+        this.emitErrorEvent(context, "session/startFailed", message);
+      } else {
         this.emitEvent({
           id: EventId.makeUnsafe(randomUUID()),
           kind: "error",
@@ -1693,6 +1786,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           sparkEnabled: true,
         },
         child,
+        binaryPath: codexBinaryPath,
         stdoutFramer: new CodexJsonlFramer(),
         stdinWriter: new CodexJsonlWriter(child.stdin),
         pending: new Map(),
@@ -2540,6 +2634,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         sparkEnabled: true,
       },
       child,
+      binaryPath: managedLaunch.binaryPath,
       stdoutFramer: new CodexJsonlFramer(),
       stdinWriter: new CodexJsonlWriter(child.stdin),
       pending: new Map(),
@@ -2665,14 +2760,22 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (context.stopping) return;
       try {
         context.stdoutFramer.finish();
-        this.handleTransportFailure(
-          context,
-          new CodexAppServerTransportError({
-            reason: "read-closed",
-            maxBytes: context.stdoutFramer.maxFrameBytes,
-            observedBytes: 0,
-          }),
-        );
+        // stdout commonly closes immediately before `exit`/`close`. Give stderr
+        // and the child's exit status one event-loop beat to land so the real
+        // process failure is not replaced by a generic read-closed error.
+        context.stdoutEndTimer = setTimeout(() => {
+          delete context.stdoutEndTimer;
+          if (context.stopping || context.transportFailureHandled) return;
+          this.handleTransportFailure(
+            context,
+            new CodexAppServerTransportError({
+              reason: "read-closed",
+              maxBytes: context.stdoutFramer.maxFrameBytes,
+              observedBytes: 0,
+            }),
+          );
+        }, CODEX_STDOUT_END_GRACE_MS);
+        context.stdoutEndTimer.unref?.();
       } catch (cause) {
         this.handleTransportFailure(context, cause);
       }
@@ -2687,6 +2790,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     };
 
     context.child.stderr.on("data", (chunk: Buffer) => {
+      appendCodexStderrTail(context, chunk);
       if (context.stopping) {
         return;
       }
@@ -2709,11 +2813,22 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         return;
       }
 
+      if (context.stdoutEndTimer) {
+        clearTimeout(context.stdoutEndTimer);
+        delete context.stdoutEndTimer;
+      }
+      if (context.transportFailureHandled) return;
+      context.transportFailureHandled = true;
+
       context.detachStdout?.();
       this.clearTaskCompleteFallback(context);
       context.gatewaySessionLease?.release();
-      const message = `codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"}).`;
+      const message = formatCodexProcessFailure(context, "process-exit", code, signal);
       const exitError = new Error(message);
+      log.error("codex app-server process exited unexpectedly", {
+        threadId: context.session.threadId,
+        message,
+      });
       context.stdinWriter.close(exitError);
       this.rejectPendingRequests(context, exitError);
       // The child is gone, so the responses cannot land; settling still clears
@@ -2737,13 +2852,27 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   }
 
   private handleTransportFailure(context: CodexSessionContext, cause: unknown): void {
-    if (context.stopping) return;
+    if (context.stopping || context.transportFailureHandled) return;
+    context.transportFailureHandled = true;
+    if (context.stdoutEndTimer) {
+      clearTimeout(context.stdoutEndTimer);
+      delete context.stdoutEndTimer;
+    }
     const error =
       cause instanceof Error ? cause : new Error("Codex app-server transport failed", { cause });
-    const message =
+    const reason =
       error instanceof CodexAppServerTransportError
         ? error.message
         : `Codex app-server transport failed: ${error.message}`;
+    const message = formatCodexProcessFailure(context, reason);
+    log.error("codex app-server transport failed", {
+      threadId: context.session.threadId,
+      message,
+    });
+    // Preserve the process diagnosis for whichever startup/runtime request was
+    // actually waiting. stopSession's generic cancellation must not overwrite
+    // the root failure after stdout or the child process has already failed.
+    this.rejectPendingRequests(context, new Error(message, { cause: error }));
     this.updateSession(context, { status: "error", lastError: message });
     this.emitErrorEvent(context, "protocol/transportError", message);
 
@@ -3260,6 +3389,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
     const id = context.nextRequestId;
     context.nextRequestId += 1;
+    context.lastRequestMethod = method;
 
     const result = await new Promise<unknown>((resolve, reject) => {
       const cleanup = () => {

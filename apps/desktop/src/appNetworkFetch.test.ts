@@ -6,7 +6,11 @@ describe("mediated App network policy", () => {
   const servers: ReturnType<typeof createServer>[] = [];
 
   afterEach(async () => {
-    await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+    await Promise.all(
+      servers
+        .splice(0)
+        .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+    );
   });
 
   it("recognizes local, private, link-local, multicast, and mapped addresses", () => {

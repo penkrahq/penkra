@@ -213,6 +213,12 @@ function TranscriptVirtualListInner<TItem>(
       }
       if (initialEndFollowRef.current) {
         initialEndStableFramesRef.current = 0;
+        // A late measurement can invalidate the estimated tail and needs one
+        // more convergence check. Do not reset stable progress here: measuring
+        // the range produced by that check is normal and otherwise creates a
+        // measurement -> scroll -> range -> measurement feedback loop. The
+        // correction itself resets stability when geometry is genuinely away
+        // from the rendered end.
         scheduleInitialEndCorrectionRef.current?.("row-measured");
       }
       recordChatScrollDiagnostic({
@@ -229,13 +235,12 @@ function TranscriptVirtualListInner<TItem>(
       });
       return size;
     },
-    // Keep TanStack's range commit atomic with its direct-DOM scroll correction.
-    // If React batches the rendered-range update, a corrected viewport can paint
-    // against the previous row range and briefly detach or displace its anchor.
-    // End-follow scheduling remains separately gated below by semantic revision,
-    // so synthetic work rows do not turn this measurement commit into a new
-    // bottom-convergence cycle.
-    useFlushSync: true,
+    // TanStack may notify synchronously from `measureElement`, which is itself
+    // a React commit ref. Calling `flushSync` from that notification nests a
+    // render inside React's lifecycle and is explicitly unsupported. Direct
+    // DOM sizing/positioning still lands synchronously; range membership can
+    // use React's ordinary queued render.
+    useFlushSync: false,
     // Streaming Markdown can resize the measured tail again from inside the
     // observer delivery cycle. Frame-batching prevents Chromium's undelivered
     // ResizeObserver loop without adding a second scroll correction owner.

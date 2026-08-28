@@ -1,22 +1,25 @@
 name: Release Penkra Desktop
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: Existing stable tag to rebuild
+      release_version:
+        description: Exact stable version already committed on main
+        required: true
+        type: string
+      source_commit:
+        description: Exact main commit to certify and release
         required: true
         type: string
 
 concurrency:
-  group: penkra-desktop-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+  group: penkra-desktop-${{ inputs.release_version }}
   cancel-in-progress: false
 
 env:
-  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+  RELEASE_VERSION: ${{ inputs.release_version }}
+  RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
+  SOURCE_COMMIT: ${{ inputs.source_commit }}
   PENKRA_REQUIRED_APPS_SOURCE_PATH: .release-inputs/penkra-apps/apps
 
 permissions:
@@ -65,21 +68,31 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - name: Checkout tagged source
+      - name: Checkout exact release source
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.SOURCE_COMMIT }}
 
       - name: Resolve and validate release identity
         id: release
         shell: bash
         run: |
           set -euo pipefail
-          tag="${RELEASE_TAG}"
-          version="${tag#v}"
+          version="${RELEASE_VERSION}"
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Stable releases require an exact vMAJOR.MINOR.PATCH tag, got: $tag" >&2
+            echo "Stable releases require an exact MAJOR.MINOR.PATCH version, got: $version" >&2
+            exit 1
+          fi
+
+          source_commit="$(git rev-parse HEAD)"
+          if [[ "$source_commit" != "${SOURCE_COMMIT}" ]]; then
+            echo "Checked out $source_commit instead of requested source ${SOURCE_COMMIT}." >&2
+            exit 1
+          fi
+          main_commit="$(git rev-parse origin/main)"
+          if [[ "$source_commit" != "$main_commit" ]]; then
+            echo "Release source must be the current main commit ($main_commit), got $source_commit." >&2
             exit 1
           fi
 
@@ -96,12 +109,11 @@ jobs:
           for (const manifest of manifests) {
             const actual = JSON.parse(readFileSync(manifest, "utf8")).version;
             if (actual !== version) {
-              throw new Error(`${manifest} is ${actual}; release tag requires ${version}`);
+              throw new Error(`${manifest} is ${actual}; release requires ${version}`);
             }
           }
           NODE
 
-          source_commit="$(git rev-parse HEAD)"
           lockfile_sha256="$(node --input-type=module -e 'import { createHash } from "node:crypto"; import { readFileSync } from "node:fs"; process.stdout.write(createHash("sha256").update(readFileSync("bun.lock")).digest("hex"));')"
           required_apps_commit="$(node -e "process.stdout.write(require('./required-apps.lock.json').sourceCommit)")"
           {
@@ -119,7 +131,7 @@ jobs:
           path: .release-inputs/penkra-apps
           persist-credentials: false
 
-      - name: Require successful CI for the exact tagged commit
+      - name: Require successful CI for the exact release commit
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_COMMIT: ${{ steps.release.outputs.source_commit }}
@@ -203,7 +215,7 @@ jobs:
             expected_blob="$(git rev-parse "HEAD:$generated_path")"
             actual_blob="$(git hash-object "$generated_path")"
             if [[ "$actual_blob" != "$expected_blob" ]]; then
-              echo "Windows generated artifact does not match tagged source: $generated_path" >&2
+              echo "Windows generated artifact does not match certified source: $generated_path" >&2
               exit 1
             fi
             git update-index --assume-unchanged "$generated_path"
@@ -364,10 +376,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout tagged release tooling
+      - name: Checkout certified release tooling
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          ref: ${{ env.SOURCE_COMMIT }}
 
       - name: Download verified release artifacts
         uses: actions/download-artifact@v8
@@ -395,6 +408,25 @@ jobs:
             exit 1
           fi
           sha256sum "${artifacts[@]}" | sort > SHA256SUMS.txt
+
+      - name: Create immutable tag after artifact certification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          existing_commit="$(git ls-remote --tags origin "refs/tags/${RELEASE_TAG}^{}" | awk '{print $1}')"
+          if [[ -z "$existing_commit" ]]; then
+            existing_commit="$(git ls-remote --tags origin "refs/tags/${RELEASE_TAG}" | awk '{print $1}')"
+          fi
+          if [[ -n "$existing_commit" && "$existing_commit" != "$SOURCE_COMMIT" ]]; then
+            echo "Tag $RELEASE_TAG already targets $existing_commit, not $SOURCE_COMMIT." >&2
+            exit 1
+          fi
+          if [[ -z "$existing_commit" ]]; then
+            git tag "$RELEASE_TAG" "$SOURCE_COMMIT"
+            git push origin "refs/tags/$RELEASE_TAG"
+          fi
 
       - name: Create or refresh draft release
         env:

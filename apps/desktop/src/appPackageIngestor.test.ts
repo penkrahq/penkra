@@ -88,9 +88,11 @@ describe("AppPackageIngestor", () => {
     const { storePath } = fixture();
     const packageBytes = await registryArchive();
     const expectedArchiveDigest = createHash("sha256").update(packageBytes).digest("hex");
+    const archivePath = Path.join(roots[roots.length - 1]!, "package.penkra");
+    FS.writeFileSync(archivePath, packageBytes);
 
     const installed = await new AppPackageIngestor(storePath).ingestRegistryArchive({
-      packageBytes,
+      archivePath,
       expectedArchiveDigest,
       installedAt: "2026-08-01T00:00:00.000Z",
     });
@@ -102,12 +104,28 @@ describe("AppPackageIngestor", () => {
     );
   });
 
+  it("rejects a legacy registry manifest instead of normalizing immutable package bytes", async () => {
+    const { storePath } = fixture();
+    const packageBytes = await registryArchive(true);
+    const archivePath = Path.join(roots[roots.length - 1]!, "legacy-package.penkra");
+    FS.writeFileSync(archivePath, packageBytes);
+
+    await expect(
+      new AppPackageIngestor(storePath).ingestRegistryArchive({
+        archivePath,
+        expectedArchiveDigest: createHash("sha256").update(packageBytes).digest("hex"),
+      }),
+    ).rejects.toThrow("entrypoints.tab");
+  });
+
   it("rejects a registry archive whose digest changed before extraction", async () => {
     const { storePath } = fixture();
     const packageBytes = await registryArchive();
+    const archivePath = Path.join(roots[roots.length - 1]!, "package.penkra");
+    FS.writeFileSync(archivePath, packageBytes);
     await expect(
       new AppPackageIngestor(storePath).ingestRegistryArchive({
-        packageBytes,
+        archivePath,
         expectedArchiveDigest: "a".repeat(64),
       }),
     ).rejects.toThrow("digest changed");
@@ -145,11 +163,12 @@ describe("AppPackageIngestor", () => {
   });
 });
 
-async function registryArchive(): Promise<Buffer> {
+async function registryArchive(legacy = false): Promise<Buffer> {
   const zip = new yazl.ZipFile();
   zip.addBuffer(
     Buffer.from(
       JSON.stringify({
+        ...(legacy ? { manifestVersion: 2 } : {}),
         id: "com.example.app",
         slug: "example",
         name: "Example",
@@ -157,7 +176,23 @@ async function registryArchive(): Promise<Buffer> {
         version: "1.0.0",
         compatibility: { penkra: ">=0.8.0" },
         icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
-        entrypoints: { tab: "app.html" },
+        entrypoints: legacy
+          ? { app: "app.html", operations: "operations.js" }
+          : { tab: "app.html" },
+        ...(legacy
+          ? {
+              operations: [
+                {
+                  key: "documents.list",
+                  summary: "List example documents.",
+                  input: { type: "object", additionalProperties: false },
+                  output: { type: "object", additionalProperties: false },
+                  examples: [{ name: "List documents", input: {} }],
+                  handler: "documents.list",
+                },
+              ],
+            }
+          : {}),
       }),
     ),
     "penkra-app.json",
@@ -165,6 +200,7 @@ async function registryArchive(): Promise<Buffer> {
   zip.addBuffer(Buffer.from("# Example\n"), "README.md");
   zip.addBuffer(Buffer.from("Use Example.\n"), "INSTRUCTIONS.md");
   zip.addBuffer(Buffer.from("<!doctype html><title>Example</title>"), "app.html");
+  if (legacy) zip.addBuffer(Buffer.from("module.exports = {};\n"), "operations.js");
   zip.addBuffer(Buffer.from("<svg/>"), "assets/icon.svg");
   zip.end();
   const chunks: Buffer[] = [];

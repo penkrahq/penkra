@@ -42,8 +42,9 @@ interface RightDockProps {
   /** All live App panes retained by the chat route, including panes owned by inactive Threads. */
   retainedPanes?: ReadonlyArray<RightDockPane>;
   minWidth: number;
+  contentMinWidth?: number;
   defaultWidth: string;
-  shouldAcceptWidth: (context: { nextWidth: number; wrapper: HTMLElement }) => boolean;
+  shouldAcceptWidth: (context: { nextWidth: number; wrapper: HTMLElement }) => boolean | number;
   onSelectPane: (paneId: string) => void;
   onClosePane: (paneId: string) => void;
   onOpenChange: (open: boolean) => void;
@@ -110,11 +111,37 @@ export function RightDock(props: RightDockProps) {
     if (!wrapper || !shell) {
       return;
     }
-    const nextWidth = props.state.width ?? Math.round(shell.getBoundingClientRect().width / 2);
-    if (nextWidth > 0) {
-      wrapper.style.setProperty("--sidebar-width", `${Math.max(minWidth, nextWidth)}px`);
+    let resizeFrameId: number | null = null;
+    const applyAvailableWidth = () => {
+      const shellWidth = shell.getBoundingClientRect().width;
+      const preferredWidth = props.state.width ?? Math.round(shellWidth / 2);
+      const maximumWidth = Math.max(minWidth, shellWidth - (props.contentMinWidth ?? 0));
+      const nextWidth = Math.max(minWidth, Math.min(preferredWidth, maximumWidth));
+      if (nextWidth > 0) {
+        wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
+      }
+    };
+
+    applyAvailableWidth();
+    if (typeof ResizeObserver === "undefined") {
+      return;
     }
-  }, [props.motionKey, props.state.open, props.state.width, minWidth]);
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (resizeFrameId !== null) return;
+      resizeFrameId = window.requestAnimationFrame(() => {
+        resizeFrameId = null;
+        applyAvailableWidth();
+      });
+    });
+    resizeObserver.observe(shell);
+    return () => {
+      resizeObserver.disconnect();
+      if (resizeFrameId !== null) {
+        window.cancelAnimationFrame(resizeFrameId);
+      }
+    };
+  }, [props.contentMinWidth, props.motionKey, props.state.open, props.state.width, minWidth]);
   // Motion allowance keyed to the current motionKey: a key change (reposition/
   // remount) derives straight back to "suppressed" in that same render, and the
   // rAF below re-enables motion once the suppressed frame has painted. Mounting

@@ -3,7 +3,7 @@
 // Layer: Shared Node-only App packaging utility
 
 import { createHash, randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import * as FS from "node:fs/promises";
 import * as Path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -17,10 +17,12 @@ import {
 import Ajv2020 from "ajv/dist/2020.js";
 import { valid, validRange } from "semver";
 import yazl from "yazl";
+import {
+  PENKRA_APP_PACKAGE_MAX_ARCHIVE_BYTES,
+  PENKRA_APP_PACKAGE_MAX_EXPANDED_BYTES,
+  PENKRA_APP_PACKAGE_MAX_FILES,
+} from "./appPackageLimits";
 
-const MAX_ENTRY_COUNT = 2_048;
-const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_PATH_BYTES = 1_024;
 const ZIP_EPOCH = new Date("1980-01-01T00:00:00.000Z");
@@ -95,22 +97,25 @@ async function packageAppDirectoryWithPolicy(
     throw new Error("The App package output must be outside the packaged directory.");
   }
   const files = await readPackageFiles(root);
-  const documents = requiredDocuments(files);
+  const documents = await requiredDocuments(files);
   const manifest = parseManifest(documents.manifest);
   if (requireCurrentAgentInstructions) {
     assertAgentInstructionsContract(manifest, documents.instructions);
   }
-  assertReferencedFiles(manifest, files);
+  await assertReferencedFiles(manifest, files);
 
   const temporary = `${output}.${randomUUID()}.tmp`;
   try {
     await writeArchive(temporary, files);
+    if ((await FS.stat(temporary)).size > PENKRA_APP_PACKAGE_MAX_ARCHIVE_BYTES) {
+      throw new Error(`App package archive exceeds ${PENKRA_APP_PACKAGE_MAX_ARCHIVE_BYTES} bytes.`);
+    }
     await FS.rename(temporary, output);
   } catch (error) {
     await FS.rm(temporary, { force: true }).catch(() => undefined);
     throw error;
   }
-  const packageBytes = await FS.readFile(output);
+  const packageStat = await FS.stat(output);
   return {
     path: output,
     appId: manifest.id,
@@ -122,8 +127,8 @@ async function packageAppDirectoryWithPolicy(
     manifestDigest: sha256(documents.manifest),
     readmeDigest: sha256(documents.readme),
     instructionsDigest: sha256(documents.instructions),
-    packageDigest: sha256(packageBytes),
-    packageSizeBytes: packageBytes.byteLength,
+    packageDigest: await sha256File(output),
+    packageSizeBytes: packageStat.size,
     permissions: (manifest.permissions ?? []).map((permission) => ({
       permission: permission.name,
       required: permission.required,
@@ -133,7 +138,7 @@ async function packageAppDirectoryWithPolicy(
   };
 }
 
-type PackageFile = { path: string; bytes: Buffer };
+type PackageFile = { path: string; sourcePath: string; size: number };
 
 async function readPackageFiles(root: string): Promise<PackageFile[]> {
   const files: PackageFile[] = [];
@@ -152,8 +157,8 @@ async function readPackageFiles(root: string): Promise<PackageFile[]> {
         continue;
       }
       if (!entry.isFile()) throw new Error(`Unsupported package entry: ${relative}`);
-      if (++fileCount > MAX_ENTRY_COUNT)
-        throw new Error(`App packages may contain at most ${MAX_ENTRY_COUNT} files.`);
+      if (++fileCount > PENKRA_APP_PACKAGE_MAX_FILES)
+        throw new Error(`App packages may contain at most ${PENKRA_APP_PACKAGE_MAX_FILES} files.`);
       if (Buffer.byteLength(relative, "utf8") > MAX_PATH_BYTES)
         throw new Error(`Package path is too long: ${relative}`);
       const portable = relative.toLocaleLowerCase("en-US");
@@ -163,30 +168,31 @@ async function readPackageFiles(root: string): Promise<PackageFile[]> {
       if (FORBIDDEN_EXECUTABLE_SUFFIXES.some((suffix) => portable.endsWith(suffix))) {
         throw new Error(`Native executables and scripts are not allowed: ${relative}`);
       }
-      const bytes = await FS.readFile(absolute);
-      if (bytes.byteLength > MAX_ENTRY_BYTES)
-        throw new Error(`Package entry is too large: ${relative}`);
-      if (executableFormat(bytes.subarray(0, 8)))
+      const stat = await FS.stat(absolute);
+      const header = await readPrefix(absolute, 8);
+      if (executableFormat(header))
         throw new Error(`Native executable content is not allowed: ${relative}`);
-      totalBytes += bytes.byteLength;
-      if (totalBytes > MAX_TOTAL_BYTES)
-        throw new Error(`Expanded App package exceeds ${MAX_TOTAL_BYTES} bytes.`);
-      files.push({ path: relative, bytes });
+      totalBytes += stat.size;
+      if (totalBytes > PENKRA_APP_PACKAGE_MAX_EXPANDED_BYTES)
+        throw new Error(
+          `Expanded App package exceeds ${PENKRA_APP_PACKAGE_MAX_EXPANDED_BYTES} bytes.`,
+        );
+      files.push({ path: relative, sourcePath: absolute, size: stat.size });
     }
   };
   await visit(root);
   return files.sort((left, right) => left.path.localeCompare(right.path, "en"));
 }
 
-function requiredDocuments(files: PackageFile[]): {
+async function requiredDocuments(files: PackageFile[]): Promise<{
   manifest: Buffer;
   readme: Buffer;
   instructions: Buffer;
-} {
-  const byPath = new Map(files.map((file) => [file.path, file.bytes]));
-  const manifest = requireDocument(byPath, "penkra-app.json", MAX_MANIFEST_BYTES, false);
-  const readme = requireDocument(byPath, "README.md", PENKRA_APP_README_MAX_BYTES, true);
-  const instructions = requireDocument(
+}> {
+  const byPath = new Map(files.map((file) => [file.path, file]));
+  const manifest = await requireDocument(byPath, "penkra-app.json", MAX_MANIFEST_BYTES, false);
+  const readme = await requireDocument(byPath, "README.md", PENKRA_APP_README_MAX_BYTES, true);
+  const instructions = await requireDocument(
     byPath,
     "INSTRUCTIONS.md",
     PENKRA_APP_INSTRUCTIONS_MAX_BYTES,
@@ -195,15 +201,16 @@ function requiredDocuments(files: PackageFile[]): {
   return { manifest, readme, instructions };
 }
 
-function requireDocument(
-  files: Map<string, Buffer>,
+async function requireDocument(
+  files: Map<string, PackageFile>,
   path: string,
   maximumBytes: number,
   requireText: boolean,
-): Buffer {
-  const bytes = files.get(path);
-  if (!bytes) throw new Error(`${path} is required at the App package root.`);
-  if (bytes.byteLength > maximumBytes) throw new Error(`${path} exceeds ${maximumBytes} bytes.`);
+): Promise<Buffer> {
+  const file = files.get(path);
+  if (!file) throw new Error(`${path} is required at the App package root.`);
+  if (file.size > maximumBytes) throw new Error(`${path} exceeds ${maximumBytes} bytes.`);
+  const bytes = await FS.readFile(file.sourcePath);
   if (requireText) {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     if (text.includes("\0") || !text.trim())
@@ -281,9 +288,12 @@ function assertAgentInstructionsContract(manifest: PenkraAppManifest, instructio
   }
 }
 
-function assertReferencedFiles(manifest: PenkraAppManifest, files: PackageFile[]): void {
+async function assertReferencedFiles(
+  manifest: PenkraAppManifest,
+  files: PackageFile[],
+): Promise<void> {
   const paths = new Set(files.map((file) => file.path));
-  const bytesByPath = new Map(files.map((file) => [file.path, file.bytes]));
+  const filesByPath = new Map(files.map((file) => [file.path, file]));
   const references = [
     manifest.entrypoints.tab,
     manifest.entrypoints.controller,
@@ -296,7 +306,7 @@ function assertReferencedFiles(manifest: PenkraAppManifest, files: PackageFile[]
   }
   for (const skill of manifest.contributions?.skills ?? []) {
     const skillPath = `${skill.path}/SKILL.md`;
-    const bytes = bytesByPath.get(skillPath)!;
+    const bytes = await FS.readFile(filesByPath.get(skillPath)!.sourcePath);
     let text: string;
     try {
       text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -316,7 +326,11 @@ async function writeArchive(path: string, files: PackageFile[]): Promise<void> {
   for (const file of files) {
     // Store bytes without deflate so Bun, Node, Electron, and CI produce the same archive.
     // Compression output can vary with the runtime's zlib build even when every input is identical.
-    archive.addBuffer(file.bytes, file.path, { mtime: ZIP_EPOCH, mode: 0o100644, compress: false });
+    archive.addFile(file.sourcePath, file.path, {
+      mtime: ZIP_EPOCH,
+      mode: 0o100644,
+      compress: false,
+    });
   }
   archive.end();
   await pipeline(archive.outputStream, createWriteStream(path, { flags: "wx", mode: 0o600 }));
@@ -324,6 +338,23 @@ async function writeArchive(path: string, files: PackageFile[]): Promise<void> {
 
 function sha256(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function sha256File(path: string): Promise<string> {
+  const digest = createHash("sha256");
+  for await (const chunk of createReadStream(path)) digest.update(chunk);
+  return digest.digest("hex");
+}
+
+async function readPrefix(path: string, maximumBytes: number): Promise<Buffer> {
+  const handle = await FS.open(path, "r");
+  try {
+    const bytes = Buffer.alloc(maximumBytes);
+    const { bytesRead } = await handle.read(bytes, 0, maximumBytes, 0);
+    return bytes.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
 }
 
 function isWithin(root: string, candidate: string): boolean {

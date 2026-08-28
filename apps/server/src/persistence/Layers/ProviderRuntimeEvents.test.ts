@@ -245,6 +245,15 @@ layer("ProviderRuntimeEventRepository", (it) => {
         initialHeads.map((entry) => entry.event.eventId),
         ["runtime-isolation-a-1", "runtime-isolation-b-1"],
       );
+      const initialBatch = yield* repository.readPendingThreadEvents({
+        throughSequenceInclusive: eventB1.sequence,
+        limit: 10,
+        maxPerThread: 2,
+      });
+      assert.deepStrictEqual(
+        initialBatch.map((entry) => entry.event.eventId),
+        ["runtime-isolation-a-1", "runtime-isolation-a-2", "runtime-isolation-b-1"],
+      );
 
       // B can commit even while A's earlier global sequence remains pending.
       assert.isTrue(

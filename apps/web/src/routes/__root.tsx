@@ -92,6 +92,7 @@ import {
 } from "../providerUpdates";
 
 const seenProviderUpdateNotificationKeys = new Set<string>();
+const ORCHESTRATION_SYNC_PUBLICATION_INTERVAL_MS = 50;
 
 type ProviderUpdateToastId = ReturnType<typeof toastManager.add>;
 type ActiveProviderUpdateToast =
@@ -806,7 +807,7 @@ function EventRouter() {
 
     let disposed = false;
     let pendingSyncDeliveries: OrchestrationSyncStreamItem[] = [];
-    let syncDeliveryFlushScheduled = false;
+    let syncDeliveryFlushTimer: ReturnType<typeof setTimeout> | null = null;
     let syncApplicationFailed = false;
     let pendingSyncAcknowledgement: {
       readonly deliveryId: string;
@@ -865,7 +866,7 @@ function EventRouter() {
     };
 
     const flushSyncDeliveries = () => {
-      syncDeliveryFlushScheduled = false;
+      syncDeliveryFlushTimer = null;
       if (disposed || syncApplicationFailed || pendingSyncDeliveries.length === 0) return;
       const deliveries = pendingSyncDeliveries;
       pendingSyncDeliveries = [];
@@ -927,12 +928,16 @@ function EventRouter() {
     const unsubSyncEvent = api.orchestration.onSyncEvent((item) => {
       if (disposed || syncApplicationFailed) return;
       pendingSyncDeliveries.push(item);
-      if (syncDeliveryFlushScheduled) return;
-      // Collapse only deliveries already accepted in this JavaScript task. This
-      // keeps canonical state independent of painting/background throttling while
-      // avoiding duplicate store commits when one socket read yields a burst.
-      syncDeliveryFlushScheduled = true;
-      queueMicrotask(flushSyncDeliveries);
+      if (syncDeliveryFlushTimer !== null) return;
+      // Provider deltas commonly arrive in separate socket tasks. Publish their
+      // ordered projection at a bounded interactive cadence instead of committing React
+      // work for every delivery; persistence and server admission remain immediate.
+      // A timer rather than requestAnimationFrame also guarantees hidden windows
+      // eventually advance and acknowledge their durable synchronization cursor.
+      syncDeliveryFlushTimer = setTimeout(
+        flushSyncDeliveries,
+        ORCHESTRATION_SYNC_PUBLICATION_INTERVAL_MS,
+      );
     });
 
     const unsubTerminalEvent = api.terminal.onEvent((event) => {
@@ -1055,6 +1060,10 @@ function EventRouter() {
     return () => {
       disposed = true;
       pendingSyncDeliveries = [];
+      if (syncDeliveryFlushTimer !== null) {
+        clearTimeout(syncDeliveryFlushTimer);
+        syncDeliveryFlushTimer = null;
+      }
       unsubSyncEvent();
       unsubTerminalEvent();
       unsubDevServerEvent();

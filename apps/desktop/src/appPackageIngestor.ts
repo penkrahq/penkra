@@ -8,6 +8,11 @@ import * as Path from "node:path";
 import * as OS from "node:os";
 import { pipeline } from "node:stream/promises";
 import yauzl, { type Entry } from "yauzl";
+import {
+  PENKRA_APP_PACKAGE_MAX_ARCHIVE_BYTES,
+  PENKRA_APP_PACKAGE_MAX_EXPANDED_BYTES,
+  PENKRA_APP_PACKAGE_MAX_FILES,
+} from "@penkra/shared/appPackageLimits";
 
 import {
   assertPublishableAppManifest,
@@ -20,8 +25,8 @@ import type { InstalledAppSource, VerifiedAppPackageInput } from "./appInstallat
 import { assertOperationSchemas } from "./appOperationSchema";
 
 export const PENKRA_APP_MANIFEST_FILE_NAME = "penkra-app.json";
-export const APP_PACKAGE_MAX_FILES = 2_048;
-export const APP_PACKAGE_MAX_BYTES = 64 * 1024 * 1024;
+export const APP_PACKAGE_MAX_FILES = PENKRA_APP_PACKAGE_MAX_FILES;
+export const APP_PACKAGE_MAX_BYTES = PENKRA_APP_PACKAGE_MAX_EXPANDED_BYTES;
 
 interface PackageFile {
   relativePath: string;
@@ -114,26 +119,27 @@ export class AppPackageIngestor {
   }
 
   async ingestRegistryArchive(input: {
-    packageBytes: Uint8Array;
+    archivePath: string;
     expectedArchiveDigest: string;
     installedAt?: string;
   }): Promise<VerifiedAppPackageInput> {
+    const archivePath = Path.resolve(input.archivePath);
+    const archive = await FS.promises.stat(archivePath);
     if (
-      input.packageBytes.byteLength === 0 ||
-      input.packageBytes.byteLength > APP_PACKAGE_MAX_BYTES
+      !archive.isFile() ||
+      archive.size === 0 ||
+      archive.size > PENKRA_APP_PACKAGE_MAX_ARCHIVE_BYTES
     ) {
       throw new Error("Registry App package exceeds the archive size limit.");
     }
-    const actualDigest = createHash("sha256").update(input.packageBytes).digest("hex");
+    const actualDigest = await digestFile(archivePath);
     if (actualDigest !== input.expectedArchiveDigest) {
       throw new Error("Registry App package digest changed before ingestion.");
     }
     const temporaryRoot = await FS.promises.mkdtemp(Path.join(OS.tmpdir(), "penkra-registry-app-"));
-    const archivePath = Path.join(temporaryRoot, "package.penkra");
     const sourcePath = Path.join(temporaryRoot, "unpacked");
     try {
-      await FS.promises.writeFile(archivePath, input.packageBytes, { flag: "wx", mode: 0o600 });
-      await extractRegistryArchive(archivePath, sourcePath);
+      await extractRegistryArchive(archivePath, sourcePath, this.#storePath);
       return await this.ingestDirectory({
         sourcePath,
         source: "registry",
@@ -191,46 +197,115 @@ async function removeEmptyDirectory(
   }
 }
 
-async function extractRegistryArchive(archivePath: string, outputRoot: string): Promise<void> {
+async function extractRegistryArchive(
+  archivePath: string,
+  outputRoot: string,
+  storePath: string,
+): Promise<void> {
   await FS.promises.mkdir(outputRoot, { recursive: true, mode: 0o700 });
+  await FS.promises.mkdir(storePath, { recursive: true, mode: 0o700 });
   const zip = await yauzl.openPromise(archivePath, {
+    autoClose: false,
     decodeStrings: true,
     strictFileNames: true,
     validateEntrySizes: true,
   });
-  const paths = new Set<string>();
-  let fileCount = 0;
-  let totalBytes = 0;
-  for await (const entry of zip.eachEntry()) {
-    const relativePath = entry.fileName.normalize("NFC");
-    const isDirectory = relativePath.endsWith("/");
-    const normalizedPath = isDirectory ? relativePath.slice(0, -1) : relativePath;
-    assertPortableArchivePath(normalizedPath);
-    const portablePath = normalizedPath.toLocaleLowerCase("en-US");
-    if (paths.has(portablePath)) throw new Error("Registry App package contains duplicate paths.");
-    paths.add(portablePath);
-    if (entry.isEncrypted()) throw new Error("Registry App package contains encrypted files.");
-    if (isSymbolicLink(entry)) throw new Error("Registry App package contains a symbolic link.");
-    if (isDirectory) {
-      await FS.promises.mkdir(Path.join(outputRoot, ...normalizedPath.split("/")), {
-        recursive: true,
-        mode: 0o700,
-      });
-      continue;
+  try {
+    const entries: Array<{ entry: Entry; relativePath: string; isDirectory: boolean }> = [];
+    const paths = new Set<string>();
+    let fileCount = 0;
+    let totalBytes = 0;
+    for await (const entry of zip.eachEntry()) {
+      const relativePath = entry.fileName.normalize("NFC");
+      const isDirectory = relativePath.endsWith("/");
+      const normalizedPath = isDirectory ? relativePath.slice(0, -1) : relativePath;
+      assertPortableArchivePath(normalizedPath);
+      const portablePath = normalizedPath.toLocaleLowerCase("en-US");
+      if (paths.has(portablePath))
+        throw new Error("Registry App package contains duplicate paths.");
+      paths.add(portablePath);
+      if (entry.isEncrypted()) throw new Error("Registry App package contains encrypted files.");
+      if (isSymbolicLink(entry)) throw new Error("Registry App package contains a symbolic link.");
+      if (!isDirectory) {
+        fileCount += 1;
+        if (fileCount > APP_PACKAGE_MAX_FILES) {
+          throw new Error("Registry App package exceeds the file count limit.");
+        }
+        totalBytes += entry.uncompressedSize;
+        if (totalBytes > PENKRA_APP_PACKAGE_MAX_EXPANDED_BYTES) {
+          throw new Error("Registry App package exceeds the unpacked size limit.");
+        }
+        if (entry.compressionMethod !== 0 && entry.compressionMethod !== 8) {
+          throw new Error("Registry App package uses an unsupported compression method.");
+        }
+      }
+      entries.push({ entry, relativePath: normalizedPath, isDirectory });
     }
-    fileCount += 1;
-    totalBytes += entry.uncompressedSize;
-    if (fileCount > APP_PACKAGE_MAX_FILES || totalBytes > APP_PACKAGE_MAX_BYTES) {
-      throw new Error("Registry App package exceeds the unpacked size limit.");
+    await assertInstallDiskSpace(outputRoot, storePath, totalBytes);
+    for (const { entry, relativePath, isDirectory } of entries) {
+      const outputPath = Path.join(outputRoot, ...relativePath.split("/"));
+      if (isDirectory) {
+        await FS.promises.mkdir(outputPath, { recursive: true, mode: 0o700 });
+        continue;
+      }
+      await FS.promises.mkdir(Path.dirname(outputPath), { recursive: true, mode: 0o700 });
+      const stream = await zip.openReadStreamPromise(entry);
+      await pipeline(stream, FS.createWriteStream(outputPath, { flags: "wx", mode: 0o600 }));
     }
-    if (entry.compressionMethod !== 0 && entry.compressionMethod !== 8) {
-      throw new Error("Registry App package uses an unsupported compression method.");
-    }
-    const outputPath = Path.join(outputRoot, ...relativePath.split("/"));
-    await FS.promises.mkdir(Path.dirname(outputPath), { recursive: true, mode: 0o700 });
-    const stream = await zip.openReadStreamPromise(entry);
-    await pipeline(stream, FS.createWriteStream(outputPath, { flags: "wx", mode: 0o600 }));
+  } finally {
+    zip.close();
   }
+}
+
+async function assertInstallDiskSpace(
+  extractionPath: string,
+  storePath: string,
+  expandedBytes: number,
+): Promise<void> {
+  const headroom = Math.max(256 * 1024 * 1024, Math.ceil(expandedBytes * 0.1));
+  const targets = await Promise.all(
+    (
+      [
+        ["temporary extraction", extractionPath],
+        ["App package store", storePath],
+      ] as const
+    ).map(async ([label, path]) => ({
+      label,
+      path,
+      device: String((await FS.promises.stat(path)).dev),
+      filesystem: await FS.promises.statfs(path),
+    })),
+  );
+  const byDevice = new Map<
+    string,
+    { labels: string[]; filesystem: Awaited<ReturnType<typeof FS.promises.statfs>>; bytes: number }
+  >();
+  for (const target of targets) {
+    const requirement = byDevice.get(target.device) ?? {
+      labels: [],
+      filesystem: target.filesystem,
+      bytes: headroom,
+    };
+    requirement.labels.push(target.label);
+    requirement.bytes += expandedBytes;
+    byDevice.set(target.device, requirement);
+  }
+  for (const requirement of byDevice.values()) {
+    const availableBytes =
+      BigInt(requirement.filesystem.bavail) * BigInt(requirement.filesystem.bsize);
+    const requiredBytes = BigInt(requirement.bytes);
+    if (availableBytes < requiredBytes) {
+      throw new Error(
+        `Not enough disk space for App installation ${requirement.labels.join(" and ")}: ${requiredBytes} bytes required, ${availableBytes} bytes available.`,
+      );
+    }
+  }
+}
+
+async function digestFile(path: string): Promise<string> {
+  const digest = createHash("sha256");
+  for await (const chunk of FS.createReadStream(path)) digest.update(chunk);
+  return digest.digest("hex");
 }
 
 function assertPortableArchivePath(value: string): void {
@@ -350,7 +425,7 @@ async function digestFiles(files: readonly PackageFile[]): Promise<string> {
     digest.update(pathLengthBytes);
     digest.update(sizeBytes);
     digest.update(pathBytes);
-    digest.update(await FS.promises.readFile(file.sourcePath));
+    for await (const chunk of FS.createReadStream(file.sourcePath)) digest.update(chunk);
   }
   return digest.digest("hex");
 }

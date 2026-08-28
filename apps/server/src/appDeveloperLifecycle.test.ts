@@ -228,6 +228,49 @@ describe("registered App publication lifecycle", () => {
     expect(bridge).not.toHaveBeenCalledWith("developer.submissions.create", expect.anything());
   });
 
+  it("resumes the exact immutable bytes for a draft whose upload did not finish", async () => {
+    const mocks = dependencies();
+    const bridge = vi.fn(async (method: string) => {
+      if (method === "developer.publishers.list") return [{ id: "publisher-1" }];
+      if (method === "developer.apps.list") {
+        return [{ id: "app-1", identifier: "com.penkra.canvas" }];
+      }
+      if (method === "developer.submissions.list") {
+        return [
+          {
+            submissionId: "submission-1",
+            version: "0.1.1",
+            packageDigest: digest("a"),
+            status: "draft",
+          },
+        ];
+      }
+      if (method === "developer.submissions.resume-upload") {
+        return { submissionId: "submission-1", status: "uploaded" };
+      }
+      if (method === "developer.apps.visibility.set") return { visibility: "public" };
+      throw new Error(`Unexpected bridge method ${method}`);
+    });
+
+    await expect(
+      publishAppDirectory({
+        directory: "/workspace/canvas/dist",
+        visibility: "public",
+        bridge,
+        dependencies: mocks,
+      }),
+    ).resolves.toMatchObject({
+      resumed: true,
+      submission: { submissionId: "submission-1", status: "uploaded" },
+    });
+    expect(bridge).toHaveBeenCalledWith("developer.submissions.resume-upload", {
+      submissionId: "submission-1",
+      packagePath: expect.stringMatching(/app\.penkra$/),
+      evidence: expect.objectContaining({ packageDigest: digest("a") }),
+    });
+    expect(bridge).not.toHaveBeenCalledWith("developer.submissions.create", expect.anything());
+  });
+
   it.each(["VALIDATION_INFRASTRUCTURE_FAILED", "AUTOMATED_VALIDATION_FAILED"])(
     "retries %s validation for the exact immutable submission",
     async (failureCode) => {

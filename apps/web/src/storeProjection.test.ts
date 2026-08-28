@@ -43,6 +43,75 @@ import { DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 import { resolveSidebarWorkStatus, resolveThreadStatusPill } from "./components/Sidebar.logic";
 
 describe("store projection", () => {
+  it("orders a promoted queued message by delivery causality during full hydration", () => {
+    const threadId = ThreadId.makeUnsafe("thread-queue-hydration-order");
+    const firstTurnId = TurnId.makeUnsafe("turn-hydration-first");
+    const queuedTurnId = TurnId.makeUnsafe("turn-hydration-queued");
+    const firstUserMessageId = MessageId.makeUnsafe("message-hydration-first-user");
+    const queuedMessageId = MessageId.makeUnsafe("message-hydration-queued-follow-up");
+    const assistantMessageId = MessageId.makeUnsafe("message-hydration-first-assistant");
+    const incoming = makeReadModelThread({
+      id: threadId,
+      messages: [
+        {
+          id: firstUserMessageId,
+          role: "user",
+          text: "Hey, what can you do?",
+          attachments: [],
+          sequence: 29_718,
+          turnId: firstTurnId,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-08-27T11:00:31.394Z",
+          updatedAt: "2026-08-27T11:00:33.071Z",
+        },
+        // The projection is stored in admission order. Its accepted delivery
+        // sequence is the durable point at which it becomes a transcript turn.
+        {
+          id: queuedMessageId,
+          role: "user",
+          text: "Ground yourself",
+          attachments: [],
+          dispatchMode: "queue",
+          delivery: { state: "accepted", queued: true, sequence: 29_857 },
+          sequence: 29_724,
+          turnId: queuedTurnId,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-08-27T11:00:36.397Z",
+          updatedAt: "2026-08-27T11:00:40.276Z",
+        },
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          text: "Quite a lot.",
+          attachments: [],
+          sequence: 29_726,
+          turnId: firstTurnId,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-08-27T11:00:37.552Z",
+          updatedAt: "2026-08-27T11:00:40.157Z",
+        },
+      ],
+    });
+
+    const hydrated = syncServerReadModel(
+      makeState(makeThread({ id: threadId })),
+      makeReadModel(incoming),
+    );
+    expect(getThreadFromState(hydrated, threadId)?.messages.map((message) => message.id)).toEqual([
+      firstUserMessageId,
+      assistantMessageId,
+      queuedMessageId,
+    ]);
+
+    const reconciled = syncServerThreadDetailHotPath(hydrated, incoming);
+    expect(getThreadFromState(reconciled, threadId)?.messages.map((message) => message.id)).toEqual(
+      [firstUserMessageId, assistantMessageId, queuedMessageId],
+    );
+  });
+
   it("preserves promoted queue order when a turn page hydrates or reconciles", () => {
     const threadId = ThreadId.makeUnsafe("thread-queue-order");
     const firstTurnId = TurnId.makeUnsafe("turn-first");

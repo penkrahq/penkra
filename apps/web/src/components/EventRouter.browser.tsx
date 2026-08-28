@@ -36,6 +36,7 @@ import {
 } from "../test/effectRpcWebSocketMock";
 import { createBrowserTestServerConfig, createFullscreenTestHost } from "../test/browserHarness";
 import { getThreadFromState } from "../threadDerivation";
+import { makeActivity } from "../storeTestFixtures";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { resetWsNativeApiForTest } from "../wsNativeApi";
 
@@ -64,6 +65,8 @@ let activePageThreadIds: ThreadId[] = [];
 let subscribeSyncRequestCount = 0;
 let syncStreamRequestId: string | null = null;
 let syncStreamClient: EffectRpcWebSocketClient | null = null;
+let domainStreamRequestId: string | null = null;
+let domainStreamClient: EffectRpcWebSocketClient | null = null;
 let getThreadTurnsPageRequests: ThreadId[] = [];
 let acknowledgementObservations: AcknowledgementObservation[] = [];
 let holdSyncAcknowledgements = false;
@@ -257,10 +260,14 @@ const worker = setupWorker(
         method === WS_METHODS.subscribeServerProviderStatuses ||
         method === WS_METHODS.subscribeServerSettings ||
         method === WS_METHODS.subscribeTerminalEvents ||
-        method === WS_METHODS.subscribeOrchestrationDomainEvents ||
         method === WS_METHODS.subscribeProjectDevServerEvents ||
         method === WS_METHODS.subscribeProjectWorkspaceChanges
       ) {
+        return;
+      }
+      if (method === WS_METHODS.subscribeOrchestrationDomainEvents) {
+        domainStreamRequestId = request.id;
+        domainStreamClient = client;
         return;
       }
       sendEffectRpcExit(client, request.id, resolveUnaryRequest(method));
@@ -286,6 +293,13 @@ async function mountApp(routeThreadId: ThreadId = THREAD_ID) {
       if (host.isConnected) host.remove();
     },
   };
+}
+
+function sendDomainEvent(event: OrchestrationEvent): void {
+  if (!domainStreamClient || !domainStreamRequestId) {
+    throw new Error("Orchestration domain stream is not connected");
+  }
+  sendEffectRpcChunk(domainStreamClient, domainStreamRequestId, event);
 }
 
 function sendSyncDelivery(item: OrchestrationSyncStreamItem): void {
@@ -319,6 +333,35 @@ function createThreadUpdatedEvent(input: {
   };
 }
 
+function createThreadActivityEvent(input: {
+  sequence: number;
+  threadId: ThreadId;
+}): OrchestrationEvent {
+  const occurredAt = new Date(Date.parse(NOW_ISO) + input.sequence * 1_000).toISOString();
+  return {
+    sequence: input.sequence,
+    eventId: EventId.makeUnsafe(`event-thread-activity-${input.sequence}`),
+    aggregateKind: "thread",
+    aggregateId: input.threadId,
+    type: "thread.activity-appended",
+    payload: {
+      threadId: input.threadId,
+      activity: makeActivity({
+        id: `activity-${input.sequence}`,
+        createdAt: occurredAt,
+        kind: "tool.updated",
+        summary: `Tool output ${input.sequence}`,
+        payload: { itemType: "command_output", detail: `chunk ${input.sequence}` },
+      }),
+    },
+    occurredAt,
+    commandId: null,
+    causationEventId: null,
+    correlationId: null,
+    metadata: {},
+  };
+}
+
 describe("EventRouter uniform orchestration sync", () => {
   beforeAll(async () => {
     fixture = buildFixture();
@@ -341,6 +384,8 @@ describe("EventRouter uniform orchestration sync", () => {
     subscribeSyncRequestCount = 0;
     syncStreamRequestId = null;
     syncStreamClient = null;
+    domainStreamRequestId = null;
+    domainStreamClient = null;
     getThreadTurnsPageRequests = [];
     acknowledgementObservations = [];
     holdSyncAcknowledgements = false;
@@ -498,6 +543,97 @@ describe("EventRouter uniform orchestration sync", () => {
       unsubscribeStoreUpdates();
       holdSyncAcknowledgements = false;
       for (const respond of heldSyncAcknowledgementExits.splice(0)) respond();
+      await mounted.cleanup();
+    }
+  });
+
+  it("batches sustained tool-output publication across visible, background, and duplicate streams", async () => {
+    activePageThreadIds = [THREAD_ID];
+    const mounted = await mountApp(THREAD_ID);
+
+    const nextTask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const measureSyncBurst = async (threadId: ThreadId, firstSequence: number) => {
+      let storeUpdates = 0;
+      let visibleThreadChanges = 0;
+      let backgroundThreadChanges = 0;
+      let sidebarSummaryChanges = 0;
+      const unsubscribe = useStore.subscribe((state, previousState) => {
+        storeUpdates += 1;
+        if (getThreadFromState(state, THREAD_ID) !== getThreadFromState(previousState, THREAD_ID)) {
+          visibleThreadChanges += 1;
+        }
+        if (
+          getThreadFromState(state, OTHER_THREAD_ID) !==
+          getThreadFromState(previousState, OTHER_THREAD_ID)
+        ) {
+          backgroundThreadChanges += 1;
+        }
+        if (state.sidebarThreadSummaryById !== previousState.sidebarThreadSummaryById) {
+          sidebarSummaryChanges += 1;
+        }
+      });
+      try {
+        for (let offset = 0; offset < 12; offset += 1) {
+          const sequence = firstSequence + offset;
+          sendSyncDelivery({
+            kind: "event",
+            deliveryId: "sync-lease-activity",
+            event: createThreadActivityEvent({ sequence, threadId }),
+          });
+          await nextTask();
+        }
+        await vi.waitFor(() => {
+          expect(acknowledgementObservations.at(-1)?.appliedSequence).toBe(firstSequence + 11);
+        });
+        await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        return {
+          storeUpdates,
+          visibleThreadChanges,
+          backgroundThreadChanges,
+          sidebarSummaryChanges,
+        };
+      } finally {
+        unsubscribe();
+      }
+    };
+
+    try {
+      await vi.waitFor(() => {
+        expect(acknowledgementObservations).toHaveLength(1);
+        expect(domainStreamRequestId).not.toBeNull();
+      });
+
+      const visible = await measureSyncBurst(THREAD_ID, 2);
+      const background = await measureSyncBurst(OTHER_THREAD_ID, 14);
+
+      let duplicateStoreUpdates = 0;
+      const unsubscribeDuplicate = useStore.subscribe(() => {
+        duplicateStoreUpdates += 1;
+      });
+      try {
+        for (let sequence = 26; sequence < 38; sequence += 1) {
+          sendDomainEvent(createThreadActivityEvent({ sequence, threadId: THREAD_ID }));
+          await nextTask();
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      } finally {
+        unsubscribeDuplicate();
+      }
+
+      expect(visible).toMatchObject({
+        storeUpdates: 1,
+        visibleThreadChanges: 1,
+        backgroundThreadChanges: 0,
+        sidebarSummaryChanges: 0,
+      });
+      expect(background).toMatchObject({
+        storeUpdates: 1,
+        visibleThreadChanges: 0,
+        backgroundThreadChanges: 1,
+        sidebarSummaryChanges: 0,
+      });
+      expect(duplicateStoreUpdates).toBe(0);
+    } finally {
       await mounted.cleanup();
     }
   });

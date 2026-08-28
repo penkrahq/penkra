@@ -21,13 +21,20 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function dock(state: RightDockThreadState, motionKey: string) {
+function dock(
+  state: RightDockThreadState,
+  motionKey: string,
+  options: { shellWidth?: number; contentMinWidth?: number } = {},
+) {
   return (
-    <div className="flex h-[600px] w-[1200px]">
+    <div className="flex h-[600px]" style={{ width: options.shellWidth ?? 1_200 }}>
       <div className="min-w-0 flex-1" />
       <RightDock
         state={state}
         minWidth={320}
+        {...(options.contentMinWidth === undefined
+          ? {}
+          : { contentMinWidth: options.contentMinWidth })}
         defaultWidth="50vw"
         shouldAcceptWidth={() => true}
         motionKey={motionKey}
@@ -58,5 +65,23 @@ describe("RightDock Thread width", () => {
       dock({ open: true, panes: [pane], activePaneId: pane.id, width: null }, "thread-new"),
     );
     expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("600px");
+  });
+
+  it("reconciles the rendered dock width when its parent shell shrinks", async () => {
+    await page.viewport(1280, 800);
+    const state: RightDockThreadState = {
+      open: true,
+      panes: [pane],
+      activePaneId: pane.id,
+      width: 740,
+    };
+    const view = await render(dock(state, "thread-a", { shellWidth: 1_200, contentMinWidth: 400 }));
+    const wrapper = document.querySelector<HTMLElement>("[data-slot='sidebar-wrapper']");
+    expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("740px");
+
+    await view.rerender(dock(state, "thread-a", { shellWidth: 900, contentMinWidth: 400 }));
+    await vi.waitFor(() =>
+      expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("500px"),
+    );
   });
 });

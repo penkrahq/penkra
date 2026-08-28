@@ -28,6 +28,7 @@ import {
   readCodexAccountSnapshot,
   resumeCodexThreadWithoutHistoryReplay,
   resolveCodexModelForAccount,
+  shouldRetryCodexPreThreadOpenFailure,
 } from "./codexAppServerManager";
 import {
   assertCodexWorkingDirectoryExists,
@@ -527,6 +528,49 @@ function createProcessOutputHarness() {
 }
 
 describe("Codex app-server teardown", () => {
+  it("retries only the first transport failure before thread open", () => {
+    expect(
+      shouldRetryCodexPreThreadOpenFailure({
+        startupAttempt: 0,
+        aborted: false,
+        transportFailed: true,
+        threadOpenRequestSent: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetryCodexPreThreadOpenFailure({
+        startupAttempt: 1,
+        aborted: false,
+        transportFailed: true,
+        threadOpenRequestSent: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetryCodexPreThreadOpenFailure({
+        startupAttempt: 0,
+        aborted: true,
+        transportFailed: true,
+        threadOpenRequestSent: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetryCodexPreThreadOpenFailure({
+        startupAttempt: 0,
+        aborted: false,
+        transportFailed: true,
+        threadOpenRequestSent: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetryCodexPreThreadOpenFailure({
+        startupAttempt: 0,
+        aborted: false,
+        transportFailed: false,
+        threadOpenRequestSent: false,
+      }),
+    ).toBe(false);
+  });
+
   it("keeps a live process routable when only the last turn status is error", () => {
     class FakeCodexChild extends EventEmitter {
       readonly pid = 5050;
@@ -723,6 +767,161 @@ describe("Codex app-server teardown", () => {
 
     expect(revokeSessionToken).toHaveBeenCalledOnce();
     expect(manager.hasSession(threadId)).toBe(false);
+  });
+
+  it("preserves redacted stderr and process metadata when app-server exits", () => {
+    class FakeCodexChild extends EventEmitter {
+      readonly pid = 5353;
+      exitCode: number | null = null;
+      signalCode: NodeJS.Signals | null = null;
+      killed = false;
+      readonly stdin = new PassThrough();
+      readonly stdout = new PassThrough();
+      readonly stderr = new PassThrough();
+    }
+    const child = new FakeCodexChild();
+    const manager = new CodexAppServerManager();
+    const threadId = asThreadId("thread-codex-diagnostic-exit");
+    const reject = vi.fn();
+    const timeout = setTimeout(() => undefined, 60_000);
+    const context = {
+      session: {
+        provider: "codex",
+        status: "connecting",
+        threadId,
+        runtimeMode: "full-access",
+        cwd: "/Users/test/Desktop/protected-workspace",
+        createdAt: "2026-07-14T00:00:00.000Z",
+        updatedAt: "2026-07-14T00:00:00.000Z",
+      },
+      account: { type: "unknown", planType: null, sparkEnabled: true },
+      child,
+      binaryPath: "/managed/codex",
+      stdoutFramer: new CodexJsonlFramer(),
+      stdinWriter: new CodexJsonlWriter(child.stdin),
+      pending: new Map([
+        [
+          "1",
+          {
+            method: "initialize",
+            timeout,
+            resolve: vi.fn(),
+            reject,
+          },
+        ],
+      ]),
+      pendingApprovals: new Map(),
+      pendingUserInputs: new Map(),
+      collabReceiverTurns: new Map(),
+      collabReceiverParents: new Map(),
+      reviewTurnIds: new Set(),
+      terminalTurnIds: new Set(),
+      mcpStartupStatuses: new Map(),
+      nextRequestId: 2,
+      lastRequestMethod: "initialize",
+      stopping: false,
+    };
+    const internals = manager as unknown as {
+      sessions: Map<ThreadId, unknown>;
+      attachProcessListeners: (context: unknown) => void;
+    };
+    internals.sessions.set(threadId, context);
+    internals.attachProcessListeners(context);
+
+    child.stderr.write("authorization: bearer-secret-");
+    child.stderr.write("value-that-must-not-leak\nfatal: Operation not permitted (os error 1)\n");
+    child.exitCode = 1;
+    child.emit("exit", 1, null);
+
+    expect(reject).toHaveBeenCalledOnce();
+    const error = reject.mock.calls[0]?.[0] as Error;
+    expect(error.message).toContain("reason=process-exit");
+    expect(error.message).toContain("pid=5353");
+    expect(error.message).toContain("code=1");
+    expect(error.message).toContain("request=initialize");
+    expect(error.message).toContain("binary=/managed/codex");
+    expect(error.message).toContain("cwd=/Users/test/Desktop/protected-workspace");
+    expect(error.message).toContain("fatal: Operation not permitted (os error 1)");
+    expect(error.message).toContain("authorization: [redacted]");
+    expect(error.message).not.toContain("bearer-secret-value-that-must-not-leak");
+  });
+
+  it("rejects the pending request with stderr when stdout closes first", async () => {
+    vi.useFakeTimers();
+    try {
+      class FakeCodexChild extends EventEmitter {
+        readonly pid = 5454;
+        exitCode: number | null = null;
+        signalCode: NodeJS.Signals | null = null;
+        killed = false;
+        readonly stdin = new PassThrough();
+        readonly stdout = new PassThrough();
+        readonly stderr = new PassThrough();
+      }
+      const child = new FakeCodexChild();
+      const manager = new CodexAppServerManager(undefined, {
+        teardownProcessTree: async () => ({ escalated: false, signalErrors: [] }),
+      });
+      const threadId = asThreadId("thread-codex-diagnostic-stdout-end");
+      const reject = vi.fn();
+      const timeout = setTimeout(() => undefined, 60_000);
+      const context = {
+        session: {
+          provider: "codex",
+          status: "connecting",
+          threadId,
+          runtimeMode: "full-access",
+          cwd: "/Users/test/Desktop/protected-workspace",
+          createdAt: "2026-07-14T00:00:00.000Z",
+          updatedAt: "2026-07-14T00:00:00.000Z",
+        },
+        account: { type: "unknown", planType: null, sparkEnabled: true },
+        child,
+        binaryPath: "/managed/codex",
+        stdoutFramer: new CodexJsonlFramer(),
+        stdinWriter: new CodexJsonlWriter(child.stdin),
+        pending: new Map([
+          [
+            "1",
+            {
+              method: "initialize",
+              timeout,
+              resolve: vi.fn(),
+              reject,
+            },
+          ],
+        ]),
+        pendingApprovals: new Map(),
+        pendingUserInputs: new Map(),
+        collabReceiverTurns: new Map(),
+        collabReceiverParents: new Map(),
+        reviewTurnIds: new Set(),
+        terminalTurnIds: new Set(),
+        mcpStartupStatuses: new Map(),
+        nextRequestId: 2,
+        lastRequestMethod: "initialize",
+        stopping: false,
+      };
+      const internals = manager as unknown as {
+        sessions: Map<ThreadId, unknown>;
+        attachProcessListeners: (context: unknown) => void;
+      };
+      internals.sessions.set(threadId, context);
+      internals.attachProcessListeners(context);
+
+      child.stderr.write("fatal: helper launch failed: Operation not permitted (os error 1)\n");
+      child.stdout.emit("end");
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(reject).toHaveBeenCalledOnce();
+      const error = reject.mock.calls[0]?.[0] as Error;
+      expect(error.message).toContain("stdout closed before process shutdown");
+      expect(error.message).toContain("request=initialize");
+      expect(error.message).toContain("helper launch failed: Operation not permitted");
+      expect(error.message).not.toContain("Session stopped before request completed");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

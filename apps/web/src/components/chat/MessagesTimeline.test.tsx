@@ -1478,7 +1478,8 @@ describe("MessagesTimeline", () => {
     expect(markup.match(/data-codex-status-row="true"/g) ?? []).toHaveLength(3);
     expect(markup.match(/data-work-entry-icon="true"/g) ?? []).toHaveLength(1);
     expect(markup).toContain("Working for");
-    expect(markup).toContain('class="shimmer pt-0.5 text-muted-foreground/70 font-system-ui"');
+    expect(markup).toContain('class="pt-0.5 text-muted-foreground/70 font-system-ui"');
+    expect(markup).not.toContain("shimmer");
     expect(markup).toContain(">Thinking</div>");
     expect(markup).not.toContain('aria-hidden="true">Thinking</div>');
     expect(markup).toContain("Inspecting apps/web/src/store.ts");

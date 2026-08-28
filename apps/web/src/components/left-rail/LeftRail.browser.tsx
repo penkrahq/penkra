@@ -20,6 +20,7 @@ import { SpaceHeaderShared } from "./space-header-shared/SpaceHeaderShared";
 import { SpaceGroupShared } from "./space-group-shared/SpaceGroupShared";
 import { ThreadRowShared } from "./thread-row-shared/ThreadRowShared";
 import { ThreadRowInlineEdit } from "./thread-row-inline-edit/ThreadRowInlineEdit";
+import { WorkStatusShared } from "./work-status-shared/WorkStatusShared";
 
 const threads = Array.from({ length: 12 }, (_, index) => ({
   id: `thread-${index}`,
@@ -30,6 +31,19 @@ const threads = Array.from({ length: 12 }, (_, index) => ({
 describe("Pencil left rail", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+  });
+
+  it("keeps persistent running-thread status visible without a continuous animation", async () => {
+    const view = await render(
+      <div data-testid="running-status-fixture">
+        <WorkStatusShared status="running" />
+        <WorkStatusShared status="running" />
+        <WorkStatusShared status="running" />
+      </div>,
+    );
+
+    expect(view.container.querySelectorAll('[aria-label="Working"]')).toHaveLength(3);
+    expect(view.container.getAnimations({ subtree: true })).toHaveLength(0);
   });
 
   it("keeps the sidebar and thread chrome on the shared 46px titlebar baseline", async () => {

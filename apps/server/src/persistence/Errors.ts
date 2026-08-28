@@ -79,7 +79,7 @@ export function toPersistenceDecodeCauseError(operation: string) {
     });
 }
 
-export const isPersistenceError = (u: unknown) =>
+export const isPersistenceError = (u: unknown): u is PersistenceSqlError | PersistenceDecodeError =>
   Schema.is(PersistenceSqlError)(u) || Schema.is(PersistenceDecodeError)(u);
 
 export class MigrationLineageError extends Schema.TaggedErrorClass<MigrationLineageError>()(

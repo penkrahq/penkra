@@ -8,8 +8,10 @@ import type {
   DesktopRegistryAppDetail,
   DesktopRegistryAppSummary,
 } from "@penkra/contracts";
+import { PENKRA_APP_PACKAGE_MAX_ARCHIVE_BYTES } from "@penkra/shared/appPackageLimits";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import {
@@ -19,6 +21,11 @@ import {
   type VerifiedRegistryPolicy,
   type VerifiedRegistryRelease,
 } from "./appRegistryTrust";
+import {
+  downloadRegistryPackage,
+  type DownloadedRegistryPackage,
+  type RegistryPackageDownloadDiagnostic,
+} from "./appRegistryPackageDownload";
 
 const APP_SLUG = /^[a-z][a-z0-9-]{1,62}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -137,7 +144,7 @@ export class AppRegistryClient {
   async downloadVerifiedRelease(input: {
     app: DesktopRegistryAppDetail;
     version: DesktopRegistryAppDetail["versions"][number];
-  }): Promise<{ packageBytes: Uint8Array; release: VerifiedRegistryRelease }> {
+  }): Promise<{ package: DownloadedRegistryPackage; release: VerifiedRegistryRelease }> {
     if (input.app.slug.length === 0 || input.version.version.length === 0) throw invalidResponse();
     const packageValue = await this.#request(
       `/api/registry/apps/${encodeURIComponent(input.app.slug)}/versions/${encodeURIComponent(input.version.version)}/package`,
@@ -152,40 +159,53 @@ export class AppRegistryClient {
       uuidField(packageValue, "versionId") !== input.version.id ||
       stringField(packageValue, "version") !== input.version.version ||
       packageDigest !== input.version.packageDigest ||
-      packageSize > 64 * 1024 * 1024
+      packageSize > PENKRA_APP_PACKAGE_MAX_ARCHIVE_BYTES
     ) {
       throw invalidResponse();
     }
     integerField(packageValue, "expiresInSeconds", 1);
-    const [packageBytes, attestation, trustedKeys] = await Promise.all([
-      this.#downloadBytes(packageUrl, packageSize, 64 * 1024 * 1024),
-      this.#downloadArtifactBytes(
-        input.version.registrySignatureArtifactId,
-        "application/jose",
-        512 * 1024,
-      ),
-      this.#registryTrustKeys(),
-    ]);
-    if (createHash("sha256").update(packageBytes).digest("hex") !== packageDigest) {
-      throw new Error("Downloaded App package digest does not match the registry.");
-    }
-    const release = verifyRegistryReleaseAttestation({
-      compactJws: new TextDecoder("utf-8", { fatal: true }).decode(attestation),
-      trustedKeys,
-      expected: {
-        appId: input.app.id,
-        identifier: input.app.identifier,
-        slug: input.app.slug,
-        versionId: input.version.id,
-        version: input.version.version,
-        compatibilityRange: input.version.compatibilityRange,
-        packageDigest: input.version.packageDigest,
-        publishedAt: input.version.publishedAt,
-        publisherSlug: input.app.publisher.slug,
-        permissions: input.version.permissions,
-      },
+    const packageDownload = await downloadRegistryPackage({
+      fetch: this.#fetch,
+      url: packageUrl,
+      appSlug: input.app.slug,
+      version: input.version.version,
+      expectedBytes: packageSize,
+      maximumBytes: PENKRA_APP_PACKAGE_MAX_ARCHIVE_BYTES,
+      onDiagnostic: logRegistryPackageDownload,
     });
-    return { packageBytes, release };
+    try {
+      if (packageDownload.sha256 !== packageDigest) {
+        throw new Error("Downloaded App package digest does not match the registry.");
+      }
+      const [attestation, trustedKeys] = await Promise.all([
+        this.#downloadArtifactBytes(
+          input.version.registrySignatureArtifactId,
+          "application/jose",
+          512 * 1024,
+        ),
+        this.#registryTrustKeys(),
+      ]);
+      const release = verifyRegistryReleaseAttestation({
+        compactJws: new TextDecoder("utf-8", { fatal: true }).decode(attestation),
+        trustedKeys,
+        expected: {
+          appId: input.app.id,
+          identifier: input.app.identifier,
+          slug: input.app.slug,
+          versionId: input.version.id,
+          version: input.version.version,
+          compatibilityRange: input.version.compatibilityRange,
+          packageDigest: input.version.packageDigest,
+          publishedAt: input.version.publishedAt,
+          publisherSlug: input.app.publisher.slug,
+          permissions: input.version.permissions,
+        },
+      });
+      return { package: packageDownload, release };
+    } catch (error) {
+      await packageDownload.dispose();
+      throw error;
+    }
   }
 
   async getSecurityPolicy(): Promise<VerifiedRegistryPolicy> {
@@ -415,13 +435,7 @@ export class AppRegistryClient {
     };
   }): Promise<unknown> {
     assertUuid(input.appId, "App");
-    const packageBytes = await readFile(input.packagePath);
-    if (
-      packageBytes.byteLength !== input.evidence.packageSizeBytes ||
-      digest(packageBytes) !== input.evidence.packageDigest
-    ) {
-      throw new Error("The App package changed after preflight.");
-    }
+    const packageSizeBytes = await this.#verifyDeveloperArtifact(input);
     const created = await this.#request(
       `/api/registry/apps/${encodeURIComponent(input.appId)}/submissions`,
       {
@@ -433,18 +447,47 @@ export class AppRegistryClient {
           readmeDigest: input.evidence.readmeDigest,
           instructionsDigest: input.evidence.instructionsDigest,
           compatibilityRange: input.evidence.compatibilityRange,
-          packageSizeBytes: packageBytes.byteLength,
+          packageSizeBytes,
           permissions: input.evidence.permissions,
         }),
       },
     );
     const response = parseSubmissionUpload(created);
-    await this.#uploadDeveloperArtifact(response.uploads.package, packageBytes);
+    await this.#uploadDeveloperArtifact(
+      response.uploads.package,
+      input.packagePath,
+      packageSizeBytes,
+    );
     return this.#request(
       `/api/registry/submissions/${encodeURIComponent(response.submissionId)}/finalize`,
       {
         method: "POST",
       },
+    );
+  }
+
+  async developerResumeSubmissionUpload(input: {
+    submissionId: string;
+    packagePath: string;
+    evidence: { packageDigest: string; packageSizeBytes: number };
+  }): Promise<unknown> {
+    assertUuid(input.submissionId, "submission");
+    const packageSizeBytes = await this.#verifyDeveloperArtifact(input);
+    const refreshed = parseSubmissionUpload(
+      await this.#request(
+        `/api/registry/submissions/${encodeURIComponent(input.submissionId)}/upload`,
+        { method: "POST" },
+      ),
+    );
+    if (refreshed.submissionId !== input.submissionId) throw invalidResponse();
+    await this.#uploadDeveloperArtifact(
+      refreshed.uploads.package,
+      input.packagePath,
+      packageSizeBytes,
+    );
+    return this.#request(
+      `/api/registry/submissions/${encodeURIComponent(input.submissionId)}/finalize`,
+      { method: "POST" },
     );
   }
 
@@ -550,16 +593,41 @@ export class AppRegistryClient {
 
   async #uploadDeveloperArtifact(
     upload: { url: string; headers: Record<string, string> },
-    bytes: Uint8Array,
+    path: string,
+    sizeBytes: number,
   ): Promise<void> {
     this.#assertRegistryObjectUrl(upload.url);
-    const response = await this.#fetch(upload.url, {
-      method: "PUT",
-      headers: upload.headers,
-      body: new Blob([bytes.slice().buffer]),
-      signal: AbortSignal.timeout(60_000),
-    });
-    if (!response.ok) throw new Error(`Registry upload returned HTTP ${response.status}.`);
+    const body = createReadStream(path);
+    try {
+      const response = await this.#fetch(upload.url, {
+        method: "PUT",
+        // A Node ReadStream has no intrinsic HTTP length. Without this exact header,
+        // fetch uses chunked transfer encoding, which S3 presigned PUTs reject.
+        headers: { ...upload.headers, "content-length": String(sizeBytes) },
+        body: body as unknown as BodyInit,
+        duplex: "half",
+        signal: AbortSignal.timeout(60_000),
+      } as RequestInit & { duplex: "half" });
+      if (!response.ok) throw new Error(`Registry upload returned HTTP ${response.status}.`);
+    } finally {
+      body.destroy();
+    }
+  }
+
+  async #verifyDeveloperArtifact(input: {
+    packagePath: string;
+    evidence: { packageDigest: string; packageSizeBytes: number };
+  }): Promise<number> {
+    const packageStat = await stat(input.packagePath);
+    if (
+      !packageStat.isFile() ||
+      packageStat.size !== input.evidence.packageSizeBytes ||
+      packageStat.size > PENKRA_APP_PACKAGE_MAX_ARCHIVE_BYTES ||
+      (await digestFile(input.packagePath)) !== input.evidence.packageDigest
+    ) {
+      throw new Error("The App package changed after preflight.");
+    }
+    return packageStat.size;
   }
 
   #assertRegistryObjectUrl(value: string): void {
@@ -671,6 +739,11 @@ export class AppRegistryClient {
 }
 
 type InstallReceiptQueueEntry = { accountId: string; appId: string; versionId: string };
+
+function logRegistryPackageDownload(diagnostic: RegistryPackageDownloadDiagnostic): void {
+  const method = diagnostic.event === "failed" ? console.warn : console.info;
+  method("[penkra-app-install] Registry package download", diagnostic);
+}
 
 async function writeAtomic(path: string, contents: string): Promise<void> {
   const temporaryPath = temporaryWritePath(path);
@@ -930,8 +1003,10 @@ function invalidResponse(): Error {
   return new Error("The App registry returned an invalid response.");
 }
 
-function digest(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
+async function digestFile(path: string): Promise<string> {
+  const value = createHash("sha256");
+  for await (const chunk of createReadStream(path)) value.update(chunk);
+  return value.digest("hex");
 }
 
 function parseSubmissionUpload(value: unknown): {
