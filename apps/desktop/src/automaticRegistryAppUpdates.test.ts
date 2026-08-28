@@ -27,7 +27,6 @@ function installedState(
         sha256: "a".repeat(64),
         installedAt: "2026-08-01T00:00:00.000Z",
         manifest: {
-          manifestVersion: 2 as const,
           id: "com.example.notes",
           slug: "notes",
           name: "Notes",
@@ -35,7 +34,7 @@ function installedState(
           version: "1.0.0",
           compatibility: { penkra: ">=0.8.0" },
           icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-          entrypoints: { app: "app.html" },
+          entrypoints: { tab: "app.html" },
           permissions,
         },
       },

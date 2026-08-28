@@ -202,7 +202,8 @@ export type AppTabNavigationHandler<Result = void> = (
   context: AppTabHandlerContext,
 ) => Promise<Result> | Result;
 
-export interface PenkraAppRuntimeApi {
+export interface PenkraTabRuntimeApi {
+  readonly runtime: { readonly kind: "tab" };
   /** Visual-tab only. Show a native context menu at the current pointer position. */
   contextMenu: {
     show<T extends string>(items: ReadonlyArray<AppContextMenuItem<T>>): Promise<T | null>;
@@ -406,12 +407,6 @@ export interface PenkraAppRuntimeApi {
     /** Visual-tab only. Request a permission in direct response to a user-invoked feature. */
     request(name: PenkraPermissionName): Promise<AppPermissionStatus>;
   };
-  operations: {
-    handle<Input = unknown, Result = unknown>(
-      handlerKey: string,
-      handler: AppOperationHandler<Input, Result>,
-    ): () => void;
-  };
   /** Visual-tab only. Operation controllers receive tab handles through OperationContext. */
   tab: {
     /**
@@ -436,26 +431,38 @@ export interface PenkraAppRuntimeApi {
  * Ordinary filesystem, HTTP, crypto, Buffer, and stream work uses standard Node APIs instead.
  */
 export type PenkraControllerRuntimeApi = Pick<
-  PenkraAppRuntimeApi,
-  "identity" | "operations" | "secrets" | "settings"
+  PenkraTabRuntimeApi,
+  "identity" | "secrets" | "settings"
 > & {
-  account: Pick<PenkraAppRuntimeApi["account"], "request">;
-  permissions: Pick<PenkraAppRuntimeApi["permissions"], "query">;
+  readonly runtime: { readonly kind: "controller" };
+  operations: {
+    handle<Input = unknown, Result = unknown>(
+      handlerKey: string,
+      handler: AppOperationHandler<Input, Result>,
+    ): () => void;
+  };
+  account: Pick<PenkraTabRuntimeApi["account"], "request">;
+  permissions: Pick<PenkraTabRuntimeApi["permissions"], "query">;
 };
 
-function runtime(): PenkraAppRuntimeApi {
-  const candidate = (globalThis as { penkra?: PenkraAppRuntimeApi }).penkra;
+function runtime(): PenkraTabRuntimeApi {
+  const candidate = (globalThis as { penkra?: PenkraTabRuntimeApi }).penkra;
   if (!candidate) {
     throw new Error("Penkra App runtime is unavailable. Run this package inside Penkra.");
+  }
+  if (candidate.runtime?.kind !== "tab") {
+    throw new Error(
+      "@penkra/sdk/tab is available only in a visual App tab. Import @penkra/sdk/controller from an operation controller.",
+    );
   }
   return candidate;
 }
 
-export const contextMenu: PenkraAppRuntimeApi["contextMenu"] = {
+export const contextMenu: PenkraTabRuntimeApi["contextMenu"] = {
   show: (items) => runtime().contextMenu.show(items),
 };
 
-export const files: PenkraAppRuntimeApi["files"] = {
+export const files: PenkraTabRuntimeApi["files"] = {
   list: () => runtime().files.list(),
   pick: (kind, options) => runtime().files.pick(kind, options),
   open: (handleId, relativePath) => runtime().files.open(handleId, relativePath),
@@ -477,7 +484,7 @@ export const files: PenkraAppRuntimeApi["files"] = {
     runtime().files.watch(handleId, relativePath, listener),
 };
 
-export const storage: PenkraAppRuntimeApi["storage"] = {
+export const storage: PenkraTabRuntimeApi["storage"] = {
   open: (path) => runtime().storage.open(path),
   closeUrl: (url) => runtime().storage.closeUrl(url),
   writeFile: (input) => runtime().storage.writeFile(input),
@@ -486,20 +493,20 @@ export const storage: PenkraAppRuntimeApi["storage"] = {
   usage: () => runtime().storage.usage(),
 };
 
-export const transfer: PenkraAppRuntimeApi["transfer"] = {
+export const transfer: PenkraTabRuntimeApi["transfer"] = {
   begin: (input) => runtime().transfer.begin(input),
   send: (input) => runtime().transfer.send(input),
   receive: (input) => runtime().transfer.receive(input),
   onProgress: (listener) => runtime().transfer.onProgress(listener),
 };
 
-export const composer: PenkraAppRuntimeApi["composer"] = {
+export const composer: PenkraTabRuntimeApi["composer"] = {
   stage: (input) => runtime().composer.stage(input),
 };
 
-export const open: PenkraAppRuntimeApi["open"] = (input) => runtime().open(input);
+export const open: PenkraTabRuntimeApi["open"] = (input) => runtime().open(input);
 
-export const browser: PenkraAppRuntimeApi["browser"] = {
+export const browser: PenkraTabRuntimeApi["browser"] = {
   open: (initialUrl) => runtime().browser.open(initialUrl),
   close: () => runtime().browser.close(),
   getState: () => runtime().browser.getState(),
@@ -521,7 +528,7 @@ export const browser: PenkraAppRuntimeApi["browser"] = {
   evaluate: (input) => runtime().browser.evaluate(input),
 };
 
-export const simulator: PenkraAppRuntimeApi["simulator"] = {
+export const simulator: PenkraTabRuntimeApi["simulator"] = {
   getEnvironment: () => runtime().simulator.getEnvironment(),
   listRuntimes: () => runtime().simulator.listRuntimes(),
   listDeviceTypes: (runtimeId) => runtime().simulator.listDeviceTypes(runtimeId),
@@ -545,48 +552,43 @@ export const simulator: PenkraAppRuntimeApi["simulator"] = {
   rotate: (orientation) => runtime().simulator.rotate(orientation),
 };
 
-/** Framework-neutral operation registration backed by the host preload bridge. */
-export const operations: PenkraAppRuntimeApi["operations"] = {
-  handle: (handlerKey, handler) => runtime().operations.handle(handlerKey, handler),
-};
-
 /** Framework-neutral, read-only permission inspection for the current App and Space. */
-export const permissions: PenkraAppRuntimeApi["permissions"] = {
+export const permissions: PenkraTabRuntimeApi["permissions"] = {
   query: (name) => runtime().permissions.query(name),
   request: (name) => runtime().permissions.request(name),
 };
 
 /** Installation-local pairwise subject and opaque Space identity for the current App context. */
-export const identity: PenkraAppRuntimeApi["identity"] = {
+export const identity: PenkraTabRuntimeApi["identity"] = {
   get: () => runtime().identity.get(),
   getToken: (input) => runtime().identity.getToken(input),
 };
 
-export const account: PenkraAppRuntimeApi["account"] = {
+export const account: PenkraTabRuntimeApi["account"] = {
   request: (input) => runtime().account.request(input),
   subscribe: (channel, listener, options) =>
     runtime().account.subscribe(channel, listener, options),
 };
 
 /** Manifest-declared, Space-scoped App settings. Sensitive values stay in host secure storage. */
-export const settings: PenkraAppRuntimeApi["settings"] = {
+export const settings: PenkraTabRuntimeApi["settings"] = {
   get: (key) => runtime().settings.get(key),
   set: (key, value) => runtime().settings.set(key, value),
   reset: (key) => runtime().settings.reset(key),
 };
 
-export const secrets: PenkraAppRuntimeApi["secrets"] = {
+export const secrets: PenkraTabRuntimeApi["secrets"] = {
   get: (name) => runtime().secrets.get(name),
   set: (name, value) => runtime().secrets.set(name, value),
   delete: (name) => runtime().secrets.delete(name),
 };
 
-export const network: PenkraAppRuntimeApi["network"] = {
+export const network: PenkraTabRuntimeApi["network"] = {
   fetch: (input) => runtime().network.fetch(input),
 };
 
 /** Framework-neutral tab registration backed by the host preload bridge. */
-export const tab: PenkraAppRuntimeApi["tab"] = {
+export const tab: PenkraTabRuntimeApi["tab"] = {
   getContext: () => runtime().tab.getContext(),
   setRoute: (input) => runtime().tab.setRoute(input),
   onVisibilityChange: (listener) => runtime().tab.onVisibilityChange(listener),

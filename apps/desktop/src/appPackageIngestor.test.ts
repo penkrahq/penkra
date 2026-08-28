@@ -27,7 +27,6 @@ function fixture(): { root: string; sourcePath: string; storePath: string } {
   FS.writeFileSync(
     Path.join(sourcePath, PENKRA_APP_MANIFEST_FILE_NAME),
     JSON.stringify({
-      manifestVersion: 2,
       id: "com.example.app",
       slug: "example",
       name: "Example",
@@ -35,7 +34,7 @@ function fixture(): { root: string; sourcePath: string; storePath: string } {
       version: "1.0.0",
       compatibility: { penkra: ">=0.8.0" },
       icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
-      entrypoints: { app: "app.html" },
+      entrypoints: { tab: "app.html" },
     }),
   );
   return { root, sourcePath, storePath };
@@ -151,7 +150,6 @@ async function registryArchive(): Promise<Buffer> {
   zip.addBuffer(
     Buffer.from(
       JSON.stringify({
-        manifestVersion: 2,
         id: "com.example.app",
         slug: "example",
         name: "Example",
@@ -159,7 +157,7 @@ async function registryArchive(): Promise<Buffer> {
         version: "1.0.0",
         compatibility: { penkra: ">=0.8.0" },
         icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
-        entrypoints: { app: "app.html" },
+        entrypoints: { tab: "app.html" },
       }),
     ),
     "penkra-app.json",

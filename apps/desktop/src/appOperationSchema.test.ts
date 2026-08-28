@@ -58,7 +58,6 @@ describe("App operation schema boundary", () => {
   it("rejects manifest examples that do not match their operation input schema", () => {
     expect(() =>
       assertOperationSchemas({
-        manifestVersion: 2,
         id: "com.acme.issues",
         slug: "issues",
         name: "Issues",
@@ -66,7 +65,7 @@ describe("App operation schema boundary", () => {
         version: "1.0.0",
         compatibility: { penkra: ">=0.11.1" },
         icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-        entrypoints: { app: "app.html", operations: "operations.js" },
+        entrypoints: { tab: "app.html", controller: "operations.js" },
         operations: [
           { ...declaration, examples: [{ name: "Invalid issue", input: { title: "" } }] },
         ],

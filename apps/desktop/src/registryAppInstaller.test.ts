@@ -49,7 +49,6 @@ describe("registry App installer", () => {
       sha256: "b".repeat(64),
       installedAt: "2026-08-01T00:00:00.000Z",
       manifest: {
-        manifestVersion: 2,
         id: app.identifier,
         slug: app.slug,
         name: app.displayName,
@@ -57,7 +56,7 @@ describe("registry App installer", () => {
         version: version.version,
         compatibility: { penkra: version.compatibilityRange },
         icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-        entrypoints: { app: "app.js" },
+        entrypoints: { tab: "app.html" },
         permissions: [{ name: "network-fetch", required: true, reason: "Sync" }],
       },
     });
@@ -136,7 +135,6 @@ describe("registry App installer", () => {
       sha256: "b".repeat(64),
       installedAt: "2026-08-02T00:00:00.000Z",
       manifest: {
-        manifestVersion: 2 as const,
         id: app.identifier,
         slug: app.slug,
         name: app.displayName,
@@ -144,7 +142,7 @@ describe("registry App installer", () => {
         version: "2.0.0",
         compatibility: { penkra: version.compatibilityRange },
         icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-        entrypoints: { app: "app.js" },
+        entrypoints: { tab: "app.html" },
         permissions: [{ name: "network-fetch", required: true, reason: "Sync" }],
       },
     };
@@ -232,7 +230,6 @@ describe("registry App installer", () => {
       sha256: "b".repeat(64),
       installedAt: "2026-08-02T00:00:00.000Z",
       manifest: {
-        manifestVersion: 2 as const,
         id: app.identifier,
         slug: app.slug,
         name: app.displayName,
@@ -240,7 +237,7 @@ describe("registry App installer", () => {
         version: "1.0.0",
         compatibility: { penkra: version.compatibilityRange },
         icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-        entrypoints: { app: "app.js" },
+        entrypoints: { tab: "app.html" },
         permissions: [{ name: "network-fetch", required: true, reason: "Sync" }],
       },
     };
@@ -323,7 +320,6 @@ describe("registry App installer", () => {
                 sha256: "b".repeat(64),
                 installedAt: "2026-08-01T00:00:00.000Z",
                 manifest: {
-                  manifestVersion: 2,
                   id: app.identifier,
                   slug: app.slug,
                   name: app.displayName,
@@ -331,7 +327,7 @@ describe("registry App installer", () => {
                   version: "1.0.0",
                   compatibility: { penkra: version.compatibilityRange },
                   icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-                  entrypoints: { app: "app.js" },
+                  entrypoints: { tab: "app.html" },
                   permissions: [{ name: "network-fetch", required: true, reason: "Sync" }],
                 },
               },

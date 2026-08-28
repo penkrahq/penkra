@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import type { PenkraAppRuntimeApi, PenkraControllerRuntimeApi } from "@penkra/sdk";
+import type { PenkraControllerRuntimeApi } from "@penkra/sdk";
 
 import {
   AppNodeControllerRuntime,
@@ -140,34 +140,19 @@ describe("AppNodeControllerRuntime", () => {
   it("exposes only the supported controller contract", async () => {
     const test = fixture();
     expectTypeOf(test.runtime.api).toEqualTypeOf<PenkraControllerRuntimeApi>();
+    expect(test.runtime.api.runtime).toEqual({ kind: "controller" });
+    expect(Object.keys(test.runtime.api).sort()).toEqual([
+      "account",
+      "identity",
+      "operations",
+      "permissions",
+      "runtime",
+      "secrets",
+      "settings",
+    ]);
+    expect("network" in test.runtime.api).toBe(false);
     await expect(test.runtime.api.settings.get("theme")).resolves.toBe("theme");
     expect(test.serviceCalls).toContainEqual({ method: "settings.get", input: "theme" });
-  });
-
-  it("rejects every visual-only SDK surface with an attributable error", async () => {
-    const test = fixture();
-    const visual = test.runtime.api as PenkraControllerRuntimeApi & PenkraAppRuntimeApi;
-    const attempts = [
-      visual.contextMenu.show([]),
-      visual.files.list(),
-      visual.storage.usage(),
-      visual.transfer.receive({
-        url: "https://files.example/archive.zip",
-        to: { storage: "archive.zip" },
-      }),
-      visual.composer.stage({ text: "draft" }),
-      visual.open({ handleId: "handle", with: "system" }),
-      visual.browser.getState(),
-      visual.simulator.getEnvironment(),
-      visual.network.fetch({ url: "https://api.example/data" }),
-      visual.account.subscribe("updates", () => undefined),
-      visual.permissions.request("network-fetch"),
-      visual.tab.getContext(),
-    ];
-
-    for (const attempt of attempts) {
-      await expect(attempt).rejects.toMatchObject({ code: "INTERACTIVE_TAB_REQUIRED" });
-    }
   });
 
   it("aborts a handler and outstanding context call when the host cancels", async () => {

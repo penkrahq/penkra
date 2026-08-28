@@ -15,7 +15,6 @@ import {
 } from "./appInstallationState";
 
 const manifest = {
-  manifestVersion: 2,
   id: "com.penkra.apps",
   slug: "apps",
   name: "Apps",
@@ -23,7 +22,7 @@ const manifest = {
   version: "0.1.0",
   compatibility: { penkra: ">=0.8.0" },
   icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
-  entrypoints: { app: "app.html", operations: "operations.js" },
+  entrypoints: { tab: "app.html", controller: "operations.js" },
 } as const;
 
 function verifiedPackage(patch: Partial<VerifiedAppPackageInput> = {}): VerifiedAppPackageInput {
@@ -240,7 +239,7 @@ describe("App installation state", () => {
     };
 
     expect(parseAppInstallationState(legacy)).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       packagesByInstallationKey: {
         [`personal\0${manifest.id}`]: expect.objectContaining({ appId: manifest.id }),
       },
@@ -269,7 +268,7 @@ describe("App installation state", () => {
     ).toThrow("metadata does not match its committed manifest");
   });
 
-  it("migrates stored Runtime v1 manifests without dropping resource handlers", () => {
+  it("migrates stored App entrypoint names without dropping resource handlers", () => {
     const installed = registerVerifiedAppPackage(
       createEmptyAppInstallationState(),
       verifiedPackage(),
@@ -280,13 +279,14 @@ describe("App installation state", () => {
     expect(packageRecord).toBeDefined();
     const migrated = parseAppInstallationState({
       ...installed,
-      schemaVersion: 3,
+      schemaVersion: 4,
       packagesByInstallationKey: {
         [key]: {
           ...packageRecord,
           manifest: {
             ...packageRecord?.manifest,
-            manifestVersion: 1,
+            manifestVersion: 2,
+            entrypoints: { app: "app.html", operations: "operations.js" },
             operations: [
               {
                 key: "issues.create",
@@ -307,9 +307,9 @@ describe("App installation state", () => {
       },
     });
 
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(5);
     expect(migrated.packagesByInstallationKey[key]?.manifest).toMatchObject({
-      manifestVersion: 2,
+      entrypoints: { tab: "app.html", controller: "operations.js" },
       contributions: {
         handlers: [{ intent: "open-url" }, { intent: "open-directory" }],
       },

@@ -28,7 +28,6 @@ function app(
     sha256: "a".repeat(64),
     installedAt: "2026-08-02T00:00:00.000Z",
     manifest: {
-      manifestVersion: 2,
       id: "com.acme.figma",
       slug: "figma",
       name: "Figma",
@@ -36,7 +35,7 @@ function app(
       version: "1.0.0",
       compatibility: { penkra: ">=0.8.0" },
       icons,
-      entrypoints: { app: "app.html" },
+      entrypoints: { tab: "app.html" },
     },
   };
 }

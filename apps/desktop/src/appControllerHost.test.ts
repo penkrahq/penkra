@@ -10,7 +10,6 @@ import type { ActiveAppSession } from "./appSessionManager";
 
 function installedApp(withOperations = true): InstalledAppPackage {
   const manifest = {
-    manifestVersion: 2,
     id: "com.acme.linear",
     slug: "linear",
     name: "Linear",
@@ -19,8 +18,8 @@ function installedApp(withOperations = true): InstalledAppPackage {
     compatibility: { penkra: ">=0.8.0" },
     icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
     entrypoints: withOperations
-      ? { app: "app.html", operations: "operations.js" }
-      : { app: "app.html" },
+      ? { tab: "app.html", controller: "operations.js" }
+      : { tab: "app.html" },
     ...(withOperations
       ? {
           operations: [

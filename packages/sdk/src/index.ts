@@ -1,5 +1,4 @@
 export {
-  PENKRA_APP_MANIFEST_VERSION,
   assertAppManifest,
   assertPublishableAppManifest,
   defineApp,
@@ -58,22 +57,6 @@ export {
 } from "./operations";
 
 export {
-  files,
-  open,
-  operations,
-  storage,
-  transfer,
-  composer,
-  browser,
-  simulator,
-  contextMenu,
-  permissions,
-  identity,
-  account,
-  settings,
-  network,
-  secrets,
-  tab,
   type AppIdentity,
   type AppIdentityToken,
   type AppAccountDataResponse,
@@ -102,7 +85,7 @@ export {
   type AppTabNavigationInput,
   type AppTabOperationHandler,
   type AppTabVisibility,
-  type PenkraAppRuntimeApi,
+  type PenkraTabRuntimeApi,
   type PenkraControllerRuntimeApi,
 } from "./runtime";
 export {

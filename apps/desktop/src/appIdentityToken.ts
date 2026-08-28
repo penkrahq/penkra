@@ -41,11 +41,15 @@ export async function requestAppIdentityToken(input: {
   });
   const body = (await response.json()) as unknown;
   if (!response.ok) {
-    const message =
-      isRecord(body) && isRecord(body.error) && typeof body.error.message === "string"
-        ? body.error.message
-        : "Penkra could not issue an App identity token.";
-    throw new Error(message);
+    const error = isRecord(body) ? body : {};
+    throw Object.assign(
+      new Error(
+        typeof error.message === "string"
+          ? error.message
+          : "Penkra could not issue an App identity token.",
+      ),
+      typeof error.code === "string" ? { code: error.code } : {},
+    );
   }
   if (
     !isRecord(body) ||

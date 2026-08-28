@@ -1,4 +1,4 @@
-import { permissions, settings as appSettings, tab } from "@penkra/sdk";
+import { permissions, settings as appSettings, tab } from "@penkra/sdk/tab";
 import { createAppBar, createIcon } from "@penkra/ui";
 import "@penkra/ui/tokens.css";
 import "@penkra/ui/app-bar.css";

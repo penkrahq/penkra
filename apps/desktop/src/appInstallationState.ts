@@ -4,7 +4,7 @@
 
 import { assertAppManifest, type PenkraAppManifest } from "@penkra/sdk";
 
-export const APP_INSTALLATION_STATE_SCHEMA_VERSION = 4 as const;
+export const APP_INSTALLATION_STATE_SCHEMA_VERSION = 5 as const;
 
 export type InstalledAppSource = "registry" | "sideload";
 export type AppPermissionGrant = "denied" | "granted";
@@ -331,6 +331,7 @@ export function parseAppInstallationState(value: unknown): AppInstallationState 
   if (isRecord(value) && value.schemaVersion === 1) value = migrateSchemaVersionOne(value);
   if (isRecord(value) && value.schemaVersion === 2) value = migrateSchemaVersionTwo(value);
   if (isRecord(value) && value.schemaVersion === 3) value = migrateSchemaVersionThree(value);
+  if (isRecord(value) && value.schemaVersion === 4) value = migrateSchemaVersionFour(value);
   if (!isRecord(value) || value.schemaVersion !== APP_INSTALLATION_STATE_SCHEMA_VERSION) {
     throw new AppInstallationStateError(
       "invalid-state",
@@ -448,19 +449,38 @@ function migrateSchemaVersionThree(value: Record<string, unknown>): Record<strin
   }
   return {
     ...value,
+    schemaVersion: 4,
+  };
+}
+
+function migrateSchemaVersionFour(value: Record<string, unknown>): Record<string, unknown> {
+  if (!isRecord(value.packagesByInstallationKey)) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      "App installation state package records must be an object.",
+    );
+  }
+  return {
+    ...value,
     schemaVersion: APP_INSTALLATION_STATE_SCHEMA_VERSION,
     packagesByInstallationKey: Object.fromEntries(
       Object.entries(value.packagesByInstallationKey).map(([key, candidate]) => {
         if (!isRecord(candidate) || !isRecord(candidate.manifest)) return [key, candidate];
         const manifest = candidate.manifest;
-        if (manifest.manifestVersion !== 1) return [key, candidate];
+        if (!isRecord(manifest.entrypoints)) return [key, candidate];
+        const { manifestVersion: _manifestVersion, entrypoints, ...currentManifest } = manifest;
+        const tab = entrypoints.tab ?? entrypoints.app;
+        const controller = entrypoints.controller ?? entrypoints.operations;
         return [
           key,
           {
             ...candidate,
             manifest: {
-              ...manifest,
-              manifestVersion: 2,
+              ...currentManifest,
+              entrypoints: {
+                ...(tab === undefined ? {} : { tab }),
+                ...(controller === undefined ? {} : { controller }),
+              },
             },
           },
         ];

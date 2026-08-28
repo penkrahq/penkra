@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { defineApp, validateAppManifest } from "./manifest";
 
 const validManifest = {
-  manifestVersion: 2,
   id: "com.penkra.apps",
   slug: "apps",
   name: "Apps",
@@ -11,7 +10,7 @@ const validManifest = {
   version: "0.1.0",
   compatibility: { penkra: ">=0.8.0" },
   icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
-  entrypoints: { app: "app.html", operations: "operations.js" },
+  entrypoints: { tab: "app.html", controller: "operations.js" },
   permissions: [{ name: "network-fetch", required: true, reason: "Load the Penkra App catalog." }],
   operations: [
     {
@@ -50,17 +49,6 @@ const validManifest = {
 } as const;
 
 describe("validateAppManifest", () => {
-  it("rejects Runtime v1 manifests at the package boundary", () => {
-    const result = validateAppManifest({ ...validManifest, manifestVersion: 1 });
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.issues).toContainEqual({
-      path: "manifestVersion",
-      code: "invalid-manifest-version",
-      message: "manifestVersion must be 2.",
-    });
-  });
-
   it("accepts the canonical Apps manifest shape", () => {
     expect(validateAppManifest(validManifest)).toEqual({ ok: true, manifest: validManifest });
     expect(defineApp(validManifest)).toBe(validManifest);
@@ -152,7 +140,7 @@ describe("validateAppManifest", () => {
   it("rejects unsafe entrypoints and duplicate declarations", () => {
     const result = validateAppManifest({
       ...validManifest,
-      entrypoints: { app: "../app.html" },
+      entrypoints: { tab: "../app.html" },
       permissions: [validManifest.permissions[0], validManifest.permissions[0]],
       operations: [validManifest.operations[0], validManifest.operations[0]],
     });
@@ -161,9 +149,25 @@ describe("validateAppManifest", () => {
     if (result.ok) return;
     expect(result.issues).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: "entrypoints.app", code: "unsafe-path" }),
+        expect.objectContaining({ path: "entrypoints.tab", code: "unsafe-path" }),
         expect.objectContaining({ path: "permissions[1].name", code: "duplicate" }),
         expect.objectContaining({ path: "operations[1].key", code: "duplicate" }),
+      ]),
+    );
+  });
+
+  it("requires exact browser and Node controller entrypoint kinds", () => {
+    const result = validateAppManifest({
+      ...validManifest,
+      entrypoints: { tab: "app.js", controller: "operations.html" },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "entrypoints.tab", code: "invalid-format" }),
+        expect.objectContaining({ path: "entrypoints.controller", code: "invalid-format" }),
       ]),
     );
   });
@@ -190,12 +194,12 @@ describe("validateAppManifest", () => {
   it("requires a controller entrypoint when operations are declared", () => {
     const result = validateAppManifest({
       ...validManifest,
-      entrypoints: { app: "app.html" },
+      entrypoints: { tab: "app.html" },
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.issues).toContainEqual(
-      expect.objectContaining({ path: "entrypoints.operations", code: "missing" }),
+      expect.objectContaining({ path: "entrypoints.controller", code: "missing" }),
     );
   });
 

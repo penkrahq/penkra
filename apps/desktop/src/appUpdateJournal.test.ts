@@ -23,7 +23,6 @@ function temporaryDirectory(): string {
 function appPackage(version: string) {
   return {
     manifest: {
-      manifestVersion: 2 as const,
       id: "com.acme.canvas",
       slug: "canvas",
       name: "Canvas",
@@ -31,7 +30,7 @@ function appPackage(version: string) {
       version,
       compatibility: { penkra: ">=0.8.0" },
       icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-      entrypoints: { app: "app.html" },
+      entrypoints: { tab: "app.html" },
     },
     source: "registry" as const,
     packagePath: `/profile/apps/com.acme.canvas/${version}`,

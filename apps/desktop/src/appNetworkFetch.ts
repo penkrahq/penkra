@@ -3,6 +3,7 @@
 // Layer: Trusted desktop App runtime
 
 import * as DNS from "node:dns/promises";
+import * as HTTP from "node:http";
 import * as HTTPS from "node:https";
 import { isIP } from "node:net";
 
@@ -59,7 +60,10 @@ async function request(
   if ((method === "GET" || method === "HEAD") && body)
     throw new Error(`${method} requests cannot include a body.`);
   const timeoutMs = Math.min(Math.max(input.timeoutMs ?? 30_000, 1), 60_000);
-  const address = await resolvePublicAppNetworkAddress(url.hostname);
+  const address =
+    url.protocol === "http:"
+      ? await resolveLoopbackAppNetworkAddress(url.hostname)
+      : await resolvePublicAppNetworkAddress(url.hostname);
   const response = await send({ url, address, method, headers, body, timeoutMs });
   if ([301, 302, 303, 307, 308].includes(response.status) && response.headers.location) {
     if (redirects >= MAX_REDIRECTS) throw new Error("Network request exceeded five redirects.");
@@ -90,15 +94,16 @@ function send(input: {
   timeoutMs: number;
 }): Promise<Omit<AppNetworkFetchResponse, "url">> {
   return new Promise((resolve, reject) => {
-    const request = HTTPS.request(
+    const transport = input.url.protocol === "http:" ? HTTP : HTTPS;
+    const request = transport.request(
       {
-        protocol: "https:",
+        protocol: input.url.protocol,
         hostname: input.address,
-        port: input.url.port ? Number(input.url.port) : 443,
+        port: input.url.port ? Number(input.url.port) : input.url.protocol === "http:" ? 80 : 443,
         path: `${input.url.pathname}${input.url.search}`,
         method: input.method,
         headers: { ...input.headers, host: input.url.host },
-        servername: input.url.hostname,
+        ...(input.url.protocol === "https:" ? { servername: input.url.hostname } : {}),
         timeout: input.timeoutMs,
       },
       (response) => {
@@ -141,10 +146,30 @@ export function parseAppNetworkUrl(value: string): URL {
   } catch {
     throw new Error("Network URL is invalid.");
   }
-  if (url.protocol !== "https:" || url.username || url.password) {
-    throw new Error("Mediated App requests require an HTTPS URL without embedded credentials.");
+  const loopbackHttp = url.protocol === "http:" && isLoopbackHostname(url.hostname);
+  if (url.username || url.password) {
+    throw new Error("Mediated App requests cannot use embedded credentials.");
+  }
+  if (url.protocol !== "https:" && !loopbackHttp) {
+    throw new Error(
+      "Mediated App requests require HTTPS, except for loopback development URLs.",
+    );
   }
   return url;
+}
+
+async function resolveLoopbackAppNetworkAddress(hostname: string): Promise<string> {
+  const normalized = hostname === "[::1]" ? "::1" : hostname;
+  const literal = isIP(normalized) ? normalized : null;
+  const address = literal ?? (await DNS.lookup(normalized, { verbatim: true })).address;
+  if (address !== "::1" && !address.startsWith("127.")) {
+    throw new Error("Loopback App requests must resolve to a loopback address.");
+  }
+  return address;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 }
 
 export async function resolvePublicAppNetworkAddress(hostname: string): Promise<string> {

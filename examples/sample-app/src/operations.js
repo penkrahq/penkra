@@ -1,4 +1,4 @@
-import { operations } from "@penkra/sdk";
+import { operations } from "@penkra/sdk/controller";
 operations.handle("notes.create", async ({ text, confirm }, context) =>
   confirm
     ? context.tabs.openForResult({ route: "/notes/new", state: { text } })

@@ -15,7 +15,7 @@ import type {
   AppContextMenuItem,
   AppPermissionStatus,
   AppSimulatorSessionState,
-  PenkraAppRuntimeApi,
+  PenkraTabRuntimeApi,
   PenkraPermissionName,
 } from "@penkra/sdk";
 
@@ -89,8 +89,8 @@ class AppFramePortTransport implements AppPreloadTransport {
   }
 
   accountDataRequest(
-    input: Parameters<PenkraAppRuntimeApi["account"]["request"]>[0],
-  ): ReturnType<PenkraAppRuntimeApi["account"]["request"]> {
+    input: Parameters<PenkraTabRuntimeApi["account"]["request"]>[0],
+  ): ReturnType<PenkraTabRuntimeApi["account"]["request"]> {
     return this.#call("account.request", input);
   }
 
@@ -165,8 +165,8 @@ class AppFramePortTransport implements AppPreloadTransport {
   }
 
   networkFetch(
-    input: Parameters<PenkraAppRuntimeApi["network"]["fetch"]>[0],
-  ): ReturnType<PenkraAppRuntimeApi["network"]["fetch"]> {
+    input: Parameters<PenkraTabRuntimeApi["network"]["fetch"]>[0],
+  ): ReturnType<PenkraTabRuntimeApi["network"]["fetch"]> {
     return this.#call("network.fetch", input);
   }
 
@@ -176,7 +176,7 @@ class AppFramePortTransport implements AppPreloadTransport {
 
   composerStage(
     input: import("@penkra/sdk").AppComposerStageInput,
-  ): ReturnType<PenkraAppRuntimeApi["composer"]["stage"]> {
+  ): ReturnType<PenkraTabRuntimeApi["composer"]["stage"]> {
     return this.#call("composer.stage", input);
   }
 
@@ -358,7 +358,7 @@ function installAppearanceBridge(frameTransport: AppFramePortTransport): void {
   frameTransport.onEvent("appearance.typography-css", (css) => setStyle("typography", css));
 }
 
-function installHostedSurfaceOverlayGuard(api: PenkraAppRuntimeApi): void {
+function installHostedSurfaceOverlayGuard(api: PenkraTabRuntimeApi): void {
   const publish = api.browser.setSurfaceLayout.bind(api.browser);
   let requestedInsets: import("@penkra/sdk").AppHostedSurfaceInsets | null = null;
   // The host starts with no hosted surface. Do not make an implicit Browser API call for

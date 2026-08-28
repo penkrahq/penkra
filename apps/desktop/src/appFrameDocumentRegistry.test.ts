@@ -8,7 +8,6 @@ const ORIGIN = `penkra-app://a-${"a".repeat(64)}`;
 
 function installedApp(version = "1.0.0"): InstalledAppPackage {
   const manifest = {
-    manifestVersion: 2,
     id: "com.penkra.apps",
     slug: "apps",
     name: "Apps",
@@ -16,7 +15,7 @@ function installedApp(version = "1.0.0"): InstalledAppPackage {
     version,
     compatibility: { penkra: ">=0.8.0" },
     icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-    entrypoints: { app: "app.html" },
+    entrypoints: { tab: "app.html" },
   } as const;
   return {
     appId: manifest.id,

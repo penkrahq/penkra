@@ -4,20 +4,19 @@ import {
   identity,
   files,
   account,
-  operations,
   permissions,
   settings,
   storage,
   transfer,
   tab,
-  type PenkraAppRuntimeApi,
+  type PenkraTabRuntimeApi,
 } from "./runtime";
 
 afterEach(() => {
-  delete (globalThis as { penkra?: PenkraAppRuntimeApi }).penkra;
+  delete (globalThis as { penkra?: PenkraTabRuntimeApi }).penkra;
 });
 
-function createBrowserMock(): PenkraAppRuntimeApi["browser"] {
+function createBrowserMock(): PenkraTabRuntimeApi["browser"] {
   return {
     open: vi.fn(),
     close: vi.fn(),
@@ -41,7 +40,7 @@ function createBrowserMock(): PenkraAppRuntimeApi["browser"] {
   };
 }
 
-function createFilesMock(): PenkraAppRuntimeApi["files"] {
+function createFilesMock(): PenkraTabRuntimeApi["files"] {
   return {
     list: vi.fn(),
     pick: vi.fn(),
@@ -62,7 +61,7 @@ function createFilesMock(): PenkraAppRuntimeApi["files"] {
   };
 }
 
-function createStorageMock(): PenkraAppRuntimeApi["storage"] {
+function createStorageMock(): PenkraTabRuntimeApi["storage"] {
   return {
     open: vi.fn(),
     closeUrl: vi.fn(),
@@ -73,7 +72,7 @@ function createStorageMock(): PenkraAppRuntimeApi["storage"] {
   };
 }
 
-function createTransferMock(): PenkraAppRuntimeApi["transfer"] {
+function createTransferMock(): PenkraTabRuntimeApi["transfer"] {
   return {
     begin: vi.fn(),
     send: vi.fn(),
@@ -82,7 +81,7 @@ function createTransferMock(): PenkraAppRuntimeApi["transfer"] {
   };
 }
 
-function createSimulatorMock(): PenkraAppRuntimeApi["simulator"] {
+function createSimulatorMock(): PenkraTabRuntimeApi["simulator"] {
   return {
     getEnvironment: vi.fn(),
     listRuntimes: vi.fn(),
@@ -109,8 +108,9 @@ function createSimulatorMock(): PenkraAppRuntimeApi["simulator"] {
 }
 
 describe("framework-neutral App runtime exports", () => {
-  it("forwards operation and tab registration to the preload-owned global API", async () => {
-    const runtime: PenkraAppRuntimeApi = {
+  it("forwards visual tab registration to the preload-owned global API", async () => {
+    const runtime: PenkraTabRuntimeApi = {
+      runtime: { kind: "tab" },
       contextMenu: { show: vi.fn(async () => null) },
       files: createFilesMock(),
       storage: createStorageMock(),
@@ -149,7 +149,6 @@ describe("framework-neutral App runtime exports", () => {
           state: "granted" as const,
         })),
       },
-      operations: { handle: vi.fn(() => vi.fn()) },
       tab: {
         getContext: vi.fn(),
         setRoute: vi.fn(async () => undefined),
@@ -158,13 +157,11 @@ describe("framework-neutral App runtime exports", () => {
         onNavigate: vi.fn(() => vi.fn()),
       },
     };
-    (globalThis as { penkra?: PenkraAppRuntimeApi }).penkra = runtime;
-    const operationHandler = vi.fn();
+    (globalThis as { penkra?: PenkraTabRuntimeApi }).penkra = runtime;
     const tabHandler = vi.fn();
     const navigationHandler = vi.fn();
     const visibilityHandler = vi.fn();
 
-    operations.handle("issues.create", operationHandler);
     tab.handle("selection.replace-text", tabHandler);
     tab.onNavigate(navigationHandler);
     tab.onVisibilityChange(visibilityHandler);
@@ -173,7 +170,6 @@ describe("framework-neutral App runtime exports", () => {
     await files.open("handle-1", "movie.mp4");
     await transfer.begin({ url: "https://uploads.example/files" });
 
-    expect(runtime.operations.handle).toHaveBeenCalledWith("issues.create", operationHandler);
     expect(runtime.tab.handle).toHaveBeenCalledWith("selection.replace-text", tabHandler);
     expect(runtime.tab.onNavigate).toHaveBeenCalledWith(navigationHandler);
     expect(runtime.tab.onVisibilityChange).toHaveBeenCalledWith(visibilityHandler);
@@ -189,7 +185,8 @@ describe("framework-neutral App runtime exports", () => {
   });
 
   it("forwards read-only permission inspection to the preload-owned API", async () => {
-    const runtime: PenkraAppRuntimeApi = {
+    const runtime: PenkraTabRuntimeApi = {
+      runtime: { kind: "tab" },
       contextMenu: { show: vi.fn(async () => null) },
       files: createFilesMock(),
       storage: createStorageMock(),
@@ -231,7 +228,6 @@ describe("framework-neutral App runtime exports", () => {
           state: "granted" as const,
         })),
       },
-      operations: { handle: vi.fn(() => vi.fn()) },
       tab: {
         getContext: vi.fn(),
         setRoute: vi.fn(async () => undefined),
@@ -240,7 +236,7 @@ describe("framework-neutral App runtime exports", () => {
         onNavigate: vi.fn(() => vi.fn()),
       },
     };
-    (globalThis as { penkra?: PenkraAppRuntimeApi }).penkra = runtime;
+    (globalThis as { penkra?: PenkraTabRuntimeApi }).penkra = runtime;
     await expect(permissions.query("network-fetch")).resolves.toMatchObject({ state: "granted" });
     expect(runtime.permissions.query).toHaveBeenCalledWith("network-fetch");
     await expect(permissions.request("network-fetch")).resolves.toMatchObject({ state: "granted" });
@@ -255,7 +251,7 @@ describe("framework-neutral App runtime exports", () => {
   });
 
   it("fails clearly without an injected Penkra App runtime", () => {
-    expect(() => operations.handle("issues.create", vi.fn())).toThrow(
+    expect(() => tab.handle("selection.replace-text", vi.fn())).toThrow(
       "Penkra App runtime is unavailable",
     );
   });

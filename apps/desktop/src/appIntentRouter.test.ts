@@ -13,7 +13,6 @@ function addBrowser(state: AppInstallationState, id: string, slug: string, space
     state,
     {
       manifest: {
-        manifestVersion: 2,
         id,
         slug,
         name: slug,
@@ -21,7 +20,7 @@ function addBrowser(state: AppInstallationState, id: string, slug: string, space
         version: "1.0.0",
         compatibility: { penkra: ">=0.8.0" },
         icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-        entrypoints: { app: "app.html", operations: "operations.js" },
+        entrypoints: { tab: "app.html", controller: "operations.js" },
         operations: [
           {
             key: "url.open",
@@ -58,7 +57,6 @@ function addFileApp(
     state,
     {
       manifest: {
-        manifestVersion: 2,
         id,
         slug,
         name: slug,
@@ -66,7 +64,7 @@ function addFileApp(
         version: "1.0.0",
         compatibility: { penkra: ">=0.8.0" },
         icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-        entrypoints: { app: "app.html", operations: "operations.js" },
+        entrypoints: { tab: "app.html", controller: "operations.js" },
         operations: [
           {
             key: "resources.open",

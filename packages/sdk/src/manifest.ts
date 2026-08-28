@@ -1,19 +1,13 @@
 import { validatePenkraJsonSchema } from "./jsonSchema";
 import { isPenkraPermissionName } from "./permissions";
 
-/**
- * Runtime v2 is a hard compatibility boundary for manifest and SDK contracts.
- * Visual entrypoints run in sandboxed App×Space renderers behind the host-owned preload API.
- */
-export const PENKRA_APP_MANIFEST_VERSION = 2 as const;
-
 export type JsonSchema = Readonly<Record<string, unknown>>;
 
 export interface AppEntrypoints {
   /** Local visual entry document, conventionally `app.html`. */
-  app: string;
+  tab: string;
   /** Optional Node controller entry module, conventionally `operations.js`. */
-  operations?: string;
+  controller?: string;
 }
 
 export interface AppPermissionDeclaration {
@@ -111,7 +105,6 @@ export type AppHandlerDeclaration =
     };
 
 export interface PenkraAppManifest {
-  manifestVersion: typeof PENKRA_APP_MANIFEST_VERSION;
   /** Immutable reverse-domain identity, such as `com.penkra.apps`. */
   id: string;
   /** Globally unique, stable, human/agent-facing command root. */
@@ -199,10 +192,35 @@ function validateEntrypoint(
   value: unknown,
   path: string,
   issues: AppManifestValidationIssue[],
+  extension?: string,
 ): void {
   if (!requireString(value, path, issues)) return;
   if (!isSafePackagePath(value)) {
     issue(issues, path, "unsafe-path", `${path} must be a package-relative path.`);
+    return;
+  }
+  if (extension && !value.toLowerCase().endsWith(extension)) {
+    issue(issues, path, "invalid-format", `${path} must reference a ${extension} file.`);
+  }
+}
+
+function validateControllerEntrypoint(
+  value: unknown,
+  path: string,
+  issues: AppManifestValidationIssue[],
+): void {
+  if (!requireString(value, path, issues)) return;
+  if (!isSafePackagePath(value)) {
+    issue(issues, path, "unsafe-path", `${path} must be a package-relative path.`);
+    return;
+  }
+  if (!/\.(?:cjs|js|mjs)$/iu.test(value)) {
+    issue(
+      issues,
+      path,
+      "invalid-format",
+      `${path} must reference a Node-loadable .js, .mjs, or .cjs file.`,
+    );
   }
 }
 
@@ -231,14 +249,6 @@ export function validateAppManifest(
     };
   }
 
-  if (value.manifestVersion !== PENKRA_APP_MANIFEST_VERSION) {
-    issue(
-      issues,
-      "manifestVersion",
-      "invalid-manifest-version",
-      `manifestVersion must be ${PENKRA_APP_MANIFEST_VERSION}.`,
-    );
-  }
   if (requireString(value.id, "id", issues) && !APP_ID_PATTERN.test(value.id)) {
     issue(issues, "id", "invalid-format", "id must be a lowercase reverse-domain identifier.");
   }
@@ -258,9 +268,9 @@ export function validateAppManifest(
   if (!isRecord(value.entrypoints)) {
     issue(issues, "entrypoints", "missing", "entrypoints must be an object.");
   } else {
-    validateEntrypoint(value.entrypoints.app, "entrypoints.app", issues);
-    if (value.entrypoints.operations !== undefined) {
-      validateEntrypoint(value.entrypoints.operations, "entrypoints.operations", issues);
+    validateEntrypoint(value.entrypoints.tab, "entrypoints.tab", issues, ".html");
+    if (value.entrypoints.controller !== undefined) {
+      validateControllerEntrypoint(value.entrypoints.controller, "entrypoints.controller", issues);
     }
   }
 
@@ -438,11 +448,11 @@ export function validateAppManifest(
     Array.isArray(value.operations) &&
     value.operations.length > 0 &&
     isRecord(value.entrypoints) &&
-    value.entrypoints.operations === undefined
+    value.entrypoints.controller === undefined
   ) {
     issue(
       issues,
-      "entrypoints.operations",
+      "entrypoints.controller",
       "missing",
       "Apps that declare operations must provide a controller entrypoint.",
     );

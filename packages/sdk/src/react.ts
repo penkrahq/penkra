@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { OperationContext } from "./operations";
 import type { PenkraPermissionName } from "./permissions";
 import {
-  operations,
   permissions,
   identity,
   settings,
   tab,
   type AppIdentity,
-  type AppOperationHandler,
   type AppPermissionStatus,
   type AppTabNavigationHandler,
   type AppTabOperationHandler,
@@ -83,17 +80,6 @@ export function useAppSetting<Value extends boolean | number | string>(key: stri
   } as const;
 }
 
-export function useOperation<Input = unknown, Result = unknown>(
-  key: string,
-  handler: (input: Input, context: OperationContext) => Promise<Result> | Result,
-): void {
-  const latest = useLatest(handler);
-  useEffect(
-    () => operations.handle<Input, Result>(key, (input, context) => latest.current(input, context)),
-    [key, latest],
-  );
-}
-
 export function useTabOperation<Input = unknown, Result = unknown>(
   key: string,
   handler: AppTabOperationHandler<Input, Result>,
@@ -110,4 +96,4 @@ export function useTabNavigation<Result = void>(handler: AppTabNavigationHandler
   useEffect(() => tab.onNavigate((input, context) => latest.current(input, context)), [latest]);
 }
 
-export type { AppIdentity, AppOperationHandler, AppPermissionStatus };
+export type { AppIdentity, AppPermissionStatus };

@@ -10,7 +10,6 @@ import { AppInstallationService } from "./appInstallationService";
 function verifiedPackage(): VerifiedAppPackageInput {
   return {
     manifest: {
-      manifestVersion: 2,
       id: "com.acme.figma",
       slug: "figma",
       name: "Figma",
@@ -18,7 +17,7 @@ function verifiedPackage(): VerifiedAppPackageInput {
       version: "1.0.0",
       compatibility: { penkra: ">=0.8.0" },
       icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-      entrypoints: { app: "app.html" },
+      entrypoints: { tab: "app.html" },
       permissions: [{ name: "network-fetch", required: false, reason: "Sync designs" }],
     },
     source: "registry",

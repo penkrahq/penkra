@@ -5,7 +5,7 @@
 import type {
   AppTabNavigationHandler,
   AppTabOperationHandler,
-  PenkraAppRuntimeApi,
+  PenkraTabRuntimeApi,
 } from "@penkra/sdk";
 
 import type { AppRendererRpcHostMessage, AppRendererRpcResponseMessage } from "./appRendererRpc";
@@ -29,8 +29,8 @@ export interface AppPreloadTransport {
   getIdentity(): Promise<import("@penkra/sdk").AppIdentity>;
   getIdentityToken(input: { audience: string }): Promise<import("@penkra/sdk").AppIdentityToken>;
   accountDataRequest(
-    input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["account"]["request"]>[0],
-  ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["account"]["request"]>;
+    input: Parameters<import("@penkra/sdk").PenkraTabRuntimeApi["account"]["request"]>[0],
+  ): ReturnType<import("@penkra/sdk").PenkraTabRuntimeApi["account"]["request"]>;
   accountDataSubscribe(
     channel: string,
     listener: (event: import("@penkra/sdk").AppAccountRealtimeEvent) => void,
@@ -54,12 +54,12 @@ export interface AppPreloadTransport {
     listener: (state: import("@penkra/sdk").AppSimulatorSessionState) => void,
   ): () => void;
   networkFetch(
-    input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["network"]["fetch"]>[0],
-  ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["network"]["fetch"]>;
+    input: Parameters<import("@penkra/sdk").PenkraTabRuntimeApi["network"]["fetch"]>[0],
+  ): ReturnType<import("@penkra/sdk").PenkraTabRuntimeApi["network"]["fetch"]>;
   storageCall(method: string, input?: unknown): Promise<unknown>;
   composerStage(
     input: import("@penkra/sdk").AppComposerStageInput,
-  ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["composer"]["stage"]>;
+  ): ReturnType<import("@penkra/sdk").PenkraTabRuntimeApi["composer"]["stage"]>;
   showContextMenu<T extends string>(
     items: ReadonlyArray<import("@penkra/sdk").AppContextMenuItem<T>>,
   ): Promise<T | null>;
@@ -70,7 +70,7 @@ interface ActiveRequest {
 }
 
 export class AppPreloadRuntime {
-  readonly api: PenkraAppRuntimeApi;
+  readonly api: PenkraTabRuntimeApi;
   readonly #transport: AppPreloadTransport;
   readonly #tabHandlers = new Map<string, AppTabOperationHandler>();
   readonly #active = new Map<string, ActiveRequest>();
@@ -85,6 +85,7 @@ export class AppPreloadRuntime {
   constructor(transport: AppPreloadTransport) {
     this.#transport = transport;
     this.api = {
+      runtime: { kind: "tab" },
       contextMenu: {
         show: (items) => this.#transport.showContextMenu(items),
       },
@@ -125,17 +126,17 @@ export class AppPreloadRuntime {
       storage: {
         open: (path) =>
           this.#transport.storageCall("open", path) as ReturnType<
-            PenkraAppRuntimeApi["storage"]["open"]
+            PenkraTabRuntimeApi["storage"]["open"]
           >,
         closeUrl: (url) => this.#transport.storageCall("closeUrl", url) as Promise<void>,
         writeFile: (input) =>
           this.#transport.storageCall("writeFile", input) as ReturnType<
-            PenkraAppRuntimeApi["storage"]["writeFile"]
+            PenkraTabRuntimeApi["storage"]["writeFile"]
           >,
         remove: (input) => this.#transport.storageCall("remove", input) as Promise<void>,
         list: (input) =>
           this.#transport.storageCall("list", input) as ReturnType<
-            PenkraAppRuntimeApi["storage"]["list"]
+            PenkraTabRuntimeApi["storage"]["list"]
           >,
         usage: () => this.#transport.storageCall("usage") as Promise<{ bytes: number }>,
       },
@@ -292,11 +293,6 @@ export class AppPreloadRuntime {
       permissions: {
         query: (name) => this.#transport.queryPermission(name),
         request: (name) => this.#transport.requestPermission(name),
-      },
-      operations: {
-        handle: () => {
-          throw new Error("Operation handlers must be registered by the App's Node controller.");
-        },
       },
       tab: {
         getContext: () => this.#transport.tabGetContext(),

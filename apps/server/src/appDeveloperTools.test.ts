@@ -197,7 +197,7 @@ describe("App developer packaging", () => {
     const root = await fixture();
     const manifestPath = join(root, "penkra-app.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-    manifest.entrypoints.operations = "app.html";
+    manifest.entrypoints.controller = "operations.js";
     manifest.operations = [
       {
         key: "documents.list",
@@ -246,7 +246,7 @@ describe("App developer packaging", () => {
     const root = await fixture();
     const manifestPath = join(root, "penkra-app.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-    manifest.entrypoints.operations = "app.html";
+    manifest.entrypoints.controller = "operations.js";
     manifest.operations = [
       {
         key: "documents.list",
@@ -308,6 +308,7 @@ async function fixture(): Promise<string> {
   await writeFile(join(root, "README.md"), "# Canvas\n");
   await writeFile(join(root, "INSTRUCTIONS.md"), "Use the declared operations safely.\n");
   await writeFile(join(root, "app.html"), "<!doctype html><title>Canvas</title>\n");
+  await writeFile(join(root, "operations.js"), "globalThis.penkra.operations.handle;\n");
   await writeFile(
     join(root, "assets", "icon.svg"),
     '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n',
@@ -316,7 +317,6 @@ async function fixture(): Promise<string> {
     join(root, "penkra-app.json"),
     JSON.stringify(
       {
-        manifestVersion: 2,
         id: "com.example.canvas",
         slug: "canvas",
         name: "Canvas",
@@ -324,7 +324,7 @@ async function fixture(): Promise<string> {
         version: "1.0.0",
         compatibility: { penkra: ">=0.8.0" },
         icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
-        entrypoints: { app: "app.html" },
+        entrypoints: { tab: "app.html" },
         permissions: [{ name: "network-fetch", required: false, reason: "Sync documents" }],
       },
       null,

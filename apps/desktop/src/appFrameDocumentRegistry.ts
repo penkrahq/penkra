@@ -63,7 +63,7 @@ export class AppFrameDocumentRegistry {
       const handle = await this.#createProtocolHandler({
         origin,
         packageRoot: installedApp.packagePath,
-        entrypoint: installedApp.manifest.entrypoints.app,
+        entrypoint: installedApp.manifest.entrypoints.tab,
         runtimeScriptPath: this.#runtimeScriptPath,
         ...this.#protocolResources({ appId: installedApp.appId, spaceId, origin }),
       });
@@ -72,7 +72,7 @@ export class AppFrameDocumentRegistry {
         throw new Error("App frame origin identity collision.");
       }
       this.#records.set(origin, { appId: installedApp.appId, spaceId, origin, handle });
-      return createAppDocumentUrlForOrigin(origin, installedApp.manifest.entrypoints.app);
+      return createAppDocumentUrlForOrigin(origin, installedApp.manifest.entrypoints.tab);
     });
   }
 

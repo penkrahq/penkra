@@ -21,7 +21,7 @@ const verified = (version = "0.1.2", sha256 = "a".repeat(64)) => ({
     version,
     compatibility: { penkra: ">=0.8.0" },
     icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
-    entrypoints: { app: "app.html" },
+    entrypoints: { tab: "app.html" },
     permissions: [],
     operations: [],
   },

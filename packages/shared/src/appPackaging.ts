@@ -285,8 +285,8 @@ function assertReferencedFiles(manifest: PenkraAppManifest, files: PackageFile[]
   const paths = new Set(files.map((file) => file.path));
   const bytesByPath = new Map(files.map((file) => [file.path, file.bytes]));
   const references = [
-    manifest.entrypoints.app,
-    manifest.entrypoints.operations,
+    manifest.entrypoints.tab,
+    manifest.entrypoints.controller,
     ...manifest.icons.map((icon) => icon.src),
     ...(manifest.contributions?.skills ?? []).map((skill) => `${skill.path}/SKILL.md`),
   ].filter((path): path is string => Boolean(path));

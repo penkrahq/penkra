@@ -58,7 +58,7 @@ export class AppControllerHost {
   }): Promise<(reason?: OperationCancellationCode) => Promise<void>> {
     const operations = input.installedApp.manifest.operations ?? [];
     if (operations.length === 0) return async () => undefined;
-    const entrypoint = input.installedApp.manifest.entrypoints.operations;
+    const entrypoint = input.installedApp.manifest.entrypoints.controller;
     if (!entrypoint) {
       throw new Error(
         `${input.installedApp.appId} declares operations without a controller entrypoint.`,

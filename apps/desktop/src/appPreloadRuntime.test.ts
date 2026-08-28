@@ -143,7 +143,7 @@ describe("AppPreloadRuntime", () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
-  it("announces readiness once and keeps operation registration in the Node controller", () => {
+  it("announces readiness once and omits operation registration from the tab runtime", () => {
     const test = fixture();
     test.runtime.start();
     expect(test.ready).not.toHaveBeenCalled();
@@ -151,9 +151,7 @@ describe("AppPreloadRuntime", () => {
     test.runtime.markReady();
     expect(test.ready).toHaveBeenCalledOnce();
 
-    expect(() => test.runtime.api.operations.handle("issues.create", vi.fn())).toThrow(
-      "Node controller",
-    );
+    expect("operations" in test.runtime.api).toBe(false);
   });
 
   it("exposes hosted browser calls and state without Electron primitives", async () => {

@@ -10,7 +10,7 @@ Declare exactly one lowercase DNS audience on the permission and show a specific
 reason. Call `identity.getToken` only for that exact audience:
 
 ```ts
-import { identity } from "@penkra/sdk";
+import { identity } from "@penkra/sdk/tab";
 
 const { token, expiresAt } = await identity.getToken({ audience: "api.example.com" });
 ```

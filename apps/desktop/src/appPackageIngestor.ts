@@ -329,8 +329,8 @@ function assertRequiredFiles(files: readonly PackageFile[], manifest: PenkraAppM
     PENKRA_APP_MANIFEST_FILE_NAME,
     "README.md",
     "INSTRUCTIONS.md",
-    manifest.entrypoints.app,
-    ...(manifest.entrypoints.operations ? [manifest.entrypoints.operations] : []),
+    manifest.entrypoints.tab,
+    ...(manifest.entrypoints.controller ? [manifest.entrypoints.controller] : []),
     ...manifest.icons.map((icon) => icon.src),
     ...(manifest.contributions?.skills ?? []).map((skill) => `${skill.path}/SKILL.md`),
   ]);

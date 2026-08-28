@@ -2,12 +2,7 @@
 // Purpose: Implements the public Penkra SDK and operation RPC inside a Node App controller.
 // Layer: App controller process
 
-import type {
-  AppTabHandle,
-  OperationContext,
-  PenkraAppRuntimeApi,
-  PenkraControllerRuntimeApi,
-} from "@penkra/sdk";
+import type { AppTabHandle, OperationContext, PenkraControllerRuntimeApi } from "@penkra/sdk";
 
 import type {
   AppRendererRpcContextCallMessage,
@@ -33,7 +28,7 @@ type RegisteredOperationHandler = (
 ) => unknown | Promise<unknown>;
 
 export class AppNodeControllerRuntime {
-  /** Supported controller contract; visual-only surfaces remain runtime rejection sentinels. */
+  /** Exact controller contract. Visual-tab services are not part of this runtime. */
   readonly api: PenkraControllerRuntimeApi;
   readonly #transport: AppNodeControllerTransport;
   readonly #handlers = new Map<string, RegisteredOperationHandler>();
@@ -44,20 +39,14 @@ export class AppNodeControllerRuntime {
 
   constructor(transport: AppNodeControllerTransport) {
     this.#transport = transport;
-    const unsupported = (name: string) => () =>
-      Promise.reject(
-        Object.assign(new Error(`${name} is available only in an interactive App tab.`), {
-          code: "INTERACTIVE_TAB_REQUIRED",
-        }),
-      );
     const api = {
+      runtime: { kind: "controller" as const },
       identity: {
         get: () => transport.serviceCall("identity.get"),
         getToken: (input) => transport.serviceCall("identity.getToken", input),
       },
       account: {
         request: (input) => transport.serviceCall("account.request", input),
-        subscribe: unsupported("Account realtime subscriptions") as never,
       },
       settings: {
         get: (key) => transport.serviceCall("settings.get", key),
@@ -71,23 +60,12 @@ export class AppNodeControllerRuntime {
       },
       permissions: {
         query: (name) => transport.serviceCall("permissions.query", name),
-        request: unsupported("Permission prompts") as never,
       },
       operations: {
         handle: (key, handler) =>
           registerUnique(this.#handlers, key, handler as RegisteredOperationHandler),
       },
-      files: unsupportedSurface("files"),
-      storage: unsupportedSurface("storage"),
-      transfer: unsupportedSurface("transfer"),
-      composer: unsupportedSurface("composer"),
-      open: unsupported("Resource opening") as never,
-      browser: unsupportedSurface("browser"),
-      simulator: unsupportedSurface("simulator"),
-      network: unsupportedSurface("network"),
-      contextMenu: unsupportedSurface("contextMenu"),
-      tab: unsupportedSurface("tab"),
-    } as PenkraAppRuntimeApi;
+    } satisfies PenkraControllerRuntimeApi;
     this.api = api;
   }
 
@@ -263,20 +241,6 @@ export class AppNodeControllerRuntime {
       );
     }
   }
-}
-
-function unsupportedSurface(name: string): never {
-  return new Proxy(
-    {},
-    {
-      get: () => () =>
-        Promise.reject(
-          Object.assign(new Error(`${name} is available only in an interactive App tab.`), {
-            code: "INTERACTIVE_TAB_REQUIRED",
-          }),
-        ),
-    },
-  ) as never;
 }
 
 function registerUnique(

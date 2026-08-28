@@ -7,7 +7,6 @@ import { ElectronAppTabHost, shouldNotifyAppTabClosed } from "./electronAppTabHo
 
 function installedApp(): InstalledAppPackage {
   const manifest = {
-    manifestVersion: 2,
     id: "com.penkra.apps",
     slug: "apps",
     name: "Apps",
@@ -15,7 +14,7 @@ function installedApp(): InstalledAppPackage {
     version: "0.1.0",
     compatibility: { penkra: ">=0.8.0" },
     icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
-    entrypoints: { app: "app.html", operations: "operations.js" },
+    entrypoints: { tab: "app.html", controller: "operations.js" },
   } as const;
   return {
     appId: manifest.id,

@@ -16,10 +16,10 @@ Node globals, raw IPC, or ambient filesystem access. An optional operation entry
 separately in a dedicated Node controller and may use ordinary Node facilities.
 
 ```ts
-import { defineApp, tab } from "@penkra/sdk";
+import { defineApp } from "@penkra/sdk";
+import { tab } from "@penkra/sdk/tab";
 
 export const manifest = defineApp({
-  manifestVersion: 2,
   id: "com.example.notes",
   slug: "notes",
   name: "Notes",
@@ -27,7 +27,7 @@ export const manifest = defineApp({
   version: "1.0.0",
   compatibility: { penkra: ">=0.8.0" },
   icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-  entrypoints: { app: "app.html" },
+  entrypoints: { tab: "app.html" },
 });
 
 // When navigation begins inside the App, record the current route for restoration.
@@ -39,12 +39,24 @@ await tab.setRoute({ route: "/note", state: { noteId: "note-123" } });
 restart. `tab.onNavigate` receives navigation initiated outside the App.
 
 Apps may use any browser-compatible framework. React is optional and available from
-`@penkra/sdk/react`. Renderer-only exports require a live visual App tab. A Node operation
-controller receives the narrower `PenkraControllerRuntimeApi`: operation registration, invocation
+`@penkra/sdk/react`. Visual runtime exports come from `@penkra/sdk/tab` and require a live visual
+App tab. A Node operation controller imports `@penkra/sdk/controller` and receives the narrower
+`PenkraControllerRuntimeApi`: operation registration, invocation
 context, Account requests, settings, secrets, identity, and permission queries. Controllers use
 ordinary Node APIs for filesystem, HTTP, crypto, Buffer, and stream work. Ordinary unit tests should
 test App logic separately. Penkra exposes the real isolated-host runner through the registered
 `{ "command": "penkra app test --directory <directory>" }` invocation in `penkra_exec_command`.
+
+```ts
+import { operations } from "@penkra/sdk/controller";
+
+operations.handle("documents.read", async ({ id }, context) => {
+  const response = await fetch(`https://<service-host>/documents/${encodeURIComponent(id)}`, {
+    signal: context.signal,
+  });
+  return response.json();
+});
+```
 
 Use `contextMenu.show(...)` from a direct pointer interaction when an App needs a platform-native
 right-click menu. Penkra returns the selected item ID or `null`; Apps never receive Electron menu

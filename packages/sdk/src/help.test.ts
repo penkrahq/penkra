@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { assembleInstructions, generateAppHelp } from "./help";
 
 const manifest = {
-  manifestVersion: 2,
   id: "com.acme.linear",
   slug: "linear",
   name: "Linear",
@@ -11,7 +10,7 @@ const manifest = {
   version: "1.0.0",
   compatibility: { penkra: ">=0.8.0" },
   icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-  entrypoints: { app: "app.html", operations: "operations.js" },
+  entrypoints: { tab: "app.html", controller: "operations.js" },
   operations: [
     {
       key: "issues.create",

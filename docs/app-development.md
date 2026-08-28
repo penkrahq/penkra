@@ -47,16 +47,21 @@ my-app/
 Penkra loads the controller with Node's ordinary module rules. Add `{ "type": "module" }` when an
 `operations.js` bundle uses ESM syntax, use an `.mjs` entrypoint, or publish CommonJS as `.cjs`.
 TypeScript and framework source remain build inputs; point the manifest at emitted JavaScript.
+Penkra archives exactly the directory passed to `penkra app package`; it does not compile or
+minify it. Point the command at the deployable build output, such as `dist/`. Source maps and source
+files are included only when that directory contains them.
 
 All package paths are relative and remain inside the immutable package. Symlinks, native
 executables, executable scripts, source secrets, and files outside the build directory are
 rejected. `README.md` and `INSTRUCTIONS.md` must be nonempty UTF-8 documents.
+An archive may be up to 2 GiB and may expand to at most 4 GiB across 20,000 files. Penkra does not
+impose a separate per-file size limit; these boundaries protect registry storage and safe
+extraction rather than prescribing how large an App should be.
 
 ## Manifest
 
 ```json
 {
-  "manifestVersion": 2,
   "id": "com.example.notes",
   "slug": "notes",
   "name": "Notes",
@@ -64,7 +69,7 @@ rejected. `README.md` and `INSTRUCTIONS.md` must be nonempty UTF-8 documents.
   "version": "1.0.0",
   "compatibility": { "penkra": ">=0.8.0" },
   "icons": [{ "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml" }],
-  "entrypoints": { "app": "app.html", "operations": "operations.js" },
+  "entrypoints": { "tab": "app.html", "controller": "operations.js" },
   "permissions": [
     {
       "name": "network-fetch",
@@ -96,9 +101,9 @@ rejected. `README.md` and `INSTRUCTIONS.md` must be nonempty UTF-8 documents.
 }
 ```
 
-Required fields are `manifestVersion`, immutable reverse-domain `id`, globally unique command
-`slug`, display `name`, one-line `summary`, semantic `version`, `compatibility.penkra`, at least one
-icon, and `entrypoints.app`. Declare `entrypoints.operations` when the App publishes operations.
+Required fields are immutable reverse-domain `id`, globally unique command `slug`, display `name`,
+one-line `summary`, semantic `version`, `compatibility.penkra`, at least one
+icon, and `entrypoints.tab`. Declare `entrypoints.controller` when the App publishes operations.
 Compatibility restricts host versions; it grants no authority.
 
 Operation keys are App-local dotted names such as `documents.open`; never prefix them with the slug.
@@ -118,7 +123,7 @@ Handler contributions declare resources an App can open through one of its publi
 - `open-file` declares exact extensions such as `.md` or `.pdf`.
 - `open-directory` declares directory support.
 
-File and directory handlers receive only an opaque Runtime v2 handle after a user click, an
+File and directory handlers receive only an opaque runtime handle after a user click, an
 explicit `penkra open`, or another trusted host handoff. They never receive an absolute path.
 
 Settings and Skills are declarative contributions interpreted by the host. See the exported
@@ -260,7 +265,7 @@ Spaces, and the shell. Node integration and Electron globals are unavailable. Th
 DOM child—not a native child window or a separate compositor plane—so shell dialogs, menus, drag
 geometry, clipping, refresh, and accessibility obey normal document stacking.
 
-Penkra injects the Runtime v2 SDK bootstrap from the immutable package protocol and connects the
+Penkra injects the tab SDK bootstrap from the immutable package protocol and connects the
 iframe to the host with a tab-bound `MessagePort`. The port is the only privileged bridge. Every
 call is re-authorized against the host-owned App, Space, Thread, tab, installation, and permission
 state; messages cannot select another origin or renderer. Reload creates a new port and invalidates
@@ -268,7 +273,8 @@ old tab references without changing the App×Space origin.
 
 The operation controller is not a hidden webpage and cannot inspect the shell or any App tab DOM.
 Penkra starts one dedicated Node process for each active App installation and Space, loads the declared
-`operations.js`, and exposes the SDK as `globalThis.penkra` and through `@penkra/sdk`. Controller
+`operations.js`, and exposes its narrow SDK as `globalThis.penkra` and through
+`@penkra/sdk/controller`. Controller
 code may use standard Node facilities such as `node:fs`, `Buffer`, `fetch`, `node:crypto`, streams,
 and packaged JavaScript dependencies. The initial controller policy disables child processes,
 worker threads, WASI, and native add-ons; use a host SDK service when work genuinely needs a
@@ -280,8 +286,8 @@ Controllers receive ordinary OS context such as the home, temporary, locale, and
 paths. Penkra does not inherit its own runtime tokens, provider credentials, `NODE_OPTIONS`, or
 unrelated parent-process environment variables into an App controller.
 
-Do not route ordinary controller filesystem or HTTP work through `penkra.files` or
-`penkra.network`. Those SDK surfaces exist for sandboxed visual tabs. Use the SDK in a controller
+Do not route ordinary controller filesystem or HTTP work through `files` or `network`. Those SDK
+surfaces exist only in `@penkra/sdk/tab`. Use `@penkra/sdk/controller` in a controller
 only for capabilities owned by Penkra: operation registration and context, tabs, Account access,
 App settings and secrets, identity, and other explicit host services.
 
@@ -337,7 +343,7 @@ For a document whose relative asset URLs must resolve beside it, ask for the con
 then start the file picker in that directory and verify the returned file belongs to it:
 
 ```js
-import { files } from "@penkra/sdk";
+import { files } from "@penkra/sdk/tab";
 
 const root = await files.pick("directory");
 const entries = await files.listDirectory(root.id);
@@ -436,7 +442,7 @@ custom center content. Framework-neutral DOM and React adapters implement the sa
 Minimal framework-neutral use:
 
 ```js
-import { tab } from "@penkra/sdk";
+import { tab } from "@penkra/sdk/tab";
 import { createAppBar, createIcon } from "@penkra/ui";
 
 const bar = createAppBar({
@@ -479,6 +485,18 @@ from the controller entrypoint with `operations.handle(...)`; controller source 
 the visual App. `context.caller.kind` is
 host-asserted as `user`, `agent`, `app`, or `host`; caller identity is not exposed.
 
+```js
+import { operations } from "@penkra/sdk/controller";
+
+operations.handle("documents.read", async ({ id }, context) => {
+  const response = await fetch(`https://<service-host>/documents/${encodeURIComponent(id)}`, {
+    signal: context.signal,
+  });
+  if (!response.ok) throw new Error(`Document request failed with HTTP ${response.status}`);
+  return response.json();
+});
+```
+
 Most handlers return the declared JSON output directly. When an operation also needs to return
 model-visible text or images, return the MCP-compatible rich shape exported as
 `AppOperationRichResult`: `content` contains text/image blocks and `structuredContent` contains the
@@ -516,7 +534,7 @@ file or moving its bytes across the privileged bridge. The 1 MiB limit still app
 RPC; it is no longer the bulk-byte path.
 
 ```js
-import { files, storage } from "@penkra/sdk";
+import { files, storage } from "@penkra/sdk/tab";
 
 const picked = await files.pick("file");
 if (picked) {
@@ -543,7 +561,7 @@ URL into a network target.
 Upload bytes generated in the renderer without routing them through RPC:
 
 ```js
-import { transfer } from "@penkra/sdk";
+import { transfer } from "@penkra/sdk/tab";
 
 const { endpoint } = await transfer.begin({
   url: "https://api.example.com/v1/documents",
@@ -628,7 +646,7 @@ Subscribe with `browser.onDownload` in the owning App tab. Each transfer emits `
 `completed` or `failed`, and includes two names for the same destination:
 
 ```js
-import { browser, storage } from "@penkra/sdk";
+import { browser, storage } from "@penkra/sdk/tab";
 
 browser.onDownload((event) => {
   // Absolute host path: pass to an operation controller that will use node:fs.
@@ -760,7 +778,7 @@ uses or changes the active profile, Space, database, or installed Apps. It compl
 accessibility, and visual tests.
 
 `package` validates the manifest, schemas, required documents, referenced paths, compatibility,
-permissions, entry count, entry size, total expanded size, and executable-content restrictions. It
+permissions, entry count, total archive and expanded size, and executable-content restrictions. It
 then creates a deterministic `.penkra` archive and returns evidence including all relevant digests.
 
 ## Publish and inspect status

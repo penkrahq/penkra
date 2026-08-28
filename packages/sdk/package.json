@@ -36,13 +36,23 @@
       "types": "./dist/react.d.mts",
       "import": "./dist/react.mjs",
       "require": "./dist/react.cjs"
+    },
+    "./tab": {
+      "types": "./dist/tab.d.mts",
+      "import": "./dist/tab.mjs",
+      "require": "./dist/tab.cjs"
+    },
+    "./controller": {
+      "types": "./dist/controller.d.mts",
+      "import": "./dist/controller.mjs",
+      "require": "./dist/controller.cjs"
     }
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsdown src/index.ts src/react.ts --format esm,cjs --dts --clean",
+    "build": "tsdown src/index.ts src/react.ts src/tab.ts src/controller.ts --format esm,cjs --dts --clean",
     "prepack": "bun run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

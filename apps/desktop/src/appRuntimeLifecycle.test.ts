@@ -16,7 +16,6 @@ function installedState(enabled = false): AppInstallationState {
     createEmptyAppInstallationState(),
     {
       manifest: {
-        manifestVersion: 2,
         id: "com.penkra.apps",
         slug: "apps",
         name: "Apps",
@@ -24,7 +23,7 @@ function installedState(enabled = false): AppInstallationState {
         version: "1.0.0",
         compatibility: { penkra: ">=0.8.0" },
         icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-        entrypoints: { app: "app.html", operations: "operations.js" },
+        entrypoints: { tab: "app.html", controller: "operations.js" },
       },
       source: "registry",
       packagePath: "/profile/apps/com.penkra.apps/1.0.0",
