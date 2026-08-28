@@ -464,25 +464,37 @@ function migrateSchemaVersionFour(value: Record<string, unknown>): Record<string
     ...value,
     schemaVersion: APP_INSTALLATION_STATE_SCHEMA_VERSION,
     packagesByInstallationKey: Object.fromEntries(
-      Object.entries(value.packagesByInstallationKey).map(([key, candidate]) => {
-        if (!isRecord(candidate) || !isRecord(candidate.manifest)) return [key, candidate];
+      Object.entries(value.packagesByInstallationKey).flatMap(([key, candidate]) => {
+        if (!isRecord(candidate) || !isRecord(candidate.manifest)) return [[key, candidate]];
         const manifest = candidate.manifest;
-        if (!isRecord(manifest.entrypoints)) return [key, candidate];
+        if (!isRecord(manifest.entrypoints)) return [[key, candidate]];
         const { manifestVersion: _manifestVersion, entrypoints, ...currentManifest } = manifest;
         const tab = entrypoints.tab ?? entrypoints.app;
         const controller = entrypoints.controller ?? entrypoints.operations;
+        if (
+          entrypoints.controller === undefined &&
+          typeof entrypoints.operations === "string" &&
+          /\.html?$/iu.test(entrypoints.operations)
+        ) {
+          // Schema v4 allowed renderer-hosted operation pages. Schema v5 controllers are
+          // host-loaded Node modules, so those package bytes cannot be reinterpreted safely.
+          // Drop only that package record; its Space state remains as retained App data.
+          return [];
+        }
         return [
-          key,
-          {
-            ...candidate,
-            manifest: {
-              ...currentManifest,
-              entrypoints: {
-                ...(tab === undefined ? {} : { tab }),
-                ...(controller === undefined ? {} : { controller }),
+          [
+            key,
+            {
+              ...candidate,
+              manifest: {
+                ...currentManifest,
+                entrypoints: {
+                  ...(tab === undefined ? {} : { tab }),
+                  ...(controller === undefined ? {} : { controller }),
+                },
               },
             },
-          },
+          ],
         ];
       }),
     ),

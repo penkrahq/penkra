@@ -315,4 +315,54 @@ describe("App installation state", () => {
       },
     });
   });
+
+  it("drops only renderer-hosted operation packages while retaining their Space state", () => {
+    const rendererManifest = {
+      ...manifest,
+      id: "com.penkra.legacy-renderer-operations",
+      slug: "legacy-renderer-operations",
+      name: "Legacy Renderer Operations",
+    };
+    const installed = registerVerifiedAppPackage(
+      registerVerifiedAppPackage(createEmptyAppInstallationState(), verifiedPackage(), "personal"),
+      verifiedPackage({ manifest: rendererManifest }),
+      "personal",
+    );
+    const validKey = `personal\0${manifest.id}`;
+    const rendererKey = `personal\0${rendererManifest.id}`;
+    const migrated = parseAppInstallationState({
+      ...installed,
+      schemaVersion: 4,
+      packagesByInstallationKey: {
+        [validKey]: {
+          ...installed.packagesByInstallationKey[validKey],
+          manifest: {
+            ...installed.packagesByInstallationKey[validKey]?.manifest,
+            manifestVersion: 2,
+            entrypoints: { app: "app.html", operations: "operations.js" },
+          },
+        },
+        [rendererKey]: {
+          ...installed.packagesByInstallationKey[rendererKey],
+          manifest: {
+            ...installed.packagesByInstallationKey[rendererKey]?.manifest,
+            manifestVersion: 2,
+            entrypoints: { app: "app.html", operations: "operations.html" },
+          },
+        },
+      },
+    });
+
+    expect(migrated.packagesByInstallationKey[validKey]?.manifest.entrypoints).toEqual({
+      tab: "app.html",
+      controller: "operations.js",
+    });
+    expect(migrated.packagesByInstallationKey[rendererKey]).toBeUndefined();
+    expect(migrated.spaceStateByKey[rendererKey]).toEqual(
+      expect.objectContaining({
+        appId: rendererManifest.id,
+        spaceId: "personal",
+      }),
+    );
+  });
 });
