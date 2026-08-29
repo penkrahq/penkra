@@ -5,6 +5,7 @@ import { AppBlobUrlRegistry } from "./appBlobUrlRegistry";
 const owner = {
   appId: "com.example.video",
   spaceId: "space-1",
+  threadId: "thread-1",
   tabId: "tab-1",
   rendererId: 7,
   origin: `penkra-app://a-${"a".repeat(64)}`,
@@ -29,7 +30,7 @@ describe("AppBlobUrlRegistry", () => {
     const registry = new AppBlobUrlRegistry();
     const first = registry.open(owner, "/tmp/one");
     const second = registry.open({ ...owner, rendererId: 8 }, "/tmp/two");
-    registry.revokeMatching((record) => record.rendererId === owner.rendererId);
+    registry.disposeDetached(registry.detachGeneration(owner));
 
     expect(() =>
       registry.resolve(owner.origin, new URL(first).pathname.split("/").at(-1)!),

@@ -27,8 +27,10 @@ function verifiedPackage(): VerifiedAppPackageInput {
   };
 }
 
-function fixture() {
+function fixture(onNotificationError = vi.fn()) {
   let state: AppInstallationState = createEmptyAppInstallationState();
+  let mutationCount = 0;
+  let mutationFailure: { at: number; error: Error } | null = null;
   let unexpectedDisableListener:
     | ((event: {
         appId: string;
@@ -40,6 +42,8 @@ function fixture() {
   const store = {
     snapshot: () => state,
     mutate: vi.fn(async (transition: (current: AppInstallationState) => AppInstallationState) => {
+      mutationCount += 1;
+      if (mutationFailure?.at === mutationCount) throw mutationFailure.error;
       state = transition(state);
       return state;
     }),
@@ -101,7 +105,7 @@ function fixture() {
   const tabSnapshots = [{ threadId: "thread-1", route: "/document/7", state: { page: 3 } }];
   const tabs = {
     capture: vi.fn(() => tabSnapshots),
-    restore: vi.fn(async () => undefined),
+    restore: vi.fn<() => Promise<void>>(async () => undefined),
   };
   const secrets = new Map<string, string>();
   const settingSecrets = {
@@ -117,12 +121,24 @@ function fixture() {
     }),
   };
   return {
-    service: new AppInstallationService({ store, lifecycle, data, updates, settingSecrets, tabs }),
+    service: new AppInstallationService({
+      store,
+      lifecycle,
+      data,
+      updates,
+      settingSecrets,
+      tabs,
+      onNotificationError,
+    }),
     data,
     lifecycle,
     updates,
     settingSecrets,
     tabs,
+    onNotificationError,
+    failMutationAfter(successfulMutations: number, error: Error) {
+      mutationFailure = { at: mutationCount + successfulMutations + 1, error };
+    },
     unexpectedDisable: (error = new Error("controller crashed")) =>
       unexpectedDisableListener?.({
         appId: "com.acme.figma",
@@ -135,6 +151,23 @@ function fixture() {
 }
 
 describe("AppInstallationService", () => {
+  it("isolates synchronous and rejected post-commit observers while notifying later listeners", async () => {
+    const test = fixture();
+    const later = vi.fn();
+    test.service.subscribe(() => {
+      throw new Error("sync listener failed");
+    });
+    test.service.subscribe(async () => {
+      throw new Error("async listener failed");
+    });
+    test.service.subscribe(later);
+
+    await expect(test.service.install(verifiedPackage(), "personal")).resolves.toBeDefined();
+    await Promise.resolve();
+    expect(later).toHaveBeenCalledOnce();
+    expect(test.onNotificationError).toHaveBeenCalledTimes(2);
+  });
+
   it("commits a verified registry package and reviewed Space grants before activation", async () => {
     const test = fixture();
 
@@ -512,6 +545,10 @@ describe("AppInstallationService", () => {
       "app-updated",
     );
     expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
+    expect(test.tabs.capture).toHaveBeenCalledWith("com.acme.figma", "personal");
+    expect(test.tabs.restore).toHaveBeenCalledWith("com.acme.figma", "personal", [
+      { threadId: "thread-1", route: "/document/7", state: { page: 3 } },
+    ]);
     expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]).toMatchObject({
       source: "sideload",
       version: "1.0.1-dev",
@@ -619,7 +656,7 @@ describe("AppInstallationService", () => {
     expect(test.updates.clear).toHaveBeenCalledOnce();
   });
 
-  it("restores the working package and tabs when updated tabs cannot be restored", async () => {
+  it("keeps a committed package when post-commit tab restoration fails", async () => {
     const test = fixture();
     await test.service.install(verifiedPackage(), "personal");
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
@@ -633,15 +670,75 @@ describe("AppInstallationService", () => {
         spaceId: "personal",
         permissions: {},
       }),
-    ).rejects.toThrow("tab route failed");
+    ).resolves.toMatchObject({
+      packagesByInstallationKey: {
+        "personal\0com.acme.figma": { version: "2.0.0" },
+      },
+    });
 
     expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]?.version).toBe(
-      "1.0.0",
+      "2.0.0",
     );
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.enabled).toBe(true);
     expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
-    expect(test.tabs.restore).toHaveBeenCalledTimes(2);
+    expect(test.tabs.restore).toHaveBeenCalledOnce();
     expect(test.updates.clear).toHaveBeenCalledOnce();
+    await vi.waitFor(() =>
+      expect(test.onNotificationError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("Unexpected committed update tab-restoration"),
+        }),
+      ),
+    );
+  });
+
+  it("settles the committed caller and later updates only after tab reconstruction", async () => {
+    const test = fixture();
+    await test.service.install(verifiedPackage(), "personal");
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
+    let releaseRestore!: () => void;
+    test.tabs.restore.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (releaseRestore = resolve)),
+    );
+    const first = verifiedPackage();
+    first.manifest.version = "2.0.0";
+    const second = verifiedPackage();
+    second.manifest.version = "3.0.0";
+
+    const firstResult = test.service.updateForSpace({
+      package: { ...first, source: "registry" },
+      spaceId: "personal",
+      permissions: {},
+    });
+    let firstSettled = false;
+    void firstResult.then(() => {
+      firstSettled = true;
+    });
+    await vi.waitFor(() => expect(test.tabs.restore).toHaveBeenCalledOnce());
+    expect(firstSettled).toBe(false);
+    const secondResult = test.service.updateForSpace({
+      package: { ...second, source: "registry" },
+      spaceId: "personal",
+      permissions: {},
+    });
+    await Promise.resolve();
+    expect(test.tabs.capture).toHaveBeenCalledOnce();
+    expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]?.version).toBe(
+      "2.0.0",
+    );
+
+    releaseRestore();
+    await expect(firstResult).resolves.toMatchObject({
+      packagesByInstallationKey: {
+        "personal\0com.acme.figma": { version: "2.0.0" },
+      },
+    });
+    await expect(secondResult).resolves.toMatchObject({
+      packagesByInstallationKey: {
+        "personal\0com.acme.figma": { version: "3.0.0" },
+      },
+    });
+    expect(test.tabs.capture).toHaveBeenCalledTimes(2);
   });
 
   it("rolls back when the durable journal cannot be cleared at commit", async () => {
@@ -665,6 +762,26 @@ describe("AppInstallationService", () => {
     );
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.enabled).toBe(true);
     expect(test.updates.clear).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains the durable journal when restoring the prior store state fails", async () => {
+    const test = fixture();
+    await test.service.install(verifiedPackage(), "personal");
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
+    const update = verifiedPackage();
+    update.manifest.version = "2.0.0";
+    test.lifecycle.enable.mockRejectedValueOnce(new Error("candidate controller failed"));
+    test.failMutationAfter(1, new Error("prior state fsync failed"));
+
+    await expect(
+      test.service.updateForSpace({
+        package: { ...update, source: "registry" },
+        spaceId: "personal",
+        permissions: {},
+      }),
+    ).rejects.toThrow("rollback step");
+    expect(test.updates.clear).not.toHaveBeenCalled();
+    expect(test.tabs.restore).not.toHaveBeenCalled();
   });
 
   it("uninstalls only the selected Space and retains its data", async () => {

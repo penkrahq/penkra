@@ -53,7 +53,7 @@ describe("ElectronAppTabHost", () => {
     const unregisterBroker = vi.fn();
     const unregisterRpc = vi.fn();
     const releaseIdentity = vi.fn();
-    const onRendererCreated = vi.fn(() => releaseIdentity);
+    const registerRendererIdentity = vi.fn(() => releaseIdentity);
     const onOpened = vi.fn();
     const onState = vi.fn();
     const onClosed = vi.fn();
@@ -77,7 +77,7 @@ describe("ElectronAppTabHost", () => {
       onState,
       onClosed,
       onFrameHostMessage,
-      onRendererCreated,
+      registerRendererIdentity,
     });
 
     const descriptor = await host.openInstalled({
@@ -107,7 +107,7 @@ describe("ElectronAppTabHost", () => {
     host.present(descriptor.id);
     expect(onOpened).toHaveBeenCalledWith(descriptor);
     expect(onState).not.toHaveBeenCalled();
-    expect(onRendererCreated).toHaveBeenCalledWith({
+    expect(registerRendererIdentity).toHaveBeenCalledWith({
       appId: app.appId,
       spaceId: "personal",
       tabId: descriptor.id,
@@ -150,6 +150,8 @@ describe("ElectronAppTabHost", () => {
   it("restores an updated App with the same tab identity", async () => {
     const app = installedApp();
     const attachedViews = new Set<unknown>();
+    const retireGeneration = vi.fn();
+    const retireTab = vi.fn();
     const host = new ElectronAppTabHost({
       installations: {
         snapshot: () => ({
@@ -167,6 +169,7 @@ describe("ElectronAppTabHost", () => {
       ipcBridge: { waitForReady: vi.fn(async () => undefined) },
       onOpened: vi.fn(),
       onState: vi.fn(),
+      authority: { retireGeneration, retireTab },
     });
 
     const original = await host.openInstalled({
@@ -180,7 +183,11 @@ describe("ElectronAppTabHost", () => {
     host.setActive(original.id, original.rendererId, true);
     expect(attachedViews).toEqual(new Set());
 
-    host.closeForAppSpace(app.appId, "personal");
+    host.closeForAppSpace(app.appId, "personal", "app-updated");
+    expect(retireGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: original.id, rendererId: original.rendererId }),
+    );
+    expect(retireTab).not.toHaveBeenCalled();
     await host.restoreAfterUpdate(app.appId, "personal", snapshot);
 
     const restored = host.list()[0];
@@ -246,6 +253,202 @@ describe("ElectronAppTabHost", () => {
       route: "/document/7",
       state: { page: 3 },
     });
+  });
+
+  it("retires and diagnoses only failed restored panes while preserving successful siblings", async () => {
+    const app = installedApp();
+    const retireTab = vi.fn();
+    const onClosed = vi.fn();
+    const onDiagnostic = vi.fn();
+    const resolveIconDataUrl = vi
+      .fn<() => Promise<string | null>>()
+      .mockRejectedValueOnce(new Error("first icon failed"))
+      .mockResolvedValue(null);
+    const host = new ElectronAppTabHost({
+      installations: {
+        snapshot: () => ({ packagesByInstallationKey: { [`personal\0${app.appId}`]: app } }),
+        isActive: () => true,
+        setEnabled: vi.fn(),
+      } as never,
+      sessions: {
+        get: () => ({ appId: app.appId, spaceId: "personal", origin: TEST_ORIGIN }) as never,
+      },
+      frameDocuments: { activate: async () => "/app.html" },
+      broker: { registerTab: vi.fn(() => vi.fn()) },
+      rpc: createRpcMock(),
+      ipcBridge: { waitForReady: vi.fn(async () => undefined) },
+      onOpened: vi.fn(),
+      onState: vi.fn(),
+      onClosed,
+      onDiagnostic,
+      resolveIconDataUrl,
+      authority: { retireGeneration: vi.fn(), retireTab },
+    });
+
+    await host.restoreAfterUpdate(app.appId, "personal", [
+      { id: "failed-tab", threadId: "thread-1", route: "/" },
+      { id: "working-tab", threadId: "thread-1", route: "/" },
+    ]);
+
+    expect(host.has("failed-tab")).toBe(false);
+    expect(host.has("working-tab")).toBe(true);
+    expect(retireTab).toHaveBeenCalledWith({
+      appId: app.appId,
+      spaceId: "personal",
+      threadId: "thread-1",
+      tabId: "failed-tab",
+    });
+    expect(onClosed).toHaveBeenCalledWith({ id: "failed-tab", threadId: "thread-1" });
+    expect(onDiagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "tab-navigation-restore-failed",
+        tabId: "failed-tab",
+        failure: expect.objectContaining({ kind: "operation" }),
+      }),
+    );
+    await expect(
+      host.openInstalled({
+        tabId: "failed-tab",
+        appId: app.appId,
+        spaceId: "personal",
+        threadId: "thread-1",
+        route: "/",
+      }),
+    ).resolves.toMatchObject({ id: "failed-tab" });
+  });
+
+  it("does not let a retired generation's delayed navigation failure close its replacement", async () => {
+    const app = installedApp();
+    let rejectOldNavigation!: (error: Error) => void;
+    const rpc = createRpcMock();
+    rpc.request
+      .mockImplementationOnce(
+        () => new Promise<void>((_resolve, reject) => (rejectOldNavigation = reject)),
+      )
+      .mockResolvedValue(undefined);
+    const host = new ElectronAppTabHost({
+      installations: {
+        snapshot: () => ({ packagesByInstallationKey: { [`personal\0${app.appId}`]: app } }),
+        isActive: () => true,
+        setEnabled: vi.fn(),
+      } as never,
+      sessions: {
+        get: () => ({ appId: app.appId, spaceId: "personal", origin: TEST_ORIGIN }) as never,
+      },
+      frameDocuments: { activate: async () => "/app.html" },
+      broker: { registerTab: vi.fn(() => vi.fn()) },
+      rpc,
+      ipcBridge: { waitForReady: vi.fn(async () => undefined) },
+      onOpened: vi.fn(),
+      onState: vi.fn(),
+    });
+    const snapshot = [{ id: "stable-tab", threadId: "thread-1", route: "/document/7" }];
+
+    await host.restoreAfterUpdate(app.appId, "personal", snapshot);
+    const oldRendererId = host.rendererId("stable-tab");
+    host.closeForAppSpace(app.appId, "personal", "app-updated");
+    await host.restoreAfterUpdate(app.appId, "personal", snapshot);
+    const replacementRendererId = host.rendererId("stable-tab");
+    expect(replacementRendererId).not.toBe(oldRendererId);
+
+    rejectOldNavigation(new Error("late failure from retired generation"));
+    await Promise.resolve();
+    expect(host.has("stable-tab")).toBe(true);
+    expect(host.rendererId("stable-tab")).toBe(replacementRendererId);
+  });
+
+  it("unwinds partial registration when creation fails after renderer identity registration", async () => {
+    const app = installedApp();
+    const releaseIdentity = vi.fn();
+    const registerRendererIdentity = vi.fn(() => releaseIdentity);
+    const registerTarget = vi.fn();
+    const registerTab = vi.fn();
+    const host = new ElectronAppTabHost({
+      installations: {
+        snapshot: () => ({ packagesByInstallationKey: { [`personal\0${app.appId}`]: app } }),
+        isActive: () => true,
+        setEnabled: vi.fn(),
+      } as never,
+      sessions: {
+        get: () => ({ appId: app.appId, spaceId: "personal", origin: TEST_ORIGIN }) as never,
+      },
+      frameDocuments: { activate: async () => "/app.html" },
+      broker: { registerTab },
+      rpc: { ...createRpcMock(), registerTarget },
+      ipcBridge: { waitForReady: vi.fn(async () => undefined) },
+      onOpened: vi.fn(),
+      onState: vi.fn(),
+      registerRendererIdentity,
+      resolveIconDataUrl: async () => {
+        throw new Error("icon read failed");
+      },
+    });
+
+    await expect(
+      host.openInstalled({
+        appId: app.appId,
+        spaceId: "personal",
+        threadId: "thread-1",
+        route: "/",
+      }),
+    ).rejects.toMatchObject({
+      failure: {
+        kind: "operation",
+        primary: { kind: "leaf", message: "icon read failed" },
+      },
+    });
+    expect(releaseIdentity).toHaveBeenCalledOnce();
+    expect(registerTarget).not.toHaveBeenCalled();
+    expect(registerTab).not.toHaveBeenCalled();
+    expect(host.list()).toEqual([]);
+  });
+
+  it("continues construction rollback when one disposer fails and labels the cleanup failure", async () => {
+    const app = installedApp();
+    const releaseIdentity = vi.fn();
+    const unregisterRpc = vi.fn(() => {
+      throw new Error("RPC detach failed");
+    });
+    const host = new ElectronAppTabHost({
+      installations: {
+        snapshot: () => ({ packagesByInstallationKey: { [`personal\0${app.appId}`]: app } }),
+        isActive: () => true,
+        setEnabled: vi.fn(),
+      } as never,
+      sessions: {
+        get: () => ({ appId: app.appId, spaceId: "personal", origin: TEST_ORIGIN }) as never,
+      },
+      frameDocuments: { activate: async () => "/app.html" },
+      broker: {
+        registerTab: () => {
+          throw new Error("broker registration failed");
+        },
+      },
+      rpc: { ...createRpcMock(), registerTarget: vi.fn(() => unregisterRpc) },
+      ipcBridge: { waitForReady: vi.fn(async () => undefined) },
+      onOpened: vi.fn(),
+      onState: vi.fn(),
+      registerRendererIdentity: vi.fn(() => releaseIdentity),
+      resolveIconDataUrl: async () => null,
+    });
+
+    await expect(
+      host.openInstalled({
+        appId: app.appId,
+        spaceId: "personal",
+        threadId: "thread-1",
+        route: "/",
+      }),
+    ).rejects.toMatchObject({
+      failure: {
+        kind: "operation",
+        primary: { message: "broker registration failed" },
+        secondary: [{ role: "renderer-rpc", failure: { message: "RPC detach failed" } }],
+      },
+    });
+    expect(unregisterRpc).toHaveBeenCalledOnce();
+    expect(releaseIdentity).toHaveBeenCalledOnce();
+    expect(host.list()).toEqual([]);
   });
 
   it("replays complete navigation when an existing tab frame reconnects", async () => {
@@ -366,7 +569,7 @@ describe("ElectronAppTabHost", () => {
         summary: "Edit a canvas.",
       },
     };
-    const onRendererCreated = vi.fn(
+    const registerRendererIdentity = vi.fn(
       (_input: { appId: string; spaceId: string; rendererId: number }) => vi.fn(),
     );
     const host = new ElectronAppTabHost({
@@ -389,7 +592,7 @@ describe("ElectronAppTabHost", () => {
       ipcBridge: { waitForReady: vi.fn(async () => undefined) },
       onOpened: vi.fn(),
       onState: vi.fn(),
-      onRendererCreated,
+      registerRendererIdentity,
     });
 
     await host.openInstalled({
@@ -398,7 +601,7 @@ describe("ElectronAppTabHost", () => {
       threadId: "thread-1",
       route: "/",
     });
-    const renderer = onRendererCreated.mock.calls[0]?.[0];
+    const renderer = registerRendererIdentity.mock.calls[0]?.[0];
     expect(renderer).toBeDefined();
     if (!renderer) throw new Error("Apps renderer was not registered.");
     const descriptor = await host.openInstalledFromRenderer(renderer.rendererId, {

@@ -21,6 +21,35 @@ import type { AppRendererRpcHost, AppRendererRpcHostMessage } from "./appRendere
 import type { AppSessionManager } from "./appSessionManager";
 import type { AppFrameDocumentRegistry } from "./appFrameDocumentRegistry";
 import type { AppRuntimeDiagnosticInput } from "./appRuntimeDiagnostics";
+import { ProtectedPublisher } from "./protectedPublisher";
+import { RollbackScope } from "./rollbackScope";
+import {
+  appRuntimeFailureDto,
+  appRuntimeGroupFailure,
+  appRuntimeOperationFailure,
+} from "./appRuntimeFailure";
+
+export interface AppTabGenerationOwner {
+  appId: string;
+  spaceId: string;
+  threadId: string;
+  tabId: string;
+  rendererId: number;
+}
+
+export interface AppTabLogicalOwner {
+  appId: string;
+  spaceId: string;
+  threadId: string;
+  tabId: string;
+}
+
+export interface AppTabAuthority {
+  /** Synchronously detaches authority belonging to one exact iframe execution generation. */
+  retireGeneration(owner: AppTabGenerationOwner): void;
+  /** Retires resources owned by the stable logical tab after it is actually closed. */
+  retireTab(owner: AppTabLogicalOwner): void;
+}
 
 interface AppTabRecord {
   descriptor: DesktopAppTabDescriptor;
@@ -42,6 +71,10 @@ export function shouldNotifyAppTabClosed(reason: OperationCancellationCode): boo
   return reason !== "host-stopped" && reason !== "app-updated";
 }
 
+function shouldRetireLogicalAppTab(reason: OperationCancellationCode): boolean {
+  return reason !== "app-updated";
+}
+
 export interface AppUpdateTabSnapshot {
   id: string;
   threadId: string;
@@ -59,8 +92,8 @@ export class ElectronAppTabHost implements AppTabHost {
     "registerTarget" | "request" | "acceptResponse" | "acceptContextCall"
   >;
   readonly #ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
-  readonly #onOpened: (descriptor: DesktopAppTabDescriptor) => void;
-  readonly #onState: (descriptor: DesktopAppTabDescriptor) => void;
+  readonly #opened: ProtectedPublisher<DesktopAppTabDescriptor>;
+  readonly #state: ProtectedPublisher<DesktopAppTabDescriptor>;
   readonly #onFrameHostMessage: (input: {
     tabId: string;
     rendererId: number;
@@ -68,16 +101,18 @@ export class ElectronAppTabHost implements AppTabHost {
       | { kind: "host-message"; message: AppRendererRpcHostMessage }
       | { kind: "event"; name: string; payload: unknown };
   }) => void;
-  readonly #onClosed: (descriptor: DesktopAppTabClosed) => void;
-  readonly #onRendererCreated: (input: {
+  readonly #closed: ProtectedPublisher<DesktopAppTabClosed>;
+  readonly #registerRendererIdentity: (input: {
     appId: string;
     spaceId: string;
     threadId: string;
     tabId: string;
     rendererId: number;
   }) => (() => void) | void;
+  readonly #authority: AppTabAuthority;
   readonly #assertAppAllowed: (app: InstalledAppPackage) => Promise<void>;
-  readonly #onDiagnostic: (entry: AppRuntimeDiagnosticInput) => void;
+  readonly #resolveIconDataUrl: typeof resolveInstalledAppIconDataUrl;
+  readonly #diagnostics: ProtectedPublisher<AppRuntimeDiagnosticInput>;
   readonly #records = new Map<string, AppTabRecord>();
   #themeCss = "";
   #typographyCss = "";
@@ -104,15 +139,18 @@ export class ElectronAppTabHost implements AppTabHost {
         | { kind: "event"; name: string; payload: unknown };
     }) => void;
     onClosed?: (descriptor: DesktopAppTabClosed) => void;
-    onRendererCreated?: (input: {
+    registerRendererIdentity?: (input: {
       appId: string;
       spaceId: string;
       threadId: string;
       tabId: string;
       rendererId: number;
     }) => (() => void) | void;
+    authority?: AppTabAuthority;
     assertAppAllowed?: (app: InstalledAppPackage) => Promise<void>;
+    resolveIconDataUrl?: typeof resolveInstalledAppIconDataUrl;
     onDiagnostic?: (entry: AppRuntimeDiagnosticInput) => void;
+    onNotificationError?: (error: unknown) => void;
   }) {
     this.#installations = input.installations;
     this.#sessions = input.sessions;
@@ -120,13 +158,25 @@ export class ElectronAppTabHost implements AppTabHost {
     this.#broker = input.broker;
     this.#rpc = input.rpc;
     this.#ipcBridge = input.ipcBridge;
-    this.#onOpened = input.onOpened;
-    this.#onState = input.onState;
+    const onNotificationError =
+      input.onNotificationError ??
+      ((error: unknown) => console.error("[penkra-app] App tab notification failed.", error));
+    this.#opened = new ProtectedPublisher(onNotificationError);
+    this.#opened.subscribe(input.onOpened);
+    this.#state = new ProtectedPublisher(onNotificationError);
+    this.#state.subscribe(input.onState);
     this.#onFrameHostMessage = input.onFrameHostMessage ?? (() => undefined);
-    this.#onClosed = input.onClosed ?? (() => undefined);
-    this.#onRendererCreated = input.onRendererCreated ?? (() => undefined);
+    this.#closed = new ProtectedPublisher(onNotificationError);
+    this.#closed.subscribe(input.onClosed ?? (() => undefined));
+    this.#registerRendererIdentity = input.registerRendererIdentity ?? (() => undefined);
+    this.#authority = input.authority ?? {
+      retireGeneration: () => undefined,
+      retireTab: () => undefined,
+    };
     this.#assertAppAllowed = input.assertAppAllowed ?? (async () => undefined);
-    this.#onDiagnostic = input.onDiagnostic ?? (() => undefined);
+    this.#resolveIconDataUrl = input.resolveIconDataUrl ?? resolveInstalledAppIconDataUrl;
+    this.#diagnostics = new ProtectedPublisher(onNotificationError);
+    this.#diagnostics.subscribe(input.onDiagnostic ?? (() => undefined));
   }
 
   async open(input: OpenAppTabRequest & { tabId?: string }): Promise<AppTabHandle> {
@@ -191,6 +241,7 @@ export class ElectronAppTabHost implements AppTabHost {
       : await this.open({ app, ...input });
     if (deferNavigation && (input.route !== "/" || input.state !== undefined)) {
       const startedAt = performance.now();
+      const rendererId = this.#require(handle.id).rendererId;
       void handle
         .navigate({
           route: input.route,
@@ -198,7 +249,7 @@ export class ElectronAppTabHost implements AppTabHost {
         })
         .then(
           () =>
-            this.#onDiagnostic({
+            this.#diagnostics.publish({
               kind: "tab-navigation-restored",
               appId: app.appId,
               spaceId: input.spaceId,
@@ -206,15 +257,23 @@ export class ElectronAppTabHost implements AppTabHost {
               durationMs: Math.round(performance.now() - startedAt),
               message: input.route,
             }),
-          (error: unknown) =>
-            this.#onDiagnostic({
+          (error: unknown) => {
+            this.#diagnostics.publish({
               kind: "tab-navigation-restore-failed",
               appId: app.appId,
               spaceId: input.spaceId,
               tabId: handle.id,
               durationMs: Math.round(performance.now() - startedAt),
-              message: error instanceof Error ? error.message : String(error),
-            }),
+              message: safeErrorMessage(error),
+              failure: appRuntimeFailureDto(
+                appRuntimeOperationFailure({
+                  message: "App tab route restoration failed.",
+                  primary: error,
+                }),
+              ),
+            });
+            this.#closeMatchingRenderer(handle.id, rendererId);
+          },
         );
     }
     return this.#require(handle.id).descriptor;
@@ -261,7 +320,7 @@ export class ElectronAppTabHost implements AppTabHost {
 
   /** Re-announces an existing tab so the trusted shell opens its dock and selects it. */
   present(tabId: string): void {
-    this.#onOpened(this.#require(tabId).descriptor);
+    this.#opened.publish(this.#require(tabId).descriptor);
   }
 
   async applyTheme(css: string): Promise<void> {
@@ -298,7 +357,7 @@ export class ElectronAppTabHost implements AppTabHost {
       if (this.#visibleTabId === tabId) this.#visibleTabId = null;
     }
     this.#sendEvent(record, "lifecycle.visibility", { active });
-    this.#onDiagnostic({
+    this.#diagnostics.publish({
       kind: active ? "tab-activated" : "tab-deactivated",
       appId: record.app.appId,
       spaceId: record.descriptor.spaceId,
@@ -322,8 +381,8 @@ export class ElectronAppTabHost implements AppTabHost {
       route: input.route,
       ...(input.state === undefined ? { state: undefined } : { state: input.state }),
     };
-    this.#onState(record.descriptor);
-    this.#onDiagnostic({
+    this.#state.publish(record.descriptor);
+    this.#diagnostics.publish({
       kind: "tab-navigation-recorded",
       appId: record.app.appId,
       spaceId: record.descriptor.spaceId,
@@ -369,7 +428,7 @@ export class ElectronAppTabHost implements AppTabHost {
       const startedAt = performance.now();
       void this.#request(tabId, "tab.navigate", record.navigation).then(
         () =>
-          this.#onDiagnostic({
+          this.#diagnostics.publish({
             kind: "tab-navigation-restored",
             appId: record.app.appId,
             spaceId: record.descriptor.spaceId,
@@ -378,7 +437,7 @@ export class ElectronAppTabHost implements AppTabHost {
             message: record.navigation.route,
           }),
         (error: unknown) =>
-          this.#onDiagnostic({
+          this.#diagnostics.publish({
             kind: "tab-navigation-restore-failed",
             appId: record.app.appId,
             spaceId: record.descriptor.spaceId,
@@ -396,8 +455,8 @@ export class ElectronAppTabHost implements AppTabHost {
     }
     record.frameReady = true;
     record.descriptor = { ...record.descriptor, status: "ready" };
-    this.#onState(record.descriptor);
-    this.#onDiagnostic({
+    this.#state.publish(record.descriptor);
+    this.#diagnostics.publish({
       kind: "tab-ready",
       appId: record.app.appId,
       spaceId: record.descriptor.spaceId,
@@ -453,12 +512,33 @@ export class ElectronAppTabHost implements AppTabHost {
         ),
       ),
     );
-    const failures = results.filter((result) => result.status === "rejected");
-    if (failures.length > 0) {
-      throw new AggregateError(
-        failures.map((failure) => failure.reason),
-        `${failures.length} App tab(s) could not be restored after update.`,
-      );
+    for (let index = 0; index < results.length; index += 1) {
+      const result = results[index];
+      if (result?.status !== "rejected") continue;
+      const tab = tabs[index];
+      if (!tab) continue;
+      let retirementFailure: unknown;
+      try {
+        this.#authority.retireTab({ appId, spaceId, threadId: tab.threadId, tabId: tab.id });
+      } catch (error) {
+        retirementFailure = error;
+      }
+      this.#closed.publish({ id: tab.id, threadId: tab.threadId });
+      const failure = appRuntimeOperationFailure({
+        message: "App tab restoration failed.",
+        primary: result.reason,
+        ...(retirementFailure === undefined
+          ? {}
+          : { secondary: [{ role: "tab-retirement", failure: retirementFailure }] }),
+      });
+      this.#diagnostics.publish({
+        kind: "tab-navigation-restore-failed",
+        appId,
+        spaceId,
+        tabId: tab.id,
+        message: safeErrorMessage(result.reason),
+        failure: appRuntimeFailureDto(failure),
+      });
     }
   }
 
@@ -467,11 +547,32 @@ export class ElectronAppTabHost implements AppTabHost {
     if (!record) return;
     if (this.#visibleTabId === tabId) this.#visibleTabId = null;
     this.#records.delete(tabId);
-    record.unregisterBroker();
-    record.unregisterRpc(reason);
-    record.releaseIdentity();
+    const failures: Array<{ role: string; failure: unknown }> = [];
+    this.#attemptRetirement(failures, "generation-authority", () =>
+      this.#authority.retireGeneration(this.#generationOwner(record)),
+    );
+    this.#attemptRetirement(failures, "operation-broker", record.unregisterBroker);
+    this.#attemptRetirement(failures, "renderer-rpc", () => record.unregisterRpc(reason));
+    this.#attemptRetirement(failures, "renderer-identity", record.releaseIdentity);
+    if (shouldRetireLogicalAppTab(reason)) {
+      this.#attemptRetirement(failures, "tab-authority", () =>
+        this.#authority.retireTab(this.#tabOwner(record)),
+      );
+    }
     if (shouldNotifyAppTabClosed(reason)) {
-      this.#onClosed({ id: tabId, threadId: record.descriptor.threadId });
+      this.#closed.publish({ id: tabId, threadId: record.descriptor.threadId });
+    }
+    if (failures.length > 0) {
+      const failure = appRuntimeGroupFailure("App tab retirement was incomplete.", failures);
+      this.#diagnostics.publish({
+        kind: "operation-failed",
+        appId: record.app.appId,
+        spaceId: record.descriptor.spaceId,
+        tabId,
+        operation: "tab-retirement",
+        message: failure.message,
+        failure: appRuntimeFailureDto(failure),
+      });
     }
   }
 
@@ -491,6 +592,7 @@ export class ElectronAppTabHost implements AppTabHost {
   }
 
   async #create(input: OpenAppTabRequest & { tabId?: string }): Promise<AppTabHandle> {
+    const rollback = new RollbackScope();
     const openedAt = performance.now();
     await this.#assertAppAllowed(input.app);
     if (!this.#sessions.get(input.app.appId, input.spaceId)) {
@@ -504,90 +606,126 @@ export class ElectronAppTabHost implements AppTabHost {
     const rendererId = this.#nextRendererId--;
     const documentBase = await this.#frameDocuments.activate(input.app, input.spaceId);
     const documentUrl = `${documentBase}${documentBase.includes("?") ? "&" : "?"}penkra-renderer=${encodeURIComponent(rendererId)}#penkra-tab=${encodeURIComponent(id)}`;
-    const releaseRendererIdentity = this.#onRendererCreated({
-      appId: input.app.appId,
-      spaceId: input.spaceId,
-      threadId: input.threadId,
-      tabId: id,
-      rendererId,
-    });
-    let identityReleased = false;
-    const releaseIdentity = () => {
-      if (identityReleased) return;
-      identityReleased = true;
-      releaseRendererIdentity?.();
-    };
-    const descriptor: DesktopAppTabDescriptor = {
-      id,
-      rendererId,
-      appId: input.app.appId,
-      slug: input.app.slug,
-      name: input.app.name,
-      iconDataUrl: await resolveInstalledAppIconDataUrl(input.app),
-      spaceId: input.spaceId,
-      threadId: input.threadId,
-      route: input.route,
-      ...(input.state === undefined ? {} : { state: input.state }),
-      status: "loading",
-      documentUrl,
-    };
-    const target = {
-      id: rendererId,
-      send: (message: AppRendererRpcHostMessage) => {
-        const current = this.#records.get(id);
-        if (!current?.frameReady) {
-          current?.queuedHostMessages.push(message);
-          return;
-        }
-        this.#onFrameHostMessage({
-          tabId: id,
-          rendererId,
-          delivery: { kind: "host-message", message },
-        });
-      },
-    };
-    const unregisterRpc = this.#rpc.registerTarget(target);
-    const endpoint: AppTabEndpoint = {
-      id,
-      appId: input.app.appId,
-      spaceId: input.spaceId,
-      threadId: input.threadId,
-      close: async () => this.close(id),
-      navigate: (navigation) => this.#navigate(id, navigation),
-      navigateForResult: (navigation) => this.#request(id, "tab.navigate-for-result", navigation),
-      invoke: (request) => this.#request(id, "tab.invoke", request),
-    };
-    const unregisterBroker = this.#broker.registerTab(endpoint);
-    const record: AppTabRecord = {
-      descriptor,
-      app: input.app,
-      rendererId,
-      unregisterBroker,
-      unregisterRpc,
-      releaseIdentity,
-      navigation: {
+    try {
+      const releaseRendererIdentity = this.#registerRendererIdentity({
+        appId: input.app.appId,
+        spaceId: input.spaceId,
+        threadId: input.threadId,
+        tabId: id,
+        rendererId,
+      });
+      let identityReleased = false;
+      const releaseIdentity = () => {
+        if (identityReleased) return;
+        identityReleased = true;
+        releaseRendererIdentity?.();
+      };
+      rollback.defer("renderer-identity", releaseIdentity);
+      const descriptor: DesktopAppTabDescriptor = {
+        id,
+        rendererId,
+        appId: input.app.appId,
+        slug: input.app.slug,
+        name: input.app.name,
+        iconDataUrl: await this.#resolveIconDataUrl(input.app),
+        spaceId: input.spaceId,
+        threadId: input.threadId,
         route: input.route,
         ...(input.state === undefined ? {} : { state: input.state }),
-      },
-      frameReady: false,
-      queuedHostMessages: [],
-      queuedEvents: [],
-      openedAt,
-    };
-    this.#records.set(id, record);
-    this.#onOpened(record.descriptor);
-    this.#onDiagnostic({
-      kind: "tab-opened",
-      appId: input.app.appId,
-      spaceId: input.spaceId,
-      tabId: id,
-    });
-    try {
+        status: "loading",
+        documentUrl,
+      };
+      const target = {
+        id: rendererId,
+        send: (message: AppRendererRpcHostMessage) => {
+          const current = this.#records.get(id);
+          if (!current?.frameReady) {
+            current?.queuedHostMessages.push(message);
+            return;
+          }
+          this.#onFrameHostMessage({
+            tabId: id,
+            rendererId,
+            delivery: { kind: "host-message", message },
+          });
+        },
+      };
+      const unregisterRpc = this.#rpc.registerTarget(target);
+      rollback.defer("renderer-rpc", () => unregisterRpc("host-stopped"));
+      const endpoint: AppTabEndpoint = {
+        id,
+        appId: input.app.appId,
+        spaceId: input.spaceId,
+        threadId: input.threadId,
+        close: async () => this.close(id),
+        navigate: (navigation) => this.#navigate(id, navigation),
+        navigateForResult: (navigation) => this.#request(id, "tab.navigate-for-result", navigation),
+        invoke: (request) => this.#request(id, "tab.invoke", request),
+      };
+      const unregisterBroker = this.#broker.registerTab(endpoint);
+      rollback.defer("operation-broker", unregisterBroker);
+      const record: AppTabRecord = {
+        descriptor,
+        app: input.app,
+        rendererId,
+        unregisterBroker,
+        unregisterRpc,
+        releaseIdentity,
+        navigation: {
+          route: input.route,
+          ...(input.state === undefined ? {} : { state: input.state }),
+        },
+        frameReady: false,
+        queuedHostMessages: [],
+        queuedEvents: [],
+        openedAt,
+      };
+      this.#records.set(id, record);
+      rollback.commit();
+      this.#opened.publish(record.descriptor);
+      this.#diagnostics.publish({
+        kind: "tab-opened",
+        appId: input.app.appId,
+        spaceId: input.spaceId,
+        tabId: id,
+      });
       return endpoint;
     } catch (error) {
-      this.close(id, "host-stopped");
-      throw error;
+      return rollback.fail(`App tab ${id} could not be created.`, error);
     }
+  }
+
+  #closeMatchingRenderer(tabId: string, rendererId: number): void {
+    if (!this.#matchingRenderer(tabId, rendererId)) return;
+    this.close(tabId, "tab-closed");
+  }
+
+  #attemptRetirement(
+    failures: Array<{ role: string; failure: unknown }>,
+    role: string,
+    operation: () => void,
+  ): void {
+    try {
+      operation();
+    } catch (failure) {
+      failures.push({ role, failure });
+    }
+  }
+
+  #generationOwner(record: AppTabRecord): AppTabGenerationOwner {
+    return {
+      ...this.#tabOwner(record),
+      rendererId: record.rendererId,
+    };
+  }
+
+  #tabOwner(record: AppTabRecord): AppTabLogicalOwner {
+    return {
+      appId: record.app.appId,
+      spaceId: record.descriptor.spaceId,
+      threadId: record.descriptor.threadId,
+      tabId: record.descriptor.id,
+    };
   }
 
   #request<Result>(
@@ -624,5 +762,17 @@ export class ElectronAppTabHost implements AppTabHost {
       rendererId: record.rendererId,
       delivery: { kind: "event", name, payload },
     });
+  }
+}
+
+function safeErrorMessage(value: unknown): string {
+  try {
+    if (value && typeof value === "object" && "message" in value) {
+      const message = (value as { message?: unknown }).message;
+      if (typeof message === "string") return message;
+    }
+    return String(value);
+  } catch {
+    return "[unprintable thrown value]";
   }
 }

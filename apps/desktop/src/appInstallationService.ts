@@ -42,8 +42,10 @@ import {
   type AppSettingValue,
 } from "./appSettings";
 import { isRequiredApp } from "./appDistributionPolicy";
+import { AppRuntimeFailureError, appRuntimeOperationFailure } from "./appRuntimeFailure";
+import { ProtectedPublisher } from "./protectedPublisher";
 
-export type AppInstallationStateListener = (state: AppInstallationState) => void;
+export type AppInstallationStateListener = (state: AppInstallationState) => void | Promise<void>;
 
 export interface UninstallAppInput {
   appId: string;
@@ -84,7 +86,8 @@ export class AppInstallationService {
   readonly #updates: Pick<AppUpdateJournal, "prepare" | "clear"> | undefined;
   readonly #settingSecrets: AppSettingSecretStore;
   readonly #tabs: AppUpdateTabRestorer;
-  readonly #listeners = new Set<AppInstallationStateListener>();
+  readonly #publisher: ProtectedPublisher<AppInstallationState>;
+  readonly #onNotificationError: (error: unknown) => void | Promise<void>;
   readonly #permissionRevisions = new Map<string, number>();
   readonly #pendingPermissionRequests = new Map<string, Promise<AppInstallationState>>();
   #queue: Promise<void> = Promise.resolve();
@@ -99,6 +102,7 @@ export class AppInstallationService {
     updates?: Pick<AppUpdateJournal, "prepare" | "clear">;
     settingSecrets?: AppSettingSecretStore;
     tabs?: AppUpdateTabRestorer;
+    onNotificationError?: (error: unknown) => void;
   }) {
     this.#store = input.store;
     this.#lifecycle = input.lifecycle;
@@ -110,6 +114,10 @@ export class AppInstallationService {
       deleteSecret: async () => undefined,
     };
     this.#tabs = input.tabs ?? { capture: () => [], restore: async () => undefined };
+    this.#onNotificationError =
+      input.onNotificationError ??
+      ((error) => console.error("[penkra-app] Installation-state listener failed.", error));
+    this.#publisher = new ProtectedPublisher(this.#onNotificationError);
     this.#lifecycle.subscribeUnexpectedDisable(({ state, error, appId, spaceId }) => {
       console.error(
         `[penkra-app] Disabled ${appId} in Space ${spaceId} after its controller exited.`,
@@ -124,8 +132,7 @@ export class AppInstallationService {
   }
 
   subscribe(listener: AppInstallationStateListener): () => void {
-    this.#listeners.add(listener);
-    return () => this.#listeners.delete(listener);
+    return this.#publisher.subscribe(listener);
   }
 
   install(input: VerifiedAppPackageInput, spaceId: string): Promise<AppInstallationState> {
@@ -237,43 +244,64 @@ export class AppInstallationService {
         targetVersion: input.package.manifest.version,
         previousState: previous,
       });
+      let committedState!: AppInstallationState;
       try {
         if (wasEnabled) await this.#lifecycle.disable(appId, input.spaceId, "app-updated");
         await this.#store.mutate((current) => applyUpdate(current, input));
         let state = this.#store.snapshot();
         if (wasEnabled) state = await this.#lifecycle.enable(appId, input.spaceId);
-        await this.#tabs.restore(appId, input.spaceId, tabs);
         await this.#updates?.clear();
-        this.#publish(state);
-        return state;
+        committedState = state;
       } catch (cause) {
-        const rollbackFailures: unknown[] = [];
+        const rollbackFailures: Array<{ role: string; failure: unknown }> = [];
         if (wasEnabled && this.#lifecycle.isActive(appId, input.spaceId)) {
           await this.#lifecycle
             .disable(appId, input.spaceId, "app-updated")
-            .catch((error) => rollbackFailures.push(error));
+            .catch((error) => rollbackFailures.push({ role: "disable-candidate", failure: error }));
         }
-        await this.#store.mutate(() => previous).catch((error) => rollbackFailures.push(error));
-        if (wasEnabled) {
+        let previousStateRestored = false;
+        let previousRuntimeRestarted = !wasEnabled;
+        await this.#store
+          .mutate(() => previous)
+          .then(() => {
+            previousStateRestored = true;
+          })
+          .catch((error) => rollbackFailures.push({ role: "restore-state", failure: error }));
+        if (wasEnabled && previousStateRestored) {
           await this.#lifecycle
             .enable(appId, input.spaceId)
-            .catch((error) => rollbackFailures.push(error));
-          await this.#tabs
-            .restore(appId, input.spaceId, tabs)
-            .catch((error) => rollbackFailures.push(error));
+            .then(() => {
+              previousRuntimeRestarted = true;
+            })
+            .catch((error) => rollbackFailures.push({ role: "restart-runtime", failure: error }));
         }
-        if (this.#updates) {
-          await this.#updates.clear().catch((error) => rollbackFailures.push(error));
+        if (previousStateRestored && this.#updates) {
+          await this.#updates
+            .clear()
+            .catch((error) => rollbackFailures.push({ role: "clear-journal", failure: error }));
         }
         this.#publish(this.#store.snapshot());
-        if (rollbackFailures.length > 0) {
-          throw new AggregateError(
-            [cause, ...rollbackFailures],
-            `App update failed and ${rollbackFailures.length} rollback step(s) also failed.`,
-          );
+        const error =
+          rollbackFailures.length === 0
+            ? cause
+            : new AppRuntimeFailureError(
+                appRuntimeOperationFailure({
+                  message: `App update failed and ${rollbackFailures.length} rollback step(s) also failed.`,
+                  primary: cause,
+                  secondary: rollbackFailures,
+                }),
+                cause,
+              );
+        if (wasEnabled && previousStateRestored && previousRuntimeRestarted) {
+          await this.#restorationBarrier(appId, input.spaceId, tabs, "rolled-back update");
         }
-        throw cause;
+        throw error;
       }
+      this.#publish(committedState);
+      if (wasEnabled) {
+        await this.#restorationBarrier(appId, input.spaceId, tabs, "committed update");
+      }
+      return committedState;
     });
   }
 
@@ -624,8 +652,42 @@ export class AppInstallationService {
     return result;
   }
 
+  #restorationBarrier(
+    appId: string,
+    spaceId: string,
+    tabs: ReadonlyArray<unknown>,
+    context: string,
+  ): Promise<void> {
+    try {
+      return Promise.resolve(this.#tabs.restore(appId, spaceId, tabs)).catch((error) => {
+        this.#reportTerminalFailure(
+          new Error(
+            `Unexpected ${context} tab-restoration task failure for ${appId} in Space ${spaceId}.`,
+            { cause: error },
+          ),
+        );
+      });
+    } catch (error) {
+      this.#reportTerminalFailure(
+        new Error(
+          `Could not schedule ${context} tab restoration for ${appId} in Space ${spaceId}.`,
+          { cause: error },
+        ),
+      );
+      return Promise.resolve();
+    }
+  }
+
+  #reportTerminalFailure(error: unknown): void {
+    try {
+      Promise.resolve(this.#onNotificationError(error)).catch(() => undefined);
+    } catch {
+      // The trusted terminal sink cannot affect transaction or queue settlement.
+    }
+  }
+
   #publish(state: AppInstallationState): void {
-    for (const listener of this.#listeners) listener(state);
+    this.#publisher.publish(state);
   }
 
   #advancePermissionRevision(appId: string, spaceId: string, permission: string): void {

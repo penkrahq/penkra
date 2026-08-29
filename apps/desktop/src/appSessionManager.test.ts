@@ -84,9 +84,10 @@ describe("AppSessionManager", () => {
     const fixture = sessionFixture();
     electron.fromPartition.mockReturnValue(fixture.session);
     const protocolHandler = vi.fn(async () => new Response("v1"));
+    const createProtocolHandler = vi.fn(async () => protocolHandler);
     const manager = new AppSessionManager({
       resolveOrigin: () => TEST_ORIGIN,
-      createProtocolHandler: vi.fn(async () => protocolHandler),
+      createProtocolHandler,
     });
 
     const active = await manager.activate({ installedApp: installedApp(), spaceId: "personal" });
@@ -104,6 +105,9 @@ describe("AppSessionManager", () => {
     expect(fixture.session.protocol.handle).toHaveBeenCalledWith(
       PENKRA_APP_SCHEME,
       expect.any(Function),
+    );
+    expect(createProtocolHandler).toHaveBeenCalledWith(
+      expect.objectContaining({ packageSha256: "a".repeat(64) }),
     );
 
     const checkPermission = fixture.session.setPermissionCheckHandler.mock.calls[0]?.[0];
@@ -165,6 +169,7 @@ describe("AppSessionManager", () => {
       installedApp: installedApp({
         version: "2.0.0",
         packagePath: "/profile/apps/com.penkra.apps/2.0.0",
+        sha256: "b".repeat(64),
         manifest: { ...installedApp().manifest, version: "2.0.0" },
       }),
       spaceId: "personal",
@@ -174,6 +179,9 @@ describe("AppSessionManager", () => {
     ).resolves.toBe("v2");
     expect(electron.fromPartition).toHaveBeenCalledOnce();
     expect(fixture.session.protocol.handle).toHaveBeenCalledOnce();
+    expect(createProtocolHandler).toHaveBeenLastCalledWith(
+      expect.objectContaining({ packageSha256: "b".repeat(64) }),
+    );
   });
 
   it("keeps the working handler when replacement preparation fails", async () => {

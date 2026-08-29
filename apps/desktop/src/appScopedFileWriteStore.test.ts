@@ -8,7 +8,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AppScopedFileWriteStore } from "./appScopedFileWriteStore";
 
 const temporaryDirectories: string[] = [];
-const owner = { appId: "com.example.canvas", spaceId: "space-1", tabId: "tab-1", rendererId: 7 };
+const owner = {
+  appId: "com.example.canvas",
+  spaceId: "space-1",
+  threadId: "thread-1",
+  tabId: "tab-1",
+  rendererId: 7,
+};
 
 afterEach(async () => {
   await Promise.all(
@@ -94,5 +100,40 @@ describe("AppScopedFileWriteStore", () => {
 
     await expect(store.commit(owner, session.writeId)).rejects.toThrow("checksum");
     await expect(FS.promises.stat(destinationPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("revokes only the exact retired generation before asynchronous disposal", async () => {
+    const oldPath = await temporaryFile("old-generation.pen");
+    const replacementPath = Path.join(Path.dirname(oldPath), "replacement-generation.pen");
+    const store = new AppScopedFileWriteStore();
+    const oldWrite = await store.begin(owner, {
+      handleId: "handle-1",
+      destinationPath: oldPath,
+      expectedBytes: 1,
+    });
+    const replacementOwner = { ...owner, rendererId: 8 };
+    const replacementWrite = await store.begin(replacementOwner, {
+      handleId: "handle-1",
+      destinationPath: replacementPath,
+      expectedBytes: 1,
+    });
+
+    const disposal = store.disposeDetached(store.detachGeneration(owner));
+    await expect(
+      store.write(owner, {
+        writeId: oldWrite.writeId,
+        offset: 0,
+        bytes: new Uint8Array([1]),
+      }),
+    ).rejects.toThrow("unavailable");
+    await expect(
+      store.write(replacementOwner, {
+        writeId: replacementWrite.writeId,
+        offset: 0,
+        bytes: new Uint8Array([2]),
+      }),
+    ).resolves.toEqual({ writtenBytes: 1 });
+    await disposal;
+    await store.abort(replacementOwner, replacementWrite.writeId);
   });
 });

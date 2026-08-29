@@ -1,10 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import * as FS from "node:fs/promises";
+import * as OS from "node:os";
+import * as Path from "node:path";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { InstalledAppPackage } from "./appInstallationState";
 import { AppFrameDocumentRegistry } from "./appFrameDocumentRegistry";
 import { PENKRA_APP_SCHEME } from "./appRuntimePolicy";
 
 const ORIGIN = `penkra-app://a-${"a".repeat(64)}`;
+const roots: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => FS.rm(root, { recursive: true, force: true })));
+});
 
 function installedApp(version = "1.0.0"): InstalledAppPackage {
   const manifest = {
@@ -25,7 +34,7 @@ function installedApp(version = "1.0.0"): InstalledAppPackage {
     version,
     source: "registry",
     packagePath: `/packages/apps/${version}`,
-    sha256: "a".repeat(64),
+    sha256: (version === "1.0.0" ? "a" : "b").repeat(64),
     installedAt: "2026-08-01T00:00:00.000Z",
     manifest,
   };
@@ -57,10 +66,11 @@ describe("AppFrameDocumentRegistry", () => {
     expect(protocol.handle).toHaveBeenCalledWith(PENKRA_APP_SCHEME, expect.any(Function));
 
     const url = await registry.activate(installedApp(), "personal");
-    expect(url).toBe(`${ORIGIN}/app.html`);
+    expect(url).toBe(`${ORIGIN}/app.html?penkra-package=${"a".repeat(64)}`);
     expect(createProtocolHandler).toHaveBeenCalledWith({
       origin: ORIGIN,
       packageRoot: "/packages/apps/1.0.0",
+      packageSha256: "a".repeat(64),
       entrypoint: "app.html",
       runtimeScriptPath: "/trusted/appFrameRuntime.iife.js",
       blobUrls,
@@ -93,9 +103,68 @@ describe("AppFrameDocumentRegistry", () => {
       createProtocolHandler,
     });
     await registry.start();
-    await registry.activate(installedApp(), "personal");
-    await registry.activate(installedApp("2.0.0"), "personal");
+    const firstUrl = await registry.activate(installedApp(), "personal");
+    const secondUrl = await registry.activate(installedApp("2.0.0"), "personal");
     expect(createProtocolHandler).toHaveBeenCalledTimes(2);
+    expect(firstUrl).not.toBe(secondUrl);
+    expect(secondUrl).toContain(`penkra-package=${"b".repeat(64)}`);
     expect(registry.getOrigin(installedApp().appId, "personal")).toBe(ORIGIN);
+  });
+
+  it("serves new bytes behind a stable origin for registry and sideload package revisions", async () => {
+    const root = await FS.mkdtemp(Path.join(OS.tmpdir(), "penkra-frame-package-revision-"));
+    roots.push(root);
+    const v1Root = Path.join(root, "v1");
+    const v2Root = Path.join(root, "v2");
+    const runtimeScriptPath = Path.join(root, "runtime.js");
+    await Promise.all([
+      FS.mkdir(v1Root),
+      FS.mkdir(v2Root),
+      FS.writeFile(runtimeScriptPath, "globalThis.penkraRuntime = true;"),
+    ]);
+    await Promise.all([
+      FS.writeFile(Path.join(v1Root, "app.html"), '<script src="/app.js"></script>'),
+      FS.writeFile(Path.join(v1Root, "app.js"), "globalThis.visibleVersion = 'v1';"),
+      FS.writeFile(Path.join(v2Root, "app.html"), '<script src="/app.js"></script>'),
+      FS.writeFile(Path.join(v2Root, "app.js"), "globalThis.visibleVersion = 'v2';"),
+    ]);
+    let delegate: ((request: Request) => Promise<Response>) | null = null;
+    const registry = new AppFrameDocumentRegistry({
+      protocol: {
+        handle: vi.fn(async (_scheme, handler) => {
+          delegate = handler;
+        }),
+        unhandle: vi.fn(async () => undefined),
+      } as never,
+      runtimeScriptPath,
+      resolveOrigin: () => ORIGIN,
+    });
+    await registry.start();
+    if (!delegate) throw new Error("Expected the App package protocol delegate.");
+    const handle = delegate as (request: Request) => Promise<Response>;
+
+    const v1Url = await registry.activate(
+      { ...installedApp(), packagePath: v1Root, source: "registry" },
+      "personal",
+    );
+    const v1Script = await handle(new Request(`${ORIGIN}/app.js`));
+    const v1EntityTag = v1Script.headers.get("etag");
+    expect(v1Url).toContain(`penkra-package=${"a".repeat(64)}`);
+    await expect(v1Script.text()).resolves.toContain("'v1'");
+
+    const v2Url = await registry.activate(
+      { ...installedApp("2.0.0"), packagePath: v2Root, source: "sideload" },
+      "personal",
+    );
+    const v2Script = await handle(
+      new Request(`${ORIGIN}/app.js`, {
+        headers: { "if-none-match": v1EntityTag ?? "" },
+      }),
+    );
+    expect(new URL(v2Url).origin).toBe(new URL(v1Url).origin);
+    expect(v2Url).toContain(`penkra-package=${"b".repeat(64)}`);
+    expect(v2Script.status).toBe(200);
+    expect(v2Script.headers.get("etag")).toBe(`"penkra-package-${"b".repeat(64)}"`);
+    await expect(v2Script.text()).resolves.toContain("'v2'");
   });
 });

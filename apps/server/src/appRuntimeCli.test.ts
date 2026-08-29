@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { executePenkraExecCommand, parseOperationInput, parsePenkraCommand } from "./appRuntimeCli";
+import {
+  executePenkraExecCommand,
+  formatRuntimeFailure,
+  parseOperationInput,
+  parsePenkraCommand,
+} from "./appRuntimeCli";
 import { PENKRA_SERVER_MANUAL_MARKER } from "./agentGateway/harnessPolicy";
 
 const context = { spaceId: "personal", threadId: "thread-1" };
@@ -17,6 +22,32 @@ const catalog = [
     operations: [{ key: "resources.open", input: { type: "object", properties: {} } }],
   },
 ];
+
+describe("App runtime CLI failures", () => {
+  it("renders primary and labelled cleanup branches without parsing message text", () => {
+    expect(
+      formatRuntimeFailure({
+        kind: "operation",
+        message: "App update failed.",
+        primary: { kind: "leaf", code: "ACTIVATION_FAILED", message: "Activation failed." },
+        secondary: [
+          {
+            role: "restore-state",
+            failure: { kind: "leaf", message: "State restore failed." },
+          },
+        ],
+      }),
+    ).toBe(
+      [
+        "App update failed.",
+        "Primary:",
+        "  Activation failed.",
+        "restore-state:",
+        "  State restore failed.",
+      ].join("\n"),
+    );
+  });
+});
 
 describe("App runtime CLI operation flags", () => {
   const schema = {

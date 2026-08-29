@@ -83,6 +83,13 @@ import {
   type AppScopedFileHandleRecord,
 } from "./appScopedFileHandleStore";
 import { AppScopedFileWriteStore } from "./appScopedFileWriteStore";
+import { appRuntimeFailure, appRuntimeFailureDto } from "./appRuntimeFailure";
+import {
+  AppAccountSubscriptionStore,
+  AppBrowserSurfaceInsetStore,
+  AppFileWatchStore,
+  AppSimulatorSurfaceStore,
+} from "./appTabResourceStores";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
 import {
@@ -622,10 +629,7 @@ function acceptComposerStageResponse(
 }
 
 let desktopSimulatorRuntime: DesktopSimulatorHostRuntime | null = null;
-const runtimeV2SimulatorSurfaces = new Map<
-  string,
-  { stopFrames: (() => void) | null; generation: number }
->();
+const runtimeV2SimulatorSurfaces = new AppSimulatorSurfaceStore();
 let unsubscribeSimulatorState: (() => void) | null = null;
 const appSimulatorTrackedRendererIds = new Set<number>();
 let appRegistryClient: AppRegistryClient | null = null;
@@ -639,10 +643,7 @@ let automaticAppUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let automaticAppUpdateReport: AutomaticRegistryAppUpdateReport | null = null;
 let getPenkraAccountId: () => Promise<string | null> = async () => null;
 let getPenkraAccountCookie: () => string = () => "";
-const appAccountSubscriptions = new Map<
-  string,
-  { senderId: number; tabId?: string; stop(): void }
->();
+const appAccountSubscriptions = new AppAccountSubscriptionStore();
 const runtimeV2FileHandles = new AppScopedFileHandleStore();
 const runtimeV2FileWrites = new AppScopedFileWriteStore();
 let appStorage: AppStorageService | null = null;
@@ -654,26 +655,91 @@ const pendingComposerStages = new Map<
     timer: ReturnType<typeof setTimeout>;
   }
 >();
-const runtimeV2FileWatches = new Map<
-  string,
-  { appId: string; spaceId: string; tabId: string; rendererId: number; watcher: FS.FSWatcher }
->();
+const runtimeV2FileWatches = new AppFileWatchStore();
 
 function revokeRuntimeV2FileScope(appId: string, spaceId: string): void {
   runtimeV2FileHandles.revokeScope(appId, spaceId);
-  desktopAppRuntime?.blobUrls.revokeMatching(
-    (record) => record.appId === appId && record.spaceId === spaceId,
-  );
-  desktopAppRuntime?.transfers.revokeMatching(
-    (record) => record.appId === appId && record.spaceId === spaceId,
-  );
-  void runtimeV2FileWrites.abortMatching(
-    (write) => write.appId === appId && write.spaceId === spaceId,
-  );
-  for (const [watchId, watch] of runtimeV2FileWatches) {
-    if (watch.appId !== appId || watch.spaceId !== spaceId) continue;
-    watch.watcher.close();
-    runtimeV2FileWatches.delete(watchId);
+  const blobs = desktopAppRuntime?.blobUrls.detachScope(appId, spaceId);
+  if (blobs) desktopAppRuntime?.blobUrls.disposeDetached(blobs);
+  const transfers = desktopAppRuntime?.transfers.detachScope(appId, spaceId);
+  if (transfers) desktopAppRuntime?.transfers.disposeDetached(transfers);
+  void runtimeV2FileWrites
+    .disposeDetached(runtimeV2FileWrites.detachScope(appId, spaceId))
+    .catch((error) => console.warn("[penkra-app] File-write scope disposal failed.", error));
+  try {
+    runtimeV2FileWatches.disposeDetached(runtimeV2FileWatches.detachScope(appId, spaceId));
+  } catch (error) {
+    console.warn("[penkra-app] File-watch scope disposal failed.", error);
+  }
+}
+
+function retireAppGenerationAuthority(owner: {
+  appId: string;
+  spaceId: string;
+  threadId: string;
+  tabId: string;
+  rendererId: number;
+}): void {
+  const watches = runtimeV2FileWatches.detachGeneration(owner);
+  const subscriptions = appAccountSubscriptions.detachGeneration(owner);
+  const writes = runtimeV2FileWrites.detachGeneration(owner);
+
+  try {
+    runtimeV2FileWatches.disposeDetached(watches);
+  } catch (error) {
+    console.warn("[penkra-app] File-watch generation disposal failed.", error);
+  }
+  try {
+    appAccountSubscriptions.disposeDetached(subscriptions);
+  } catch (error) {
+    console.warn("[penkra-app] Account-subscription generation disposal failed.", error);
+  }
+  void runtimeV2FileWrites
+    .disposeDetached(writes)
+    .catch((error) => console.warn("[penkra-app] File-write generation disposal failed.", error));
+}
+
+function retireAppTabAuthority(owner: {
+  appId: string;
+  spaceId: string;
+  threadId: string;
+  tabId: string;
+}): void {
+  const watches = runtimeV2FileWatches.detachTab(owner);
+  const subscriptions = appAccountSubscriptions.detachTab(owner);
+  const writes = runtimeV2FileWrites.detachTab(owner);
+  const simulatorSurface = runtimeV2SimulatorSurfaces.detachTab(owner);
+  appBrowserSurfaceInsetsByTabId.detachTab(owner);
+  appBrowserOwnerByTabId.delete(owner.tabId);
+
+  try {
+    runtimeV2FileWatches.disposeDetached(watches);
+  } catch (error) {
+    console.warn("[penkra-app] File-watch tab disposal failed.", error);
+  }
+  try {
+    appAccountSubscriptions.disposeDetached(subscriptions);
+  } catch (error) {
+    console.warn("[penkra-app] Account-subscription tab disposal failed.", error);
+  }
+  try {
+    runtimeV2SimulatorSurfaces.disposeDetached(simulatorSurface);
+  } catch (error) {
+    console.warn("[penkra-app] Simulator-surface tab disposal failed.", error);
+  }
+  void runtimeV2FileWrites
+    .disposeDetached(writes)
+    .catch((error) => console.warn("[penkra-app] File-write tab disposal failed.", error));
+  void desktopSimulatorRuntime?.manager.closeTab(owner.tabId).catch((error) => {
+    console.warn(`[penkra-app] Simulator tab disposal failed: ${formatErrorMessage(error)}`);
+  });
+  const browserSessionId = owner.tabId as ThreadId;
+  if (browserManager.hasSession(browserSessionId)) {
+    try {
+      browserManager.close({ threadId: browserSessionId });
+    } catch (error) {
+      console.warn(`[penkra-app] Browser tab disposal failed: ${formatErrorMessage(error)}`);
+    }
   }
 }
 const activeWorkPowerBlocker = new ActiveWorkPowerBlocker({
@@ -955,10 +1021,7 @@ const browserManager = new DesktopBrowserManager({
 let appCommandPipeServer: AppCommandPipeServer | null = null;
 const appBrowserTrackedRendererIds = new Set<number>();
 const appBrowserOwnerByTabId = new Map<string, { appId: string; spaceId: string }>();
-const appBrowserSurfaceInsetsByTabId = new Map<
-  string,
-  { top: number; right: number; bottom: number; left: number }
->();
+const appBrowserSurfaceInsetsByTabId = new AppBrowserSurfaceInsetStore();
 const configuredAppBrowserDownloadPartitions = new Set<string>();
 let configuredUpdaterCacheDirName: string | null = null;
 
@@ -4783,14 +4846,16 @@ function registerIpcHandlers(): void {
       },
     });
     appAccountSubscriptions.set(subscriptionId, {
-      senderId,
+      owner: { kind: "web-contents", webContentsId: senderId },
       stop: subscription.stop,
     });
     event.sender.once("destroyed", () => {
-      const active = appAccountSubscriptions.get(subscriptionId);
+      const active = appAccountSubscriptions.take(subscriptionId, {
+        kind: "web-contents",
+        webContentsId: senderId,
+      });
       if (!active) return;
       active.stop();
-      appAccountSubscriptions.delete(subscriptionId);
     });
     return subscriptionId;
   });
@@ -4803,10 +4868,12 @@ function registerIpcHandlers(): void {
     if (typeof subscriptionId !== "string") {
       throw new Error("Account-data subscription ID must be a string.");
     }
-    const active = appAccountSubscriptions.get(subscriptionId);
-    if (!active || active.senderId !== event.sender.id) return;
+    const active = appAccountSubscriptions.take(subscriptionId, {
+      kind: "web-contents",
+      webContentsId: event.sender.id,
+    });
+    if (!active) return;
     active.stop();
-    appAccountSubscriptions.delete(subscriptionId);
   });
   ipcMain.removeHandler(IPC.appRuntime.simulatorCall);
   ipcMain.handle(IPC.appRuntime.simulatorCall, async (event, input: unknown) => {
@@ -5652,6 +5719,7 @@ function registerIpcHandlers(): void {
           {
             appId: identity.appId,
             spaceId: identity.spaceId,
+            threadId: identity.threadId,
             tabId,
             rendererId,
             origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
@@ -5666,6 +5734,7 @@ function registerIpcHandlers(): void {
           {
             appId: identity.appId,
             spaceId: identity.spaceId,
+            threadId: identity.threadId,
             tabId,
             rendererId,
             origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
@@ -5683,6 +5752,7 @@ function registerIpcHandlers(): void {
           {
             appId: identity.appId,
             spaceId: identity.spaceId,
+            threadId: identity.threadId,
             tabId,
             rendererId,
             origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
@@ -5693,17 +5763,11 @@ function registerIpcHandlers(): void {
       case "files.revoke": {
         const handle = runtimeV2FileHandles.resolve(identity.appId, identity.spaceId, value);
         runtimeV2FileHandles.revoke(identity.appId, identity.spaceId, value);
-        runtime.blobUrls.revokeMatching(
-          (record) =>
-            record.appId === identity.appId &&
-            record.spaceId === identity.spaceId &&
-            record.handleId === handle.id,
+        runtime.blobUrls.disposeDetached(
+          runtime.blobUrls.detachHandle(identity.appId, identity.spaceId, handle.id),
         );
-        await runtimeV2FileWrites.abortMatching(
-          (write) =>
-            write.appId === identity.appId &&
-            write.spaceId === identity.spaceId &&
-            write.handleId === handle.id,
+        await runtimeV2FileWrites.disposeDetached(
+          runtimeV2FileWrites.detachHandle(identity.appId, identity.spaceId, handle.id),
         );
         return;
       }
@@ -5745,7 +5809,13 @@ function registerIpcHandlers(): void {
             throw new Error("Text file exceeds the 16 MB limit.");
           }
           await runtimeV2FileWrites.writeText(
-            { appId: identity.appId, spaceId: identity.spaceId, tabId, rendererId },
+            {
+              appId: identity.appId,
+              spaceId: identity.spaceId,
+              threadId: identity.threadId,
+              tabId,
+              rendererId,
+            },
             {
               handleId: handle.id,
               destinationPath: absolutePath,
@@ -5769,6 +5839,7 @@ function registerIpcHandlers(): void {
         runtimeV2FileWatches.set(watchId, {
           appId: identity.appId,
           spaceId: identity.spaceId,
+          threadId: identity.threadId,
           tabId,
           rendererId,
           watcher,
@@ -5823,7 +5894,13 @@ function registerIpcHandlers(): void {
         );
         const destinationPath = await resolveWritableAppScopedPath(handle, record.relativePath);
         return runtimeV2FileWrites.begin(
-          { appId: identity.appId, spaceId: identity.spaceId, tabId, rendererId },
+          {
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            threadId: identity.threadId,
+            tabId,
+            rendererId,
+          },
           {
             handleId: handle.id,
             destinationPath,
@@ -5840,7 +5917,13 @@ function registerIpcHandlers(): void {
         }
         const record = value as Record<string, unknown>;
         return runtimeV2FileWrites.write(
-          { appId: identity.appId, spaceId: identity.spaceId, tabId, rendererId },
+          {
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            threadId: identity.threadId,
+            tabId,
+            rendererId,
+          },
           { writeId: record.writeId, offset: record.offset, bytes: record.bytes },
         );
       }
@@ -5850,7 +5933,13 @@ function registerIpcHandlers(): void {
           throw new Error("File write session input must be an object.");
         }
         const writeId = (value as Record<string, unknown>).writeId;
-        const owner = { appId: identity.appId, spaceId: identity.spaceId, tabId, rendererId };
+        const owner = {
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          threadId: identity.threadId,
+          tabId,
+          rendererId,
+        };
         if (method === "files.commitWrite") await runtimeV2FileWrites.commit(owner, writeId);
         else await runtimeV2FileWrites.abort(owner, writeId);
         return;
@@ -5861,10 +5950,14 @@ function registerIpcHandlers(): void {
             ? (value as { watchId?: unknown }).watchId
             : undefined;
         if (typeof watchId !== "string") return;
-        const watch = runtimeV2FileWatches.get(watchId);
-        if (!watch || watch.tabId !== tabId || watch.rendererId !== rendererId) return;
-        watch.watcher.close();
-        runtimeV2FileWatches.delete(watchId);
+        const watcher = runtimeV2FileWatches.take(watchId, {
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          threadId: identity.threadId,
+          tabId,
+          rendererId,
+        });
+        watcher?.close();
         return;
       }
       case "resources.open": {
@@ -5941,8 +6034,14 @@ function registerIpcHandlers(): void {
           onConnectionStateChange: (state) => push({ kind: "connection-state", state }),
         });
         appAccountSubscriptions.set(subscriptionId, {
-          senderId: rendererId,
-          tabId,
+          owner: {
+            kind: "app-generation",
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            threadId: identity.threadId,
+            tabId,
+            rendererId,
+          },
           stop: subscription.stop,
         });
         return subscriptionId;
@@ -5955,10 +6054,16 @@ function registerIpcHandlers(): void {
         if (typeof subscriptionId !== "string") {
           throw new Error("Account-data subscription ID must be a string.");
         }
-        const active = appAccountSubscriptions.get(subscriptionId);
-        if (!active || active.senderId !== rendererId || active.tabId !== tabId) return;
+        const active = appAccountSubscriptions.take(subscriptionId, {
+          kind: "app-generation",
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          threadId: identity.threadId,
+          tabId,
+          rendererId,
+        });
+        if (!active) return;
         active.stop();
-        appAccountSubscriptions.delete(subscriptionId);
         return;
       }
       case "settings.get":
@@ -6113,6 +6218,7 @@ function registerIpcHandlers(): void {
         const owner = {
           appId: identity.appId,
           spaceId: identity.spaceId,
+          threadId: identity.threadId,
           tabId,
           rendererId,
           origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
@@ -7415,47 +7521,12 @@ async function bootstrap(): Promise<void> {
       mainWindow.webContents.send(IPC.appTabs.frameHostMessage, message);
     },
     onTabClosed: (descriptor) => {
-      appBrowserOwnerByTabId.delete(descriptor.id);
-      appBrowserSurfaceInsetsByTabId.delete(descriptor.id);
-      for (const [subscriptionId, subscription] of appAccountSubscriptions) {
-        if (subscription.tabId !== descriptor.id) continue;
-        subscription.stop();
-        appAccountSubscriptions.delete(subscriptionId);
-      }
-      for (const [watchId, watch] of runtimeV2FileWatches) {
-        if (watch.tabId !== descriptor.id) continue;
-        watch.watcher.close();
-        runtimeV2FileWatches.delete(watchId);
-      }
-      void runtimeV2FileWrites.abortMatching((write) => write.tabId === descriptor.id);
-      desktopAppRuntime?.blobUrls.revokeMatching((record) => record.tabId === descriptor.id);
-      desktopAppRuntime?.transfers.revokeMatching((record) => record.tabId === descriptor.id);
-      runtimeV2SimulatorSurfaces.get(descriptor.id)?.stopFrames?.();
-      runtimeV2SimulatorSurfaces.delete(descriptor.id);
-      void desktopSimulatorRuntime?.manager.closeTab(descriptor.id).catch((error) => {
-        console.warn(
-          `[penkra-app] Simulator cleanup failed after tab close: ${formatErrorMessage(error)}`,
-        );
-      });
-      const browserSessionId = descriptor.id as ThreadId;
-      if (browserManager.hasSession(browserSessionId)) {
-        browserManager.close({ threadId: browserSessionId });
-      }
       if (!mainWindow || mainWindow.isDestroyed()) return;
       mainWindow.webContents.send(IPC.appTabs.closed, descriptor);
     },
-    onTabRendererCreated: (renderer) => {
-      attachDesktopWindowZoomShortcuts(renderer);
-      renderer.once("destroyed", () => {
-        for (const [watchId, watch] of runtimeV2FileWatches) {
-          if (watch.rendererId !== renderer.id) continue;
-          watch.watcher.close();
-          runtimeV2FileWatches.delete(watchId);
-        }
-        void runtimeV2FileWrites.abortMatching((write) => write.rendererId === renderer.id);
-        desktopAppRuntime?.blobUrls.revokeMatching((record) => record.rendererId === renderer.id);
-        desktopAppRuntime?.transfers.revokeMatching((record) => record.rendererId === renderer.id);
-      });
+    tabAuthority: {
+      retireGeneration: retireAppGenerationAuthority,
+      retireTab: retireAppTabAuthority,
     },
     onInvalidRendererMessage: (error, senderId) => {
       console.warn(
@@ -7579,6 +7650,18 @@ async function bootstrap(): Promise<void> {
       console.warn(
         `[penkra-app] Local sideload rebuild was not applied for ${context.appId} in Space ${context.spaceId}; the working package remains active: ${formatErrorMessage(error)}`,
       );
+      void desktopAppRuntime?.diagnostics
+        .record({
+          kind: "app-update-failed",
+          appId: context.appId,
+          spaceId: context.spaceId,
+          operation: "development-sideload-rebuild",
+          message: formatErrorMessage(error),
+          failure: appRuntimeFailureDto(appRuntimeFailure(error)),
+        })
+        .catch((diagnosticError) => {
+          console.error("[penkra-app] Could not record sideload rebuild failure.", diagnosticError);
+        });
     },
   });
   try {

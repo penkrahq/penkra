@@ -99,6 +99,7 @@ export class AppSessionManager {
       const nextHandler = await this.#createProtocolHandler({
         origin,
         packageRoot: input.installedApp.packagePath,
+        packageSha256: input.installedApp.sha256,
         entrypoint: input.installedApp.manifest.entrypoints.tab,
         ...this.#protocolResources({
           appId: input.installedApp.appId,

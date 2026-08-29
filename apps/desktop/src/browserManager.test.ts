@@ -151,6 +151,25 @@ function asCharacterizationAccess(
 }
 
 describe("DesktopBrowserManager repeated workflow characterization", () => {
+  it("detaches browser session authority before publishing its closed state", () => {
+    const manager = new DesktopBrowserManager();
+    const observed: Array<{ open: boolean; authorityPresent: boolean }> = [];
+    manager.setSessionPartition("thread-close" as never, "persist:app-close");
+    manager.open({ threadId: "thread-close" as never });
+    manager.subscribe((state) => {
+      observed.push({
+        open: state.open,
+        authorityPresent: manager.hasSession("thread-close" as never),
+      });
+    });
+
+    const state = manager.close({ threadId: "thread-close" as never });
+
+    expect(state.open).toBe(false);
+    expect(manager.hasSession("thread-close" as never)).toBe(false);
+    expect(observed).toEqual([{ open: false, authorityPresent: false }]);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });

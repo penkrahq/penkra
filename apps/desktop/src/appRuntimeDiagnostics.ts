@@ -5,9 +5,10 @@
 import { randomUUID } from "node:crypto";
 import * as FS from "node:fs/promises";
 import * as Path from "node:path";
+import type { AppRuntimeFailureDto } from "@penkra/contracts";
 
 export const APP_RUNTIME_DIAGNOSTICS_MAX_BYTES = 2 * 1024 * 1024;
-export const APP_RUNTIME_DIAGNOSTICS_MAX_ENTRIES = 2_000;
+export const APP_RUNTIME_DIAGNOSTICS_MAX_LIST_LIMIT = 2_000;
 
 export type AppRuntimeDiagnosticKind =
   | "app-update-failed"
@@ -39,6 +40,7 @@ export interface AppRuntimeDiagnosticEntry {
   durationMs?: number;
   memoryBytes?: number;
   message?: string;
+  failure?: AppRuntimeFailureDto;
 }
 
 export type AppRuntimeDiagnosticInput = Omit<AppRuntimeDiagnosticEntry, "id" | "timestamp">;
@@ -61,10 +63,17 @@ export class AppRuntimeDiagnostics {
       id: randomUUID(),
       timestamp: new Date().toISOString(),
     });
+    const line = `${JSON.stringify(entry)}\n`;
+    const incomingBytes = Buffer.byteLength(line);
+    if (incomingBytes > APP_RUNTIME_DIAGNOSTICS_MAX_BYTES) {
+      return Promise.reject(
+        new Error("App runtime diagnostic record exceeds the 2 MiB journal capacity."),
+      );
+    }
     const operation = this.#writes.then(async () => {
       await FS.mkdir(Path.dirname(this.#path), { recursive: true });
-      await this.#compactIfRequired(Buffer.byteLength(JSON.stringify(entry)) + 1);
-      await FS.appendFile(this.#path, `${JSON.stringify(entry)}\n`, {
+      await this.#compactIfRequired(incomingBytes);
+      await FS.appendFile(this.#path, line, {
         encoding: "utf8",
         mode: 0o600,
       });
@@ -87,7 +96,7 @@ export class AppRuntimeDiagnostics {
         (input.appId === undefined || entry.appId === input.appId) &&
         (input.spaceId === undefined || entry.spaceId === input.spaceId),
     );
-    const limit = Math.min(Math.max(input.limit ?? 200, 1), APP_RUNTIME_DIAGNOSTICS_MAX_ENTRIES);
+    const limit = Math.min(Math.max(input.limit ?? 200, 1), APP_RUNTIME_DIAGNOSTICS_MAX_LIST_LIMIT);
     return filtered.slice(-limit).reverse();
   }
 
@@ -99,13 +108,14 @@ export class AppRuntimeDiagnostics {
     if (!stat || stat.size + incomingBytes <= APP_RUNTIME_DIAGNOSTICS_MAX_BYTES) return;
     const entries = await this.#read();
     const retained: string[] = [];
-    let bytes = incomingBytes;
+    const availableBytes = APP_RUNTIME_DIAGNOSTICS_MAX_BYTES - incomingBytes;
+    let retainedBytes = 0;
     for (let index = entries.length - 1; index >= 0; index -= 1) {
       const line = `${JSON.stringify(entries[index])}\n`;
       const lineBytes = Buffer.byteLength(line);
-      if (bytes + lineBytes > Math.floor(APP_RUNTIME_DIAGNOSTICS_MAX_BYTES / 2)) break;
+      if (retainedBytes + lineBytes > availableBytes) break;
       retained.unshift(line);
-      bytes += lineBytes;
+      retainedBytes += lineBytes;
     }
     const temporary = `${this.#path}.${randomUUID()}.tmp`;
     await FS.writeFile(temporary, retained.join(""), { encoding: "utf8", mode: 0o600 });
@@ -179,7 +189,63 @@ function validateEntry(value: unknown): AppRuntimeDiagnosticEntry {
       throw new Error(`${field} must be a non-negative finite number`);
     }
   }
+  if (candidate.failure !== undefined) validateFailure(candidate.failure);
   return candidate as unknown as AppRuntimeDiagnosticEntry;
+}
+
+function validateFailure(value: unknown): asserts value is AppRuntimeFailureDto {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("failure must be an object");
+  }
+  const candidate = value as Record<string, unknown>;
+  if (candidate.kind !== "leaf" && candidate.kind !== "operation" && candidate.kind !== "group") {
+    throw new Error("failure.kind is not recognized");
+  }
+  if (typeof candidate.message !== "string") throw new Error("failure.message must be a string");
+  if (candidate.kind === "leaf") {
+    if (candidate.code !== undefined && typeof candidate.code !== "string") {
+      throw new Error("failure.code must be a string");
+    }
+  } else if (candidate.kind === "operation") {
+    validateFailure(candidate.primary);
+    validateFailureBranches(candidate.secondary, "failure.secondary");
+  } else {
+    validateFailureBranches(candidate.failures, "failure.failures");
+  }
+  if (candidate.truncation !== undefined) {
+    if (
+      !candidate.truncation ||
+      typeof candidate.truncation !== "object" ||
+      Array.isArray(candidate.truncation)
+    ) {
+      throw new Error("failure.truncation must be an object");
+    }
+    const truncation = candidate.truncation as Record<string, unknown>;
+    if (
+      truncation.secondaryBranchesRemoved !== undefined &&
+      (!Number.isSafeInteger(truncation.secondaryBranchesRemoved) ||
+        (truncation.secondaryBranchesRemoved as number) < 0)
+    ) {
+      throw new Error("failure.truncation.secondaryBranchesRemoved must be non-negative");
+    }
+    if (truncation.messageCut !== undefined && typeof truncation.messageCut !== "boolean") {
+      throw new Error("failure.truncation.messageCut must be boolean");
+    }
+  }
+}
+
+function validateFailureBranches(value: unknown, label: string): void {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  for (const branch of value) {
+    if (!branch || typeof branch !== "object" || Array.isArray(branch)) {
+      throw new Error(`${label} entries must be objects`);
+    }
+    const candidate = branch as Record<string, unknown>;
+    if (typeof candidate.role !== "string" || candidate.role.length === 0) {
+      throw new Error(`${label} roles must be non-empty strings`);
+    }
+    validateFailure(candidate.failure);
+  }
 }
 
 function toError(value: unknown): Error {

@@ -9,6 +9,7 @@ export const APP_BLOB_URL_PREFIX = "/.penkra/blob/";
 export interface AppBlobUrlOwner {
   appId: string;
   spaceId: string;
+  threadId: string;
   tabId: string;
   rendererId: number;
   origin: string;
@@ -18,6 +19,13 @@ export interface AppBlobUrlRecord extends AppBlobUrlOwner {
   token: string;
   path: string;
   handleId?: string;
+}
+
+const detachedBlobUrlsBrand: unique symbol = Symbol("DetachedAppBlobUrls");
+
+export interface DetachedAppBlobUrls {
+  readonly [detachedBlobUrlsBrand]: true;
+  readonly records: readonly AppBlobUrlRecord[];
 }
 
 export class AppBlobUrlRegistry {
@@ -42,6 +50,7 @@ export class AppBlobUrlRegistry {
     if (
       record.appId !== owner.appId ||
       record.spaceId !== owner.spaceId ||
+      record.threadId !== owner.threadId ||
       record.tabId !== owner.tabId ||
       record.rendererId !== owner.rendererId
     ) {
@@ -50,14 +59,58 @@ export class AppBlobUrlRegistry {
     this.#records.delete(token);
   }
 
-  revokeMatching(predicate: (record: AppBlobUrlRecord) => boolean): void {
-    for (const [token, record] of this.#records) {
-      if (predicate(record)) this.#records.delete(token);
-    }
+  detachGeneration(
+    owner: Pick<AppBlobUrlOwner, "appId" | "spaceId" | "threadId" | "tabId" | "rendererId">,
+  ): DetachedAppBlobUrls {
+    return this.#detach(
+      (record) =>
+        record.appId === owner.appId &&
+        record.spaceId === owner.spaceId &&
+        record.threadId === owner.threadId &&
+        record.tabId === owner.tabId &&
+        record.rendererId === owner.rendererId,
+    );
+  }
+
+  detachTab(
+    owner: Pick<AppBlobUrlOwner, "appId" | "spaceId" | "threadId" | "tabId">,
+  ): DetachedAppBlobUrls {
+    return this.#detach(
+      (record) =>
+        record.appId === owner.appId &&
+        record.spaceId === owner.spaceId &&
+        record.threadId === owner.threadId &&
+        record.tabId === owner.tabId,
+    );
+  }
+
+  detachScope(appId: string, spaceId: string): DetachedAppBlobUrls {
+    return this.#detach((record) => record.appId === appId && record.spaceId === spaceId);
+  }
+
+  detachHandle(appId: string, spaceId: string, handleId: string): DetachedAppBlobUrls {
+    return this.#detach(
+      (record) =>
+        record.appId === appId && record.spaceId === spaceId && record.handleId === handleId,
+    );
+  }
+
+  disposeDetached(_detached: DetachedAppBlobUrls): void {
+    // Blob URL authority is the registry entry itself; detachment completes disposal.
   }
 
   clear(): void {
     this.#records.clear();
+  }
+
+  #detach(predicate: (record: AppBlobUrlRecord) => boolean): DetachedAppBlobUrls {
+    const records: AppBlobUrlRecord[] = [];
+    for (const [token, record] of this.#records) {
+      if (!predicate(record)) continue;
+      records.push(record);
+      this.#records.delete(token);
+    }
+    return { [detachedBlobUrlsBrand]: true, records };
   }
 }
 

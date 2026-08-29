@@ -7,17 +7,27 @@ import * as FS from "node:fs";
 import * as Net from "node:net";
 import * as Path from "node:path";
 
-import type { DesktopAppTabDescriptor } from "@penkra/contracts";
+import type {
+  AppRuntimeBridgeError,
+  AppRuntimeFailureDto,
+  DesktopAppTabDescriptor,
+} from "@penkra/contracts";
 
 import type { AppOperationBroker } from "./appOperationBroker";
 import type { AppOperationCatalog } from "./appOperationCatalog";
 import type { AppRegistryClient } from "./appRegistryClient";
 import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
 import type { ProviderCredentialVault } from "./providerCredentialVault";
+import {
+  AppRuntimeFailureError,
+  appRuntimeFailure,
+  appRuntimeFailureDto,
+} from "./appRuntimeFailure";
 
 export const PENKRA_APP_COMMAND_PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
 export const PENKRA_APP_COMMAND_TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
 const MAX_REQUEST_BYTES = 1024 * 1024;
+export const APP_COMMAND_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
 type Request = {
   id: string;
@@ -208,14 +218,7 @@ export class AppCommandPipeServer {
       void this.#handle(raw)
         .then((response) => socket.end(`${JSON.stringify(response)}\n`))
         .catch((error) => {
-          const normalized = toError(error);
-          const code =
-            typeof (normalized as Error & { code?: unknown }).code === "string"
-              ? (normalized as Error & { code: string }).code
-              : "APP_COMMAND_FAILED";
-          socket.end(
-            `${JSON.stringify({ ok: false, error: { code, message: normalized.message } })}\n`,
-          );
+          socket.end(serializeFailureResponse(error));
         });
     });
     const release = () => this.#sockets.delete(socket);
@@ -730,6 +733,107 @@ export class AppCommandPipeServer {
     if (!tab) throw new Error(`App tab ${tabId} is not open in the caller Thread and Space.`);
     return tab;
   }
+}
+
+export function serializeFailureResponse(error: unknown): string {
+  const normalized = toError(error);
+  const code =
+    typeof (normalized as Error & { code?: unknown }).code === "string"
+      ? (normalized as Error & { code: string }).code
+      : "APP_COMMAND_FAILED";
+  const bridgeError: AppRuntimeBridgeError = {
+    code,
+    message: normalized.message,
+    failure: appRuntimeFailureDto(
+      error instanceof AppRuntimeFailureError ? error.failure : appRuntimeFailure(error),
+    ),
+  };
+  const response = { ok: false as const, error: bridgeError };
+  let serialized = `${JSON.stringify(response)}\n`;
+  while (Buffer.byteLength(serialized) > APP_COMMAND_MAX_RESPONSE_BYTES) {
+    const removable = deepestRemovableBranch(bridgeError.failure);
+    if (!removable) break;
+    removable.branches.pop();
+    removable.owner.truncation = {
+      ...removable.owner.truncation,
+      secondaryBranchesRemoved: (removable.owner.truncation?.secondaryBranchesRemoved ?? 0) + 1,
+    };
+    serialized = `${JSON.stringify(response)}\n`;
+  }
+  if (Buffer.byteLength(serialized) <= APP_COMMAND_MAX_RESPONSE_BYTES) return serialized;
+
+  bridgeError.truncation = { totalBytesExceeded: true };
+  const messages = collectMessages(bridgeError);
+  for (const target of messages) {
+    if (Buffer.byteLength(serialized) <= APP_COMMAND_MAX_RESPONSE_BYTES) break;
+    target.owner[target.field] = fitMessage(target.owner[target.field], (candidate) => {
+      target.owner[target.field] = candidate;
+      serialized = `${JSON.stringify(response)}\n`;
+      return Buffer.byteLength(serialized) <= APP_COMMAND_MAX_RESPONSE_BYTES;
+    });
+    target.failure.truncation = { ...target.failure.truncation, messageCut: true };
+    serialized = `${JSON.stringify(response)}\n`;
+  }
+  if (Buffer.byteLength(serialized) > APP_COMMAND_MAX_RESPONSE_BYTES) {
+    throw new Error("The minimal App command failure response exceeds the bridge byte ceiling.");
+  }
+  return serialized;
+}
+
+function deepestRemovableBranch(failure: AppRuntimeFailureDto | undefined): {
+  owner: Extract<AppRuntimeFailureDto, { kind: "operation" | "group" }>;
+  branches: Array<unknown>;
+} | null {
+  if (!failure || failure.kind === "leaf") return null;
+  const branches = failure.kind === "operation" ? failure.secondary : failure.failures;
+  for (const branch of branches.toReversed()) {
+    const nested = deepestRemovableBranch(branch.failure);
+    if (nested) return nested;
+  }
+  if (failure.kind === "operation") {
+    const nested = deepestRemovableBranch(failure.primary);
+    if (nested) return nested;
+  }
+  return branches.length > 0 ? { owner: failure, branches } : null;
+}
+
+function collectMessages(error: AppRuntimeBridgeError): Array<{
+  owner: { message: string };
+  field: "message";
+  failure: AppRuntimeFailureDto;
+}> {
+  const messages: Array<{
+    owner: { message: string };
+    field: "message";
+    failure: AppRuntimeFailureDto;
+  }> = [];
+  const visit = (failure: AppRuntimeFailureDto): void => {
+    if (failure.kind === "operation") {
+      visit(failure.primary);
+      for (const branch of failure.secondary) visit(branch.failure);
+    } else if (failure.kind === "group") {
+      for (const branch of failure.failures) visit(branch.failure);
+    }
+    messages.push({ owner: failure, field: "message", failure });
+  };
+  if (error.failure) {
+    messages.push({ owner: error, field: "message", failure: error.failure });
+    visit(error.failure);
+  }
+  return messages;
+}
+
+function fitMessage(message: string, fits: (candidate: string) => boolean): string {
+  let low = 0;
+  let high = message.length;
+  let best = "";
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    best = middle === message.length ? message : `${message.slice(0, middle)}…`;
+    if (fits(best)) low = middle + 1;
+    else high = middle - 1;
+  }
+  return high >= message.length ? message : `${message.slice(0, Math.max(0, high))}…`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

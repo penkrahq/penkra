@@ -139,6 +139,44 @@ describe("AppDockPane Runtime v2 frame", () => {
     });
   });
 
+  it("replaces the App document when the renderer generation changes at a stable URL", async () => {
+    const bridge = installBridge();
+    function Harness() {
+      const [rendererId, setRendererId] = useState(101);
+      return (
+        <>
+          <button onClick={() => setRendererId(102)} type="button">
+            Replace generation
+          </button>
+          <div className="h-40 w-80">
+            <AppDockPane
+              appName="Generation test"
+              documentUrl={FRAME_DOCUMENT}
+              rendererId={rendererId}
+              status="ready"
+              tabId="stable-tab"
+              visible={true}
+            />
+          </div>
+        </>
+      );
+    }
+
+    await render(<Harness />);
+    await vi.waitFor(() => expect(bridge.frameReady).toHaveBeenCalledOnce());
+    const firstFrame = await page.getByTitle("Generation test").element();
+
+    await page.getByRole("button", { name: "Replace generation" }).click();
+    await vi.waitFor(async () => {
+      const replacementFrame = await page.getByTitle("Generation test").element();
+      expect(replacementFrame).not.toBe(firstFrame);
+      expect(bridge.frameReady).toHaveBeenCalledWith({
+        tabId: "stable-tab",
+        rendererId: 102,
+      });
+    });
+  });
+
   it("resizes continuously as DOM content without native geometry synchronization", async () => {
     const bridge = installBridge();
     function Harness() {

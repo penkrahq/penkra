@@ -618,6 +618,11 @@ export interface DesktopAppRegistryBridge {
 
 export interface DesktopAppTabDescriptor {
   id: string;
+  /**
+   * Host-minted identity for one execution generation of this logical tab.
+   * The field keeps its historical rendererId name, but Runtime v2 visual tabs are DOM iframes,
+   * not Electron WebContents. A package update preserves `id` and replaces `rendererId`.
+   */
   rendererId: number;
   appId: string;
   slug: string;

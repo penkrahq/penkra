@@ -12,6 +12,7 @@ import {
   generateOperationHelp,
   type InstructionOperation,
 } from "@penkra/sdk";
+import type { AppRuntimeFailureDto } from "@penkra/contracts";
 
 import { appPublicationStatus, publishAppDirectory } from "./appDeveloperLifecycle";
 import { packageAppDirectory, testAppDirectory } from "./appDeveloperTools";
@@ -36,7 +37,7 @@ const operationInputValidators = new WeakMap<object, ValidateFunction>();
 interface BridgeResponse {
   ok: boolean;
   result?: unknown;
-  error?: string | { code?: string; message?: string };
+  error?: string | { code?: string; message?: string; failure?: AppRuntimeFailureDto };
 }
 
 interface CatalogEntry {
@@ -1076,9 +1077,38 @@ async function request(method: string, params: unknown, env: NodeJS.ProcessEnv):
     if (typeof response.error === "string") throw new Error(response.error);
     const code = response.error?.code ?? "APP_COMMAND_FAILED";
     const message = response.error?.message ?? "App command failed.";
-    throw Object.assign(new Error(`${code}: ${message}`), { code });
+    const detail = response.error?.failure
+      ? `\n${formatRuntimeFailure(response.error.failure)}`
+      : "";
+    throw Object.assign(new Error(`${code}: ${message}${detail}`), {
+      code,
+      failure: response.error?.failure,
+    });
   }
   return response.result;
+}
+
+export function formatRuntimeFailure(failure: AppRuntimeFailureDto, indent = ""): string {
+  const lines = [`${indent}${failure.message}`];
+  if (failure.kind === "operation") {
+    lines.push(`${indent}Primary:`);
+    lines.push(formatRuntimeFailure(failure.primary, `${indent}  `));
+    for (const secondary of failure.secondary) {
+      lines.push(`${indent}${secondary.role}:`);
+      lines.push(formatRuntimeFailure(secondary.failure, `${indent}  `));
+    }
+  } else if (failure.kind === "group") {
+    for (const branch of failure.failures) {
+      lines.push(`${indent}${branch.role}:`);
+      lines.push(formatRuntimeFailure(branch.failure, `${indent}  `));
+    }
+  }
+  if (failure.truncation?.secondaryBranchesRemoved) {
+    lines.push(
+      `${indent}[${failure.truncation.secondaryBranchesRemoved} additional failure branch(es) omitted by the bridge byte ceiling]`,
+    );
+  }
+  return lines.join("\n");
 }
 
 export function requestAppRuntimeBridge(

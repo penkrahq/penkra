@@ -57,6 +57,7 @@ const BROWSER_FAVICON_MAX_DATA_URL_CHARACTERS =
   Math.ceil((BROWSER_FAVICON_MAX_BYTES * 4) / 3) + 128;
 const MXROUTE_PANEL_LOGIN_URL = "https://management.mxroute.com/panel-login";
 const MXROUTE_PANEL_DASHBOARD_URL = "https://panel.mxroute.com/dashboard.php";
+const detachedBrowserThreadBrand: unique symbol = Symbol("DetachedBrowserThread");
 
 type BrowserStateListener = (state: ThreadBrowserState) => void;
 type BrowserCopyLinkListener = (event: BrowserCopyLinkEvent) => void;
@@ -154,6 +155,16 @@ export interface BrowserRendererLoadFailureInput extends BrowserTabInput {
 interface HostedBrowserContainer {
   view: View;
   ownerView: View;
+}
+
+interface DetachedBrowserThread {
+  readonly [detachedBrowserThreadBrand]: true;
+  readonly attachedRuntime: LiveTabRuntime | null;
+  readonly attachedParentView: View | null;
+  readonly hostedContainer: HostedBrowserContainer | null;
+  readonly runtimes: readonly LiveTabRuntime[];
+  readonly popups: readonly OAuthPopupRuntime[];
+  readonly state: ThreadBrowserState;
 }
 
 function createBrowserTab(url = ABOUT_BLANK_URL): BrowserTabState {
@@ -908,26 +919,129 @@ export class DesktopBrowserManager {
   }
 
   close(input: BrowserThreadInput): ThreadBrowserState {
-    if (this.activeThreadId === input.threadId) {
-      this.detachAttachedRuntime();
-      this.activeThreadId = null;
+    const detached = this.detachThread(input.threadId);
+    const failures: unknown[] = [];
+    try {
+      this.disposeDetachedThread(detached);
+    } catch (error) {
+      failures.push(error);
     }
-    this.clearActiveBoundsForThread(input.threadId);
-    this.destroyHostedContainer(input.threadId);
-    this.closePopupWindowsForThread(input.threadId);
+    this.perfCounters.stateEmitCalls += 1;
+    for (const listener of this.listeners) {
+      try {
+        listener(detached.state);
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length > 0) throw new AggregateError(failures, "Browser close failed.");
+    return detached.state;
+  }
 
-    this.destroyThreadRuntimes(input.threadId);
-
-    const state = this.getOrCreateState(input.threadId);
+  private detachThread(threadId: ThreadId): DetachedBrowserThread {
+    const state = this.states.get(threadId) ?? defaultThreadBrowserState(threadId);
     state.open = false;
     state.activeTabId = null;
     state.tabs = [];
     state.lastError = null;
-    this.markThreadStateChanged(input.threadId);
-    this.lastEmittedVersionByThreadId.delete(input.threadId);
-    this.emitState(input.threadId);
-    this.sessionPartitionByThreadId.delete(input.threadId);
-    return this.snapshotThreadState(input.threadId, state);
+    state.version = (this.threadVersionById.get(threadId) ?? state.version) + 1;
+    const snapshot = cloneThreadState(state);
+
+    const attachedRuntime =
+      this.activeThreadId === threadId && this.attachedRuntimeKey
+        ? (this.runtimes.get(this.attachedRuntimeKey) ?? null)
+        : null;
+    const attachedParentView = this.activeThreadId === threadId ? this.attachedParentView : null;
+    if (this.activeThreadId === threadId) {
+      this.activeThreadId = null;
+      this.attachedRuntimeKey = null;
+      this.attachedBoundsSignature = null;
+      this.attachedParentView = null;
+    }
+    this.clearActiveBoundsForThread(threadId);
+
+    const hostedContainer = this.hostedContainerByThreadId.get(threadId) ?? null;
+    this.hostedContainerByThreadId.delete(threadId);
+    const runtimes: LiveTabRuntime[] = [];
+    for (const [key, runtime] of this.runtimes) {
+      if (runtime.threadId !== threadId) continue;
+      runtimes.push(runtime);
+      this.runtimes.delete(key);
+      this.pendingRuntimeSyncs.delete(key);
+      this.runtimeLastActiveAtByKey.delete(key);
+    }
+    const popups: OAuthPopupRuntime[] = [];
+    for (const [window, popup] of this.popupRuntimes) {
+      if (popup.threadId !== threadId) continue;
+      popups.push(popup);
+      this.popupRuntimes.delete(window);
+    }
+    this.states.delete(threadId);
+    this.sessionPartitionByThreadId.delete(threadId);
+    this.threadVersionById.delete(threadId);
+    this.snapshotCacheByThreadId.delete(threadId);
+    this.lastEmittedVersionByThreadId.delete(threadId);
+    return {
+      [detachedBrowserThreadBrand]: true,
+      attachedRuntime,
+      attachedParentView,
+      hostedContainer,
+      runtimes,
+      popups,
+      state: snapshot,
+    };
+  }
+
+  private disposeDetachedThread(detached: DetachedBrowserThread): void {
+    const failures: unknown[] = [];
+    if (detached.attachedRuntime?.view && detached.attachedParentView) {
+      try {
+        detached.attachedParentView.removeChildView(detached.attachedRuntime.view);
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (detached.hostedContainer && this.window) {
+      try {
+        this.window.contentView.removeChildView(detached.hostedContainer.view);
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    for (const popup of detached.popups) {
+      for (const dispose of popup.listenerDisposers.splice(0)) {
+        try {
+          dispose();
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      try {
+        if (!popup.window.isDestroyed()) popup.window.destroy();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    for (const runtime of detached.runtimes) {
+      for (const dispose of runtime.listenerDisposers.splice(0)) {
+        try {
+          dispose();
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      try {
+        if (runtime.webContents.debugger.isAttached()) runtime.webContents.debugger.detach();
+        if (runtime.ownsWebContents && !runtime.webContents.isDestroyed()) {
+          runtime.webContents.close({ waitForBeforeUnload: false });
+        }
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Browser thread disposal failed.");
+    }
   }
 
   hide(input: BrowserThreadInput): void {

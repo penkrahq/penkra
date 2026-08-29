@@ -38,6 +38,7 @@ describe("App package protocol", () => {
     const handle = await createAppPackageProtocolHandler({
       origin: APP_ORIGIN,
       packageRoot: root,
+      packageSha256: "a".repeat(64),
       entrypoint: "app.html",
     });
 
@@ -51,6 +52,68 @@ describe("App package protocol", () => {
     expect(contentSecurityPolicy).not.toContain("connect-src http:");
     expect(contentSecurityPolicy).not.toContain("connect-src https:");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("cache-control")).toBe("private, no-cache");
+    expect(response.headers.get("etag")).toBe(`"penkra-package-${"a".repeat(64)}"`);
+  });
+
+  it("revalidates cached package assets against the verified package revision", async () => {
+    const root = await packageFixture();
+    const v1Revision = "a".repeat(64);
+    const v2Revision = "b".repeat(64);
+    const v1 = await createAppPackageProtocolHandler({
+      origin: APP_ORIGIN,
+      packageRoot: root,
+      packageSha256: v1Revision,
+      entrypoint: "app.html",
+    });
+    const initial = await v1(new Request(`${APP_ORIGIN}/assets/app.js`));
+    const v1EntityTag = initial.headers.get("etag");
+    expect(v1EntityTag).toBe(`"penkra-package-${v1Revision}"`);
+
+    const unchanged = await v1(
+      new Request(`${APP_ORIGIN}/assets/app.js`, {
+        headers: { "if-none-match": `W/${v1EntityTag}` },
+      }),
+    );
+    expect(unchanged.status).toBe(304);
+    await expect(unchanged.text()).resolves.toBe("");
+
+    await FS.promises.writeFile(Path.join(root, "assets", "app.js"), "export const ready = 'v2';");
+    const v2 = await createAppPackageProtocolHandler({
+      origin: APP_ORIGIN,
+      packageRoot: root,
+      packageSha256: v2Revision,
+      entrypoint: "app.html",
+    });
+    const replaced = await v2(
+      new Request(`${APP_ORIGIN}/assets/app.js`, {
+        headers: { "if-none-match": v1EntityTag ?? "" },
+      }),
+    );
+    expect(replaced.status).toBe(200);
+    expect(replaced.headers.get("etag")).toBe(`"penkra-package-${v2Revision}"`);
+    await expect(replaced.text()).resolves.toBe("export const ready = 'v2';");
+  });
+
+  it("serves package HEAD requests without a body and rejects package mutations", async () => {
+    const root = await packageFixture();
+    const handle = await createAppPackageProtocolHandler({
+      origin: APP_ORIGIN,
+      packageRoot: root,
+      packageSha256: "a".repeat(64),
+      entrypoint: "app.html",
+    });
+
+    const head = await handle(new Request(`${APP_ORIGIN}/assets/app.js`, { method: "HEAD" }));
+    expect(head.status).toBe(200);
+    await expect(head.text()).resolves.toBe("");
+    expect(head.headers.get("etag")).toBe(`"penkra-package-${"a".repeat(64)}"`);
+
+    const mutation = await handle(new Request(`${APP_ORIGIN}/assets/app.js`, { method: "POST" }));
+    expect(mutation.status).toBe(405);
+    expect(mutation.headers.get("allow")).toBe("GET, HEAD");
+    expect(mutation.headers.get("cache-control")).toBe("no-store");
+    expect(mutation.headers.has("etag")).toBe(false);
   });
 
   it("injects and serves the trusted frame runtime before package scripts", async () => {
@@ -62,6 +125,7 @@ describe("App package protocol", () => {
     const handle = await createAppPackageProtocolHandler({
       origin: APP_ORIGIN,
       packageRoot: root,
+      packageSha256: "a".repeat(64),
       entrypoint: "app.html",
       runtimeScriptPath: await runtimeFixture(),
     });
@@ -72,6 +136,7 @@ describe("App package protocol", () => {
     );
     const runtime = await handle(new Request(`${APP_ORIGIN}/.penkra/runtime.js`));
     expect(runtime.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    expect(runtime.headers.get("cache-control")).toBeNull();
     await expect(runtime.text()).resolves.toBe("globalThis.runtimeReady = true;");
   });
 
@@ -84,6 +149,7 @@ describe("App package protocol", () => {
     const handle = await createAppPackageProtocolHandler({
       origin: APP_ORIGIN,
       packageRoot: root,
+      packageSha256: "a".repeat(64),
       entrypoint: "app.html",
     });
 
@@ -102,6 +168,7 @@ describe("App package protocol", () => {
       {
         appId: "com.example.video",
         spaceId: "space-1",
+        threadId: "thread-1",
         tabId: "tab-1",
         rendererId: 4,
         origin: APP_ORIGIN,
@@ -111,6 +178,7 @@ describe("App package protocol", () => {
     const handle = await createAppPackageProtocolHandler({
       origin: APP_ORIGIN,
       packageRoot: root,
+      packageSha256: "a".repeat(64),
       entrypoint: "app.html",
       blobUrls,
     });
@@ -120,11 +188,13 @@ describe("App package protocol", () => {
     expect(full.headers.get("accept-ranges")).toBe("bytes");
     expect(full.headers.get("content-length")).toBe("10");
     expect(full.headers.get("content-type")).toBe("video/mp4");
+    expect(full.headers.get("cache-control")).toBeNull();
     await expect(full.text()).resolves.toBe("0123456789");
 
     const bounded = await handle(new Request(url, { headers: { range: "bytes=2-5" } }));
     expect(bounded.status).toBe(206);
     expect(bounded.headers.get("content-range")).toBe("bytes 2-5/10");
+    expect(bounded.headers.get("cache-control")).toBeNull();
     await expect(bounded.text()).resolves.toBe("2345");
 
     const suffix = await handle(new Request(url, { headers: { range: "bytes=-3" } }));
@@ -145,6 +215,7 @@ describe("App package protocol", () => {
       {
         appId: "com.example.video",
         spaceId: "space-1",
+        threadId: "thread-1",
         tabId: "tab-1",
         rendererId: 4,
         origin: APP_ORIGIN,
@@ -154,6 +225,7 @@ describe("App package protocol", () => {
     const handle = await createAppPackageProtocolHandler({
       origin: OTHER_APP_ORIGIN,
       packageRoot: root,
+      packageSha256: "a".repeat(64),
       entrypoint: "app.html",
       blobUrls,
     });
@@ -172,6 +244,7 @@ describe("App package protocol", () => {
       {
         appId: "com.example.video",
         spaceId: "space-1",
+        threadId: "thread-1",
         tabId: "tab-1",
         rendererId: 4,
         origin: APP_ORIGIN,
@@ -181,6 +254,7 @@ describe("App package protocol", () => {
     const handle = await createAppPackageProtocolHandler({
       origin: APP_ORIGIN,
       packageRoot: root,
+      packageSha256: "a".repeat(64),
       entrypoint: "app.html",
       blobUrls,
     });
@@ -196,6 +270,7 @@ describe("App package protocol", () => {
     const handle = await createAppPackageProtocolHandler({
       origin: APP_ORIGIN,
       packageRoot: root,
+      packageSha256: "a".repeat(64),
       entrypoint: "app.html",
     });
 
@@ -204,6 +279,7 @@ describe("App package protocol", () => {
     await expect(route.text()).resolves.toBe("<main>Apps</main>");
     const missingAsset = await handle(new Request(`${APP_ORIGIN}/assets/missing.js`));
     expect(missingAsset.status).toBe(404);
+    expect(missingAsset.headers.get("cache-control")).toBe("no-store");
   });
 
   it("returns a generic 404 for another App origin and traversal attempts", async () => {
@@ -211,6 +287,7 @@ describe("App package protocol", () => {
     const handle = await createAppPackageProtocolHandler({
       origin: APP_ORIGIN,
       packageRoot: root,
+      packageSha256: "a".repeat(64),
       entrypoint: "app.html",
     });
 
@@ -231,6 +308,7 @@ describe("App package protocol", () => {
     const handle = await createAppPackageProtocolHandler({
       origin: APP_ORIGIN,
       packageRoot: root,
+      packageSha256: "a".repeat(64),
       entrypoint: "app.html",
     });
 
@@ -244,6 +322,7 @@ describe("App package protocol", () => {
       createAppPackageProtocolHandler({
         origin: APP_ORIGIN,
         packageRoot: root,
+        packageSha256: "a".repeat(64),
         entrypoint: "missing.html",
       }),
     ).rejects.toThrow();

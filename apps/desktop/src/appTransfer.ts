@@ -26,6 +26,7 @@ const TICKET_LIFETIME_MS = 5 * 60_000;
 export interface AppTransferOwner {
   appId: string;
   spaceId: string;
+  threadId: string;
   tabId: string;
   rendererId: number;
   origin: string;
@@ -49,6 +50,13 @@ interface AppTransferTicket extends AppTransferOwner, PinnedDestination {
   id: string;
   token: string;
   expiresAt: number;
+}
+
+const detachedTransfersBrand: unique symbol = Symbol("DetachedAppTransfers");
+
+export interface DetachedAppTransfers {
+  readonly [detachedTransfersBrand]: true;
+  readonly controllers: readonly AbortController[];
 }
 
 export class AppTransferService {
@@ -150,19 +158,56 @@ export class AppTransferService {
     });
   }
 
-  revokeMatching(predicate: (owner: AppTransferOwner) => boolean): void {
-    for (const [token, ticket] of this.#tickets) {
-      if (predicate(ticket)) this.#tickets.delete(token);
-    }
-    for (const active of this.#active.values()) {
-      if (predicate(active.owner)) active.controller.abort();
-    }
+  detachGeneration(
+    owner: Pick<AppTransferOwner, "appId" | "spaceId" | "threadId" | "tabId" | "rendererId">,
+  ): DetachedAppTransfers {
+    return this.#detach(
+      (candidate) =>
+        candidate.appId === owner.appId &&
+        candidate.spaceId === owner.spaceId &&
+        candidate.threadId === owner.threadId &&
+        candidate.tabId === owner.tabId &&
+        candidate.rendererId === owner.rendererId,
+    );
+  }
+
+  detachTab(
+    owner: Pick<AppTransferOwner, "appId" | "spaceId" | "threadId" | "tabId">,
+  ): DetachedAppTransfers {
+    return this.#detach(
+      (candidate) =>
+        candidate.appId === owner.appId &&
+        candidate.spaceId === owner.spaceId &&
+        candidate.threadId === owner.threadId &&
+        candidate.tabId === owner.tabId,
+    );
+  }
+
+  detachScope(appId: string, spaceId: string): DetachedAppTransfers {
+    return this.#detach((owner) => owner.appId === appId && owner.spaceId === spaceId);
+  }
+
+  disposeDetached(detached: DetachedAppTransfers): void {
+    for (const controller of detached.controllers) controller.abort();
   }
 
   clear(): void {
     this.#tickets.clear();
     for (const active of this.#active.values()) active.controller.abort();
     this.#active.clear();
+  }
+
+  #detach(predicate: (owner: AppTransferOwner) => boolean): DetachedAppTransfers {
+    const controllers: AbortController[] = [];
+    for (const [token, ticket] of this.#tickets) {
+      if (predicate(ticket)) this.#tickets.delete(token);
+    }
+    for (const [id, active] of this.#active) {
+      if (!predicate(active.owner)) continue;
+      controllers.push(active.controller);
+      this.#active.delete(id);
+    }
+    return { [detachedTransfersBrand]: true, controllers };
   }
 
   async #sendFile(

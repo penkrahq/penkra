@@ -172,6 +172,17 @@ describe("validateAppManifest", () => {
     );
   });
 
+  it("accepts every supported Node controller module extension", () => {
+    for (const controller of ["operations.js", "operations.mjs", "operations.cjs"]) {
+      expect(
+        validateAppManifest({
+          ...validManifest,
+          entrypoints: { ...validManifest.entrypoints, controller },
+        }).ok,
+      ).toBe(true);
+    }
+  });
+
   it("rejects invalid public identifiers", () => {
     const result = validateAppManifest({
       ...validManifest,

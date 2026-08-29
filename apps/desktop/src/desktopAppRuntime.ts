@@ -2,7 +2,7 @@
 // Purpose: Composes trusted App persistence, isolation, controller, broker, and IPC services.
 // Layer: Desktop main-process bootstrap
 
-import { safeStorage, session, webContents, type IpcMain, type WebContents } from "electron";
+import { safeStorage, session, type IpcMain } from "electron";
 import type {
   DesktopAppFrameHostMessage,
   DesktopAppTabClosed,
@@ -35,7 +35,11 @@ import { AppDataVault } from "./appDataVault";
 import { ProviderCredentialVault } from "./providerCredentialVault";
 import { DeferredAppTabHost } from "./deferredAppTabHost";
 import { ElectronAppControllerProcessFactory } from "./electronAppControllerProcess";
-import { ElectronAppTabHost, type AppUpdateTabSnapshot } from "./electronAppTabHost";
+import {
+  ElectronAppTabHost,
+  type AppTabAuthority,
+  type AppUpdateTabSnapshot,
+} from "./electronAppTabHost";
 import {
   AppUpdateJournal,
   resolveAppUpdateJournalPath,
@@ -44,6 +48,8 @@ import {
 import { AppBlobUrlRegistry } from "./appBlobUrlRegistry";
 import { AppTransferService } from "./appTransfer";
 import { queryAppPermission } from "./appPermissionQuery";
+import { AppRendererIdentityStore } from "./appRendererIdentityStore";
+import { appRuntimeFailureDto, appRuntimeGroupFailure } from "./appRuntimeFailure";
 
 export interface DesktopAppRuntime {
   readonly store: AppInstallationStore;
@@ -89,7 +95,7 @@ export async function startDesktopAppRuntime(input: {
   onTabState: (descriptor: DesktopAppTabDescriptor) => void;
   onFrameHostMessage?: (input: DesktopAppFrameHostMessage) => void;
   onTabClosed: (descriptor: DesktopAppTabClosed) => void;
-  onTabRendererCreated?: (renderer: WebContents) => (() => void) | void;
+  tabAuthority?: AppTabAuthority;
   onInvalidRendererMessage?: (error: Error, senderId: number) => void;
   assertAppAllowed?: (app: import("./appInstallationState").InstalledAppPackage) => Promise<void>;
   getAccountId?: () => Promise<string | null>;
@@ -215,10 +221,7 @@ export async function startDesktopAppRuntime(input: {
       return granted;
     },
   });
-  const rendererIdentities = new Map<
-    number,
-    { appId: string; spaceId: string; threadId?: string; tabId?: string }
-  >();
+  const rendererIdentities = new AppRendererIdentityStore();
   const registerRendererIdentity = ({
     appId,
     spaceId,
@@ -238,13 +241,7 @@ export async function startDesktopAppRuntime(input: {
       ...(threadId === undefined ? {} : { threadId }),
       ...(tabId === undefined ? {} : { tabId }),
     };
-    rendererIdentities.set(rendererId, identity);
-    const renderer = tabId === undefined ? null : webContents.fromId(rendererId);
-    const releaseTabRenderer = renderer ? input.onTabRendererCreated?.(renderer) : undefined;
-    return () => {
-      releaseTabRenderer?.();
-      if (rendererIdentities.get(rendererId) === identity) rendererIdentities.delete(rendererId);
-    };
+    return rendererIdentities.register(rendererId, identity);
   };
   const controllerHost = new AppControllerHost({
     broker,
@@ -341,7 +338,104 @@ export async function startDesktopAppRuntime(input: {
       : { onFrameHostMessage: input.onFrameHostMessage }),
     onClosed: input.onTabClosed,
     onDiagnostic: recordDiagnostic,
-    onRendererCreated: registerRendererIdentity,
+    registerRendererIdentity,
+    authority: {
+      retireGeneration: (owner) => {
+        const failures: Array<{ role: string; failure: unknown }> = [];
+        let blobs: ReturnType<AppBlobUrlRegistry["detachGeneration"]> | null = null;
+        let activeTransfers: ReturnType<AppTransferService["detachGeneration"]> | null = null;
+        try {
+          blobs = blobUrls.detachGeneration(owner);
+        } catch (error) {
+          failures.push({ role: "blob-urls-detach", failure: error });
+        }
+        try {
+          activeTransfers = transfers.detachGeneration(owner);
+        } catch (error) {
+          failures.push({ role: "transfers-detach", failure: error });
+        }
+        try {
+          rendererIdentities.detachGeneration(owner);
+        } catch (error) {
+          failures.push({ role: "renderer-identity-detach", failure: error });
+        }
+        try {
+          input.tabAuthority?.retireGeneration(owner);
+        } catch (error) {
+          failures.push({ role: "desktop-authority-retire-generation", failure: error });
+        }
+        try {
+          if (blobs) blobUrls.disposeDetached(blobs);
+        } catch (error) {
+          failures.push({ role: "blob-urls-dispose", failure: error });
+        }
+        try {
+          if (activeTransfers) transfers.disposeDetached(activeTransfers);
+        } catch (error) {
+          failures.push({ role: "transfers-dispose", failure: error });
+        }
+        if (failures.length > 0) {
+          const failure = appRuntimeGroupFailure(
+            "App renderer-generation retirement was incomplete.",
+            failures,
+          );
+          recordDiagnostic({
+            kind: "operation-failed",
+            appId: owner.appId,
+            spaceId: owner.spaceId,
+            tabId: owner.tabId,
+            operation: "generation-retirement",
+            message: failure.message,
+            failure: appRuntimeFailureDto(failure),
+          });
+        }
+      },
+      retireTab: (owner) => {
+        const failures: Array<{ role: string; failure: unknown }> = [];
+        let blobs: ReturnType<AppBlobUrlRegistry["detachTab"]> | null = null;
+        let activeTransfers: ReturnType<AppTransferService["detachTab"]> | null = null;
+        try {
+          blobs = blobUrls.detachTab(owner);
+        } catch (error) {
+          failures.push({ role: "blob-urls-detach", failure: error });
+        }
+        try {
+          activeTransfers = transfers.detachTab(owner);
+        } catch (error) {
+          failures.push({ role: "transfers-detach", failure: error });
+        }
+        try {
+          input.tabAuthority?.retireTab(owner);
+        } catch (error) {
+          failures.push({ role: "desktop-authority-retire-tab", failure: error });
+        }
+        try {
+          if (blobs) blobUrls.disposeDetached(blobs);
+        } catch (error) {
+          failures.push({ role: "blob-urls-dispose", failure: error });
+        }
+        try {
+          if (activeTransfers) transfers.disposeDetached(activeTransfers);
+        } catch (error) {
+          failures.push({ role: "transfers-dispose", failure: error });
+        }
+        if (failures.length > 0) {
+          const failure = appRuntimeGroupFailure(
+            "App logical-tab retirement was incomplete.",
+            failures,
+          );
+          recordDiagnostic({
+            kind: "operation-failed",
+            appId: owner.appId,
+            spaceId: owner.spaceId,
+            tabId: owner.tabId,
+            operation: "tab-retirement",
+            message: failure.message,
+            failure: appRuntimeFailureDto(failure),
+          });
+        }
+      },
+    },
     ...(input.assertAppAllowed === undefined ? {} : { assertAppAllowed: input.assertAppAllowed }),
   });
   const unbindTabs = tabs.bind(appTabs);
@@ -380,7 +474,7 @@ export async function startDesktopAppRuntime(input: {
       const identity = rendererIdentities.get(rendererId);
       return identity?.appId === "com.penkra.apps" ? identity.spaceId : null;
     },
-    rendererIdentity: (rendererId) => rendererIdentities.get(rendererId) ?? null,
+    rendererIdentity: (rendererId) => rendererIdentities.get(rendererId),
     stop: async () => {
       if (stopped) return;
       stopped = true;

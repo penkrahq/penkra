@@ -5,7 +5,13 @@ import * as Path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPipeServer";
+import {
+  APP_COMMAND_MAX_RESPONSE_BYTES,
+  AppCommandPipeServer,
+  resolveAppCommandPipePath,
+  serializeFailureResponse,
+} from "./appCommandPipeServer";
+import { AppRuntimeFailureError } from "./appRuntimeFailure";
 
 const disposers: Array<() => Promise<void>> = [];
 
@@ -14,6 +20,30 @@ afterEach(async () => {
 });
 
 describe("AppCommandPipeServer", () => {
+  it("serializes role-labelled failures within the real bridge byte ceiling", () => {
+    const message = "x".repeat(20 * 1024 * 1024);
+    const serialized = serializeFailureResponse(
+      new AppRuntimeFailureError({
+        kind: "operation",
+        message: "Update and rollback failed.",
+        primary: { kind: "leaf", code: "UPDATE_FAILED", message },
+        secondary: [{ role: "restore-state", failure: { kind: "leaf", message } }],
+      }),
+    );
+
+    expect(Buffer.byteLength(serialized)).toBeLessThanOrEqual(APP_COMMAND_MAX_RESPONSE_BYTES);
+    expect(JSON.parse(serialized)).toMatchObject({
+      ok: false,
+      error: {
+        failure: {
+          kind: "operation",
+          secondary: [],
+          truncation: { secondaryBranchesRemoved: 1 },
+        },
+      },
+    });
+  });
+
   it("uses a short private Unix socket path independent of the profile path", () => {
     if (process.platform === "win32") return;
     if (!process.getuid) throw new Error("Expected getuid on Unix.");

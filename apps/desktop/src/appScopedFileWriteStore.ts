@@ -9,14 +9,15 @@ import * as Path from "node:path";
 export const APP_FILE_WRITE_CHUNK_BYTES = 1024 * 1024;
 export const APP_FILE_WRITE_MAX_BYTES = 64 * 1024 * 1024;
 
-interface AppScopedFileWriteOwner {
+export interface AppScopedFileWriteOwner {
   appId: string;
   spaceId: string;
+  threadId: string;
   tabId: string;
   rendererId: number;
 }
 
-interface AppScopedFileWriteSession extends AppScopedFileWriteOwner {
+export interface AppScopedFileWriteSession extends AppScopedFileWriteOwner {
   id: string;
   handleId: string;
   destinationPath: string;
@@ -26,6 +27,13 @@ interface AppScopedFileWriteSession extends AppScopedFileWriteOwner {
   writtenBytes: number;
   hash: Crypto.Hash;
   file: FS.promises.FileHandle;
+}
+
+const detachedWritesBrand: unique symbol = Symbol("DetachedAppScopedFileWrites");
+
+export interface DetachedAppScopedFileWrites {
+  readonly [detachedWritesBrand]: true;
+  readonly sessions: readonly AppScopedFileWriteSession[];
 }
 
 export class AppScopedFileWriteStore {
@@ -155,16 +163,49 @@ export class AppScopedFileWriteStore {
     await this.#discard(this.#resolve(owner, writeId));
   }
 
-  async abortMatching(
-    predicate: (session: AppScopedFileWriteOwner & { handleId: string }) => boolean,
-  ): Promise<void> {
-    await Promise.all(
-      [...this.#sessions.values()].filter(predicate).map((session) => this.#discard(session)),
+  detachGeneration(owner: AppScopedFileWriteOwner): DetachedAppScopedFileWrites {
+    return this.#detach(
+      (session) =>
+        session.appId === owner.appId &&
+        session.spaceId === owner.spaceId &&
+        session.threadId === owner.threadId &&
+        session.tabId === owner.tabId &&
+        session.rendererId === owner.rendererId,
     );
   }
 
+  detachTab(
+    owner: Pick<AppScopedFileWriteOwner, "appId" | "spaceId" | "threadId" | "tabId">,
+  ): DetachedAppScopedFileWrites {
+    return this.#detach(
+      (session) =>
+        session.appId === owner.appId &&
+        session.spaceId === owner.spaceId &&
+        session.threadId === owner.threadId &&
+        session.tabId === owner.tabId,
+    );
+  }
+
+  detachScope(appId: string, spaceId: string): DetachedAppScopedFileWrites {
+    return this.#detach((session) => session.appId === appId && session.spaceId === spaceId);
+  }
+
+  detachHandle(appId: string, spaceId: string, handleId: string): DetachedAppScopedFileWrites {
+    return this.#detach(
+      (session) =>
+        session.appId === appId && session.spaceId === spaceId && session.handleId === handleId,
+    );
+  }
+
+  async disposeDetached(detached: DetachedAppScopedFileWrites): Promise<void> {
+    const failures = (
+      await Promise.allSettled(detached.sessions.map((session) => this.#disposeSession(session)))
+    ).flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
+    if (failures.length > 0) throw new AggregateError(failures, "App file-write disposal failed.");
+  }
+
   async abortAll(): Promise<void> {
-    await this.abortMatching(() => true);
+    await this.disposeDetached(this.#detach(() => true));
   }
 
   #resolve(owner: AppScopedFileWriteOwner, writeId: unknown): AppScopedFileWriteSession {
@@ -174,6 +215,7 @@ export class AppScopedFileWriteStore {
       !session ||
       session.appId !== owner.appId ||
       session.spaceId !== owner.spaceId ||
+      session.threadId !== owner.threadId ||
       session.tabId !== owner.tabId ||
       session.rendererId !== owner.rendererId
     ) {
@@ -184,7 +226,21 @@ export class AppScopedFileWriteStore {
 
   async #discard(session: AppScopedFileWriteSession): Promise<void> {
     this.#sessions.delete(session.id);
+    await this.#disposeSession(session);
+  }
+
+  async #disposeSession(session: AppScopedFileWriteSession): Promise<void> {
     await session.file.close().catch(() => undefined);
     await FS.promises.rm(session.temporaryPath, { force: true }).catch(() => undefined);
+  }
+
+  #detach(predicate: (session: AppScopedFileWriteSession) => boolean): DetachedAppScopedFileWrites {
+    const sessions: AppScopedFileWriteSession[] = [];
+    for (const [id, session] of this.#sessions) {
+      if (!predicate(session)) continue;
+      sessions.push(session);
+      this.#sessions.delete(id);
+    }
+    return { [detachedWritesBrand]: true, sessions };
   }
 }

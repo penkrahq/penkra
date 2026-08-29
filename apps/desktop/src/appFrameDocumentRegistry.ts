@@ -10,6 +10,7 @@ import {
   type AppPackageProtocolInput,
   type AppPackageProtocolHandler,
 } from "./appPackageProtocol";
+import { addAppPackageRevisionToDocumentUrl } from "./appPackageRevision";
 import { createAppDocumentUrlForOrigin, PENKRA_APP_SCHEME } from "./appRuntimePolicy";
 
 interface AppFrameDocumentRecord {
@@ -63,6 +64,7 @@ export class AppFrameDocumentRegistry {
       const handle = await this.#createProtocolHandler({
         origin,
         packageRoot: installedApp.packagePath,
+        packageSha256: installedApp.sha256,
         entrypoint: installedApp.manifest.entrypoints.tab,
         runtimeScriptPath: this.#runtimeScriptPath,
         ...this.#protocolResources({ appId: installedApp.appId, spaceId, origin }),
@@ -72,7 +74,10 @@ export class AppFrameDocumentRegistry {
         throw new Error("App frame origin identity collision.");
       }
       this.#records.set(origin, { appId: installedApp.appId, spaceId, origin, handle });
-      return createAppDocumentUrlForOrigin(origin, installedApp.manifest.entrypoints.tab);
+      return addAppPackageRevisionToDocumentUrl(
+        createAppDocumentUrlForOrigin(origin, installedApp.manifest.entrypoints.tab),
+        installedApp.sha256,
+      );
     });
   }
 
