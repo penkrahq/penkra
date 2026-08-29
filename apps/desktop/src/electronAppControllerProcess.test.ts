@@ -167,6 +167,37 @@ describe("ElectronAppControllerProcessFactory", () => {
     });
   });
 
+  it("rejects malformed controller replies without crashing the desktop callback", async () => {
+    const test = fixture();
+    test.rpc.acceptResponse
+      .mockImplementationOnce(() => {
+        throw new Error("App renderer payload contains a non-JSON value.");
+      })
+      .mockReturnValueOnce(true);
+    const controller = test.factory.create({
+      installedApp: test.app,
+      spaceId: "personal",
+      session: test.session,
+    });
+    const started = controller.start("/profile/apps/com.acme.linear/1.0.0/operations.js");
+    test.child.emit("message", { type: "ready" });
+    await started;
+
+    expect(() =>
+      test.child.emit("message", {
+        type: "result",
+        id: "request-1",
+        result: { invalid: undefined },
+      }),
+    ).not.toThrow();
+    expect(test.rpc.acceptResponse).toHaveBeenLastCalledWith(controller.id, {
+      type: "error",
+      id: "request-1",
+      code: "INVALID_APP_RESPONSE",
+      message: "App renderer payload contains a non-JSON value.",
+    });
+  });
+
   it("kills the process without reporting an expected release as a crash", async () => {
     const test = fixture();
     const controller = test.factory.create({

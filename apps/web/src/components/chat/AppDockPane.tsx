@@ -173,6 +173,7 @@ export function AppDockPane(props: {
     <div className="relative h-full min-h-0 w-full overflow-hidden">
       {props.documentUrl ? (
         <iframe
+          key={props.rendererId}
           ref={iframeRef}
           data-app-tab-id={props.tabId}
           name={`penkra-app-tab:${props.tabId}`}

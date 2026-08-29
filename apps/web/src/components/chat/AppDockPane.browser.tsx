@@ -77,6 +77,35 @@ function installBridge() {
 }
 
 describe("AppDockPane Runtime v2 frame", () => {
+  it("remounts the App document when an update assigns a new renderer identity", async () => {
+    const bridge = installBridge();
+    function Harness() {
+      const [rendererId, setRendererId] = useState(101);
+      return (
+        <>
+          <button onClick={() => setRendererId(102)} type="button">
+            Update App
+          </button>
+          <div className="h-40 w-80">
+            <AppDockPane
+              appName="Studio"
+              documentUrl={FRAME_DOCUMENT}
+              rendererId={rendererId}
+              status="ready"
+              tabId="stable-tab"
+              visible={true}
+            />
+          </div>
+        </>
+      );
+    }
+
+    await render(<Harness />);
+    await vi.waitFor(() => expect(bridge.frameReady).toHaveBeenCalledTimes(1));
+    await page.getByRole("button", { name: "Update App" }).click();
+    await vi.waitFor(() => expect(bridge.frameReady).toHaveBeenCalledTimes(2));
+  });
+
   it("connects one MessagePort and forwards readiness, calls, and renderer RPC", async () => {
     const bridge = installBridge();
     await render(

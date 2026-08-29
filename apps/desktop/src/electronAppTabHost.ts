@@ -498,11 +498,12 @@ export class ElectronAppTabHost implements AppTabHost {
     }
     const id = input.tabId ?? randomUUID();
     if (this.#records.has(id)) throw new Error(`App tab ${id} is already open.`);
-    const documentUrl = `${await this.#frameDocuments.activate(input.app, input.spaceId)}#penkra-tab=${encodeURIComponent(id)}`;
     // A Runtime v2 visual tab is a DOM iframe in the trusted shell. This negative token is a
     // host-minted capability identity, not an Electron WebContents id; no hidden native renderer
     // or second compositor surface exists for a visual App.
     const rendererId = this.#nextRendererId--;
+    const documentBase = await this.#frameDocuments.activate(input.app, input.spaceId);
+    const documentUrl = `${documentBase}${documentBase.includes("?") ? "&" : "?"}penkra-renderer=${encodeURIComponent(rendererId)}#penkra-tab=${encodeURIComponent(id)}`;
     const releaseRendererIdentity = this.#onRendererCreated({
       appId: input.app.appId,
       spaceId: input.spaceId,

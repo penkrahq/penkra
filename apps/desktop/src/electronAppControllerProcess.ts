@@ -116,9 +116,39 @@ export class ElectronAppControllerProcessFactory implements AppControllerProcess
                 ),
               );
             } else if (message.type === "result" || message.type === "error") {
-              this.#options.rpc.acceptResponse(id, message);
+              try {
+                this.#options.rpc.acceptResponse(id, message);
+              } catch (error) {
+                const requestId = typeof message.id === "string" ? message.id : "";
+                if (!requestId) return;
+                try {
+                  this.#options.rpc.acceptResponse(id, {
+                    type: "error",
+                    id: requestId,
+                    code: "INVALID_APP_RESPONSE",
+                    message: error instanceof Error ? error.message : String(error),
+                  });
+                } catch {
+                  // A malformed or stale controller message must never escape the
+                  // child-process event callback and terminate the desktop host.
+                }
+              }
             } else if (message.type === "context-call") {
-              this.#options.rpc.acceptContextCall(id, message);
+              try {
+                this.#options.rpc.acceptContextCall(id, message);
+              } catch {
+                const parentId = typeof message.parentId === "string" ? message.parentId : "";
+                const contextId = typeof message.id === "string" ? message.id : "";
+                if (parentId && contextId && spawned.pid && spawned.connected) {
+                  spawned.send({
+                    type: "context-error",
+                    parentId,
+                    id: contextId,
+                    code: "INVALID_CONTEXT_CALL",
+                    message: "The App controller sent an invalid context call.",
+                  });
+                }
+              }
             } else if (message.type === "service-call") {
               void this.#handleServiceCall(spawned, input, message);
             }

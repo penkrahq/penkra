@@ -98,7 +98,7 @@ describe("ElectronAppTabHost", () => {
       threadId: "thread-1",
       status: "loading",
       rendererId: -1,
-      documentUrl: expect.stringMatching(/^\/app\.html#penkra-tab=/),
+      documentUrl: expect.stringMatching(/^\/app\.html\?penkra-renderer=-1#penkra-tab=/),
     });
     expect(host.list()).toEqual([descriptor]);
     expect(host.has(descriptor.id)).toBe(true);
@@ -187,6 +187,8 @@ describe("ElectronAppTabHost", () => {
     expect(restored).toBeDefined();
     if (!restored) throw new Error("Updated App tab was not restored.");
     expect(restored.rendererId).not.toBe(original.rendererId);
+    expect(restored.documentUrl).not.toBe(original.documentUrl);
+    expect(restored.documentUrl).toContain(`penkra-renderer=${restored.rendererId}`);
     expect(host.setActive(restored.id, restored.rendererId, true)).toBe(true);
 
     // Cleanup from the retired React effect must not hide or resize the replacement renderer.
