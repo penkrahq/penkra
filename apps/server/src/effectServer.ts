@@ -234,13 +234,9 @@ export const createEffectServer = Effect.fn(function* (
   // releasing SQLite and provider services. Keep the finalizer as an idempotent
   // fallback for startup failures and abrupt parent disconnects.
   yield* Effect.addFinalizer(() => shutdown);
-  // Clear lightweight orphaned-turn state before provider replay begins. Full
-  // history cleanup is forked into this supervised scope by the reconciler and
-  // must not delay command readiness.
-  yield* runStartupStage(
-    "restart-stuck-turns.reconcile",
-    reconcileRestartStuckTurns({ backgroundScope: subscriptionsScope }),
-  );
+  // Settle exact orphaned turns, interactions, and streaming messages through
+  // targeted projection reads before provider replay begins.
+  yield* runStartupStage("restart-stuck-turns.reconcile", reconcileRestartStuckTurns);
   yield* runStartupStage(
     "orchestration-reactor.start",
     Scope.provide(orchestrationReactor.start, subscriptionsScope),

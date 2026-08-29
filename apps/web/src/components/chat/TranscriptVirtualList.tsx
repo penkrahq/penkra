@@ -212,7 +212,6 @@ function TranscriptVirtualListInner<TItem>(
         scheduleInitialAnchorRestoreRef.current?.();
       }
       if (initialEndFollowRef.current) {
-        initialEndStableFramesRef.current = 0;
         // A late measurement can invalidate the estimated tail and needs one
         // more convergence check. Do not reset stable progress here: measuring
         // the range produced by that check is normal and otherwise creates a

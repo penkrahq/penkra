@@ -124,6 +124,7 @@ import {
   derivePinnedFolderIdsForSidebar,
   deriveSidebarProjectData,
   getNextVisibleSidebarThreadId,
+  getSidebarThreadLifecycleMenuItems,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarEntriesForPreview,
   groupSidebarThreadsByFolderId,
@@ -670,6 +671,7 @@ export default function Sidebar() {
     pinnedThreadIds,
     pinnedThreadIdSet,
     toggleThreadPinned,
+    confirmAndDeleteThread,
     archiveThread,
     confirmAndArchiveThread,
   } = useSidebarThreadActions({
@@ -1215,7 +1217,7 @@ export default function Sidebar() {
           { id: "copy-path", label: "Copy Path", separatorBefore: true },
           { id: "copy-thread-id", label: "Copy Thread ID" },
           ...(options?.extraItems ?? []),
-          ...(canArchive ? [{ id: "archive", label: "Archive", separatorBefore: true }] : []),
+          ...getSidebarThreadLifecycleMenuItems(canArchive),
         ],
         position,
       );
@@ -1267,10 +1269,14 @@ export default function Sidebar() {
       }
       if (clicked === "archive") {
         await confirmAndArchiveThread(threadId);
+        return;
       }
+      if (clicked !== "delete") return;
+      await confirmAndDeleteThread(threadId);
     },
     [
       confirmAndArchiveThread,
+      confirmAndDeleteThread,
       copyPathToClipboard,
       copyThreadIdToClipboard,
       clearDismissedThreadStatus,

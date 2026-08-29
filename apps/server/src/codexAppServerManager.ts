@@ -2590,6 +2590,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error("Voice transcription requires a ChatGPT-authenticated Codex session.");
     }
 
+    log.info("voice transcription auth available", {
+      authMethod,
+      refreshToken: input.refreshToken,
+      hasThreadId: Boolean(input.threadId?.trim()),
+      usedManagedLaunch: input.managedLaunch !== undefined,
+    });
+
     return {
       authMethod,
       token,

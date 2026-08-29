@@ -11,6 +11,7 @@ import {
   deriveSidebarProjectData,
   findDeepestWorkspaceRootMatch,
   getFallbackThreadIdAfterDelete,
+  getSidebarThreadLifecycleMenuItems,
   getVisibleSidebarEntriesForPreview,
   orderPinnedFoldersForSidebar,
   orderSidebarSpaceItems,
@@ -955,6 +956,25 @@ describe("canArchiveSidebarThreads", () => {
 
   it("fails closed when no thread statuses are available", () => {
     expect(canArchiveSidebarThreads([])).toBe(false);
+  });
+});
+
+describe("getSidebarThreadLifecycleMenuItems", () => {
+  it("keeps delete available when archive is unavailable", () => {
+    expect(getSidebarThreadLifecycleMenuItems(false)).toEqual([
+      {
+        id: "delete",
+        label: "Delete",
+        destructive: true,
+        separatorBefore: true,
+      },
+    ]);
+  });
+
+  it("offers archive instead of delete for idle threads", () => {
+    expect(getSidebarThreadLifecycleMenuItems(true)).toEqual([
+      { id: "archive", label: "Archive", separatorBefore: true },
+    ]);
   });
 });
 

@@ -1,6 +1,6 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -83,6 +83,28 @@ const makeProjectionPendingInteractionRepository = Effect.gen(function* () {
       WHERE thread_id = ${threadId}
         AND interaction_kind = ${interactionKind}
         AND request_id = ${requestId}
+    `,
+  });
+
+  const listUnresolvedRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionPendingInteraction,
+    execute: () => sql`
+      SELECT
+        interaction_kind AS "interactionKind",
+        request_id AS "requestId",
+        thread_id AS "threadId",
+        turn_id AS "turnId",
+        lifecycle_generation AS "lifecycleGeneration",
+        status,
+        decision,
+        response_command_id AS "responseCommandId",
+        response_requested_at AS "responseRequestedAt",
+        created_at AS "createdAt",
+        resolved_at AS "resolvedAt"
+      FROM projection_pending_interactions
+      WHERE status <> 'confirmed'
+      ORDER BY created_at ASC, thread_id ASC, interaction_kind ASC, request_id ASC
     `,
   });
 
@@ -175,6 +197,12 @@ const makeProjectionPendingInteractionRepository = Effect.gen(function* () {
       listRows(input).pipe(
         Effect.mapError(
           toPersistenceSqlError("ProjectionPendingInteractionRepository.listByThreadId"),
+        ),
+      ),
+    listUnresolved: () =>
+      listUnresolvedRows(undefined).pipe(
+        Effect.mapError(
+          toPersistenceSqlError("ProjectionPendingInteractionRepository.listUnresolved"),
         ),
       ),
     getPendingCountsByThreadId: (input) =>

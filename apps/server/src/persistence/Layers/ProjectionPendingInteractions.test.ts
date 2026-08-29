@@ -132,4 +132,35 @@ layer("ProjectionPendingInteractionRepository", (it) => {
       }
     }),
   );
+
+  it.effect("lists every nonterminal interaction for process-boundary cleanup", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionPendingInteractionRepository;
+      const threadId = ThreadId.makeUnsafe("thread-unresolved-interactions");
+      for (const [index, status] of (
+        ["pending", "retryable", "responding", "uncertain", "confirmed"] as const
+      ).entries()) {
+        yield* repository.upsert({
+          interactionKind: "userInput",
+          requestId: ApprovalRequestId.makeUnsafe(`request-${status}`),
+          threadId,
+          turnId: null,
+          lifecycleGeneration: "generation-before-restart",
+          status,
+          decision: null,
+          responseCommandId: null,
+          responseRequestedAt: null,
+          createdAt: `2026-07-14T12:20:0${index}.000Z`,
+          resolvedAt: status === "confirmed" ? "2026-07-14T12:21:00.000Z" : null,
+        });
+      }
+
+      assert.deepStrictEqual(
+        (yield* repository.listUnresolved())
+          .filter((row) => row.threadId === threadId)
+          .map((row) => row.status),
+        ["pending", "retryable", "responding", "uncertain"],
+      );
+    }),
+  );
 });

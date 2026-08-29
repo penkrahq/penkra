@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import { StrictMode, useEffect, useRef, useState } from "react";
+import { StrictMode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -258,6 +258,56 @@ function HeterogeneousTailPlacementHarness() {
   );
 }
 
+function PlacementFeedbackRow({ id }: { id: string }) {
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const [height, setHeight] = useState(7_200);
+  useLayoutEffect(() => {
+    let animationFrameId = 0;
+    const tick = () => {
+      const scrollElement = rowRef.current?.closest<HTMLElement>(
+        '[data-testid="placement-feedback-virtual-scroll"]',
+      );
+      if (scrollElement?.getAttribute("data-initial-placement") !== "pending") return;
+      setHeight((current) => (current === 7_200 ? 7_201 : 7_200));
+      animationFrameId = requestAnimationFrame(tick);
+    };
+    animationFrameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, []);
+  return (
+    <div ref={rowRef} data-row-id={id} style={{ height }}>
+      {id}
+    </div>
+  );
+}
+
+function PlacementFeedbackHarness() {
+  const rows = Array.from({ length: 9 }, (_, index) => ({
+    id: `placement-feedback-row-${index}`,
+    height: index === 7 ? 7_200 : 52,
+  }));
+  return (
+    <TranscriptVirtualList
+      data={rows}
+      anchorRevision="9:placement-feedback-row-8:settled"
+      estimatedItemSize={90}
+      keyExtractor={(row) => row.id}
+      renderItem={(row) =>
+        row.id === "placement-feedback-row-7" ? (
+          <PlacementFeedbackRow id={row.id} />
+        ) : (
+          <div data-row-id={row.id} style={{ height: row.height }}>
+            {row.id}
+          </div>
+        )
+      }
+      paddingEnd={16}
+      data-testid="placement-feedback-virtual-scroll"
+      style={{ height: 300, overflowY: "auto" }}
+    />
+  );
+}
+
 function AnimationFrameSuspendedListHarness() {
   const rows = Array.from({ length: 120 }, (_, index) => ({
     id: `timer-row-${index}`,
@@ -435,6 +485,24 @@ describe("TranscriptVirtualList", () => {
           (sample) => sample.event === "initial-end-follow:correction",
         ),
       ).toBe(false);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("reveals initial placement while measured tail geometry is still changing", async () => {
+    const screen = await render(<PlacementFeedbackHarness />);
+    try {
+      const scrollElement = screen.container.querySelector<HTMLElement>(
+        '[data-testid="placement-feedback-virtual-scroll"]',
+      )!;
+      await vi.waitFor(
+        () => {
+          expect(scrollElement).toHaveAttribute("data-initial-placement", "resolved");
+          expect(scrollElement.textContent).toContain("placement-feedback-row-8");
+        },
+        { timeout: 1_000, interval: 20 },
+      );
     } finally {
       await screen.unmount();
     }

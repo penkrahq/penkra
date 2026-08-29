@@ -12,6 +12,10 @@ import { requestChatGptVoiceTranscription } from "@penkra/shared/chatGptVoiceTra
 import { decodeOutboundJson, type OutboundHttpResponse } from "@penkra/shared/outboundHttp";
 import { decodeVoiceTranscriptionAudio } from "@penkra/shared/voiceTranscriptionAudio";
 
+import { createLogger } from "./logger";
+
+const log = createLogger("voice-transcription");
+
 export interface ChatGptVoiceAuthContext {
   readonly token: string;
   readonly transcriptionUrl?: string;
@@ -24,17 +28,16 @@ export async function transcribeVoiceWithChatGptSession(input: {
   readonly signal?: AbortSignal;
 }): Promise<ServerVoiceTranscriptionResult> {
   const audioBuffer = decodeVoiceTranscriptionAudio(input.request);
-  let auth = await input.resolveAuth(false);
-  let response = await requestTranscription({
-    audioBuffer,
+  log.info("voice audio decoded", {
+    audioBytes: audioBuffer.byteLength,
+    durationMs: input.request.durationMs,
+    sampleRateHz: input.request.sampleRateHz,
     mimeType: input.request.mimeType,
-    token: auth.token,
-    ...(input.signal ? { signal: input.signal } : {}),
-    ...(auth.transcriptionUrl ? { transcriptionUrl: auth.transcriptionUrl } : {}),
   });
-
-  if (response.status === 401 || response.status === 403) {
-    auth = await input.resolveAuth(true);
+  let auth = await input.resolveAuth(false);
+  log.info("voice auth resolved", { refreshToken: false });
+  let response: OutboundHttpResponse;
+  try {
     response = await requestTranscription({
       audioBuffer,
       mimeType: input.request.mimeType,
@@ -42,6 +45,25 @@ export async function transcribeVoiceWithChatGptSession(input: {
       ...(input.signal ? { signal: input.signal } : {}),
       ...(auth.transcriptionUrl ? { transcriptionUrl: auth.transcriptionUrl } : {}),
     });
+  } catch (error) {
+    log.error("voice transcription request failed before response", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+  log.info("voice transcription response received", { status: response.status, attempt: 1 });
+
+  if (response.status === 401 || response.status === 403) {
+    auth = await input.resolveAuth(true);
+    log.info("voice auth resolved", { refreshToken: true });
+    response = await requestTranscription({
+      audioBuffer,
+      mimeType: input.request.mimeType,
+      token: auth.token,
+      ...(input.signal ? { signal: input.signal } : {}),
+      ...(auth.transcriptionUrl ? { transcriptionUrl: auth.transcriptionUrl } : {}),
+    });
+    log.info("voice transcription response received", { status: response.status, attempt: 2 });
   }
 
   if (response.status < 200 || response.status >= 300) {
@@ -58,6 +80,7 @@ export async function transcribeVoiceWithChatGptSession(input: {
     payload = null;
   }
   const text = readString(payload?.text) ?? readString(payload?.transcript);
+  log.info("voice transcript decoded", { textLength: text?.length ?? 0 });
   return { text: text ?? "" };
 }
 

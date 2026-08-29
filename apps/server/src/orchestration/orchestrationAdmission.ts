@@ -56,6 +56,11 @@ export function usesReservedCommandAdmission(type: OrchestrationCommand["type"])
     case "thread.turn.dispatch-queued":
     case "thread.session.set":
     case "thread.message.assistant.complete":
+    // Provider shutdown can emit final activities after normal admission has
+    // quiesced. These commands only persist/read-side-settle existing work;
+    // neither can start another provider turn.
+    case "thread.activity.append":
+    case "thread.activity-read-model.touch":
     case "thread.conversation.rollback.complete":
       return true;
     default:

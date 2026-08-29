@@ -29,6 +29,7 @@ import { OrchestrationEventStoreLive } from "../../persistence/Layers/Orchestrat
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { ProviderRuntimeEventRepositoryLive } from "../../persistence/Layers/ProviderRuntimeEvents.ts";
+import { PersistenceDecodeError } from "../../persistence/Errors.ts";
 import {
   PROVIDER_RUNTIME_INGESTION_CONSUMER,
   ProviderRuntimeEventRepository,
@@ -81,6 +82,8 @@ type LegacyProviderRuntimeEvent = {
 function createProviderServiceHarness() {
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
   const runtimeSessions: ProviderSession[] = [];
+  let persistRuntimeEvent: (event: ProviderRuntimeEvent) => Effect.Effect<void, unknown> = () =>
+    Effect.die(new Error("Provider runtime test persistence is not configured"));
 
   const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
   const service: ProviderServiceShape = {
@@ -146,8 +149,17 @@ function createProviderServiceHarness() {
         payload,
       };
     })();
-    Effect.runSync(
-      PubSub.publish(runtimeEventPubSub, canonicalEvent as unknown as ProviderRuntimeEvent),
+    Effect.runFork(
+      persistRuntimeEvent(canonicalEvent as unknown as ProviderRuntimeEvent).pipe(
+        Effect.andThen(
+          PubSub.publish(runtimeEventPubSub, canonicalEvent as unknown as ProviderRuntimeEvent),
+        ),
+        Effect.catchIf(
+          (error) => error instanceof PersistenceDecodeError,
+          () => Effect.void,
+        ),
+        Effect.orDie,
+      ),
     );
   };
 
@@ -155,6 +167,11 @@ function createProviderServiceHarness() {
     service,
     emit,
     setSession,
+    setPersistRuntimeEvent: (
+      persist: (event: ProviderRuntimeEvent) => Effect.Effect<void, unknown>,
+    ) => {
+      persistRuntimeEvent = persist;
+    },
   };
 }
 
@@ -252,6 +269,9 @@ describe("ProviderRuntimeIngestion", () => {
     const ingestion = await runtime.runPromise(Effect.service(ProviderRuntimeIngestionService));
     const runtimeEventRepository = await runtime.runPromise(
       Effect.service(ProviderRuntimeEventRepository),
+    );
+    provider.setPersistRuntimeEvent((event) =>
+      runtimeEventRepository.append(event).pipe(Effect.asVoid),
     );
     const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
     scope = await Effect.runPromise(Scope.make("sequential"));
@@ -426,6 +446,65 @@ describe("ProviderRuntimeIngestion", () => {
     expect(rows).toEqual([{ count: 1, summary: "Runtime warning" }]);
   });
 
+  it("admits each live provider occurrence to the durable journal exactly once", async () => {
+    const harness = await createHarness();
+    const statementSql = new WeakMap<StatementSync, string>();
+    const databasePrototype = DatabaseSync.prototype;
+    const statementPrototype = StatementSync.prototype;
+    const originalPrepare = databasePrototype.prepare;
+    const originalRun = statementPrototype.run;
+    const originalAll = statementPrototype.all;
+    let journalInsertAttempts = 0;
+
+    databasePrototype.prepare = function (sql) {
+      const statement = originalPrepare.call(this, sql);
+      statementSql.set(statement, sql);
+      return statement;
+    };
+    statementPrototype.run = function (...params) {
+      const sql = statementSql.get(this)?.replace(/\s+/g, " ").trim();
+      if (sql?.startsWith("INSERT INTO provider_runtime_events")) {
+        journalInsertAttempts += 1;
+      }
+      return Reflect.apply(originalRun, this, params);
+    };
+    statementPrototype.all = function (...params) {
+      const sql = statementSql.get(this)?.replace(/\s+/g, " ").trim();
+      if (sql?.startsWith("INSERT INTO provider_runtime_events")) {
+        journalInsertAttempts += 1;
+      }
+      return Reflect.apply(originalAll, this, params);
+    };
+
+    try {
+      const initialHighWater = await Effect.runPromise(
+        harness.runtimeEventRepository.getHighWaterSequence,
+      );
+      harness.emit({
+        type: "runtime.warning",
+        eventId: asEventId("evt-single-journal-owner"),
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        threadId: asThreadId("thread-1"),
+        payload: { message: "One durable admission owner" },
+      });
+      const deadline = Date.now() + 2_000;
+      while (
+        (await Effect.runPromise(harness.runtimeEventRepository.getHighWaterSequence)) ===
+        initialHighWater
+      ) {
+        if (Date.now() >= deadline) throw new Error("Timed out waiting for journal admission");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      await harness.drain();
+      expect(journalInsertAttempts).toBe(1);
+    } finally {
+      databasePrototype.prepare = originalPrepare;
+      statementPrototype.run = originalRun;
+      statementPrototype.all = originalAll;
+    }
+  });
+
   it("amortizes burst journal scans and cursor transactions", async () => {
     const sqlCounts = new Map<string, number>();
     const statementSql = new WeakMap<StatementSync, string>();
@@ -509,6 +588,40 @@ describe("ProviderRuntimeIngestion", () => {
       .reduce((total, [, count]) => total + count, 0);
     expect(eligibilityScans).toBeLessThanOrEqual(4);
     expect(openedTransactions).toBeLessThanOrEqual(4);
+  });
+
+  it("does not scan the durable journal repeatedly while ingestion is idle", async () => {
+    await createHarness();
+    const statementSql = new WeakMap<StatementSync, string>();
+    const databasePrototype = DatabaseSync.prototype;
+    const statementPrototype = StatementSync.prototype;
+    const originalPrepare = databasePrototype.prepare;
+    const originalAll = statementPrototype.all;
+    let eligibilityScans = 0;
+
+    databasePrototype.prepare = function (sql) {
+      const statement = originalPrepare.call(this, sql);
+      statementSql.set(statement, sql);
+      return statement;
+    };
+    statementPrototype.all = function (...params) {
+      const sql = statementSql.get(this);
+      if (sql?.replace(/\s+/g, " ").includes("WITH eligible AS")) {
+        eligibilityScans += 1;
+      }
+      return Reflect.apply(originalAll, this, params);
+    };
+
+    try {
+      // This observation window spans three cycles of the removed 250 ms poll.
+      // The assertion is architectural (no unsolicited scan), not a CPU or
+      // product-time threshold.
+      await new Promise((resolve) => setTimeout(resolve, 750));
+      expect(eligibilityScans).toBe(0);
+    } finally {
+      databasePrototype.prepare = originalPrepare;
+      statementPrototype.all = originalAll;
+    }
   });
 
   it("REL-01C gate: rebuilds accepted buffered output before a terminal event", async () => {
@@ -1208,6 +1321,124 @@ describe("ProviderRuntimeIngestion", () => {
     expect(Date.parse(projectionFailure?.nextRetryAt ?? "")).toBeGreaterThan(
       Date.parse(projectionFailure?.lastFailedAt ?? ""),
     );
+  });
+
+  it("wakes a transiently failed thread when its durable retry becomes due", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const createdAt = new Date().toISOString();
+    const event: ProviderRuntimeEvent = {
+      type: "session.started",
+      eventId: asEventId("evt-transient-projection-retry"),
+      provider: "codex",
+      createdAt,
+      threadId: asThreadId("thread-1"),
+      payload: {},
+    };
+    const commandId = CommandId.makeUnsafe(`provider:${event.eventId}:thread-session-set:thread-1`);
+    const rejected = await Effect.runPromise(
+      Effect.exit(
+        harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId,
+          threadId: asThreadId("missing-thread"),
+          session: {
+            threadId: asThreadId("missing-thread"),
+            status: "stopped",
+            providerName: "codex",
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: createdAt,
+          },
+          createdAt,
+        }),
+      ),
+    );
+    expect(rejected._tag).toBe("Failure");
+    const persisted = await Effect.runPromise(harness.runtimeEventRepository.append(event));
+
+    await harness.startIngestion();
+    const firstFailureDeadline = Date.now() + 2_000;
+    while (true) {
+      const failure = await Effect.runPromise(
+        harness.runtimeEventRepository.getThreadProjectionFailure(event.threadId),
+      );
+      if (failure?.attemptCount === 1 && failure.status === "active") break;
+      if (Date.now() >= firstFailureDeadline) {
+        throw new Error("Timed out waiting for the first projection failure");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    // Remove only the synthetic rejected receipt that made this projection
+    // fail. No provider append and no explicit ingestion drain follows: the
+    // persisted nextRetryAt deadline must be what wakes the journal.
+    await Effect.runPromise(
+      harness.sql`DELETE FROM orchestration_command_receipts WHERE command_id = ${commandId}`,
+    );
+
+    const recoveryDeadline = Date.now() + 2_000;
+    while (
+      (await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(event.threadId))) !==
+      persisted.sequence
+    ) {
+      if (Date.now() >= recoveryDeadline) {
+        throw new Error("Timed out waiting for the due projection retry");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(
+      await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(event.threadId)),
+    ).toBe(persisted.sequence);
+    expect(
+      await Effect.runPromise(
+        harness.runtimeEventRepository.getThreadProjectionFailure(event.threadId),
+      ),
+    ).toBeNull();
+  });
+
+  it("restores a future durable retry deadline on startup", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const createdAt = new Date().toISOString();
+    const event: ProviderRuntimeEvent = {
+      type: "session.started",
+      eventId: asEventId("evt-active-retry-before-restart"),
+      provider: "codex",
+      createdAt,
+      threadId: asThreadId("thread-1"),
+      payload: {},
+    };
+    const persisted = await Effect.runPromise(harness.runtimeEventRepository.append(event));
+    const failure = await Effect.runPromise(
+      harness.runtimeEventRepository.recordProjectionFailure({
+        sequence: persisted.sequence,
+        errorFingerprint: "00000000-restart-retry",
+        errorDetail: "Synthetic pre-restart transient failure",
+        failedAt: createdAt,
+      }),
+    );
+    expect(failure.status).toBe("active");
+    expect(Date.parse(failure.nextRetryAt)).toBeGreaterThan(Date.parse(failure.lastFailedAt));
+
+    // Starting ingestion models the new process. Its initial replay must honor
+    // the future nextRetryAt and then restore that persisted timer; there is no
+    // live provider publication or explicit drain to wake it.
+    await harness.startIngestion();
+    const recoveryDeadline = Date.now() + 2_000;
+    while (
+      (await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(event.threadId))) !==
+      persisted.sequence
+    ) {
+      if (Date.now() >= recoveryDeadline) {
+        throw new Error("Timed out waiting for the restored startup retry deadline");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(
+      await Effect.runPromise(
+        harness.runtimeEventRepository.getThreadProjectionFailure(event.threadId),
+      ),
+    ).toBeNull();
   });
 
   it("retries and recovers a durable quarantine after restart", async () => {
@@ -6532,7 +6763,7 @@ describe("ProviderRuntimeIngestion", () => {
     }).toEqual(parentProjectionBefore);
   });
 
-  it("continues processing runtime events after a single event handler failure", async () => {
+  it("continues after a permanently invalid event is rejected at durable admission", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 

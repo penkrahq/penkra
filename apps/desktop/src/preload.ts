@@ -257,6 +257,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   voice: {
     getCapabilities: () => ipcRenderer.invoke(IPC.voice.capabilities),
     transcribeWithApple: (input) => ipcRenderer.invoke(IPC.voice.transcribeWithApple, input),
+    transcribeWithServer: (input) => ipcRenderer.invoke(IPC.voice.transcribeWithServer, input),
   },
   browserUse: {
     onOpenRequest: (listener) => {

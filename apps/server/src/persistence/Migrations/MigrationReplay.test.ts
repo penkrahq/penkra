@@ -28,6 +28,8 @@ const REPLAY_FROM_MIGRATION_ID = 54;
 const replayedEntries: ReadonlyArray<readonly [id: number, name: string]> = [
   [152, "TypedLegacyPendingInteractionFailures"],
   [153, "TypedLegacyPendingInteractionProjectionRepair"],
+  [154, "RestartReconciliationIndexes"],
+  [155, "ThreadSidebarPreviewIndex"],
 ];
 
 const schemaObjects = (sql: SqlClient.SqlClient) =>

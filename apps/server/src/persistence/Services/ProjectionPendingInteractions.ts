@@ -65,6 +65,11 @@ export interface ProjectionPendingInteractionRepositoryShape {
   readonly listByThreadId: (
     input: typeof ListProjectionPendingInteractionsInput.Type,
   ) => Effect.Effect<ReadonlyArray<ProjectionPendingInteraction>, ProjectionRepositoryError>;
+  /** Every interaction that still projects as unresolved across a process boundary. */
+  readonly listUnresolved: () => Effect.Effect<
+    ReadonlyArray<ProjectionPendingInteraction>,
+    ProjectionRepositoryError
+  >;
   readonly getPendingCountsByThreadId: (
     input: typeof ListProjectionPendingInteractionsInput.Type,
   ) => Effect.Effect<ProjectionPendingInteractionCounts, ProjectionRepositoryError>;

@@ -54,6 +54,7 @@ function makeLayer(input: {
         getSnapshotSequence: () => unsupported(),
         listStaleInFlightThreadIds: () => unsupported(),
         listOpenTurnCounts: () => unsupported(),
+        listStreamingAssistantMessages: () => unsupported(),
         getShellSnapshot: () => unsupported(),
         getActiveFolderByWorkspaceRoot: () => unsupported(),
         getFolderShellById: () => unsupported(),

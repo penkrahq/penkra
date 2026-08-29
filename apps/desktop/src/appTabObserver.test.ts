@@ -23,6 +23,7 @@ const descriptor: DesktopAppTabDescriptor = {
 
 function makeContents() {
   const listeners = new Map<string, () => void>();
+  const listenerSets = new Map<string, Set<() => void>>();
   const debuggerListeners = new Map<string, (...args: unknown[]) => void>();
   const sendCommand = vi.fn(async (method: string) => {
     if (method === "Accessibility.getFullAXTree") {
@@ -70,12 +71,30 @@ function makeContents() {
       getSize: () => ({ width: 100, height: 40 }),
       toPNG: () => Buffer.from("png"),
     })),
-    once: (event: string, listener: () => void) => listeners.set(event, listener),
-    on: (event: string, listener: () => void) => listeners.set(event, listener),
+    once: (event: string, listener: () => void) => {
+      listeners.set(event, listener);
+      const eventListeners = listenerSets.get(event) ?? new Set();
+      eventListeners.add(listener);
+      listenerSets.set(event, eventListeners);
+    },
+    on: (event: string, listener: () => void) => {
+      listeners.set(event, listener);
+      const eventListeners = listenerSets.get(event) ?? new Set();
+      eventListeners.add(listener);
+      listenerSets.set(event, eventListeners);
+    },
+    removeListener: (event: string, listener: () => void) => {
+      const eventListeners = listenerSets.get(event);
+      eventListeners?.delete(listener);
+      if (listeners.get(event) === listener) {
+        listeners.delete(event);
+      }
+    },
   } as unknown as WebContents;
   return {
     contents,
     listeners,
+    listenerCount: (event: string) => listenerSets.get(event)?.size ?? 0,
     sendCommand,
     emitDebugger: (method: string, params: Record<string, unknown>, sessionId?: string) =>
       debuggerListeners.get("message")?.({}, method, params, sessionId),
@@ -370,6 +389,27 @@ describe("AppTabObserver", () => {
     await expect(observer.click("tab-1", "e1")).rejects.toMatchObject({
       code: "SNAPSHOT_REQUIRED",
     });
+  });
+
+  it("releases snapshot lifecycle listeners across repeated navigation cycles", async () => {
+    const { contents, listeners, listenerCount } = makeContents();
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents }),
+    });
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      await observer.snapshot("tab-1");
+      expect(listenerCount("did-start-navigation")).toBe(1);
+      listeners.get("did-start-navigation")?.();
+      expect(listenerCount("did-start-navigation")).toBe(0);
+    }
+
+    await observer.snapshot("tab-1");
+    observer.invalidate("tab-1");
+    expect(listenerCount("did-start-navigation")).toBe(0);
+    // The observer's one shared JavaScript-dialog listener remains until WebContents destruction;
+    // only per-snapshot lifecycle listeners are owned by invalidate().
+    expect(listenerCount("destroyed")).toBe(1);
   });
 
   it("returns screenshots as MCP-ready PNG data", async () => {

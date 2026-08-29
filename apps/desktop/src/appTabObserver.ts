@@ -70,6 +70,7 @@ interface TabSnapshotState {
   nextReference: number;
   references: Map<string, SnapshotReference>;
   observedTargetKey: string;
+  dispose: () => void;
 }
 
 interface TabCapture {
@@ -159,6 +160,8 @@ export class AppTabObserver {
   }
 
   invalidate(tabId: string): void {
+    const state = this.#states.get(tabId);
+    state?.dispose();
     this.#states.delete(tabId);
     this.#pendingDialogs.delete(tabId);
     for (const [key, owner] of this.#dialogTargets) {
@@ -770,18 +773,35 @@ export class AppTabObserver {
     const targetKey = observationTargetKey(target);
     const existing = this.#states.get(tabId);
     if (existing?.observedTargetKey === targetKey) return existing;
-    const state = {
+    existing?.dispose();
+    const cleanups: Array<() => void> = [];
+    const state: TabSnapshotState = {
       generation: 0,
       nextReference: 1,
       references: new Map<string, SnapshotReference>(),
       observedTargetKey: targetKey,
+      dispose: () => {
+        for (const cleanup of cleanups.splice(0)) cleanup();
+      },
     };
     this.#states.set(tabId, state);
-    contents.once("destroyed", () => this.invalidate(tabId));
-    contents.on("did-start-navigation", () => this.invalidate(tabId));
-    if (target.embedded) {
-      target.embedded.target.webContents.once("destroyed", () => this.invalidate(tabId));
-      target.embedded.target.webContents.on("did-start-navigation", () => this.invalidate(tabId));
+    const observedContents = new Map<number, WebContents>([[contents.id, contents]]);
+    if (target.embedded?.target.webContents) {
+      observedContents.set(
+        target.embedded.target.webContents.id,
+        target.embedded.target.webContents,
+      );
+    }
+    for (const observed of observedContents.values()) {
+      const invalidateState = () => {
+        if (this.#states.get(tabId) === state) this.invalidate(tabId);
+      };
+      observed.on("destroyed", invalidateState);
+      observed.on("did-start-navigation", invalidateState);
+      cleanups.push(() => {
+        observed.removeListener("destroyed", invalidateState);
+        observed.removeListener("did-start-navigation", invalidateState);
+      });
     }
     return state;
   }

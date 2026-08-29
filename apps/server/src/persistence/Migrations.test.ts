@@ -62,6 +62,8 @@ layer("removed provider data migration", (it) => {
         [151, "FolderPersistenceNames"],
         [152, "TypedLegacyPendingInteractionFailures"],
         [153, "TypedLegacyPendingInteractionProjectionRepair"],
+        [154, "RestartReconciliationIndexes"],
+        [155, "ThreadSidebarPreviewIndex"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -908,6 +910,8 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
       assert.deepStrictEqual(executed, [
         [152, "TypedLegacyPendingInteractionFailures"],
         [153, "TypedLegacyPendingInteractionProjectionRepair"],
+        [154, "RestartReconciliationIndexes"],
+        [155, "ThreadSidebarPreviewIndex"],
       ]);
 
       const tracker = yield* trackerRows(sql);

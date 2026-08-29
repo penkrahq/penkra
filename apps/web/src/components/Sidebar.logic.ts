@@ -171,6 +171,18 @@ export function canArchiveSidebarThreads(statuses: ReadonlyArray<SidebarWorkStat
   return statuses.length > 0 && statuses.every((status) => status === "idle");
 }
 
+export function getSidebarThreadLifecycleMenuItems(canArchive: boolean): ReadonlyArray<{
+  readonly id: "archive" | "delete";
+  readonly label: string;
+  readonly destructive?: boolean;
+  readonly separatorBefore?: boolean;
+}> {
+  if (canArchive) {
+    return [{ id: "archive", label: "Archive", separatorBefore: true }];
+  }
+  return [{ id: "delete", label: "Delete", destructive: true, separatorBefore: true }];
+}
+
 export function canArchiveSidebarFolder(statuses: ReadonlyArray<SidebarWorkStatus>): boolean {
   return statuses.every((status) => status === "idle" || status === "done");
 }

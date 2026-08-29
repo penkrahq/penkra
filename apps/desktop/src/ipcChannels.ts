@@ -63,6 +63,7 @@ export const DESKTOP_IPC_CHANNELS = {
   voice: {
     capabilities: "desktop:voice-capabilities",
     transcribeWithApple: "desktop:voice-transcribe-with-apple",
+    transcribeWithServer: "desktop:voice-transcribe-with-server",
   },
   storageMigration: {
     read: "desktop:storage-migration-read",

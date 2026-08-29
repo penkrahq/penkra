@@ -29,13 +29,14 @@ import { OrchestrationCommandReceiptRepositoryLive } from "../src/persistence/La
 import { OrchestrationEventStoreLive } from "../src/persistence/Layers/OrchestrationEventStore.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../src/persistence/Layers/ProjectionPendingInteractions.ts";
 import { ProviderSessionRuntimeRepositoryLive } from "../src/persistence/Layers/ProviderSessionRuntime.ts";
+import { ProviderRuntimeEventRepositoryLive } from "../src/persistence/Layers/ProviderRuntimeEvents.ts";
 import { makeSqlitePersistenceLive } from "../src/persistence/Layers/Sqlite.ts";
 import { ProjectionPendingInteractionRepository } from "../src/persistence/Services/ProjectionPendingInteractions.ts";
 import { ThreadProviderBindingRepository } from "../src/persistence/Services/ThreadProviderBindings.ts";
 import { ProviderUnsupportedError } from "../src/provider/Errors.ts";
 import { ProviderAdapterRegistry } from "../src/provider/Services/ProviderAdapterRegistry.ts";
 import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSessionDirectory.ts";
-import { makeProviderServiceLive } from "../src/provider/Layers/ProviderService.ts";
+import { makeDurableProviderServiceLive } from "../src/provider/Layers/ProviderService.ts";
 import { makeCodexAdapterLive } from "../src/provider/Layers/CodexAdapter.ts";
 import { CodexAdapter } from "../src/provider/Services/CodexAdapter.ts";
 import { ProviderService } from "../src/provider/Services/ProviderService.ts";
@@ -239,6 +240,9 @@ export const makeOrchestrationIntegrationHarness = (
     const providerSessionDirectoryLayer = ProviderSessionDirectoryLive.pipe(
       Layer.provide(ProviderSessionRuntimeRepositoryLive),
     );
+    const durableRuntimeEventRepositoryLayer = ProviderRuntimeEventRepositoryLive.pipe(
+      Layer.provide(persistenceLayer),
+    );
     const realCodexRegistry = Layer.effect(
       ProviderAdapterRegistry,
       Effect.gen(function* () {
@@ -258,14 +262,16 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
     const providerLayer = useRealCodex
-      ? makeProviderServiceLive().pipe(
+      ? makeDurableProviderServiceLive().pipe(
           Layer.provide(providerSessionDirectoryLayer),
           Layer.provide(realCodexRegistry),
+          Layer.provide(durableRuntimeEventRepositoryLayer),
           Layer.provide(AnalyticsService.layerTest),
         )
-      : makeProviderServiceLive().pipe(
+      : makeDurableProviderServiceLive().pipe(
           Layer.provide(providerSessionDirectoryLayer),
           Layer.provide(fakeRegistry!),
+          Layer.provide(durableRuntimeEventRepositoryLayer),
           Layer.provide(AnalyticsService.layerTest),
         );
 

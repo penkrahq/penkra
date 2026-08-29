@@ -742,11 +742,49 @@ describe("wsNativeApi", () => {
     expect(result).toEqual({ text: "hello" });
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/voice/transcribe?"),
-      expect.objectContaining({ method: "POST", body: Uint8Array.from([1, 2, 3]) }),
+      expect.objectContaining({ method: "POST", body: expect.any(Blob) }),
     );
+    const requestBody = fetchMock.mock.calls[0]?.[1]?.body;
+    expect(requestBody).toBeInstanceOf(Blob);
+    expect((requestBody as Blob).type).toBe("audio/wav");
+    expect(Array.from(new Uint8Array(await (requestBody as Blob).arrayBuffer()))).toEqual([
+      1, 2, 3,
+    ]);
     expect(requestMock).not.toHaveBeenCalledWith(
       WS_METHODS.serverTranscribeVoice,
       expect.anything(),
     );
+  });
+
+  it("delegates desktop voice uploads to Electron main", async () => {
+    const transcribeWithServer = vi.fn().mockResolvedValue({ text: "desktop transcript" });
+    Object.defineProperty(getWindowForTest(), "desktopBridge", {
+      configurable: true,
+      writable: true,
+      value: {
+        getWsUrl: () => "ws://127.0.0.1:3773/ws?token=desktop-secret",
+        voice: { transcribeWithServer },
+      },
+    });
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+    const input = {
+      provider: "codex" as const,
+      connectionId: "connection-codex" as never,
+      cwd: "/repo",
+      audioBase64: "AQID",
+      mimeType: "audio/wav",
+      sampleRateHz: 24_000,
+      durationMs: 1000,
+    };
+
+    await expect(api.server.transcribeVoice(input)).resolves.toEqual({
+      text: "desktop transcript",
+    });
+    expect(transcribeWithServer).toHaveBeenCalledWith(input);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

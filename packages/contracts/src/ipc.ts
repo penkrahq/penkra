@@ -927,6 +927,9 @@ export interface DesktopBridge {
     transcribeWithApple: (
       input: DesktopAppleVoiceTranscriptionInput,
     ) => Promise<ServerVoiceTranscriptionResult>;
+    transcribeWithServer: (
+      input: ServerVoiceTranscriptionInput,
+    ) => Promise<ServerVoiceTranscriptionResult>;
   };
   browserUse: {
     onOpenRequest: (listener: () => void) => () => void;

@@ -1,5 +1,6 @@
 import {
   CommandId,
+  EventId,
   MessageId,
   FolderId,
   SpaceId,
@@ -207,6 +208,25 @@ describe("OrchestrationEngine", () => {
           type: "thread.session.stop",
           commandId: CommandId.makeUnsafe("cmd-engine-quiesce-control"),
           threadId,
+          createdAt,
+        }),
+      ),
+    ).resolves.toMatchObject({ sequence: expect.any(Number) });
+    await expect(
+      system.run(
+        system.engine.dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.makeUnsafe("cmd-engine-quiesce-provider-terminal"),
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-engine-quiesce-provider-terminal"),
+            tone: "info",
+            kind: "turn.completed",
+            summary: "Provider turn completed during shutdown",
+            payload: {},
+            turnId: null,
+            createdAt,
+          },
           createdAt,
         }),
       ),

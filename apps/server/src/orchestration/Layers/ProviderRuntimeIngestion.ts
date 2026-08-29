@@ -89,7 +89,6 @@ const DEFAULT_ASSISTANT_DELIVERY_MODE: AssistantDeliveryMode = "buffered";
 const PROVIDER_RUNTIME_INGESTION_CAPACITY = 1_024;
 const PROVIDER_RUNTIME_REPLAY_PAGE_SIZE = 128;
 const PROVIDER_RUNTIME_REPLAY_EVENTS_PER_THREAD = 32;
-const PROVIDER_RUNTIME_REPLAY_POLL_INTERVAL = Duration.millis(250);
 const TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY = 2_048;
 const TURN_MESSAGE_IDS_BY_TURN_TTL = Duration.minutes(60);
 const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY = 1_024;
@@ -2482,6 +2481,11 @@ const make = Effect.gen(function* () {
   // That gives transient dependencies time to recover while allowing every
   // unrelated thread head in the same journal window to make progress.
   let runtimeThreadsBlockedThisDrain = new Set<string>();
+  // Appends and due retries are the only live reasons to revisit the durable
+  // journal after startup. Both queues are signals rather than work storage:
+  // the SQLite journal remains the authoritative, crash-safe queue.
+  const runtimeJournalWake = yield* Queue.sliding<void>(1);
+  const runtimeJournalRetrySchedule = yield* Queue.unbounded<string>();
 
   const processInputSafely = (input: RuntimeIngestionInput): Effect.Effect<void> =>
     input.source === "runtime" && runtimeThreadsBlockedThisDrain.has(input.event.threadId)
@@ -2547,6 +2551,11 @@ const make = Effect.gen(function* () {
                             },
                           ),
                     ),
+                    Effect.andThen(
+                      failure.status === "active"
+                        ? Queue.offer(runtimeJournalRetrySchedule, failure.nextRetryAt)
+                        : Effect.void,
+                    ),
                   ),
                 ),
                 Effect.catchCause((recordCause) =>
@@ -2565,9 +2574,6 @@ const make = Effect.gen(function* () {
     capacity: PROVIDER_RUNTIME_INGESTION_CAPACITY,
   });
   const runtimeJournalDrainLock = yield* Semaphore.make(1);
-  // The journal is the durable queue. Live notifications only wake its single
-  // drainer, so a provider burst cannot create one scan/drain cycle per event.
-  const runtimeJournalWake = yield* Queue.sliding<void>(1);
 
   const drainRuntimeJournalThrough = (throughSequenceInclusive?: number) =>
     runtimeJournalDrainLock.withPermits(1)(
@@ -2838,25 +2844,37 @@ const make = Effect.gen(function* () {
         ),
       );
       yield* Effect.forkScoped(
-        Stream.runForEach(providerService.streamEvents, (event) =>
-          runtimeEvents.append(event).pipe(
-            Effect.andThen(
-              Deferred.await(startupRuntimeReplayComplete).pipe(
-                Effect.andThen(Queue.offer(runtimeJournalWake, undefined)),
-              ),
-            ),
-            Effect.catchCause((cause) =>
-              Cause.hasInterruptsOnly(cause)
-                ? Effect.failCause(cause)
-                : Effect.logWarning("provider runtime event journal ingestion failed", {
-                    eventId: event.eventId,
-                    eventType: event.type,
-                    cause: Cause.pretty(cause),
-                  }),
-            ),
+        Effect.forever(
+          Queue.take(runtimeJournalRetrySchedule).pipe(
+            Effect.flatMap((nextRetryAt) => {
+              const parsedDueAt = Date.parse(nextRetryAt);
+              const delayMs = Number.isFinite(parsedDueAt)
+                ? Math.max(0, parsedDueAt - Date.now())
+                : 0;
+              return Effect.forkScoped(
+                Effect.sleep(Duration.millis(delayMs)).pipe(
+                  Effect.andThen(Queue.offer(runtimeJournalWake, undefined)),
+                ),
+              ).pipe(Effect.asVoid);
+            }),
           ),
         ),
       );
+      yield* Effect.forkScoped(
+        Stream.runForEach(providerService.streamEvents, (event) =>
+          // ProviderService publishes only after its supervised pump has
+          // durably admitted this event. This subscriber is therefore a wake
+          // signal, not a second journal writer.
+          Deferred.await(startupRuntimeReplayComplete).pipe(
+            Effect.andThen(Queue.offer(runtimeJournalWake, undefined)),
+          ),
+        ),
+      );
+      // Let the forked hot-stream subscriptions acquire their PubSub
+      // subscriptions before the startup replay fence is read. An event
+      // admitted before that fence is replayed; one admitted after it wakes
+      // this subscriber, so there is no notification gap between the two.
+      yield* Effect.yieldNow;
       yield* Effect.forkScoped(
         Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
           if (
@@ -2882,13 +2900,16 @@ const make = Effect.gen(function* () {
       // Only heads that failed their startup retry should retain/recreate the
       // user-visible quarantine attention state.
       yield* restoreQuarantinedThreadAttention;
-      yield* Deferred.succeed(startupRuntimeReplayComplete, undefined);
-      yield* Effect.forkScoped(
-        Effect.sleep(PROVIDER_RUNTIME_REPLAY_POLL_INTERVAL).pipe(
-          Effect.andThen(drainRuntimeJournalSafely),
-          Effect.forever,
-        ),
+      // Active failures survive process restarts with a durable retry deadline.
+      // Restore those timers explicitly now that idle polling no longer serves
+      // as an accidental retry scheduler.
+      const activeFailures = yield* runtimeEvents.listActiveProjectionFailures;
+      yield* Effect.forEach(
+        activeFailures,
+        (failure) => Queue.offer(runtimeJournalRetrySchedule, failure.nextRetryAt),
+        { discard: true },
       );
+      yield* Deferred.succeed(startupRuntimeReplayComplete, undefined);
     }),
   ).pipe(Effect.orDie);
 

@@ -33,7 +33,7 @@ describe("Pencil left rail", () => {
     document.body.innerHTML = "";
   });
 
-  it("keeps persistent running-thread status visible without a continuous animation", async () => {
+  it("keeps persistent running-thread status visibly spinning", async () => {
     const view = await render(
       <div data-testid="running-status-fixture">
         <WorkStatusShared status="running" />
@@ -43,7 +43,29 @@ describe("Pencil left rail", () => {
     );
 
     expect(view.container.querySelectorAll('[aria-label="Working"]')).toHaveLength(3);
-    expect(view.container.getAnimations({ subtree: true })).toHaveLength(0);
+    const animatedLayers = Array.from(view.container.querySelectorAll<SVGElement>(".animate-spin"));
+    const animations = view.container.getAnimations({ subtree: true });
+    expect(animatedLayers).toHaveLength(3);
+    expect(animatedLayers.every((layer) => layer.tagName === "svg")).toBe(true);
+    expect(
+      animatedLayers.every((layer) => {
+        const style = getComputedStyle(layer);
+        return style.width === "13px" && style.height === "13px";
+      }),
+    ).toBe(true);
+    expect(animations).toHaveLength(3);
+    expect(
+      animations.every(
+        (animation) => (animation.effect as KeyframeEffect | null)?.target?.nodeName === "svg",
+      ),
+    ).toBe(true);
+    const transformsBefore = animatedLayers.map((layer) => getComputedStyle(layer).transform);
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+    const transformsAfter = animatedLayers.map((layer) => getComputedStyle(layer).transform);
+    const stagnantLayerIndexes = transformsAfter.flatMap((transform, index) =>
+      transform === transformsBefore[index] ? [index] : [],
+    );
+    expect(stagnantLayerIndexes, JSON.stringify({ transformsBefore, transformsAfter })).toEqual([]);
   });
 
   it("keeps the sidebar and thread chrome on the shared 46px titlebar baseline", async () => {

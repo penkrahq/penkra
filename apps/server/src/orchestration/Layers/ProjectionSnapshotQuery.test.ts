@@ -123,6 +123,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           model_selection_json,
           working_directory,
           latest_turn_id,
+          latest_user_message_at,
+          pending_approval_count,
+          pending_user_input_count,
           created_at,
           updated_at,
           deleted_at
@@ -134,6 +137,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '{"provider":"codex","model":"gpt-5-codex"}',
           NULL,
           'turn-1',
+          '2026-02-24T00:00:03.500Z',
+          1,
+          1,
           '2026-02-24T00:00:02.000Z',
           '2026-02-24T00:00:03.000Z',
           NULL
@@ -297,6 +303,16 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       }
 
       const snapshot = yield* snapshotQuery.getSnapshot();
+      const commandModel = yield* snapshotQuery.getCommandReadModel();
+
+      const commandThread = commandModel.threads[0];
+      assert.isDefined(commandThread);
+      assert.equal(commandThread.latestUserMessageAt, "2026-02-24T00:00:03.500Z");
+      assert.equal(commandThread.hasPendingApprovals, true);
+      assert.equal(commandThread.hasPendingUserInput, true);
+      assert.deepEqual(commandThread.messages, []);
+      assert.deepEqual(commandThread.activities, []);
+      assert.deepEqual(commandThread.pendingInteractions, []);
 
       assert.equal(snapshot.snapshotSequence, 5);
       assert.equal(snapshot.updatedAt, "2026-02-24T00:00:09.000Z");
@@ -353,7 +369,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           latestUserMessageAt: "2026-02-24T00:00:03.500Z",
           hasPendingApprovals: true,
           hasPendingUserInput: true,
-          workStatus: "done",
+          workStatus: "attention",
           lastMessagePreview: "hello from projection",
           lastActivityAt: "2026-02-24T00:00:06.750Z",
           latestTurn: {
@@ -444,6 +460,24 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           },
         },
       ]);
+
+      yield* sql`
+        UPDATE projection_thread_messages
+        SET is_streaming = 1
+        WHERE message_id = 'message-1'
+      `;
+      assert.deepEqual(yield* snapshotQuery.listStreamingAssistantMessages(), [
+        {
+          threadId: asThreadId("thread-1"),
+          messageId: asMessageId("message-1"),
+          turnId: asTurnId("turn-1"),
+        },
+      ]);
+      yield* sql`
+        UPDATE projection_thread_messages
+        SET is_streaming = 0
+        WHERE message_id = 'message-1'
+      `;
     }),
   );
 

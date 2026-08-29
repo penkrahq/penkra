@@ -11,8 +11,10 @@ import { ipcMain } from "electron";
 import type {
   DesktopAppleVoiceTranscriptionInput,
   DesktopVoiceTranscriptionCapabilities,
+  ServerVoiceTranscriptionInput,
   ServerVoiceTranscriptionResult,
 } from "@penkra/contracts";
+import { VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH } from "@penkra/shared/binaryTransfer";
 import { decodeVoiceTranscriptionAudio } from "@penkra/shared/voiceTranscriptionAudio";
 
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
@@ -21,6 +23,7 @@ const HELPER_FILE_NAME = "penkra-speech-transcriber";
 const MAX_HELPER_OUTPUT_BYTES = 1024 * 1024;
 const CAPABILITY_TIMEOUT_MS = 15_000;
 const TRANSCRIPTION_TIMEOUT_MS = 5 * 60_000;
+const SERVER_TRANSCRIPTION_TIMEOUT_MS = 45_000;
 
 interface SpeechHelperCapabilities {
   readonly appleSpeech?: { readonly locale?: unknown } | null;
@@ -162,9 +165,57 @@ async function transcribeVoiceWithApple(
   }
 }
 
-export function registerDesktopVoiceTranscriptionHandler(): void {
+async function transcribeVoiceWithServer(
+  input: ServerVoiceTranscriptionInput,
+  backendWsUrl: string | null,
+): Promise<ServerVoiceTranscriptionResult> {
+  if (!backendWsUrl) throw new Error("Voice transcription server is unavailable.");
+  const audioBuffer = decodeVoiceTranscriptionAudio(input);
+  const url = new URL(backendWsUrl);
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+    throw new Error("Voice transcription server URL is invalid.");
+  }
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  url.pathname = VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH;
+  url.hash = "";
+  for (const [name, value] of Object.entries({
+    provider: input.provider,
+    connectionId: input.connectionId,
+    cwd: input.cwd,
+    ...(input.threadId ? { threadId: input.threadId } : {}),
+    mimeType: input.mimeType,
+    sampleRateHz: String(input.sampleRateHz),
+    durationMs: String(input.durationMs),
+  })) {
+    url.searchParams.set(name, value);
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": input.mimeType },
+    body: Buffer.from(audioBuffer),
+    signal: AbortSignal.timeout(SERVER_TRANSCRIPTION_TIMEOUT_MS),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | ServerVoiceTranscriptionResult
+    | { readonly error?: unknown }
+    | null;
+  if (!response.ok || !payload || !("text" in payload) || typeof payload.text !== "string") {
+    const message =
+      payload && "error" in payload && typeof payload.error === "string"
+        ? payload.error
+        : `Voice transcription failed with status ${response.status}.`;
+    throw new Error(message);
+  }
+  return { text: payload.text };
+}
+
+export function registerDesktopVoiceTranscriptionHandler(input: {
+  readonly getBackendWsUrl: () => string | null;
+}): void {
   ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.voice.capabilities);
   ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.voice.transcribeWithApple);
+  ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.voice.transcribeWithServer);
   ipcMain.handle(DESKTOP_IPC_CHANNELS.voice.capabilities, () => {
     cachedCapabilities ??= readDesktopVoiceCapabilities();
     return cachedCapabilities;
@@ -172,5 +223,10 @@ export function registerDesktopVoiceTranscriptionHandler(): void {
   ipcMain.handle(
     DESKTOP_IPC_CHANNELS.voice.transcribeWithApple,
     (_event, input: DesktopAppleVoiceTranscriptionInput) => transcribeVoiceWithApple(input),
+  );
+  ipcMain.handle(
+    DESKTOP_IPC_CHANNELS.voice.transcribeWithServer,
+    (_event, request: ServerVoiceTranscriptionInput) =>
+      transcribeVoiceWithServer(request, input.getBackendWsUrl()),
   );
 }

@@ -159,6 +159,8 @@ import Migration0150 from "./Migrations/150_ResetConnectionUsageAccounting.ts";
 import Migration0151 from "./Migrations/151_FolderPersistenceNames.ts";
 import Migration0152 from "./Migrations/152_TypedLegacyPendingInteractionFailures.ts";
 import Migration0153 from "./Migrations/153_TypedLegacyPendingInteractionProjectionRepair.ts";
+import Migration0154 from "./Migrations/154_RestartReconciliationIndexes.ts";
+import Migration0155 from "./Migrations/155_ThreadSidebarPreviewIndex.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -317,6 +319,8 @@ export const migrationEntries = [
   [151, "FolderPersistenceNames", Migration0151],
   [152, "TypedLegacyPendingInteractionFailures", Migration0152],
   [153, "TypedLegacyPendingInteractionProjectionRepair", Migration0153],
+  [154, "RestartReconciliationIndexes", Migration0154],
+  [155, "ThreadSidebarPreviewIndex", Migration0155],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

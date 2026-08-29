@@ -228,6 +228,8 @@ export interface ProviderServiceShape {
    * Canonical provider runtime event stream.
    *
    * Fan-out is owned by ProviderService (not by a standalone event-bus service).
+   * Production implementations durably admit each event before publishing it;
+   * subscribers must not perform a second journal append.
    */
   readonly streamEvents: Stream.Stream<ProviderRuntimeEvent>;
 }

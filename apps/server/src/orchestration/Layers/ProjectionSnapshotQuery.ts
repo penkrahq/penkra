@@ -55,6 +55,7 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionGeneratedImageActivityRecord,
   type ProjectionOpenTurnCount,
+  type ProjectionStreamingAssistantMessage,
   type ProjectionSnapshotCounts,
   type ProjectionSnapshotSequence,
   type ProjectionSnapshotQueryShape,
@@ -76,6 +77,11 @@ const MAX_SNAPSHOT_THREAD_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.sum
 const MAX_THREAD_DETAIL_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.detailActivities;
 const MAX_TURN_GENERATED_IMAGE_ACTIVITY_RECORDS = 64;
 const THREAD_TURN_PAGE_SIZE = 20;
+const ProjectionStreamingAssistantMessageRow = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  turnId: Schema.NullOr(TurnId),
+});
 const ProjectionFolderDbRowSchema = ProjectionFolder.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(ModelSelectionJsonUnknown),
@@ -557,7 +563,7 @@ function toProjectedThreadShellFromStoredSummary(input: {
   };
 }
 
-function toProjectedThread(input: {
+interface ProjectedThreadAssemblyInput {
   readonly threadRow: ProjectionThreadDbRow;
   readonly latestTurn: OrchestrationLatestTurn | null;
   readonly messages: ReadonlyArray<OrchestrationMessage>;
@@ -566,9 +572,13 @@ function toProjectedThread(input: {
   readonly session: OrchestrationSession | null;
   readonly pendingTurnStartMessageId?: MessageId | null;
   readonly queuedMessageIds?: ReadonlyArray<MessageId>;
-}): OrchestrationThread {
+}
+
+function assembleProjectedThread(
+  input: ProjectedThreadAssemblyInput,
+  summary: ReturnType<typeof deriveThreadSummaryMetadata>,
+): OrchestrationThread {
   const { threadRow } = input;
-  const summary = deriveThreadSummaryMetadata(input);
   return {
     id: threadRow.threadId,
     folderId: threadRow.folderId,
@@ -608,6 +618,36 @@ function toProjectedThread(input: {
     ...(threadRow.notes !== null ? { notes: threadRow.notes } : {}),
     session: input.session,
   };
+}
+
+/** Build a fully hydrated Thread whose summaries are derived from its loaded body. */
+function toProjectedThread(input: ProjectedThreadAssemblyInput): OrchestrationThread {
+  return assembleProjectedThread(input, deriveThreadSummaryMetadata(input));
+}
+
+/**
+ * Build the engine's intentionally body-free command Thread from denormalized summaries.
+ * Empty body collections mean "not hydrated" on this compatibility shape, so deriving
+ * summary metadata from them would silently turn persisted state into false/null values.
+ */
+function toProjectedCommandThread(input: {
+  readonly threadRow: ProjectionThreadDbRow;
+  readonly latestTurn: OrchestrationLatestTurn | null;
+  readonly session: OrchestrationSession | null;
+}): OrchestrationThread {
+  return assembleProjectedThread(
+    {
+      ...input,
+      messages: [],
+      activities: [],
+      pendingInteractions: [],
+    },
+    {
+      latestUserMessageAt: input.threadRow.latestUserMessageAt,
+      hasPendingApprovals: input.threadRow.pendingApprovalCount > 0,
+      hasPendingUserInput: input.threadRow.pendingUserInputCount > 0,
+    },
+  );
 }
 
 function computeSnapshotSequence(
@@ -823,6 +863,20 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         GROUP BY thread_id
         ORDER BY thread_id ASC
       `,
+  });
+
+  const listStreamingAssistantMessageRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionStreamingAssistantMessageRow,
+    execute: () => sql`
+      SELECT
+        thread_id AS "threadId",
+        message_id AS "messageId",
+        turn_id AS "turnId"
+      FROM projection_thread_messages
+      WHERE role = 'assistant' AND is_streaming = 1
+      ORDER BY thread_id ASC, created_at ASC, message_id ASC
+    `,
   });
 
   const listThreadMessageRows = SqlSchema.findAll({
@@ -2029,12 +2083,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           const folders: ReadonlyArray<OrchestrationFolder> = projectRows.map(toProjectedProject);
 
           const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) =>
-            toProjectedThread({
+            toProjectedCommandThread({
               threadRow: row,
               latestTurn: latestTurns.byThread.get(row.threadId) ?? null,
-              messages: [],
-              activities: [],
-              pendingInteractions: [],
               session: sessions.byThread.get(row.threadId) ?? null,
             }),
           );
@@ -2392,6 +2443,18 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ),
       ),
     );
+
+  const listStreamingAssistantMessages: ProjectionSnapshotQueryShape["listStreamingAssistantMessages"] =
+    () =>
+      listStreamingAssistantMessageRows(undefined).pipe(
+        Effect.map((rows) => rows satisfies ReadonlyArray<ProjectionStreamingAssistantMessage>),
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.listStreamingAssistantMessages:query",
+            "ProjectionSnapshotQuery.listStreamingAssistantMessages:decodeRows",
+          ),
+        ),
+      );
 
   const findSyntheticSubagentParentThread: ProjectionSnapshotQueryShape["findSyntheticSubagentParentThread"] =
     (threadId) =>
@@ -2798,6 +2861,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getSnapshotSequence,
     listStaleInFlightThreadIds,
     listOpenTurnCounts,
+    listStreamingAssistantMessages,
     getActiveFolderByWorkspaceRoot,
     getFolderShellById,
     getSpaceShellById,

@@ -36,6 +36,7 @@ import { deriveAuthClientMetadata } from "./auth/utils";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { resolveCachedEditorIcon } from "./editorAppIcons";
 import { LOCAL_IMAGE_ROUTE_PATH, resolveAllowedLocalPreviewFile } from "./localImageFiles.ts";
+import { createLogger } from "./logger";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
@@ -67,6 +68,7 @@ import {
 } from "./trustedOrigins";
 
 const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
+const voiceLog = createLogger("voice-transcription");
 const SITE_FAVICON_CACHE_CONTROL_SUCCESS = "public, max-age=86400"; // 24 h
 const SITE_FAVICON_CACHE_CONTROL_FALLBACK = "public, max-age=3600"; // 1 h (negative result)
 const EDITOR_ICON_CACHE_CONTROL_SUCCESS = "public, max-age=86400"; // 24 h
@@ -974,10 +976,20 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
     const mimeType = url.searchParams.get("mimeType")?.trim() ?? "";
     const sampleRateHz = Number(url.searchParams.get("sampleRateHz"));
     const durationMs = Number(url.searchParams.get("durationMs"));
+    voiceLog.info("voice upload received", {
+      provider,
+      hasConnectionId: connectionId.length > 0,
+      hasThreadId: threadId !== undefined,
+      hasCwd: cwd.length > 0,
+      mimeType,
+      sampleRateHz,
+      durationMs,
+      contentLength: request.headers["content-length"] ?? null,
+      contentType: request.headers["content-type"] ?? null,
+    });
     if (
       !provider ||
       !connectionId ||
-      !cwd ||
       !mimeType ||
       !Number.isSafeInteger(sampleRateHz) ||
       !Number.isSafeInteger(durationMs)
@@ -987,7 +999,56 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
         { status: 400, headers: corsHeaders },
       );
     }
-    const bytes = yield* readEffectBinary(request, SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES);
+    const incomingRequest = NodeHttpServerRequest.toIncomingMessage(request);
+    const rawRequestState = () => ({
+      complete: incomingRequest.complete,
+      destroyed: incomingRequest.destroyed,
+      readableAborted: incomingRequest.readableAborted,
+      readableEnded: incomingRequest.readableEnded,
+      readableLength: incomingRequest.readableLength,
+      socketBytesRead: incomingRequest.socket.bytesRead,
+    });
+    incomingRequest.once("aborted", () =>
+      voiceLog.error("voice upload request aborted", rawRequestState()),
+    );
+    incomingRequest.once("end", () =>
+      voiceLog.info("voice upload request ended", rawRequestState()),
+    );
+    incomingRequest.once("error", (error) =>
+      voiceLog.error("voice upload request errored", {
+        ...rawRequestState(),
+        error: error.message,
+      }),
+    );
+    incomingRequest.once("close", () =>
+      voiceLog.info("voice upload request closed", rawRequestState()),
+    );
+    const bytes = yield* readEffectBinary(request, SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES).pipe(
+      Effect.tapError((error) =>
+        Effect.sync(() =>
+          voiceLog.error("voice upload body read failed", {
+            status: error.status,
+            error: error.message,
+            cause:
+              error.cause instanceof Error
+                ? error.cause.message
+                : error.cause === undefined
+                  ? null
+                  : String(error.cause),
+          }),
+        ),
+      ),
+      Effect.onExit((exit) =>
+        Effect.sync(() => {
+          if (exit._tag === "Failure") {
+            voiceLog.error("voice upload body read exited", {
+              cause: Cause.pretty(exit.cause),
+            });
+          }
+        }),
+      ),
+    );
+    voiceLog.info("voice upload body read", { audioBytes: bytes.byteLength });
     const registry = yield* ProviderAdapterRegistry;
     const adapter = yield* registry.getByProvider(provider as never);
     if (!adapter.transcribeVoice) {
@@ -1014,17 +1075,28 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
       internalProviderId: null,
       nativeStateIdentity: `voice-transcription:${connectionId}`,
     });
-    const result = yield* adapter.transcribeVoice({
-      provider: provider as never,
-      connectionId: ProviderConnectionId.makeUnsafe(connectionId),
-      cwd,
-      ...(threadId ? { threadId: ThreadId.makeUnsafe(threadId) } : {}),
-      mimeType,
-      sampleRateHz,
-      durationMs,
-      audioBase64: Buffer.from(bytes).toString("base64"),
-      managedLaunch,
-    });
+    const result = yield* adapter
+      .transcribeVoice({
+        provider: provider as never,
+        connectionId: ProviderConnectionId.makeUnsafe(connectionId),
+        cwd: cwd || process.cwd(),
+        ...(threadId ? { threadId: ThreadId.makeUnsafe(threadId) } : {}),
+        mimeType,
+        sampleRateHz,
+        durationMs,
+        audioBase64: Buffer.from(bytes).toString("base64"),
+        managedLaunch,
+      })
+      .pipe(
+        Effect.tapError((error) =>
+          Effect.sync(() =>
+            voiceLog.error("voice adapter failed", {
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          ),
+        ),
+      );
+    voiceLog.info("voice upload completed", { textLength: result.text.length });
     return HttpServerResponse.jsonUnsafe(result, { status: 200, headers: corsHeaders });
   }
 

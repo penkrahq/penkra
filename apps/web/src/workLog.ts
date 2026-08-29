@@ -193,6 +193,26 @@ const orderedActivitiesCache = new WeakMap<
   ReadonlyArray<OrchestrationThreadActivity>
 >();
 
+// Activity records are immutable normalized-store values. A live publication replaces only the
+// records that changed, while the thousands of historical records retain their identity. Keep the
+// payload-heavy normalization attached to that identity so an appended progress event does not
+// reparse every prior command payload on each render. Collapse and turn-settlement reconciliation
+// still run over the complete ordered sequence below, preserving their cross-event semantics.
+const derivedWorkLogEntryByActivity = new WeakMap<
+  OrchestrationThreadActivity,
+  DerivedWorkLogEntry
+>();
+
+function deriveActivityWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry {
+  const cached = derivedWorkLogEntryByActivity.get(activity);
+  if (cached) {
+    return cached;
+  }
+  const entry = toDerivedWorkLogEntry(activity);
+  derivedWorkLogEntryByActivity.set(activity, entry);
+  return entry;
+}
+
 function isActivityOrderStable(activities: ReadonlyArray<OrchestrationThreadActivity>): boolean {
   for (let index = 1; index < activities.length; index += 1) {
     if (compareActivitiesByOrder(activities[index - 1]!, activities[index]!) > 0) {
@@ -282,7 +302,7 @@ export function deriveWorkLogEntries(
     // Legacy output attribution is environment metadata, not transcript work.
     .filter((activity) => activity.kind !== LEGACY_OUTPUTS_CAPTURED_ACTIVITY_KIND)
     .filter((activity) => !isPlanBoundaryToolActivity(activity))
-    .map(toDerivedWorkLogEntry);
+    .map(deriveActivityWorkLogEntry);
   // Strip the derivation-only helpers that exist solely on DerivedWorkLogEntry.
   // `toolName` and `activityKind` are intentionally kept: they are public
   // WorkLogEntry fields that the timeline relies on to pick the right icon (e.g.

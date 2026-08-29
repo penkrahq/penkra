@@ -912,6 +912,9 @@ const updateInstallPreparation = makeUpdateInstallPreparationCoordinator();
 let desktopShutdownPromise: Promise<void> | null = null;
 let desktopStartupBlockedForMigrationRecovery = false;
 let desktopShutdownComplete = false;
+// Latched before internal quit/relaunch paths so `before-quit` can distinguish
+// a deliberate product transition from an unclassified user/OS/external request.
+let desktopQuitInitiator: string | null = null;
 let desktopProtocolRegistered = false;
 let aboutCommitHashCache: string | null | undefined;
 let appUpdateYmlCache: Record<string, string> | null | undefined;
@@ -4497,6 +4500,7 @@ async function shutdownDesktopRuntime(
 }
 
 function requestGracefulAppQuit(reason: string): void {
+  desktopQuitInitiator ??= reason;
   if (isUpdaterInstallPreparing) {
     writeDesktopLogHeader(`${reason} waiting for updater quit-and-install`);
     return;
@@ -6791,7 +6795,10 @@ function registerIpcHandlers(): void {
       voice: activeWorkState.voice,
     });
   });
-  registerDesktopVoiceTranscriptionHandler();
+  registerDesktopVoiceTranscriptionHandler({
+    getBackendWsUrl: () =>
+      normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env),
+  });
   startBrowserPerformanceLogging();
 }
 
@@ -7713,7 +7720,9 @@ async function bootstrap(): Promise<void> {
 }
 
 app.on("before-quit", (event) => {
-  writeDesktopLogHeader("before-quit received");
+  writeDesktopLogHeader(
+    `before-quit received initiator=${desktopQuitInitiator ?? "unclassified-user-os-or-external"}`,
+  );
   if (desktopShutdownComplete) {
     return;
   }

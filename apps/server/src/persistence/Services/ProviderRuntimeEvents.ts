@@ -129,6 +129,10 @@ export interface ProviderRuntimeEventRepositoryShape {
     ReadonlyArray<ProviderRuntimeProjectionFailure>,
     ProviderRuntimeEventRepositoryError
   >;
+  readonly listActiveProjectionFailures: Effect.Effect<
+    ReadonlyArray<ProviderRuntimeProjectionFailure>,
+    ProviderRuntimeEventRepositoryError
+  >;
   readonly getThreadProjectionFailure: (
     threadId: string,
   ) => Effect.Effect<ProviderRuntimeProjectionFailure | null, ProviderRuntimeEventRepositoryError>;

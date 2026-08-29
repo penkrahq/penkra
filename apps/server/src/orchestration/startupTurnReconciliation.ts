@@ -44,8 +44,12 @@ import {
   PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
   type PendingThreadRequestKind,
 } from "@penkra/shared/threadSummary";
-import { Effect, Option, Scope } from "effect";
+import { Effect } from "effect";
 
+import {
+  ProjectionPendingInteractionRepository,
+  type ProjectionPendingInteraction,
+} from "../persistence/Services/ProjectionPendingInteractions.ts";
 import { threadHasInFlightTurn } from "./commandInvariants.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
@@ -84,6 +88,10 @@ export interface ReconcilableThread {
   readonly messages?: ReadonlyArray<
     Pick<OrchestrationMessage, "id" | "role" | "streaming" | "turnId">
   >;
+  /** Exact unresolved rows are authoritative when supplied by startup reconciliation. */
+  readonly pendingInteractions?: ReadonlyArray<
+    Pick<ProjectionPendingInteraction, "interactionKind" | "requestId" | "status">
+  >;
   /** Every pending/running projection row, including older rows hidden by latestTurn. */
   readonly openTurnCount?: number;
 }
@@ -111,7 +119,9 @@ function planStreamingMessageSettlementCommands(input: {
  * in-process runtime could ever advance. A clean session (idle/ready/interrupted/
  * stopped/error with no active turn and no open turn) is left untouched.
  */
-function needsRestartReconciliation(thread: ReconcilableThread): boolean {
+function needsRestartReconciliation(
+  thread: Pick<ReconcilableThread, "session" | "latestTurn">,
+): boolean {
   return threadHasInFlightTurn(thread) || hasDanglingActiveTurn(thread);
 }
 
@@ -121,7 +131,9 @@ function needsRestartReconciliation(thread: ReconcilableThread): boolean {
  * the dangling `activeTurnId` keeps every "is this thread busy?" check true, so
  * the composer stays blocked and Stop stays armed with nothing to stop.
  */
-function hasDanglingActiveTurn(thread: ReconcilableThread): boolean {
+function hasDanglingActiveTurn(
+  thread: Pick<ReconcilableThread, "session" | "latestTurn">,
+): boolean {
   return thread.session?.activeTurnId != null && !threadHasInFlightTurn(thread);
 }
 
@@ -129,6 +141,18 @@ function planStalePendingRequestCommands(input: {
   readonly thread: ReconcilableThread;
   readonly now: string;
 }): ReadonlyArray<ThreadActivityAppendCommand> {
+  if (input.thread.pendingInteractions !== undefined) {
+    return input.thread.pendingInteractions
+      .filter((interaction) => interaction.status !== "confirmed")
+      .map((interaction) =>
+        buildStalePendingRequestCommand({
+          threadId: input.thread.id,
+          now: input.now,
+          requestKind: interaction.interactionKind === "approval" ? "approval" : "user-input",
+          requestId: interaction.requestId,
+        }),
+      );
+  }
   const pendingRequestIds = derivePendingThreadRequestIds({
     activities: input.thread.activities ?? [],
   });
@@ -312,118 +336,164 @@ export function planRestartTurnReconciliation(input: {
  * Reconcile restart-orphaned turns once at boot.
  *
  * Reads the engine's in-memory command read model (post-bootstrap projection
- * state, kept current as commands commit) and synchronously clears only the
- * lightweight session state required for command readiness. Full thread details
- * are hydrated in a caller-owned background scope to settle stale messages and
- * human requests. Every failure mode is contained and logged.
+ * state, kept current as commands commit) and synchronously settles exact open
+ * turns, streaming assistant messages, and unresolved human requests through
+ * targeted projection queries. It never hydrates transcript bodies.
  *
  * Deliberately not a second `getCommandReadModel()` load. That query costs ~150ms
  * on a large database and this runs on the blocking startup path before provider
  * replay begins, so re-reading it would be both slower and staler than the model
  * the engine is already maintaining.
  */
-export const reconcileRestartStuckTurns = (input: {
-  readonly backgroundScope: Scope.Closeable;
-}): Effect.Effect<void, never, OrchestrationEngineService | ProjectionSnapshotQuery> =>
-  Effect.gen(function* () {
-    const engine = yield* OrchestrationEngineService;
-    const snapshotQuery = yield* ProjectionSnapshotQuery;
+export const reconcileRestartStuckTurns: Effect.Effect<
+  void,
+  never,
+  OrchestrationEngineService | ProjectionSnapshotQuery | ProjectionPendingInteractionRepository
+> = Effect.gen(function* () {
+  const engine = yield* OrchestrationEngineService;
+  const snapshotQuery = yield* ProjectionSnapshotQuery;
+  const pendingInteractionRepository = yield* ProjectionPendingInteractionRepository;
 
-    const readModel = yield* engine.getCommandReadModel();
-    const openTurnCountRows = yield* snapshotQuery.listOpenTurnCounts().pipe(
+  const readModel = yield* engine.getCommandReadModel();
+  const openTurnCountRows = yield* snapshotQuery.listOpenTurnCounts().pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("restart turn reconciliation continuing without open-turn counts", {
+        cause,
+      }).pipe(Effect.as([] as const)),
+    ),
+  );
+  const openTurnCounts = new Map(
+    openTurnCountRows.map(({ threadId, count }) => [threadId, count] as const),
+  );
+  const unresolvedInteractions = yield* pendingInteractionRepository
+    .listUnresolved()
+    .pipe(
       Effect.catchCause((cause) =>
-        Effect.logWarning("restart turn reconciliation continuing without open-turn counts", {
-          cause,
-        }).pipe(Effect.as([] as const)),
+        Effect.logWarning(
+          "restart turn reconciliation continuing without unresolved interactions",
+          { cause },
+        ).pipe(Effect.as([] as const)),
       ),
     );
-    const openTurnCounts = new Map(
-      openTurnCountRows.map(({ threadId, count }) => [threadId, count] as const),
+  const unresolvedByThread = new Map<ThreadId, ProjectionPendingInteraction[]>();
+  for (const interaction of unresolvedInteractions) {
+    const rows = unresolvedByThread.get(interaction.threadId) ?? [];
+    rows.push(interaction);
+    unresolvedByThread.set(interaction.threadId, rows);
+  }
+  const streamingMessages = yield* snapshotQuery
+    .listStreamingAssistantMessages()
+    .pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning(
+          "restart turn reconciliation continuing without streaming assistant messages",
+          { cause },
+        ).pipe(Effect.as([] as const)),
+      ),
     );
+  const streamingMessagesByThread = new Map<ThreadId, typeof streamingMessages>();
+  for (const message of streamingMessages) {
+    streamingMessagesByThread.set(message.threadId, [
+      ...(streamingMessagesByThread.get(message.threadId) ?? []),
+      message,
+    ]);
+  }
 
-    const now = new Date().toISOString();
-    const threadsNeedingRestartCleanup = readModel.threads
-      .filter(
-        (thread) =>
-          thread.deletedAt === null &&
-          (needsRestartReconciliation(thread) ||
-            (openTurnCounts.get(thread.id) ?? 0) > 0 ||
-            thread.hasPendingApprovals ||
-            thread.hasPendingUserInput),
-      )
-      .map((thread) => ({
-        ...thread,
-        openTurnCount: openTurnCounts.get(thread.id) ?? 0,
-      }));
-    if (threadsNeedingRestartCleanup.length === 0) {
-      return;
-    }
-
-    const shellCommands = planRestartTurnReconciliation({
-      threads: threadsNeedingRestartCleanup,
-      now,
-    }).filter(
-      (command): command is ThreadSessionSetCommand => command.type === "thread.session.set",
-    );
-
-    yield* Effect.logInfo("reconciling restart-stuck turns", {
-      commandCount: shellCommands.length,
-      threadCount: threadsNeedingRestartCleanup.length,
-      threadIds: threadsNeedingRestartCleanup.map((thread) => thread.id),
-    });
-
-    yield* Effect.forEach(
-      shellCommands,
-      (command) =>
-        engine.dispatch(command).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning("failed to reconcile restart-stuck turn", {
-              threadId: command.threadId,
-              cause,
-            }),
-          ),
-        ),
-      { discard: true },
-    );
-
-    // Full thread hydration can be expensive for long-running installations. It
-    // is only needed to close orphaned streaming messages and stale human
-    // requests, so keep it out of the command-readiness path. The caller-owned
-    // scope makes this work supervised and cancels it during orderly shutdown.
-    yield* Effect.gen(function* () {
-      const reconcilableThreads = yield* Effect.forEach(
-        threadsNeedingRestartCleanup,
-        (thread) =>
-          snapshotQuery.getThreadDetailById(thread.id).pipe(
-            Effect.map((detail) => Option.getOrElse(detail, () => thread)),
-            Effect.catchCause((cause) =>
-              Effect.logWarning(
-                "restart turn reconciliation continuing without thread activities",
-                {
-                  threadId: thread.id,
-                  cause,
-                },
-              ).pipe(Effect.as(thread)),
-            ),
-          ),
-        { concurrency: 4 },
-      );
-      const detailCommands = planRestartTurnReconciliation({
-        threads: reconcilableThreads,
-        now,
-      }).filter((command) => command.type !== "thread.session.set");
-      yield* Effect.forEach(
-        detailCommands,
-        (command) =>
-          engine.dispatch(command).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("failed to reconcile restart-stuck turn detail", {
-                threadId: command.threadId,
-                cause,
-              }),
-            ),
-          ),
-        { discard: true },
-      );
-    }).pipe(Effect.forkIn(input.backgroundScope), Effect.asVoid);
+  const now = new Date().toISOString();
+  const commandThreadIds = new Set(readModel.threads.map((thread) => thread.id));
+  const unrepresentedOpenTurnThreadIds = Array.from(openTurnCounts.keys()).filter(
+    (threadId) => !commandThreadIds.has(threadId),
+  );
+  const unrepresentedInteractionThreadIds = Array.from(unresolvedByThread.keys()).filter(
+    (threadId) => !commandThreadIds.has(threadId),
+  );
+  const unrepresentedStreamingMessageThreadIds = Array.from(
+    streamingMessagesByThread.keys(),
+  ).filter((threadId) => !commandThreadIds.has(threadId));
+  const deletedThreadIdsWithRestartArtifacts = readModel.threads
+    .filter(
+      (thread) =>
+        thread.deletedAt !== null &&
+        ((openTurnCounts.get(thread.id) ?? 0) > 0 ||
+          unresolvedByThread.has(thread.id) ||
+          streamingMessagesByThread.has(thread.id)),
+    )
+    .map((thread) => thread.id);
+  const threadsNeedingRestartCleanup = readModel.threads
+    .filter(
+      (thread) =>
+        thread.deletedAt === null &&
+        (needsRestartReconciliation(thread) ||
+          (openTurnCounts.get(thread.id) ?? 0) > 0 ||
+          thread.hasPendingApprovals ||
+          thread.hasPendingUserInput ||
+          unresolvedByThread.has(thread.id) ||
+          streamingMessagesByThread.has(thread.id)),
+    )
+    .map((thread) => ({
+      ...thread,
+      openTurnCount: openTurnCounts.get(thread.id) ?? 0,
+      pendingInteractions: unresolvedByThread.get(thread.id) ?? [],
+      messages: (streamingMessagesByThread.get(thread.id) ?? []).map((message) => ({
+        id: message.messageId,
+        role: "assistant" as const,
+        streaming: true,
+        turnId: message.turnId,
+      })),
+    }));
+  yield* Effect.logInfo("restart turn reconciliation inspected persisted state", {
+    inspectedThreadCount: readModel.threads.length,
+    openTurnThreadCount: openTurnCounts.size,
+    unresolvedInteractionCount: unresolvedInteractions.length,
+    unresolvedInteractionThreadCount: unresolvedByThread.size,
+    unrepresentedInteractionThreadIds,
+    streamingAssistantMessageCount: streamingMessages.length,
+    streamingAssistantMessageThreadCount: streamingMessagesByThread.size,
+    unrepresentedStreamingMessageThreadIds,
+    unrepresentedOpenTurnThreadIds,
+    deletedThreadIdsWithRestartArtifacts,
+    selectedThreadCount: threadsNeedingRestartCleanup.length,
+    selectedThreadIds: threadsNeedingRestartCleanup.map((thread) => thread.id),
   });
+  if (threadsNeedingRestartCleanup.length === 0) {
+    return;
+  }
+
+  const reconciliationCommands = planRestartTurnReconciliation({
+    threads: threadsNeedingRestartCleanup,
+    now,
+  });
+
+  yield* Effect.logInfo("reconciling restart-stuck turns", {
+    commandCount: reconciliationCommands.length,
+    threadCount: threadsNeedingRestartCleanup.length,
+    threadIds: threadsNeedingRestartCleanup.map((thread) => thread.id),
+  });
+
+  yield* Effect.forEach(
+    reconciliationCommands,
+    (command) =>
+      engine.dispatch(command).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("failed to reconcile restart-stuck turn", {
+            threadId: command.threadId,
+            cause,
+          }),
+        ),
+      ),
+    { discard: true },
+  );
+
+  yield* Effect.logInfo("restart turn reconciliation completed", {
+    interactionCommandCount: reconciliationCommands.filter(
+      (command) => command.type === "thread.activity.append",
+    ).length,
+    streamingMessageCommandCount: reconciliationCommands.filter(
+      (command) => command.type === "thread.message.assistant.complete",
+    ).length,
+    sessionCommandCount: reconciliationCommands.filter(
+      (command) => command.type === "thread.session.set",
+    ).length,
+    threadCount: threadsNeedingRestartCleanup.length,
+  });
+});

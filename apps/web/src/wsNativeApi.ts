@@ -176,6 +176,10 @@ async function requestAuthJson<T>(
 async function requestVoiceTranscriptionUpload(
   input: Parameters<NativeApi["server"]["transcribeVoice"]>[0],
 ) {
+  const desktopTranscription = window.desktopBridge?.voice?.transcribeWithServer;
+  if (desktopTranscription) {
+    return desktopTranscription(input);
+  }
   const params = new URLSearchParams({
     provider: input.provider,
     connectionId: input.connectionId,
@@ -190,9 +194,10 @@ async function requestVoiceTranscriptionUpload(
   for (let index = 0; index < decoded.length; index += 1) {
     bytes[index] = decoded.charCodeAt(index);
   }
+  const audioBody = new Blob([bytes], { type: input.mimeType });
   const response = await fetch(
     resolveWsHttpUrl(`${VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH}?${params.toString()}`),
-    { method: "POST", credentials: "include", body: bytes },
+    { method: "POST", credentials: "include", body: audioBody },
   );
   const payload = (await response.json().catch(() => null)) as
     | ServerVoiceTranscriptionResult

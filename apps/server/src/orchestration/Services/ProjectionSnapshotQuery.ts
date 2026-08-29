@@ -18,6 +18,7 @@ import type {
   OrchestrationThread,
   OrchestrationThreadShell,
   FolderId,
+  MessageId,
   SpaceId,
   ThreadId,
   TurnId,
@@ -44,6 +45,12 @@ export interface ProjectionGeneratedImageActivityRecord {
 export interface ProjectionOpenTurnCount {
   readonly threadId: ThreadId;
   readonly count: number;
+}
+
+export interface ProjectionStreamingAssistantMessage {
+  readonly threadId: ThreadId;
+  readonly messageId: MessageId;
+  readonly turnId: TurnId | null;
 }
 
 /**
@@ -93,6 +100,12 @@ export interface ProjectionSnapshotQueryShape {
   /** Count every non-terminal turn per thread for restart-time settlement. */
   readonly listOpenTurnCounts: () => Effect.Effect<
     ReadonlyArray<ProjectionOpenTurnCount>,
+    ProjectionRepositoryError
+  >;
+
+  /** Exact assistant messages whose producer cannot survive a server restart. */
+  readonly listStreamingAssistantMessages: () => Effect.Effect<
+    ReadonlyArray<ProjectionStreamingAssistantMessage>,
     ProjectionRepositoryError
   >;
 

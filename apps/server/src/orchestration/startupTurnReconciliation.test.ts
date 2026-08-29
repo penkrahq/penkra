@@ -1,4 +1,4 @@
-import { EventId, MessageId, ThreadId, TurnId } from "@penkra/contracts";
+import { ApprovalRequestId, EventId, MessageId, ThreadId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -472,6 +472,38 @@ describe("planRestartTurnReconciliation", () => {
       session: {
         status: "interrupted",
         activeTurnId: null,
+      },
+    });
+  });
+
+  it("uses exact unresolved rows and settles a response claimed before restart", () => {
+    const commands = planRestartTurnReconciliation({
+      threads: [
+        makeThread("claimed-request", {
+          pendingInteractions: [
+            {
+              interactionKind: "userInput",
+              requestId: ApprovalRequestId.makeUnsafe("claimed-input"),
+              status: "responding",
+            },
+          ],
+          // Exact projection rows are authoritative; a bounded activity body may be empty.
+          activities: [],
+        }),
+      ],
+      now: NOW,
+    });
+
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toMatchObject({
+      type: "thread.activity.append",
+      threadId: "claimed-request",
+      activity: {
+        kind: "provider.user-input.respond.failed",
+        payload: {
+          requestId: "claimed-input",
+          failureCode: "PENDING_INTERACTION_NOT_FOUND",
+        },
       },
     });
   });

@@ -647,6 +647,8 @@ describe("migration backups", () => {
         expect(replayed).toEqual([
           [152, "TypedLegacyPendingInteractionFailures"],
           [153, "TypedLegacyPendingInteractionProjectionRepair"],
+          [154, "RestartReconciliationIndexes"],
+          [155, "ThreadSidebarPreviewIndex"],
         ]);
       }),
     );

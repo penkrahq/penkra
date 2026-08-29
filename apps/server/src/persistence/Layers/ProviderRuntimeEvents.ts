@@ -825,6 +825,38 @@ const make = Effect.gen(function* () {
       );
     });
 
+  const listActiveProjectionFailures: ProviderRuntimeEventRepositoryShape["listActiveProjectionFailures"] =
+    Effect.gen(function* () {
+      const rows = yield* sql<Record<string, unknown>>`
+        SELECT
+          sequence,
+          event_id AS "eventId",
+          thread_id AS "threadId",
+          turn_id AS "turnId",
+          event_type AS "eventType",
+          error_fingerprint AS "errorFingerprint",
+          error_detail AS "errorDetail",
+          attempt_count AS "attemptCount",
+          first_failed_at AS "firstFailedAt",
+          last_failed_at AS "lastFailedAt",
+          next_retry_at AS "nextRetryAt",
+          status,
+          quarantined_at AS "quarantinedAt",
+          resolved_at AS "resolvedAt"
+        FROM provider_runtime_projection_failures
+        WHERE status = 'active'
+        ORDER BY next_retry_at ASC, sequence ASC
+      `.pipe(
+        Effect.mapError(toPersistenceSqlError("ProviderRuntimeEvent.listActiveProjectionFailures")),
+      );
+      return yield* Effect.forEach(
+        rows,
+        (row) =>
+          decodeProjectionFailure(row, "ProviderRuntimeEvent.listActiveProjectionFailures.row"),
+        { concurrency: 1 },
+      );
+    });
+
   const getThreadProjectionFailure: ProviderRuntimeEventRepositoryShape["getThreadProjectionFailure"] =
     (threadId) =>
       Effect.gen(function* () {
@@ -1066,6 +1098,7 @@ const make = Effect.gen(function* () {
     advanceThreadCursorInCurrentTransaction,
     recordProjectionFailure,
     listQuarantinedProjectionFailures,
+    listActiveProjectionFailures,
     getThreadProjectionFailure,
     releaseQuarantinedThread,
     getConsumerCursor,
