@@ -69,10 +69,18 @@ export class AppOperationCatalog {
     if (!app || !isEnabled(state, app.appId, input.spaceId)) {
       throw new Error(`App ${input.slug} is not installed in Space ${input.spaceId}.`);
     }
+    const declaration =
+      input.operation === undefined
+        ? undefined
+        : app.manifest.operations?.find((operation) => operation.key === input.operation);
+    const operationInstructions = declaration?.instructionsPath
+      ? await readPackageText(app, declaration.instructionsPath, "operation guidance")
+      : undefined;
     return generateAppHelp({
       manifest: app.manifest,
       instructions: await readInstructions(app),
       ...(input.operation === undefined ? {} : { operation: input.operation }),
+      ...(operationInstructions === undefined ? {} : { operationInstructions }),
     });
   }
 
@@ -110,23 +118,31 @@ function isEnabled(state: AppInstallationState, appId: string, spaceId: string):
 }
 
 async function readInstructions(app: InstalledAppPackage): Promise<string> {
+  return readPackageText(app, "INSTRUCTIONS.md", "instructions");
+}
+
+async function readPackageText(
+  app: InstalledAppPackage,
+  relativePath: string,
+  label: string,
+): Promise<string> {
   const packagePath = Path.resolve(app.packagePath);
-  const instructionsPath = Path.resolve(packagePath, "INSTRUCTIONS.md");
-  if (Path.dirname(instructionsPath) !== packagePath)
-    throw new Error("App instructions path escaped its package.");
-  const stats = await FS.promises.lstat(instructionsPath);
+  const textPath = Path.resolve(packagePath, relativePath);
+  if (!textPath.startsWith(`${packagePath}${Path.sep}`))
+    throw new Error(`App ${label} path escaped its package.`);
+  const stats = await FS.promises.lstat(textPath);
   if (!stats.isFile() || stats.isSymbolicLink() || stats.size > PENKRA_APP_INSTRUCTIONS_MAX_BYTES) {
-    throw new Error(`App ${app.slug} instructions are not a valid bounded file.`);
+    throw new Error(`App ${app.slug} ${label} is not a valid bounded file.`);
   }
-  const bytes = await FS.promises.readFile(instructionsPath);
-  let instructions: string;
+  const bytes = await FS.promises.readFile(textPath);
+  let contents: string;
   try {
-    instructions = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    contents = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch (error) {
-    throw new Error(`App ${app.slug} instructions are not valid UTF-8.`, { cause: error });
+    throw new Error(`App ${app.slug} ${label} is not valid UTF-8.`, { cause: error });
   }
-  if (!instructions.trim()) throw new Error(`App ${app.slug} instructions are empty.`);
-  return instructions;
+  if (!contents.trim()) throw new Error(`App ${app.slug} ${label} is empty.`);
+  return contents;
 }
 
 async function resolveSkillPath(app: InstalledAppPackage, relativePath: string): Promise<string> {
