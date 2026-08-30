@@ -42,6 +42,7 @@ function installBridge() {
   const browserWebviewAttach = vi.fn(async () => undefined);
   const browserWebviewDidFailLoad = vi.fn(async () => undefined);
   const browserWebviewDetach = vi.fn(async () => undefined);
+  const browserHostedPageBounds = vi.fn(async () => undefined);
   Object.defineProperty(window, "desktopBridge", {
     configurable: true,
     value: {
@@ -50,6 +51,7 @@ function installBridge() {
         browserWebviewAttach,
         browserWebviewDidFailLoad,
         browserWebviewDetach,
+        browserHostedPageBounds,
         frameCall,
         frameMessage,
         frameReady,
@@ -67,6 +69,7 @@ function installBridge() {
     browserWebviewAttach,
     browserWebviewDidFailLoad,
     browserWebviewDetach,
+    browserHostedPageBounds,
     frameCall,
     frameMessage,
     frameReady,
@@ -297,7 +300,8 @@ describe("AppDockPane Runtime v2 frame", () => {
     expect(webview.getAttribute("partition")).toBe("persist:app-space-browser");
     expect(webview.getAttribute("src")).toBe("https://example.com");
     expect(webview.hasAttribute("allowpopups")).toBe(true);
-    expect(webview.getAttribute("useragent")).not.toMatch(/Electron|Penkra/iu);
+    expect(webview.getAttribute("useragent")).not.toMatch(/Electron/iu);
+    expect(webview.getAttribute("useragent")).toContain("Penkra/0.11.3");
     expect(webview.getAttribute("useragent")).toContain("Chrome/144.0.7559.236");
     expect(webview.style.top).toBe("44px");
     expect(webview.style.right).toBe("8px");
@@ -408,6 +412,94 @@ describe("AppDockPane Runtime v2 frame", () => {
     expect(document.querySelector("webview")).toBe(webview);
     expect(bridge.browserWebviewAttach).toHaveBeenCalledOnce();
     expect(bridge.browserWebviewDetach).not.toHaveBeenCalled();
+  });
+
+  it("presents an OAuth auxiliary context as a host-managed Browser page", async () => {
+    const bridge = installBridge();
+    await render(
+      <div className="h-80 w-[640px]">
+        <AppDockPane
+          appName="Browser"
+          documentUrl={FRAME_DOCUMENT}
+          rendererId={-2}
+          status="ready"
+          tabId="oauth-browser-tab"
+          visible={true}
+        />
+      </div>,
+    );
+    await vi.waitFor(() => expect(bridge.frameReady).toHaveBeenCalledOnce());
+    const opener = {
+      id: "page-opener",
+      url: "https://account.example/login",
+      title: "Account",
+      presentation: "renderer",
+    };
+    bridge.emitHostMessage({
+      tabId: "oauth-browser-tab",
+      rendererId: -2,
+      delivery: {
+        kind: "event",
+        name: "browser.state",
+        payload: {
+          activePageId: "page-oauth",
+          pages: [
+            opener,
+            {
+              id: "page-oauth",
+              url: "https://accounts.google.com/o/oauth2/auth",
+              title: "Sign in",
+              presentation: "host",
+            },
+          ],
+        },
+      },
+    });
+    bridge.emitHostMessage({
+      tabId: "oauth-browser-tab",
+      rendererId: -2,
+      delivery: {
+        kind: "event",
+        name: "browser.surface",
+        payload: {
+          partition: "persist:oauth-browser",
+          insets: { top: 44, right: 8, bottom: 16, left: 8 },
+        },
+      },
+    });
+
+    await vi.waitFor(() =>
+      expect(bridge.browserHostedPageBounds).toHaveBeenCalledWith({
+        tabId: "oauth-browser-tab",
+        rendererId: -2,
+        pageId: "page-oauth",
+        bounds: expect.objectContaining({ width: expect.any(Number), height: expect.any(Number) }),
+        rendererSurfaceActive: true,
+      }),
+    );
+    expect(document.querySelector('[data-hosted-browser-page-id="page-oauth"]')).not.toBeNull();
+    expect(document.querySelectorAll("webview")).toHaveLength(1);
+
+    bridge.emitHostMessage({
+      tabId: "oauth-browser-tab",
+      rendererId: -2,
+      delivery: {
+        kind: "event",
+        name: "browser.state",
+        payload: { activePageId: opener.id, pages: [opener] },
+      },
+    });
+    await vi.waitFor(() =>
+      expect(bridge.browserHostedPageBounds).toHaveBeenCalledWith({
+        tabId: "oauth-browser-tab",
+        rendererId: -2,
+        pageId: "page-oauth",
+        bounds: null,
+        rendererSurfaceActive: true,
+      }),
+    );
+    expect(document.querySelector('[data-hosted-browser-page-id="page-oauth"]')).toBeNull();
+    expect((document.querySelector("webview") as HTMLElement).style.visibility).toBe("visible");
   });
 
   it("retains every Browser page while presentation switches between pages and Apps", async () => {

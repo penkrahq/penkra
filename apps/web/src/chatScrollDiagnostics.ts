@@ -1,5 +1,5 @@
 // FILE: chatScrollDiagnostics.ts
-// Purpose: Captures opt-in development evidence for transcript end-scroll failures.
+// Purpose: Captures bounded, opt-in evidence for transcript end-scroll failures.
 // Layer: Web chat diagnostics
 
 interface ScrollGeometrySource {
@@ -84,7 +84,7 @@ const MAX_SAMPLES = 2_000;
 const DIAGNOSTICS_SESSION_KEY = "penkra:chat-scroll-diagnostics-enabled";
 
 function readSessionEnabled(): boolean {
-  if (!import.meta.env.DEV || typeof sessionStorage === "undefined") return false;
+  if (typeof sessionStorage === "undefined") return false;
   try {
     return sessionStorage.getItem(DIAGNOSTICS_SESSION_KEY) === "1";
   } catch {
@@ -93,7 +93,7 @@ function readSessionEnabled(): boolean {
 }
 
 function writeSessionEnabled(enabled: boolean): void {
-  if (!import.meta.env.DEV || typeof sessionStorage === "undefined") return;
+  if (typeof sessionStorage === "undefined") return;
   try {
     if (enabled) {
       sessionStorage.setItem(DIAGNOSTICS_SESSION_KEY, "1");
@@ -114,7 +114,7 @@ const state = {
 };
 
 function diagnosticsAvailable(): boolean {
-  return import.meta.env.DEV && typeof performance !== "undefined";
+  return typeof performance !== "undefined";
 }
 
 function finiteOrNull(value: unknown): number | null {
@@ -307,7 +307,11 @@ declare global {
   }
 }
 
-if (import.meta.env.DEV && typeof window !== "undefined") {
+// The hook is present in packaged builds so a failing installation can be
+// observed in place. Recording remains disabled by default, bounded by
+// MAX_SAMPLES, and contains geometry/identity metadata rather than transcript
+// text.
+if (typeof window !== "undefined") {
   window.penkraChatScroll = {
     enable: enableChatScrollDiagnostics,
     disable: disableChatScrollDiagnostics,

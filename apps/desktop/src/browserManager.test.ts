@@ -2,7 +2,14 @@ import { EventEmitter } from "node:events";
 
 import { ThreadId } from "@penkra/contracts";
 import { nativeImage } from "electron";
-import type { BrowserWindow, View, WebContents, WebContentsView } from "electron";
+import type {
+  BrowserView,
+  BrowserWindow,
+  BrowserWindowConstructorOptions,
+  View,
+  WebContents,
+  WebContentsView,
+} from "electron";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DesktopBrowserManager } from "./browserManager";
@@ -14,7 +21,10 @@ const { loadExtension } = vi.hoisted(() => ({
     url: "chrome-extension://dark-reader-id/",
     manifest: {
       browser_action: {
-        default_icon: { 19: "icons/dr_active_19.png", 38: "icons/dr_active_38.png" },
+        default_icon: {
+          19: "icons/dr_active_19.png",
+          38: "icons/dr_active_38.png",
+        },
         default_popup: "ui/popup/index.html",
       },
     },
@@ -41,7 +51,9 @@ vi.mock("electron", () => ({
   },
   screen: {
     getCursorScreenPoint: vi.fn(() => ({ x: 0, y: 0 })),
-    getDisplayNearestPoint: vi.fn(() => ({ workArea: { x: 0, y: 0, width: 1000, height: 800 } })),
+    getDisplayNearestPoint: vi.fn(() => ({
+      workArea: { x: 0, y: 0, width: 1000, height: 800 },
+    })),
   },
   session: {
     fromPartition: () => ({
@@ -75,20 +87,31 @@ type WindowOpenHandler = (details: WindowOpenDetails) => {
   action: "allow" | "deny";
   overrideBrowserWindowOptions?: object;
   outlivesOpener?: boolean;
+  createWindow?: (options: Electron.BrowserWindowConstructorOptions) => WebContents;
 };
 
 class FakeWebContents extends EventEmitter {
   readonly id = 1;
-  readonly debugger = { isAttached: vi.fn(() => false), attach: vi.fn(), detach: vi.fn() };
+  readonly debugger = {
+    isAttached: vi.fn(() => false),
+    attach: vi.fn(),
+    detach: vi.fn(),
+    sendCommand: vi.fn(async () => undefined),
+  };
   windowOpenHandler: WindowOpenHandler | null = null;
   currentUrl = "https://example.com/";
   currentTitle = "Example";
   loading = false;
+  destroyed = false;
   readonly session = { fetch: vi.fn() };
 
   setUserAgent = vi.fn();
   setZoomFactor = vi.fn();
-  isDestroyed = vi.fn(() => false);
+  isDestroyed = vi.fn(() => this.destroyed);
+  close = vi.fn(() => {
+    this.destroyed = true;
+    this.emit("destroyed");
+  });
   findInPage = vi.fn(() => 7);
   executeJavaScript = vi.fn(async (): Promise<unknown[]> => []);
   getURL = vi.fn(() => this.currentUrl);
@@ -121,6 +144,12 @@ class FakeNativeView {
   readonly removeChildView = vi.fn();
   readonly setBounds = vi.fn();
   readonly setVisible = vi.fn();
+}
+
+class FakeHostedPageView extends FakeNativeView {
+  constructor(readonly webContents: FakeWebContents) {
+    super();
+  }
 }
 
 interface BrowserManagerCharacterizationAccess {
@@ -216,7 +245,10 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       },
     );
 
-    await expect(resultPromise).resolves.toEqual({ activeMatchOrdinal: 2, matches: 3 });
+    await expect(resultPromise).resolves.toEqual({
+      activeMatchOrdinal: 2,
+      matches: 3,
+    });
     expect(webContents.listenerCount("found-in-page")).toBe(0);
     expect(webContents.listenerCount("destroyed")).toBe(0);
   });
@@ -241,7 +273,10 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       });
       await vi.advanceTimersByTimeAsync(2_000);
 
-      await expect(resultPromise).resolves.toEqual({ activeMatchOrdinal: 0, matches: 0 });
+      await expect(resultPromise).resolves.toEqual({
+        activeMatchOrdinal: 0,
+        matches: 0,
+      });
       expect(webContents.listenerCount("found-in-page")).toBe(0);
       expect(webContents.listenerCount("destroyed")).toBe(0);
     } finally {
@@ -267,7 +302,10 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
     if (!secondTabId) return;
     expect(withSecondTab.activeTabId).toBe(firstTabId);
 
-    const selected = manager.selectTab({ threadId: THREAD_ID, tabId: secondTabId });
+    const selected = manager.selectTab({
+      threadId: THREAD_ID,
+      tabId: secondTabId,
+    });
     expect(selected.activeTabId).toBe(secondTabId);
     expect(states).toHaveBeenCalledTimes(1);
 
@@ -289,7 +327,13 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       manager as unknown as {
         states: Map<
           ThreadId,
-          { tabs: Array<{ id: string; isLoading: boolean; lastError: string | null }> }
+          {
+            tabs: Array<{
+              id: string;
+              isLoading: boolean;
+              lastError: string | null;
+            }>;
+          }
         >;
       }
     ).states.get(THREAD_ID);
@@ -479,7 +523,10 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
 
   it("recovers a missed page favicon on attach and converts it to an App-safe data URL", async () => {
     const manager = new DesktopBrowserManager();
-    const opened = manager.open({ threadId: THREAD_ID, initialUrl: "https://example.com" });
+    const opened = manager.open({
+      threadId: THREAD_ID,
+      initialUrl: "https://example.com",
+    });
     const tabId = opened.activeTabId;
     expect(tabId).not.toBeNull();
     if (!tabId) return;
@@ -524,7 +571,10 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
   it("reports the underlying Electron load failure while keeping concise UI copy", () => {
     const reportLoadFailure = vi.fn();
     const manager = new DesktopBrowserManager({ reportLoadFailure });
-    const opened = manager.open({ threadId: THREAD_ID, initialUrl: "https://example.com" });
+    const opened = manager.open({
+      threadId: THREAD_ID,
+      initialUrl: "https://example.com",
+    });
     const tabId = opened.activeTabId;
     expect(tabId).not.toBeNull();
     if (!tabId) return;
@@ -563,11 +613,29 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
   });
 
   it("applies the same popup, tab-open, and scheme-denial policy to tabs and popups", async () => {
-    const manager = new DesktopBrowserManager();
+    const auxiliaryContents: FakeWebContents[] = [];
+    const manager = new DesktopBrowserManager({
+      createBrowserView: (options) => {
+        const contents =
+          (
+            options as BrowserWindowConstructorOptions & {
+              webContents?: FakeWebContents;
+            }
+          ).webContents ?? new FakeWebContents();
+        expect(contents.setUserAgent).toHaveBeenCalledTimes(1);
+        auxiliaryContents.push(contents);
+        return new FakeHostedPageView(contents) as unknown as BrowserView;
+      },
+    });
     const initial = manager.open({ threadId: THREAD_ID });
     const tabId = initial.activeTabId;
     expect(tabId).not.toBeNull();
     if (!tabId) return;
+    manager.newTab({
+      threadId: THREAD_ID,
+      url: "https://background.example",
+      activate: false,
+    });
 
     const tabContents = new FakeWebContents();
     const popup = new FakePopupWindow();
@@ -594,14 +662,40 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       if (!handler) continue;
       const sourceContents =
         handler === tabContents.windowOpenHandler ? tabContents : popup.webContents;
+      const beforePopupOpen = manager.getState({ threadId: THREAD_ID });
+      const popupResponse = handler({
+        url: "https://auth.example",
+        frameName: "auth",
+        features: "width=480,height=640",
+        disposition: "new-window",
+      });
+      expect(popupResponse).toMatchObject({
+        action: "allow",
+        createWindow: expect.any(Function),
+      });
+      const chromiumPopupContents = new FakeWebContents();
+      const popupContents = popupResponse.createWindow?.({
+        webPreferences: {},
+        webContents: chromiumPopupContents,
+      } as BrowserWindowConstructorOptions);
+      expect(popupContents).toBe(chromiumPopupContents);
+      expect(popupContents).toBe(auxiliaryContents.at(-1));
+      expect(chromiumPopupContents.setUserAgent).toHaveBeenCalledTimes(3);
+      expect(chromiumPopupContents.debugger.attach).toHaveBeenCalledWith("1.3");
+      expect(chromiumPopupContents.debugger.sendCommand).toHaveBeenCalledWith(
+        "Emulation.setUserAgentOverride",
+        expect.objectContaining({ userAgent: expect.not.stringMatching(/Electron/iu) }),
+      );
+      const afterPopupOpen = manager.getState({ threadId: THREAD_ID });
+      expect(afterPopupOpen.tabs).toHaveLength(beforePopupOpen.tabs.length + 1);
       expect(
-        handler({
-          url: "https://auth.example",
-          frameName: "auth",
-          features: "width=480,height=640",
-          disposition: "new-window",
-        }),
-      ).toMatchObject({ action: "allow", overrideBrowserWindowOptions: expect.any(Object) });
+        afterPopupOpen.tabs.find((tab) => tab.id === afterPopupOpen.activeTabId)?.presentation,
+      ).toBe("host");
+      auxiliaryContents.at(-1)?.emit("destroyed");
+      expect(manager.getState({ threadId: THREAD_ID }).tabs).toHaveLength(
+        beforePopupOpen.tabs.length,
+      );
+      expect(manager.getState({ threadId: THREAD_ID }).activeTabId).toBe(tabId);
 
       const beforeFormOpen = manager.getState({ threadId: THREAD_ID }).tabs.length;
       const genericFormResponse = handler({
@@ -621,8 +715,14 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       expect(genericFormResponse).toMatchObject({
         action: "allow",
         outlivesOpener: true,
-        overrideBrowserWindowOptions: expect.not.objectContaining({ show: false }),
+        createWindow: expect.any(Function),
       });
+      genericFormResponse.createWindow?.({
+        webPreferences: {},
+        webContents: new FakeWebContents(),
+      } as BrowserWindowConstructorOptions);
+      expect(manager.getState({ threadId: THREAD_ID }).tabs).toHaveLength(beforeFormOpen + 1);
+      auxiliaryContents.at(-1)?.emit("destroyed");
 
       const formResponse = handler({
         url: "https://management.mxroute.com/panel-login",
@@ -648,7 +748,10 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
         url: "https://management.mxroute.com/panel-login",
         frameName: "",
         options: {},
-        referrer: { url: "https://account.example/dashboard", policy: "strict-origin" },
+        referrer: {
+          url: "https://account.example/dashboard",
+          policy: "strict-origin",
+        },
         disposition: "foreground-tab",
       });
       expect(handoffPopup.hide).toHaveBeenCalledOnce();
@@ -662,19 +765,32 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       );
 
       const beforeTabOpen = manager.getState({ threadId: THREAD_ID }).tabs.length;
+      const tabResponse = handler({
+        url: "https://docs.example",
+        frameName: "",
+        features: "",
+        disposition: "foreground-tab",
+      });
+      expect(tabResponse).toMatchObject({
+        action: "allow",
+        outlivesOpener: true,
+        createWindow: expect.any(Function),
+      });
+      const chromiumTabContents = new FakeWebContents();
       expect(
-        handler({
-          url: "https://docs.example",
-          frameName: "",
-          features: "",
-          disposition: "foreground-tab",
-        }),
-      ).toEqual({ action: "deny" });
+        tabResponse.createWindow?.({
+          webPreferences: {},
+          webContents: chromiumTabContents,
+        } as BrowserWindowConstructorOptions),
+      ).toBe(chromiumTabContents);
       const afterTabOpen = manager.getState({ threadId: THREAD_ID });
       expect(afterTabOpen.tabs).toHaveLength(beforeTabOpen + 1);
       expect(afterTabOpen.tabs.find((tab) => tab.id === afterTabOpen.activeTabId)?.url).toBe(
-        "https://docs.example/",
+        "https://docs.example",
       );
+      expect(
+        afterTabOpen.tabs.find((tab) => tab.id === afterTabOpen.activeTabId)?.presentation,
+      ).toBe("host");
 
       const beforeSchemeDenial = afterTabOpen.tabs.length;
       expect(
@@ -737,10 +853,13 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
     expect(beforeInputEvent).toHaveBeenCalledWith(event, input);
     expect(event.preventDefault).toHaveBeenCalledOnce();
 
-    (manager as unknown as { runtimes: Map<string, { webContents: WebContents }> }).runtimes.set(
-      "zoom-test",
-      { webContents: tabContents as unknown as WebContents },
-    );
+    (
+      manager as unknown as {
+        runtimes: Map<string, { webContents: WebContents }>;
+      }
+    ).runtimes.set("zoom-test", {
+      webContents: tabContents as unknown as WebContents,
+    });
     manager.setZoomFactor(0.8);
     expect(tabContents.setZoomFactor).toHaveBeenLastCalledWith(0.8);
   });
@@ -861,7 +980,12 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
     expect(hostedContainer.removeChildView).toHaveBeenCalledWith(pageView);
     expect(windowRoot.removeChildView).toHaveBeenCalledWith(hostedContainer);
     expect(pageView.setVisible).toHaveBeenLastCalledWith(false);
-    expect(pageView.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 0, height: 0 });
+    expect(pageView.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+    });
   });
 
   it("tracks renderer surface activity without accepting renderer geometry", () => {
@@ -887,7 +1011,10 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
     vi.useFakeTimers();
     try {
       const manager = new DesktopBrowserManager();
-      const opened = manager.open({ threadId: THREAD_ID, initialUrl: "https://console.example" });
+      const opened = manager.open({
+        threadId: THREAD_ID,
+        initialUrl: "https://console.example",
+      });
       const tabId = opened.activeTabId;
       expect(tabId).not.toBeNull();
       if (!tabId) return;
@@ -933,7 +1060,10 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
 
   it("gives agents the existing live page while its Browser App is hidden", async () => {
     const manager = new DesktopBrowserManager();
-    const opened = manager.open({ threadId: THREAD_ID, initialUrl: "https://console.example" });
+    const opened = manager.open({
+      threadId: THREAD_ID,
+      initialUrl: "https://console.example",
+    });
     const tabId = opened.activeTabId;
     expect(tabId).not.toBeNull();
     if (!tabId) return;

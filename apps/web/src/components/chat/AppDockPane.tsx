@@ -46,10 +46,7 @@ export function AppDockPane(props: {
   );
   const browserUserAgent = useMemo(
     () =>
-      deriveChromeUserAgent(
-        typeof navigator === "undefined" ? "Mozilla/5.0" : navigator.userAgent,
-        ["Penkra"],
-      ),
+      deriveChromeUserAgent(typeof navigator === "undefined" ? "Mozilla/5.0" : navigator.userAgent),
     [],
   );
 
@@ -186,8 +183,31 @@ export function AppDockPane(props: {
         />
       ) : null}
       {browserSurface && browserSurfacePartition
-        ? browserState?.pages.map((page) =>
-            page.url === "about:blank" ? null : (
+        ? browserState?.pages.map((page) => {
+            const isActive = page.id === browserPage?.id;
+            const isPresented =
+              props.visible && browserSurfacePresented && isActive && !page.lastError;
+            const surfaceStyle: CSSProperties = {
+              top: browserSurface.insets.top,
+              right: browserSurface.insets.right,
+              bottom: browserSurface.insets.bottom,
+              left: browserSurface.insets.left,
+              visibility: isPresented ? "visible" : "hidden",
+            };
+            if (page.presentation === "host") {
+              return (
+                <HostedBrowserNativePage
+                  active={isPresented}
+                  key={page.id}
+                  pageId={page.id}
+                  rendererId={props.rendererId}
+                  rendererSurfaceActive={props.visible && browserSurfacePresented}
+                  style={surfaceStyle}
+                  tabId={props.tabId}
+                />
+              );
+            }
+            return page.url === "about:blank" ? null : (
               <HostedBrowserWebview
                 initialUrl={page.url}
                 key={page.id}
@@ -196,24 +216,12 @@ export function AppDockPane(props: {
                 rendererId={props.rendererId}
                 tabId={props.tabId}
                 useragent={browserUserAgent}
-                style={{
-                  top: browserSurface.insets.top,
-                  right: browserSurface.insets.right,
-                  bottom: browserSurface.insets.bottom,
-                  left: browserSurface.insets.left,
-                  // Presentation is independent from lifetime: hidden App tabs and inactive
-                  // Browser pages keep their live guest so auth and transient page state survive.
-                  visibility:
-                    props.visible &&
-                    browserSurfacePresented &&
-                    page.id === browserPage?.id &&
-                    !page.lastError
-                      ? "visible"
-                      : "hidden",
-                }}
+                // Presentation is independent from lifetime: hidden App tabs and inactive
+                // Browser pages keep their live guest so auth and transient page state survive.
+                style={surfaceStyle}
               />
-            ),
-          )
+            );
+          })
         : null}
       {props.visible && simulatorSurface && simulatorFrame ? (
         <img
@@ -253,6 +261,73 @@ export function AppDockPane(props: {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function HostedBrowserNativePage(props: {
+  active: boolean;
+  pageId: string;
+  rendererId: number;
+  rendererSurfaceActive: boolean;
+  style: CSSProperties;
+  tabId: string;
+}) {
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const bridge = window.desktopBridge?.appTabs;
+    const surface = surfaceRef.current;
+    if (!bridge || !surface) return;
+    let scheduledFrame: number | null = null;
+
+    const publish = () => {
+      scheduledFrame = null;
+      const rect = props.active ? surface.getBoundingClientRect() : null;
+      const bounds =
+        rect && rect.width > 0 && rect.height > 0
+          ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+          : null;
+      void bridge.browserHostedPageBounds({
+        tabId: props.tabId,
+        rendererId: props.rendererId,
+        pageId: props.pageId,
+        bounds,
+        rendererSurfaceActive: props.rendererSurfaceActive,
+      });
+    };
+    const schedule = () => {
+      if (scheduledFrame !== null) return;
+      scheduledFrame = window.requestAnimationFrame(publish);
+    };
+
+    const resizeObserver = new ResizeObserver(schedule);
+    resizeObserver.observe(surface);
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+    schedule();
+    return () => {
+      if (scheduledFrame !== null) window.cancelAnimationFrame(scheduledFrame);
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+      void bridge.browserHostedPageBounds({
+        tabId: props.tabId,
+        rendererId: props.rendererId,
+        pageId: props.pageId,
+        bounds: null,
+        rendererSurfaceActive: props.rendererSurfaceActive,
+      });
+    };
+  }, [props.active, props.pageId, props.rendererId, props.rendererSurfaceActive, props.tabId]);
+
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute z-10 bg-background"
+      data-hosted-browser-page-id={props.pageId}
+      ref={surfaceRef}
+      style={props.style}
+    />
   );
 }
 

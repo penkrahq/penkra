@@ -1,6 +1,6 @@
 {
   "name": "@penkra/web",
-  "version": "0.11.19",
+  "version": "0.11.20",
   "private": true,
   "type": "module",
   "scripts": {

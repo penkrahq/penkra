@@ -17,6 +17,15 @@ const ELECTRON_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Penkra/0.3.1 Chrome/124.0.6367.91 Electron/30.0.1 Safari/537.36";
 
 describe("deriveChromeUserAgent", () => {
+  it("retains an identifying host product token unless explicitly asked to remove it", () => {
+    expect(deriveChromeUserAgent(ELECTRON_UA)).toContain("Penkra/0.3.1");
+    expect(deriveChromeUserAgent(ELECTRON_UA)).not.toMatch(/Electron/iu);
+
+    const devUserAgent = ELECTRON_UA.replace("Penkra/0.3.1", "PenkraDev3/0.3.1");
+    expect(deriveChromeUserAgent(devUserAgent)).toContain("PenkraDev3/0.3.1");
+    expect(deriveChromeUserAgent(devUserAgent)).not.toMatch(/Electron/iu);
+  });
+
   it("strips Electron and app product tokens to leave a vanilla Chrome UA", () => {
     expect(deriveChromeUserAgent(ELECTRON_UA, ["Penkra"])).toBe(
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.91 Safari/537.36",

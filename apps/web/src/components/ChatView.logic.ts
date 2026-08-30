@@ -339,17 +339,16 @@ export function resolveCycledModelSlug(input: {
 export type ThreadDetailHydration = "ready" | "loading" | "failed";
 
 /**
- * A server thread's shell row alone cannot distinguish "no messages" from
- * "history not loaded yet", so an empty timeline only counts as a genuine empty
- * landing once the detail snapshot has been applied. Local draft threads have no
- * server detail to wait for and are always ready.
+ * A server thread's retained rows are not proof that its authoritative newest
+ * page has been applied in this store lifetime. Keep both empty and stale
+ * retained timelines behind hydration until detail sync completes. Local draft
+ * threads have no server detail to wait for and are always ready.
  */
 export function resolveThreadDetailHydration(input: {
   readonly isServerThread: boolean;
-  readonly hasTimelineEntries: boolean;
   readonly detailSyncState: "synced" | "failed" | null;
 }): ThreadDetailHydration {
-  if (!input.isServerThread || input.hasTimelineEntries || input.detailSyncState === "synced") {
+  if (!input.isServerThread || input.detailSyncState === "synced") {
     return "ready";
   }
   return input.detailSyncState === "failed" ? "failed" : "loading";

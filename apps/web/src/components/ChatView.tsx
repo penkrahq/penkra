@@ -138,6 +138,7 @@ import {
   resolveCycledModelSlug,
   resolveProjectScriptTerminalTarget,
   resolvePromptHistoryNavigation,
+  resolveThreadDetailHydration,
   shouldHandlePromptHistoryNavigationKey,
   shouldEnableComposerPastedTextCollapse,
   shouldConsumePendingCustomBinaryConfirmation,
@@ -325,6 +326,7 @@ import {
 import { useNowMs } from "~/hooks/useNowMs";
 import { ChatPerformanceBoundary } from "~/chatPerformanceDiagnostics";
 import { ChatTranscriptPane } from "./chat/ChatTranscriptPane";
+import { ThreadDetailHydrationState } from "./chat/ThreadDetailHydrationState";
 import { ComposerDefault } from "./middle-panel/composer-default/ComposerDefault";
 import { ThreadScreen3Rails } from "./middle-panel/thread-screen-3-rails/ThreadScreen3Rails";
 import { ThreadScreenEmpty } from "./middle-panel/thread-screen-empty/ThreadScreenEmpty";
@@ -747,6 +749,9 @@ export default function ChatView({
   const isFocusedPane = isFocusedPaneProp ?? true;
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
+  const syncServerThreadTurnsPage = useStore((store) => store.syncServerThreadTurnsPage);
+  const markThreadDetailSyncFailed = useStore((store) => store.markThreadDetailSyncFailed);
+  const clearThreadDetailSyncFailure = useStore((store) => store.clearThreadDetailSyncFailure);
   const setStoreThreadError = useStore((store) => store.setError);
   const { settings } = useAppSettings();
   const assistantDeliveryMode = resolveAssistantDeliveryMode(settings);
@@ -880,6 +885,7 @@ export default function ChatView({
   const markWorkflowRunPaused = useWorkflowRunUiStore((store) => store.markPaused);
   const markWorkflowRunDismissed = useWorkflowRunUiStore((store) => store.markDismissed);
   const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
+  const threadDetailSyncState = useStore((store) => store.threadDetailSyncById?.[threadId] ?? null);
   const composerThreadSummaries = useStore(
     useMemo(() => createComposerThreadMentionSourcesSelector(), []),
   );
@@ -1476,6 +1482,26 @@ export default function ChatView({
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
+  const threadDetailHydration = resolveThreadDetailHydration({
+    isServerThread,
+    detailSyncState: threadDetailSyncState,
+  });
+  const retryThreadDetailHydration = useCallback(() => {
+    if (!isServerThread) return;
+    const api = readNativeApi();
+    if (!api) return;
+    clearThreadDetailSyncFailure(threadId);
+    void api.orchestration
+      .getThreadTurnsPage({ threadId })
+      .then(syncServerThreadTurnsPage)
+      .catch(() => markThreadDetailSyncFailed(threadId));
+  }, [
+    clearThreadDetailSyncFailure,
+    isServerThread,
+    markThreadDetailSyncFailed,
+    syncServerThreadTurnsPage,
+    threadId,
+  ]);
   const previousIsServerThreadRef = useRef(isServerThread);
   const composerPromotionClearPendingRef = useRef(false);
   useLayoutEffect(() => {
@@ -2941,7 +2967,10 @@ export default function ChatView({
   const handleTogglePinMessageGuarded = handleTogglePinMessage;
   // Empty top-level threads render the centered landing composer instead of the transcript pane.
   // Every empty top-level draft uses the parent-aware Pencil prompt and folder picker.
-  const isCenteredEmptyLanding = timelineEntries.length === 0 && !activeThread?.parentThreadId;
+  const isCenteredEmptyLanding =
+    threadDetailHydration === "ready" &&
+    timelineEntries.length === 0 &&
+    !activeThread?.parentThreadId;
   const isEmptyChatLanding =
     isCenteredEmptyLanding && Boolean(homeDir) && isContainerLandingProject;
 
@@ -8101,47 +8130,56 @@ export default function ChatView({
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                   <ChatPerformanceBoundary surface="transcript">
-                    <ChatTranscriptPane
-                      activeThreadId={activeThread.id}
-                      activeTurnId={activeThread.session?.activeTurnId ?? null}
-                      agentActivityDetail={openAgentActivityDetail}
-                      hasMessages={timelineEntries.length > 0}
-                      isWorking={showThinking}
-                      activeTurnInProgress={activeTurnInProgress}
-                      activeTurnStartedAt={activeWorkStartedAt}
-                      listRef={transcriptListRef}
-                      pinnedMessageIds={pinnedMessageIds}
-                      canPinMessage={CAN_PIN_ANY_MESSAGE}
-                      onTogglePinMessage={handleTogglePinMessageGuarded}
-                      enteringUserMessageIds={enteringUserMessageIds}
-                      crossTaskOrigin={crossTaskOrigin}
-                      timelineEntries={timelineEntries}
-                      onOpenThread={onNavigateToThread}
-                      subagentToolTraceByThreadId={subagentToolTraceByThreadId}
-                      onEditUserMessage={onEditUserMessageFromTranscript}
-                      onExpandTimelineImage={onExpandTimelineImage}
-                      onIsAtEndChange={onIsAtEndChange}
-                      markdownCwd={threadWorkspaceCwd ?? undefined}
-                      resolvedTheme={resolvedTheme}
-                      chatFontSizePx={settings.chatFontSizePx}
-                      timestampFormat={timestampFormat}
-                      workspaceRoot={threadWorkspaceCwd ?? undefined}
-                      emptyStateProjectName={activeProjectDisplayName}
-                      onMessagesScroll={onMessagesScroll}
-                      onMessagesClickCapture={onMessagesClickCapture}
-                      onMessagesMouseUp={onMessagesMouseUp}
-                      onMessagesWheel={onMessagesWheel}
-                      onMessagesPointerDown={onMessagesPointerDown}
-                      onMessagesPointerUp={onMessagesPointerUp}
-                      onMessagesPointerCancel={onMessagesPointerCancel}
-                      onMessagesTouchStart={onMessagesTouchStart}
-                      onMessagesTouchMove={onMessagesTouchMove}
-                      onMessagesTouchEnd={onMessagesTouchEnd}
-                      onOpenAgentActivity={setOpenAgentActivityId}
-                      onCloseAgentActivityDetail={closeAgentActivityDetail}
-                      scrollButtonVisible={showScrollToBottom}
-                      onScrollToBottom={onScrollToBottom}
-                    />
+                    {threadDetailHydration === "ready" ? (
+                      <ChatTranscriptPane
+                        activeThreadId={activeThread.id}
+                        activeTurnId={activeThread.session?.activeTurnId ?? null}
+                        agentActivityDetail={openAgentActivityDetail}
+                        hasMessages={timelineEntries.length > 0}
+                        isWorking={showThinking}
+                        activeTurnInProgress={activeTurnInProgress}
+                        activeTurnStartedAt={activeWorkStartedAt}
+                        listRef={transcriptListRef}
+                        pinnedMessageIds={pinnedMessageIds}
+                        canPinMessage={CAN_PIN_ANY_MESSAGE}
+                        onTogglePinMessage={handleTogglePinMessageGuarded}
+                        enteringUserMessageIds={enteringUserMessageIds}
+                        crossTaskOrigin={crossTaskOrigin}
+                        timelineEntries={timelineEntries}
+                        onOpenThread={onNavigateToThread}
+                        subagentToolTraceByThreadId={subagentToolTraceByThreadId}
+                        onEditUserMessage={onEditUserMessageFromTranscript}
+                        onExpandTimelineImage={onExpandTimelineImage}
+                        onIsAtEndChange={onIsAtEndChange}
+                        markdownCwd={threadWorkspaceCwd ?? undefined}
+                        resolvedTheme={resolvedTheme}
+                        chatFontSizePx={settings.chatFontSizePx}
+                        timestampFormat={timestampFormat}
+                        workspaceRoot={threadWorkspaceCwd ?? undefined}
+                        emptyStateProjectName={activeProjectDisplayName}
+                        onMessagesScroll={onMessagesScroll}
+                        onMessagesClickCapture={onMessagesClickCapture}
+                        onMessagesMouseUp={onMessagesMouseUp}
+                        onMessagesWheel={onMessagesWheel}
+                        onMessagesPointerDown={onMessagesPointerDown}
+                        onMessagesPointerUp={onMessagesPointerUp}
+                        onMessagesPointerCancel={onMessagesPointerCancel}
+                        onMessagesTouchStart={onMessagesTouchStart}
+                        onMessagesTouchMove={onMessagesTouchMove}
+                        onMessagesTouchEnd={onMessagesTouchEnd}
+                        onOpenAgentActivity={setOpenAgentActivityId}
+                        onCloseAgentActivityDetail={closeAgentActivityDetail}
+                        scrollButtonVisible={showScrollToBottom}
+                        onScrollToBottom={onScrollToBottom}
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center">
+                        <ThreadDetailHydrationState
+                          state={threadDetailHydration}
+                          onRetry={retryThreadDetailHydration}
+                        />
+                      </div>
+                    )}
                   </ChatPerformanceBoundary>
                 </div>
 

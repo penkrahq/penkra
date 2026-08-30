@@ -95,6 +95,7 @@ function TranscriptVirtualListInner<TItem>(
     diagnosticInstanceIdRef.current = nextChatScrollDiagnosticInstanceId();
   }
   const previousDataKeysRef = useRef<readonly string[]>([]);
+  const previousDataRef = useRef<readonly TItem[] | null>(null);
   const getItemKey = useCallback(
     (index: number) => keyExtractor(data[index]!),
     [data, keyExtractor],
@@ -115,7 +116,7 @@ function TranscriptVirtualListInner<TItem>(
   const initialEndFollowRef = useRef(false);
   const initialEndTimerRef = useRef<number | null>(null);
   const initialEndFrameCountRef = useRef(0);
-  const initialEndStableFramesRef = useRef(0);
+  const initialEndFollowMaxIndexRef = useRef(-1);
   const endFollowAnchorRevisionRef = useRef<string | null>(null);
   const endFollowHadDataRef = useRef(false);
   const scheduleInitialEndCorrectionRef = useRef<((source: string) => void) | null>(null);
@@ -212,13 +213,54 @@ function TranscriptVirtualListInner<TItem>(
         scheduleInitialAnchorRestoreRef.current?.();
       }
       if (initialEndFollowRef.current) {
-        // A late measurement can invalidate the estimated tail and needs one
-        // more convergence check. Do not reset stable progress here: measuring
-        // the range produced by that check is normal and otherwise creates a
-        // measurement -> scroll -> range -> measurement feedback loop. The
-        // correction itself resets stability when geometry is genuinely away
-        // from the rendered end.
-        scheduleInitialEndCorrectionRef.current?.("row-measured");
+        const measuredIndex = Number(element.getAttribute("data-index"));
+        // Tail ownership remains event-driven after the first correct reveal.
+        // A later ResizeObserver delivery schedules exactly one correction;
+        // there is no continuously running measurement -> scroll loop. Rows
+        // appended without a semantic transcript revision (tool/work chrome)
+        // are outside this ownership generation and cannot pull the reader.
+        if (measuredIndex <= initialEndFollowMaxIndexRef.current) {
+          if (initialPlacementResolvedRef.current) {
+            // ResizeObserver delivery runs before paint. Once the true tail has
+            // been revealed, preserve it in this same delivery so a late
+            // Markdown/font/image resize cannot expose one intermediate frame.
+            window.queueMicrotask(() => {
+              if (
+                !initialEndFollowRef.current ||
+                !initialEndFollowEligibleRef.current ||
+                measuredIndex > initialEndFollowMaxIndexRef.current
+              ) {
+                return;
+              }
+              const scrollElement = scrollElementRef.current;
+              if (!scrollElement) return;
+              // The virtualizer's synchronous resize/direct-DOM update has
+              // completed by this microtask. Align against the real final-row
+              // rectangle rather than scrollHeight, which may still include
+              // estimates for unmeasured rows and can overshoot the causal
+              // tail in either direction.
+              const tailElement = scrollElement.querySelector<HTMLElement>(
+                `[data-index="${initialEndFollowMaxIndexRef.current}"]`,
+              );
+              if (!tailElement) {
+                scheduleInitialEndCorrectionRef.current?.("measured-tail-unmounted");
+                return;
+              }
+              const viewportRect = scrollElement.getBoundingClientRect();
+              const tailRect = tailElement.getBoundingClientRect();
+              const targetBottom = viewportRect.bottom - paddingEnd;
+              scrollElement.scrollTop += tailRect.bottom - targetBottom;
+              if (
+                instance.scrollOffset !== null &&
+                Math.abs(instance.scrollOffset - scrollElement.scrollTop) > 0.5
+              ) {
+                scrollElement.dispatchEvent(new Event("scroll"));
+              }
+            });
+          } else {
+            scheduleInitialEndCorrectionRef.current?.("row-measured");
+          }
+        }
       }
       recordChatScrollDiagnostic({
         instanceId: diagnosticInstanceIdRef.current!,
@@ -500,31 +542,35 @@ function TranscriptVirtualListInner<TItem>(
           0,
           element.scrollHeight - element.clientHeight - element.scrollTop,
         );
-        const isSettledAtEnd = isAtRenderedTail(Math.max(1, paddingEnd));
-        initialEndStableFramesRef.current = isSettledAtEnd
-          ? initialEndStableFramesRef.current + 1
-          : 0;
+        const isTailVisible = isAtRenderedTail(Math.max(1, paddingEnd));
 
         recordDiagnostic("initial-end-follow:correction", {
           source,
           frame: initialEndFrameCountRef.current,
-          stableFrames: initialEndStableFramesRef.current,
+          isTailVisible,
           renderedTailIndex,
           distanceFromEnd,
         });
 
-        if (initialEndStableFramesRef.current >= 2) {
-          initialEndFollowRef.current = false;
-          recordDiagnostic("initial-end-follow:settled", {
-            frames: initialEndFrameCountRef.current,
-          });
-          resolveInitialPlacement("initial-end-follow-settled");
-          scheduleDiagnosticCheckpoints("initial-end-follow-settled");
+        if (isTailVisible) {
+          // Visibility and follow ownership are separate. Reveal only after
+          // the real final row is painted in the viewport, then retain
+          // event-driven ownership so late row measurements keep a reader who
+          // has not interacted pinned to that same causal tail.
+          if (!initialPlacementResolvedRef.current) {
+            recordDiagnostic("initial-end-follow:tail-visible", {
+              frames: initialEndFrameCountRef.current,
+            });
+            resolveInitialPlacement("initial-end-follow-tail-visible");
+            scheduleDiagnosticCheckpoints("initial-end-follow-tail-visible");
+          } else {
+            recordDiagnostic("initial-end-follow:tail-maintained");
+          }
           return;
         }
 
-        // This is a safety valve, not the settling strategy. Ordinary static
-        // transcripts finish once the measured tail is stable for two frames.
+        // This is a safety valve, not the readiness strategy. Ordinary static
+        // transcripts reveal as soon as the actual final row is visible.
         if (initialEndFrameCountRef.current >= 240) {
           cancelInitialPlacement("frame-limit");
           return;
@@ -646,6 +692,7 @@ function TranscriptVirtualListInner<TItem>(
 
   useLayoutEffect(() => {
     const previousKeys = previousDataKeysRef.current;
+    const dataReferenceChanged = previousDataRef.current !== data;
     const currentKeys = data.map((item) => keyExtractor(item));
     const previousFirstKey = previousKeys.at(0) ?? null;
     const preservedFirstIndex =
@@ -665,6 +712,25 @@ function TranscriptVirtualListInner<TItem>(
       preservedFirstIndex,
       prependedRowCount: preservedFirstIndex > 0 ? preservedFirstIndex : 0,
     });
+    if (
+      previousKeys.length > 0 &&
+      dataReferenceChanged &&
+      initialPlacementResolvedRef.current &&
+      !hasSemanticAppend &&
+      !hasLeadingPrepend
+    ) {
+      // A committed row-model update without a transcript revision is
+      // tool/status/approval chrome, not continued initial layout. Release
+      // tail ownership before its measurements arrive so generic activity
+      // cannot become an auto-stick signal. Intrinsic changes inside the
+      // already committed transcript (Markdown, fonts, images) do not replace
+      // `data` and remain protected by the measurement path above.
+      initialEndFollowRef.current = false;
+      recordDiagnostic("initial-end-follow:released", {
+        source: "non-semantic-data-commit",
+      });
+    }
+    previousDataRef.current = data;
     previousDataKeysRef.current = currentKeys;
   }, [
     data,
@@ -701,7 +767,7 @@ function TranscriptVirtualListInner<TItem>(
     didInitialScrollRef.current = true;
     initialEndFollowRef.current = true;
     initialEndFrameCountRef.current = 0;
-    initialEndStableFramesRef.current = 0;
+    initialEndFollowMaxIndexRef.current = data.length - 1;
     recordDiagnostic("initial-end-follow:started", { source });
     scheduleInitialEndCorrection(source);
   }, [anchorRevision, hasData, recordDiagnostic, scheduleInitialEndCorrection]);

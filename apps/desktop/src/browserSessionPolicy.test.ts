@@ -71,7 +71,7 @@ describe("BrowserSessionPolicy", () => {
     expect(electronMocks.fromPartition).toHaveBeenCalledWith(work);
   });
 
-  it("replaces identity headers case-insensitively without Electron product tokens", () => {
+  it("replaces identity headers case-insensitively while retaining the Penkra product token", () => {
     const policy = new BrowserSessionPolicy();
     policy.ensureConfigured();
     const listener = electronMocks.headerListener.current;
@@ -92,7 +92,8 @@ describe("BrowserSessionPolicy", () => {
     const normalizedHeaders = Object.fromEntries(
       Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]),
     );
-    expect(normalizedHeaders["user-agent"]).not.toMatch(/Electron|Penkra/iu);
+    expect(normalizedHeaders["user-agent"]).not.toMatch(/Electron/iu);
+    expect(normalizedHeaders["user-agent"]).toContain("Penkra/0.5.5");
     expect(normalizedHeaders["sec-ch-ua"]).not.toMatch(/Electron/iu);
     expect(normalizedHeaders["sec-ch-ua"]).not.toContain("Google Chrome");
     expect(normalizedHeaders["sec-ch-ua"]).toContain("Chromium");
@@ -142,7 +143,8 @@ describe("BrowserSessionPolicy", () => {
     policy.applyUserAgent(secondContents);
 
     const partitionUserAgent = electronMocks.partitionSetUserAgent.mock.calls[0]?.[0];
-    expect(partitionUserAgent).not.toMatch(/Electron|Penkra/iu);
+    expect(partitionUserAgent).not.toMatch(/Electron/iu);
+    expect(partitionUserAgent).toContain("Penkra/0.5.5");
     expect(firstContents.setUserAgent).toHaveBeenCalledWith(partitionUserAgent);
     expect(secondContents.setUserAgent).toHaveBeenCalledWith(partitionUserAgent);
   });

@@ -9,6 +9,7 @@ import * as Path from "node:path";
 
 import {
   app,
+  BrowserView,
   BrowserWindow,
   clipboard,
   nativeImage,
@@ -18,7 +19,7 @@ import {
   webContents as electronWebContents,
   WebContentsView,
 } from "electron";
-import type { WebContents } from "electron";
+import type { BrowserWindowConstructorOptions, WebContents } from "electron";
 import type {
   BrowserAttachWebviewInput,
   BrowserCaptureScreenshotResult,
@@ -67,8 +68,11 @@ interface LiveTabRuntime {
   threadId: ThreadId;
   tabId: string;
   webContents: WebContents;
-  view: WebContentsView | null;
+  view: WebContentsView | BrowserView | null;
   ownsWebContents: boolean;
+  /** True when this is Chromium's original auxiliary browsing context. */
+  hostManaged?: boolean;
+  openerTabId?: string;
   listenerDisposers: Array<() => void>;
 }
 
@@ -127,6 +131,8 @@ export interface DesktopBrowserManagerOptions {
   beforeInputEvent?: (event: Electron.Event, input: Electron.Input) => boolean;
   getWindowZoomFactor?: () => number;
   reportLoadFailure?: (failure: BrowserLoadFailure) => void;
+  createWebContentsView?: (options: Electron.WebContentsViewConstructorOptions) => WebContentsView;
+  createBrowserView?: (options: BrowserWindowConstructorOptions) => BrowserView;
 }
 
 export interface BrowserLoadFailure {
@@ -167,11 +173,15 @@ interface DetachedBrowserThread {
   readonly state: ThreadBrowserState;
 }
 
-function createBrowserTab(url = ABOUT_BLANK_URL): BrowserTabState {
+function createBrowserTab(
+  url = ABOUT_BLANK_URL,
+  presentation: BrowserTabState["presentation"] = "renderer",
+): BrowserTabState {
   return {
     id: Crypto.randomUUID(),
     url,
     title: defaultTitleForUrl(url),
+    presentation,
     status: SUSPENDED_TAB_STATUS,
     isLoading: false,
     canGoBack: false,
@@ -325,6 +335,7 @@ export class DesktopBrowserManager {
   private attachedBoundsSignature: string | null = null;
   private attachedParentView: View | null = null;
   private readonly hostedContainerByThreadId = new Map<ThreadId, HostedBrowserContainer>();
+  private readonly hostedPageIdByThreadId = new Map<ThreadId, string>();
   private readonly states = new Map<ThreadId, ThreadBrowserState>();
   private readonly sessionPartitionByThreadId = new Map<ThreadId, string>();
   private readonly threadVersionById = new Map<ThreadId, number>();
@@ -597,51 +608,37 @@ export class DesktopBrowserManager {
         features: details.features,
         disposition: details.disposition,
       });
-      if (details.postBody !== undefined) {
+      if (details.postBody !== undefined && details.url === MXROUTE_PANEL_LOGIN_URL) {
         // Chromium must perform signed POSTs itself so request bodies and navigation state are
-        // preserved. MXroute's handoff is promoted below after it reaches its exact dashboard URL;
-        // other POST-backed windows retain Chromium's normal visible popup behavior.
+        // preserved. MXroute's handoff is promoted below after it reaches its exact dashboard URL.
         const windowOptions = this.sessionPolicy.buildOAuthPopupWindowOptions(
           this.window,
           this.sessionPartition(threadId),
         );
-        if (details.url === MXROUTE_PANEL_LOGIN_URL) {
-          pendingFormHandoffUrls.push(details.url);
-          return {
-            action: "allow",
-            outlivesOpener: true,
-            overrideBrowserWindowOptions: { ...windowOptions, show: false },
-          };
-        }
+        pendingFormHandoffUrls.push(details.url);
         return {
           action: "allow",
           outlivesOpener: true,
-          overrideBrowserWindowOptions: windowOptions,
+          overrideBrowserWindowOptions: { ...windowOptions, show: false },
         };
       }
 
-      if (kind === "popup") {
-        // Allow (don't deny) so Electron creates a real child window that keeps
-        // the original request and `window.opener` relationship intact.
-        return {
-          action: "allow",
-          overrideBrowserWindowOptions: this.sessionPolicy.buildOAuthPopupWindowOptions(
-            this.window,
-            this.sessionPartition(threadId),
-          ),
-        };
-      }
-
-      this.newTab({
-        threadId,
-        url,
-        activate: true,
-      });
-      const bounds = this.getVisibleBoundsForThread(threadId);
-      if (this.activeThreadId === threadId && bounds) {
-        this.attachActiveTab(threadId, bounds);
-      }
-      return { action: "deny" };
+      // Preserve Chromium's original auxiliary browsing context for both popup-shaped windows
+      // and ordinary `_blank` tabs. Recreating tab-shaped opens from their URL loses opener,
+      // request, and navigation identity midway through sign-in flows such as PostHog + Google.
+      // Presentation stays inside Browser either way; tab-shaped contexts additionally survive
+      // their opener, matching normal browser-tab lifetime.
+      return {
+        action: "allow",
+        ...(kind === "tab" || details.postBody !== undefined ? { outlivesOpener: true } : {}),
+        createWindow: (options: BrowserWindowConstructorOptions) =>
+          this.createAuxiliaryTabRuntime({
+            threadId,
+            openerTabId: tabId,
+            url,
+            options,
+          }).webContents,
+      };
     });
 
     const didCreateWindow = (
@@ -661,6 +658,88 @@ export class DesktopBrowserManager {
       pendingFormHandoffUrls.length = 0;
       webContents.removeListener("did-create-window", didCreateWindow);
     });
+  }
+
+  private createAuxiliaryTabRuntime(input: {
+    threadId: ThreadId;
+    openerTabId: string;
+    url: string;
+    options: BrowserWindowConstructorOptions;
+  }): LiveTabRuntime {
+    const state = this.ensureWorkspace(input.threadId);
+    const tab = createBrowserTab(input.url || ABOUT_BLANK_URL, "host");
+    tab.status = LIVE_TAB_STATUS;
+    tab.isLoading = true;
+    state.tabs = [...state.tabs, tab];
+    state.activeTabId = tab.id;
+
+    const viewOptions: BrowserWindowConstructorOptions = {
+      ...input.options,
+      webPreferences: {
+        ...input.options.webPreferences,
+        partition: this.sessionPartition(input.threadId),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    };
+    const chromiumWebContents = (
+      input.options as BrowserWindowConstructorOptions & { webContents?: WebContents }
+    ).webContents;
+    // Chromium starts the auxiliary navigation before `createWindow` returns. Apply the
+    // Browser identity to its supplied WebContents before BrowserView adopts it; waiting for
+    // the generic runtime configurator leaves the initial OAuth request and navigator identity
+    // on Electron's default user agent.
+    if (chromiumWebContents) {
+      this.sessionPolicy.applyUserAgent(chromiumWebContents);
+    }
+    // Electron passes its already-created auxiliary WebContents through `options`. BrowserView's
+    // compatibility constructor adopts it; WebContentsView currently cannot, and constructing a
+    // second WebContents here terminates the main process. Keep this deprecated wrapper isolated
+    // to auxiliary browsing contexts until Electron provides equivalent adoption on its successor.
+    const view = this.options.createBrowserView?.(viewOptions) ?? new BrowserView(viewOptions);
+    const userAgent = this.sessionPolicy.applyUserAgent(view.webContents);
+    try {
+      if (!view.webContents.debugger.isAttached()) {
+        view.webContents.debugger.attach("1.3");
+      }
+      // Electron reapplies its default identity while Chromium adopts the auxiliary target.
+      // A target-level override is the authoritative navigator identity and persists across
+      // the provider redirect chain without recreating (and thereby severing) the opener.
+      void view.webContents.debugger
+        .sendCommand("Emulation.setUserAgentOverride", { userAgent })
+        .catch(() => undefined);
+    } catch {
+      // The ordinary WebContents + session overrides below remain the safe fallback when CDP
+      // cannot attach (for example, if DevTools owns the target during local inspection).
+    }
+    const runtime: LiveTabRuntime = {
+      key: buildRuntimeKey(input.threadId, tab.id),
+      threadId: input.threadId,
+      tabId: tab.id,
+      webContents: view.webContents,
+      view,
+      ownsWebContents: true,
+      hostManaged: true,
+      openerTabId: input.openerTabId,
+      listenerDisposers: [],
+    };
+    this.configureRuntimeWebContents(runtime);
+    this.runtimes.set(runtime.key, runtime);
+
+    const destroyed = () => {
+      if (this.runtimes.get(runtime.key) !== runtime) return;
+      this.closeTab({ threadId: input.threadId, tabId: tab.id });
+    };
+    runtime.webContents.once("destroyed", destroyed);
+    runtime.listenerDisposers.push(() => {
+      runtime.webContents.removeListener("destroyed", destroyed);
+    });
+
+    syncThreadLastError(state);
+    this.markThreadStateChanged(input.threadId);
+    this.emitState(input.threadId);
+    return runtime;
   }
 
   private registerFormHandoffWindow(
@@ -688,7 +767,11 @@ export class DesktopBrowserManager {
         return;
       }
 
-      this.newTab({ threadId: context.threadId, url: dashboardUrl, activate: true });
+      this.newTab({
+        threadId: context.threadId,
+        url: dashboardUrl,
+        activate: true,
+      });
       const bounds = this.getVisibleBoundsForThread(context.threadId);
       if (this.activeThreadId === context.threadId && bounds) {
         this.attachActiveTab(context.threadId, bounds);
@@ -962,6 +1045,7 @@ export class DesktopBrowserManager {
 
     const hostedContainer = this.hostedContainerByThreadId.get(threadId) ?? null;
     this.hostedContainerByThreadId.delete(threadId);
+    this.hostedPageIdByThreadId.delete(threadId);
     const runtimes: LiveTabRuntime[] = [];
     for (const [key, runtime] of this.runtimes) {
       if (runtime.threadId !== threadId) continue;
@@ -994,9 +1078,17 @@ export class DesktopBrowserManager {
 
   private disposeDetachedThread(detached: DetachedBrowserThread): void {
     const failures: unknown[] = [];
-    if (detached.attachedRuntime?.view && detached.attachedParentView) {
+    if (detached.attachedRuntime?.view && detached.attachedRuntime.hostManaged && this.window) {
       try {
-        detached.attachedParentView.removeChildView(detached.attachedRuntime.view);
+        this.window.removeBrowserView(detached.attachedRuntime.view as BrowserView);
+      } catch (error) {
+        failures.push(error);
+      }
+    } else if (detached.attachedRuntime?.view && detached.attachedParentView) {
+      try {
+        detached.attachedParentView.removeChildView(
+          detached.attachedRuntime.view as WebContentsView,
+        );
       } catch (error) {
         failures.push(error);
       }
@@ -1146,7 +1238,11 @@ export class DesktopBrowserManager {
    */
   setHostedPanelBounds(input: BrowserHostedPanelBoundsInput): void {
     if (!input.bounds || !input.hostBounds || !input.parentView) {
-      this.setPanelBounds({ threadId: input.threadId, bounds: null, surface: "native" });
+      this.setPanelBounds({
+        threadId: input.threadId,
+        bounds: null,
+        surface: "native",
+      });
       this.destroyHostedContainer(input.threadId);
       return;
     }
@@ -1161,7 +1257,53 @@ export class DesktopBrowserManager {
       hosted.ownerView = input.parentView;
       if (this.activeThreadId === input.threadId) this.attachedBoundsSignature = null;
     }
-    this.setPanelBounds({ threadId: input.threadId, bounds: input.bounds, surface: "native" });
+    this.setPanelBounds({
+      threadId: input.threadId,
+      bounds: input.bounds,
+      surface: "native",
+    });
+  }
+
+  setHostedPageBounds(input: {
+    threadId: ThreadId;
+    tabId: string;
+    bounds: BrowserPanelBounds | null;
+    parentView: View | null;
+  }): boolean {
+    if (!input.bounds || !input.parentView) {
+      if (this.hostedPageIdByThreadId.get(input.threadId) !== input.tabId) return false;
+      this.hostedPageIdByThreadId.delete(input.threadId);
+      this.setPanelBounds({
+        threadId: input.threadId,
+        bounds: null,
+        surface: "native",
+      });
+      return true;
+    }
+
+    const state = this.states.get(input.threadId);
+    const tab = state ? this.getTab(state, input.tabId) : null;
+    const runtime = this.runtimes.get(buildRuntimeKey(input.threadId, input.tabId));
+    if (
+      !state ||
+      state.activeTabId !== input.tabId ||
+      tab?.presentation !== "host" ||
+      !runtime?.hostManaged ||
+      !runtime.view
+    ) {
+      return false;
+    }
+
+    this.hostedPageIdByThreadId.set(input.threadId, input.tabId);
+    // BrowserView attaches directly to BrowserWindow, so the renderer's window-relative DOM
+    // rectangle is already the coordinate space it needs. The exact page ID still guards cleanup
+    // from an older popup racing a newly chained provider window.
+    this.setPanelBounds({
+      threadId: input.threadId,
+      bounds: input.bounds,
+      surface: "native",
+    });
+    return true;
   }
 
   // Adopts the renderer-owned <webview> so the visible page and browser-use tools
@@ -1294,7 +1436,10 @@ export class DesktopBrowserManager {
       if (state.activeTabId === tab.id && bounds) {
         this.attachRuntime(nextRuntime, bounds);
       }
-      void this.loadTab(input.threadId, tab.id, { force: true, runtime: nextRuntime });
+      void this.loadTab(input.threadId, tab.id, {
+        force: true,
+        runtime: nextRuntime,
+      });
     }
 
     this.emitState(input.threadId);
@@ -1380,6 +1525,8 @@ export class DesktopBrowserManager {
 
   closeTab(input: BrowserTabInput): ThreadBrowserState {
     const state = this.ensureWorkspace(input.threadId);
+    const closingRuntime = this.runtimes.get(buildRuntimeKey(input.threadId, input.tabId));
+    const openerTabId = closingRuntime?.openerTabId ?? null;
     const nextTabs = state.tabs.filter((tab) => tab.id !== input.tabId);
     if (nextTabs.length === state.tabs.length) {
       return this.snapshotThreadState(input.threadId, state);
@@ -1404,7 +1551,10 @@ export class DesktopBrowserManager {
     }
 
     if (!state.activeTabId || state.activeTabId === input.tabId) {
-      state.activeTabId = nextTabs[Math.max(0, nextTabs.length - 1)]?.id ?? null;
+      state.activeTabId =
+        (openerTabId && nextTabs.some((tab) => tab.id === openerTabId) ? openerTabId : null) ??
+        nextTabs[Math.max(0, nextTabs.length - 1)]?.id ??
+        null;
     }
 
     const bounds = this.getVisibleBoundsForThread(input.threadId);
@@ -1727,6 +1877,15 @@ export class DesktopBrowserManager {
       return;
     }
 
+    // Renderer-hosted Browser pages initially publish a 1×1 activity sentinel. Auxiliary
+    // contexts need the real shell-reported page rectangle before their native view is attached.
+    if (
+      runtime.hostManaged &&
+      this.hostedPageIdByThreadId.get(runtime.threadId) !== runtime.tabId
+    ) {
+      return;
+    }
+
     const nextBoundsSignature = browserBoundsSignature(bounds);
     this.runtimeLastActiveAtByKey.set(runtime.key, Date.now());
     // Renderer-owned <webview> runtimes are already visible in React; keep any
@@ -1773,6 +1932,19 @@ export class DesktopBrowserManager {
       return;
     }
 
+    if (runtime.hostManaged) {
+      const view = runtime.view as BrowserView;
+      try {
+        window.removeBrowserView(view);
+      } catch {
+        // The auxiliary view may not be attached yet.
+      }
+      window.addBrowserView(view);
+      window.setTopBrowserView(view);
+      this.attachedParentView = null;
+      return;
+    }
+
     const hosted = this.hostedContainerByThreadId.get(runtime.threadId);
     const nextParent = hosted?.view ?? window.contentView;
 
@@ -1786,11 +1958,11 @@ export class DesktopBrowserManager {
     }
 
     try {
-      (this.attachedParentView ?? nextParent).removeChildView(runtime.view);
+      (this.attachedParentView ?? nextParent).removeChildView(runtime.view as WebContentsView);
     } catch {
       // Electron throws when the view is not attached yet; adding it below is the desired state.
     }
-    nextParent.addChildView(runtime.view);
+    nextParent.addChildView(runtime.view as WebContentsView);
     this.attachedParentView = nextParent;
   }
 
@@ -1805,6 +1977,7 @@ export class DesktopBrowserManager {
       }
     }
     this.hostedContainerByThreadId.delete(threadId);
+    this.hostedPageIdByThreadId.delete(threadId);
   }
 
   private destroyHostedContainers(): void {
@@ -1824,7 +1997,13 @@ export class DesktopBrowserManager {
     const runtime = this.runtimes.get(this.attachedRuntimeKey);
     if (runtime?.view) {
       this.setRuntimeViewHidden(runtime, true);
-      (this.attachedParentView ?? this.window.contentView).removeChildView(runtime.view);
+      if (runtime.hostManaged) {
+        this.window.removeBrowserView(runtime.view as BrowserView);
+      } else {
+        (this.attachedParentView ?? this.window.contentView).removeChildView(
+          runtime.view as WebContentsView,
+        );
+      }
     }
     this.attachedRuntimeKey = null;
     this.attachedBoundsSignature = null;
@@ -1906,7 +2085,6 @@ export class DesktopBrowserManager {
     // Belt-and-suspenders alongside the session-level UA: also covers an adopted renderer
     // <webview> for any navigation after it attaches.
     this.sessionPolicy.applyUserAgent(webContents);
-
     this.configureWindowOpenHandling(webContents, runtime, runtime.listenerDisposers);
 
     // The native page owns keyboard focus while browsing, so the renderer never sees the

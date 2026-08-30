@@ -1219,34 +1219,30 @@ describe("thread detail hydration", () => {
     expect(
       resolveThreadDetailHydration({
         isServerThread: false,
-        hasTimelineEntries: false,
         detailSyncState: null,
       }),
     ).toBe("ready");
     expect(
       resolveThreadDetailHydration({
         isServerThread: false,
-        hasTimelineEntries: false,
         detailSyncState: "failed",
       }),
     ).toBe("ready");
   });
 
-  it("renders existing timeline entries without waiting for a snapshot", () => {
+  it("does not treat retained timeline entries as an authoritative newest page", () => {
     expect(
       resolveThreadDetailHydration({
         isServerThread: true,
-        hasTimelineEntries: true,
         detailSyncState: null,
       }),
-    ).toBe("ready");
+    ).toBe("loading");
   });
 
   it("treats a synced empty thread as genuinely empty", () => {
     expect(
       resolveThreadDetailHydration({
         isServerThread: true,
-        hasTimelineEntries: false,
         detailSyncState: "synced",
       }),
     ).toBe("ready");
@@ -1256,7 +1252,6 @@ describe("thread detail hydration", () => {
     expect(
       resolveThreadDetailHydration({
         isServerThread: true,
-        hasTimelineEntries: false,
         detailSyncState: null,
       }),
     ).toBe("loading");
@@ -1266,7 +1261,6 @@ describe("thread detail hydration", () => {
     expect(
       resolveThreadDetailHydration({
         isServerThread: true,
-        hasTimelineEntries: false,
         detailSyncState: "failed",
       }),
     ).toBe("failed");

@@ -48,7 +48,11 @@ export class BrowserSessionPolicy {
 
   private resolveUserAgent(): string {
     if (this.spoofedUserAgent === null) {
-      this.spoofedUserAgent = deriveChromeUserAgent(app.userAgentFallback, [app.getName()]);
+      // Keep the host product token so packaged Penkra and Penkra Dev both identify
+      // themselves consistently. Removing it made only the packaged build look like
+      // Chromium while Dev accidentally retained PenkraDevN, and Google rejected the
+      // packaged identity as an insecure browser.
+      this.spoofedUserAgent = deriveChromeUserAgent(app.userAgentFallback);
     }
     return this.spoofedUserAgent;
   }
@@ -85,8 +89,10 @@ export class BrowserSessionPolicy {
     }
   }
 
-  applyUserAgent(webContents: Pick<WebContents, "setUserAgent">): void {
-    webContents.setUserAgent(this.resolveUserAgent());
+  applyUserAgent(webContents: Pick<WebContents, "setUserAgent">): string {
+    const userAgent = this.resolveUserAgent();
+    webContents.setUserAgent(userAgent);
+    return userAgent;
   }
 
   buildOAuthPopupWindowOptions(

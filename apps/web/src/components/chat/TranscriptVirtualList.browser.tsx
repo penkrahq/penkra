@@ -263,12 +263,11 @@ function PlacementFeedbackRow({ id }: { id: string }) {
   const [height, setHeight] = useState(7_200);
   useLayoutEffect(() => {
     let animationFrameId = 0;
+    let remainingChanges = 18;
     const tick = () => {
-      const scrollElement = rowRef.current?.closest<HTMLElement>(
-        '[data-testid="placement-feedback-virtual-scroll"]',
-      );
-      if (scrollElement?.getAttribute("data-initial-placement") !== "pending") return;
-      setHeight((current) => (current === 7_200 ? 7_201 : 7_200));
+      if (remainingChanges <= 0) return;
+      remainingChanges -= 1;
+      setHeight((current) => (current === 7_200 ? 9_000 : 7_200));
       animationFrameId = requestAnimationFrame(tick);
     };
     animationFrameId = requestAnimationFrame(tick);
@@ -409,13 +408,15 @@ describe("TranscriptVirtualList", () => {
         expect(samples.some((sample) => sample.event === "row-measured")).toBe(true);
         const firstMeasuredRow = samples.find((sample) => sample.event === "row-measured");
         expect(firstMeasuredRow?.detail.index).toBeGreaterThan(0);
-        expect(samples.some((sample) => sample.event === "initial-end-follow:settled")).toBe(true);
+        expect(samples.some((sample) => sample.event === "initial-end-follow:tail-visible")).toBe(
+          true,
+        );
         expect(samples.some((sample) => sample.event === "initial-placement:revealed")).toBe(true);
         expect(
           samples.some(
             (sample) =>
               sample.event === "scroll-checkpoint" &&
-              sample.detail.source === "initial-end-follow-settled" &&
+              sample.detail.source === "initial-end-follow-tail-visible" &&
               sample.dom !== null &&
               sample.virtual !== null,
           ),
@@ -425,7 +426,7 @@ describe("TranscriptVirtualList", () => {
       expect(
         samples.findIndex((sample) => sample.event === "initial-placement:revealed"),
       ).toBeGreaterThan(
-        samples.findIndex((sample) => sample.event === "initial-end-follow:settled"),
+        samples.findIndex((sample) => sample.event === "initial-end-follow:tail-visible"),
       );
       const scrollElement = screen.container.querySelector<HTMLElement>(
         '[data-testid="virtual-scroll"]',
@@ -466,7 +467,7 @@ describe("TranscriptVirtualList", () => {
         expect(scrollElement.textContent).toContain("heterogeneous-tail-row-240");
         expect(
           getChatScrollDiagnosticSamples().some(
-            (sample) => sample.event === "initial-end-follow:settled",
+            (sample) => sample.event === "initial-end-follow:tail-visible",
           ),
         ).toBe(true);
       });
@@ -490,7 +491,7 @@ describe("TranscriptVirtualList", () => {
     }
   });
 
-  it("reveals initial placement while measured tail geometry is still changing", async () => {
+  it("never exposes an intermediate range while measured tail geometry is still changing", async () => {
     const screen = await render(<PlacementFeedbackHarness />);
     try {
       const scrollElement = screen.container.querySelector<HTMLElement>(
@@ -503,6 +504,17 @@ describe("TranscriptVirtualList", () => {
         },
         { timeout: 1_000, interval: 20 },
       );
+      for (let frame = 0; frame < 18; frame += 1) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const tail = scrollElement.querySelector<HTMLElement>(
+          '[data-row-id="placement-feedback-row-8"]',
+        );
+        expect(tail).not.toBeNull();
+        const viewportRect = scrollElement.getBoundingClientRect();
+        const tailRect = tail!.getBoundingClientRect();
+        expect(tailRect.bottom).toBeGreaterThanOrEqual(viewportRect.top);
+        expect(tailRect.bottom).toBeLessThanOrEqual(viewportRect.bottom + 16);
+      }
     } finally {
       await screen.unmount();
     }
@@ -532,7 +544,7 @@ describe("TranscriptVirtualList", () => {
       await vi.waitFor(() => {
         expect(
           getChatScrollDiagnosticSamples().some(
-            (sample) => sample.event === "initial-end-follow:settled",
+            (sample) => sample.event === "initial-end-follow:tail-visible",
           ),
         ).toBe(true);
       });

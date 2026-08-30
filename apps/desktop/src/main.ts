@@ -39,6 +39,7 @@ import type {
 } from "electron";
 import * as Effect from "effect/Effect";
 import type {
+  BrowserPanelBounds,
   DesktopSpacesMenuInput,
   DesktopTheme,
   DesktopUpdateActionResult,
@@ -5568,6 +5569,54 @@ function registerIpcHandlers(): void {
       tabId: pageId,
       webContentsId,
     });
+  });
+  ipcMain.handle(IPC.appTabs.browserHostedPageBounds, async (event, input: unknown) => {
+    const tabs = requireShellAppTabs(event.sender.id);
+    if (!input || typeof input !== "object" || Array.isArray(input)) return;
+    const { tabId, rendererId, pageId, bounds, rendererSurfaceActive } = input as Record<
+      string,
+      unknown
+    >;
+    if (
+      typeof tabId !== "string" ||
+      typeof rendererId !== "number" ||
+      typeof pageId !== "string" ||
+      typeof rendererSurfaceActive !== "boolean"
+    ) {
+      return;
+    }
+    tabs.frameIdentity(tabId, rendererId);
+
+    let normalizedBounds: BrowserPanelBounds | null = null;
+    if (bounds !== null) {
+      if (!bounds || typeof bounds !== "object" || Array.isArray(bounds)) return;
+      const record = bounds as Record<string, unknown>;
+      if (
+        ![record.x, record.y, record.width, record.height].every(
+          (candidate) => typeof candidate === "number" && Number.isFinite(candidate),
+        ) ||
+        (record.width as number) <= 0 ||
+        (record.height as number) <= 0
+      ) {
+        return;
+      }
+      normalizedBounds = {
+        x: Math.max(0, Math.floor(record.x as number)),
+        y: Math.max(0, Math.floor(record.y as number)),
+        width: Math.floor(record.width as number),
+        height: Math.floor(record.height as number),
+      };
+    }
+
+    const didApplyHostedBounds = browserManager.setHostedPageBounds({
+      threadId: tabId as ThreadId,
+      tabId: pageId,
+      bounds: normalizedBounds,
+      parentView: mainWindow?.contentView ?? null,
+    });
+    if (normalizedBounds === null && didApplyHostedBounds) {
+      browserManager.setRendererSurfaceActive(tabId as ThreadId, rendererSurfaceActive);
+    }
   });
   ipcMain.handle(IPC.appTabs.frameCall, async (event, input: unknown) => {
     const tabs = requireShellAppTabs(event.sender.id);

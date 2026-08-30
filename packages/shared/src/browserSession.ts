@@ -188,9 +188,9 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Strips Electron + host-app product tokens from a base user agent so embedded pages see a
-// vanilla desktop Chrome UA. Google (and others) reject the default Electron UA with
-// `disallowed_useragent`, which blocks in-app OAuth sign-in entirely.
+// Strips Electron from a base user agent while retaining host product tokens by default.
+// Callers may explicitly name additional product tokens to remove when a vanilla Chromium
+// identity is genuinely required.
 export function deriveChromeUserAgent(
   baseUserAgent: string,
   appProductTokens: readonly string[] = [],

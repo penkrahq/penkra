@@ -95,6 +95,8 @@ export interface AppBrowserPage {
   id: string;
   url: string;
   title: string;
+  /** Host presentation preserves auxiliary `window.open` relationships such as OAuth. */
+  presentation?: "renderer" | "host";
   status: "live" | "suspended";
   isLoading: boolean;
   canGoBack: boolean;

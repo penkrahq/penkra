@@ -209,6 +209,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     browserWebviewDidFailLoad: (input) =>
       ipcRenderer.invoke(IPC.appTabs.browserWebviewDidFailLoad, input),
     browserWebviewDetach: (input) => ipcRenderer.invoke(IPC.appTabs.browserWebviewDetach, input),
+    browserHostedPageBounds: (input) =>
+      ipcRenderer.invoke(IPC.appTabs.browserHostedPageBounds, input),
     navigate: (input) => ipcRenderer.invoke(IPC.appTabs.navigate, input),
     close: (input) => ipcRenderer.invoke(IPC.appTabs.close, input),
     onListingRequested: (listener) => {

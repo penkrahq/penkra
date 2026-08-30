@@ -218,6 +218,8 @@ export interface BrowserTabState {
   id: string;
   url: string;
   title: string;
+  /** The shell embeds ordinary pages; auxiliary window contexts stay host-owned. */
+  presentation?: "renderer" | "host";
   status: "live" | "suspended";
   isLoading: boolean;
   canGoBack: boolean;
@@ -692,6 +694,13 @@ export interface DesktopAppTabsBridge {
     rendererId: number;
     pageId: string;
     webContentsId: number;
+  }) => Promise<void>;
+  browserHostedPageBounds: (input: {
+    tabId: string;
+    rendererId: number;
+    pageId: string;
+    bounds: BrowserPanelBounds | null;
+    rendererSurfaceActive: boolean;
   }) => Promise<void>;
   navigate: (input: { tabId: string; route: string; state?: unknown }) => Promise<void>;
   close: (input: { tabId: string }) => Promise<void>;

@@ -141,6 +141,7 @@ export const DESKTOP_IPC_CHANNELS = {
     browserWebviewAttach: "desktop:app-tabs-browser-webview-attach",
     browserWebviewDidFailLoad: "desktop:app-tabs-browser-webview-did-fail-load",
     browserWebviewDetach: "desktop:app-tabs-browser-webview-detach",
+    browserHostedPageBounds: "desktop:app-tabs-browser-hosted-page-bounds",
     navigate: "desktop:app-tabs-navigate",
     close: "desktop:app-tabs-close",
   },
