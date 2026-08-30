@@ -26,8 +26,10 @@ export interface OperationDeclaration {
   key: string;
   /** Concise help text used by generated CLI and agent help. */
   summary: string;
-  /** Optional operation-specific instructions, limits, and recovery procedure rendered by help. */
+  /** Optional concise operation-specific usage guidance rendered by leaf help. */
   instructions?: string;
+  /** Optional package-relative Markdown guide rendered by leaf help; mutually exclusive with instructions. */
+  instructionsPath?: string;
   /** JSON Schema for caller-supplied input. */
   input: JsonSchema;
   /** JSON Schema for the successful result. */
@@ -389,6 +391,33 @@ export function validateAppManifest(
         requireString(candidate.summary, `${path}.summary`, issues);
         if (candidate.instructions !== undefined) {
           requireString(candidate.instructions, `${path}.instructions`, issues);
+        }
+        if (candidate.instructionsPath !== undefined) {
+          if (requireString(candidate.instructionsPath, `${path}.instructionsPath`, issues)) {
+            if (!isSafePackagePath(candidate.instructionsPath)) {
+              issue(
+                issues,
+                `${path}.instructionsPath`,
+                "unsafe-path",
+                `${path}.instructionsPath must be a package-relative path.`,
+              );
+            } else if (!candidate.instructionsPath.toLowerCase().endsWith(".md")) {
+              issue(
+                issues,
+                `${path}.instructionsPath`,
+                "invalid-format",
+                `${path}.instructionsPath must reference a .md file.`,
+              );
+            }
+          }
+        }
+        if (candidate.instructions !== undefined && candidate.instructionsPath !== undefined) {
+          issue(
+            issues,
+            path,
+            "invalid-format",
+            `${path} must declare either instructions or instructionsPath, not both.`,
+          );
         }
         if (!isRecord(candidate.input)) {
           issue(issues, `${path}.input`, "invalid-format", "input must be a JSON Schema object.");

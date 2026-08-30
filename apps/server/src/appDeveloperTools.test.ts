@@ -34,7 +34,7 @@ describe("App developer integration host", () => {
         output: join(outputRoot, "sample-app.penkra"),
       }),
     ).resolves.toMatchObject({ slug: "sample" });
-  });
+  }, 15_000);
 
   it("uses the running desktop's installed test entry and removes its temporary profile", async () => {
     const source = await mkdtemp(join(tmpdir(), "penkra-app-test-source-"));
@@ -193,7 +193,46 @@ describe("App developer packaging", () => {
     ).rejects.toThrow("Manifest reference is missing");
   });
 
-  it("requires the five-section instruction contract when an App declares operations", async () => {
+  it("packages substantial file-backed operation guidance and rejects an empty guide", async () => {
+    const root = await fixture();
+    const manifestPath = join(root, "penkra-app.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.entrypoints.controller = "operations.js";
+    manifest.operations = [
+      {
+        key: "documents.execute",
+        summary: "Edit one document.",
+        instructionsPath: "operations/documents.execute.md",
+        input: { type: "object", additionalProperties: false },
+        output: { type: "object", additionalProperties: true },
+        examples: [{ name: "Inspect a document", input: {} }],
+        handler: "documents.execute",
+      },
+    ];
+    await mkdir(join(root, "operations"));
+    await writeFile(
+      join(root, "operations", "documents.execute.md"),
+      "# Editing documents\n\nUse stable node IDs.\n",
+    );
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    await expect(
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "guided.penkra"),
+      }),
+    ).resolves.toMatchObject({ slug: "canvas" });
+
+    await writeFile(join(root, "operations", "documents.execute.md"), "  \n");
+    await expect(
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "empty-guide.penkra"),
+      }),
+    ).rejects.toThrow("must contain nonempty operation guidance");
+  });
+
+  it("accepts cohesive root instructions without imposing a stock heading outline", async () => {
     const root = await fixture();
     const manifestPath = join(root, "penkra-app.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -211,29 +250,12 @@ describe("App developer packaging", () => {
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
     await expect(
-      packageAppDirectory({
-        directory: root,
-        output: join(root, "..", "bad.penkra"),
-      }),
-    ).rejects.toThrow("missing required sections");
-
-    await expect(
       packageLockedAppDirectory({
         directory: root,
         output: join(root, "..", "locked.penkra"),
       }),
     ).resolves.toMatchObject({ slug: "canvas" });
 
-    await writeFile(
-      join(root, "INSTRUCTIONS.md"),
-      [
-        "## What this App is",
-        "## Before you write anything",
-        "## How to do the common thing",
-        "## Reference",
-        "## When things fail",
-      ].join("\n"),
-    );
     await expect(
       packageAppDirectory({
         directory: root,

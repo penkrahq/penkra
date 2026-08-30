@@ -100,10 +100,12 @@ enabling, opening, updating, and uninstalling are separate actions.
 
 ## Skill
 
-A **Skill** is a packaged operating procedure that teaches an agent how to perform a bounded kind
-of work. A Skill contains a `SKILL.md` and may include supporting references, scripts, templates,
-or assets. Loading a Skill supplies instructions; it does not install an App, grant a permission,
-or prove that a tool mentioned by the Skill is available.
+A **Skill** is a packaged, optional operating procedure that teaches an agent how to achieve a
+bounded kind of outcome. A Skill contains a `SKILL.md` and may include supporting references,
+scripts, templates, or assets. It can compose Apps and operations into a named workflow, but it is
+not the required manual for an App or public operation: essential usage guidance belongs in the
+App's always-available root or leaf help. Loading a Skill supplies instructions; it does not install
+an App, grant a permission, or prove that a tool mentioned by the Skill is available.
 
 An App may contribute Skills from its verified package. Penkra exposes only Skills enabled for the
 current Space and keeps their App attribution. Agents load the current Skill before following it

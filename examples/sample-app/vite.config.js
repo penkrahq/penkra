@@ -18,7 +18,7 @@ export default defineConfig({
         for (const file of ["penkra-app.json", "README.md", "INSTRUCTIONS.md", "icon.svg"])
           fs.copyFileSync(path.join(root, file), path.join(root, "dist", file));
         fs.writeFileSync(path.join(root, "dist", "package.json"), '{"type":"module"}\n');
-        fs.cpSync(path.join(root, "skills"), path.join(root, "dist", "skills"), {
+        fs.cpSync(path.join(root, "operations"), path.join(root, "dist", "operations"), {
           recursive: true,
         });
       },

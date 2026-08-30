@@ -68,7 +68,7 @@ export async function packageAppDirectory(input: {
   directory: string;
   output: string;
 }): Promise<AppPackageEvidence> {
-  return packageAppDirectoryWithPolicy(input, true);
+  return packageAppDirectoryInternal(input);
 }
 
 /**
@@ -79,13 +79,13 @@ export async function packageLockedAppDirectory(input: {
   directory: string;
   output: string;
 }): Promise<AppPackageEvidence> {
-  return packageAppDirectoryWithPolicy(input, false);
+  return packageAppDirectoryInternal(input);
 }
 
-async function packageAppDirectoryWithPolicy(
-  input: { directory: string; output: string },
-  requireCurrentAgentInstructions: boolean,
-): Promise<AppPackageEvidence> {
+async function packageAppDirectoryInternal(input: {
+  directory: string;
+  output: string;
+}): Promise<AppPackageEvidence> {
   const root = await FS.realpath(Path.resolve(input.directory));
   const requestedOutput = Path.resolve(input.output);
   await FS.mkdir(Path.dirname(requestedOutput), { recursive: true });
@@ -99,9 +99,6 @@ async function packageAppDirectoryWithPolicy(
   const files = await readPackageFiles(root);
   const documents = await requiredDocuments(files);
   const manifest = parseManifest(documents.manifest);
-  if (requireCurrentAgentInstructions) {
-    assertAgentInstructionsContract(manifest, documents.instructions);
-  }
   await assertReferencedFiles(manifest, files);
 
   const temporary = `${output}.${randomUUID()}.tmp`;
@@ -258,36 +255,6 @@ function assertOperationExamplesMatchSchemas(manifest: PenkraAppManifest): void 
   }
 }
 
-const REQUIRED_AGENT_INSTRUCTION_SECTIONS = [
-  "What this App is",
-  "Before you write anything",
-  "How to do the common thing",
-  "Reference",
-  "When things fail",
-] as const;
-
-function assertAgentInstructionsContract(manifest: PenkraAppManifest, instructions: Buffer): void {
-  if ((manifest.operations?.length ?? 0) === 0) return;
-  const text = new TextDecoder("utf-8", { fatal: true }).decode(instructions);
-  const lines = new Set(text.split(/\r?\n/).map((line) => line.trim()));
-  const missing = REQUIRED_AGENT_INSTRUCTION_SECTIONS.filter(
-    (section) => !lines.has(`## ${section}`),
-  );
-  if (missing.length > 0) {
-    throw new Error(
-      `INSTRUCTIONS.md for an App with operations is missing required sections: ${missing.map((section) => `## ${section}`).join(", ")}. Add all five sections in the documented order.`,
-    );
-  }
-  const positions = REQUIRED_AGENT_INSTRUCTION_SECTIONS.map((section) =>
-    text.indexOf(`## ${section}`),
-  );
-  if (positions.some((position, index) => index > 0 && position < positions[index - 1]!)) {
-    throw new Error(
-      "INSTRUCTIONS.md must place the five required sections in the documented order: what it is, preconditions, common workflow, reference, then failures.",
-    );
-  }
-}
-
 async function assertReferencedFiles(
   manifest: PenkraAppManifest,
   files: PackageFile[],
@@ -298,11 +265,32 @@ async function assertReferencedFiles(
     manifest.entrypoints.tab,
     manifest.entrypoints.controller,
     ...manifest.icons.map((icon) => icon.src),
+    ...(manifest.operations ?? []).map((operation) => operation.instructionsPath),
     ...(manifest.contributions?.skills ?? []).map((skill) => `${skill.path}/SKILL.md`),
   ].filter((path): path is string => Boolean(path));
   for (const reference of references) {
     if (!paths.has(reference))
       throw new Error(`Manifest reference is missing from the package: ${reference}`);
+  }
+  for (const operation of manifest.operations ?? []) {
+    if (!operation.instructionsPath) continue;
+    const bytes = await FS.readFile(filesByPath.get(operation.instructionsPath)!.sourcePath);
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch (error) {
+      throw new Error(
+        `${operation.instructionsPath} must be UTF-8 text: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (bytes.byteLength > PENKRA_APP_INSTRUCTIONS_MAX_BYTES) {
+      throw new Error(
+        `${operation.instructionsPath} exceeds ${PENKRA_APP_INSTRUCTIONS_MAX_BYTES} bytes.`,
+      );
+    }
+    if (text.includes("\0") || !text.trim()) {
+      throw new Error(`${operation.instructionsPath} must contain nonempty operation guidance.`);
+    }
   }
   for (const skill of manifest.contributions?.skills ?? []) {
     const skillPath = `${skill.path}/SKILL.md`;

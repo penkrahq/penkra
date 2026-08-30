@@ -105,6 +105,15 @@ export class AppPackageIngestor {
     assertOperationSchemas(manifest);
     await assertTextDocument(sourcePath, "README.md", PENKRA_APP_README_MAX_BYTES);
     await assertTextDocument(sourcePath, "INSTRUCTIONS.md", PENKRA_APP_INSTRUCTIONS_MAX_BYTES);
+    for (const operation of manifest.operations ?? []) {
+      if (operation.instructionsPath) {
+        await assertTextDocument(
+          sourcePath,
+          operation.instructionsPath,
+          PENKRA_APP_INSTRUCTIONS_MAX_BYTES,
+        );
+      }
+    }
     assertRequiredFiles(files, manifest);
     const sha256 = await digestFiles(files);
     const packagePath = Path.join(this.#storePath, manifest.id, manifest.version, sha256);
@@ -407,6 +416,9 @@ function assertRequiredFiles(files: readonly PackageFile[], manifest: PenkraAppM
     manifest.entrypoints.tab,
     ...(manifest.entrypoints.controller ? [manifest.entrypoints.controller] : []),
     ...manifest.icons.map((icon) => icon.src),
+    ...(manifest.operations ?? []).flatMap((operation) =>
+      operation.instructionsPath ? [operation.instructionsPath] : [],
+    ),
     ...(manifest.contributions?.skills ?? []).map((skill) => `${skill.path}/SKILL.md`),
   ]);
   for (const relativePath of required) {
