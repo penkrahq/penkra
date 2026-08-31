@@ -33,7 +33,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 export type RegistryAppIdentifierOwnership =
   | { status: "unregistered" }
   | { status: "registered-to-another-account" }
-  | { status: "owned"; appId: string; publisherId: string; slug: string };
+  | { status: "owned"; appId: string; publisherId: string; slug: string }
+  | {
+      status: "member";
+      appId: string;
+      publisherId: string;
+      slug: string;
+      role: "developer" | "publisher";
+    };
 
 export interface RegistryAppSideloadIdentity {
   developmentIdentityId: string;
@@ -350,15 +357,17 @@ export class AppRegistryClient {
     if (value.status === "registered-to-another-account") {
       return { status: "registered-to-another-account" };
     }
-    if (value.status !== "owned") throw invalidResponse();
+    if (value.status !== "owned" && value.status !== "member") throw invalidResponse();
     const slug = stringField(value, "slug");
     if (!APP_SLUG.test(slug)) throw invalidResponse();
-    return {
-      status: "owned",
+    const identity = {
       appId: uuidField(value, "appId"),
       publisherId: uuidField(value, "publisherId"),
       slug,
     };
+    if (value.status === "owned") return { status: "owned", ...identity };
+    if (value.role !== "developer" && value.role !== "publisher") throw invalidResponse();
+    return { status: "member", role: value.role, ...identity };
   }
 
   async developerClaimAppSideloadIdentity(input: {
@@ -439,6 +448,45 @@ export class AppRegistryClient {
     assertUuid(input.invitationId, "invitation");
     return this.#request(
       `/api/registry/apps/${encodeURIComponent(input.appId)}/invitations/${encodeURIComponent(input.invitationId)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  async developerInviteAppMember(input: {
+    appId: string;
+    email: string;
+    role: "developer" | "publisher";
+  }): Promise<unknown> {
+    assertAppReference(input.appId);
+    return this.#request(
+      `/api/registry/developer/apps/${encodeURIComponent(input.appId)}/members`,
+      { method: "POST", body: JSON.stringify({ email: input.email, role: input.role }) },
+    );
+  }
+
+  async developerListAppMembers(appId: string): Promise<unknown[]> {
+    assertAppReference(appId);
+    return this.#collectPages(`/api/registry/developer/apps/${encodeURIComponent(appId)}/members`);
+  }
+
+  async developerUpdateAppMemberRole(input: {
+    appId: string;
+    memberId: string;
+    role: "developer" | "publisher";
+  }): Promise<unknown> {
+    assertAppReference(input.appId);
+    assertUuid(input.memberId, "member");
+    return this.#request(
+      `/api/registry/developer/apps/${encodeURIComponent(input.appId)}/members/${encodeURIComponent(input.memberId)}`,
+      { method: "PATCH", body: JSON.stringify({ role: input.role }) },
+    );
+  }
+
+  async developerRevokeAppMember(input: { appId: string; memberId: string }): Promise<unknown> {
+    assertAppReference(input.appId);
+    assertUuid(input.memberId, "member");
+    return this.#request(
+      `/api/registry/developer/apps/${encodeURIComponent(input.appId)}/members/${encodeURIComponent(input.memberId)}`,
       { method: "DELETE" },
     );
   }
@@ -599,7 +647,7 @@ export class AppRegistryClient {
 
   async #request(
     path: string,
-    init: { method?: "DELETE" | "POST" | "PUT"; body?: string } = {},
+    init: { method?: "DELETE" | "PATCH" | "POST" | "PUT"; body?: string } = {},
   ): Promise<unknown> {
     const cookie = this.#getCookie().trim();
     if (!cookie) throw new Error("Sign in to use the Penkra App registry.");
@@ -1023,6 +1071,12 @@ function uuidField(value: Record<string, unknown>, key: string): string {
 
 function assertUuid(value: string, label: string): void {
   if (!UUID.test(value)) throw new Error(`Invalid registry ${label} id.`);
+}
+
+function assertAppReference(value: string): void {
+  if (!UUID.test(value) && !/^[a-z][a-z0-9.-]{2,254}$/.test(value)) {
+    throw new Error("Invalid App ID.");
+  }
 }
 
 function digestField(value: Record<string, unknown>, key: string): string {
