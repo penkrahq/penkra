@@ -236,20 +236,16 @@ cleanup depend on an unrelated interface.
 
 ## Agent-facing instructions
 
-Every App ships a nonempty root `INSTRUCTIONS.md`. If the App declares operations, packaging
-requires these five second-level sections in this order:
+Every App ships a nonempty root `INSTRUCTIONS.md`. It is the operating orientation loaded by
+`<slug> --help`: what kind of thing the App owns, where that state lives, the distinctions that
+apply across its surface, and the authority boundaries or identity rules an agent must retain while
+choosing among operations. Write it as cohesive guidance for this App. Headings should follow the
+material; Penkra does not require a stock outline.
 
-1. `## What this App is` — what it operates on and where that data lives.
-2. `## Before you write anything` — required reads, permissions, versions, and other preconditions,
-   including what can break when they are skipped.
-3. `## How to do the common thing` — one complete worked flow using structured command input.
-4. `## Reference` — App-specific semantics that supplement the generated operation contracts.
-5. `## When things fail` — recognizable symptoms, likely causes, and safe recovery.
-
-`<slug> --help` combines this document with the operation list generated from the manifest; do not
-hand-copy that list into the prose. Operation-specific help renders the complete validated input and
-output schemas. Content loaded together belongs in this one document rather than in secondary
-guideline operations.
+Do not turn root instructions into a second operation manual. Facts that apply only to one
+operation—its procedure, domain model, ordering, limits, consequential choices, recognizable
+failures, and recovery—belong in that operation's `instructions`. Leaf help already combines this
+guidance with the exact input and output schemas, named examples, and invocation syntax.
 
 The manifest's App `summary` appears in Penkra's live capability catalog, and each operation
 `summary` appears in generated help. Write both as concrete agent-facing descriptions: name the

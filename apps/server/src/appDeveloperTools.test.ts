@@ -193,7 +193,7 @@ describe("App developer packaging", () => {
     ).rejects.toThrow("Manifest reference is missing");
   });
 
-  it("requires the five-section instruction contract when an App declares operations", async () => {
+  it("accepts cohesive root instructions without imposing a stock heading outline", async () => {
     const root = await fixture();
     const manifestPath = join(root, "penkra-app.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -213,31 +213,14 @@ describe("App developer packaging", () => {
     await expect(
       packageAppDirectory({
         directory: root,
-        output: join(root, "..", "bad.penkra"),
+        output: join(root, "..", "first.penkra"),
       }),
-    ).rejects.toThrow("missing required sections");
+    ).resolves.toMatchObject({ slug: "canvas" });
 
     await expect(
       packageLockedAppDirectory({
         directory: root,
         output: join(root, "..", "locked.penkra"),
-      }),
-    ).resolves.toMatchObject({ slug: "canvas" });
-
-    await writeFile(
-      join(root, "INSTRUCTIONS.md"),
-      [
-        "## What this App is",
-        "## Before you write anything",
-        "## How to do the common thing",
-        "## Reference",
-        "## When things fail",
-      ].join("\n"),
-    );
-    await expect(
-      packageAppDirectory({
-        directory: root,
-        output: join(root, "..", "first.penkra"),
       }),
     ).resolves.toMatchObject({ slug: "canvas" });
   });
