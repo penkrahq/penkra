@@ -2548,6 +2548,13 @@ export default function ChatView({
     if (!activeThreadId) return;
     recordChatLifecycleDiagnostic({
       threadId: activeThreadId,
+      isServerThread,
+      isLocalDraftThread,
+      threadDetailSyncState,
+      threadDetailHydration,
+      projectedMessageCount: activeThread?.messages.length ?? 0,
+      optimisticUserMessageCount: optimisticUserMessages.length,
+      draftPromotedTo: draftThread?.promotedTo ?? null,
       threadWorkStatus: activeThread?.workStatus ?? null,
       sessionStatus: activeThread?.session?.status ?? null,
       sessionUpdatedAt: activeThread?.session?.updatedAt ?? null,
@@ -2599,12 +2606,15 @@ export default function ChatView({
     activeThreadId,
     activeWorkStartedAt,
     authoritativePendingTurnStartMessageId,
+    draftThread?.promotedTo,
     hasLiveTurn,
     hasLiveTurnTail,
     hasPendingTurnStart,
     isConnecting,
     isEditingMessageHistory,
+    isLocalDraftThread,
     isSendBusy,
+    isServerThread,
     isTurnWorking,
     isWorking,
     latestTurnLive,
@@ -2614,8 +2624,11 @@ export default function ChatView({
     latestLifecycleMessage?.id,
     latestLifecycleMessage?.role,
     latestLifecycleMessage?.streaming,
+    optimisticUserMessages.length,
     phase,
     showThinking,
+    threadDetailHydration,
+    threadDetailSyncState,
   ]);
   const activeTurnLayoutKey =
     activeThreadId === null ? null : `${activeThreadId}:${activeLatestTurn?.turnId ?? "idle"}`;
@@ -4172,7 +4185,10 @@ export default function ChatView({
       }
       pendingScrollTimeout = window.setTimeout(() => {
         pendingScrollTimeout = null;
-        scrollToEnd(false);
+        // Composer/approval chrome changed the viewport; no transcript item
+        // arrived. Preserve an existing tail position directly instead of
+        // entering the semantic message auto-follow path.
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
       }, 0);
     });
 
@@ -4183,13 +4199,7 @@ export default function ChatView({
         window.clearTimeout(pendingScrollTimeout);
       }
     };
-  }, [
-    activeThread?.id,
-    isInactiveSplitPane,
-    scrollToEnd,
-    secondaryChromeReady,
-    shouldRenderChatPaneContent,
-  ]);
+  }, [activeThread?.id, isInactiveSplitPane, secondaryChromeReady, shouldRenderChatPaneContent]);
 
   useEffect(() => {
     showScrollDebouncer.current.cancel();

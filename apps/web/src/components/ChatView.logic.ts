@@ -33,6 +33,7 @@ import {
 import { hasLiveTurnTailWork, type WorkLogEntry } from "../session-logic";
 import { localSubagentThreadId } from "./ChatView.selectors";
 import type { ProviderModelOption } from "../providerModelOptions";
+import type { ThreadDetailSyncState } from "../storeState";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "penkra:last-invoked-script-by-project";
 export const DISMISSED_PROVIDER_HEALTH_BANNERS_KEY = "penkra:dismissed-provider-health-banners";
@@ -342,13 +343,17 @@ export type ThreadDetailHydration = "ready" | "loading" | "failed";
  * A server thread's retained rows are not proof that its authoritative newest
  * page has been applied in this store lifetime. Keep both empty and stale
  * retained timelines behind hydration until detail sync completes. Local draft
- * threads have no server detail to wait for and are always ready.
+ * threads and newly accepted creates with a known-empty baseline are ready.
  */
 export function resolveThreadDetailHydration(input: {
   readonly isServerThread: boolean;
-  readonly detailSyncState: "synced" | "failed" | null;
+  readonly detailSyncState: ThreadDetailSyncState | null;
 }): ThreadDetailHydration {
-  if (!input.isServerThread || input.detailSyncState === "synced") {
+  if (
+    !input.isServerThread ||
+    input.detailSyncState === "known-empty" ||
+    input.detailSyncState === "synced"
+  ) {
     return "ready";
   }
   return input.detailSyncState === "failed" ? "failed" : "loading";

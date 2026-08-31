@@ -26,10 +26,9 @@ export function WorkStatusShared({ className, status = "idle" }: WorkStatusShare
       data-work-status={status}
     >
       {status === "running" ? (
-        <LoaderCircleIcon
-          aria-label="Working"
-          className="size-[13px] animate-spin motion-reduce:animate-none"
-        />
+        <span className="inline-flex size-[13px] will-change-transform animate-spin motion-reduce:animate-none">
+          <LoaderCircleIcon aria-label="Working" className="size-[13px]" />
+        </span>
       ) : status === "done" ? (
         <CircleCheckIcon aria-label="Done" className="size-[13px]" />
       ) : status === "recording" ? (
