@@ -43,10 +43,14 @@ describe("Pencil left rail", () => {
     );
 
     expect(view.container.querySelectorAll('[aria-label="Working"]')).toHaveLength(3);
-    const animatedLayers = Array.from(view.container.querySelectorAll<SVGElement>(".animate-spin"));
+    const animatedLayers = Array.from(
+      view.container.querySelectorAll<HTMLSpanElement>(".animate-spin"),
+    );
     const animations = view.container.getAnimations({ subtree: true });
     expect(animatedLayers).toHaveLength(3);
-    expect(animatedLayers.every((layer) => layer.tagName === "svg")).toBe(true);
+    expect(animatedLayers.every((layer) => layer.tagName === "SPAN")).toBe(true);
+    expect(animatedLayers.every((layer) => layer.querySelector("svg") !== null)).toBe(true);
+    expect(view.container.querySelectorAll("svg.animate-spin")).toHaveLength(0);
     expect(
       animatedLayers.every((layer) => {
         const style = getComputedStyle(layer);
@@ -56,7 +60,7 @@ describe("Pencil left rail", () => {
     expect(animations).toHaveLength(3);
     expect(
       animations.every(
-        (animation) => (animation.effect as KeyframeEffect | null)?.target?.nodeName === "svg",
+        (animation) => (animation.effect as KeyframeEffect | null)?.target?.nodeName === "SPAN",
       ),
     ).toBe(true);
     const transformsBefore = animatedLayers.map((layer) => getComputedStyle(layer).transform);

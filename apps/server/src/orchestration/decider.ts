@@ -490,13 +490,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: "Folders cannot be nested inside other folders.",
         });
       }
-      if (movedProject && movedProject.spaceId !== targetSpace.id) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail:
-            "Move the folder with 'folder.move' before reordering it in the destination Space.",
-        });
-      }
       if (movedProject) {
         yield* requireFolderNameAvailable({
           readModel,
@@ -625,20 +618,40 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       }
 
       const occurredAt = nowIso();
-      return {
+      const layoutUpdatedEvent = {
         ...withEventBase({
           aggregateKind: "space",
           aggregateId: targetSpace.id,
           occurredAt,
           commandId: command.commandId,
         }),
-        type: "sidebar.layout-updated",
+        type: "sidebar.layout-updated" as const,
         payload: {
           folderUpdates: [...folderUpdates.values()],
           threadUpdates: [...threadUpdates.values()],
           updatedAt: occurredAt,
         },
       };
+      if (movedProject && movedProject.spaceId !== targetSpace.id) {
+        return [
+          {
+            ...withEventBase({
+              aggregateKind: "folder",
+              aggregateId: movedProject.id,
+              occurredAt,
+              commandId: command.commandId,
+            }),
+            type: "folder.moved" as const,
+            payload: {
+              folderId: movedProject.id,
+              spaceId: targetSpace.id,
+              updatedAt: occurredAt,
+            },
+          },
+          layoutUpdatedEvent,
+        ];
+      }
+      return layoutUpdatedEvent;
     }
 
     case "folder.create": {

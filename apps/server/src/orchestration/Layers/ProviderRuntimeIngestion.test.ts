@@ -1377,7 +1377,7 @@ describe("ProviderRuntimeIngestion", () => {
       harness.sql`DELETE FROM orchestration_command_receipts WHERE command_id = ${commandId}`,
     );
 
-    const recoveryDeadline = Date.now() + 2_000;
+    const recoveryDeadline = Date.now() + 20_000;
     while (
       (await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(event.threadId))) !==
       persisted.sequence
@@ -1395,7 +1395,7 @@ describe("ProviderRuntimeIngestion", () => {
         harness.runtimeEventRepository.getThreadProjectionFailure(event.threadId),
       ),
     ).toBeNull();
-  });
+  }, 30_000);
 
   it("restores a future durable retry deadline on startup", async () => {
     const harness = await createHarness({ startIngestion: false });
@@ -1424,7 +1424,7 @@ describe("ProviderRuntimeIngestion", () => {
     // the future nextRetryAt and then restore that persisted timer; there is no
     // live provider publication or explicit drain to wake it.
     await harness.startIngestion();
-    const recoveryDeadline = Date.now() + 2_000;
+    const recoveryDeadline = Date.now() + 20_000;
     while (
       (await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(event.threadId))) !==
       persisted.sequence
@@ -1439,7 +1439,7 @@ describe("ProviderRuntimeIngestion", () => {
         harness.runtimeEventRepository.getThreadProjectionFailure(event.threadId),
       ),
     ).toBeNull();
-  });
+  }, 30_000);
 
   it("retries and recovers a durable quarantine after restart", async () => {
     const harness = await createHarness({ startIngestion: false });

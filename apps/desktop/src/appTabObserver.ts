@@ -108,6 +108,21 @@ export interface AppTabObserverResolver {
   ): Promise<ReadonlyArray<string>>;
 }
 
+export interface AppTabObserverPerformanceSnapshot {
+  snapshotCalls: number;
+  snapshotTotalMs: number;
+  screenshotCalls: number;
+  screenshotTotalMs: number;
+  capturePageCalls: number;
+  capturePageTotalMs: number;
+  capturePageBytes: number;
+  cdpCalls: number;
+  cdpTotalMs: number;
+  snapshotStateCount: number;
+  dialogListenerCount: number;
+  protocolSessionCount: number;
+}
+
 export async function resolveAppTabObservationTarget(input: {
   descriptor: DesktopAppTabDescriptor;
   browserAppId: string;
@@ -154,9 +169,29 @@ export class AppTabObserver {
   readonly #dialogTabsByContents = new Map<number, Set<string>>();
   readonly #dialogListeners = new Set<number>();
   readonly #pendingDialogs = new Map<string, PendingJavaScriptDialog>();
+  readonly #perfCounters = {
+    snapshotCalls: 0,
+    snapshotTotalMs: 0,
+    screenshotCalls: 0,
+    screenshotTotalMs: 0,
+    capturePageCalls: 0,
+    capturePageTotalMs: 0,
+    capturePageBytes: 0,
+    cdpCalls: 0,
+    cdpTotalMs: 0,
+  };
 
   constructor(resolver: AppTabObserverResolver) {
     this.#resolver = resolver;
+  }
+
+  getPerformanceSnapshot(): AppTabObserverPerformanceSnapshot {
+    return {
+      ...this.#perfCounters,
+      snapshotStateCount: this.#states.size,
+      dialogListenerCount: this.#dialogListeners.size,
+      protocolSessionCount: this.#protocolSessions.size,
+    };
   }
 
   invalidate(tabId: string): void {
@@ -182,54 +217,60 @@ export class AppTabObserver {
       outputPath?: string;
     } = {},
   ): Promise<unknown> {
-    const target = await this.#target(tabId);
-    const state = this.#state(tabId, target);
-    const scopedReference =
-      options.target === undefined ? undefined : this.#reference(state, options.target);
-    state.generation += 1;
-    state.nextReference = 1;
-    state.references.clear();
-    const depth = options.depth === undefined ? undefined : normalizeDepth(options.depth);
-    const appTree =
-      scopedReference && !sameProtocolTarget(scopedReference.target, target)
-        ? []
-        : await this.#snapshotLines(
-            target,
-            state,
-            scopedReference?.backendNodeId,
-            depth,
-            options.boxes === true,
-          );
-    const embeddedTree =
-      target.embedded &&
-      (!scopedReference || sameProtocolTarget(scopedReference.target, target.embedded.target))
-        ? await this.#snapshotLines(
-            target.embedded.target,
-            state,
-            scopedReference?.backendNodeId,
-            depth,
-            options.boxes === true,
-          )
-        : [];
-    const lines = [...appTree];
-    if (embeddedTree.length > 0) {
-      lines.push('- document "Hosted page"');
-      lines.push(...embeddedTree.map((line) => `  ${line}`));
-    }
+    const startedAt = performance.now();
+    this.#perfCounters.snapshotCalls += 1;
+    try {
+      const target = await this.#target(tabId);
+      const state = this.#state(tabId, target);
+      const scopedReference =
+        options.target === undefined ? undefined : this.#reference(state, options.target);
+      state.generation += 1;
+      state.nextReference = 1;
+      state.references.clear();
+      const depth = options.depth === undefined ? undefined : normalizeDepth(options.depth);
+      const appTree =
+        scopedReference && !sameProtocolTarget(scopedReference.target, target)
+          ? []
+          : await this.#snapshotLines(
+              target,
+              state,
+              scopedReference?.backendNodeId,
+              depth,
+              options.boxes === true,
+            );
+      const embeddedTree =
+        target.embedded &&
+        (!scopedReference || sameProtocolTarget(scopedReference.target, target.embedded.target))
+          ? await this.#snapshotLines(
+              target.embedded.target,
+              state,
+              scopedReference?.backendNodeId,
+              depth,
+              options.boxes === true,
+            )
+          : [];
+      const lines = [...appTree];
+      if (embeddedTree.length > 0) {
+        lines.push('- document "Hosted page"');
+        lines.push(...embeddedTree.map((line) => `  ${line}`));
+      }
 
-    const result = {
-      tabId,
-      app: target.descriptor.slug,
-      url: target.frame?.url ?? target.webContents.getURL(),
-      title: target.frame
-        ? String(await target.frame.executeJavaScript("document.title", true))
-        : target.webContents.getTitle(),
-      snapshot: lines.join("\n"),
-    };
-    if (!options.outputPath) return result;
-    await writeFileAtomically(options.outputPath, Buffer.from(`${result.snapshot}\n`, "utf8"));
-    const { snapshot: _snapshot, ...metadata } = result;
-    return { ...metadata, filename: options.outputPath };
+      const result = {
+        tabId,
+        app: target.descriptor.slug,
+        url: target.frame?.url ?? target.webContents.getURL(),
+        title: target.frame
+          ? String(await target.frame.executeJavaScript("document.title", true))
+          : target.webContents.getTitle(),
+        snapshot: lines.join("\n"),
+      };
+      if (!options.outputPath) return result;
+      await writeFileAtomically(options.outputPath, Buffer.from(`${result.snapshot}\n`, "utf8"));
+      const { snapshot: _snapshot, ...metadata } = result;
+      return { ...metadata, filename: options.outputPath };
+    } finally {
+      this.#perfCounters.snapshotTotalMs += performance.now() - startedAt;
+    }
   }
 
   async #snapshotLines(
@@ -427,65 +468,79 @@ export class AppTabObserver {
   }
 
   async screenshot(tabId: string, outputPath?: string): Promise<unknown> {
-    const target = await this.#target(tabId);
-    let capture = await this.#captureTarget(target);
-    if (target.embedded) {
-      const embedded = await this.#captureTarget(target.embedded.target);
-      capture = {
-        ...capture,
-        bytes: await compositePng(capture, embedded, target.embedded.insets),
+    const startedAt = performance.now();
+    this.#perfCounters.screenshotCalls += 1;
+    try {
+      const target = await this.#target(tabId);
+      let capture = await this.#captureTarget(target);
+      if (target.embedded) {
+        const embedded = await this.#captureTarget(target.embedded.target);
+        capture = {
+          ...capture,
+          bytes: await compositePng(capture, embedded, target.embedded.insets),
+        };
+      }
+      const bytes = capture.bytes;
+      if (bytes.byteLength === 0)
+        throw observerError("CAPTURE_FAILED", "The App tab capture was empty.");
+      if (outputPath) {
+        await writeFileAtomically(outputPath, bytes);
+        return { tabId, filename: outputPath, mimeType: "image/png" };
+      }
+      if (bytes.byteLength > MAX_INLINE_SCREENSHOT_BYTES) {
+        throw observerError(
+          "CAPTURE_TOO_LARGE",
+          "The PNG does not fit in the inline tool transport. Supply filename to save it instead.",
+        );
+      }
+      return {
+        kind: "image",
+        mimeType: "image/png",
+        data: bytes.toString("base64"),
       };
+    } finally {
+      this.#perfCounters.screenshotTotalMs += performance.now() - startedAt;
     }
-    const bytes = capture.bytes;
-    if (bytes.byteLength === 0)
-      throw observerError("CAPTURE_FAILED", "The App tab capture was empty.");
-    if (outputPath) {
-      await writeFileAtomically(outputPath, bytes);
-      return { tabId, filename: outputPath, mimeType: "image/png" };
-    }
-    if (bytes.byteLength > MAX_INLINE_SCREENSHOT_BYTES) {
-      throw observerError(
-        "CAPTURE_TOO_LARGE",
-        "The PNG does not fit in the inline tool transport. Supply filename to save it instead.",
-      );
-    }
-    return {
-      kind: "image",
-      mimeType: "image/png",
-      data: bytes.toString("base64"),
-    };
   }
 
   async #captureTarget(target: AppTabObservationTarget): Promise<TabCapture> {
-    const bounds = await target.captureBounds?.();
-    if (
-      bounds === null ||
-      (bounds &&
-        (!isFiniteNumber(bounds.width) ||
-          !isFiniteNumber(bounds.height) ||
-          bounds.width <= 0 ||
-          bounds.height <= 0))
-    ) {
-      throw observerError(
-        "TAB_NOT_VISIBLE",
-        `App tab ${target.descriptor.id} is not the currently painted App surface.`,
-      );
-    }
-    let image;
+    const startedAt = performance.now();
+    this.#perfCounters.capturePageCalls += 1;
     try {
-      image = await target.webContents.capturePage(bounds);
-    } catch (error) {
-      throw observerError(
-        "TAB_NOT_VISIBLE",
-        `App tab ${target.descriptor.id} does not currently have a paintable capture surface: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      const bounds = await target.captureBounds?.();
+      if (
+        bounds === null ||
+        (bounds &&
+          (!isFiniteNumber(bounds.width) ||
+            !isFiniteNumber(bounds.height) ||
+            bounds.width <= 0 ||
+            bounds.height <= 0))
+      ) {
+        throw observerError(
+          "TAB_NOT_VISIBLE",
+          `App tab ${target.descriptor.id} is not the currently painted App surface.`,
+        );
+      }
+      let image;
+      try {
+        image = await target.webContents.capturePage(bounds);
+      } catch (error) {
+        throw observerError(
+          "TAB_NOT_VISIBLE",
+          `App tab ${target.descriptor.id} does not currently have a paintable capture surface: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      const size = image.getSize();
+      const bytes = image.toPNG();
+      this.#perfCounters.capturePageBytes += bytes.byteLength;
+      return {
+        bytes,
+        cssWidth: size.width,
+        cssHeight: size.height,
+      };
+    } finally {
+      this.#perfCounters.capturePageTotalMs += performance.now() - startedAt;
     }
-    const size = image.getSize();
-    return {
-      bytes: image.toPNG(),
-      cssWidth: size.width,
-      cssHeight: size.height,
-    };
   }
 
   async click(tabId: string, reference: string, observe = false): Promise<unknown> {
@@ -916,6 +971,8 @@ export class AppTabObserver {
     params?: Record<string, unknown>,
     sessionId?: string,
   ): Promise<unknown> {
+    const startedAt = performance.now();
+    this.#perfCounters.cdpCalls += 1;
     if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
     try {
       return sessionId === undefined
@@ -926,6 +983,8 @@ export class AppTabObserver {
         throw observerError("STALE_REFERENCE", error.message);
       }
       throw error;
+    } finally {
+      this.#perfCounters.cdpTotalMs += performance.now() - startedAt;
     }
   }
 

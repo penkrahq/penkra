@@ -1248,6 +1248,15 @@ describe("thread detail hydration", () => {
     ).toBe("ready");
   });
 
+  it("keeps an accepted new thread ready while its detail page reconciles", () => {
+    expect(
+      resolveThreadDetailHydration({
+        isServerThread: true,
+        detailSyncState: "known-empty",
+      }),
+    ).toBe("ready");
+  });
+
   it("shows loading for a server thread whose detail has not synced yet", () => {
     expect(
       resolveThreadDetailHydration({

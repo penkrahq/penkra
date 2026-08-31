@@ -18,6 +18,7 @@ import {
   applyShellEvent,
   clearThreadDetailSyncFailureInClientState,
   evictThreadDetailFromClientState,
+  markThreadDetailKnownEmptyInClientState,
   markThreadDetailSyncFailedInClientState,
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
@@ -2092,6 +2093,20 @@ describe("store projection", () => {
 
 describe("thread detail sync state", () => {
   const threadId = ThreadId.makeUnsafe("thread-1");
+
+  it("records an accepted create as a known-empty detail baseline", () => {
+    const knownEmpty = markThreadDetailKnownEmptyInClientState(makeState(makeThread()), threadId);
+
+    expect(knownEmpty.threadDetailSyncById?.[threadId]).toBe("known-empty");
+  });
+
+  it("does not downgrade synced detail or replace a known-empty baseline on fetch failure", () => {
+    const synced = syncServerThreadDetailHotPath(makeState(makeThread()), makeReadModelThread({}));
+    expect(markThreadDetailKnownEmptyInClientState(synced, threadId)).toBe(synced);
+
+    const knownEmpty = markThreadDetailKnownEmptyInClientState(makeState(makeThread()), threadId);
+    expect(markThreadDetailSyncFailedInClientState(knownEmpty, threadId)).toBe(knownEmpty);
+  });
 
   it("marks a thread synced when its detail snapshot is applied and clears it on eviction", () => {
     const synced = syncServerThreadDetailHotPath(makeState(makeThread()), makeReadModelThread({}));

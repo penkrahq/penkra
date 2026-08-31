@@ -123,6 +123,15 @@ interface BrowserPerformanceSnapshot {
     runtimeSyncQueueFlushes: number;
     syncRuntimeStateCalls: number;
     warmInactiveRuntimeCount: number;
+    adoptedRendererRuntimeCount: number;
+    ownedRuntimeCount: number;
+    captureScreenshotCalls: number;
+    captureScreenshotTotalMs: number;
+    captureScreenshotBytes: number;
+    executeCdpCalls: number;
+    executeCdpTotalMs: number;
+    prepareObservationCalls: number;
+    prepareObservationTotalMs: number;
   };
   trackedProcessIds: number[];
 }
@@ -373,6 +382,15 @@ export class DesktopBrowserManager {
     runtimeSyncQueueFlushes: 0,
     syncRuntimeStateCalls: 0,
     warmInactiveRuntimeCount: 0,
+    adoptedRendererRuntimeCount: 0,
+    ownedRuntimeCount: 0,
+    captureScreenshotCalls: 0,
+    captureScreenshotTotalMs: 0,
+    captureScreenshotBytes: 0,
+    executeCdpCalls: 0,
+    executeCdpTotalMs: 0,
+    prepareObservationCalls: 0,
+    prepareObservationTotalMs: 0,
   };
 
   constructor(private readonly options: DesktopBrowserManagerOptions = {}) {}
@@ -954,6 +972,15 @@ export class DesktopBrowserManager {
 
   getPerformanceSnapshot(): BrowserPerformanceSnapshot {
     this.perfCounters.warmInactiveRuntimeCount = this.countWarmInactiveRuntimes();
+    this.perfCounters.adoptedRendererRuntimeCount = 0;
+    this.perfCounters.ownedRuntimeCount = 0;
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.ownsWebContents) {
+        this.perfCounters.ownedRuntimeCount += 1;
+      } else {
+        this.perfCounters.adoptedRendererRuntimeCount += 1;
+      }
+    }
     return {
       counters: { ...this.perfCounters },
       trackedProcessIds: this.getTrackedProcessIds(),
@@ -1604,36 +1631,43 @@ export class DesktopBrowserManager {
     name: string;
     pngBytes: Buffer;
   }> {
-    const state = this.ensureWorkspace(input.threadId);
-    const tab = this.resolveTab(state, input.tabId);
-    this.activateTab(input.threadId, state, tab);
+    const startedAt = performance.now();
+    this.perfCounters.captureScreenshotCalls += 1;
+    try {
+      const state = this.ensureWorkspace(input.threadId);
+      const tab = this.resolveTab(state, input.tabId);
+      this.activateTab(input.threadId, state, tab);
 
-    this.resumeThread(input.threadId);
-    const wasSuspended = tab.status === SUSPENDED_TAB_STATUS;
-    const runtime = this.ensureLiveRuntime(input.threadId, tab.id);
-    const webContents = runtime.webContents;
-    const expectedUrl = normalizeUrlInput(tab.lastCommittedUrl ?? tab.url);
-    const currentUrl = webContents.getURL();
-    const bounds = this.getVisibleBoundsForThread(input.threadId);
-    if (bounds) {
-      this.attachActiveTab(input.threadId, bounds);
+      this.resumeThread(input.threadId);
+      const wasSuspended = tab.status === SUSPENDED_TAB_STATUS;
+      const runtime = this.ensureLiveRuntime(input.threadId, tab.id);
+      const webContents = runtime.webContents;
+      const expectedUrl = normalizeUrlInput(tab.lastCommittedUrl ?? tab.url);
+      const currentUrl = webContents.getURL();
+      const bounds = this.getVisibleBoundsForThread(input.threadId);
+      if (bounds) {
+        this.attachActiveTab(input.threadId, bounds);
+      }
+
+      if (wasSuspended || currentUrl.length === 0 || currentUrl !== expectedUrl) {
+        await this.loadTab(input.threadId, tab.id, { runtime });
+      } else {
+        this.queueRuntimeStateSync(input.threadId, tab.id);
+      }
+
+      const pngBytes = (await webContents.capturePage()).toPNG();
+      this.perfCounters.captureScreenshotBytes += pngBytes.byteLength;
+      if (pngBytes.byteLength === 0) {
+        throw new Error("Couldn't capture a browser screenshot.");
+      }
+
+      return {
+        name: screenshotFileNameForUrl(tab.lastCommittedUrl ?? tab.url),
+        pngBytes,
+      };
+    } finally {
+      this.perfCounters.captureScreenshotTotalMs += performance.now() - startedAt;
     }
-
-    if (wasSuspended || currentUrl.length === 0 || currentUrl !== expectedUrl) {
-      await this.loadTab(input.threadId, tab.id, { runtime });
-    } else {
-      this.queueRuntimeStateSync(input.threadId, tab.id);
-    }
-
-    const pngBytes = (await webContents.capturePage()).toPNG();
-    if (pngBytes.byteLength === 0) {
-      throw new Error("Couldn't capture a browser screenshot.");
-    }
-
-    return {
-      name: screenshotFileNameForUrl(tab.lastCommittedUrl ?? tab.url),
-      pngBytes,
-    };
   }
 
   // Captures the current browser viewport as a PNG so the renderer can attach
@@ -1713,59 +1747,71 @@ export class DesktopBrowserManager {
   // Runs a Chrome DevTools Protocol command against the requested tab so higher-level
   // browser automation can reuse the native browser runtime instead of scripting React.
   async executeCdp(input: BrowserExecuteCdpInput): Promise<unknown> {
-    const state = this.ensureWorkspace(input.threadId);
-    const tab = this.resolveTab(state, input.tabId);
-    this.activateTab(input.threadId, state, tab);
-
-    this.resumeThread(input.threadId);
-    const wasSuspended = tab.status === SUSPENDED_TAB_STATUS;
-    const runtime = this.ensureLiveRuntime(input.threadId, tab.id);
-    const webContents = runtime.webContents;
-    const bounds = this.getVisibleBoundsForThread(input.threadId);
-    if (bounds) {
-      this.attachActiveTab(input.threadId, bounds);
-    }
-
-    if (wasSuspended) {
-      await this.loadTab(input.threadId, tab.id, { force: true, runtime });
-    } else {
-      this.queueRuntimeStateSync(input.threadId, tab.id);
-    }
-
-    if (!webContents.debugger.isAttached()) {
-      webContents.debugger.attach("1.3");
-    }
-
+    const startedAt = performance.now();
+    this.perfCounters.executeCdpCalls += 1;
     try {
-      return await webContents.debugger.sendCommand(input.method, input.params ?? {});
-    } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(`CDP ${input.method} failed: ${error.message}`);
+      const state = this.ensureWorkspace(input.threadId);
+      const tab = this.resolveTab(state, input.tabId);
+      this.activateTab(input.threadId, state, tab);
+
+      this.resumeThread(input.threadId);
+      const wasSuspended = tab.status === SUSPENDED_TAB_STATUS;
+      const runtime = this.ensureLiveRuntime(input.threadId, tab.id);
+      const webContents = runtime.webContents;
+      const bounds = this.getVisibleBoundsForThread(input.threadId);
+      if (bounds) {
+        this.attachActiveTab(input.threadId, bounds);
       }
-      throw error;
+
+      if (wasSuspended) {
+        await this.loadTab(input.threadId, tab.id, { force: true, runtime });
+      } else {
+        this.queueRuntimeStateSync(input.threadId, tab.id);
+      }
+
+      if (!webContents.debugger.isAttached()) {
+        webContents.debugger.attach("1.3");
+      }
+
+      try {
+        return await webContents.debugger.sendCommand(input.method, input.params ?? {});
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new Error(`CDP ${input.method} failed: ${error.message}`);
+        }
+        throw error;
+      }
+    } finally {
+      this.perfCounters.executeCdpTotalMs += performance.now() - startedAt;
     }
   }
 
   async prepareObservationTab(input: BrowserTabInput): Promise<void> {
-    const state = this.ensureWorkspace(input.threadId);
-    const tab = this.resolveTab(state, input.tabId);
-    this.activateTab(input.threadId, state, tab);
+    const startedAt = performance.now();
+    this.perfCounters.prepareObservationCalls += 1;
+    try {
+      const state = this.ensureWorkspace(input.threadId);
+      const tab = this.resolveTab(state, input.tabId);
+      this.activateTab(input.threadId, state, tab);
 
-    this.resumeThread(input.threadId);
-    const wasSuspended = tab.status === SUSPENDED_TAB_STATUS;
-    const runtime = this.ensureLiveRuntime(input.threadId, tab.id);
-    if (this.activeBounds && this.activeBoundsThreadId === input.threadId) {
-      this.activateThread(input.threadId, this.activeBounds);
-    }
+      this.resumeThread(input.threadId);
+      const wasSuspended = tab.status === SUSPENDED_TAB_STATUS;
+      const runtime = this.ensureLiveRuntime(input.threadId, tab.id);
+      if (this.activeBounds && this.activeBoundsThreadId === input.threadId) {
+        this.activateThread(input.threadId, this.activeBounds);
+      }
 
-    if (wasSuspended) {
-      await this.loadTab(input.threadId, tab.id, { force: true, runtime });
-    } else {
-      this.queueRuntimeStateSync(input.threadId, tab.id);
-    }
+      if (wasSuspended) {
+        await this.loadTab(input.threadId, tab.id, { force: true, runtime });
+      } else {
+        this.queueRuntimeStateSync(input.threadId, tab.id);
+      }
 
-    if (!runtime.webContents.debugger.isAttached()) {
-      runtime.webContents.debugger.attach("1.3");
+      if (!runtime.webContents.debugger.isAttached()) {
+        runtime.webContents.debugger.attach("1.3");
+      }
+    } finally {
+      this.perfCounters.prepareObservationTotalMs += performance.now() - startedAt;
     }
   }
 

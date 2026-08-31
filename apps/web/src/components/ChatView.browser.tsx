@@ -5104,6 +5104,112 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("keeps the optimistic first message visible while a new thread detail page reconciles", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-new-thread-hydration-baseline" as MessageId,
+        targetText: "new thread hydration baseline",
+      }),
+    });
+    const previousNativeApi = window.nativeApi;
+    const nativeApi = readNativeApi();
+    expect(nativeApi).toBeDefined();
+    let releaseDetailPage!: () => void;
+    const detailPageGate = new Promise<void>((resolve) => {
+      releaseDetailPage = resolve;
+    });
+    let releaseTurnStart!: () => void;
+    const turnStartGate = new Promise<void>((resolve) => {
+      releaseTurnStart = resolve;
+    });
+
+    try {
+      const { threadId: newThreadId } = await createProjectThreadWithShortcut(mounted);
+      Object.defineProperty(window, "nativeApi", {
+        configurable: true,
+        value: {
+          ...nativeApi,
+          orchestration: {
+            ...nativeApi?.orchestration,
+            dispatchCommand: vi.fn(async (command: unknown) => {
+              wsRequests.push({
+                _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+                command,
+              });
+              if (
+                command !== null &&
+                typeof command === "object" &&
+                "type" in command &&
+                command.type === "thread.create"
+              ) {
+                fixture = {
+                  ...fixture,
+                  snapshot: addThreadToSnapshot(fixture.snapshot, newThreadId),
+                };
+              }
+              if (
+                command !== null &&
+                typeof command === "object" &&
+                "type" in command &&
+                command.type === "thread.turn.start"
+              ) {
+                await turnStartGate;
+              }
+              return { sequence: fixture.snapshot.snapshotSequence };
+            }),
+            getShellSnapshot: vi.fn(async () => createShellSnapshotFromReadModel(fixture.snapshot)),
+            getThreadTurnsPage: vi.fn(async ({ threadId }: { threadId: ThreadId }) => {
+              if (threadId === newThreadId) {
+                await detailPageGate;
+              }
+              return createThreadTurnsPageFromFixtureSnapshot(threadId);
+            }),
+          },
+        },
+      });
+
+      const prompt = "first message must not become a loading placeholder";
+      await page.getByTestId("composer-editor").fill(prompt);
+      await expect.element(page.getByTestId("composer-editor")).toHaveTextContent(prompt);
+      await vi.waitFor(() => {
+        expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]?.prompt).toBe(prompt);
+      });
+      const sendButton = await waitForSendButton();
+      await vi.waitFor(() => expect(sendButton.disabled).toBe(false));
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          expect(hasDispatchedCommandType("thread.create")).toBe(true);
+          expect(hasDispatchedCommandType("thread.turn.start")).toBe(true);
+          expect(useStore.getState().threadDetailSyncById?.[newThreadId]).toBe("known-empty");
+          expect(document.body.textContent).toContain(prompt);
+          expect(document.body.textContent).not.toContain("Loading conversation");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      releaseTurnStart();
+      releaseDetailPage();
+      await vi.waitFor(() => {
+        expect(useStore.getState().threadDetailSyncById?.[newThreadId]).toBe("synced");
+      });
+    } finally {
+      releaseTurnStart();
+      releaseDetailPage();
+      if (previousNativeApi) {
+        Object.defineProperty(window, "nativeApi", {
+          configurable: true,
+          value: previousNativeApi,
+        });
+      } else {
+        Reflect.deleteProperty(window, "nativeApi");
+      }
+      await mounted.cleanup();
+    }
+  });
+
   it("uses the active folder before the stored latest folder for the global new-thread shortcut", async () => {
     useLatestProjectStore.setState({ latestFolderId: PROJECT_ID });
     const mounted = await mountChatView({

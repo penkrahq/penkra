@@ -95,7 +95,6 @@ function TranscriptVirtualListInner<TItem>(
     diagnosticInstanceIdRef.current = nextChatScrollDiagnosticInstanceId();
   }
   const previousDataKeysRef = useRef<readonly string[]>([]);
-  const previousDataRef = useRef<readonly TItem[] | null>(null);
   const getItemKey = useCallback(
     (index: number) => keyExtractor(data[index]!),
     [data, keyExtractor],
@@ -116,7 +115,9 @@ function TranscriptVirtualListInner<TItem>(
   const initialEndFollowRef = useRef(false);
   const initialEndTimerRef = useRef<number | null>(null);
   const initialEndFrameCountRef = useRef(0);
-  const initialEndFollowMaxIndexRef = useRef(-1);
+  const initialEndFollowOwnedKeysRef = useRef<ReadonlySet<string>>(new Set());
+  const initialEndFollowTailKeyRef = useRef<string | null>(null);
+  const measuredSizeByKeyRef = useRef(new Map<string, number>());
   const endFollowAnchorRevisionRef = useRef<string | null>(null);
   const endFollowHadDataRef = useRef(false);
   const scheduleInitialEndCorrectionRef = useRef<((source: string) => void) | null>(null);
@@ -206,20 +207,28 @@ function TranscriptVirtualListInner<TItem>(
       apply();
     },
     measureElement: (element, entry, instance) => {
+      const measuredIndex = Number(element.getAttribute("data-index"));
+      const measuredKey = element.getAttribute("data-row-key") ?? String(measuredIndex);
+      const previousMeasuredSize = measuredSizeByKeyRef.current.get(measuredKey);
       const size = measureVirtualElement(element, entry, instance);
+      const measuredSizeChanged =
+        previousMeasuredSize === undefined || Math.abs(previousMeasuredSize - size) > 0.5;
+      measuredSizeByKeyRef.current.set(measuredKey, size);
       if (initialAnchorRestoreActiveRef.current) {
         initialAnchorRestoreStableTicksRef.current = 0;
         initialAnchorRestoreLastTargetOffsetRef.current = null;
         scheduleInitialAnchorRestoreRef.current?.();
       }
       if (initialEndFollowRef.current) {
-        const measuredIndex = Number(element.getAttribute("data-index"));
         // Tail ownership remains event-driven after the first correct reveal.
-        // A later ResizeObserver delivery schedules exactly one correction;
-        // there is no continuously running measurement -> scroll loop. Rows
-        // appended without a semantic transcript revision (tool/work chrome)
-        // are outside this ownership generation and cannot pull the reader.
-        if (measuredIndex <= initialEndFollowMaxIndexRef.current) {
+        // A real size change schedules exactly one correction; unchanged
+        // ResizeObserver deliveries are not content growth. Rows appended
+        // without a semantic transcript revision (tool/work chrome) are
+        // outside this ownership generation and cannot pull the reader.
+        if (
+          initialEndFollowOwnedKeysRef.current.has(measuredKey) &&
+          (!initialPlacementResolvedRef.current || measuredSizeChanged)
+        ) {
           if (initialPlacementResolvedRef.current) {
             // ResizeObserver delivery runs before paint. Once the true tail has
             // been revealed, preserve it in this same delivery so a late
@@ -228,7 +237,7 @@ function TranscriptVirtualListInner<TItem>(
               if (
                 !initialEndFollowRef.current ||
                 !initialEndFollowEligibleRef.current ||
-                measuredIndex > initialEndFollowMaxIndexRef.current
+                !initialEndFollowOwnedKeysRef.current.has(measuredKey)
               ) {
                 return;
               }
@@ -239,9 +248,10 @@ function TranscriptVirtualListInner<TItem>(
               // rectangle rather than scrollHeight, which may still include
               // estimates for unmeasured rows and can overshoot the causal
               // tail in either direction.
-              const tailElement = scrollElement.querySelector<HTMLElement>(
-                `[data-index="${initialEndFollowMaxIndexRef.current}"]`,
-              );
+              const ownedTailKey = initialEndFollowTailKeyRef.current;
+              const tailElement = Array.from(
+                scrollElement.querySelectorAll<HTMLElement>("[data-row-key]"),
+              ).find((candidate) => candidate.getAttribute("data-row-key") === ownedTailKey);
               if (!tailElement) {
                 scheduleInitialEndCorrectionRef.current?.("measured-tail-unmounted");
                 return;
@@ -269,8 +279,11 @@ function TranscriptVirtualListInner<TItem>(
         anchorRevision,
         element: scrollElementRef.current,
         detail: {
-          index: Number(element.getAttribute("data-index")),
+          index: measuredIndex,
+          key: measuredKey,
           size,
+          previousSize: previousMeasuredSize ?? null,
+          sizeChanged: measuredSizeChanged,
           source: entry ? "resize-observer" : "sync",
         },
       });
@@ -692,7 +705,6 @@ function TranscriptVirtualListInner<TItem>(
 
   useLayoutEffect(() => {
     const previousKeys = previousDataKeysRef.current;
-    const dataReferenceChanged = previousDataRef.current !== data;
     const currentKeys = data.map((item) => keyExtractor(item));
     const previousFirstKey = previousKeys.at(0) ?? null;
     const preservedFirstIndex =
@@ -712,25 +724,6 @@ function TranscriptVirtualListInner<TItem>(
       preservedFirstIndex,
       prependedRowCount: preservedFirstIndex > 0 ? preservedFirstIndex : 0,
     });
-    if (
-      previousKeys.length > 0 &&
-      dataReferenceChanged &&
-      initialPlacementResolvedRef.current &&
-      !hasSemanticAppend &&
-      !hasLeadingPrepend
-    ) {
-      // A committed row-model update without a transcript revision is
-      // tool/status/approval chrome, not continued initial layout. Release
-      // tail ownership before its measurements arrive so generic activity
-      // cannot become an auto-stick signal. Intrinsic changes inside the
-      // already committed transcript (Markdown, fonts, images) do not replace
-      // `data` and remain protected by the measurement path above.
-      initialEndFollowRef.current = false;
-      recordDiagnostic("initial-end-follow:released", {
-        source: "non-semantic-data-commit",
-      });
-    }
-    previousDataRef.current = data;
     previousDataKeysRef.current = currentKeys;
   }, [
     data,
@@ -767,10 +760,12 @@ function TranscriptVirtualListInner<TItem>(
     didInitialScrollRef.current = true;
     initialEndFollowRef.current = true;
     initialEndFrameCountRef.current = 0;
-    initialEndFollowMaxIndexRef.current = data.length - 1;
+    const ownedKeys = data.map((item) => keyExtractor(item));
+    initialEndFollowOwnedKeysRef.current = new Set(ownedKeys);
+    initialEndFollowTailKeyRef.current = ownedKeys.at(-1) ?? null;
     recordDiagnostic("initial-end-follow:started", { source });
     scheduleInitialEndCorrection(source);
-  }, [anchorRevision, hasData, recordDiagnostic, scheduleInitialEndCorrection]);
+  }, [anchorRevision, data, hasData, keyExtractor, recordDiagnostic, scheduleInitialEndCorrection]);
 
   const virtualItems = virtualizer.getVirtualItems();
   const containerStyle: CSSProperties = {
