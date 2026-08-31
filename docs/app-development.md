@@ -62,6 +62,7 @@ my-app/
 ├── penkra-app.json       Manifest and public capabilities
 ├── README.md             Human-facing App description
 ├── INSTRUCTIONS.md       Agent-facing operational guidance for this App
+├── operations/           Optional substantial operation-specific guidance
 ├── app.html              Visual entrypoint
 ├── operations.js         Optional Node operation controller
 ├── package.json          Optional standard Node module/dependency metadata
@@ -105,7 +106,7 @@ extraction rather than prescribing how large an App should be.
     {
       "key": "documents.open",
       "summary": "Open one exact note in an App tab and return its tab ID.",
-      "instructions": "Use the returned tab ID for visible review. Opening does not change note content.",
+      "instructionsPath": "operations/documents.open.md",
       "input": {
         "type": "object",
         "properties": { "id": { "type": "string" } },
@@ -138,8 +139,11 @@ for how to choose the key itself.
 Every operation requires at least one named example whose `input` matches the declared input
 schema. Penkra renders examples as complete `penkra_exec_command` calls in generated help and
 rejects missing, malformed, or schema-invalid examples during App testing, packaging, sideloading,
-and publication. Use optional `instructions` for operation-specific procedure, limits, and recovery;
-keep the summary concise enough for discovery.
+and publication. Put short operation guidance inline with `instructions`, or use
+`instructionsPath` for a nonempty package-relative Markdown file when the operation needs a real
+usage guide. The two fields are mutually exclusive. Packaging verifies the referenced file, and
+leaf help renders its contents together with the generated examples and schemas. Keep the summary
+concise enough for discovery.
 
 Handler contributions declare resources an App can open through one of its public operations:
 
@@ -240,12 +244,26 @@ Every App ships a nonempty root `INSTRUCTIONS.md`. It is the operating orientati
 `<slug> --help`: what kind of thing the App owns, where that state lives, the distinctions that
 apply across its surface, and the authority boundaries or identity rules an agent must retain while
 choosing among operations. Write it as cohesive guidance for this App. Headings should follow the
-material; Penkra does not require a stock outline.
+material; Penkra does not require a stock outline. Its package-root location is a convention of the
+App format, not another manifest setting. Operation guides need explicit paths because one App may
+declare many of them.
 
-Do not turn root instructions into a second operation manual. Facts that apply only to one
-operation—its procedure, domain model, ordering, limits, consequential choices, recognizable
-failures, and recovery—belong in that operation's `instructions`. Leaf help already combines this
-guidance with the exact input and output schemas, named examples, and invocation syntax.
+Do not turn root instructions into a second operation manual. Facts that are true only while using
+one operation—its procedure, domain model, ordering, limits, examples, consequential choices,
+recognizable failures, and recovery—belong in that operation's `instructions` or
+`instructionsPath`. Leaf help already combines this guidance with the exact input and output
+schemas, named examples, and invocation syntax. This division matters most for substantial
+authoring operations: an agent deciding whether to use an editor needs a short description at the
+App root; an agent executing that editor needs its complete authoring model in leaf help.
+
+Prefer `instructionsPath` for a substantial operation manual so it remains an ordinary reviewable
+Markdown document. Inline `instructions` is the compact form for brief guidance; it is not the
+recommended home for a long manual.
+
+Conversely, do not hide essential App semantics in an optional Skill. If every correct use of an
+operation depends on a fact, that fact belongs in always-available App or operation help. A Skill is
+appropriate only when it packages an optional, named workflow that composes capabilities toward a
+particular outcome.
 
 The manifest's App `summary` appears in Penkra's live capability catalog, and each operation
 `summary` appears in generated help. Write both as concrete agent-facing descriptions: name the
@@ -266,9 +284,17 @@ package-relative directory and declaring that directory in `contributions.skills
 ```
 
 `penkra app package` requires the exact referenced `skills/create-issue/SKILL.md` to exist inside
-the package; missing, duplicate, absolute, or escaping paths are rejected. Keep each Skill focused
-on a procedure for this App: the operations to call, their order, and the checks between them. A
-Skill cannot grant permissions or prove another capability is installed.
+the package; missing, duplicate, absolute, or escaping paths are rejected. A contributed Skill
+should represent an optional, discoverable capability or methodology—such as importing a register,
+running a structured audit, or preparing a release—that an agent may choose for a particular user
+outcome. It may compose several operations, Apps, references, scripts, or templates and define the
+checks between them.
+
+Do not use a Skill as required documentation for the App itself or as the only explanation of a
+public operation. Skills can be disabled individually, are loaded only when selected, and may not be
+present in every agent context. If disabling a Skill makes the underlying operation impossible to
+use correctly, its essential content belongs in root or leaf help instead. A Skill cannot grant
+permissions or prove another capability is installed.
 
 Contributed Skills are enabled by default with their App in one Space. The user can disable an
 individual Skill for that App and Space; the host stores this per-Space override. At load time
@@ -967,8 +993,8 @@ installed App's slug:
 { "command": "penkra --help" }
 { "command": "apps list" }
 { "command": "penkra open --path /absolute/path/to/file" }
-{ "command": "notes notes open --id note-123" }
-{ "command": "notes notes open --help" }
+{ "command": "notes documents open --id note-123" }
+{ "command": "notes documents open --help" }
 ```
 
 Operation help includes the complete validated input and output JSON Schemas. App commands do not
@@ -1065,9 +1091,11 @@ and reuses it across rebuilds and restarts. This claim is not a registry listing
 token-issuance contract.
 
 `test` asks the installed Penkra desktop to relaunch its own App runtime in a hidden, disposable
-profile and Space. It ingests the App through the immutable package path, starts its controller and
-visual renderer, requires the tab to reach `ready`, records diagnostics, and removes the profile. It never
-uses or changes the active profile, Space, database, or installed Apps. It complements unit,
+profile and Space. It ingests the App through the immutable package path, generates root help and
+leaf help for every declared operation through the same catalog agents use, starts its controller
+and visual renderer, requires the tab to reach `ready`, records diagnostics, and removes the
+profile. A missing, unreadable, or unrenderable file-backed guide therefore fails the test. Testing
+never uses or changes the active profile, Space, database, or installed Apps. It complements unit,
 accessibility, and visual tests.
 
 `package` validates the manifest, schemas, required documents, referenced paths, compatibility,

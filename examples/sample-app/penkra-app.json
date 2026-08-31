@@ -24,13 +24,13 @@
         "default": "from Sample",
         "validation": { "maxLength": 80 }
       }
-    ],
-    "skills": [{ "path": "skills/create-note" }]
+    ]
   },
   "operations": [
     {
       "key": "notes.create",
       "summary": "Create a note, optionally asking for confirmation in an App tab.",
+      "instructionsPath": "operations/notes.create.md",
       "input": {
         "type": "object",
         "properties": {
@@ -57,6 +57,7 @@
     {
       "key": "catalog.open-listing",
       "summary": "Open an App listing through Apps without installing it.",
+      "instructionsPath": "operations/catalog.open-listing.md",
       "input": {
         "type": "object",
         "properties": {

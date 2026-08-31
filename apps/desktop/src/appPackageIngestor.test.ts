@@ -76,6 +76,46 @@ describe("AppPackageIngestor", () => {
     ).rejects.toThrow("must not be empty");
   });
 
+  it("ingests nonempty file-backed operation guidance and rejects an empty guide", async () => {
+    const { sourcePath, storePath } = fixture();
+    const manifestPath = Path.join(sourcePath, PENKRA_APP_MANIFEST_FILE_NAME);
+    const manifest = JSON.parse(FS.readFileSync(manifestPath, "utf8"));
+    manifest.entrypoints.controller = "operations.js";
+    manifest.operations = [
+      {
+        key: "documents.execute",
+        summary: "Edit one document.",
+        instructionsPath: "operations/documents.execute.md",
+        input: { type: "object", additionalProperties: false },
+        output: { type: "object", additionalProperties: true },
+        examples: [{ name: "Inspect a document", input: {} }],
+        handler: "documents.execute",
+      },
+    ];
+    FS.writeFileSync(manifestPath, JSON.stringify(manifest));
+    FS.writeFileSync(Path.join(sourcePath, "operations.js"), "export {};\n");
+    FS.mkdirSync(Path.join(sourcePath, "operations"));
+    FS.writeFileSync(
+      Path.join(sourcePath, "operations", "documents.execute.md"),
+      "# Editing documents\n",
+    );
+
+    await expect(
+      new AppPackageIngestor(storePath).ingestDirectory({
+        sourcePath,
+        source: "sideload",
+      }),
+    ).resolves.toMatchObject({ manifest: { id: "com.example.app" } });
+
+    FS.writeFileSync(Path.join(sourcePath, "operations", "documents.execute.md"), "  \n");
+    await expect(
+      new AppPackageIngestor(storePath).ingestDirectory({
+        sourcePath,
+        source: "sideload",
+      }),
+    ).rejects.toThrow("must not be empty");
+  });
+
   it("rejects symbolic links instead of copying outside the package", async () => {
     const { root, sourcePath, storePath } = fixture();
     FS.symlinkSync(Path.join(root, "outside"), Path.join(sourcePath, "escape"));

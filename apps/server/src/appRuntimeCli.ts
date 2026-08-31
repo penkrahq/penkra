@@ -530,7 +530,7 @@ const APP_DEVELOPER_OPERATIONS: Readonly<Record<string, HostOperationDeclaration
   test: developerOperation(
     "test",
     "Validate an App package directory without installing or publishing it.",
-    "Run before packaging or publishing. Validation is read-only and reports manifest, package, and controller contract failures.",
+    "Run before packaging or publishing. Validation is read-only and exercises manifest and package validation, generated root and operation help, the isolated App runtime, and its ready-state diagnostics.",
     { directory: DIRECTORY_PROPERTY },
     ["directory"],
     "penkra app test --directory ./dist",

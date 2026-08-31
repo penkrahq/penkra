@@ -70,10 +70,34 @@ describe("generated App help", () => {
     expect(help).toContain('\\"title\\":\\"Fix redirect\\"');
     expect(help).toContain('"required": [');
     expect(help).toContain("Validated output schema");
-    expect(help).toContain("Invocation\n  --input");
-    expect(help).toContain("Instructions");
+    expect(help).toContain("Invocation\n  Send one ordinary command string.");
+    expect(help).toContain("--input   Complete JSON operation input");
+    expect(help).toContain("How to use this operation");
     expect(help).toContain("Confirm the destination project");
     expect(help).toContain("Run linear --help for Linear operating instructions.");
     expect(help).not.toContain("Follow workspace conventions.");
+  });
+
+  it("renders resolved file-backed guidance in the same leaf-help position", () => {
+    const { instructions: _inlineInstructions, ...operation } = manifest.operations[0];
+    const fileBacked = {
+      ...manifest,
+      operations: [
+        {
+          ...operation,
+          instructionsPath: "operations/issues.create.md",
+        },
+      ],
+    } as const;
+    const help = generateAppHelp({
+      manifest: fileBacked,
+      instructions: "Root guidance.",
+      operation: "issues.create",
+      operationInstructions: "Use the current project ID.\n\nRecover by listing projects again.",
+    });
+    expect(help).toContain("How to use this operation");
+    expect(help).toContain("Use the current project ID.");
+    expect(help.indexOf("How to use this operation")).toBeLessThan(help.indexOf("Examples"));
+    expect(help).not.toContain("Root guidance.");
   });
 });

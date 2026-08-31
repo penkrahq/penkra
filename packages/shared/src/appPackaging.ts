@@ -265,11 +265,32 @@ async function assertReferencedFiles(
     manifest.entrypoints.tab,
     manifest.entrypoints.controller,
     ...manifest.icons.map((icon) => icon.src),
+    ...(manifest.operations ?? []).map((operation) => operation.instructionsPath),
     ...(manifest.contributions?.skills ?? []).map((skill) => `${skill.path}/SKILL.md`),
   ].filter((path): path is string => Boolean(path));
   for (const reference of references) {
     if (!paths.has(reference))
       throw new Error(`Manifest reference is missing from the package: ${reference}`);
+  }
+  for (const operation of manifest.operations ?? []) {
+    if (!operation.instructionsPath) continue;
+    const bytes = await FS.readFile(filesByPath.get(operation.instructionsPath)!.sourcePath);
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch (error) {
+      throw new Error(
+        `${operation.instructionsPath} must be UTF-8 text: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (bytes.byteLength > PENKRA_APP_INSTRUCTIONS_MAX_BYTES) {
+      throw new Error(
+        `${operation.instructionsPath} exceeds ${PENKRA_APP_INSTRUCTIONS_MAX_BYTES} bytes.`,
+      );
+    }
+    if (text.includes("\0") || !text.trim()) {
+      throw new Error(`${operation.instructionsPath} must contain nonempty operation guidance.`);
+    }
   }
   for (const skill of manifest.contributions?.skills ?? []) {
     const skillPath = `${skill.path}/SKILL.md`;

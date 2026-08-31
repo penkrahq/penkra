@@ -72,6 +72,22 @@ void runHostPhase("electron-ready", () => app.whenReady())
           enabled: true,
         });
       });
+      const help = await runHostPhase("agent-help-validate", async () => {
+        await runtime.operationCatalog.help({
+          spaceId: TEST_SPACE_ID,
+          slug: packageRecord.manifest.slug,
+        });
+        const operations: string[] = [];
+        for (const operation of packageRecord.manifest.operations ?? []) {
+          await runtime.operationCatalog.help({
+            spaceId: TEST_SPACE_ID,
+            slug: packageRecord.manifest.slug,
+            operation: operation.key,
+          });
+          operations.push(operation.key);
+        }
+        return { root: true as const, operations };
+      });
       const openedTab = await runHostPhase("tab-open", () =>
         runtime.appTabs.openInstalled({
           appId: packageRecord.appId,
@@ -98,6 +114,7 @@ void runHostPhase("electron-ready", () => app.whenReady())
               ok: true,
               appId: packageRecord.appId,
               version: packageRecord.version,
+              help,
               tab,
               diagnostics,
               profilePath,

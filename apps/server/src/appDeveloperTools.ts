@@ -13,6 +13,7 @@ export interface AppIntegrationTestEvidence {
   ok: true;
   appId: string;
   version: string;
+  help: { root: true; operations: string[] };
   tab: { id: string; status: "ready" };
   diagnostics: ReadonlyArray<{ kind: string }>;
   profileRemoved: true;
@@ -48,10 +49,19 @@ export async function testAppDirectory(input: {
       : [];
     if (!diagnostics.some((entry) => entry.kind === "tab-ready"))
       throw new Error("The App test did not produce tab-ready diagnostics.");
+    const help = result.help as Record<string, unknown> | undefined;
+    if (
+      help?.root !== true ||
+      !Array.isArray(help.operations) ||
+      !help.operations.every((operation) => typeof operation === "string")
+    ) {
+      throw new Error("The App test did not validate generated agent help.");
+    }
     return {
       ok: true,
       appId: String(result.appId),
       version: String(result.version),
+      help: { root: true, operations: help.operations as string[] },
       tab: { id: tab.id, status: "ready" },
       diagnostics,
       profileRemoved: true,
