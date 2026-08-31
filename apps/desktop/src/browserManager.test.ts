@@ -116,9 +116,11 @@ class FakeWebContents extends EventEmitter {
   executeJavaScript = vi.fn(async (): Promise<unknown[]> => []);
   getURL = vi.fn(() => this.currentUrl);
   getTitle = vi.fn(() => this.currentTitle);
+  getProcessId = vi.fn(() => 101);
   isLoading = vi.fn(() => this.loading);
   canGoBack = vi.fn(() => false);
   canGoForward = vi.fn(() => false);
+  capturePage = vi.fn(async () => ({ toPNG: () => Buffer.from("png") }));
   loadURL = vi.fn(async (url: string, _options?: Electron.LoadURLOptions) => {
     this.currentUrl = url;
   });
@@ -1110,5 +1112,77 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
     expect(observed).toBe(webContents);
     expect(webContents.loadURL).not.toHaveBeenCalled();
     expect(webContents.debugger.attach).toHaveBeenCalledWith("1.3");
+  });
+
+  it("attributes adopted runtimes, observation preparation, evaluation, and capture", async () => {
+    const manager = new DesktopBrowserManager();
+    const opened = manager.open({
+      threadId: THREAD_ID,
+      initialUrl: "https://console.example",
+    });
+    const tabId = opened.activeTabId;
+    expect(tabId).not.toBeNull();
+    if (!tabId) return;
+
+    const webContents = new FakeWebContents();
+    webContents.currentUrl = "https://console.example/";
+    const key = `${THREAD_ID}:${tabId}`;
+    (
+      manager as unknown as {
+        runtimes: Map<
+          string,
+          {
+            key: string;
+            threadId: ThreadId;
+            tabId: string;
+            webContents: WebContents;
+            view: null;
+            ownsWebContents: false;
+            listenerDisposers: Array<() => void>;
+          }
+        >;
+      }
+    ).runtimes.set(key, {
+      key,
+      threadId: THREAD_ID,
+      tabId,
+      webContents: webContents as unknown as WebContents,
+      view: null,
+      ownsWebContents: false,
+      listenerDisposers: [],
+    });
+    const internal = (
+      manager as unknown as {
+        states: Map<ThreadId, { tabs: Array<{ id: string; status: "live" | "suspended" }> }>;
+      }
+    ).states.get(THREAD_ID);
+    const tab = internal?.tabs.find((candidate) => candidate.id === tabId);
+    if (!tab) throw new Error("Expected Browser tab state.");
+    tab.status = "live";
+
+    await manager.observationWebContents(THREAD_ID);
+    await manager.executeCdp({
+      threadId: THREAD_ID,
+      tabId,
+      method: "Runtime.evaluate",
+      params: { expression: "document.title" },
+    });
+    await manager.captureScreenshot({ threadId: THREAD_ID, tabId });
+
+    expect(manager.getPerformanceSnapshot().counters).toMatchObject({
+      adoptedRendererRuntimeCount: 1,
+      ownedRuntimeCount: 0,
+      prepareObservationCalls: 1,
+      executeCdpCalls: 1,
+      captureScreenshotCalls: 1,
+      captureScreenshotBytes: 3,
+    });
+    expect(
+      manager.getPerformanceSnapshot().counters.prepareObservationTotalMs,
+    ).toBeGreaterThanOrEqual(0);
+    expect(manager.getPerformanceSnapshot().counters.executeCdpTotalMs).toBeGreaterThanOrEqual(0);
+    expect(
+      manager.getPerformanceSnapshot().counters.captureScreenshotTotalMs,
+    ).toBeGreaterThanOrEqual(0);
   });
 });

@@ -991,6 +991,7 @@ let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
 let unreadBackgroundNotificationCount = 0;
 let browserPerfInterval: ReturnType<typeof setInterval> | null = null;
+let appTabObserver: AppTabObserver | null = null;
 const browserManager = new DesktopBrowserManager({
   beforeInputEvent: (event, input) => {
     if (
@@ -1434,8 +1435,8 @@ function startBrowserPerformanceLogging(): void {
   browserPerfInterval = setInterval(() => {
     const snapshot = browserManager.getPerformanceSnapshot();
     const trackedProcessIds = new Set(snapshot.trackedProcessIds);
-    const processMetrics = app
-      .getAppMetrics()
+    const allProcessMetrics = app.getAppMetrics();
+    const processMetrics = allProcessMetrics
       .filter((metric) => trackedProcessIds.has(metric.pid))
       .map((metric) => ({
         pid: metric.pid,
@@ -1444,8 +1445,51 @@ function startBrowserPerformanceLogging(): void {
         memMb: Math.round(metric.memory.workingSetSize / 1024),
         name: metric.name,
       }));
+    const processTypes: Record<string, { count: number; cpu: number; memMb: number }> = {};
+    for (const metric of allProcessMetrics) {
+      const summary = processTypes[metric.type] ?? { count: 0, cpu: 0, memMb: 0 };
+      summary.count += 1;
+      summary.cpu += metric.cpu.percentCPUUsage;
+      summary.memMb += metric.memory.workingSetSize / 1024;
+      processTypes[metric.type] = summary;
+    }
+    for (const summary of Object.values(processTypes)) {
+      summary.cpu = Number(summary.cpu.toFixed(1));
+      summary.memMb = Math.round(summary.memMb);
+    }
+    const appTabs = desktopAppRuntime?.appTabs.list() ?? [];
+    const appTabsBySlug: Record<string, number> = {};
+    const appTabsByStatus: Record<string, number> = {};
+    for (const tab of appTabs) {
+      appTabsBySlug[tab.slug] = (appTabsBySlug[tab.slug] ?? 0) + 1;
+      appTabsByStatus[tab.status] = (appTabsByStatus[tab.status] ?? 0) + 1;
+    }
+    const appTabCounts = {
+      count: appTabs.length,
+      threadCount: new Set(appTabs.map((tab) => tab.threadId)).size,
+      bySlug: appTabsBySlug,
+      byStatus: appTabsByStatus,
+    };
+
     console.info(`[${PENKRA_BROWSER_LABEL} perf]`, {
       ...snapshot.counters,
+      appTabObserver: appTabObserver?.getPerformanceSnapshot() ?? null,
+      appTabs: appTabCounts,
+      electron: {
+        processCount: allProcessMetrics.length,
+        cpu: Number(
+          allProcessMetrics
+            .reduce((total, metric) => total + metric.cpu.percentCPUUsage, 0)
+            .toFixed(1),
+        ),
+        memMb: Math.round(
+          allProcessMetrics.reduce(
+            (total, metric) => total + metric.memory.workingSetSize / 1024,
+            0,
+          ),
+        ),
+      },
+      electronByType: processTypes,
       trackedProcessIds: snapshot.trackedProcessIds,
       processes: processMetrics,
     });
@@ -7725,7 +7769,7 @@ async function bootstrap(): Promise<void> {
     });
   });
   writeDesktopLogHeader("bootstrap App runtime started");
-  const appTabObserver = new AppTabObserver({
+  appTabObserver = new AppTabObserver({
     resolve: async (tabId) => {
       const descriptor = desktopAppRuntime!.appTabs
         .list()
