@@ -205,9 +205,10 @@ updates several unrelated things and its name still says `meta`. Call it `docume
 resource. There is no collection stored anywhere that this addresses; there is a filter, and filters
 belong in `input`.
 
-Penkra's own surface has exactly one nested family — `penkra app access invite`, `list`, and
-`revoke` — and it qualifies on this test. An invitation exists only against a specific App, carries
-no meaning apart from it, and cannot be resolved from its own ID.
+Penkra's own surface has two nested families. `penkra app access invite`, `list`, and `revoke`
+manage who can install a private App. `penkra app members invite`, `list`, `role`, and `revoke`
+manage who can develop and publish an App. Both qualify because their grants exist only against a
+specific App and cannot be resolved from their own IDs.
 
 ### Why this matters at the call site
 
@@ -575,9 +576,9 @@ installation:
 3. A concurrent or later attempt by another Account to claim that identifier is rejected. This is
    what makes an unregistered development bundle genuinely unique rather than merely unique on one
    computer.
-4. If the identifier is already registered, only the owning developer Account may sideload it, and
+4. If the identifier is already registered, its owner or an active App member may sideload it, and
    the manifest slug must exactly match the registered slug.
-5. Re-sideloading as the owner reuses the same development identity and updates its allowed
+5. Re-sideloading with development authority reuses the same development identity and updates its allowed
    identity audience to the newly validated manifest declaration. Removing `account-identity`
    records no development audience, which stops development-token issuance.
 6. The Account service stores the ownership claim, and the desktop stores the returned opaque claim
@@ -590,12 +591,51 @@ release the globally unique identifier for another Account. When the owner later
 registry App, publication must use the same identifier and slug; the registry honors the existing
 claim rather than allowing a different Account to take it.
 
-For a development sideload, token issuance requires the claim owner and the exact audience last
-captured from that validated sideload. A registered App owner is not granted arbitrary audiences
+For a development sideload, token issuance requires the claim owner or an active App member and the
+exact audience last captured from that validated sideload. App membership does not grant arbitrary audiences
 merely because the App is still a draft. For an installed registry release, token issuance instead
 requires an eligible published version declaring the exact audience plus the Account's normal
 public, private, owner, or invitation access. Active App, publisher, or version revocation remains
 authoritative over development and published issuance.
+
+#### Development teams and roles
+
+The App owner can grant other people development authority without publishing the App and without
+sharing credentials. Membership is scoped to one canonical manifest identifier and continues to
+apply when that development identity becomes a registry App.
+
+| Role      | Sideload | Development identity token | Read status | Publish and retry | Change visibility | Manage members | Manage private-user access |
+| --------- | -------- | -------------------------- | ----------- | ----------------- | ----------------- | -------------- | -------------------------- |
+| Developer | Yes      | Yes                        | Yes         | No                | No                | No             | No                         |
+| Publisher | Yes      | Yes                        | Yes         | Yes               | Yes               | No             | No                         |
+| Owner     | Yes      | Yes                        | Yes         | Yes               | Yes               | Yes            | Yes                        |
+
+Use the manifest identifier or registry App UUID as `--app-id`:
+
+```json
+{ "command": "penkra app members invite --app-id com.example.notes --email dev@example.com --role developer" }
+{ "command": "penkra app members list --app-id com.example.notes" }
+{ "command": "penkra app members role --app-id com.example.notes --member-id <member-id> --role publisher" }
+{ "command": "penkra app members revoke --app-id com.example.notes --member-id <member-id>" }
+```
+
+`members invite` does not send an email. It stores a normalized email-based grant:
+
+- If that email already belongs to a verified Penkra Account, the grant is `active` immediately.
+- Otherwise it is `pending`. Pending means waiting for a matching verified Account, not that an
+  email was sent or that an acceptance link is outstanding.
+- When a matching Account becomes available, the grant becomes usable without another owner action.
+- A grant created for an existing verified Account is bound to that Account. A pending grant is
+  matched by verified email, so the owner should review or replace it if that address changes.
+- A revoked grant stops future sideload claims, development identity tokens, status access, and
+  publication actions immediately. It does not remotely uninstall already-sideloaded local files.
+
+Only the owner can invite, change roles, list the complete team, or revoke a member. A publisher can
+finish or retry another publisher's in-progress submission so publication work can be handed off.
+Every management and publication mutation is recorded by the registry operation audit trail.
+
+Do not confuse App members with private-App users. `penkra app access ...` grants installation and
+runtime access to a private published App; it never grants sideload or publication authority.
 
 #### JWT contract
 
@@ -1086,12 +1126,17 @@ Use the registered App-author commands:
 { "command": "penkra app access invite --app-id <app-id> --email person@example.com" }
 { "command": "penkra app access list --app-id <app-id>" }
 { "command": "penkra app access revoke --app-id <app-id> --invitation-id <invitation-id>" }
+{ "command": "penkra app members invite --app-id <app-id> --email dev@example.com --role developer" }
+{ "command": "penkra app members list --app-id <app-id>" }
+{ "command": "penkra app members role --app-id <app-id> --member-id <member-id> --role publisher" }
+{ "command": "penkra app members revoke --app-id <app-id> --member-id <member-id>" }
 ```
 
 For `status`, `--app-id` accepts either the manifest identifier such as `com.example.my-app` or the
 owned registry App ID returned by the unfiltered status listing. An identifier with no owned registry
 record returns an empty submission list instead of an invalid-ID failure. Access commands use the
-owned registry App ID. Help, status, publication, and access results identify the active registry
+owned registry App ID; member commands accept the manifest identifier or registry App UUID. Help,
+status, publication, access, and member results identify the active registry
 target by environment and API origin. Check that evidence before changing production state.
 
 `publish` tests and packages the App, resolves or creates its stable publisher and App identities,
@@ -1101,8 +1146,9 @@ only then applies the requested visibility. Publisher IDs, bundle paths, and sub
 implementation details rather than steps the developer must orchestrate. The default visibility is
 private.
 
-Publication requires a signed-in Penkra account that owns the publisher and App. It binds that
-authenticated submission to the publisher namespace, immutable App ID and version,
+Creating a publisher or first registry App requires its owner. Publishing an existing App requires
+the owner or an App member with the `publisher` role. It binds the authenticated submitter's
+submission to the publisher namespace, immutable App ID and version,
 manifest/package/README/instructions digests, registry signature, compatibility, validation
 findings, and permission declarations. Automated validation must finish before a release is
 installable. Changing code, manifest data, documentation, permissions, or assets requires a new

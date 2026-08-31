@@ -56,6 +56,60 @@ describe("desktop App registry client", () => {
     );
   });
 
+  it("recognizes publisher membership and manages email-based member grants", async () => {
+    const memberId = "00000000-0000-4000-8000-000000000397";
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "member",
+          appId: summary.id,
+          publisherId: "00000000-0000-4000-8000-000000000399",
+          slug: "canvas",
+          role: "publisher",
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: memberId, status: "pending" }, 201))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          items: [{ id: memberId, status: "pending" }],
+          pageInfo: { nextCursor: null },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: memberId, role: "publisher" }))
+      .mockResolvedValueOnce(jsonResponse({ memberId, revoked: true }));
+    const client = new AppRegistryClient({
+      apiUrl: "https://api.penkra.com",
+      getCookie: () => "cookie=value",
+      fetch,
+    });
+
+    await expect(client.developerGetAppIdentifierOwnership(summary.identifier)).resolves.toEqual(
+      expect.objectContaining({ status: "member", role: "publisher" }),
+    );
+    await client.developerInviteAppMember({
+      appId: summary.identifier,
+      email: "dev@example.com",
+      role: "developer",
+    });
+    await expect(client.developerListAppMembers(summary.identifier)).resolves.toHaveLength(1);
+    await client.developerUpdateAppMemberRole({
+      appId: summary.identifier,
+      memberId,
+      role: "publisher",
+    });
+    await client.developerRevokeAppMember({ appId: summary.identifier, memberId });
+
+    expect(fetch.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ email: "dev@example.com", role: "developer" }),
+      }),
+    );
+    expect(fetch.mock.calls[3]?.[1]).toEqual(expect.objectContaining({ method: "PATCH" }));
+    expect(fetch.mock.calls[4]?.[1]).toEqual(expect.objectContaining({ method: "DELETE" }));
+  });
+
   it("claims and validates durable sideload identity provenance", async () => {
     const developmentIdentityId = "00000000-0000-4000-8000-000000000398";
     const publisherId = "00000000-0000-4000-8000-000000000399";

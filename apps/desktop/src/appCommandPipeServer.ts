@@ -60,6 +60,10 @@ type Request = {
     | "developer.app-access.invite"
     | "developer.app-access.list"
     | "developer.app-access.revoke"
+    | "developer.app-members.invite"
+    | "developer.app-members.list"
+    | "developer.app-members.role"
+    | "developer.app-members.revoke"
     | "developer.submissions.list"
     | "developer.submissions.get"
     | "developer.submissions.retry-validation"
@@ -570,6 +574,43 @@ export class AppCommandPipeServer {
             invitationId: requiredString(params.invitationId, "invitationId"),
           }),
         };
+      case "developer.app-members.invite":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerInviteAppMember({
+            appId: requiredString(params.appId, "appId"),
+            email: requiredString(params.email, "email"),
+            role: requiredMemberRole(params.role),
+          }),
+        };
+      case "developer.app-members.list":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerListAppMembers(
+            requiredString(params.appId, "appId"),
+          ),
+        };
+      case "developer.app-members.role":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerUpdateAppMemberRole({
+            appId: requiredString(params.appId, "appId"),
+            memberId: requiredString(params.memberId, "memberId"),
+            role: requiredMemberRole(params.role),
+          }),
+        };
+      case "developer.app-members.revoke":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerRevokeAppMember({
+            appId: requiredString(params.appId, "appId"),
+            memberId: requiredString(params.memberId, "memberId"),
+          }),
+        };
       case "developer.submissions.list":
         return {
           ok: true,
@@ -881,6 +922,13 @@ function requiredVisibility(value: unknown): "public" | "private" {
     throw new Error("visibility must be public or private.");
   }
   return visibility;
+}
+
+function requiredMemberRole(value: unknown): "developer" | "publisher" {
+  if (value !== "developer" && value !== "publisher") {
+    throw new Error("role must be developer or publisher");
+  }
+  return value;
 }
 
 function optionalString(value: unknown, name: string): string | null {
