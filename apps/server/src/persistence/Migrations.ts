@@ -161,6 +161,7 @@ import Migration0152 from "./Migrations/152_TypedLegacyPendingInteractionFailure
 import Migration0153 from "./Migrations/153_TypedLegacyPendingInteractionProjectionRepair.ts";
 import Migration0154 from "./Migrations/154_RestartReconciliationIndexes.ts";
 import Migration0155 from "./Migrations/155_ThreadSidebarPreviewIndex.ts";
+import Migration0156 from "./Migrations/156_ActiveTurnProjectionSemantics.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -321,6 +322,7 @@ export const migrationEntries = [
   [153, "TypedLegacyPendingInteractionProjectionRepair", Migration0153],
   [154, "RestartReconciliationIndexes", Migration0154],
   [155, "ThreadSidebarPreviewIndex", Migration0155],
+  [156, "ActiveTurnProjectionSemantics", Migration0156],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

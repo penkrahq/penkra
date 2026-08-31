@@ -30,6 +30,7 @@ const replayedEntries: ReadonlyArray<readonly [id: number, name: string]> = [
   [153, "TypedLegacyPendingInteractionProjectionRepair"],
   [154, "RestartReconciliationIndexes"],
   [155, "ThreadSidebarPreviewIndex"],
+  [156, "ActiveTurnProjectionSemantics"],
 ];
 
 const schemaObjects = (sql: SqlClient.SqlClient) =>

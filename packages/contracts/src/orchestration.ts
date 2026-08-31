@@ -153,7 +153,7 @@ export type MessageDeliveryState = typeof MessageDeliveryState.Type;
 
 export const MessageDelivery = Schema.Struct({
   state: MessageDeliveryState,
-  /** True when this message was originally admitted to the durable follow-up queue. */
+  /** True once this message has occupied the durable follow-up queue. */
   queued: Schema.Boolean,
   /** Causal event sequence of the latest delivery transition. */
   sequence: NonNegativeInt,
@@ -1258,6 +1258,8 @@ const ThreadSessionSetCommand = Schema.Struct({
   session: OrchestrationSession,
   expectedSessionStatus: Schema.optional(OrchestrationSessionStatus),
   expectedSessionUpdatedAt: Schema.optional(IsoDateTime),
+  /** Accepts a stale conditional write as a no-op instead of failing runtime-event projection. */
+  preserveCurrentSessionOnMismatch: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -1317,6 +1319,8 @@ const ThreadMessageDeliverySetCommand = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   state: MessageDeliveryState,
+  /** Sets durable queue provenance when runtime reconciliation re-queues a presumed direct start. */
+  queued: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -1614,6 +1618,7 @@ export const ThreadMessageDeliverySetPayload = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   state: MessageDeliveryState,
+  queued: Schema.optional(Schema.Boolean),
   updatedAt: IsoDateTime,
 });
 

@@ -1977,10 +1977,17 @@ const make = Effect.gen(function* () {
             case "turn.aborted":
               return "interrupted";
             case "session.started":
+              // Transport readiness is orthogonal to execution. Preserve an
+              // admitted/active execution; otherwise the connected session is
+              // idle and ready to accept work.
+              return thread.session?.status === "starting" || activeTurnId !== null
+                ? (thread.session?.status ?? "running")
+                : "ready";
             case "thread.started":
-              // Provider thread/session start notifications can arrive during an
-              // active turn; preserve turn-running state in that case.
-              return activeTurnId !== null ? "running" : "ready";
+              // This event binds or reaffirms a provider conversation id. It is
+              // not an execution transition, so it must never alter execution
+              // status. A missing session is the legacy bootstrap case only.
+              return thread.session?.status ?? "ready";
           }
         })();
         if (
@@ -2011,6 +2018,13 @@ const make = Effect.gen(function* () {
             type: "thread.session.set",
             commandId: providerCommandId(event, "thread-session-set", thread.id),
             threadId: thread.id,
+            ...(isTerminalTurnEvent && thread.session !== null
+              ? {
+                  expectedSessionStatus: thread.session.status,
+                  expectedSessionUpdatedAt: thread.session.updatedAt,
+                  preserveCurrentSessionOnMismatch: true,
+                }
+              : {}),
             session: {
               threadId: thread.id,
               status,

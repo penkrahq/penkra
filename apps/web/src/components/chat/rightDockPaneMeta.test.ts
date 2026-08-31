@@ -8,6 +8,7 @@ const pane: RightDockPane = {
   id: "app-tab",
   kind: "app",
   appId: "com.penkra.explorer",
+  appSpaceId: "space-1",
   appSlug: "explorer",
   appName: "Explorer",
   appIconDataUrl: "data:image/svg+xml,app-icon",

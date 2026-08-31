@@ -1789,6 +1789,22 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         (command.expectedSessionUpdatedAt !== undefined &&
           thread.session?.updatedAt !== command.expectedSessionUpdatedAt);
       if (sessionChanged) {
+        if (command.preserveCurrentSessionOnMismatch === true && thread.session !== null) {
+          return {
+            ...withEventBase({
+              aggregateKind: "thread",
+              aggregateId: command.threadId,
+              occurredAt: command.createdAt,
+              commandId: command.commandId,
+              metadata: {},
+            }),
+            type: "thread.session-set",
+            payload: {
+              threadId: command.threadId,
+              session: thread.session,
+            },
+          };
+        }
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: `Thread '${command.threadId}' session changed before the conditional update.`,
@@ -1977,6 +1993,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           messageId: command.messageId,
           state: command.state,
+          ...(command.queued !== undefined ? { queued: command.queued } : {}),
           updatedAt: command.createdAt,
         },
       };

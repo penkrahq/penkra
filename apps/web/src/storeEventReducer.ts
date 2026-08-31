@@ -801,27 +801,43 @@ function applyOrchestrationEvent(
       return applyThreadUpdate(
         state,
         event.payload.threadId,
-        (thread) => ({
-          ...thread,
-          messages: thread.messages
-            .map((message) =>
-              message.id === event.payload.messageId &&
-              message.delivery !== undefined &&
-              event.sequence >= message.delivery.sequence
-                ? {
-                    ...message,
-                    delivery: {
-                      ...message.delivery,
-                      state: event.payload.state,
-                      sequence: event.sequence,
-                    },
-                    completedAt: event.payload.updatedAt,
-                  }
-                : message,
-            )
-            .toSorted(compareChatMessagesForTranscript),
-          updatedAt: resolveEventUpdatedAt(thread, event.payload.updatedAt),
-        }),
+        (thread) => {
+          const isRequeued = event.payload.state === "queued" && event.payload.queued === true;
+          const existingQueuedMessageIds = thread.queuedMessageIds ?? [];
+          const queuedMessageIds = isRequeued
+            ? existingQueuedMessageIds.includes(event.payload.messageId)
+              ? existingQueuedMessageIds
+              : [...existingQueuedMessageIds, event.payload.messageId]
+            : existingQueuedMessageIds;
+          return {
+            ...thread,
+            messages: thread.messages
+              .map((message) =>
+                message.id === event.payload.messageId &&
+                message.delivery !== undefined &&
+                event.sequence >= message.delivery.sequence
+                  ? {
+                      ...message,
+                      delivery: {
+                        ...message.delivery,
+                        state: event.payload.state,
+                        ...(event.payload.queued !== undefined
+                          ? { queued: event.payload.queued }
+                          : {}),
+                        sequence: event.sequence,
+                      },
+                      completedAt: event.payload.updatedAt,
+                    }
+                  : message,
+              )
+              .toSorted(compareChatMessagesForTranscript),
+            ...(isRequeued && thread.pendingTurnStartMessageId === event.payload.messageId
+              ? { pendingTurnStartMessageId: null }
+              : {}),
+            queuedMessageIds,
+            updatedAt: resolveEventUpdatedAt(thread, event.payload.updatedAt),
+          };
+        },
         { ...options, updateSidebarSummary: false },
       );
 

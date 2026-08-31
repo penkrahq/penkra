@@ -11,8 +11,8 @@ import type { QueuedComposerTurn } from "../../composerDraftStore";
 
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
-import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
-import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
+import { MenuItem, MenuTrigger } from "../ui/menu";
+import { ComposerPickerMenu, ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
 
 type QueuedComposerActionsProps = {
   queuedTurn: QueuedComposerTurn;
@@ -41,7 +41,7 @@ function QueuedComposerActions({
       >
         <Trash2 />
       </IconButton>
-      <Menu>
+      <ComposerPickerMenu>
         <MenuTrigger
           render={
             <Button
@@ -58,7 +58,7 @@ function QueuedComposerActions({
           <MenuItem onClick={() => onEdit(queuedTurn)}>Edit queued prompt</MenuItem>
           <MenuItem onClick={() => onRemove(queuedTurn)}>Delete queued prompt</MenuItem>
         </ComposerPickerMenuPopup>
-      </Menu>
+      </ComposerPickerMenu>
     </div>
   );
 }

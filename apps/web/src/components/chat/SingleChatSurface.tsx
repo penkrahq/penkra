@@ -25,6 +25,8 @@ import { cn } from "~/lib/utils";
 import { AppDockPane } from "./AppDockPane";
 import {
   createAppTabRestoreRequest,
+  isAppPaneInSpace,
+  isAppTabOutsideThreadSpace,
   shouldMountAppDockPane,
   shouldRetryAppTabHostReady,
 } from "./appTabRestore.logic";
@@ -73,6 +75,7 @@ function appPaneFromTab(tab: DesktopAppTabDescriptor) {
     paneId: tab.id,
     kind: "app" as const,
     appId: tab.appId,
+    appSpaceId: tab.spaceId,
     appSlug: tab.slug,
     appName: tab.name,
     appIconDataUrl: tab.iconDataUrl,
@@ -141,6 +144,11 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
     const removeOpened = bridge.onOpened((tab) => {
+      if (currentSpaceId && isAppTabOutsideThreadSpace(tab, props.threadId, currentSpaceId)) {
+        void bridge.close({ tabId: tab.id }).catch(() => undefined);
+        closePane(props.threadId, tab.id);
+        return;
+      }
       setConfirmedAppPaneIds((current) => new Set(current).add(tab.id));
       openPane(tab.threadId as ThreadId, appPaneFromTab(tab));
     });
@@ -168,7 +176,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
       removeState();
       removeClosed();
     };
-  }, [closePane, openPane, updatePane]);
+  }, [closePane, currentSpaceId, openPane, props.threadId, updatePane]);
 
   useEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
@@ -181,10 +189,19 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
         .list()
         .then((tabs) => {
           if (cancelled) return;
-          const liveIds = new Set(tabs.map((tab) => tab.id));
+          const currentTabs = tabs.filter(
+            (tab) => !isAppTabOutsideThreadSpace(tab, props.threadId, currentSpaceId),
+          );
+          for (const tab of tabs) {
+            if (isAppTabOutsideThreadSpace(tab, props.threadId, currentSpaceId)) {
+              void bridge.close({ tabId: tab.id }).catch(() => undefined);
+              closePane(props.threadId, tab.id);
+            }
+          }
+          const liveIds = new Set(currentTabs.map((tab) => tab.id));
           setConfirmedAppPaneIds(liveIds);
           const currentDockStates = useRightDockStore.getState().dockStateByThreadId;
-          for (const tab of tabs) {
+          for (const tab of currentTabs) {
             const stateForThread = currentDockStates[tab.threadId];
             if (!stateForThread?.panes.some((pane) => pane.id === tab.id)) {
               openPane(tab.threadId as ThreadId, appPaneFromTab(tab));
@@ -200,10 +217,15 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
             }
           }
           for (const pane of dockState.panes) {
+            if (!isAppPaneInSpace(pane, currentSpaceId)) {
+              void bridge.close({ tabId: pane.id }).catch(() => undefined);
+              closePane(props.threadId, pane.id);
+              continue;
+            }
             if (liveIds.has(pane.id) || restoringAppPaneIdsRef.current.has(pane.id)) continue;
             restoringAppPaneIdsRef.current.add(pane.id);
             void bridge
-              .open(createAppTabRestoreRequest(pane, currentSpaceId, props.threadId))
+              .open(createAppTabRestoreRequest(pane, props.threadId))
               .catch((error: unknown) => {
                 toastManager.add({
                   type: "error",
@@ -234,13 +256,15 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
       cancelled = true;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
-  }, [currentSpaceId, dockState.panes, openPane, props.threadId, updatePane]);
+  }, [closePane, currentSpaceId, dockState.panes, openPane, props.threadId, updatePane]);
 
   const openAppsListing = useCallback(
     (appId: string) => {
       const bridge = window.desktopBridge?.appTabs;
       if (!bridge || !currentSpaceId) return;
-      const existing = dockState.panes.find((pane) => pane.appId === "com.penkra.apps");
+      const existing = dockState.panes.find(
+        (pane) => pane.appId === "com.penkra.apps" && isAppPaneInSpace(pane, currentSpaceId),
+      );
       if (existing) {
         setActivePane(props.threadId, existing.id);
         void bridge
@@ -289,7 +313,12 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
     return remove;
   }, [openAppsListing]);
 
-  const appsPane = dockState.panes.find((pane) => pane.appId === "com.penkra.apps");
+  const appsPane = dockState.panes.find(
+    (pane) =>
+      pane.appId === "com.penkra.apps" &&
+      currentSpaceId !== null &&
+      isAppPaneInSpace(pane, currentSpaceId),
+  );
   const appsLauncherPressed = dockState.open && dockState.activePaneId === appsPane?.id;
   const handleAppsLauncher = () => {
     const action = resolveAppsLauncherAction({

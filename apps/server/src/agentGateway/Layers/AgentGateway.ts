@@ -631,6 +631,7 @@ export const makeAgentGateway = Effect.gen(function* () {
   const handleMcpPost = makeAgentGatewayMcpTransport({
     credentials,
     snapshotQuery,
+    projectionTurns,
     tools,
     instructions: () => Effect.succeed(renderPenkraMcpServerInstructions()),
     requireThreadShell,

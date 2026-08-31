@@ -340,6 +340,26 @@ export function resolveCycledModelSlug(input: {
 export type ThreadDetailHydration = "ready" | "loading" | "failed";
 
 /**
+ * Visible chat activity follows admitted or active work, not provider transport
+ * setup. Opening an idle thread may connect a provider session and must not
+ * fabricate a Thinking row.
+ */
+export function deriveChatActivity(input: {
+  readonly hasLiveTurn: boolean;
+  readonly latestTurnLive: boolean;
+  readonly isSendBusy: boolean;
+  readonly hasPendingTurnStart: boolean;
+  readonly isEditingMessageHistory: boolean;
+}): { readonly busy: boolean; readonly controllable: boolean } {
+  const controllable =
+    input.hasLiveTurn || input.latestTurnLive || input.isSendBusy || input.hasPendingTurnStart;
+  return {
+    busy: controllable || input.isEditingMessageHistory,
+    controllable,
+  };
+}
+
+/**
  * A server thread's retained rows are not proof that its authoritative newest
  * page has been applied in this store lifetime. Keep both empty and stale
  * retained timelines behind hydration until detail sync completes. Local draft

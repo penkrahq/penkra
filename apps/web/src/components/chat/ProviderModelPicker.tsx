@@ -17,7 +17,6 @@ import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
 import { formatProviderModelOptionName } from "../../providerModelOptions";
 import { compareProvidersByOrder } from "../../providerOrdering";
 import {
-  Menu,
   MenuItem,
   MenuRadioGroup,
   MenuRadioItem,
@@ -31,7 +30,11 @@ import { cn } from "~/lib/utils";
 import { PickerPanelShell } from "./PickerPanelShell";
 import { PickerTriggerButton } from "./PickerTriggerButton";
 import { ProviderModelOptionGroupList } from "./ProviderModelOptionGroupList";
-import { ComposerPickerMenuPopup, ComposerPickerMenuSubPopup } from "./ComposerPickerMenuPopup";
+import {
+  ComposerPickerMenu,
+  ComposerPickerMenuPopup,
+  ComposerPickerMenuSubPopup,
+} from "./ComposerPickerMenuPopup";
 import {
   COMPOSER_PICKER_MODEL_LIST_MAX_HEIGHT_CLASS_NAME,
   COMPOSER_PICKER_MODEL_LIST_SCROLL_CLASS_NAME,
@@ -579,7 +582,7 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
   );
 
   return (
-    <Menu
+    <ComposerPickerMenu
       open={isMenuOpen}
       onOpenChange={(nextOpen) => {
         if (props.disabled) {
@@ -634,6 +637,6 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
           />
         ) : null}
       </ComposerPickerMenuPopup>
-    </Menu>
+    </ComposerPickerMenu>
   );
 };

@@ -9,6 +9,7 @@ function pane(id: string, name: string): RightDockPane {
     id,
     kind: "app",
     appId: `com.example.${id}`,
+    appSpaceId: "space-1",
     appSlug: id,
     appName: name,
     appRoute: "/",

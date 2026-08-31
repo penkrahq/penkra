@@ -831,16 +831,23 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           ON runtime.thread_id = threads.thread_id
         LEFT JOIN projection_thread_sessions AS sessions
           ON sessions.thread_id = threads.thread_id
-        LEFT JOIN projection_turns AS latest_turn
-          ON latest_turn.thread_id = threads.thread_id
-         AND latest_turn.turn_id = threads.latest_turn_id
         WHERE threads.deleted_at IS NULL
           AND (
             (
               sessions.active_turn_id IS NOT NULL
               AND sessions.status <> 'error'
             )
-            OR latest_turn.state = 'running'
+            OR (
+              COALESCE(sessions.status, '') <> 'starting'
+              AND EXISTS (
+                SELECT 1
+                FROM projection_turns AS running_turn
+                WHERE running_turn.thread_id = threads.thread_id
+                  AND running_turn.state = 'running'
+                  AND running_turn.started_at IS NOT NULL
+                  AND running_turn.completed_at IS NULL
+              )
+            )
             OR json_extract(runtime.runtime_payload_json, '$.activeTurnId') IS NOT NULL
           )
           -- Use the latest lifecycle or projected-output timestamp. Streaming
@@ -1062,17 +1069,32 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: () =>
       sql`
         SELECT
-          thread_id AS "threadId",
-          turn_id AS "turnId",
-          provider_turn_id AS "providerTurnId",
-          pending_message_id AS "pendingMessageId",
-          state,
-          requested_at AS "requestedAt",
-          started_at AS "startedAt",
-          completed_at AS "completedAt",
-          assistant_message_id AS "assistantMessageId"
-        FROM projection_turns
-        ORDER BY thread_id ASC, requested_at DESC, turn_id DESC
+          turns.thread_id AS "threadId",
+          turns.turn_id AS "turnId",
+          turns.provider_turn_id AS "providerTurnId",
+          turns.pending_message_id AS "pendingMessageId",
+          turns.state,
+          turns.requested_at AS "requestedAt",
+          turns.started_at AS "startedAt",
+          turns.completed_at AS "completedAt",
+          turns.assistant_message_id AS "assistantMessageId"
+        FROM projection_turns AS turns
+        LEFT JOIN projection_thread_sessions AS sessions
+          ON sessions.thread_id = turns.thread_id
+        ORDER BY
+          turns.thread_id ASC,
+          CASE
+            WHEN sessions.status = 'running'
+              AND sessions.active_turn_id IS NOT NULL
+              AND (
+                turns.turn_id = sessions.active_turn_id
+                OR turns.provider_turn_id = sessions.active_turn_id
+              )
+              THEN 0
+            ELSE 1
+          END ASC,
+          turns.requested_at DESC,
+          turns.turn_id DESC
       `,
   });
 
@@ -1770,18 +1792,32 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: ({ threadId }) =>
       sql`
         SELECT
-          thread_id AS "threadId",
-          turn_id AS "turnId",
-          provider_turn_id AS "providerTurnId",
-          pending_message_id AS "pendingMessageId",
-          state,
-          requested_at AS "requestedAt",
-          started_at AS "startedAt",
-          completed_at AS "completedAt",
-          assistant_message_id AS "assistantMessageId"
-        FROM projection_turns
-        WHERE thread_id = ${threadId}
-        ORDER BY requested_at DESC, turn_id DESC
+          turns.thread_id AS "threadId",
+          turns.turn_id AS "turnId",
+          turns.provider_turn_id AS "providerTurnId",
+          turns.pending_message_id AS "pendingMessageId",
+          turns.state,
+          turns.requested_at AS "requestedAt",
+          turns.started_at AS "startedAt",
+          turns.completed_at AS "completedAt",
+          turns.assistant_message_id AS "assistantMessageId"
+        FROM projection_turns AS turns
+        LEFT JOIN projection_thread_sessions AS sessions
+          ON sessions.thread_id = turns.thread_id
+        WHERE turns.thread_id = ${threadId}
+        ORDER BY
+          CASE
+            WHEN sessions.status = 'running'
+              AND sessions.active_turn_id IS NOT NULL
+              AND (
+                turns.turn_id = sessions.active_turn_id
+                OR turns.provider_turn_id = sessions.active_turn_id
+              )
+              THEN 0
+            ELSE 1
+          END ASC,
+          turns.requested_at DESC,
+          turns.turn_id DESC
         LIMIT 1
       `,
   });

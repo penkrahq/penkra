@@ -1768,6 +1768,146 @@ describe("ProviderRuntimeIngestion", () => {
     );
   });
 
+  it("treats thread.started as provider binding metadata rather than an execution transition", async () => {
+    const harness = await createHarness();
+    const threadId = asThreadId("thread-1");
+    const stoppedAt = "2026-08-31T12:24:17.000Z";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-binding-does-not-revive-execution"),
+        threadId,
+        session: {
+          threadId,
+          status: "stopped",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: stoppedAt,
+        },
+        createdAt: stoppedAt,
+      }),
+    );
+
+    harness.emit({
+      type: "thread.started",
+      eventId: asEventId("evt-binding-does-not-revive-execution"),
+      provider: "codex",
+      createdAt: "2026-08-31T12:24:18.000Z",
+      threadId,
+      payload: { providerThreadId: "provider-thread-rebound" },
+    });
+    await harness.drain();
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) => entry.session?.updatedAt === "2026-08-31T12:24:18.000Z",
+    );
+    expect(thread.session).toMatchObject({ status: "stopped", activeTurnId: null });
+  });
+
+  it("preserves a pending request when provider thread readiness precedes turn start", async () => {
+    const harness = await createHarness();
+    const requestedAt = "2026-08-29T06:14:22.782Z";
+    const connectionStartedAt = "2026-08-29T06:14:25.002Z";
+    const providerTurnStartedAt = "2026-08-29T06:14:25.053Z";
+    const messageId = asMessageId("message-readiness-before-turn");
+    const providerTurnId = asTurnId("provider-turn-readiness-before-turn");
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-readiness-before-turn"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId,
+          role: "user",
+          text: "Are you unable to re-open it?",
+          attachments: [],
+        },
+        assistantDeliveryMode: "streaming",
+        runtimeMode: "approval-required",
+        createdAt: requestedAt,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-readiness-before-turn-starting-session"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "starting",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: requestedAt,
+        },
+        createdAt: requestedAt,
+      }),
+    );
+
+    const startingThread = await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "starting",
+    );
+    expect(startingThread.latestTurn).toMatchObject({
+      requestedAt,
+      startedAt: null,
+      completedAt: null,
+    });
+    const canonicalTurnId = startingThread.latestTurn?.turnId;
+    expect(canonicalTurnId).toBeDefined();
+
+    harness.emit({
+      type: "thread.started",
+      eventId: asEventId("evt-readiness-before-turn"),
+      provider: "codex",
+      createdAt: connectionStartedAt,
+      threadId: asThreadId("thread-1"),
+    });
+    await harness.drain();
+
+    const afterReadiness = await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "starting",
+    );
+    expect(afterReadiness.latestTurn).toMatchObject({
+      turnId: canonicalTurnId,
+      requestedAt,
+      startedAt: null,
+      completedAt: null,
+    });
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-authoritative-turn-after-readiness"),
+      provider: "codex",
+      createdAt: providerTurnStartedAt,
+      threadId: asThreadId("thread-1"),
+      turnId: providerTurnId,
+    });
+
+    const runningThread = await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session.activeTurnId === providerTurnId &&
+        thread.latestTurn?.state === "running",
+    );
+    expect(runningThread.latestTurn).toMatchObject({
+      turnId: canonicalTurnId,
+      providerTurnId,
+      state: "running",
+      requestedAt,
+      startedAt: providerTurnStartedAt,
+      completedAt: null,
+    });
+  });
+
   it("clears running turn state when a stop emits turn.aborted without a turn id", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

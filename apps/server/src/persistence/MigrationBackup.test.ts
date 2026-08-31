@@ -649,6 +649,7 @@ describe("migration backups", () => {
           [153, "TypedLegacyPendingInteractionProjectionRepair"],
           [154, "RestartReconciliationIndexes"],
           [155, "ThreadSidebarPreviewIndex"],
+          [156, "ActiveTurnProjectionSemantics"],
         ]);
       }),
     );

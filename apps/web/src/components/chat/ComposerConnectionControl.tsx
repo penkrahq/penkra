@@ -14,7 +14,6 @@ import { useMemo, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import {
-  Menu,
   MenuItem,
   MenuSeparator,
   MenuSub,
@@ -37,7 +36,11 @@ import {
 import { serverAllProviderUsageQueryOptions } from "~/lib/serverReactQuery";
 import { cn } from "~/lib/utils";
 
-import { ComposerPickerMenuPopup, ComposerPickerMenuSubPopup } from "./ComposerPickerMenuPopup";
+import {
+  ComposerPickerMenu,
+  ComposerPickerMenuPopup,
+  ComposerPickerMenuSubPopup,
+} from "./ComposerPickerMenuPopup";
 
 const API_KEY_METHOD_ID = "api-key";
 
@@ -230,7 +233,7 @@ export function ComposerConnectionControl(props: {
   const title = apiKey ? `${selected.label} API key` : selected.label;
 
   return (
-    <Menu open={open} onOpenChange={setOpen} keepOpenOnSubmenuInteraction>
+    <ComposerPickerMenu open={open} onOpenChange={setOpen} keepOpenOnSubmenuInteraction>
       <Tooltip>
         <TooltipTrigger
           render={
@@ -311,6 +314,6 @@ export function ComposerConnectionControl(props: {
           </p>
         ) : null}
       </ComposerPickerMenuPopup>
-    </Menu>
+    </ComposerPickerMenu>
   );
 }

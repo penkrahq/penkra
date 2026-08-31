@@ -14,8 +14,17 @@ import { ComposerExtrasMenu } from "./ComposerExtrasMenu";
 async function mountMenu(props?: { fastModeEnabled?: boolean; supportsFastMode?: boolean }) {
   const onAddPhotos = vi.fn();
   const onToggleFastMode = vi.fn();
+  const onOutsideAction = vi.fn();
   const host = document.createElement("div");
+  const outsideAction = document.createElement("button");
+  outsideAction.type = "button";
+  outsideAction.textContent = "Outside action";
+  outsideAction.style.position = "fixed";
+  outsideAction.style.right = "16px";
+  outsideAction.style.bottom = "16px";
+  outsideAction.addEventListener("click", onOutsideAction);
   document.body.append(host);
+  document.body.append(outsideAction);
   const screen = await render(
     <ComposerExtrasMenu
       supportsFastMode={props?.supportsFastMode ?? true}
@@ -29,12 +38,14 @@ async function mountMenu(props?: { fastModeEnabled?: boolean; supportsFastMode?:
   const cleanup = async () => {
     await screen.unmount();
     host.remove();
+    outsideAction.remove();
   };
 
   return {
     [Symbol.asyncDispose]: cleanup,
     cleanup,
     onAddPhotos,
+    onOutsideAction,
     onToggleFastMode,
   };
 }
@@ -74,6 +85,21 @@ describe("ComposerExtrasMenu", () => {
       expect(text).toContain("Fast");
       expect(text).not.toContain("Plan mode");
       expect(text).not.toContain("Plugins");
+    });
+  });
+
+  it("dismisses without blocking interaction outside the composer", async () => {
+    await using menu = await mountMenu();
+
+    await page.getByLabelText("Attach files").click();
+
+    expect(document.documentElement).not.toHaveAttribute("data-base-ui-scroll-locked");
+
+    await page.getByRole("button", { name: "Outside action" }).click();
+
+    expect(menu.onOutsideAction).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(document.body.textContent).not.toContain("Add image");
     });
   });
 

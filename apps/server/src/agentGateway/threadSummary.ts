@@ -23,6 +23,26 @@ export type AgentThreadStatus =
   | "error";
 
 /**
+ * Resolve the canonical projected turn that the runtime session says is
+ * executing now. `latestTurn` is a history/navigation summary, so callers that
+ * need execution identity must also require the running session and match its
+ * provider or canonical turn id.
+ */
+export function resolveActiveTurn(thread: {
+  readonly session: OrchestrationThreadShell["session"];
+  readonly latestTurn: OrchestrationThreadShell["latestTurn"];
+}): NonNullable<OrchestrationThreadShell["latestTurn"]> | null {
+  const session = thread.session;
+  const turn = thread.latestTurn;
+  if (session?.status !== "running" || session.activeTurnId === null || turn?.state !== "running") {
+    return null;
+  }
+  return turn.turnId === session.activeTurnId || turn.providerTurnId === session.activeTurnId
+    ? turn
+    : null;
+}
+
+/**
  * Collapse session/turn/pending projections into one status an agent can act
  * on. Pending gates win over turn state: a thread blocked on approval is not
  * "working" even though its turn is still running.

@@ -12,10 +12,10 @@ import {
   RUNTIME_FULL_ACCESS_ACCENT_CLASS_NAME,
   COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
 } from "./chat/composerPickerStyles";
-import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
+import { ComposerPickerMenu, ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
 import { AccessPillContent } from "./middle-panel/access-pill-content/AccessPillContent";
 import { Button } from "./ui/button";
-import { Menu, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
+import { MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 export interface RuntimeUsageControlsProps {
@@ -45,7 +45,7 @@ export function RuntimeUsageControls({
       )}
     >
       {runtimeMode && onRuntimeModeChange ? (
-        <Menu open={menuOpen} onOpenChange={setMenuOpen}>
+        <ComposerPickerMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <Tooltip>
             <TooltipTrigger
               render={
@@ -118,7 +118,7 @@ export function RuntimeUsageControls({
               </MenuRadioItem>
             </MenuRadioGroup>
           </ComposerPickerMenuPopup>
-        </Menu>
+        </ComposerPickerMenu>
       ) : null}
     </div>
   );

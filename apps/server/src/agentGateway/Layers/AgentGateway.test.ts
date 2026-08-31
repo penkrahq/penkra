@@ -113,7 +113,18 @@ function makeThreadShell(
     createdAt: NOW,
     updatedAt: NOW,
     archivedAt: null,
-    session: null,
+    session:
+      id === "thread-parent"
+        ? {
+            threadId: ThreadId.makeUnsafe(id),
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "approval-required",
+            activeTurnId: TurnId.makeUnsafe("turn-parent-active"),
+            lastError: null,
+            updatedAt: NOW,
+          }
+        : null,
     ...overrides,
   };
 }
@@ -465,6 +476,18 @@ function makeHarnessLayer(
                     completedAt: advancedTurnState === "running" ? null : NOW,
                     assistantMessageId: null,
                   },
+                  session: {
+                    threadId: ThreadId.makeUnsafe("thread-parent"),
+                    status: advancedTurnState === "running" ? "running" : "ready",
+                    providerName: "codex",
+                    runtimeMode: "approval-required",
+                    activeTurnId:
+                      advancedTurnState === "running"
+                        ? TurnId.makeUnsafe(options.advanceParentTurnAfterDispatch.turnId)
+                        : null,
+                    lastError: null,
+                    updatedAt: NOW,
+                  },
                 }),
               );
             }
@@ -541,6 +564,7 @@ function makeHarnessLayer(
       return {
         threadId: ThreadId.makeUnsafe(pinned.threadId),
         turnId: TurnId.makeUnsafe(pinned.turnId),
+        providerTurnId: null,
         pendingMessageId: null,
         assistantMessageId:
           pinned.assistantMessageId === null
@@ -561,6 +585,7 @@ function makeHarnessLayer(
       ? {
           threadId: ThreadId.makeUnsafe(threadId),
           turnId: TurnId.makeUnsafe(turnId),
+          providerTurnId: turn.providerTurnId ?? null,
           pendingMessageId: null,
           assistantMessageId: turn.assistantMessageId,
           state: turn.state,
@@ -571,6 +596,18 @@ function makeHarnessLayer(
       : undefined;
   };
   const projectionTurnsLayer = Layer.succeed(ProjectionTurnRepository, {
+    listByThreadId: ({ threadId }: { threadId: string }) =>
+      Effect.sync(() => {
+        const pinned = [...projectionTurnsByKey.values()]
+          .filter((turn) => turn.threadId === threadId)
+          .map((turn) => readProjectionTurn(turn.threadId, turn.turnId))
+          .filter((turn): turn is NonNullable<typeof turn> => turn !== undefined);
+        const latestTurnId = threadsById.get(threadId)?.latestTurn?.turnId;
+        const latest = latestTurnId ? readProjectionTurn(threadId, latestTurnId) : undefined;
+        return latest && !pinned.some((turn) => turn.turnId === latest.turnId)
+          ? [...pinned, latest]
+          : pinned;
+      }),
     getByTurnId: ({ threadId, turnId }: { threadId: string; turnId: string }) =>
       Effect.succeed(Option.fromNullishOr(readProjectionTurn(threadId, turnId))),
     getManyByTurnId: (input: ReadonlyArray<{ threadId: string; turnId: string }>) =>
@@ -1382,6 +1419,56 @@ describe("AgentGateway", () => {
       assert.equal(harness.dispatched.length, 3);
     }).pipe(Effect.provide(gatewayLayer));
   });
+
+  it.effect(
+    "authorizes the canonical active execution when latestTurn is a newer terminal summary",
+    () => {
+      const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        harness.setProjectionTurn({
+          threadId: "thread-parent",
+          turnId: "turn-parent-active",
+          state: "running",
+        });
+        harness.setThreadDetail(
+          makeThreadDetail(
+            makeThreadShell("thread-parent", {
+              latestTurn: {
+                turnId: TurnId.makeUnsafe("turn-newer-terminal-summary"),
+                state: "completed",
+                requestedAt: "2026-08-31T12:24:18.000Z",
+                startedAt: "2026-08-31T12:24:19.000Z",
+                completedAt: "2026-08-31T12:24:20.000Z",
+                assistantMessageId: null,
+              },
+            }),
+          ),
+        );
+
+        const context = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_context",
+          args: {},
+        });
+        const contextCaller = toolResultJson(context.result).caller as
+          | { readonly turnId?: unknown }
+          | undefined;
+        assert.equal(contextCaller?.turnId, "turn-parent-active");
+
+        const response = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_create_thread",
+          args: {
+            requestId: "create-while-summary-points-elsewhere",
+            prompt: "continue the verified work",
+            target: { provider: "codex", model: "gpt-5.5" },
+          },
+        });
+        assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      }).pipe(Effect.provide(gatewayLayer));
+    },
+  );
 
   it.effect("waits for two pinned terminal turns without creating replacements", () => {
     const first = makeThreadShell("thread-result-a", {

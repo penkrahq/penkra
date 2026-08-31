@@ -35,9 +35,7 @@ describe("Penkra Dev launcher", () => {
       "/workspace/penkra/apps/desktop/.electron-runtime/instances/4/Electron.app/Contents/MacOS/Electron";
     const command = `${executable} /workspace/penkra/apps/desktop --penkra-dev-root=/workspace/penkra/apps/desktop --penkra-dev-instance=4`;
 
-    expect(
-      isExpectedPenkraDevElectronCommand({ command, instance: 4, repositoryRoot }),
-    ).toBe(true);
+    expect(isExpectedPenkraDevElectronCommand({ command, instance: 4, repositoryRoot })).toBe(true);
     expect(
       isExpectedPenkraDevElectronCommand({
         command: `${command} --inspect=0`,

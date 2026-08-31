@@ -1663,6 +1663,8 @@ const make = Effect.gen(function* () {
       entry.messageId === event.payload.messageId;
     const reservationAtStart = pendingQueuedDispatchBySessionThread.get(sessionThreadId);
     const isPendingQueuedDispatch = matchesEvent(reservationAtStart);
+    const isBlockedByOtherQueuedPromotion =
+      reservationAtStart !== undefined && !isPendingQueuedDispatch;
     const ownsReservation = (entry: PendingQueuedDispatch | undefined) =>
       isPendingQueuedDispatch && entry === reservationAtStart;
     const clearPendingQueuedDispatch = Effect.sync(() => {
@@ -1759,6 +1761,26 @@ const make = Effect.gen(function* () {
       // live provider turn. Providers with live-input steering ride the current
       // turn; OpenCode re-queues and promotes after the interrupted turn settles.
       const providerName = thread.session?.providerName ?? thread.modelSelection.provider;
+      const requeueTurnStart = Effect.fnUntraced(function* () {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.message.delivery.set",
+          commandId: replaySafeServerCommandId("message-delivery-requeued", event.eventId),
+          threadId: event.payload.threadId,
+          messageId: event.payload.messageId,
+          state: "queued",
+          queued: true,
+          createdAt: new Date().toISOString(),
+        });
+        yield* enqueueQueuedTurnStart(event);
+      });
+      // A claimed queue head owns the provider-session lane before its adapter
+      // has necessarily exposed a live turn id. A newer normal send must append
+      // behind that reservation even if projection and provider both look idle
+      // during the handoff.
+      if (event.payload.dispatchMode === "queue" && isBlockedByOtherQueuedPromotion) {
+        yield* requeueTurnStart();
+        return;
+      }
       const liveTurnId = yield* resolveLiveProviderTurnId(event.payload.threadId);
       const hasLiveTurn = liveTurnId !== undefined;
       // Steering is only meaningful against a live turn. The projection can
@@ -1776,7 +1798,7 @@ const make = Effect.gen(function* () {
         return;
       }
       if (!isNativeSteer && hasLiveTurn) {
-        yield* enqueueQueuedTurnStart(event);
+        yield* requeueTurnStart();
         // The promotion raced another live turn and was re-queued. Release
         // only when that exact blocking turn settles, not on any late
         // terminal event for the shared provider session.

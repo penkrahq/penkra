@@ -558,16 +558,19 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           if (Option.isNone(existingRow)) {
             return;
           }
-          const [messages, session] = yield* Effect.all([
+          const [messages, session, turns] = yield* Effect.all([
             projectionThreadMessageRepository.listByThreadId({
               threadId: event.payload.threadId,
             }),
             projectionThreadSessionRepository.getByThreadId({
               threadId: event.payload.threadId,
             }),
+            projectionTurnRepository.listByThreadId({
+              threadId: event.payload.threadId,
+            }),
           ]);
           const canAdoptFirstTurnProvider =
-            existingRow.value.latestTurnId === null &&
+            turns.every((turn) => turn.turnId === event.payload.turnId) &&
             Option.isNone(session) &&
             messages.length <= 1;
           const projectedModelSelection = deriveTurnStartModelSelection({
@@ -662,7 +665,11 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           }
           const nextRow = {
             ...existingRow.value,
-            latestTurnId: event.payload.session.activeTurnId,
+            // Compatibility column only. Active execution is resolved from
+            // projection_thread_sessions plus projection_turns; storing a
+            // provider id here previously made the field ambiguous with the
+            // canonical projection turn id.
+            latestTurnId: null,
             updatedAt: event.occurredAt,
           } satisfies ProjectionThread;
           yield* projectionThreadRepository.upsert(nextRow);
@@ -867,6 +874,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           yield* projectionThreadMessageRepository.upsert({
             ...existingMessage.value,
             deliveryState: state,
+            ...(event.type === "thread.message-delivery-set" && event.payload.queued !== undefined
+              ? { deliveryQueued: event.payload.queued }
+              : {}),
             deliverySequence: event.sequence,
             updatedAt:
               event.type === "thread.message-delivery-set"
@@ -1189,14 +1199,19 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           if (event.payload.session.status !== "running" || turnId === null) {
             const settledState = settleTurnStateFromSession(event.payload.session, "running");
             if (settledState !== null) {
-              // Close the newest still-open turn when the runtime reports that
-              // the thread is no longer running. Error sessions may retain the
-              // failed turn id for attribution, so prefer that exact open turn
-              // before falling back to the newest open row.
+              // Close only a turn that actually started. A provider connection
+              // can report ready before the authoritative `turn.started`; a
+              // pending request is not an execution and must survive that
+              // readiness event for the later provider turn to claim it.
+              // Error sessions may retain the failed turn id for attribution,
+              // so prefer that exact running turn before falling back.
               const openTurns = (yield* projectionTurnRepository.listByThreadId({
                 threadId: event.payload.threadId,
               }))
-                .filter((row) => row.completedAt === null)
+                .filter(
+                  (row) =>
+                    row.completedAt === null && row.state === "running" && row.startedAt !== null,
+                )
                 .toSorted(
                   (left, right) =>
                     right.requestedAt.localeCompare(left.requestedAt) ||
