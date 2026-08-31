@@ -4,7 +4,7 @@
 
 import { assertAppManifest, type PenkraAppManifest } from "@penkra/sdk";
 
-export const APP_INSTALLATION_STATE_SCHEMA_VERSION = 5 as const;
+export const APP_INSTALLATION_STATE_SCHEMA_VERSION = 6 as const;
 
 export type InstalledAppSource = "registry" | "sideload";
 export type AppPermissionGrant = "denied" | "granted";
@@ -12,6 +12,10 @@ export type AppPermissionGrant = "denied" | "granted";
 export interface RegistryAppIdentity {
   appId: string;
   publisherId: string;
+}
+
+export interface DevelopmentAppIdentity {
+  id: string;
 }
 
 export interface InstalledAppPackage {
@@ -36,6 +40,8 @@ export interface InstalledAppPackage {
   };
   /** Registry ownership proven independently of the currently installed package bytes. */
   registryIdentity?: RegistryAppIdentity;
+  /** Account-service claim proving this developer owns the sideloaded manifest identifier. */
+  developmentIdentity?: DevelopmentAppIdentity;
 }
 
 export interface SpaceAppState {
@@ -85,6 +91,7 @@ export interface VerifiedAppPackageInput {
   installedAt: string;
   registryRelease?: InstalledAppPackage["registryRelease"];
   registryIdentity?: RegistryAppIdentity;
+  developmentIdentity?: DevelopmentAppIdentity;
 }
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
@@ -199,6 +206,10 @@ function parseInstalledPackage(value: unknown, recordKey: string): InstalledAppP
         ? { appId: registryRelease.appId, publisherId: registryRelease.publisherId }
         : undefined
       : parseRegistryIdentity(value.registryIdentity, recordKey);
+  const developmentIdentity =
+    value.developmentIdentity === undefined
+      ? undefined
+      : parseDevelopmentIdentity(value.developmentIdentity, recordKey);
   const installedPackage: InstalledAppPackage = {
     appId,
     slug: requireNonEmptyString(value.slug, `Package ${recordKey} slug`),
@@ -212,6 +223,7 @@ function parseInstalledPackage(value: unknown, recordKey: string): InstalledAppP
     manifest: value.manifest,
     ...(registryRelease === undefined ? {} : { registryRelease }),
     ...(registryIdentity === undefined ? {} : { registryIdentity }),
+    ...(developmentIdentity === undefined ? {} : { developmentIdentity }),
   };
   if (
     installedPackage.manifest.id !== installedPackage.appId ||
@@ -332,6 +344,7 @@ export function parseAppInstallationState(value: unknown): AppInstallationState 
   if (isRecord(value) && value.schemaVersion === 2) value = migrateSchemaVersionTwo(value);
   if (isRecord(value) && value.schemaVersion === 3) value = migrateSchemaVersionThree(value);
   if (isRecord(value) && value.schemaVersion === 4) value = migrateSchemaVersionFour(value);
+  if (isRecord(value) && value.schemaVersion === 5) value = migrateSchemaVersionFive(value);
   if (!isRecord(value) || value.schemaVersion !== APP_INSTALLATION_STATE_SCHEMA_VERSION) {
     throw new AppInstallationStateError(
       "invalid-state",
@@ -462,7 +475,7 @@ function migrateSchemaVersionFour(value: Record<string, unknown>): Record<string
   }
   return {
     ...value,
-    schemaVersion: APP_INSTALLATION_STATE_SCHEMA_VERSION,
+    schemaVersion: 5,
     packagesByInstallationKey: Object.fromEntries(
       Object.entries(value.packagesByInstallationKey).flatMap(([key, candidate]) => {
         if (!isRecord(candidate) || !isRecord(candidate.manifest)) return [[key, candidate]];
@@ -501,6 +514,16 @@ function migrateSchemaVersionFour(value: Record<string, unknown>): Record<string
   };
 }
 
+function migrateSchemaVersionFive(value: Record<string, unknown>): Record<string, unknown> {
+  if (!isRecord(value.packagesByInstallationKey)) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      "App installation state package records must be an object.",
+    );
+  }
+  return { ...value, schemaVersion: APP_INSTALLATION_STATE_SCHEMA_VERSION };
+}
+
 function toInstalledPackage(input: VerifiedAppPackageInput): InstalledAppPackage {
   assertAppManifest(input.manifest);
   if (!SHA256_PATTERN.test(input.sha256)) {
@@ -525,6 +548,10 @@ function toInstalledPackage(input: VerifiedAppPackageInput): InstalledAppPackage
         ? { appId: registryRelease.appId, publisherId: registryRelease.publisherId }
         : undefined
       : parseRegistryIdentity(input.registryIdentity, input.manifest.id);
+  const developmentIdentity =
+    input.developmentIdentity === undefined
+      ? undefined
+      : parseDevelopmentIdentity(input.developmentIdentity, input.manifest.id);
   return {
     appId: input.manifest.id,
     slug: input.manifest.slug,
@@ -538,7 +565,25 @@ function toInstalledPackage(input: VerifiedAppPackageInput): InstalledAppPackage
     manifest: input.manifest,
     ...(registryRelease === undefined ? {} : { registryRelease }),
     ...(registryIdentity === undefined ? {} : { registryIdentity }),
+    ...(developmentIdentity === undefined ? {} : { developmentIdentity }),
   };
+}
+
+function parseDevelopmentIdentity(value: unknown, recordKey: string): DevelopmentAppIdentity {
+  if (!isRecord(value)) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      `Package ${recordKey} development identity must be an object.`,
+    );
+  }
+  const id = requireNonEmptyString(value.id, `Package ${recordKey} development identity id`);
+  if (!UUID_PATTERN.test(id)) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      `Package ${recordKey} development identity is invalid.`,
+    );
+  }
+  return { id };
 }
 
 function parseRegistryIdentity(value: unknown, recordKey: string): RegistryAppIdentity {

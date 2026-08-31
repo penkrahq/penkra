@@ -56,12 +56,14 @@ developer-held signing credential.
 an unpacked directory into the caller Thread's Space, watches successful rebuilds, atomically swaps
 valid packages, restores App tabs, and preserves the last working package after an invalid rebuild.
 A registry installation may transition to a sideload only when the sideload version is newer; an
-existing sideload may rebuild at the same version. Before mutation, the desktop asks the
-authenticated registry for the manifest identifier's ownership. Unregistered identifiers are
-allowed; registered identifiers require ownership by the signed-in developer and an exact slug
-match. That verified registry identity is persisted independently of the sideloaded package bytes,
-so required Apps can remain independently updateable without making registry availability part of
-every later startup. Older sideload records recover the proof once through the same read-only check.
+existing sideload may rebuild at the same version. Before installation mutation, the desktop asks
+the authenticated Account service to claim or verify the manifest identifier, exact slug, and
+declared identity audience. The service atomically creates a private account-owned development
+identity for a previously unclaimed identifier; registered or claimed identifiers owned by another
+account are rejected. The resulting development identity and any matching registry identity are
+persisted independently of sideload package bytes. Required Apps can therefore remain independently
+updateable without making registry availability part of every later startup. Older registered
+sideload records recover registry proof through the same authenticated ownership path.
 
 App installation state is stored in `apps/installations-v1.json`. The `v1` names the stable file
 family, not the current object schema: the JSON contains its own `schemaVersion`, which is migrated

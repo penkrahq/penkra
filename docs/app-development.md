@@ -29,6 +29,30 @@ work, while the Penkra SDK supplies Penkra concepts such as operations, tabs, Ac
 settings, and secrets. There is no required scaffold: begin with the files below or copy
 `examples/sample-app` when an example is useful.
 
+This document is intentionally the complete public App-author reference. It contains package,
+manifest, runtime, permission, Account identity, operation, tab, storage, testing, sideloading, and
+publication contracts in one place. An SDK README or type declaration may link here, but an App
+author should not have to discover a second guide to understand a public capability.
+
+### Guide map
+
+- [Package shape](#package-shape) explains what is shipped and which build artifacts belong in it.
+- [Manifest](#manifest) defines identity, compatibility, permissions, operations, handlers,
+  settings, and Skills.
+- [Naming operations](#naming-operations), [Agent-facing instructions](#agent-facing-instructions),
+  and [Agent Skills](#agent-skills) define the agent contract.
+- [Runtime and isolation](#runtime-and-isolation) explains the browser/controller boundary.
+- [Permissions and trusted host capabilities](#permissions-and-trusted-host-capabilities) is the
+  complete permission catalog, including the full `account-identity` backend contract.
+- [Visual UI and Themes](#visual-ui-and-themes), [Operations and tabs](#operations-and-tabs), and
+  [Visual-tab storage, byte movement, and composer staging](#visual-tab-storage-byte-movement-and-composer-staging)
+  define runtime behavior.
+- [Agent observation and interaction](#agent-observation-and-interaction) defines trusted QA and
+  computer-use access.
+- [Sideload, test, and package](#sideload-test-and-package),
+  [Publish and inspect status](#publish-and-inspect-status), and
+  [Distribution boundaries](#distribution-boundaries) define the development and release lifecycle.
+
 ## Package shape
 
 Every built package directory contains:
@@ -301,18 +325,74 @@ The runtime boundary determines the API; whether code belongs to the same App do
 | Register and implement a public operation                 | Not available                                     | Use `operations.handle` and `OperationContext`              |
 | Address an App-owned tab during an operation              | Handle an incoming tab call                       | Use the tab handle supplied by `OperationContext`           |
 
+## Permissions and trusted host capabilities
+
+Permissions describe privileged Penkra services. They are not a complete description of everything
+controller code can do: the controller is packaged Node code and can use ordinary Node networking
+and filesystem APIs within its process policy. Review both the manifest declarations and the
+controller bundle and dependencies.
+
+Every permission declaration has a supported lowercase `name`, a boolean `required`, and a concise,
+specific user-visible `reason`. Permission names are unique within the manifest. Only
+`account-identity` also has an `audience`. Unknown permission names, duplicate declarations, missing
+reasons, invalid audiences, and `audience` on any other permission fail manifest validation.
+
+This is the complete catalog:
+
+| Permission          | Risk     | Runtime                   | What it authorizes                                                                                                | Additional manifest field |
+| ------------------- | -------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `network-fetch`     | Standard | Visual tab                | Attributed requests through `network.fetch` and remote byte movement through `transfer`                           | None                      |
+| `browser-session`   | High     | Visual tab                | Create and control isolated hosted web pages owned by this App and Space                                          | None                      |
+| `simulator-session` | High     | Visual tab                | Create, save, display, and control hosted Apple or Android simulated devices owned by this App and Space          | None                      |
+| `account-data`      | Standard | Visual tab and controller | Use the signed-in Account session only inside this App's Penkra-hosted backend namespace                          | None                      |
+| `account-identity`  | High     | Visual tab and controller | Receive a five-minute signed identity token for exactly one external backend audience                             | Lowercase DNS `audience`  |
+| `thread-compose`    | High     | Visual tab                | Stage visible text, attachments, Skills, effort, and model choices in the current Thread composer without sending | None                      |
+
+### Required, optional, update, and revocation behavior
+
+A required permission must be granted before the App can be enabled. An optional permission starts
+denied and may be requested only in response to an operator action that makes the request
+understandable. Do not request optional permissions speculatively at startup. Grants are scoped to
+one App installation in one Space; installing the same App in another Space does not copy them.
+
+Registry installation presents reviewed required permissions at the trusted host boundary. During
+an explicit sideload, the developer is the review boundary: required permissions are granted before
+enablement, while optional permissions retain their existing decision or begin denied. Adding a
+permission, changing an optional permission to required, or changing an `account-identity` audience
+requires review on an ordinary update. Removing a permission removes the corresponding authority.
+
+The host rechecks the current installation, Space, tab or controller, manifest declaration, and
+grant for every privileged call. Revocation stops new calls and new identity-token issuance. It does
+not recall bytes already returned to an App or invalidate an already issued identity JWT before its
+five-minute expiry. Apps must therefore minimize retention and backends must keep token lifetimes
+short.
+
+Standard Chromium permissions such as camera and microphone are separate from the manifest catalog.
+Penkra intercepts their browser permission flow and presents trusted host UI. A web page hosted by
+`browser-session` does not inherit ambient permission from the App iframe.
+
+### `network-fetch`
+
 `network-fetch` authorizes Penkra's mediated visual-tab network and transfer services. It does not
-wrap or technically constrain a controller's ordinary Node networking. App review must therefore
-assess the controller source and packaged dependencies as executable Node code, not infer its
-authority solely from renderer permission declarations.
+wrap or technically constrain a controller's ordinary Node networking. `network.fetch` is intended
+for bounded request and response bodies. Use `transfer` when files or App-storage objects should
+move without crossing renderer RPC as one large in-memory value. Destination validation,
+attribution, redirects, request size, response size, and revocation remain host-enforced.
+
+Declaring `network-fetch` does not relax the renderer Content Security Policy and does not allow
+`fetch("https://…")` directly from the iframe. The iframe still connects only to its immutable App
+origin; call the SDK service instead. Conversely, a controller should use ordinary Node `fetch` or
+a packaged HTTP client and must not pretend that its requests are mediated renderer requests.
+
+### Renderer content security
 
 App renderers use a restrictive Content Security Policy. An App may fetch only files from its own
 verified immutable package origin (`connect-src 'self'`); remote renderer connections remain
 blocked. Packaged WebAssembly is supported with `wasm-unsafe-eval`, which permits compiling local
 Wasm without permitting JavaScript `eval` or remote code loading. Network and hosted-service work
 crosses explicit host capabilities so permissions, destination checks,
-attribution, credentials, and revocation stay enforceable. The current special permissions are
-`network-fetch`, `browser-session`, `simulator-session`, `account-data`, and `account-identity`.
+attribution, credentials, and revocation stay enforceable. Packaged code must not rely on remote
+JavaScript execution, dynamic script CDNs, or `eval`.
 
 ### Files and directories in visual tabs
 
@@ -358,6 +438,8 @@ explicitly. Handle IDs survive iframe reloads but currently belong to the runnin
 after a Penkra restart the App must ask the user to select the resource again. Persist only App
 metadata in IndexedDB, not assumptions that an old handle remains authorized.
 
+### `simulator-session`
+
 The public `simulator-session` service lets an interactive App tab manage saved simulated devices,
 host their complete display/input surface, and return a standard Apple UDID or Android ADB serial.
 The host owns native tooling, loopback credentials, ports, process lifecycle, tab-close cleanup, and
@@ -369,16 +451,20 @@ runtime. Penkra presents a trusted confirmation before invoking the official pla
 never accepts license terms automatically, and cancels owned installer processes when the App calls
 `simulator.cancelSetup()`, its tab closes, or the host shuts down.
 
-Required permissions must be granted before enablement. Optional permissions are requested only
-following a user action. Grants and revocation apply to one App in one Space. Standard browser
-permissions such as microphone and camera use host-intercepted browser permission flows.
-
 File access is handle-based. A handle authorizes only a user-selected or host-handed-off file or
 directory and its validated descendants for the receiving App and Space in the current desktop
 session. Other Apps and Spaces must obtain their own handles through a picker or trusted handoff.
 Visual tabs never receive ambient filesystem access. A hosted browser session can control only pages
 created for the calling App and Space. A hosted simulator session can control only saved devices
 and live sessions owned by the calling App and Space.
+
+### `browser-session`
+
+`browser-session` creates a host-owned, isolated browser page for the calling App and Space. The App
+may navigate, observe, interact with, and lay out only pages created inside its own session. It does
+not gain access to the operator's ordinary browser profile, cookies, extensions, history, other
+Apps' pages, or Penkra's shell. Hosted-page downloads and the detailed surface/download lifecycle
+are covered in [Visual-tab storage, byte movement, and composer staging](#visual-tab-storage-byte-movement-and-composer-staging).
 
 For a hosted Browser page, the App owns its browser chrome while Penkra owns the isolated page
 surface. Use `browser.setSurfaceLayout({ top, right, bottom, left })` to declare the App-local edge
@@ -391,42 +477,244 @@ path, Penkra resolves an explicitly requested App, a saved compatible preference
 compatible App. Otherwise it uses the operating system. An App handler receives a scoped handle,
 not the local path.
 
-The runtime exposes scoped identity, settings, encrypted secrets, permissions, mediated
-services, context menus, operations, and tab routing. Apps receive an installation-stable pairwise
-subject while the user is signed in and an opaque App/Space scope. Neither value is a portable
-Account credential. With the reviewed `account-data` permission, the host can make a request or
-realtime subscription inside that App's own backend namespace using the current Account session;
-the credential never enters the App renderer. The backend also verifies that the Account installed
-the calling registry App. A Space ID is isolation context an App may use, not a claim that App data
-is automatically owned by the Space or shared with anyone else.
+### `account-data`
 
-For a backend outside Penkra's Account-data namespace, declare the high-risk `account-identity`
-permission with one lowercase DNS audience:
+The runtime exposes scoped identity, settings, encrypted secrets, permissions, mediated services,
+context menus, operations, and tab routing. Apps receive an installation-stable pairwise subject
+while the user is signed in and an opaque App/Space scope. Neither value is a portable Account
+credential.
+
+With `account-data`, the host can make an HTTP request or realtime subscription inside that App's
+own Penkra-hosted backend namespace using the current Account session. The Account cookie and
+credential never enter the App renderer or controller. `account.request` accepts only a
+namespace-relative path. Penkra constructs the destination from its configured Account service and
+the calling manifest identifier, attaches the encrypted desktop Account session outside the App,
+rejects redirects and namespace traversal, bounds request and response sizes, and returns only the
+response status, approved headers, and bytes.
+
+`account.subscribe` uses the same App and Account identity to join a backend-authorized channel.
+The backend must authorize every channel and resource; knowing or guessing a channel name never
+grants access. A Space ID is isolation context an App may pass to its namespace, not a claim that
+data is automatically owned by the Space, visible to every Space member, or shared with another
+App. Those are backend policy decisions.
+
+Use `account-data` when the service is implemented inside Penkra's per-App Account-data namespace.
+Use `account-identity` when the App must authenticate to an independently hosted backend. Do not use
+`account-identity` merely to discover whether someone is signed in; it reveals verified identity to
+the declared backend and is intentionally high risk.
+
+### `account-identity`
+
+`account-identity` lets an App authenticate to one backend outside Penkra's Account-data namespace.
+It returns a short-lived signed assertion, not the Account cookie, an API key, an OAuth refresh
+token, or authority over any other Penkra resource.
+
+#### Manifest contract
+
+Declare exactly one lowercase DNS audience and give a specific user-visible reason:
 
 ```json
 {
   "name": "account-identity",
   "required": true,
-  "reason": "Sign you in to Borge.",
-  "audience": "api.borge.ai"
+  "reason": "Sign you in to the SchoolBase administration service.",
+  "audience": "api.schoolbase.example"
 }
 ```
 
-After the grant, `identity.getToken({ audience: "api.borge.ai" })` returns a five-minute EdDSA JWT
-and its expiry. The host requires the requested audience to exactly match the reviewed manifest,
-keeps the Penkra Account cookie out of the renderer, and stops issuing tokens when the App loses
-access or its permission is revoked. The JWT contains the App ID, opaque Space ID, a verified email,
-and an audience-pairwise subject: two Apps using the same backend audience see the same subject,
-but another audience cannot correlate it. Backends must verify the signature through Penkra's JWKS,
-the exact issuer and audience, expiry, App ID, and `email_verified: true`. See
-[`app-account-identity.md`](./app-account-identity.md) for the verifier and key-rotation contract.
+The audience is a host name, optionally with a port. It is not a URL: do not include `https://`, a
+path, query, fragment, wildcard, trailing slash, or uppercase letters. The runtime argument must
+exactly match the manifest value. One App cannot declare multiple `account-identity` permissions;
+if several services belong behind one identity boundary, place the token-verifying gateway at the
+declared audience and authorize downstream resources there.
 
-`account.request` accepts only a namespace-relative path. Penkra constructs the destination from
-its configured Account service and the calling App ID, attaches the encrypted desktop Account
-session outside the renderer, rejects redirects and namespace traversal, bounds request and
-response sizes, and returns only response status, approved headers, and bytes. `account.subscribe`
-uses the same App and Account identity to join a backend-authorized channel. The backend owns every
-channel's resource authorization; knowing a channel name never grants access.
+Set `required: true` only when the App cannot provide its core experience without signing in to
+that backend. With `required: false`, request the permission after an explicit sign-in or connection
+action and handle denial without repeatedly prompting.
+
+#### Requesting and transporting a token
+
+Both visual tabs and operation controllers may request the token from their respective SDK entry:
+
+```ts
+import { identity } from "@penkra/sdk/tab";
+
+const { token, expiresAt } = await identity.getToken({
+  audience: "api.schoolbase.example",
+});
+
+const response = await fetchThroughYourAppBackend({
+  authorization: `Bearer ${token}`,
+});
+```
+
+Request a token immediately before the backend call. Cache it only in memory and only until
+`expiresAt`; there is no refresh token. Send it as `Authorization: Bearer <token>`. Never place it
+in a URL, query parameter, form field, log, analytics event, exception report, local storage,
+IndexedDB, App settings, or App secrets. If a call outlives the token, request a new token and retry
+only when retrying the underlying operation is safe.
+
+Before contacting the Account service, the host verifies all of the following:
+
+- the caller is a live tab or controller belonging to the installed App and Space;
+- the installed manifest declares `account-identity` with the requested audience;
+- the permission is currently granted in that Space;
+- a signed-in Penkra Account has a verified email; and
+- the Account service recognizes either published App access or the developer's durable sideload
+  identity for that exact manifest identifier and audience.
+
+The Account cookie remains in trusted desktop storage and is attached only to the trusted token
+request. App code receives only the resulting JWT and expiry.
+
+#### Development sideload identity
+
+Identity tokens work during development without publishing the App or running a second command.
+Every `penkra app sideload` automatically establishes the manifest identity before changing the
+installation:
+
+1. Penkra validates the package and reads its manifest identifier, slug, and declared
+   `account-identity` audience, if any.
+2. For an identifier that has never been registered or claimed, the Account service atomically
+   creates a private development identity owned by the currently signed-in developer Account.
+3. A concurrent or later attempt by another Account to claim that identifier is rejected. This is
+   what makes an unregistered development bundle genuinely unique rather than merely unique on one
+   computer.
+4. If the identifier is already registered, only the owning developer Account may sideload it, and
+   the manifest slug must exactly match the registered slug.
+5. Re-sideloading as the owner reuses the same development identity and updates its allowed
+   identity audience to the newly validated manifest declaration. Removing `account-identity`
+   records no development audience, which stops development-token issuance.
+6. The Account service stores the ownership claim, and the desktop stores the returned opaque claim
+   ID separately from mutable package bytes. Rebuilds and restarts therefore do not reinterpret
+   ownership from whatever files happen to be present.
+
+The development claim is private provenance. It does not create a public listing, publisher,
+installable registry release, submission, or access invitation. Uninstalling the local App does not
+release the globally unique identifier for another Account. When the owner later creates the
+registry App, publication must use the same identifier and slug; the registry honors the existing
+claim rather than allowing a different Account to take it.
+
+For a development sideload, token issuance requires the claim owner and the exact audience last
+captured from that validated sideload. A registered App owner is not granted arbitrary audiences
+merely because the App is still a draft. For an installed registry release, token issuance instead
+requires an eligible published version declaring the exact audience plus the Account's normal
+public, private, owner, or invitation access. Active App, publisher, or version revocation remains
+authoritative over development and published issuance.
+
+#### JWT contract
+
+The token is an EdDSA JWT valid for five minutes. Its protected header contains `alg: "EdDSA"`, a
+`kid` selecting the signing key, and `typ: "JWT"`. Its payload contains:
+
+| Claim            | Meaning                                                          |
+| ---------------- | ---------------------------------------------------------------- |
+| `iss`            | Configured Penkra Account identity issuer; verify exact equality |
+| `aud`            | Exact manifest DNS audience; verify exact equality               |
+| `sub`            | Stable pairwise Account subject for this audience                |
+| `app_id`         | Immutable manifest identifier of the calling App                 |
+| `space_id`       | Opaque host context for the calling Space                        |
+| `email`          | Normalized verified Penkra Account email                         |
+| `email_verified` | Always `true` at issuance; require literal `true`                |
+| `iat`            | Issued-at time in NumericDate seconds                            |
+| `exp`            | Expiry in NumericDate seconds, five minutes after `iat`          |
+| `jti`            | Unique token identifier                                          |
+
+`sub` is stable for one Penkra Account and audience. Different Apps using the same backend audience
+see the same subject so that a backend can recognize one person across its own App family. A
+different audience receives a different subject and cannot correlate the Account. Store `(iss,
+sub)` as the federated identity key. A backend may use the verified email on first login to link an
+existing account, but subsequent authentication must resolve by `(iss, sub)`; email addresses can
+change.
+
+`space_id` is context, not authorization. A backend must independently decide whether `(iss, sub)`
+may access a school, organization, document, or other resource in that Space. Likewise, a valid
+token for one allowed `app_id` does not imply that every App using the same audience is trusted.
+
+#### Backend verification
+
+Fetch signing keys from:
+
+```text
+<configured Penkra Account-service origin>/.well-known/penkra-app-identity-jwks.json
+```
+
+Use a maintained JOSE implementation. The following Node example illustrates the required checks;
+the configured issuer, audience, and App allowlist are backend configuration, not values accepted
+from an untrusted request:
+
+```ts
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
+const issuer = process.env.PENKRA_IDENTITY_ISSUER!;
+const audience = "api.schoolbase.example";
+const allowedApps = new Set(["com.schoolbase.admin"]);
+const jwks = createRemoteJWKSet(new URL("/.well-known/penkra-app-identity-jwks.json", issuer));
+
+export async function verifyPenkraIdentity(authorization: string | undefined) {
+  if (!authorization?.startsWith("Bearer ")) throw new Error("Bearer token required");
+  const token = authorization.slice("Bearer ".length);
+  const { payload } = await jwtVerify(token, jwks, {
+    algorithms: ["EdDSA"],
+    issuer,
+    audience,
+    clockTolerance: 5,
+  });
+
+  if (payload.email_verified !== true) throw new Error("Verified email required");
+  if (typeof payload.app_id !== "string" || !allowedApps.has(payload.app_id)) {
+    throw new Error("App is not allowed");
+  }
+  if (typeof payload.sub !== "string" || typeof payload.email !== "string") {
+    throw new Error("Identity claims are incomplete");
+  }
+  if (
+    typeof payload.iat !== "number" ||
+    typeof payload.exp !== "number" ||
+    payload.exp - payload.iat > 300
+  ) {
+    throw new Error("Identity lifetime is invalid");
+  }
+  return payload;
+}
+```
+
+A production verifier must:
+
+- accept only `Authorization: Bearer …`, never query/body tokens;
+- allow only `EdDSA` and select the public key by `kid`;
+- verify the signature, exact issuer, exact audience, expiry, and reasonable issued-at time;
+- reject tokens whose `exp - iat` exceeds five minutes;
+- allowlist `app_id` for the endpoint rather than trusting any App using the audience;
+- require `email_verified === true` and validate the expected claim types;
+- authorize the resolved identity against the requested application resource; and
+- avoid logging the token or returning its claims wholesale to a browser.
+
+Signature verification authenticates Penkra's assertion; it does not replace the backend's own
+authorization, tenancy, role, suspension, or audit rules. A backend may optionally record `jti` for
+high-value replay detection, but normal short-lived bearer semantics do not promise single use.
+
+#### JWKS caching and key rotation
+
+The JWKS publishes the active public key and configured previous public keys. Penkra signs only
+with the active private key. Cache the JWKS according to its HTTP cache headers. When a valid-looking
+token uses an unknown `kid`, refresh the JWKS once before rejecting it; do not refresh repeatedly for
+the same bad input.
+
+Penkra operators publish the new public key before switching the signing private key, retain the
+previous public key for at least the five-minute token lifetime plus clock tolerance, and remove it
+only after old tokens can no longer be accepted. App backends should not pin one `kid` indefinitely.
+They pin the issuer and verification policy and allow the issuer's JWKS to rotate keys.
+
+#### Failure handling
+
+Treat permission denial, sign-out, an unverified Account, lost App access, an ownership conflict,
+audience mismatch, registry revocation, network failure, and expiry as distinct recoverable states.
+Show the operator the action that can actually resolve the failure. Do not weaken backend
+verification, silently fall back to email supplied by the App, or ask the user to paste a token.
+
+A development ownership conflict means the manifest identifier or slug is not yours as declared;
+choose the intended unique identifier or use the owning Account. It is not solved by publishing a
+second App, bypassing the sideload check, or changing only the display name.
 
 ## Visual UI and Themes
 
@@ -662,6 +950,8 @@ which run or workflow owns the path, records that association if it must survive
 removes files when they are no longer needed. Closing a tab does not delete its completed downloads.
 Wait for pending transfers before deleting run data or closing a workflow.
 
+### `thread-compose`
+
 An App declaring high-risk `thread-compose` may call `composer.stage` to stage text, titled
 documents, App-storage files/images, its own contributed Skills, effort, and an ordered list of model
 fallbacks. The host selects the first usable model and returns it. Staging never sends. It is rejected
@@ -766,10 +1056,17 @@ output path and rejects output inside the packaged directory.
 its required permissions, restores its open tabs after valid rebuilds, and watches the directory
 for further changes. An existing sideload may rebuild without changing its version. When the same
 App is installed from the registry, the sideload version must be newer; otherwise uninstall the
-registry App before sideloading. If the manifest identifier is registered, the signed-in developer
-account must own that registry App and the registered slug must match. An unregistered identifier
-may be sideloaded directly; an identifier registered to another account is rejected before the
-installation changes. Invalid rebuilds leave the last working package active.
+registry App before sideloading. Invalid rebuilds leave the last working package active.
+
+Sideload also establishes durable developer identity automatically; there is no reservation,
+registration, or identity command to run first. The signed-in Account atomically claims an
+unregistered manifest identifier and slug, or proves ownership and exact slug for an already
+registered identifier. Another Account's registered or development-claimed identifier is rejected
+before the installation changes. Penkra records the manifest's exact `account-identity` audience
+with that private claim, stores the returned opaque development identity beside the installation,
+and reuses it across rebuilds and restarts. This claim is not a registry listing or release. See
+[Development sideload identity](#development-sideload-identity) for the complete ownership and
+token-issuance contract.
 
 `test` asks the installed Penkra desktop to relaunch its own App runtime in a hidden, disposable
 profile and Space. It ingests the App through the immutable package path, starts its controller and

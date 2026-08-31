@@ -117,4 +117,6 @@ interactive development and remains scoped to the caller's current Space.
 
 A sideload is still an installation: it passes package validation and runs through the same
 isolated App runtime. It is not publication, does not update a registry release, and is not evidence
-that another account or machine can install the App.
+that another account or machine can install the App. The existing sideload command automatically
+claims or verifies the globally unique development identifier for the signed-in developer; this is
+private provenance, not a listing or published version.

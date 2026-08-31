@@ -35,6 +35,14 @@ export type RegistryAppIdentifierOwnership =
   | { status: "registered-to-another-account" }
   | { status: "owned"; appId: string; publisherId: string; slug: string };
 
+export interface RegistryAppSideloadIdentity {
+  developmentIdentityId: string;
+  identifier: string;
+  slug: string;
+  identityAudience: string | null;
+  registryIdentity?: { appId: string; publisherId: string };
+}
+
 export class AppRegistryClient {
   readonly #apiUrl: string;
   readonly #fetch: typeof fetch;
@@ -350,6 +358,52 @@ export class AppRegistryClient {
       appId: uuidField(value, "appId"),
       publisherId: uuidField(value, "publisherId"),
       slug,
+    };
+  }
+
+  async developerClaimAppSideloadIdentity(input: {
+    identifier: string;
+    slug: string;
+    identityAudience: string | null;
+  }): Promise<RegistryAppSideloadIdentity> {
+    const value = await this.#request("/api/registry/developer/apps/sideload-identity", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    if (!isRecord(value)) throw invalidResponse();
+    const developmentIdentityId = uuidField(value, "developmentIdentityId");
+    const identifier = stringField(value, "identifier");
+    const slug = stringField(value, "slug");
+    const identityAudience = value.identityAudience;
+    if (
+      identifier !== input.identifier ||
+      slug !== input.slug ||
+      identityAudience !== input.identityAudience ||
+      !APP_SLUG.test(slug)
+    ) {
+      throw invalidResponse();
+    }
+    if (identityAudience !== null && typeof identityAudience !== "string") {
+      throw invalidResponse();
+    }
+    const registryIdentity = value.registryIdentity;
+    return {
+      developmentIdentityId,
+      identifier,
+      slug,
+      identityAudience: identityAudience as string | null,
+      ...(registryIdentity === undefined
+        ? {}
+        : isRecord(registryIdentity)
+          ? {
+              registryIdentity: {
+                appId: uuidField(registryIdentity, "appId"),
+                publisherId: uuidField(registryIdentity, "publisherId"),
+              },
+            }
+          : (() => {
+              throw invalidResponse();
+            })()),
     };
   }
 
