@@ -6,6 +6,7 @@ import * as Path from "node:path";
 
 import type { DesktopAppRuntime } from "./desktopAppRuntime";
 import {
+  type DevelopmentAppIdentity,
   getInstalledAppPackage,
   type InstalledAppPackage,
   type RegistryAppIdentity,
@@ -22,7 +23,10 @@ export interface DevelopmentAppSideloadResult {
 export type AuthorizeDevelopmentSideload = (input: {
   package: VerifiedAppPackageInput & { source: "sideload" };
   existing: InstalledAppPackage | undefined;
-}) => Promise<RegistryAppIdentity | undefined>;
+}) => Promise<{
+  developmentIdentity: DevelopmentAppIdentity;
+  registryIdentity?: RegistryAppIdentity;
+}>;
 
 export async function bootstrapDevelopmentSideload(
   runtime: Pick<DesktopAppRuntime, "packages" | "installations">,
@@ -41,9 +45,9 @@ export async function bootstrapDevelopmentSideload(
     verified.manifest.id,
     spaceId,
   );
-  const registryIdentity = await authorize?.({ package: sideloadPackage, existing });
+  const identity = await authorize?.({ package: sideloadPackage, existing });
   const authorizedPackage =
-    registryIdentity === undefined ? sideloadPackage : { ...sideloadPackage, registryIdentity };
+    identity === undefined ? sideloadPackage : { ...sideloadPackage, ...identity };
   if (!existing) {
     await runtime.installations.install(authorizedPackage, spaceId);
     await ensureDevelopmentSideloadEnabled(runtime, verified.manifest, spaceId);

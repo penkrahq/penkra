@@ -4,25 +4,30 @@
 
 import type { PenkraAppManifest } from "@penkra/sdk";
 
-import type { RegistryAppIdentity } from "./appInstallationState";
-import type { AppRegistryClient, RegistryAppIdentifierOwnership } from "./appRegistryClient";
+import type { DevelopmentAppIdentity, RegistryAppIdentity } from "./appInstallationState";
+import type { AppRegistryClient } from "./appRegistryClient";
+
+export interface AuthorizedAppSideloadIdentity {
+  developmentIdentity: DevelopmentAppIdentity;
+  registryIdentity?: RegistryAppIdentity;
+}
 
 export async function authorizeAppSideloadIdentity(input: {
-  manifest: Pick<PenkraAppManifest, "id" | "slug">;
-  registry: Pick<AppRegistryClient, "developerGetAppIdentifierOwnership">;
-}): Promise<RegistryAppIdentity | undefined> {
-  const ownership: RegistryAppIdentifierOwnership =
-    await input.registry.developerGetAppIdentifierOwnership(input.manifest.id);
-  if (ownership.status === "unregistered") return undefined;
-  if (ownership.status === "registered-to-another-account") {
-    throw new Error(
-      `App identifier ${input.manifest.id} is registered to another developer account and cannot be sideloaded.`,
-    );
-  }
-  if (ownership.slug !== input.manifest.slug) {
-    throw new Error(
-      `App identifier ${input.manifest.id} is registered with slug ${ownership.slug}, not ${input.manifest.slug}.`,
-    );
-  }
-  return { appId: ownership.appId, publisherId: ownership.publisherId };
+  manifest: Pick<PenkraAppManifest, "id" | "slug" | "permissions">;
+  registry: Pick<AppRegistryClient, "developerClaimAppSideloadIdentity">;
+}): Promise<AuthorizedAppSideloadIdentity> {
+  const identityPermission = (input.manifest.permissions ?? []).find(
+    (permission) => permission.name === "account-identity",
+  );
+  const claimed = await input.registry.developerClaimAppSideloadIdentity({
+    identifier: input.manifest.id,
+    slug: input.manifest.slug,
+    identityAudience: identityPermission?.audience ?? null,
+  });
+  return {
+    developmentIdentity: { id: claimed.developmentIdentityId },
+    ...(claimed.registryIdentity === undefined
+      ? {}
+      : { registryIdentity: claimed.registryIdentity }),
+  };
 }
