@@ -879,10 +879,11 @@ async function reconcileConfiguredRequiredApps(spaceIds: ReadonlyArray<string>):
         if (!appRegistryClient) {
           throw new Error("The App registry is unavailable for sideload ownership recovery.");
         }
-        return authorizeAppSideloadIdentity({
+        const identity = await authorizeAppSideloadIdentity({
           manifest: installed.manifest,
           registry: appRegistryClient,
         });
+        return identity.registryIdentity;
       },
     });
     writeDesktopLogHeader(
@@ -1443,7 +1444,6 @@ function startBrowserPerformanceLogging(): void {
         memMb: Math.round(metric.memory.workingSetSize / 1024),
         name: metric.name,
       }));
-
     console.info(`[${PENKRA_BROWSER_LABEL} perf]`, {
       ...snapshot.counters,
       trackedProcessIds: snapshot.trackedProcessIds,

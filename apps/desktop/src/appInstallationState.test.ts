@@ -161,6 +161,19 @@ describe("App installation state", () => {
     });
   });
 
+  it("persists development identity independently of mutable sideload bytes", () => {
+    const developmentIdentity = { id: "00000000-0000-4000-8000-000000000704" };
+    const installed = registerVerifiedAppPackage(
+      createEmptyAppInstallationState(),
+      verifiedPackage({ source: "sideload", developmentIdentity }),
+      "personal",
+    );
+    const parsed = parseAppInstallationState(JSON.parse(JSON.stringify(installed)));
+    expect(
+      parsed.packagesByInstallationKey[`personal\0${manifest.id}`]?.developmentIdentity,
+    ).toEqual(developmentIdentity);
+  });
+
   it("retains Space state on uninstall until explicitly erased", () => {
     const installed = registerVerifiedAppPackage(
       createEmptyAppInstallationState(),
@@ -239,7 +252,7 @@ describe("App installation state", () => {
     };
 
     expect(parseAppInstallationState(legacy)).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
       packagesByInstallationKey: {
         [`personal\0${manifest.id}`]: expect.objectContaining({ appId: manifest.id }),
       },
@@ -307,7 +320,7 @@ describe("App installation state", () => {
       },
     });
 
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.packagesByInstallationKey[key]?.manifest).toMatchObject({
       entrypoints: { tab: "app.html", controller: "operations.js" },
       contributions: {

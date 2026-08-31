@@ -85,8 +85,8 @@ are scoped to the calling App and Space and cannot address another App or Space'
 
 External Account identity requires the high-risk `account-identity` permission with a manifest
 `audience`. `identity.getToken({ audience })` returns a five-minute, audience-bound JWT only when
-the argument exactly matches that reviewed declaration. See `docs/app-account-identity.md` in the
-Penkra repository for backend verification and key rotation.
+the argument exactly matches that declaration. See `docs/app-development.md` in the Penkra
+repository for development identity, backend verification, and key rotation.
 
 The Browser page is host-owned while the App owns its surrounding chrome. Call
 `browser.setSurfaceLayout({ top, right, bottom, left })` with App-local edge insets, or `null` when
