@@ -19,7 +19,8 @@ describe("development App sideload bootstrap", () => {
       appId: "00000000-0000-4000-8000-000000000701",
       publisherId: "00000000-0000-4000-8000-000000000702",
     };
-    const authorize = vi.fn(async () => registryIdentity);
+    const developmentIdentity = { id: "00000000-0000-4000-8000-000000000703" };
+    const authorize = vi.fn(async () => ({ registryIdentity, developmentIdentity }));
 
     await bootstrapDevelopmentSideload(
       {
@@ -37,7 +38,10 @@ describe("development App sideload bootstrap", () => {
     );
 
     expect(authorize).toHaveBeenCalledWith({ package: verified, existing: undefined });
-    expect(install).toHaveBeenCalledWith({ ...verified, registryIdentity }, "personal");
+    expect(install).toHaveBeenCalledWith(
+      { ...verified, registryIdentity, developmentIdentity },
+      "personal",
+    );
   });
 
   it("installs a new validated unpacked package", async () => {

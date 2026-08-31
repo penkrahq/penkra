@@ -5,17 +5,23 @@ import { authorizeAppSideloadIdentity } from "./appSideloadOwnership";
 const manifest = { id: "com.penkra.apps", slug: "apps" } as const;
 const appId = "00000000-0000-4000-8000-000000000701";
 const publisherId = "00000000-0000-4000-8000-000000000702";
+const developmentIdentityId = "00000000-0000-4000-8000-000000000703";
 
 describe("App sideload ownership", () => {
-  it("allows an identifier that is not registered", async () => {
+  it("claims an unregistered identifier and persists its development identity", async () => {
     await expect(
       authorizeAppSideloadIdentity({
         manifest,
         registry: {
-          developerGetAppIdentifierOwnership: vi.fn(async () => ({ status: "unregistered" })),
+          developerClaimAppSideloadIdentity: vi.fn(async () => ({
+            developmentIdentityId,
+            identifier: manifest.id,
+            slug: manifest.slug,
+            identityAudience: null,
+          })),
         } as never,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ developmentIdentity: { id: developmentIdentityId } });
   });
 
   it("returns durable identity evidence for an App owned by the signed-in developer", async () => {
@@ -23,41 +29,59 @@ describe("App sideload ownership", () => {
       authorizeAppSideloadIdentity({
         manifest,
         registry: {
-          developerGetAppIdentifierOwnership: vi.fn(async () => ({
-            status: "owned",
-            appId,
-            publisherId,
-            slug: "apps",
+          developerClaimAppSideloadIdentity: vi.fn(async () => ({
+            developmentIdentityId,
+            identifier: manifest.id,
+            slug: manifest.slug,
+            identityAudience: null,
+            registryIdentity: { appId, publisherId },
           })),
         } as never,
       }),
-    ).resolves.toEqual({ appId, publisherId });
+    ).resolves.toEqual({
+      developmentIdentity: { id: developmentIdentityId },
+      registryIdentity: { appId, publisherId },
+    });
   });
 
-  it("rejects another developer's registered identifier and registered slug changes", async () => {
+  it("propagates account-service ownership conflicts before installation", async () => {
     await expect(
       authorizeAppSideloadIdentity({
         manifest,
         registry: {
-          developerGetAppIdentifierOwnership: vi.fn(async () => ({
-            status: "registered-to-another-account",
-          })),
+          developerClaimAppSideloadIdentity: vi.fn(async () => {
+            throw new Error("This App identifier belongs to another developer account");
+          }),
         } as never,
       }),
-    ).rejects.toThrow("registered to another developer account");
+    ).rejects.toThrow("belongs to another developer account");
+  });
 
-    await expect(
-      authorizeAppSideloadIdentity({
-        manifest,
-        registry: {
-          developerGetAppIdentifierOwnership: vi.fn(async () => ({
-            status: "owned",
-            appId,
-            publisherId,
-            slug: "different",
-          })),
-        } as never,
-      }),
-    ).rejects.toThrow("registered with slug different");
+  it("registers the exact account-identity audience from the validated manifest", async () => {
+    const claim = vi.fn(async () => ({
+      developmentIdentityId,
+      identifier: manifest.id,
+      slug: manifest.slug,
+      identityAudience: "api.example.com",
+    }));
+    await authorizeAppSideloadIdentity({
+      manifest: {
+        ...manifest,
+        permissions: [
+          {
+            name: "account-identity",
+            required: true,
+            reason: "Sign in.",
+            audience: "api.example.com",
+          },
+        ],
+      },
+      registry: { developerClaimAppSideloadIdentity: claim } as never,
+    });
+    expect(claim).toHaveBeenCalledWith({
+      identifier: manifest.id,
+      slug: manifest.slug,
+      identityAudience: "api.example.com",
+    });
   });
 });

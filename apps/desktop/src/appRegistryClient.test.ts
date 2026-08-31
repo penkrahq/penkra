@@ -56,6 +56,50 @@ describe("desktop App registry client", () => {
     );
   });
 
+  it("claims and validates durable sideload identity provenance", async () => {
+    const developmentIdentityId = "00000000-0000-4000-8000-000000000398";
+    const publisherId = "00000000-0000-4000-8000-000000000399";
+    const fetch = vi.fn().mockResolvedValue(
+      jsonResponse({
+        developmentIdentityId,
+        identifier: summary.identifier,
+        slug: summary.slug,
+        identityAudience: "api.penkra.com",
+        registryIdentity: { appId: summary.id, publisherId },
+      }),
+    );
+    const client = new AppRegistryClient({
+      apiUrl: "https://api.penkra.com",
+      getCookie: () => "cookie=value",
+      fetch,
+    });
+
+    await expect(
+      client.developerClaimAppSideloadIdentity({
+        identifier: summary.identifier,
+        slug: summary.slug,
+        identityAudience: "api.penkra.com",
+      }),
+    ).resolves.toEqual({
+      developmentIdentityId,
+      identifier: summary.identifier,
+      slug: summary.slug,
+      identityAudience: "api.penkra.com",
+      registryIdentity: { appId: summary.id, publisherId },
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.penkra.com/api/registry/developer/apps/sideload-identity",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          identifier: summary.identifier,
+          slug: summary.slug,
+          identityAudience: "api.penkra.com",
+        }),
+      }),
+    );
+  });
+
   it("uses the encrypted account cookie without exposing it in the result", async () => {
     const fetch = vi.fn().mockResolvedValue(
       jsonResponse({
