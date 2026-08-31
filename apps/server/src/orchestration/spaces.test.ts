@@ -161,6 +161,19 @@ describe("Spaces", () => {
         folderIds: [FolderId.makeUnsafe("personal-product")],
       }),
     ).rejects.toThrow(/already exists in this Space/i);
+
+    await expect(
+      dispatch(readModel, {
+        type: "sidebar.item.move",
+        commandId: CommandId.makeUnsafe("drag-product-to-work"),
+        item: { kind: "folder", id: FolderId.makeUnsafe("personal-product") },
+        target: { kind: "space", spaceId: work },
+        position: { type: "pinned-boundary" },
+      }),
+    ).rejects.toThrow(/already exists in this Space/i);
+    expect(readModel.folders.find((folder) => folder.id === "personal-product")?.spaceId).toBe(
+      personal,
+    );
   });
 
   it("archives a non-empty Space while preserving its content assignments", async () => {
@@ -306,7 +319,7 @@ describe("Spaces", () => {
     expect(moved.readModel.folders.map((project) => project.spaceId)).toEqual([work, work]);
   });
 
-  it("persists a mixed folder order while moving a folder across Spaces", async () => {
+  it("atomically moves and orders a folder across Spaces", async () => {
     const personal = SpaceId.makeUnsafe("personal");
     const work = SpaceId.makeUnsafe("work");
     let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
@@ -317,16 +330,9 @@ describe("Spaces", () => {
     // This row was not part of the drag-start snapshot. Anchor intent must preserve it.
     ({ readModel } = await addFolder(readModel, "third", work));
 
-    ({ readModel } = await dispatch(readModel, {
-      type: "folder.move",
-      commandId: CommandId.makeUnsafe("move-first-to-work"),
-      spaceId: work,
-      folderIds: [FolderId.makeUnsafe("first")],
-    }));
-
     const moved = await dispatch(readModel, {
       type: "sidebar.item.move",
-      commandId: CommandId.makeUnsafe("move-first-after-second"),
+      commandId: CommandId.makeUnsafe("move-and-order-first-after-second"),
       item: { kind: "folder", id: FolderId.makeUnsafe("first") },
       target: { kind: "space", spaceId: work },
       position: {
@@ -335,7 +341,10 @@ describe("Spaces", () => {
       },
     });
 
-    expect(moved.events).toHaveLength(1);
+    expect(moved.events.map((event) => event.type)).toEqual([
+      "folder.moved",
+      "sidebar.layout-updated",
+    ]);
     expect(
       moved.readModel.folders.map(({ id, spaceId, sidebarSortOrder }) => ({
         id,
