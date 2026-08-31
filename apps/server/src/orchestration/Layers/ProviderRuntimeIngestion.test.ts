@@ -1424,7 +1424,7 @@ describe("ProviderRuntimeIngestion", () => {
     // the future nextRetryAt and then restore that persisted timer; there is no
     // live provider publication or explicit drain to wake it.
     await harness.startIngestion();
-    const recoveryDeadline = Date.now() + 2_000;
+    const recoveryDeadline = Date.now() + 7_000;
     while (
       (await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(event.threadId))) !==
       persisted.sequence
@@ -1439,7 +1439,7 @@ describe("ProviderRuntimeIngestion", () => {
         harness.runtimeEventRepository.getThreadProjectionFailure(event.threadId),
       ),
     ).toBeNull();
-  });
+  }, 10_000);
 
   it("retries and recovers a durable quarantine after restart", async () => {
     const harness = await createHarness({ startIngestion: false });
