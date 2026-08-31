@@ -427,6 +427,31 @@ describe("AppTabObserver", () => {
     expect(contents.capturePage).toHaveBeenCalledWith(captureBounds);
   });
 
+  it("attributes semantic observation separately from page capture", async () => {
+    const { contents } = makeContents();
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents }),
+    });
+
+    await observer.snapshot("tab-1");
+    await observer.screenshot("tab-1");
+
+    expect(observer.getPerformanceSnapshot()).toMatchObject({
+      snapshotCalls: 1,
+      screenshotCalls: 1,
+      capturePageCalls: 1,
+      capturePageBytes: 3,
+      cdpCalls: 3,
+      snapshotStateCount: 1,
+      dialogListenerCount: 1,
+      protocolSessionCount: 0,
+    });
+    expect(observer.getPerformanceSnapshot().snapshotTotalMs).toBeGreaterThanOrEqual(0);
+    expect(observer.getPerformanceSnapshot().screenshotTotalMs).toBeGreaterThanOrEqual(0);
+    expect(observer.getPerformanceSnapshot().capturePageTotalMs).toBeGreaterThanOrEqual(0);
+    expect(observer.getPerformanceSnapshot().cdpTotalMs).toBeGreaterThanOrEqual(0);
+  });
+
   it("rejects screenshots when the exact App pane is not painted", async () => {
     const { contents } = makeContents();
     const observer = new AppTabObserver({
