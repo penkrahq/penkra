@@ -185,7 +185,9 @@ Each stable release contains the applicable artifacts for its advertised platfor
 - `Penkra-<version>-x64.zip` for Electron auto-update on Intel Macs;
 - both ZIP blockmaps used for differential downloads;
 - `latest-mac.yml`, merged from the two finalized architecture-specific ZIP manifests;
-- Linux AppImage, blockmap, and `latest-linux.yml` for the finalized artifact;
+- Linux AppImage with its compressed differential blockmap embedded at the end of the file, plus
+  `latest-linux.yml` whose `blockMapSize` tells the updater how many trailing bytes to read; unlike
+  macOS ZIP updates, Linux does not publish a separate `.AppImage.blockmap` sidecar;
 - `Penkra-<version>-x64.exe` as the explicitly unsigned manual Windows installer;
 - `SHA256SUMS.txt`;
 - GitHub build-provenance attestations.
