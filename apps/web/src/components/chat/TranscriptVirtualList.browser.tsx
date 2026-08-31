@@ -369,6 +369,64 @@ function ThreadSwitchingListHarness() {
   );
 }
 
+function ProductionThreadsRegressionHarness() {
+  const [activeThread, setActiveThread] = useState<"threads" | "other">("threads");
+  const [activityCommit, setActivityCommit] = useState(0);
+  const [lateTailHeight, setLateTailHeight] = useState(188);
+  const rowCount = 40;
+  const rows = Array.from({ length: rowCount }, (_, index) => ({
+    id: `${activeThread}-timeline-row-${index}`,
+    // The production Threads page projects 245 messages and 2,870 activities
+    // into 40 conversation rows. Its failed trace grew the committed tail by
+    // 235px after a same-key activity-model commit.
+    height:
+      activeThread === "threads" && index === rowCount - 1
+        ? lateTailHeight
+        : index === 31
+          ? 6_894
+          : 114,
+    activityCommit,
+  }));
+  return (
+    <div>
+      <button type="button" onClick={() => setActivityCommit((current) => current + 1)}>
+        Commit projected activities
+      </button>
+      <button type="button" onClick={() => setLateTailHeight(423)}>
+        Settle delayed tail content
+      </button>
+      <button
+        type="button"
+        onClick={() => setActiveThread((current) => (current === "threads" ? "other" : "threads"))}
+      >
+        Switch production thread
+      </button>
+      <TranscriptVirtualList
+        key={activeThread}
+        viewportMemoryKey={activeThread}
+        data={rows}
+        // Projected work/activity commits intentionally leave the semantic
+        // transcript revision unchanged.
+        anchorRevision={`${rowCount}:${activeThread}-timeline-row-39:settled`}
+        estimatedItemSize={90}
+        keyExtractor={(row) => row.id}
+        renderItem={(row) => (
+          <div
+            data-row-id={row.id}
+            data-activity-commit={row.activityCommit}
+            style={{ height: row.height }}
+          >
+            {row.id}
+          </div>
+        )}
+        paddingEnd={16}
+        data-testid="production-threads-virtual-scroll"
+        style={{ height: 1_058, overflowY: "auto" }}
+      />
+    </div>
+  );
+}
+
 async function settleLayout(): Promise<void> {
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -847,6 +905,47 @@ describe("TranscriptVirtualList", () => {
           anchor!.getBoundingClientRect().top - scrollElement.getBoundingClientRect().top,
         ).toBeCloseTo(saved.anchorOffset, 0);
         expect(scrollElement.textContent).not.toContain("thread-a-row-123");
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("does not turn delayed production-scale tail layout into reader detachment", async () => {
+    enableChatScrollDiagnostics();
+    const screen = await render(<ProductionThreadsRegressionHarness />);
+    try {
+      let scrollElement = screen.container.querySelector<HTMLElement>(
+        '[data-testid="production-threads-virtual-scroll"]',
+      )!;
+      await vi.waitFor(() => {
+        expect(
+          scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop,
+        ).toBeLessThanOrEqual(16);
+      });
+
+      // Reproduce the exact ordering from production: a same-key projected
+      // activity commit releases initial tail ownership, then ResizeObserver
+      // reports a 235px late expansion in the final conversation row.
+      await screen.getByText("Commit projected activities").click();
+      await settleLayout();
+      await screen.getByText("Settle delayed tail content").click();
+      await vi.waitFor(() => {
+        expect(
+          scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop,
+        ).toBeLessThanOrEqual(16);
+      });
+
+      await screen.getByText("Switch production thread").click();
+      await vi.waitFor(() => expect(readTranscriptViewportSnapshot("threads")?.isAtEnd).toBe(true));
+      await screen.getByText("Switch production thread").click();
+      await vi.waitFor(() => {
+        scrollElement = screen.container.querySelector<HTMLElement>(
+          '[data-testid="production-threads-virtual-scroll"]',
+        )!;
+        expect(
+          scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop,
+        ).toBeLessThanOrEqual(16);
       });
     } finally {
       await screen.unmount();

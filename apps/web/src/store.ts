@@ -21,6 +21,7 @@ import {
   applyThreadUpdate,
   clearThreadDetailSyncFailureInClientState,
   evictThreadDetailFromClientState,
+  markThreadDetailKnownEmptyInClientState,
   markThreadDetailSyncFailedInClientState,
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
@@ -49,6 +50,7 @@ export {
   applyShellEvent,
   clearThreadDetailSyncFailureInClientState,
   evictThreadDetailFromClientState,
+  markThreadDetailKnownEmptyInClientState,
   markThreadDetailSyncFailedInClientState,
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
@@ -224,6 +226,7 @@ interface AppStore extends AppState {
   evictThreadDetail: (threadId: ThreadId) => void;
   evictThreadDetails: (threadIds: readonly ThreadId[]) => void;
   markThreadDetailSyncFailed: (threadId: ThreadId) => void;
+  markThreadDetailKnownEmpty: (threadId: ThreadId) => void;
   clearThreadDetailSyncFailure: (threadId: ThreadId) => void;
   removeDeletedProjectFromClientState: (folderId: Project["id"]) => void;
   removeDeletedThreadFromClientState: (threadId: ThreadId) => void;
@@ -271,6 +274,8 @@ export const useStore = create<AppStore>((set) => ({
     }),
   markThreadDetailSyncFailed: (threadId) =>
     set((state) => markThreadDetailSyncFailedInClientState(state, threadId)),
+  markThreadDetailKnownEmpty: (threadId) =>
+    set((state) => markThreadDetailKnownEmptyInClientState(state, threadId)),
   clearThreadDetailSyncFailure: (threadId) =>
     set((state) => clearThreadDetailSyncFailureInClientState(state, threadId)),
   removeDeletedProjectFromClientState: (folderId) =>

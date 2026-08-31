@@ -148,6 +148,7 @@ describe("threadCreatePromotion", () => {
 
     expect(getShellSnapshot).toHaveBeenCalledOnce();
     expect(getThreadFromState(useStore.getState(), threadId)?.id).toBe(threadId);
+    expect(useStore.getState().threadDetailSyncById?.[threadId]).toBe("known-empty");
     expect(useComposerDraftStore.getState().getDraftThread(threadId)?.promotedTo).toBe(threadId);
   });
 
@@ -165,6 +166,7 @@ describe("threadCreatePromotion", () => {
     );
     expect(api.orchestration.getShellSnapshot).toHaveBeenCalledOnce();
     expect(getThreadFromState(useStore.getState(), threadId)?.id).toBe(threadId);
+    expect(useStore.getState().threadDetailSyncById?.[threadId]).toBe("known-empty");
     expect(useComposerDraftStore.getState().getDraftThread(threadId)?.promotedTo).toBe(threadId);
   });
 
@@ -179,6 +181,7 @@ describe("threadCreatePromotion", () => {
       "exists",
     );
     expect(getThreadFromState(useStore.getState(), threadId)?.id).toBe(threadId);
+    expect(useStore.getState().threadDetailSyncById?.[threadId]).toBe("known-empty");
   });
 
   it("marks the draft as promoted when the thread already exists locally", async () => {
@@ -231,6 +234,7 @@ describe("threadCreatePromotion", () => {
     );
 
     expect(useComposerDraftStore.getState().getDraftThread(threadId)?.promotedTo).toBe(threadId);
+    expect(useStore.getState().threadDetailSyncById?.[threadId]).toBeUndefined();
   });
 
   it("recreates a React-known local draft even when stale client state still has the deleted id", async () => {

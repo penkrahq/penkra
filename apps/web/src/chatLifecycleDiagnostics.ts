@@ -4,6 +4,13 @@
 
 export interface ChatLifecycleDiagnosticState {
   readonly threadId: string;
+  readonly isServerThread: boolean;
+  readonly isLocalDraftThread: boolean;
+  readonly threadDetailSyncState: string | null;
+  readonly threadDetailHydration: string;
+  readonly projectedMessageCount: number;
+  readonly optimisticUserMessageCount: number;
+  readonly draftPromotedTo: string | null;
   readonly threadWorkStatus: string | null;
   readonly sessionStatus: string | null;
   readonly sessionUpdatedAt: string | null;

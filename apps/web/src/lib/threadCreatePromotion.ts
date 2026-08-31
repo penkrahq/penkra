@@ -71,6 +71,7 @@ async function dispatchPromoteThreadCreate(
     // Confirm authoritative state before deciding the create failed or retrying it.
     try {
       if (await recoverPromotedThreadFromShellSnapshot(api, command.threadId)) {
+        useStore.getState().markThreadDetailKnownEmpty(command.threadId);
         return "exists";
       }
     } catch {
@@ -89,6 +90,7 @@ async function dispatchPromoteThreadCreate(
       `Accepted thread.create for '${command.threadId}' was not present in the authoritative shell snapshot.`,
     );
   }
+  useStore.getState().markThreadDetailKnownEmpty(command.threadId);
   return "created";
 }
 

@@ -19,7 +19,7 @@ import type {
  * Per-thread detail hydration status. Absence means "idle": no detail snapshot
  * has been applied yet, so shell-only threads must not be treated as empty.
  */
-export type ThreadDetailSyncState = "synced" | "failed";
+export type ThreadDetailSyncState = "known-empty" | "synced" | "failed";
 
 export interface ThreadTurnPaginationState {
   readonly hasOlder: boolean;

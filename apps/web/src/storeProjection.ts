@@ -625,11 +625,27 @@ export function markThreadDetailSyncFailedInClientState(
   state: AppState,
   threadId: ThreadId,
 ): AppState {
-  // Applied detail outranks a late stream failure: keep rendering the data we have.
-  if (state.threadDetailSyncById?.[threadId] === "synced") {
+  // An applied detail page or an accepted create baseline outranks a late
+  // reconciliation failure: keep rendering the authoritative data we have.
+  if (
+    state.threadDetailSyncById?.[threadId] === "synced" ||
+    state.threadDetailSyncById?.[threadId] === "known-empty"
+  ) {
     return state;
   }
   return writeThreadDetailSyncState(state, threadId, "failed");
+}
+
+export function markThreadDetailKnownEmptyInClientState(
+  state: AppState,
+  threadId: ThreadId,
+): AppState {
+  // Never downgrade an already-applied detail page. This transition is only
+  // the authoritative empty baseline established by an accepted thread.create.
+  if (state.threadDetailSyncById?.[threadId] === "synced") {
+    return state;
+  }
+  return writeThreadDetailSyncState(state, threadId, "known-empty");
 }
 
 export function clearThreadDetailSyncFailureInClientState(
