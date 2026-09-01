@@ -55,6 +55,7 @@ import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Lay
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import {
   PROVIDER_RUNTIME_INGESTION_CONSUMER,
+  PROVIDER_RUNTIME_PROJECTION_RETRY_BASE_MS,
   ProviderRuntimeEventRepository,
 } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -2499,7 +2500,7 @@ const make = Effect.gen(function* () {
   // journal after startup. Both queues are signals rather than work storage:
   // the SQLite journal remains the authoritative, crash-safe queue.
   const runtimeJournalWake = yield* Queue.sliding<void>(1);
-  const runtimeJournalRetrySchedule = yield* Queue.unbounded<string>();
+  const runtimeJournalRetryScheduleChanged = yield* Queue.sliding<void>(1);
 
   const processInputSafely = (input: RuntimeIngestionInput): Effect.Effect<void> =>
     input.source === "runtime" && runtimeThreadsBlockedThisDrain.has(input.event.threadId)
@@ -2567,7 +2568,7 @@ const make = Effect.gen(function* () {
                     ),
                     Effect.andThen(
                       failure.status === "active"
-                        ? Queue.offer(runtimeJournalRetrySchedule, failure.nextRetryAt)
+                        ? Queue.offer(runtimeJournalRetryScheduleChanged, undefined)
                         : Effect.void,
                     ),
                   ),
@@ -2657,6 +2658,48 @@ const make = Effect.gen(function* () {
         cause: Cause.pretty(cause),
       });
     }),
+  );
+
+  // Keep exactly one retry scheduler alive for the service lifetime. A prior
+  // implementation forked a new scoped fiber for every deadline; depending on
+  // scope timing, that child could be interrupted as soon as the queue-handler
+  // iteration returned, permanently losing the only wake for a durable failed
+  // head. The failure ledger is now the source of truth: signals only ask this
+  // loop to recompute its earliest deadline, and a completed drain always asks
+  // it to recompute again after the ledger has been resolved or rescheduled.
+  const scheduleRuntimeJournalRetries = Effect.forever(
+    Queue.take(runtimeJournalRetryScheduleChanged).pipe(
+      Effect.andThen(
+        Effect.gen(function* () {
+          while (true) {
+            const [nextFailure] = yield* runtimeEvents.listActiveProjectionFailures;
+            if (!nextFailure) return;
+
+            const parsedDueAt = Date.parse(nextFailure.nextRetryAt);
+            const delayMs = Number.isFinite(parsedDueAt)
+              ? Math.max(0, parsedDueAt - Date.now())
+              : 0;
+            const scheduleChanged = yield* Effect.raceFirst(
+              Effect.sleep(Duration.millis(delayMs)).pipe(Effect.as(false)),
+              Queue.take(runtimeJournalRetryScheduleChanged).pipe(Effect.as(true)),
+            );
+            if (scheduleChanged) continue;
+
+            yield* Queue.offer(runtimeJournalWake, undefined);
+            return;
+          }
+        }),
+      ),
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+        return Effect.logError("provider runtime retry scheduler failed", {
+          cause: Cause.pretty(cause),
+        }).pipe(
+          Effect.andThen(Effect.sleep(Duration.millis(PROVIDER_RUNTIME_PROJECTION_RETRY_BASE_MS))),
+          Effect.andThen(Queue.offer(runtimeJournalRetryScheduleChanged, undefined)),
+        );
+      }),
+    ),
   );
 
   const reconcileSettledOpenTurns: ProviderRuntimeIngestionShape["reconcileSettledOpenTurns"] =
@@ -2854,26 +2897,13 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       yield* Effect.forkScoped(
         Effect.forever(
-          Queue.take(runtimeJournalWake).pipe(Effect.andThen(drainRuntimeJournalSafely)),
-        ),
-      );
-      yield* Effect.forkScoped(
-        Effect.forever(
-          Queue.take(runtimeJournalRetrySchedule).pipe(
-            Effect.flatMap((nextRetryAt) => {
-              const parsedDueAt = Date.parse(nextRetryAt);
-              const delayMs = Number.isFinite(parsedDueAt)
-                ? Math.max(0, parsedDueAt - Date.now())
-                : 0;
-              return Effect.forkScoped(
-                Effect.sleep(Duration.millis(delayMs)).pipe(
-                  Effect.andThen(Queue.offer(runtimeJournalWake, undefined)),
-                ),
-              ).pipe(Effect.asVoid);
-            }),
+          Queue.take(runtimeJournalWake).pipe(
+            Effect.andThen(drainRuntimeJournalSafely),
+            Effect.ensuring(Queue.offer(runtimeJournalRetryScheduleChanged, undefined)),
           ),
         ),
       );
+      yield* Effect.forkScoped(scheduleRuntimeJournalRetries);
       yield* Effect.forkScoped(
         Stream.runForEach(providerService.streamEvents, (event) =>
           // ProviderService publishes only after its supervised pump has
@@ -2917,12 +2947,7 @@ const make = Effect.gen(function* () {
       // Active failures survive process restarts with a durable retry deadline.
       // Restore those timers explicitly now that idle polling no longer serves
       // as an accidental retry scheduler.
-      const activeFailures = yield* runtimeEvents.listActiveProjectionFailures;
-      yield* Effect.forEach(
-        activeFailures,
-        (failure) => Queue.offer(runtimeJournalRetrySchedule, failure.nextRetryAt),
-        { discard: true },
-      );
+      yield* Queue.offer(runtimeJournalRetryScheduleChanged, undefined);
       yield* Deferred.succeed(startupRuntimeReplayComplete, undefined);
     }),
   ).pipe(Effect.orDie);
