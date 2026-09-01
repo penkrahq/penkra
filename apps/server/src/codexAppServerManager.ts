@@ -82,6 +82,11 @@ import {
   type McpStartupStatusEntry,
   type McpToolInventoryEntry,
 } from "./provider/computerUseCapability.ts";
+import {
+  CodexConversationHistoryMutationUnavailableError,
+  type CodexConversationHistoryMutationCapability,
+  resolveCodexConversationHistoryMutationCapability,
+} from "./provider/codexConversationHistoryCapability.ts";
 
 const log = createLogger("codex");
 
@@ -199,6 +204,10 @@ interface CodexSessionContext {
   stopping: boolean;
   stopPromise?: Promise<void>;
   discovery?: boolean;
+  conversationHistoryMutationCapability?: Exclude<
+    CodexConversationHistoryMutationCapability,
+    { readonly state: "unavailable-until-session-open" }
+  >;
 }
 
 interface CodexSkillListInput {
@@ -214,6 +223,28 @@ interface CodexPluginReadInput extends Omit<ProviderReadPluginInput, "provider">
 interface JsonRpcError {
   code?: number;
   message?: string;
+  data?: unknown;
+}
+
+export class CodexJsonRpcRequestError extends Error {
+  readonly method: string;
+  readonly code?: number;
+  readonly rpcMessage: string;
+  readonly data?: unknown;
+
+  constructor(input: {
+    readonly method: string;
+    readonly code?: number;
+    readonly rpcMessage: string;
+    readonly data?: unknown;
+  }) {
+    super(`${input.method} failed: ${input.rpcMessage}`);
+    this.name = "CodexJsonRpcRequestError";
+    this.method = input.method;
+    if (input.code !== undefined) this.code = input.code;
+    this.rpcMessage = input.rpcMessage;
+    if (input.data !== undefined) this.data = input.data;
+  }
 }
 
 interface JsonRpcRequest {
@@ -1195,6 +1226,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         throw new Error(`${threadOpenMethod} response did not include a thread id.`);
       }
       const providerThreadId = threadIdRaw;
+      context.conversationHistoryMutationCapability =
+        resolveCodexConversationHistoryMutationCapability(threadOpenResponse);
 
       const activeTurnAlreadyObserved = context.session.activeTurnId;
       const resumedActiveTurnId = activeTurnAlreadyObserved ?? resumedActivity.activeTurnId;
@@ -1840,6 +1873,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       );
       const response = await this.sendRequest(context, "thread/fork", forkParams);
       const forkedProviderThreadId = this.readThreadIdFromResponse("thread/fork", response);
+      context.conversationHistoryMutationCapability =
+        resolveCodexConversationHistoryMutationCapability(response);
 
       if (input.managedLaunch) {
         await adoptManagedCodexRollout(input.managedLaunch, forkedProviderThreadId);
@@ -1883,6 +1918,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   async rollbackThread(threadId: ThreadId, numTurns: number): Promise<CodexThreadSnapshot> {
     const context = this.requireSession(threadId);
+    const historyMutationCapability = context.conversationHistoryMutationCapability ?? {
+      state: "unavailable-until-session-open" as const,
+    };
+    if (historyMutationCapability.state !== "supported") {
+      throw new CodexConversationHistoryMutationUnavailableError(historyMutationCapability);
+    }
     const providerThreadId = readResumeThreadId({
       threadId: context.session.threadId,
       runtimeMode: context.session.runtimeMode,
@@ -1904,6 +1945,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       activeTurnId: undefined,
     });
     return this.parseThreadSnapshot("thread/rollback", response);
+  }
+
+  getConversationHistoryMutationCapability(
+    threadId: ThreadId,
+  ): CodexConversationHistoryMutationCapability {
+    return (
+      this.sessions.get(threadId)?.conversationHistoryMutationCapability ?? {
+        state: "unavailable-until-session-open",
+      }
+    );
   }
 
   async compactThread(threadId: ThreadId): Promise<void> {
@@ -3376,8 +3427,19 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     clearTimeout(pending.timeout);
     context.pending.delete(key);
 
-    if (response.error?.message) {
-      pending.reject(new Error(`${pending.method} failed: ${String(response.error.message)}`));
+    if (response.error) {
+      const rpcMessage =
+        typeof response.error.message === "string"
+          ? response.error.message
+          : "Codex returned a JSON-RPC error without a message.";
+      pending.reject(
+        new CodexJsonRpcRequestError({
+          method: pending.method,
+          ...(typeof response.error.code === "number" ? { code: response.error.code } : {}),
+          rpcMessage,
+          ...(response.error.data !== undefined ? { data: response.error.data } : {}),
+        }),
+      );
       return;
     }
 

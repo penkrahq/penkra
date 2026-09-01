@@ -59,7 +59,9 @@ export class ProviderAdapterRequestError extends Schema.TaggedErrorClass<Provide
     provider: Schema.String,
     method: Schema.String,
     detail: Schema.String,
-    code: Schema.optional(Schema.Literal(PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE)),
+    code: Schema.optional(
+      Schema.Union([Schema.Number, Schema.Literal(PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE)]),
+    ),
     cause: Schema.optional(Schema.Defect),
   },
 ) {

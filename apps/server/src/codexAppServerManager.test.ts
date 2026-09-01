@@ -22,6 +22,7 @@ import {
   CODEX_DEVELOPER_INSTRUCTIONS,
   __codexCliVersionGateTesting,
   CodexAppServerManager,
+  CodexJsonRpcRequestError,
   classifyCodexStderrLine,
   inspectCodexThreadActivity,
   normalizeCodexModelSlug,
@@ -37,6 +38,7 @@ import {
 import { CodexJsonlFramer, CodexJsonlWriter } from "./codexAppServerTransport";
 import { ensureIsolatedScratchWorkspace } from "./scratchWorkspaces";
 import { acquireAgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
+import type { CodexConversationHistoryMutationCapability } from "./provider/codexConversationHistoryCapability.ts";
 
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const fullAccessTurnOverrides = {
@@ -246,6 +248,10 @@ function createThreadControlHarness() {
   const manager = new CodexAppServerManager();
   const context = {
     lifecycleGeneration: "generation-request-a",
+    conversationHistoryMutationCapability: {
+      state: "supported",
+      historyMode: "legacy",
+    } as CodexConversationHistoryMutationCapability,
     session: {
       provider: "codex",
       status: "ready",
@@ -2663,6 +2669,86 @@ describe("provider thread control", () => {
       cwd: null,
       turns: [],
     });
+  });
+
+  it.each([
+    {
+      capability: { state: "unavailable-until-session-open" as const },
+      expected: "until the native thread has opened",
+    },
+    {
+      capability: {
+        state: "incompatible-codex-protocol" as const,
+        historyMode: "paginated" as const,
+      },
+      expected: "paginated Codex thread",
+    },
+    {
+      capability: {
+        state: "incompatible-codex-protocol" as const,
+        historyMode: null,
+      },
+      expected: "did not report a valid thread history mode",
+    },
+    {
+      capability: {
+        state: "unsupported-history-mode" as const,
+        historyMode: "future-mode",
+      },
+      expected: "unsupported thread history mode 'future-mode'",
+    },
+  ])("fails closed before rollback for $capability.state", async ({ capability, expected }) => {
+    const { manager, context, sendRequest, updateSession } = createThreadControlHarness();
+    context.conversationHistoryMutationCapability = capability;
+
+    await expect(manager.rollbackThread(asThreadId("thread_1"), 1)).rejects.toThrow(expected);
+
+    expect(sendRequest).not.toHaveBeenCalled();
+    expect(updateSession).not.toHaveBeenCalled();
+    expect(context.session.status).toBe("ready");
+  });
+
+  it("preserves JSON-RPC error code and data", async () => {
+    const manager = new CodexAppServerManager();
+    let rejected: Error | undefined;
+    const timeout = setTimeout(() => undefined, 10_000);
+    const context = {
+      pending: new Map([
+        [
+          "7",
+          {
+            method: "thread/rollback",
+            timeout,
+            resolve: () => undefined,
+            reject: (error: Error) => {
+              rejected = error;
+            },
+          },
+        ],
+      ]),
+    };
+
+    (
+      manager as unknown as {
+        handleResponse: (context: unknown, response: unknown) => void;
+      }
+    ).handleResponse(context, {
+      id: 7,
+      error: {
+        code: -32602,
+        message: "paginated threads do not support thread/rollback",
+        data: { historyMode: "paginated" },
+      },
+    });
+
+    expect(rejected).toBeInstanceOf(CodexJsonRpcRequestError);
+    expect(rejected).toMatchObject({
+      method: "thread/rollback",
+      code: -32602,
+      rpcMessage: "paginated threads do not support thread/rollback",
+      data: { historyMode: "paginated" },
+    });
+    expect(context.pending.size).toBe(0);
   });
 
   it("retries review interrupt with the latest review turn from thread/read after timeout", async () => {

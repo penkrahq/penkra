@@ -2104,6 +2104,25 @@ describe("ProviderCommandReactor", () => {
       threadId: ThreadId.makeUnsafe("thread-1"),
       numTurns: 1,
     });
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((items) => Array.from(items)),
+      ),
+    );
+    const requested = events.find(
+      (event) =>
+        event.commandId === "cmd-conversation-rollback" &&
+        event.type === "thread.conversation-rollback-requested",
+    );
+    const completed = events.find(
+      (event) =>
+        event.type === "thread.conversation-rolled-back" &&
+        event.payload.messageId === "user-message-2",
+    );
+    expect(requested).toBeDefined();
+    expect(completed?.commandId).toBe(
+      `server:conversation-rollback-complete:${requested?.eventId}`,
+    );
   });
 
   it("interrupts the active provider turn before rolling back an edited message", async () => {
@@ -2590,7 +2609,7 @@ describe("ProviderCommandReactor", () => {
         new ProviderAdapterRequestError({
           provider: "codex",
           method: "thread/rollback",
-          detail: "rollback failed",
+          detail: "rollback failed: turn is in progress",
         }),
       ),
     );
@@ -2641,7 +2660,8 @@ describe("ProviderCommandReactor", () => {
     const thread = await readHarnessThread(harness);
     expect(thread?.session?.status).toBe("error");
     expect(thread?.session?.activeTurnId).toBeNull();
-    expect(thread?.session?.lastError).toContain("rollback failed");
+    expect(thread?.session?.lastError).toContain("rollback failed: turn is in progress");
+    expect(harness.rollbackConversation).toHaveBeenCalledTimes(1);
     expect(harness.sendTurn.mock.calls.length).toBe(0);
     const events = await Effect.runPromise(
       Stream.runCollect(harness.engine.readEvents(0)).pipe(
@@ -2730,7 +2750,7 @@ describe("ProviderCommandReactor", () => {
     ).toBe(true);
   });
 
-  it("clears stale provider resume state and completes message edit rollback", async () => {
+  it("does not convert prose-matched rollback failure into success", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
     await seedRollbackTarget(harness, {
@@ -2759,11 +2779,41 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.clearSessionResumeCursor.mock.calls.length === 1);
-    expect(harness.clearSessionResumeCursor).toHaveBeenCalledWith({
-      threadId: ThreadId.makeUnsafe("thread-1"),
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((items) => Array.from(items)),
+      ),
+    );
+    const requested = events.find(
+      (event) =>
+        event.commandId === "cmd-conversation-rollback-stale-resume" &&
+        event.type === "thread.conversation-rollback-requested",
+    );
+    expect(requested).toBeDefined();
+    await waitFor(async () => {
+      const delivery = await Effect.runPromise(
+        harness.deliveryRepository.getDelivery({
+          consumerName: "provider-command-reactor.v1",
+          eventSequence: requested!.sequence,
+        }),
+      );
+      return Option.isSome(delivery) && delivery.value.state === "uncertain";
     });
+    expect(harness.clearSessionResumeCursor).not.toHaveBeenCalled();
     expect(harness.stopSession.mock.calls.length).toBe(0);
+    expect(
+      (
+        await Effect.runPromise(
+          Stream.runCollect(harness.engine.readEvents(0)).pipe(
+            Effect.map((items) => Array.from(items)),
+          ),
+        )
+      ).some(
+        (event) =>
+          event.type === "thread.conversation-rolled-back" &&
+          event.payload.messageId === "user-message-stale",
+      ),
+    ).toBe(false);
   });
 
   it("reacts to thread.turn.start by ensuring session and sending provider turn", async () => {

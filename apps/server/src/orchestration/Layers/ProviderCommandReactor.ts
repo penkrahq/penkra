@@ -332,18 +332,6 @@ function interactionFailureSettlementStatus(
   });
 }
 
-function isStaleCodexResumeError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("thread/resume") &&
-    (normalized.includes("no rollout found") ||
-      normalized.includes("thread not found") ||
-      normalized.includes("missing thread") ||
-      normalized.includes("unknown thread"))
-  );
-}
-
 function isStaleClaudeResumeError(error: unknown): boolean {
   if (Schema.is(ProviderAdapterRequestError)(error)) {
     return (
@@ -352,17 +340,6 @@ function isStaleClaudeResumeError(error: unknown): boolean {
     );
   }
   return String(error).toLowerCase().includes("no conversation found with session id");
-}
-
-function isRollbackStillInProgressError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("rollback") &&
-    (normalized.includes("turn is in progress") ||
-      normalized.includes("turn in progress") ||
-      normalized.includes("active turn"))
-  );
 }
 
 export interface ProviderCommandReactorLiveOptions {
@@ -713,74 +690,14 @@ const make = Effect.gen(function* () {
       // thread while the first is still running.
     });
 
-  const clearStaleProviderResumeState = Effect.fnUntraced(function* (input: {
-    readonly threadId: ThreadId;
-    readonly cause: ProviderServiceError;
-    readonly preserveActiveRuntime?: boolean;
-  }) {
-    if (providerService.clearSessionResumeCursor) {
-      yield* providerService
-        .clearSessionResumeCursor({
-          threadId: input.threadId,
-          ...(input.preserveActiveRuntime === true ? { preserveActiveRuntime: true } : {}),
-        })
-        .pipe(Effect.catch(() => Effect.void));
-    } else if (input.preserveActiveRuntime !== true) {
-      yield* providerService
-        .stopSession({ threadId: input.threadId })
-        .pipe(Effect.catch(() => Effect.void));
-    }
-    yield* Effect.logWarning("provider command reactor cleared stale provider resume state", {
-      threadId: input.threadId,
-      cause: input.cause.message,
-    });
-  });
-
   const rollbackProviderConversationForEdit = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly numTurns: number;
   }) {
-    const projectedThread = yield* resolveThread(input.threadId);
-    const provider = projectedThread
-      ? Schema.is(ProviderKind)(projectedThread.session?.providerName)
-        ? projectedThread.session?.providerName
-        : projectedThread.modelSelection.provider
-      : undefined;
-    const rebuildsContext =
-      provider !== undefined &&
-      (yield* providerService.getCapabilities(provider)).conversationRollback === "unsupported";
-    let attempt = 0;
-    while (true) {
-      let rollbackError: ProviderServiceError | null = null;
-      yield* providerService
-        .rollbackConversation({
-          threadId: input.threadId,
-          numTurns: input.numTurns,
-        })
-        .pipe(
-          Effect.catch((error) =>
-            Effect.sync(() => {
-              rollbackError = error;
-            }),
-          ),
-        );
-      if (rollbackError === null) {
-        return;
-      }
-      if (isStaleCodexResumeError(rollbackError)) {
-        yield* clearStaleProviderResumeState({
-          threadId: input.threadId,
-          cause: rollbackError,
-        });
-        return;
-      }
-      if (isRollbackStillInProgressError(rollbackError) && attempt < 30) {
-        attempt += 1;
-        yield* Effect.sleep(100);
-        continue;
-      }
-      return yield* Effect.fail(rollbackError);
-    }
+    yield* providerService.rollbackConversation({
+      threadId: input.threadId,
+      numTurns: input.numTurns,
+    });
   });
 
   const resolveManagedTurnRuntime = Effect.fnUntraced(function* (input: {
@@ -2758,7 +2675,7 @@ const make = Effect.gen(function* () {
     }
     yield* orchestrationEngine.dispatch({
       type: "thread.conversation.rollback.complete",
-      commandId: serverCommandId("conversation-rollback-complete"),
+      commandId: replaySafeServerCommandId("conversation-rollback-complete", event.eventId),
       threadId: event.payload.threadId,
       messageId: event.payload.messageId,
       numTurns: event.payload.numTurns,
@@ -2780,22 +2697,22 @@ const make = Effect.gen(function* () {
       ProviderIntentEvent,
       { type: "thread.message-edit-resend-requested" }
     >["payload"],
-    options?: {
+    options: {
       readonly skipProviderRollback?: boolean;
       readonly preserveQueuedTurns?: boolean;
       readonly preserveThreadSession?: boolean;
       readonly queuedActionAlreadyClaimed?: boolean;
-      readonly actionEventId?: EventId;
+      readonly actionEventId: EventId;
       readonly activeTurnId?: TurnId | null;
     },
   ) {
-    if (options?.preserveQueuedTurns !== true) {
+    if (options.preserveQueuedTurns !== true) {
       yield* queuedTurnPromotions.cancelThread({
         threadId: payload.threadId,
         updatedAt: payload.createdAt,
       });
       yield* clearEditResendTurnStartKeysForThread(payload.threadId);
-    } else if (options?.queuedActionAlreadyClaimed !== true) {
+    } else if (options.queuedActionAlreadyClaimed !== true) {
       yield* queuedTurnPromotions.cancelMessage({
         threadId: payload.threadId,
         messageId: payload.messageId,
@@ -2827,7 +2744,7 @@ const make = Effect.gen(function* () {
             messages: originalThread.messages,
             messageId: payload.messageId,
             activeTurnId:
-              options?.activeTurnId ??
+              options.activeTurnId ??
               (originalThread.session?.status === "running"
                 ? (originalThread.session.activeTurnId ?? null)
                 : null),
@@ -2839,7 +2756,7 @@ const make = Effect.gen(function* () {
         ),
       );
     }
-    if (options?.skipProviderRollback !== true && editTarget.rollbackTurnCount > 0) {
+    if (options.skipProviderRollback !== true && editTarget.rollbackTurnCount > 0) {
       yield* rollbackProviderConversationForEdit({
         threadId: payload.threadId,
         numTurns: editTarget.rollbackTurnCount,
@@ -2847,10 +2764,7 @@ const make = Effect.gen(function* () {
     }
     yield* orchestrationEngine.dispatch({
       type: "thread.conversation.rollback.complete",
-      commandId:
-        options?.actionEventId === undefined
-          ? serverCommandId("message-edit-rollback-complete")
-          : replaySafeServerCommandId("message-edit-rollback-complete", options.actionEventId),
+      commandId: replaySafeServerCommandId("message-edit-rollback-complete", options.actionEventId),
       threadId: payload.threadId,
       messageId: payload.messageId,
       numTurns: editTarget.rollbackTurnCount,
@@ -2860,7 +2774,7 @@ const make = Effect.gen(function* () {
     });
 
     const thread = yield* resolveThread(payload.threadId);
-    if (thread && options?.preserveThreadSession !== true) {
+    if (thread && options.preserveThreadSession !== true) {
       yield* setThreadSession({
         threadId: payload.threadId,
         session: {
@@ -2887,10 +2801,10 @@ const make = Effect.gen(function* () {
     yield* providerThreadSwitchCoordinator.dispatchTurnStart({
       command: {
         type: "thread.turn.start",
-        commandId:
-          options?.actionEventId === undefined
-            ? serverCommandId("message-edit-resend-turn-start")
-            : replaySafeServerCommandId("message-edit-resend-turn-start", options.actionEventId),
+        commandId: replaySafeServerCommandId(
+          "message-edit-resend-turn-start",
+          options.actionEventId,
+        ),
         threadId: payload.threadId,
         message: {
           messageId: payload.messageId,

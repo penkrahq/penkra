@@ -22,11 +22,12 @@ import { Effect, Fiber, FileSystem, Layer, Option, Stream } from "effect";
 
 import {
   CodexAppServerManager,
+  CodexJsonRpcRequestError,
   type CodexAppServerStartSessionInput,
   type CodexAppServerSendTurnInput,
 } from "../../codexAppServerManager.ts";
 import { ServerConfig } from "../../config.ts";
-import { ProviderAdapterValidationError } from "../Errors.ts";
+import { ProviderAdapterRequestError, ProviderAdapterValidationError } from "../Errors.ts";
 import { CodexAdapter } from "../Services/CodexAdapter.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import { makeCodexAdapterLive } from "./CodexAdapter.ts";
@@ -216,6 +217,31 @@ const validationLayer = it.layer(
 );
 
 validationLayer("CodexAdapterLive validation", (it) => {
+  it.effect("preserves a Codex JSON-RPC error code across the adapter boundary", () =>
+    Effect.gen(function* () {
+      validationManager.rollbackThreadImpl.mockImplementationOnce(async () => {
+        throw new CodexJsonRpcRequestError({
+          method: "thread/rollback",
+          code: -32602,
+          rpcMessage: "invalid history mutation",
+          data: { historyMode: "paginated" },
+        });
+      });
+      const adapter = yield* CodexAdapter;
+      const result = yield* adapter
+        .rollbackThread(asThreadId("rpc-error-thread"), 1)
+        .pipe(Effect.result);
+
+      assert.equal(result._tag, "Failure");
+      if (result._tag !== "Failure") return;
+      assert.equal(result.failure instanceof ProviderAdapterRequestError, true);
+      if (!(result.failure instanceof ProviderAdapterRequestError)) return;
+      assert.equal(result.failure.method, "thread/rollback");
+      assert.equal(result.failure.code, -32602);
+      assert.equal(result.failure.cause instanceof CodexJsonRpcRequestError, true);
+    }),
+  );
+
   it.effect("adopts a new managed Codex rollout after the first turn starts", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
