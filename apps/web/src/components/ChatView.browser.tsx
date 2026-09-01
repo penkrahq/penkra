@@ -2247,10 +2247,21 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
     };
+    const expectIdleSendChrome = async () => {
+      await vi.waitFor(() => {
+        expect(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        ).toBeNull();
+        expect(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+        ).toBeTruthy();
+        expect(document.body.textContent).not.toContain("Thinking");
+      });
+    };
 
     try {
-      // A canonical provider-connection projection has no optimistic local-dispatch latch. It
-      // still owns both Stop and the transcript status; they must never diverge.
+      // Transport setup alone is not a user execution. It must not fabricate
+      // Stop or Thinking before a message has actually been admitted.
       syncActiveThread((thread) => ({
         ...thread,
         session: thread.session
@@ -2258,7 +2269,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           : null,
         updatedAt: isoAt(2_100),
       }));
-      await expectLiveSendChrome();
+      await expectIdleSendChrome();
       syncActiveThread((thread) => ({
         ...thread,
         session: thread.session

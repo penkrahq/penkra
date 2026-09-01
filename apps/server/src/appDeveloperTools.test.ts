@@ -34,9 +34,41 @@ describe("App developer integration host", () => {
         output: join(outputRoot, "sample-app.penkra"),
       }),
     ).resolves.toMatchObject({ slug: "sample" });
-  });
+  }, 15_000);
 
   it("uses the running desktop's installed test entry and removes its temporary profile", async () => {
+    const source = await mkdtemp(join(tmpdir(), "penkra-app-test-source-"));
+    roots.push(source);
+    const host = join(source, "host.mjs");
+    await writeFile(
+      host,
+      `import { writeFileSync } from "node:fs";
+writeFileSync(process.env.PENKRA_APP_TEST_RESULT, JSON.stringify({
+  ok: true,
+  appId: "com.example.canvas",
+  version: "1.0.0",
+  help: { root: true, operations: ["documents.execute"] },
+  tab: { id: "tab-installed", status: "ready" },
+  diagnostics: [{ kind: "tab-ready" }]
+}));
+`,
+    );
+    vi.stubEnv("PENKRA_APP_TEST_ELECTRON", process.execPath);
+    vi.stubEnv("PENKRA_APP_TEST_HOST", host);
+    vi.stubEnv("PENKRA_APP_TEST_PACKAGED", "0");
+
+    await expect(testAppDirectory({ directory: source })).resolves.toEqual({
+      ok: true,
+      appId: "com.example.canvas",
+      version: "1.0.0",
+      help: { root: true, operations: ["documents.execute"] },
+      tab: { id: "tab-installed", status: "ready" },
+      diagnostics: [{ kind: "tab-ready" }],
+      profileRemoved: true,
+    });
+  });
+
+  it("rejects a host result that did not exercise generated agent help", async () => {
     const source = await mkdtemp(join(tmpdir(), "penkra-app-test-source-"));
     roots.push(source);
     const host = join(source, "host.mjs");
@@ -56,14 +88,9 @@ writeFileSync(process.env.PENKRA_APP_TEST_RESULT, JSON.stringify({
     vi.stubEnv("PENKRA_APP_TEST_HOST", host);
     vi.stubEnv("PENKRA_APP_TEST_PACKAGED", "0");
 
-    await expect(testAppDirectory({ directory: source })).resolves.toEqual({
-      ok: true,
-      appId: "com.example.canvas",
-      version: "1.0.0",
-      tab: { id: "tab-installed", status: "ready" },
-      diagnostics: [{ kind: "tab-ready" }],
-      profileRemoved: true,
-    });
+    await expect(testAppDirectory({ directory: source })).rejects.toThrow(
+      "did not validate generated agent help",
+    );
   });
 
   it("does not fall back to a source checkout outside a running desktop", async () => {
@@ -191,6 +218,45 @@ describe("App developer packaging", () => {
         output: join(root, "..", "bad.penkra"),
       }),
     ).rejects.toThrow("Manifest reference is missing");
+  });
+
+  it("packages substantial file-backed operation guidance and rejects an empty guide", async () => {
+    const root = await fixture();
+    const manifestPath = join(root, "penkra-app.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.entrypoints.controller = "operations.js";
+    manifest.operations = [
+      {
+        key: "documents.execute",
+        summary: "Edit one document.",
+        instructionsPath: "operations/documents.execute.md",
+        input: { type: "object", additionalProperties: false },
+        output: { type: "object", additionalProperties: true },
+        examples: [{ name: "Inspect a document", input: {} }],
+        handler: "documents.execute",
+      },
+    ];
+    await mkdir(join(root, "operations"));
+    await writeFile(
+      join(root, "operations", "documents.execute.md"),
+      "# Editing documents\n\nUse stable node IDs.\n",
+    );
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    await expect(
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "guided.penkra"),
+      }),
+    ).resolves.toMatchObject({ slug: "canvas" });
+
+    await writeFile(join(root, "operations", "documents.execute.md"), "  \n");
+    await expect(
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "empty-guide.penkra"),
+      }),
+    ).rejects.toThrow("must contain nonempty operation guidance");
   });
 
   it("accepts cohesive root instructions without imposing a stock heading outline", async () => {

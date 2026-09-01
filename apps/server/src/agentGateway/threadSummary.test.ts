@@ -2,7 +2,11 @@ import { assert, describe, it } from "@effect/vitest";
 import type { OrchestrationMessage } from "@penkra/contracts";
 import { MessageId, ThreadId, TurnId } from "@penkra/contracts";
 
-import { deriveAgentThreadStatus, paginateThreadMessages } from "./threadSummary.ts";
+import {
+  deriveAgentThreadStatus,
+  paginateThreadMessages,
+  resolveActiveTurn,
+} from "./threadSummary.ts";
 
 function makeMessage(index: number, text = `message ${index}`): OrchestrationMessage {
   return {
@@ -17,12 +21,15 @@ function makeMessage(index: number, text = `message ${index}`): OrchestrationMes
   };
 }
 
-const session = (status: "running" | "ready" | "error" | "starting" | "stopped") => ({
+const session = (
+  status: "running" | "ready" | "error" | "starting" | "stopped",
+  activeTurnId: string | null = null,
+) => ({
   threadId: ThreadId.makeUnsafe("t-1"),
   status,
   providerName: null,
   runtimeMode: "approval-required" as const,
-  activeTurnId: null,
+  activeTurnId: activeTurnId === null ? null : TurnId.makeUnsafe(activeTurnId),
   lastError: null,
   updatedAt: "2026-03-01T00:00:00.000Z",
 });
@@ -80,6 +87,36 @@ describe("deriveAgentThreadStatus", () => {
       "idle",
     );
     assert.equal(deriveAgentThreadStatus({ session: null, latestTurn: null }), "idle");
+  });
+});
+
+describe("resolveActiveTurn", () => {
+  it("requires the running session to match the canonical or provider turn id", () => {
+    const runningTurn = {
+      ...latestTurn("running"),
+      turnId: TurnId.makeUnsafe("canonical-turn"),
+      providerTurnId: TurnId.makeUnsafe("provider-turn"),
+    };
+
+    assert.strictEqual(
+      resolveActiveTurn({
+        session: session("running", "provider-turn"),
+        latestTurn: runningTurn,
+      }),
+      runningTurn,
+    );
+    assert.isNull(
+      resolveActiveTurn({
+        session: session("running", "different-provider-turn"),
+        latestTurn: runningTurn,
+      }),
+    );
+    assert.isNull(
+      resolveActiveTurn({
+        session: session("ready"),
+        latestTurn: runningTurn,
+      }),
+    );
   });
 });
 

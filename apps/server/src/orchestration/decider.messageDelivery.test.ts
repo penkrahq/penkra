@@ -82,4 +82,49 @@ describe("message delivery decisions", () => {
       payload: { threadId, messageId, state: "accepted", updatedAt: NOW },
     });
   });
+
+  it("preserves a newer starting session when an older terminal write loses its guard", async () => {
+    const newerUpdatedAt = "2026-08-27T12:00:01.000Z";
+    const currentSession = {
+      threadId,
+      status: "starting" as const,
+      providerName: "codex" as const,
+      runtimeMode: "full-access" as const,
+      activeTurnId: null,
+      lastError: null,
+      updatedAt: newerUpdatedAt,
+    };
+    const readModel: OrchestrationReadModel = {
+      ...shellOnlyReadModel,
+      threads: shellOnlyReadModel.threads.map((thread) => ({
+        ...thread,
+        session: currentSession,
+      })),
+    };
+
+    const decided = await Effect.runPromise(
+      decideOrchestrationCommand({
+        readModel,
+        command: {
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("stale-terminal-session-write"),
+          threadId,
+          expectedSessionStatus: "running",
+          expectedSessionUpdatedAt: NOW,
+          preserveCurrentSessionOnMismatch: true,
+          session: {
+            ...currentSession,
+            status: "ready",
+            updatedAt: "2026-08-27T12:00:02.000Z",
+          },
+          createdAt: "2026-08-27T12:00:02.000Z",
+        },
+      }),
+    );
+
+    expect(decided).toMatchObject({
+      type: "thread.session-set",
+      payload: { threadId, session: currentSession },
+    });
+  });
 });

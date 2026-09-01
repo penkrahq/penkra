@@ -62,6 +62,7 @@ my-app/
 ├── penkra-app.json       Manifest and public capabilities
 ├── README.md             Human-facing App description
 ├── INSTRUCTIONS.md       Agent-facing operational guidance for this App
+├── operations/           Optional substantial operation-specific guidance
 ├── app.html              Visual entrypoint
 ├── operations.js         Optional Node operation controller
 ├── package.json          Optional standard Node module/dependency metadata
@@ -105,7 +106,7 @@ extraction rather than prescribing how large an App should be.
     {
       "key": "documents.open",
       "summary": "Open one exact note in an App tab and return its tab ID.",
-      "instructions": "Use the returned tab ID for visible review. Opening does not change note content.",
+      "instructionsPath": "operations/documents.open.md",
       "input": {
         "type": "object",
         "properties": { "id": { "type": "string" } },
@@ -138,8 +139,11 @@ for how to choose the key itself.
 Every operation requires at least one named example whose `input` matches the declared input
 schema. Penkra renders examples as complete `penkra_exec_command` calls in generated help and
 rejects missing, malformed, or schema-invalid examples during App testing, packaging, sideloading,
-and publication. Use optional `instructions` for operation-specific procedure, limits, and recovery;
-keep the summary concise enough for discovery.
+and publication. Put short operation guidance inline with `instructions`, or use
+`instructionsPath` for a nonempty package-relative Markdown file when the operation needs a real
+usage guide. The two fields are mutually exclusive. Packaging verifies the referenced file, and
+leaf help renders its contents together with the generated examples and schemas. Keep the summary
+concise enough for discovery.
 
 Handler contributions declare resources an App can open through one of its public operations:
 
@@ -205,9 +209,10 @@ updates several unrelated things and its name still says `meta`. Call it `docume
 resource. There is no collection stored anywhere that this addresses; there is a filter, and filters
 belong in `input`.
 
-Penkra's own surface has exactly one nested family — `penkra app access invite`, `list`, and
-`revoke` — and it qualifies on this test. An invitation exists only against a specific App, carries
-no meaning apart from it, and cannot be resolved from its own ID.
+Penkra's own surface has two nested families. `penkra app access invite`, `list`, and `revoke`
+manage who can install a private App. `penkra app members invite`, `list`, `role`, and `revoke`
+manage who can develop and publish an App. Both qualify because their grants exist only against a
+specific App and cannot be resolved from their own IDs.
 
 ### Why this matters at the call site
 
@@ -240,12 +245,26 @@ Every App ships a nonempty root `INSTRUCTIONS.md`. It is the operating orientati
 `<slug> --help`: what kind of thing the App owns, where that state lives, the distinctions that
 apply across its surface, and the authority boundaries or identity rules an agent must retain while
 choosing among operations. Write it as cohesive guidance for this App. Headings should follow the
-material; Penkra does not require a stock outline.
+material; Penkra does not require a stock outline. Its package-root location is a convention of the
+App format, not another manifest setting. Operation guides need explicit paths because one App may
+declare many of them.
 
-Do not turn root instructions into a second operation manual. Facts that apply only to one
-operation—its procedure, domain model, ordering, limits, consequential choices, recognizable
-failures, and recovery—belong in that operation's `instructions`. Leaf help already combines this
-guidance with the exact input and output schemas, named examples, and invocation syntax.
+Do not turn root instructions into a second operation manual. Facts that are true only while using
+one operation—its procedure, domain model, ordering, limits, examples, consequential choices,
+recognizable failures, and recovery—belong in that operation's `instructions` or
+`instructionsPath`. Leaf help already combines this guidance with the exact input and output
+schemas, named examples, and invocation syntax. This division matters most for substantial
+authoring operations: an agent deciding whether to use an editor needs a short description at the
+App root; an agent executing that editor needs its complete authoring model in leaf help.
+
+Prefer `instructionsPath` for a substantial operation manual so it remains an ordinary reviewable
+Markdown document. Inline `instructions` is the compact form for brief guidance; it is not the
+recommended home for a long manual.
+
+Conversely, do not hide essential App semantics in an optional Skill. If every correct use of an
+operation depends on a fact, that fact belongs in always-available App or operation help. A Skill is
+appropriate only when it packages an optional, named workflow that composes capabilities toward a
+particular outcome.
 
 The manifest's App `summary` appears in Penkra's live capability catalog, and each operation
 `summary` appears in generated help. Write both as concrete agent-facing descriptions: name the
@@ -266,9 +285,17 @@ package-relative directory and declaring that directory in `contributions.skills
 ```
 
 `penkra app package` requires the exact referenced `skills/create-issue/SKILL.md` to exist inside
-the package; missing, duplicate, absolute, or escaping paths are rejected. Keep each Skill focused
-on a procedure for this App: the operations to call, their order, and the checks between them. A
-Skill cannot grant permissions or prove another capability is installed.
+the package; missing, duplicate, absolute, or escaping paths are rejected. A contributed Skill
+should represent an optional, discoverable capability or methodology—such as importing a register,
+running a structured audit, or preparing a release—that an agent may choose for a particular user
+outcome. It may compose several operations, Apps, references, scripts, or templates and define the
+checks between them.
+
+Do not use a Skill as required documentation for the App itself or as the only explanation of a
+public operation. Skills can be disabled individually, are loaded only when selected, and may not be
+present in every agent context. If disabling a Skill makes the underlying operation impossible to
+use correctly, its essential content belongs in root or leaf help instead. A Skill cannot grant
+permissions or prove another capability is installed.
 
 Contributed Skills are enabled by default with their App in one Space. The user can disable an
 individual Skill for that App and Space; the host stores this per-Space override. At load time
@@ -575,9 +602,9 @@ installation:
 3. A concurrent or later attempt by another Account to claim that identifier is rejected. This is
    what makes an unregistered development bundle genuinely unique rather than merely unique on one
    computer.
-4. If the identifier is already registered, only the owning developer Account may sideload it, and
+4. If the identifier is already registered, its owner or an active App member may sideload it, and
    the manifest slug must exactly match the registered slug.
-5. Re-sideloading as the owner reuses the same development identity and updates its allowed
+5. Re-sideloading with development authority reuses the same development identity and updates its allowed
    identity audience to the newly validated manifest declaration. Removing `account-identity`
    records no development audience, which stops development-token issuance.
 6. The Account service stores the ownership claim, and the desktop stores the returned opaque claim
@@ -590,12 +617,51 @@ release the globally unique identifier for another Account. When the owner later
 registry App, publication must use the same identifier and slug; the registry honors the existing
 claim rather than allowing a different Account to take it.
 
-For a development sideload, token issuance requires the claim owner and the exact audience last
-captured from that validated sideload. A registered App owner is not granted arbitrary audiences
+For a development sideload, token issuance requires the claim owner or an active App member and the
+exact audience last captured from that validated sideload. App membership does not grant arbitrary audiences
 merely because the App is still a draft. For an installed registry release, token issuance instead
 requires an eligible published version declaring the exact audience plus the Account's normal
 public, private, owner, or invitation access. Active App, publisher, or version revocation remains
 authoritative over development and published issuance.
+
+#### Development teams and roles
+
+The App owner can grant other people development authority without publishing the App and without
+sharing credentials. Membership is scoped to one canonical manifest identifier and continues to
+apply when that development identity becomes a registry App.
+
+| Role      | Sideload | Development identity token | Read status | Publish and retry | Change visibility | Manage members | Manage private-user access |
+| --------- | -------- | -------------------------- | ----------- | ----------------- | ----------------- | -------------- | -------------------------- |
+| Developer | Yes      | Yes                        | Yes         | No                | No                | No             | No                         |
+| Publisher | Yes      | Yes                        | Yes         | Yes               | Yes               | No             | No                         |
+| Owner     | Yes      | Yes                        | Yes         | Yes               | Yes               | Yes            | Yes                        |
+
+Use the manifest identifier or registry App UUID as `--app-id`:
+
+```json
+{ "command": "penkra app members invite --app-id com.example.notes --email dev@example.com --role developer" }
+{ "command": "penkra app members list --app-id com.example.notes" }
+{ "command": "penkra app members role --app-id com.example.notes --member-id <member-id> --role publisher" }
+{ "command": "penkra app members revoke --app-id com.example.notes --member-id <member-id>" }
+```
+
+`members invite` does not send an email. It stores a normalized email-based grant:
+
+- If that email already belongs to a verified Penkra Account, the grant is `active` immediately.
+- Otherwise it is `pending`. Pending means waiting for a matching verified Account, not that an
+  email was sent or that an acceptance link is outstanding.
+- When a matching Account becomes available, the grant becomes usable without another owner action.
+- A grant created for an existing verified Account is bound to that Account. A pending grant is
+  matched by verified email, so the owner should review or replace it if that address changes.
+- A revoked grant stops future sideload claims, development identity tokens, status access, and
+  publication actions immediately. It does not remotely uninstall already-sideloaded local files.
+
+Only the owner can invite, change roles, list the complete team, or revoke a member. A publisher can
+finish or retry another publisher's in-progress submission so publication work can be handed off.
+Every management and publication mutation is recorded by the registry operation audit trail.
+
+Do not confuse App members with private-App users. `penkra app access ...` grants installation and
+runtime access to a private published App; it never grants sideload or publication authority.
 
 #### JWT contract
 
@@ -967,8 +1033,8 @@ installed App's slug:
 { "command": "penkra --help" }
 { "command": "apps list" }
 { "command": "penkra open --path /absolute/path/to/file" }
-{ "command": "notes notes open --id note-123" }
-{ "command": "notes notes open --help" }
+{ "command": "notes documents open --id note-123" }
+{ "command": "notes documents open --help" }
 ```
 
 Operation help includes the complete validated input and output JSON Schemas. App commands do not
@@ -1065,9 +1131,11 @@ and reuses it across rebuilds and restarts. This claim is not a registry listing
 token-issuance contract.
 
 `test` asks the installed Penkra desktop to relaunch its own App runtime in a hidden, disposable
-profile and Space. It ingests the App through the immutable package path, starts its controller and
-visual renderer, requires the tab to reach `ready`, records diagnostics, and removes the profile. It never
-uses or changes the active profile, Space, database, or installed Apps. It complements unit,
+profile and Space. It ingests the App through the immutable package path, generates root help and
+leaf help for every declared operation through the same catalog agents use, starts its controller
+and visual renderer, requires the tab to reach `ready`, records diagnostics, and removes the
+profile. A missing, unreadable, or unrenderable file-backed guide therefore fails the test. Testing
+never uses or changes the active profile, Space, database, or installed Apps. It complements unit,
 accessibility, and visual tests.
 
 `package` validates the manifest, schemas, required documents, referenced paths, compatibility,
@@ -1086,12 +1154,17 @@ Use the registered App-author commands:
 { "command": "penkra app access invite --app-id <app-id> --email person@example.com" }
 { "command": "penkra app access list --app-id <app-id>" }
 { "command": "penkra app access revoke --app-id <app-id> --invitation-id <invitation-id>" }
+{ "command": "penkra app members invite --app-id <app-id> --email dev@example.com --role developer" }
+{ "command": "penkra app members list --app-id <app-id>" }
+{ "command": "penkra app members role --app-id <app-id> --member-id <member-id> --role publisher" }
+{ "command": "penkra app members revoke --app-id <app-id> --member-id <member-id>" }
 ```
 
 For `status`, `--app-id` accepts either the manifest identifier such as `com.example.my-app` or the
 owned registry App ID returned by the unfiltered status listing. An identifier with no owned registry
 record returns an empty submission list instead of an invalid-ID failure. Access commands use the
-owned registry App ID. Help, status, publication, and access results identify the active registry
+owned registry App ID; member commands accept the manifest identifier or registry App UUID. Help,
+status, publication, access, and member results identify the active registry
 target by environment and API origin. Check that evidence before changing production state.
 
 `publish` tests and packages the App, resolves or creates its stable publisher and App identities,
@@ -1101,8 +1174,9 @@ only then applies the requested visibility. Publisher IDs, bundle paths, and sub
 implementation details rather than steps the developer must orchestrate. The default visibility is
 private.
 
-Publication requires a signed-in Penkra account that owns the publisher and App. It binds that
-authenticated submission to the publisher namespace, immutable App ID and version,
+Creating a publisher or first registry App requires its owner. Publishing an existing App requires
+the owner or an App member with the `publisher` role. It binds the authenticated submitter's
+submission to the publisher namespace, immutable App ID and version,
 manifest/package/README/instructions digests, registry signature, compatibility, validation
 findings, and permission declarations. Automated validation must finish before a release is
 installable. Changing code, manifest data, documentation, permissions, or assets requires a new

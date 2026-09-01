@@ -881,6 +881,7 @@ export function projectEvent(
                   delivery: {
                     ...message.delivery,
                     state: payload.state,
+                    ...(payload.queued !== undefined ? { queued: payload.queued } : {}),
                     sequence: event.sequence,
                   },
                   updatedAt: payload.updatedAt,

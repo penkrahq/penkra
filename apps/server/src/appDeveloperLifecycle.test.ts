@@ -29,6 +29,7 @@ function dependencies(packageDigest = digest("a")) {
       ok: true as const,
       appId: "com.penkra.canvas",
       version: "0.1.1",
+      help: { root: true as const, operations: ["documents.execute"] },
       tab: { id: "tab-1", status: "ready" as const },
       diagnostics: [{ kind: "tab-ready" }],
       profileRemoved: true as const,

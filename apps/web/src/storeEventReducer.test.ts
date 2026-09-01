@@ -167,6 +167,56 @@ describe("store event reducer", () => {
     });
   });
 
+  it("moves a runtime-requeued direct start back into the visible FIFO queue", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const messageId = MessageId.makeUnsafe("message-runtime-requeued");
+    const admitted = applyOrchestrationEvents(makeState(makeThread()), [
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "user",
+          text: "Open up B1",
+          attachments: [],
+          dispatchMode: "queue",
+          delivery: { state: "starting", queued: false },
+          turnId: null,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-08-31T22:24:29.516Z",
+          updatedAt: "2026-08-31T22:24:29.516Z",
+        },
+        { sequence: 20 },
+      ),
+    ]);
+
+    const requeued = applyOrchestrationEvents(admitted, [
+      makeDomainEvent(
+        "thread.message-delivery-set",
+        {
+          threadId,
+          messageId,
+          state: "queued",
+          queued: true,
+          updatedAt: "2026-08-31T22:24:29.570Z",
+        },
+        { sequence: 21 },
+      ),
+    ]);
+
+    expect(threadsOf(requeued)[0]).toMatchObject({
+      pendingTurnStartMessageId: null,
+      queuedMessageIds: [messageId],
+      messages: [
+        expect.objectContaining({
+          id: messageId,
+          delivery: { state: "queued", queued: true, sequence: 21 },
+        }),
+      ],
+    });
+  });
+
   it("places a promoted queued message after the assistant turn it waited behind", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const firstUserMessageId = MessageId.makeUnsafe("message-first-user");

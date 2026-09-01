@@ -530,7 +530,7 @@ const APP_DEVELOPER_OPERATIONS: Readonly<Record<string, HostOperationDeclaration
   test: developerOperation(
     "test",
     "Validate an App package directory without installing or publishing it.",
-    "Run before packaging or publishing. Validation is read-only and reports manifest, package, and controller contract failures.",
+    "Run before packaging or publishing. Validation is read-only and exercises manifest and package validation, generated root and operation help, the isolated App runtime, and its ready-state diagnostics.",
     { directory: DIRECTORY_PROPERTY },
     ["directory"],
     "penkra app test --directory ./dist",
@@ -593,6 +593,46 @@ const APP_DEVELOPER_OPERATIONS: Readonly<Record<string, HostOperationDeclaration
     { appId: APP_ID_PROPERTY, invitationId: { type: "string", minLength: 1 } },
     ["appId", "invitationId"],
     "penkra app access revoke --app-id com.example.notes --invitation-id <invitation-id>",
+  ),
+  "members.invite": developerOperation(
+    "members invite",
+    "Grant another developer access to an App.",
+    "This records an email-based development grant; Penkra does not send an email. A matching verified account is active immediately, otherwise the grant remains pending.",
+    {
+      appId: APP_ID_PROPERTY,
+      email: { type: "string", minLength: 1 },
+      role: { type: "string", enum: ["developer", "publisher"] },
+    },
+    ["appId", "email", "role"],
+    "penkra app members invite --app-id com.example.notes --email dev@example.com --role developer",
+  ),
+  "members.list": developerOperation(
+    "members list",
+    "List active and pending developer grants for one App.",
+    "Pending means no matching verified Penkra account exists yet; it does not mean an email was sent.",
+    { appId: APP_ID_PROPERTY },
+    ["appId"],
+    "penkra app members list --app-id com.example.notes",
+  ),
+  "members.role": developerOperation(
+    "members role",
+    "Change an App member's developer or publisher role.",
+    "Only the App owner can change roles. Publisher includes publish and visibility permissions; developer does not.",
+    {
+      appId: APP_ID_PROPERTY,
+      memberId: { type: "string", minLength: 1 },
+      role: { type: "string", enum: ["developer", "publisher"] },
+    },
+    ["appId", "memberId", "role"],
+    "penkra app members role --app-id com.example.notes --member-id <member-id> --role publisher",
+  ),
+  "members.revoke": developerOperation(
+    "members revoke",
+    "Revoke an App developer grant.",
+    "Revocation immediately removes future sideload, identity-token, status, and publication authority for that member.",
+    { appId: APP_ID_PROPERTY, memberId: { type: "string", minLength: 1 } },
+    ["appId", "memberId"],
+    "penkra app members revoke --app-id com.example.notes --member-id <member-id>",
   ),
 };
 
@@ -664,7 +704,9 @@ async function executeAppDeveloperCommand(
     });
   }
   const command = args[0]!;
-  if (!new Set(["test", "package", "sideload", "status", "publish", "access"]).has(command)) {
+  if (
+    !new Set(["test", "package", "sideload", "status", "publish", "access", "members"]).has(command)
+  ) {
     throw new Error(`Unknown penkra app command ${command}. Run penkra app --help.`);
   }
   const bridge = (method: string, params?: unknown) => bridgeRequest(method, params, env);
@@ -687,6 +729,25 @@ async function executeAppDeveloperCommand(
     operationKey = `access.${action}`;
     operationArguments = args.slice(2);
   }
+  if (command === "members") {
+    const action = args[1];
+    if (!action || action === "--help" || action === "-h") {
+      return assembleInstructions({
+        document:
+          "# Penkra App members\n\nManage App development authority. Grants are matched to verified account emails; Penkra does not send invitation emails.",
+        operations: Object.entries(APP_DEVELOPER_OPERATIONS)
+          .filter(([key]) => key.startsWith("members."))
+          .map(([, { command, summary }]) => ({ command, summary })),
+      });
+    }
+    if (!new Set(["invite", "list", "role", "revoke"]).has(action)) {
+      throw new Error(
+        `Unknown penkra app members command ${action}. Run penkra app members --help.`,
+      );
+    }
+    operationKey = `members.${action}`;
+    operationArguments = args.slice(2);
+  }
   const declaration = APP_DEVELOPER_OPERATIONS[operationKey]!;
   const parsed = structuredArguments(operationArguments, requestInput);
   if (parsed.positionals.length > 0 || parsed.tabId !== undefined) {
@@ -699,7 +760,7 @@ async function executeAppDeveloperCommand(
       throw new Error(`${declaration.command} --help does not accept operation input.`);
     return generateOperationHelp({
       ...declaration,
-      parentHelp: `Run ${command === "access" ? "penkra app access" : "penkra app"} --help for operating instructions.`,
+      parentHelp: `Run ${command === "access" || command === "members" ? `penkra app ${command}` : "penkra app"} --help for operating instructions.`,
     });
   }
   const input = parseOperationInput(declaration.input, parsed.input, parsed.named) as Record<
@@ -709,6 +770,10 @@ async function executeAppDeveloperCommand(
   if (operationKey.startsWith("access.")) {
     const action = operationKey.slice("access.".length);
     return withRegistryTarget(bridge(`developer.app-access.${action}`, input), env);
+  }
+  if (operationKey.startsWith("members.")) {
+    const action = operationKey.slice("members.".length);
+    return withRegistryTarget(bridge(`developer.app-members.${action}`, input), env);
   }
   if (command === "status") {
     return withRegistryTarget(operations.status(input.appId as string | undefined, bridge), env);

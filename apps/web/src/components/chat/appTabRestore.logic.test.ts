@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   APP_TAB_HOST_READY_RETRY_LIMIT,
   createAppTabRestoreRequest,
+  isAppPaneInSpace,
+  isAppTabOutsideThreadSpace,
   shouldMountAppDockPane,
   shouldRetryAppTabHostReady,
 } from "./appTabRestore.logic";
@@ -29,13 +31,13 @@ describe("App tab restoration readiness", () => {
           id: "stable-tab",
           kind: "app",
           appId: "com.example.canvas",
+          appSpaceId: "space-1",
           appSlug: "canvas",
           appName: "Canvas",
           appRoute: "/document/7",
           appState: { page: 3 },
           appStatus: "ready",
         },
-        "space-1",
         "thread-1",
       ),
     ).toEqual({
@@ -46,5 +48,44 @@ describe("App tab restoration readiness", () => {
       route: "/document/7",
       state: { page: 3 },
     });
+  });
+
+  it("never restores a pane into a different Space", () => {
+    const pane = {
+      id: "canvas-tab",
+      kind: "app" as const,
+      appId: "com.example.canvas",
+      appSpaceId: "space-1",
+      appSlug: "canvas",
+      appName: "Canvas",
+      appRoute: "/",
+      appStatus: "ready" as const,
+    };
+    expect(isAppPaneInSpace(pane, "space-1")).toBe(true);
+    expect(isAppPaneInSpace(pane, "space-2")).toBe(false);
+  });
+
+  it("discards only tabs attached to the moved Thread's previous Space", () => {
+    expect(
+      isAppTabOutsideThreadSpace(
+        { threadId: "thread-1", spaceId: "space-1" },
+        "thread-1",
+        "space-2",
+      ),
+    ).toBe(true);
+    expect(
+      isAppTabOutsideThreadSpace(
+        { threadId: "thread-1", spaceId: "space-2" },
+        "thread-1",
+        "space-2",
+      ),
+    ).toBe(false);
+    expect(
+      isAppTabOutsideThreadSpace(
+        { threadId: "thread-2", spaceId: "space-1" },
+        "thread-1",
+        "space-2",
+      ),
+    ).toBe(false);
   });
 });

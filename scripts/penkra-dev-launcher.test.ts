@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  isExpectedPenkraDevElectronCommand,
   isExpectedPenkraDevSupervisorCommand,
   resolveOrphanedDesktopBackendPids,
   resolveOrphanedWorkspaceProcessRoots,
@@ -28,6 +29,32 @@ import { resolvePenkraDevWorkspaceConfigPath } from "./lib/penkra-dev-workspace"
 import { resolvePenkraDevInstanceDefinition } from "./lib/penkra-dev-instance";
 
 describe("Penkra Dev launcher", () => {
+  it("recognizes only the exact numbered Electron launch shape", () => {
+    const repositoryRoot = "/workspace/penkra";
+    const executable =
+      "/workspace/penkra/apps/desktop/.electron-runtime/instances/4/Electron.app/Contents/MacOS/Electron";
+    const command = `${executable} /workspace/penkra/apps/desktop --penkra-dev-root=/workspace/penkra/apps/desktop --penkra-dev-instance=4`;
+
+    expect(isExpectedPenkraDevElectronCommand({ command, instance: 4, repositoryRoot })).toBe(true);
+    expect(
+      isExpectedPenkraDevElectronCommand({
+        command: `${command} --inspect=0`,
+        instance: 4,
+        repositoryRoot,
+      }),
+    ).toBe(true);
+    expect(
+      isExpectedPenkraDevElectronCommand({
+        command: `/bin/zsh -lc "wait for ${command}"`,
+        instance: 4,
+        repositoryRoot,
+      }),
+    ).toBe(false);
+    expect(
+      isExpectedPenkraDevElectronCommand({ command: executable, instance: 4, repositoryRoot }),
+    ).toBe(false);
+  });
+
   it("keeps launcher state and development data outside production Penkra", () => {
     const paths = resolvePenkraDevLauncherPaths("/Users/tester");
 

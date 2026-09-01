@@ -129,6 +129,7 @@ import { useComposerDropzone } from "../hooks/useComposerDropzone";
 import { useChatRouteSearch } from "../hooks/useChatRouteSearch";
 import {
   buildTranscriptAutoFollowSignal,
+  deriveChatActivity,
   derivePromptHistoryFromMessages,
   enrichSubagentWorkEntries,
   promptStillMatchesActiveHistoryBrowse,
@@ -2517,13 +2518,19 @@ export default function ChatView({
     messages: activeThread?.messages ?? EMPTY_MESSAGES,
     session: activeThread?.session,
   });
-  const isTurnWorking = hasLiveTurn || latestTurnLive || isSendBusy || hasPendingTurnStart;
-  // One working predicate owns both Stop and the transcript status so the
-  // provider-connection handoff cannot make Thinking disappear between durable
-  // turn projections.
-  const isWorking = isTurnWorking || isConnecting || isEditingMessageHistory;
+  const chatActivity = deriveChatActivity({
+    hasLiveTurn,
+    latestTurnLive,
+    isSendBusy,
+    hasPendingTurnStart,
+    isEditingMessageHistory,
+  });
+  const isTurnWorking = chatActivity.controllable;
+  // One admitted/active-work predicate owns both Stop and transcript status.
+  // Provider transport connection is deliberately not a user-visible turn.
+  const isWorking = chatActivity.busy;
   const showThinking = isWorking;
-  const hasControllableTurn = isTurnWorking || phase === "connecting";
+  const hasControllableTurn = isTurnWorking;
   useEffect(() => {
     if (phase === "connecting" || isSendBusy || hasPendingTurnStart) {
       return;

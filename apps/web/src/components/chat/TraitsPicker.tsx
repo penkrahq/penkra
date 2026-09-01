@@ -16,7 +16,6 @@ import { ChevronDownIcon, FastModeIcon, FastModeOutlineIcon, SettingsIcon } from
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import {
-  Menu,
   MenuGroup,
   MenuGroupLabel,
   MenuRadioGroup,
@@ -31,7 +30,7 @@ import {
   type ProviderOptions,
 } from "../../providerModelOptions";
 import { COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME } from "./composerPickerStyles";
-import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
+import { ComposerPickerMenu, ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
 import { getComposerTraitSelection, hasVisibleComposerTraitControls } from "./composerTraits";
 import { Tooltip, TooltipPopup, TooltipShortcut, TooltipTrigger } from "../ui/tooltip";
 import { MenuEffort } from "../middle-panel/menu-effort/MenuEffort";
@@ -658,7 +657,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   );
 
   return (
-    <Menu
+    <ComposerPickerMenu
       open={isMenuOpen}
       onOpenChange={(open) => {
         setMenuOpen(open);
@@ -684,6 +683,6 @@ export const TraitsPicker = memo(function TraitsPicker({
           {menuContent}
         </ComposerPickerMenuPopup>
       )}
-    </Menu>
+    </ComposerPickerMenu>
   );
 });

@@ -8,6 +8,7 @@ export interface RightDockPane {
   id: string;
   kind: "app";
   appId: string;
+  appSpaceId: string;
   appSlug: string;
   appName: string;
   // Runtime-only presentation data. Persistence deliberately strips it.
@@ -30,6 +31,7 @@ export interface OpenPaneInput {
   paneId: string;
   kind: "app";
   appId: string;
+  appSpaceId: string;
   appSlug: string;
   appName: string;
   appIconDataUrl?: string | null;
@@ -49,6 +51,7 @@ function parsePersistedAppPane(value: unknown): RightDockPane | null {
   if (
     typeof value.id !== "string" ||
     typeof value.appId !== "string" ||
+    typeof value.appSpaceId !== "string" ||
     typeof value.appSlug !== "string" ||
     typeof value.appName !== "string" ||
     typeof value.appRoute !== "string" ||
@@ -60,6 +63,7 @@ function parsePersistedAppPane(value: unknown): RightDockPane | null {
     id: value.id,
     kind: "app",
     appId: value.appId,
+    appSpaceId: value.appSpaceId,
     appSlug: value.appSlug,
     appName: value.appName,
     appRoute: value.appRoute,
@@ -97,6 +101,7 @@ function createPane(input: OpenPaneInput): RightDockPane {
     id: input.paneId,
     kind: "app",
     appId: input.appId,
+    appSpaceId: input.appSpaceId,
     appSlug: input.appSlug,
     appName: input.appName,
     ...(input.appIconDataUrl === undefined ? {} : { appIconDataUrl: input.appIconDataUrl }),

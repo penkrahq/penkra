@@ -588,7 +588,10 @@ itLiveUnlessCi(
           yield* harness.waitForThread(
             THREAD_ID,
             (entry) =>
-              entry.latestTurn?.turnId === "turn-1" && entry.session?.threadId === "thread-1",
+              entry.latestTurn?.providerTurnId === "turn-1" &&
+              entry.latestTurn.state === "completed" &&
+              entry.session?.status === "ready" &&
+              entry.session.threadId === "thread-1",
           );
           yield* harness.adapterHarness!.adapter.stopAll();
           yield* waitForSync(

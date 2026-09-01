@@ -1670,6 +1670,79 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  it.effect("surfaces the runtime-active turn ahead of a newer historical request", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_thread_sessions`;
+      yield* sql`DELETE FROM projection_turns`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_folders`;
+
+      yield* sql`
+        INSERT INTO projection_folders (
+          folder_id, title, workspace_root, default_model_selection_json,
+          scripts_json, created_at, updated_at, deleted_at
+        ) VALUES (
+          'project-active-turn', 'Active Turn Project', NULL,
+          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '2026-08-29T06:14:00.000Z', '2026-08-29T06:14:00.000Z', NULL
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, folder_id, title, model_selection_json, runtime_mode,
+          working_directory, latest_turn_id, latest_user_message_at,
+          pending_approval_count, pending_user_input_count,
+          created_at, updated_at, archived_at, deleted_at
+        ) VALUES (
+          'thread-active-turn', 'project-active-turn', 'Active Turn',
+          '{"provider":"codex","model":"gpt-5-codex"}', 'full-access',
+          NULL, NULL, '2026-08-29T06:14:22.782Z', 0, 0,
+          '2026-08-29T06:14:00.000Z', '2026-08-29T06:14:25.053Z', NULL, NULL
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_thread_sessions (
+          thread_id, status, provider_name, provider_session_id,
+          provider_thread_id, runtime_mode, active_turn_id, last_error, updated_at
+        ) VALUES (
+          'thread-active-turn', 'running', 'codex', 'session-active-turn',
+          'provider-thread-active-turn', 'full-access', 'provider-active-turn', NULL,
+          '2026-08-29T06:14:25.053Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_turns (
+          thread_id, turn_id, provider_turn_id, pending_message_id,
+          assistant_message_id, state, requested_at, started_at, completed_at
+        ) VALUES (
+          'thread-active-turn', 'canonical-active-turn', 'provider-active-turn', NULL,
+          NULL, 'running', '2026-08-29T05:42:53.000Z',
+          '2026-08-29T06:14:25.053Z', NULL
+        ), (
+          'thread-active-turn', 'newer-terminal-turn', NULL, NULL,
+          NULL, 'completed', '2026-08-29T06:14:22.782Z',
+          '2026-08-29T06:14:25.002Z', '2026-08-29T06:14:25.002Z'
+        )
+      `;
+
+      const targeted = yield* snapshotQuery.getThreadShellById(asThreadId("thread-active-turn"));
+      assert.equal(targeted._tag, "Some");
+      if (targeted._tag === "Some") {
+        assert.equal(targeted.value.latestTurn?.turnId, asTurnId("canonical-active-turn"));
+        assert.equal(targeted.value.latestTurn?.providerTurnId, asTurnId("provider-active-turn"));
+        assert.equal(targeted.value.latestTurn?.state, "running");
+      }
+
+      const shell = yield* snapshotQuery.getShellSnapshot();
+      const shellThread = shell.threads.find((thread) => thread.id === "thread-active-turn");
+      assert.equal(shellThread?.latestTurn?.turnId, asTurnId("canonical-active-turn"));
+      assert.equal(shellThread?.latestTurn?.state, "running");
+    }),
+  );
+
   it.effect("lists only stale active thread ids for reconciliation, oldest first", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

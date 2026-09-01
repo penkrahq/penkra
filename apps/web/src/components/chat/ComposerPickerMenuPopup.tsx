@@ -6,7 +6,7 @@
 import type { ComponentProps } from "react";
 
 import { cn } from "~/lib/utils";
-import { MenuPopupBase, MenuSubPopup } from "../ui/menu";
+import { Menu, MenuPopupBase, MenuSubPopup } from "../ui/menu";
 import { SelectPopup } from "../ui/select";
 import {
   type ComposerPickerSize,
@@ -14,6 +14,17 @@ import {
   composerPickerMenuShellClassName,
   resolveComposerPickerSize,
 } from "./composerPickerSize";
+
+type ComposerPickerMenuProps = Omit<ComponentProps<typeof Menu>, "modal">;
+
+/**
+ * Non-modal root for composer-attached menus. Composer pickers float above the
+ * current work; they must not lock transcript scrolling or block interaction
+ * with the surrounding panels.
+ */
+export function ComposerPickerMenu(props: ComposerPickerMenuProps) {
+  return <Menu {...props} modal={false} />;
+}
 
 type ComposerPickerMenuPopupProps = Omit<ComponentProps<typeof MenuPopupBase>, "surface"> & {
   /** Override global COMPOSER_PICKER_SIZE for this panel. */

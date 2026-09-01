@@ -6,10 +6,13 @@
 import { useId, useRef, useState, type ChangeEvent } from "react";
 
 import { PaperclipIcon, PlusIcon } from "~/lib/icons";
-import { ComposerPickerMenuPopup, ComposerPickerMenuSubPopup } from "./ComposerPickerMenuPopup";
+import {
+  ComposerPickerMenu,
+  ComposerPickerMenuPopup,
+  ComposerPickerMenuSubPopup,
+} from "./ComposerPickerMenuPopup";
 import { Button } from "../ui/button";
 import {
-  Menu,
   MenuItem,
   MenuRadioGroup,
   MenuRadioItem,
@@ -52,7 +55,7 @@ export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
         className="sr-only"
         onChange={handleFileInputChange}
       />
-      <Menu open={menuOpen} onOpenChange={setMenuOpen}>
+      <ComposerPickerMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -104,7 +107,7 @@ export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
             </>
           ) : null}
         </ComposerPickerMenuPopup>
-      </Menu>
+      </ComposerPickerMenu>
     </>
   );
 };

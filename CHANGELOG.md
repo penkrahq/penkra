@@ -4,6 +4,10 @@
 
 ### Added
 
+- Added App developer memberships with pending-email invitations, `developer` and `publisher`
+  roles, member listing, role changes, and revocation from the App-development CLI.
+- Added file-backed operation guides so each App operation can carry detailed, package-validated
+  guidance without inflating the always-loaded App manual.
 - Added operation-specific `instructions` to canonical leaf help alongside validated input and
   output schemas and required named examples.
 - Added `apps list` as an ordinary operation of the always-installed Apps App; it returns only App
@@ -16,6 +20,11 @@
 
 ### Changed
 
+- Consolidated the complete App-development contract—including manifests, permissions,
+  `account-identity`, sideload identity, package limits, testing, publishing, and team access—into
+  the canonical App-development guide.
+- Extended sideload and publish authorization from App owners to explicitly authorized App
+  developers while retaining publisher-only release authority.
 - Separated always-loaded host policy, MCP server instructions, the compact command-tool
   description, Penkra root help, App root help, and operation leaf help into distinct delivery
   layers with one declaration-driven help format.
@@ -33,6 +42,10 @@
 
 ### Fixed
 
+- Fixed active provider turns, sidebar work state, transcript restoration, and right-dock App tabs
+  diverging during reconnect, restart, or delayed runtime ingestion.
+- Fixed Penkra Dev process detection so numbered development instances are matched exactly instead
+  of colliding with similarly named Electron processes.
 - Fixed every `penkra tabs <operation> --help` call being rejected even though family help told
   agents to inspect unfamiliar leaf contracts.
 - Fixed browser JavaScript dialogs having a close command but no reliable discovery/reporting path,

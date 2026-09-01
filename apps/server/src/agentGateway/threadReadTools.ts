@@ -25,6 +25,7 @@ import {
   summarizeWaitThreadText,
   WAIT_THREAD_SUMMARY_MAX_CHARS,
 } from "./threadSummary.ts";
+import { resolveAuthoritativeActiveTurn } from "./activeExecution.ts";
 import {
   decodeWaitForThreadsInput,
   errorText,
@@ -90,7 +91,12 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     handler: (_args, context) =>
       Effect.gen(function* () {
         const caller = yield* requireThreadShell(context.callerThreadId);
-        const turnId = caller.latestTurn?.state === "running" ? caller.latestTurn.turnId : null;
+        const turnId =
+          (yield* resolveAuthoritativeActiveTurn({
+            threadId: caller.id,
+            session: caller.session,
+            projectionTurns,
+          }))?.turnId ?? null;
         return mcpToolResultJson({
           harness: {
             name: "Penkra",

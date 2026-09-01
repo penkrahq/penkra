@@ -21,7 +21,7 @@ import { ChevronDownIcon, FastModeIcon, SettingsIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { type ProviderModelOption } from "../../providerModelOptions";
 import { Button } from "../ui/button";
-import { Menu, MenuSeparator, MenuSub, MenuSubTrigger, MenuTrigger } from "../ui/menu";
+import { MenuSeparator, MenuSub, MenuSubTrigger, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipShortcut, TooltipTrigger } from "../ui/tooltip";
 import { PROVIDER_ICON_COMPONENT_BY_PROVIDER } from "../ProviderIcon";
 import {
@@ -29,7 +29,11 @@ import {
   COMPOSER_PICKER_MODEL_SUBMENU_HEIGHT_CLASS_NAME,
   COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
 } from "./composerPickerStyles";
-import { ComposerPickerMenuPopup, ComposerPickerMenuSubPopup } from "./ComposerPickerMenuPopup";
+import {
+  ComposerPickerMenu,
+  ComposerPickerMenuPopup,
+  ComposerPickerMenuSubPopup,
+} from "./ComposerPickerMenuPopup";
 import { getComposerTraitSelection, hasVisibleComposerTraitControls } from "./composerTraits";
 import {
   getProviderIconClassName,
@@ -214,7 +218,7 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
   );
 
   return (
-    <Menu
+    <ComposerPickerMenu
       open={isMenuOpen}
       onOpenChange={(nextOpen) => {
         if (props.disabled) {
@@ -300,6 +304,6 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
           />
         ) : null}
       </ComposerPickerMenuPopup>
-    </Menu>
+    </ComposerPickerMenu>
   );
 }

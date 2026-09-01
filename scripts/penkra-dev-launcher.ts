@@ -236,10 +236,36 @@ function developmentRuntimePath(instance: number): string {
   );
 }
 
+export function isExpectedPenkraDevElectronCommand(input: {
+  command: string;
+  instance: number;
+  repositoryRoot: string;
+}): boolean {
+  const desktopDirectory = join(input.repositoryRoot, "apps", "desktop");
+  const executable = join(
+    desktopDirectory,
+    ".electron-runtime",
+    "instances",
+    String(input.instance),
+    "Electron.app",
+    "Contents",
+    "MacOS",
+    "Electron",
+  );
+  const expected = `${executable} ${desktopDirectory} --penkra-dev-root=${desktopDirectory} --penkra-dev-instance=${input.instance}`;
+  return input.command === expected || input.command.startsWith(`${expected} `);
+}
+
 function developmentElectronIsRunning(instance = launcherInstance): boolean {
-  const marker = `--penkra-dev-instance=${instance}`;
   const result = spawnSync("/bin/ps", ["-axo", "command="], { encoding: "utf8" });
-  return result.status === 0 && result.stdout.split("\n").some((line) => line.includes(marker));
+  return (
+    result.status === 0 &&
+    result.stdout
+      .split("\n")
+      .some((command) =>
+        isExpectedPenkraDevElectronCommand({ command, instance, repositoryRoot: repoRoot }),
+      )
+  );
 }
 
 function focusDevelopmentElectron(instance = launcherInstance): boolean {

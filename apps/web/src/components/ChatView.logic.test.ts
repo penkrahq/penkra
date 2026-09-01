@@ -6,6 +6,7 @@ import {
   buildComposerMenuSelectionKey,
   buildTranscriptAutoFollowSignal,
   createLocalDispatchSnapshot,
+  deriveChatActivity,
   derivePromptHistoryFromMessages,
   isComposerCursorOnFirstLine,
   isComposerCursorOnLastLine,
@@ -33,6 +34,42 @@ import {
   shouldStartActiveTurnLayoutGrace,
   shouldRenderTerminalWorkspace,
 } from "./ChatView.logic";
+
+describe("chat activity", () => {
+  it("is busy immediately for an admitted send and remains busy for the active turn", () => {
+    expect(
+      deriveChatActivity({
+        hasLiveTurn: false,
+        latestTurnLive: false,
+        isSendBusy: true,
+        hasPendingTurnStart: false,
+        isEditingMessageHistory: false,
+      }),
+    ).toEqual({ busy: true, controllable: true });
+
+    expect(
+      deriveChatActivity({
+        hasLiveTurn: true,
+        latestTurnLive: true,
+        isSendBusy: false,
+        hasPendingTurnStart: false,
+        isEditingMessageHistory: false,
+      }),
+    ).toEqual({ busy: true, controllable: true });
+  });
+
+  it("stays idle when only the provider transport is connecting", () => {
+    expect(
+      deriveChatActivity({
+        hasLiveTurn: false,
+        latestTurnLive: false,
+        isSendBusy: false,
+        hasPendingTurnStart: false,
+        isEditingMessageHistory: false,
+      }),
+    ).toEqual({ busy: false, controllable: false });
+  });
+});
 
 describe("transcript auto-follow signal", () => {
   it("stays stable when only non-message turn activity changes", () => {

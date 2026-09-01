@@ -11,6 +11,7 @@ const pane = {
   id: "apps-tab",
   kind: "app" as const,
   appId: "com.penkra.apps",
+  appSpaceId: "space-1",
   appSlug: "apps",
   appName: "Apps",
   appRoute: "/",

@@ -1,7 +1,8 @@
 import { IconChevronDown, IconDeviceDesktop } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
-import { Menu, MenuTrigger } from "~/components/ui/menu";
+import { ComposerPickerMenu } from "~/components/chat/ComposerPickerMenuPopup";
+import { MenuTrigger } from "~/components/ui/menu";
 
 import { MenuLocalRuntime } from "../menu-local-runtime/MenuLocalRuntime";
 
@@ -9,7 +10,7 @@ export function DraftFolderBar({ folderPicker }: { folderPicker: ReactNode }) {
   return (
     <div className="flex h-full min-w-0 items-center gap-1.5 overflow-visible px-2">
       {folderPicker}
-      <Menu>
+      <ComposerPickerMenu>
         <MenuTrigger
           render={
             <button
@@ -24,7 +25,7 @@ export function DraftFolderBar({ folderPicker }: { folderPicker: ReactNode }) {
           <IconChevronDown aria-hidden="true" className="size-3" />
         </MenuTrigger>
         <MenuLocalRuntime />
-      </Menu>
+      </ComposerPickerMenu>
     </div>
   );
 }

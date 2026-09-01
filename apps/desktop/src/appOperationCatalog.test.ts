@@ -23,6 +23,11 @@ function fixture() {
     Path.join(packagePath, "INSTRUCTIONS.md"),
     "Confirm the destination project first.\n",
   );
+  FS.mkdirSync(Path.join(packagePath, "operations"), { recursive: true });
+  FS.writeFileSync(
+    Path.join(packagePath, "operations", "issues.create.md"),
+    "Use the current project ID before creating the issue.\n",
+  );
   FS.mkdirSync(Path.join(packagePath, "skills", "create-issue"), { recursive: true });
   FS.writeFileSync(
     Path.join(packagePath, "skills", "create-issue", "SKILL.md"),
@@ -44,6 +49,7 @@ function fixture() {
           {
             key: "issues.create",
             summary: "Create an issue.",
+            instructionsPath: "operations/issues.create.md",
             input: { type: "object" },
             output: { type: "object" },
             examples: [{ name: "Create an issue", input: {} }],
@@ -86,6 +92,9 @@ describe("App operation catalog", () => {
     await expect(catalog.help({ spaceId: "work", slug: "linear" })).rejects.toThrow(
       "not installed",
     );
+    await expect(
+      catalog.help({ spaceId: "personal", slug: "linear", operation: "issues.create" }),
+    ).resolves.toContain("Use the current project ID before creating the issue.");
     await expect(catalog.skills("personal")).resolves.toEqual([
       expect.objectContaining({
         appId: "com.acme.linear",

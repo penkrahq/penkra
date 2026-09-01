@@ -2,6 +2,7 @@ import { ThreadId, type OrchestrationThreadShell } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns.ts";
 import type { AgentGatewayShape } from "./Services/AgentGateway.ts";
 import type { AgentGatewayCredentialsShape } from "./Services/AgentGatewayCredentials.ts";
 import { extractBearerToken } from "./bearerToken.ts";
@@ -16,6 +17,7 @@ import {
   parseMcpMessage,
   type JsonRpcRequest,
 } from "./protocol.ts";
+import { resolveAuthoritativeActiveTurn } from "./activeExecution.ts";
 import {
   GatewayToolError,
   gatewayToolErrorResult,
@@ -29,6 +31,7 @@ const MCP_MAX_BATCH_MESSAGES = 50;
 export function makeAgentGatewayMcpTransport(input: {
   readonly credentials: AgentGatewayCredentialsShape;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
+  readonly projectionTurns: ProjectionTurnRepositoryShape;
   readonly tools: ReadonlyArray<ToolEntry>;
   readonly instructions:
     | string
@@ -156,10 +159,28 @@ export function makeAgentGatewayMcpTransport(input: {
           ),
         };
       }
+      const ingressActiveTurn = yield* resolveAuthoritativeActiveTurn({
+        threadId: callerThread.value.id,
+        session: callerThread.value.session,
+        projectionTurns: input.projectionTurns,
+      }).pipe(Effect.catch(() => Effect.succeed(null)));
+      if (
+        callerThread.value.session?.status === "running" &&
+        callerThread.value.session.activeTurnId !== null &&
+        ingressActiveTurn === null
+      ) {
+        yield* Effect.logWarning("agent_gateway.active_turn_projection_mismatch", {
+          callerThreadId,
+          sessionActiveTurnId: callerThread.value.session.activeTurnId,
+          latestTurnId: callerThread.value.latestTurn?.turnId ?? null,
+          latestProviderTurnId: callerThread.value.latestTurn?.providerTurnId ?? null,
+          latestTurnState: callerThread.value.latestTurn?.state ?? null,
+        });
+      }
       const callerWriteAuthority =
-        callerThread.value.latestTurn?.state === "running"
-          ? input.credentials.bindWriteAuthority(token, callerThread.value.latestTurn.turnId)
-          : null;
+        ingressActiveTurn === null
+          ? null
+          : input.credentials.bindWriteAuthority(token, ingressActiveTurn.turnId);
       const assertCallerTurnActive = () =>
         Effect.gen(function* () {
           if (callerWriteAuthority === null) {
@@ -192,10 +213,21 @@ export function makeAgentGatewayMcpTransport(input: {
                   ),
               ),
             );
-          if (
-            caller.latestTurn?.state !== "running" ||
-            caller.latestTurn.turnId !== callerWriteAuthority.turnId
-          ) {
+          const activeTurn = yield* resolveAuthoritativeActiveTurn({
+            threadId: caller.id,
+            session: caller.session,
+            projectionTurns: input.projectionTurns,
+          }).pipe(
+            Effect.mapError(
+              (error) =>
+                new GatewayToolError(
+                  "caller_turn_inactive",
+                  "This Penkra write was rejected because the active execution could not be verified.",
+                  { callerThreadId, error: errorText(error) },
+                ),
+            ),
+          );
+          if (activeTurn?.turnId !== callerWriteAuthority.turnId) {
             return yield* Effect.fail(
               new GatewayToolError(
                 "caller_turn_inactive",
@@ -203,7 +235,10 @@ export function makeAgentGatewayMcpTransport(input: {
                 {
                   callerThreadId,
                   authorizedTurnId: callerWriteAuthority.turnId,
+                  sessionStatus: caller.session?.status ?? null,
+                  sessionActiveTurnId: caller.session?.activeTurnId ?? null,
                   latestTurnId: caller.latestTurn?.turnId ?? null,
+                  latestProviderTurnId: caller.latestTurn?.providerTurnId ?? null,
                   latestTurnState: caller.latestTurn?.state ?? null,
                 },
               ),

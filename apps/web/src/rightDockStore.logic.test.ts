@@ -16,6 +16,7 @@ const APP_PANE = {
   paneId: "tab-1",
   kind: "app" as const,
   appId: "com.penkra.explorer",
+  appSpaceId: "space-1",
   appSlug: "explorer",
   appName: "Explorer",
   appRoute: "/",
@@ -75,6 +76,7 @@ describe("persisted App tabs", () => {
           id: "valid",
           kind: "app",
           appId: "com.penkra.explorer",
+          appSpaceId: "space-1",
           appSlug: "explorer",
           appName: "Explorer",
           appRoute: "/",
@@ -107,6 +109,25 @@ describe("persisted App tabs", () => {
     );
   });
 
+  it("discards legacy panes without a recorded Space instead of rebinding them", () => {
+    expect(
+      sanitizeRightDockThreadState({
+        open: true,
+        panes: [
+          {
+            id: "unscoped-tab",
+            kind: "app",
+            appId: "com.penkra.canvas",
+            appSlug: "canvas",
+            appName: "Canvas",
+            appRoute: "/document/7",
+            appStatus: "ready",
+          },
+        ],
+      }),
+    ).toEqual(createDefaultRightDockState());
+  });
+
   it("sanitizes the per-Thread map", () => {
     const result = sanitizeRightDockStateByThreadId({
       thread: {
@@ -117,6 +138,7 @@ describe("persisted App tabs", () => {
             id: "app",
             kind: "app",
             appId: "com.penkra.apps",
+            appSpaceId: "space-1",
             appSlug: "apps",
             appName: "Apps",
             appRoute: "/",

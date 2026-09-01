@@ -106,10 +106,16 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
               THEN excluded.delivery_state
             ELSE projection_thread_messages.delivery_state
           END,
-          delivery_queued = COALESCE(
-            projection_thread_messages.delivery_queued,
-            excluded.delivery_queued
-          ),
+          delivery_queued = CASE
+            WHEN excluded.delivery_sequence IS NOT NULL
+              AND (projection_thread_messages.delivery_sequence IS NULL
+                OR excluded.delivery_sequence >= projection_thread_messages.delivery_sequence)
+              THEN COALESCE(
+                excluded.delivery_queued,
+                projection_thread_messages.delivery_queued
+              )
+            ELSE projection_thread_messages.delivery_queued
+          END,
           delivery_sequence = CASE
             WHEN excluded.delivery_sequence IS NOT NULL
               AND (projection_thread_messages.delivery_sequence IS NULL

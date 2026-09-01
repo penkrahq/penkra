@@ -294,7 +294,7 @@ describe("penkra_exec_command discovery", () => {
     });
   });
 
-  it("routes test, package, status, publish, and access without consulting PATH", async () => {
+  it("routes test, package, status, publish, access, and members without consulting PATH", async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     const bridge = vi.fn(async (method: string, params: unknown) => {
       calls.push({ method, params });
@@ -406,6 +406,32 @@ describe("penkra_exec_command discovery", () => {
     expect(calls.at(-1)).toEqual({
       method: "developer.app-access.invite",
       params: { appId: "app-1", email: "person@example.com" },
+    });
+    await executePenkraExecCommand(
+      command(
+        "penkra",
+        "app",
+        "members",
+        "invite",
+        "--app-id",
+        "com.example.notes",
+        "--email",
+        "dev@example.com",
+        "--role",
+        "publisher",
+      ),
+      developmentContext,
+      env,
+      bridge,
+      operations,
+    );
+    expect(calls.at(-1)).toEqual({
+      method: "developer.app-members.invite",
+      params: {
+        appId: "com.example.notes",
+        email: "dev@example.com",
+        role: "publisher",
+      },
     });
   });
 
@@ -529,7 +555,7 @@ describe("penkra_exec_command discovery", () => {
       {},
       async () => [],
     );
-    expect(clickHelp).toContain("Instructions");
+    expect(clickHelp).toContain("How to use this operation");
     expect(clickHelp).toContain("penkra tabs click --tab-id <tab-id> --ref e17");
     expect(clickHelp).toContain('"ref"');
   });

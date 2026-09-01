@@ -8,6 +8,8 @@ export interface GenerateAppHelpInput {
   instructions: string;
   /** App-local dotted operation key. Omit for App-root help. */
   operation?: string;
+  /** Resolved contents of the selected operation's instructionsPath. */
+  operationInstructions?: string;
 }
 
 export interface InstructionOperation {
@@ -57,7 +59,7 @@ export function generateAppHelp(input: GenerateAppHelpInput): string {
     );
     if (!declaration)
       throw new Error(`${input.manifest.slug} does not declare operation ${input.operation}.`);
-    return operationHelp(input.manifest, declaration);
+    return operationHelp(input.manifest, declaration, input.operationInstructions);
   }
   const header = [
     `${input.manifest.name} (${input.manifest.slug})`,
@@ -76,11 +78,16 @@ export function generateAppHelp(input: GenerateAppHelpInput): string {
   });
 }
 
-function operationHelp(manifest: PenkraAppManifest, declaration: OperationDeclaration): string {
+function operationHelp(
+  manifest: PenkraAppManifest,
+  declaration: OperationDeclaration,
+  resolvedInstructions?: string,
+): string {
+  const instructions = resolvedInstructions ?? declaration.instructions;
   return generateOperationHelp({
     command: commandPath(manifest.slug, declaration.key),
     summary: declaration.summary,
-    ...(declaration.instructions === undefined ? {} : { instructions: declaration.instructions }),
+    ...(instructions === undefined ? {} : { instructions }),
     input: declaration.input,
     output: declaration.output,
     examples: (declaration.examples ?? []).map((example) => ({
@@ -102,16 +109,9 @@ export function generateOperationHelp(input: GenerateOperationHelpInput): string
   const lines = [
     input.command,
     input.summary,
-    "",
-    "Call shape",
-    "  Send one ordinary command string. Use --name value for scalar fields and",
-    '  --input "{...}" for a complete JSON value.',
-    "",
-    "Input fields",
-    ...operationFlagHelp(input.input),
-    "",
-    "Invocation",
-    "  --input   Complete JSON operation input validated against the schema below.",
+    ...(input.instructions
+      ? ["", "How to use this operation", "", ...input.instructions.trim().split("\n")]
+      : []),
     "",
     "Examples",
     ...input.examples.flatMap((example) =>
@@ -121,9 +121,14 @@ export function generateOperationHelp(input: GenerateOperationHelpInput): string
           .map((line) => `  ${line}`),
       ),
     ),
-    ...(input.instructions
-      ? ["", "Instructions", "", ...input.instructions.trim().split("\n")]
-      : []),
+    "",
+    "Input fields",
+    ...operationFlagHelp(input.input),
+    "",
+    "Invocation",
+    "  Send one ordinary command string. Use --name value for scalar fields and",
+    '  --input "{...}" for a complete JSON value.',
+    "  --input   Complete JSON operation input validated against the schema below.",
     ...(input.parentHelp ? ["", "Operating manual", `  ${input.parentHelp}`] : []),
     ...(input.permissions
       ? [
