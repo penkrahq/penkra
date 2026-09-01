@@ -555,7 +555,7 @@ describe("penkra_exec_command discovery", () => {
       {},
       async () => [],
     );
-    expect(clickHelp).toContain("Instructions");
+    expect(clickHelp).toContain("How to use this operation");
     expect(clickHelp).toContain("penkra tabs click --tab-id <tab-id> --ref e17");
     expect(clickHelp).toContain('"ref"');
   });
