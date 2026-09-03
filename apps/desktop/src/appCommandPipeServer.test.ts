@@ -148,6 +148,7 @@ describe("AppCommandPipeServer", () => {
       spaceId: "personal",
       threadId: "thread-1",
       tabId: "tab-1",
+      signal: expect.any(AbortSignal),
     });
 
     await expect(
@@ -273,6 +274,62 @@ describe("AppCommandPipeServer", () => {
       ok: false,
       error: { code: "APP_COMMAND_FAILED", message: "Invalid App command capability." },
     });
+  });
+
+  it("aborts an in-flight App operation when its command caller disconnects", async () => {
+    if (process.platform === "win32") return;
+    const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-app-command-abort-"));
+    const path = Path.join(directory, "command.sock");
+    let operationSignal: AbortSignal | undefined;
+    let resolveAborted!: () => void;
+    const observedAbort = new Promise<void>((resolve) => { resolveAborted = resolve; });
+    const invoke = vi.fn(async (input: { signal: AbortSignal }) => {
+      operationSignal = input.signal;
+      await new Promise<never>((_resolve, reject) => {
+        input.signal.addEventListener("abort", () => {
+          resolveAborted();
+          reject(input.signal.reason);
+        }, { once: true });
+      });
+    });
+    const current = {
+      id: "tab-1", rendererId: 101, appId: "com.acme.linear", slug: "linear",
+      name: "Linear", iconDataUrl: null, spaceId: "personal", threadId: "thread-1",
+      route: "/", status: "ready" as const, documentUrl: "penkra-app://linear/app.html",
+    };
+    const server = new AppCommandPipeServer({
+      path,
+      token: "secret",
+      catalog: {} as never,
+      broker: { invoke } as never,
+      tabs: { list: () => [current], current: () => current },
+      observer: {} as never,
+      providerCredentialVault: {} as never,
+    });
+    await server.start();
+    disposers.push(async () => {
+      await server.dispose();
+      FS.rmSync(directory, { recursive: true, force: true });
+    });
+
+    const socket = Net.createConnection(path);
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", () => {
+        socket.write(`${JSON.stringify({
+          id: "request-abort",
+          token: "secret",
+          method: "operations.invoke",
+          params: { app: "linear", operation: "issues.create", input: {} },
+        })}\n`);
+        resolve();
+      });
+      socket.once("error", reject);
+    });
+    await vi.waitFor(() => expect(operationSignal).toBeInstanceOf(AbortSignal));
+    socket.destroy();
+    await observedAbort;
+
+    expect(operationSignal?.aborted).toBe(true);
   });
 });
 

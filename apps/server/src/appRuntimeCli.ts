@@ -24,6 +24,7 @@ const TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
 // Keep command requests bounded separately in the desktop controller RPC.
 const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 const TIMEOUT_MS = 30_000;
+const APP_OPERATION_TIMEOUT_MS = 15 * 60_000;
 const DEVELOPER_MUTATION_TIMEOUT_MS = 5 * 60_000;
 const APP_DEVELOPER_GUIDE_URL =
   "https://github.com/penkrahq/penkra/blob/main/docs/app-development.md";
@@ -1089,12 +1090,7 @@ async function request(method: string, params: unknown, env: NodeJS.ProcessEnv):
   const response = await new Promise<BridgeResponse>((resolve, reject) => {
     const socket = Net.createConnection(path);
     let bytes = Buffer.alloc(0);
-    const timeoutMs =
-      method === "developer.submissions.create" ||
-      method === "developer.submissions.resume-upload" ||
-      method === "developer.sideload"
-        ? DEVELOPER_MUTATION_TIMEOUT_MS
-        : TIMEOUT_MS;
+    const timeoutMs = appCommandTimeoutMs(method);
     const timer = setTimeout(
       () =>
         socket.destroy(
@@ -1151,6 +1147,16 @@ async function request(method: string, params: unknown, env: NodeJS.ProcessEnv):
     });
   }
   return response.result;
+}
+
+export function appCommandTimeoutMs(method: string): number {
+  if (method === "operations.invoke") return APP_OPERATION_TIMEOUT_MS;
+  if (
+    method === "developer.submissions.create"
+    || method === "developer.submissions.resume-upload"
+    || method === "developer.sideload"
+  ) return DEVELOPER_MUTATION_TIMEOUT_MS;
+  return TIMEOUT_MS;
 }
 
 export function formatRuntimeFailure(failure: AppRuntimeFailureDto, indent = ""): string {
