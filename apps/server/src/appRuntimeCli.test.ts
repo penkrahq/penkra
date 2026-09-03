@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  appCommandTimeoutMs,
   executePenkraExecCommand,
   formatRuntimeFailure,
   parseOperationInput,
@@ -24,6 +25,11 @@ const catalog = [
 ];
 
 describe("App runtime CLI failures", () => {
+  it("allows App operations to outlive the short command-discovery deadline", () => {
+    expect(appCommandTimeoutMs("catalog.list")).toBe(30_000);
+    expect(appCommandTimeoutMs("operations.invoke")).toBe(15 * 60_000);
+  });
+
   it("renders primary and labelled cleanup branches without parsing message text", () => {
     expect(
       formatRuntimeFailure({

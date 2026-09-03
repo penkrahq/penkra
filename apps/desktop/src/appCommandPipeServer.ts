@@ -208,6 +208,8 @@ export class AppCommandPipeServer {
 
   #accept(socket: Net.Socket): void {
     this.#sockets.add(socket);
+    const controller = new AbortController();
+    let completed = false;
     let bytes = Buffer.alloc(0);
     socket.on("data", (chunk) => {
       bytes = Buffer.concat([bytes, chunk]);
@@ -219,18 +221,27 @@ export class AppCommandPipeServer {
       if (newline < 0) return;
       const raw = bytes.subarray(0, newline).toString("utf8");
       socket.pause();
-      void this.#handle(raw)
-        .then((response) => socket.end(`${JSON.stringify(response)}\n`))
+      void this.#handle(raw, controller.signal)
+        .then((response) => {
+          completed = true;
+          socket.end(`${JSON.stringify(response)}\n`);
+        })
         .catch((error) => {
+          completed = true;
           socket.end(serializeFailureResponse(error));
         });
     });
-    const release = () => this.#sockets.delete(socket);
+    const release = () => {
+      this.#sockets.delete(socket);
+      if (!completed && !controller.signal.aborted) {
+        controller.abort(new Error("The App command caller disconnected."));
+      }
+    };
     socket.on("close", release);
     socket.on("error", release);
   }
 
-  async #handle(raw: string): Promise<unknown> {
+  async #handle(raw: string, signal: AbortSignal): Promise<unknown> {
     const request = JSON.parse(raw) as Request;
     if (!request || typeof request !== "object" || typeof request.id !== "string") {
       throw new Error("Invalid App command request.");
@@ -496,6 +507,7 @@ export class AppCommandPipeServer {
           spaceId: context.spaceId,
           threadId: context.threadId,
           callerKind: "agent",
+          signal,
           ...(tabId === undefined ? {} : { tabId }),
         });
         return { ok: true, id: request.id, result };
