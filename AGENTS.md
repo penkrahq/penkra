@@ -4,11 +4,25 @@
 
 The client-workspace `../AGENTS.md` is the higher-level authority for client scope, consequential
 claims, external effects, and shared-client-instruction changes. This file is authoritative only for
-engineering work inside the Penkra desktop repository. The workspace-root `TODO.md` is the shared
-product plan for desktop and public platform/SDK contracts; a sibling repository's local
+engineering work inside the Penkra desktop repository. This repository's ignored root `TODO.md` is
+the single planning authority for desktop and public platform/SDK work; a sibling repository's local
 `AGENTS.md` remains authoritative for its own build, test, design, and release mechanics. When two
 files overlap, follow the narrower repository rule unless it conflicts with the higher-level client
 boundary.
+
+## Planning authority
+
+- Put all active and explicitly deferred Penkra desktop/platform work in the repository-root
+  `TODO.md`. The file is intentionally gitignored working state.
+- Do not create parallel `ROADMAP.md`, `PLAN.md`, phase plans, “next” documents, or planning lists in
+  research/status files. Reconcile new work into `TODO.md` instead.
+- Keep durable architecture, public contracts, runbooks, and completed evidence in tracked
+  documentation. A document describing what the system is must not become the second place that
+  tracks what remains to do.
+- Remove completed items from `TODO.md`; Git history, commits, and evidence documents are the
+  completion record. Do not retain checked-off inventories in the plan.
+- A sibling App's work belongs in that App's ignored `TODO.md`, not this repository's plan, unless
+  the work changes the shared Penkra host or public SDK contract.
 
 ## Documentation Audiences
 
