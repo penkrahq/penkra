@@ -65,6 +65,7 @@ import {
   threadJumpIndexFromCommand,
 } from "../keybindings";
 import { useLatestProjectStore } from "../latestProjectStore";
+import { deferThreadReadAcknowledgementIfActive } from "../threadReadAcknowledgement";
 import {
   resolveCurrentProjectTargetId,
   resolveLatestProjectTargetIdWithFallback,
@@ -1233,13 +1234,13 @@ export default function Sidebar() {
 
       if (clicked === "mark-unread") {
         clearDismissedThreadStatus(threadId);
+        const completedAtMs = Date.parse(thread.latestTurn?.completedAt ?? "");
+        if (!Number.isNaN(completedAtMs)) {
+          deferThreadReadAcknowledgementIfActive(threadId, activeSidebarThreadId);
+        }
         markThreadUnread(threadId);
-        const completedAt = thread.latestTurn?.completedAt;
-        if (completedAt) {
-          const completedAtMs = Date.parse(completedAt);
-          if (!Number.isNaN(completedAtMs)) {
-            persistThreadVisit(threadId, new Date(completedAtMs - 1).toISOString());
-          }
+        if (!Number.isNaN(completedAtMs)) {
+          persistThreadVisit(threadId, new Date(completedAtMs - 1).toISOString());
         }
         return;
       }
@@ -1282,6 +1283,7 @@ export default function Sidebar() {
       clearDismissedThreadStatus,
       clearThreadNotification,
       markThreadUnread,
+      activeSidebarThreadId,
       persistThreadVisit,
       openThreadInlineRename,
       pinnedThreadIdSet,
@@ -1322,13 +1324,14 @@ export default function Sidebar() {
       if (clicked === "mark-unread") {
         for (const id of ids) {
           clearDismissedThreadStatus(id);
-          markThreadUnread(id);
           const completedAt = sidebarThreadSummaryById[id]?.latestTurn?.completedAt;
-          if (completedAt) {
-            const completedAtMs = Date.parse(completedAt);
-            if (!Number.isNaN(completedAtMs)) {
-              persistThreadVisit(id, new Date(completedAtMs - 1).toISOString());
-            }
+          const completedAtMs = Date.parse(completedAt ?? "");
+          if (!Number.isNaN(completedAtMs)) {
+            deferThreadReadAcknowledgementIfActive(id, activeSidebarThreadId);
+          }
+          markThreadUnread(id);
+          if (!Number.isNaN(completedAtMs)) {
+            persistThreadVisit(id, new Date(completedAtMs - 1).toISOString());
           }
         }
         clearSelection();
@@ -1359,6 +1362,7 @@ export default function Sidebar() {
       clearSelection,
       clearDismissedThreadStatus,
       markThreadUnread,
+      activeSidebarThreadId,
       persistThreadVisit,
       removeFromSelection,
       resolveThreadStatusForSidebar,

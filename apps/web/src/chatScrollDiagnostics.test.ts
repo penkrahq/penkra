@@ -5,6 +5,8 @@ import {
   disableChatScrollDiagnostics,
   enableChatScrollDiagnostics,
   getChatScrollDiagnosticSamples,
+  markChatScrollWrite,
+  readChatScrollWriteAttribution,
   recordChatPaginationDiagnostic,
   recordChatScrollDiagnostic,
   resetChatScrollDiagnostics,
@@ -132,5 +134,37 @@ describe("chat scroll diagnostics", () => {
         dom: expect.objectContaining({ scrollTop: 40, distanceFromEnd: 3_360 }),
       }),
     ]);
+  });
+
+  it("attributes the latest opted-in scroll writer and clears attribution with the trace", () => {
+    const element = {};
+    expect(
+      markChatScrollWrite(element, {
+        owner: "list:test",
+        requestedTop: 900,
+        beforeTop: 100,
+        afterTop: 120,
+      }),
+    ).toBeNull();
+
+    enableChatScrollDiagnostics();
+    expect(
+      markChatScrollWrite(element, {
+        owner: "list:test",
+        requestedTop: 900,
+        beforeTop: 100,
+        afterTop: 120,
+      }),
+    ).toEqual(expect.objectContaining({ sequence: 1, owner: "list:test" }));
+    expect(readChatScrollWriteAttribution(element)).toEqual(
+      expect.objectContaining({
+        requestedTop: 900,
+        beforeTop: 100,
+        afterTop: 120,
+      }),
+    );
+
+    resetChatScrollDiagnostics();
+    expect(readChatScrollWriteAttribution(element)).toBeNull();
   });
 });

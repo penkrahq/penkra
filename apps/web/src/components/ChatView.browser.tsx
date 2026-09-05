@@ -33,6 +33,12 @@ import {
   AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
   getScrollContainerDistanceFromBottom,
 } from "../chat-scroll";
+import {
+  disableChatScrollDiagnostics,
+  enableChatScrollDiagnostics,
+  getChatScrollDiagnosticSamples,
+  resetChatScrollDiagnostics,
+} from "../chatScrollDiagnostics";
 import { useLatestProjectStore } from "../latestProjectStore";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
@@ -2297,7 +2303,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ...thread,
         messages: [
           ...thread.messages,
-          createUserMessage({ id: message.messageId, text: prompt, offsetSeconds: 2_101 }),
+          createUserMessage({
+            id: message.messageId,
+            text: prompt,
+            offsetSeconds: 2_101,
+          }),
         ],
         updatedAt: isoAt(2_102),
       }));
@@ -2438,7 +2448,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
                       // The message-local steer marker can lag the terminal
                       // session event. It must not keep Thinking alive after
                       // the session's newer ready timestamp.
-                      delivery: { state: "steering" as const, queued: false, sequence: 12 },
+                      delivery: {
+                        state: "steering" as const,
+                        queued: false,
+                        sequence: 12,
+                      },
                     }
                   : message,
               ),
@@ -2455,7 +2469,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           : thread,
       ),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
 
     try {
       expect(document.body.textContent).not.toContain("Thinking");
@@ -2527,7 +2544,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
       expect(command.bindingRevision).toBe(0);
       expect(command.modelSelection).toEqual(
-        expect.objectContaining({ provider: "codex", model: expect.any(String) }),
+        expect.objectContaining({
+          provider: "codex",
+          model: expect.any(String),
+        }),
       );
     } finally {
       await mounted.cleanup();
@@ -2536,6 +2556,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("auto-follows real transcript changes without re-sticking for non-message activity", async () => {
+    enableChatScrollDiagnostics();
+    resetChatScrollDiagnostics();
     let currentSnapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-auto-follow-wiring" as MessageId,
       targetText: "auto-follow wiring target",
@@ -2703,7 +2725,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
       // reader back to the live edge.
       scrollToCalls.length = 0;
       scrollContainer.dispatchEvent(
-        new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -120 }),
+        new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          deltaY: -120,
+        }),
       );
       scrollContainer.scrollTop = Math.max(
         0,
@@ -2726,6 +2752,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
       }));
       await waitForLayout();
       expect(scrollToCalls).toHaveLength(0);
+      expect(
+        getChatScrollDiagnosticSamples().filter(
+          (sample) => sample.event === "imperative-scroll-to-end:before",
+        ),
+      ).toEqual([]);
 
       // Explicitly returning to the tail restores live-follow ownership.
       scrollContainer.scrollTop = scrollContainer.scrollHeight;
@@ -2751,7 +2782,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
         timeout: 4_000,
         interval: 16,
       });
+      expect(
+        getChatScrollDiagnosticSamples().filter(
+          (sample) => sample.event === "imperative-scroll-to-end:before",
+        ),
+      ).toEqual([]);
     } finally {
+      disableChatScrollDiagnostics();
+      resetChatScrollDiagnostics();
       if (patchedScrollContainer && originalScrollTo) {
         patchedScrollContainer.scrollTo = originalScrollTo;
       }
@@ -3071,12 +3109,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
         session: null,
       })),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
 
     try {
       const composerEditor = await waitForComposerEditor();
       await waitForServerConfigToApply();
-      const connectionTrigger = page.getByRole("button", { name: "Change connection" });
+      const connectionTrigger = page.getByRole("button", {
+        name: "Change connection",
+      });
       await expect.element(connectionTrigger).toBeVisible();
       await connectionTrigger.hover();
       await expect.element(page.getByText("personal@example.com", { exact: true })).toBeVisible();
@@ -3132,7 +3175,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         session: null,
       })),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
     const restoreNativeApi = installDeterministicSendNativeApi();
 
     try {
@@ -3195,7 +3241,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         session: null,
       })),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
     const restoreNativeApi = installDeterministicSendNativeApi();
 
     try {
@@ -3587,7 +3636,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
                 message.id === pendingMessageId
                   ? {
                       ...message,
-                      delivery: { state: "starting" as const, queued: false, sequence: 10 },
+                      delivery: {
+                        state: "starting" as const,
+                        queued: false,
+                        sequence: 10,
+                      },
                       sequence: 10,
                     }
                   : message,
@@ -3756,7 +3809,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
                     role: "user" as const,
                     text: "queue this follow-up",
                     dispatchMode: "queue" as const,
-                    delivery: { state: "queued" as const, queued: true, sequence: 200 },
+                    delivery: {
+                      state: "queued" as const,
+                      queued: true,
+                      sequence: 200,
+                    },
                     turnId: null,
                     streaming: false,
                     source: "native" as const,
@@ -3813,7 +3870,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
                   message.id === queuedMessageId
                     ? {
                         ...message,
-                        delivery: { state: "accepted" as const, queued: true, sequence: 201 },
+                        delivery: {
+                          state: "accepted" as const,
+                          queued: true,
+                          sequence: 201,
+                        },
                       }
                     : message,
                 ),
@@ -3914,7 +3975,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
                   role: "user" as const,
                   text: "Ground yourself",
                   dispatchMode: "queue" as const,
-                  delivery: { state: "queued" as const, queued: true, sequence: 2 },
+                  delivery: {
+                    state: "queued" as const,
+                    queued: true,
+                    sequence: 2,
+                  },
                   sequence: 2,
                   turnId: queuedTurnId,
                   streaming: false,
@@ -3938,7 +4003,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           : thread,
       ),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
 
     try {
       await vi.waitFor(() => {
@@ -4010,7 +4078,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
                   .filter(
                     (message) => message.id === ("msg-hydrated-user-before-queue" as MessageId),
                   )
-                  .map((message) => ({ ...message, sequence: 29_718, turnId: firstTurnId })),
+                  .map((message) => ({
+                    ...message,
+                    sequence: 29_718,
+                    turnId: firstTurnId,
+                  })),
                 // This is the exact durable projection shape: admitted before
                 // the assistant, accepted only after that response completed.
                 {
@@ -4018,7 +4090,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
                   role: "user" as const,
                   text: "Ground yourself",
                   dispatchMode: "queue" as const,
-                  delivery: { state: "accepted" as const, queued: true, sequence: 29_857 },
+                  delivery: {
+                    state: "accepted" as const,
+                    queued: true,
+                    sequence: 29_857,
+                  },
                   sequence: 29_724,
                   turnId: queuedTurnId,
                   streaming: false,
@@ -4042,7 +4118,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           : thread,
       ),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
 
     try {
       await vi.waitFor(() => {
@@ -4081,7 +4160,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
                   role: "user" as const,
                   text: "restored durable queue item",
                   dispatchMode: "queue" as const,
-                  delivery: { state: "queued" as const, queued: true, sequence: 200 },
+                  delivery: {
+                    state: "queued" as const,
+                    queued: true,
+                    sequence: 200,
+                  },
                   sequence: 200,
                   turnId: null,
                   streaming: false,
@@ -4094,7 +4177,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           : thread,
       ),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
 
     try {
       await vi.waitFor(
@@ -4135,7 +4221,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
                   role: "user" as const,
                   text: queuedPrompt,
                   dispatchMode: "queue" as const,
-                  delivery: { state: "queued" as const, queued: true, sequence: 200 },
+                  delivery: {
+                    state: "queued" as const,
+                    queued: true,
+                    sequence: 200,
+                  },
                   turnId: null,
                   streaming: false,
                   source: "native" as const,
@@ -4147,7 +4237,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           : thread,
       ),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
 
     try {
       const actionsButton = await waitForElement(
@@ -4209,7 +4302,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         session: null,
       })),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
     const restoreNativeApi = installDeterministicSendNativeApi();
 
     try {
@@ -4430,8 +4526,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
       ),
     });
     try {
-      const source = page.getByRole("button", { name: otherThreadTitle, exact: true });
-      const target = page.getByRole("button", { name: THREAD_TITLE, exact: true });
+      const source = page.getByRole("button", {
+        name: otherThreadTitle,
+        exact: true,
+      });
+      const target = page.getByRole("button", {
+        name: THREAD_TITLE,
+        exact: true,
+      });
 
       await dragWithPointerFrames(
         source.element(),
@@ -4472,7 +4574,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(moveCommands).toHaveLength(1);
           expect(moveCommands[0]).toMatchObject({
             item: { kind: "thread", id: OTHER_THREAD_ID },
-            position: { type: "before", item: { kind: "thread", id: THREAD_ID } },
+            position: {
+              type: "before",
+              item: { kind: "thread", id: THREAD_ID },
+            },
             target: { kind: "folder", folderId: PROJECT_ID },
           });
         },
@@ -4521,8 +4626,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
       },
     });
     try {
-      const source = page.getByRole("button", { name: sourceThreadTitle, exact: true });
-      const target = page.getByRole("button", { name: destinationFolderTitle, exact: true });
+      const source = page.getByRole("button", {
+        name: sourceThreadTitle,
+        exact: true,
+      });
+      const target = page.getByRole("button", {
+        name: destinationFolderTitle,
+        exact: true,
+      });
 
       useStore.getState().setProjectExpanded(OTHER_PROJECT_ID, false);
       await vi.waitFor(() => {
@@ -4535,12 +4646,20 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await dragWithPointerFrames(source.element(), target.element(), 0.5, () => {
         expect(
           page
-            .getByRole("button", { name: destinationFolderTitle, exact: true })
+            .getByRole("button", {
+              name: destinationFolderTitle,
+              exact: true,
+            })
             .element()
             .getAttribute("aria-expanded"),
         ).toBe("false");
         expect(
-          page.getByRole("button", { name: destinationThreadTitle, exact: true }).elements(),
+          page
+            .getByRole("button", {
+              name: destinationThreadTitle,
+              exact: true,
+            })
+            .elements(),
         ).toHaveLength(0);
         const containerPreview = document.querySelector<HTMLElement>(
           '[data-sidebar-container-drop-preview="true"]',
@@ -4564,7 +4683,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           });
           expect(
             page
-              .getByRole("button", { name: destinationFolderTitle, exact: true })
+              .getByRole("button", {
+                name: destinationFolderTitle,
+                exact: true,
+              })
               .element()
               .getAttribute("aria-expanded"),
           ).toBe("false");
@@ -4594,8 +4716,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      const movedSource = page.getByRole("button", { name: sourceThreadTitle, exact: true });
-      const originalThread = page.getByRole("button", { name: THREAD_TITLE, exact: true });
+      const movedSource = page.getByRole("button", {
+        name: sourceThreadTitle,
+        exact: true,
+      });
+      const originalThread = page.getByRole("button", {
+        name: THREAD_TITLE,
+        exact: true,
+      });
       await dragWithPointerFrames(movedSource.element(), originalThread.element(), 0.25, () => {
         const targetWrapper = originalThread
           .element()
@@ -4611,7 +4739,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(moveCommands).toHaveLength(2);
           expect(moveCommands[1]).toMatchObject({
             item: { kind: "thread", id: OTHER_THREAD_ID },
-            position: { type: "before", item: { kind: "thread", id: THREAD_ID } },
+            position: {
+              type: "before",
+              item: { kind: "thread", id: THREAD_ID },
+            },
             target: { kind: "folder", folderId: PROJECT_ID },
           });
         },
@@ -4691,8 +4822,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
       ),
     });
     try {
-      const source = page.getByRole("button", { name: otherThreadTitle, exact: true });
-      const target = page.getByRole("button", { name: THREAD_TITLE, exact: true });
+      const source = page.getByRole("button", {
+        name: otherThreadTitle,
+        exact: true,
+      });
+      const target = page.getByRole("button", {
+        name: THREAD_TITLE,
+        exact: true,
+      });
 
       await userEvent.dragAndDrop(source, target);
 
@@ -4742,11 +4879,19 @@ describe("ChatView timeline estimator parity (full app)", () => {
     };
     const swallowPointerUp = (event: PointerEvent) => event.stopImmediatePropagation();
     overlayObserver.observe(document.body, { childList: true, subtree: true });
-    document.addEventListener("lostpointercapture", recordLostPointerCapture, { capture: true });
+    document.addEventListener("lostpointercapture", recordLostPointerCapture, {
+      capture: true,
+    });
     window.addEventListener("pointerup", swallowPointerUp, { capture: true });
     try {
-      const source = page.getByRole("button", { name: otherThreadTitle, exact: true });
-      const target = page.getByRole("button", { name: THREAD_TITLE, exact: true });
+      const source = page.getByRole("button", {
+        name: otherThreadTitle,
+        exact: true,
+      });
+      const target = page.getByRole("button", {
+        name: THREAD_TITLE,
+        exact: true,
+      });
 
       await userEvent.dragAndDrop(source, target);
 
@@ -4769,7 +4914,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       document.removeEventListener("lostpointercapture", recordLostPointerCapture, {
         capture: true,
       });
-      window.removeEventListener("pointerup", swallowPointerUp, { capture: true });
+      window.removeEventListener("pointerup", swallowPointerUp, {
+        capture: true,
+      });
       await mounted.cleanup();
     }
   });
@@ -5689,7 +5836,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await waitForServerConfigToApply();
       dispatchAddProjectShortcut();
-      const folderInput = page.getByRole("textbox", { name: "New folder name" });
+      const folderInput = page.getByRole("textbox", {
+        name: "New folder name",
+      });
       await expect.element(folderInput).toBeInTheDocument();
       await folderInput.fill("New Project");
       await userEvent.keyboard("{Enter}");
@@ -5784,7 +5933,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await waitForServerConfigToApply();
       dispatchAddProjectShortcut();
-      const folderInput = page.getByRole("textbox", { name: "New folder name" });
+      const folderInput = page.getByRole("textbox", {
+        name: "New folder name",
+      });
       await folderInput.fill("Failing Project");
       await userEvent.keyboard("{Enter}");
 

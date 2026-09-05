@@ -23,7 +23,10 @@ interface TestRow {
 
 function VirtualListHarness() {
   const [rows, setRows] = useState<TestRow[]>(() =>
-    Array.from({ length: 60 }, (_, index) => ({ id: `row-${index}`, height: 32 })),
+    Array.from({ length: 60 }, (_, index) => ({
+      id: `row-${index}`,
+      height: 32,
+    })),
   );
   const listRef = useRef<TranscriptVirtualListRef | null>(null);
   return (
@@ -138,7 +141,10 @@ function ProgressivelyHydratedLongListHarness() {
 
 function SyntheticWorkRowHarness() {
   const [rows, setRows] = useState<TestRow[]>(() =>
-    Array.from({ length: 60 }, (_, index) => ({ id: `message-row-${index}`, height: 32 })),
+    Array.from({ length: 60 }, (_, index) => ({
+      id: `message-row-${index}`,
+      height: 32,
+    })),
   );
   return (
     <div>
@@ -369,10 +375,55 @@ function ThreadSwitchingListHarness() {
   );
 }
 
+function InterruptedTailIntentHarness() {
+  const [activeThread, setActiveThread] = useState<"thread-a" | "thread-b">("thread-a");
+  const listRef = useRef<TranscriptVirtualListRef | null>(null);
+  const rows = Array.from({ length: activeThread === "thread-a" ? 180 : 20 }, (_, index) => ({
+    id: `${activeThread}-intent-row-${index}`,
+    height: index % 9 === 0 ? 220 : 48,
+  }));
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          // This is the production ordering when a reader leaves while the
+          // first animated follow after send is still moving.
+          listRef.current?.scrollToEnd({ animated: true });
+          setActiveThread("thread-b");
+        }}
+      >
+        Follow tail and leave
+      </button>
+      <button type="button" onClick={() => setActiveThread("thread-a")}>
+        Return to A
+      </button>
+      <TranscriptVirtualList
+        key={activeThread}
+        ref={listRef}
+        viewportMemoryKey={activeThread}
+        data={rows}
+        anchorRevision={`${rows.length}:${rows.at(-1)?.id ?? "empty"}:settled`}
+        estimatedItemSize={64}
+        keyExtractor={(row) => row.id}
+        renderItem={(row) => (
+          <div data-row-id={row.id} style={{ height: row.height }}>
+            {row.id}
+          </div>
+        )}
+        paddingEnd={16}
+        data-testid="interrupted-tail-intent-scroll"
+        style={{ height: 300, overflowY: "auto" }}
+      />
+    </div>
+  );
+}
+
 function ProductionThreadsRegressionHarness() {
   const [activeThread, setActiveThread] = useState<"threads" | "other">("threads");
   const [activityCommit, setActivityCommit] = useState(0);
   const [lateTailHeight, setLateTailHeight] = useState(188);
+  const [provisionalPriorTailHeight, setProvisionalPriorTailHeight] = useState(212);
   const rowCount = 40;
   const rows = Array.from({ length: rowCount }, (_, index) => ({
     id: `${activeThread}-timeline-row-${index}`,
@@ -382,9 +433,11 @@ function ProductionThreadsRegressionHarness() {
     height:
       activeThread === "threads" && index === rowCount - 1
         ? lateTailHeight
-        : index === 31
-          ? 6_894
-          : 114,
+        : activeThread === "threads" && index === rowCount - 2
+          ? provisionalPriorTailHeight
+          : index === 31
+            ? 6_894
+            : 114,
     activityCommit,
   }));
   return (
@@ -394,6 +447,9 @@ function ProductionThreadsRegressionHarness() {
       </button>
       <button type="button" onClick={() => setLateTailHeight(423)}>
         Settle delayed tail content
+      </button>
+      <button type="button" onClick={() => setProvisionalPriorTailHeight(114)}>
+        Settle prior tail estimate
       </button>
       <button
         type="button"
@@ -422,6 +478,81 @@ function ProductionThreadsRegressionHarness() {
         paddingEnd={16}
         data-testid="production-threads-virtual-scroll"
         style={{ height: 1_058, overflowY: "auto" }}
+      />
+    </div>
+  );
+}
+
+function DelayedNarrowChatRow({
+  id,
+  settledHeight,
+  delay,
+}: {
+  id: string;
+  settledHeight: number;
+  delay: number;
+}) {
+  const [height, setHeight] = useState(90);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setHeight(settledHeight), delay);
+    return () => window.clearTimeout(timeout);
+  }, [delay, settledHeight]);
+  return (
+    <div data-row-id={id} style={{ height }}>
+      {id}
+    </div>
+  );
+}
+
+/** Mirrors the recording: a narrow, running Core transcript remounts after a
+ * thread switch while heterogeneous Markdown/tool rows settle in waves. */
+function RecordedCoreOscillationHarness() {
+  const [activeThread, setActiveThread] = useState<"core" | "other">("core");
+  const [streamRevision, setStreamRevision] = useState(0);
+  useEffect(() => {
+    if (activeThread !== "core") return;
+    const interval = window.setInterval(() => setStreamRevision((current) => current + 1), 85);
+    return () => window.clearInterval(interval);
+  }, [activeThread]);
+  const rows = Array.from({ length: activeThread === "core" ? 82 : 12 }, (_, index) => {
+    const isCore = activeThread === "core";
+    const delayedHeights = new Map<number, number>([
+      [66, 2_900],
+      [69, 6_800],
+      [72, 1_700],
+      [75, 5_200],
+      [78, 3_400],
+      [80, 1_250],
+    ]);
+    return {
+      id: `${activeThread}-row-${index}`,
+      settledHeight: isCore
+        ? (delayedHeights.get(index) ?? (index === 81 ? 260 + (streamRevision % 3) * 48 : 110))
+        : 90,
+      delay: isCore ? ((index - 64 + 20) % 7) * 55 : 0,
+    };
+  });
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setActiveThread((current) => (current === "core" ? "other" : "core"))}
+      >
+        Switch recorded thread
+      </button>
+      <TranscriptVirtualList
+        key={activeThread}
+        viewportMemoryKey={activeThread}
+        data={rows}
+        anchorRevision={`${rows.length}:${rows.at(-1)?.id ?? "empty"}:${streamRevision}`}
+        estimatedItemSize={90}
+        keyExtractor={(row) => row.id}
+        renderItem={(row) => (
+          <DelayedNarrowChatRow id={row.id} settledHeight={row.settledHeight} delay={row.delay} />
+        )}
+        paddingEnd={16}
+        data-testid="recorded-core-virtual-scroll"
+        style={{ width: 400, height: 1_058, overflowY: "auto" }}
       />
     </div>
   );
@@ -491,7 +622,9 @@ describe("TranscriptVirtualList", () => {
       )!;
       expect(scrollElement).not.toHaveAttribute("aria-busy");
       expect(scrollElement).toHaveAttribute("data-initial-placement", "resolved");
-      expect(scrollElement.firstElementChild).toHaveStyle({ visibility: "visible" });
+      expect(scrollElement.firstElementChild).toHaveStyle({
+        visibility: "visible",
+      });
     } finally {
       await screen.unmount();
     }
@@ -911,6 +1044,43 @@ describe("TranscriptVirtualList", () => {
     }
   });
 
+  it("preserves tail ownership when a smooth follow is interrupted by a thread switch", async () => {
+    const screen = await render(<InterruptedTailIntentHarness />);
+    try {
+      let scrollElement = screen.container.querySelector<HTMLElement>(
+        '[data-testid="interrupted-tail-intent-scroll"]',
+      )!;
+      await vi.waitFor(() => expect(scrollElement.scrollTop).toBeGreaterThan(0));
+
+      // Establish a genuine detached reader position first. The subsequent
+      // tail command must synchronously replace that semantic ownership.
+      scrollElement.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -900 }));
+      scrollElement.scrollTop = Math.max(0, scrollElement.scrollTop - 900);
+      scrollElement.dispatchEvent(new Event("scroll", { bubbles: true }));
+
+      await screen.getByText("Follow tail and leave").click();
+      await vi.waitFor(() => {
+        expect(readTranscriptViewportSnapshot("thread-a")?.isAtEnd).toBe(true);
+      });
+
+      await screen.getByText("Return to A").click();
+      await vi.waitFor(() => {
+        scrollElement = screen.container.querySelector<HTMLElement>(
+          '[data-testid="interrupted-tail-intent-scroll"]',
+        )!;
+        const tail = scrollElement.querySelector<HTMLElement>(
+          '[data-row-id="thread-a-intent-row-179"]',
+        );
+        expect(tail).not.toBeNull();
+        expect(
+          scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop,
+        ).toBeLessThanOrEqual(16);
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("does not turn delayed production-scale tail layout into reader detachment", async () => {
     enableChatScrollDiagnostics();
     const screen = await render(<ProductionThreadsRegressionHarness />);
@@ -923,30 +1093,107 @@ describe("TranscriptVirtualList", () => {
           scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop,
         ).toBeLessThanOrEqual(16);
       });
+      resetChatScrollDiagnostics();
 
       // Reproduce the exact ordering from production: a same-key projected
       // activity commit releases initial tail ownership, then ResizeObserver
       // reports a 235px late expansion in the final conversation row.
       await screen.getByText("Commit projected activities").click();
       await settleLayout();
+      await screen.getByText("Settle prior tail estimate").click();
       await screen.getByText("Settle delayed tail content").click();
       await vi.waitFor(() => {
         expect(
           scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop,
         ).toBeLessThanOrEqual(16);
       });
+      expect(
+        getChatScrollDiagnosticSamples().filter(
+          (sample) =>
+            sample.event === "virtual-scroll-write:deferred" &&
+            Math.abs(Number(sample.detail.adjustments ?? 0)) > 0.5,
+        ),
+      ).toEqual([]);
 
       await screen.getByText("Switch production thread").click();
       await vi.waitFor(() => expect(readTranscriptViewportSnapshot("threads")?.isAtEnd).toBe(true));
       await screen.getByText("Switch production thread").click();
+      await vi.waitFor(
+        () => {
+          scrollElement = screen.container.querySelector<HTMLElement>(
+            '[data-testid="production-threads-virtual-scroll"]',
+          )!;
+          const distanceFromEnd =
+            scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop;
+          expect(
+            distanceFromEnd,
+            JSON.stringify(getChatScrollDiagnosticSamples().slice(-24)),
+          ).toBeLessThanOrEqual(16);
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("does not repaint older Core regions after revealing a remounted running tail", async () => {
+    enableChatScrollDiagnostics();
+    const screen = await render(<RecordedCoreOscillationHarness />);
+    try {
+      const switchThread = screen.getByText("Switch recorded thread");
+      await switchThread.click();
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
+      await switchThread.click();
+      const scrollElement = screen.container.querySelector<HTMLElement>(
+        '[data-testid="recorded-core-virtual-scroll"]',
+      )!;
       await vi.waitFor(() => {
-        scrollElement = screen.container.querySelector<HTMLElement>(
-          '[data-testid="production-threads-virtual-scroll"]',
-        )!;
-        expect(
-          scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop,
-        ).toBeLessThanOrEqual(16);
+        expect(scrollElement).toHaveAttribute("data-initial-placement", "resolved");
+        const tail = scrollElement.querySelector<HTMLElement>('[data-row-id="core-row-81"]');
+        expect(tail).not.toBeNull();
       });
+
+      const visibleAnchors: string[] = [];
+      const tailBottomOffsets: number[] = [];
+      const incorrectFrames: Array<Record<string, unknown>> = [];
+      for (let frame = 0; frame < 70; frame += 1) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const viewport = scrollElement.getBoundingClientRect();
+        const visible = Array.from(
+          scrollElement.querySelectorAll<HTMLElement>("[data-row-id]"),
+        ).filter((row) => {
+          const rect = row.getBoundingClientRect();
+          return rect.bottom > viewport.top && rect.top < viewport.bottom;
+        });
+        const visibleTailId = visible.at(-1)?.dataset.rowId ?? "none";
+        visibleAnchors.push(visibleTailId);
+        if (visibleTailId !== "core-row-81") {
+          incorrectFrames.push({
+            frame,
+            visibleTailId,
+            scrollTop: scrollElement.scrollTop,
+            scrollHeight: scrollElement.scrollHeight,
+            placement: scrollElement.getAttribute("data-initial-placement"),
+          });
+        }
+        const tail = scrollElement.querySelector<HTMLElement>('[data-row-id="core-row-81"]');
+        if (tail) {
+          tailBottomOffsets.push(tail.getBoundingClientRect().bottom - viewport.bottom);
+        }
+      }
+
+      expect(new Set(visibleAnchors), JSON.stringify(incorrectFrames)).toEqual(
+        new Set(["core-row-81"]),
+      );
+      // Following a growing tail may move scrollTop by thousands of pixels,
+      // but the causal tail itself must stay at one screen position. This is
+      // the visual invariant the production recording violated: an estimate
+      // correction and the explicit end correction alternated between two
+      // different bottom targets on successive paints.
+      expect(Math.max(...tailBottomOffsets) - Math.min(...tailBottomOffsets)).toBeLessThanOrEqual(
+        1,
+      );
     } finally {
       await screen.unmount();
     }

@@ -3,6 +3,7 @@
 // Layer: Web chat infrastructure
 
 import {
+  defaultRangeExtractor,
   elementScroll,
   measureElement as measureVirtualElement,
   useVirtualizer,
@@ -21,7 +22,9 @@ import {
 
 import {
   areChatScrollDiagnosticsEnabled,
+  markChatScrollWrite,
   nextChatScrollDiagnosticInstanceId,
+  readChatScrollWriteAttribution,
   recordChatScrollDiagnostic,
 } from "../../chatScrollDiagnostics";
 import {
@@ -102,10 +105,15 @@ function TranscriptVirtualListInner<TItem>(
   const previousAnchorRevisionRef = useRef(anchorRevision);
   const hasSemanticAppend = previousAnchorRevisionRef.current !== anchorRevision;
   const wasAtEndRef = useRef(initialViewportSnapshotRef.current?.isAtEnd !== false);
-  // Rendered-tail heuristics compensate for provisional virtual measurements,
-  // but explicit reader intent outranks those heuristics until real DOM
-  // geometry reaches the end again.
-  const readerDetachedRef = useRef(initialViewportSnapshotRef.current?.isAtEnd === false);
+  // Scroll ownership is semantic state, not a geometry heuristic. In
+  // particular, a native smooth scroll can be interrupted by a thread switch
+  // while its pixels are still far from the tail. Persisting those in-flight
+  // pixels as a reader-authored anchor makes the next mount jump backwards.
+  // Keep exactly one owner until explicit reader input or arrival at the real
+  // tail transfers it.
+  const scrollOwnerRef = useRef<"tail" | "reader">(
+    initialViewportSnapshotRef.current?.isAtEnd === false ? "reader" : "tail",
+  );
   const shouldEndAnchor = hasSemanticAppend && wasAtEndRef.current;
   const previousFirstKey = previousDataKeysRef.current.at(0);
   const hasLeadingPrepend =
@@ -134,6 +142,20 @@ function TranscriptVirtualListInner<TItem>(
     getScrollElement: () => scrollElementRef.current,
     estimateSize: () => estimatedItemSize,
     getItemKey,
+    // While following, keep the causal tail mounted even if a large
+    // above-viewport measurement temporarily makes the calculated range point
+    // at an older region. The tail costs one extra row and gives the
+    // ResizeObserver correction a stable DOM anchor; without it, the range can
+    // paint that older region for one frame before end convergence remounts
+    // the tail. Reader-owned ranges remain fully standard.
+    rangeExtractor: (range) => {
+      const indexes = defaultRangeExtractor(range);
+      const tailIndex = data.length - 1;
+      if (scrollOwnerRef.current === "tail" && tailIndex >= 0 && !indexes.includes(tailIndex)) {
+        indexes.push(tailIndex);
+      }
+      return indexes;
+    },
     // A chat transcript is bottom-first. Seed the virtualizer near the final
     // row (or remembered detached anchor) before it chooses its first range;
     // starting at offset zero makes long threads traverse every estimated
@@ -172,6 +194,12 @@ function TranscriptVirtualListInner<TItem>(
         const element = scrollElementRef.current;
         const before = element?.scrollTop ?? null;
         elementScroll(offset, options, instance);
+        markChatScrollWrite(element, {
+          owner: "virtualizer:scroll-to-fn",
+          requestedTop: offset + (options.adjustments ?? 0),
+          beforeTop: before,
+          afterTop: element?.scrollTop ?? null,
+        });
         recordChatScrollDiagnostic({
           instanceId: diagnosticInstanceIdRef.current!,
           event: "virtual-scroll-write:applied",
@@ -259,7 +287,29 @@ function TranscriptVirtualListInner<TItem>(
               const viewportRect = scrollElement.getBoundingClientRect();
               const tailRect = tailElement.getBoundingClientRect();
               const targetBottom = viewportRect.bottom - paddingEnd;
+              const beforeTop = scrollElement.scrollTop;
+              const requestedTop = beforeTop + tailRect.bottom - targetBottom;
               scrollElement.scrollTop += tailRect.bottom - targetBottom;
+              markChatScrollWrite(scrollElement, {
+                owner: "list:measured-tail-alignment",
+                requestedTop,
+                beforeTop,
+                afterTop: scrollElement.scrollTop,
+              });
+              recordChatScrollDiagnostic({
+                instanceId: diagnosticInstanceIdRef.current!,
+                event: "scroll-write:measured-tail-alignment",
+                dataCount: data.length,
+                anchorRevision,
+                element: scrollElement,
+                virtualizer: instance,
+                detail: {
+                  measuredKey,
+                  beforeTop,
+                  requestedTop,
+                  afterTop: scrollElement.scrollTop,
+                },
+              });
               if (
                 instance.scrollOffset !== null &&
                 Math.abs(instance.scrollOffset - scrollElement.scrollTop) > 0.5
@@ -300,6 +350,14 @@ function TranscriptVirtualListInner<TItem>(
     // ResizeObserver loop without adding a second scroll correction owner.
     useAnimationFrameWithResizeObserver: true,
   });
+  // TanStack's default keeps the current top-side item stable when a row above
+  // the viewport changes size. That is correct for a detached reader, but it
+  // competes with our causal-tail alignment while following a live turn: one
+  // writer preserves the old top anchor while another preserves the tail,
+  // producing the recorded up/down oscillation. This callback is an instance
+  // policy (not a hook option), so assign it synchronously on every render.
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
+    scrollOwnerRef.current === "reader" && item.end <= (instance.scrollOffset ?? 0) + 0.5;
   const diagnosticTimeoutsRef = useRef<number[]>([]);
   const isAtRenderedTail = useCallback(
     (threshold = END_THRESHOLD_PX) => {
@@ -335,6 +393,8 @@ function TranscriptVirtualListInner<TItem>(
     },
     [anchorRevision, data.length, virtualizer],
   );
+  const recordDiagnosticRef = useRef(recordDiagnostic);
+  recordDiagnosticRef.current = recordDiagnostic;
   const resolveInitialPlacement = useCallback(
     (source: string) => {
       if (initialPlacementResolvedRef.current) return;
@@ -360,11 +420,17 @@ function TranscriptVirtualListInner<TItem>(
     (source: string) => {
       if (!areChatScrollDiagnosticsEnabled()) return;
       window.requestAnimationFrame(() => {
-        recordDiagnostic("scroll-checkpoint", { source, checkpoint: "next-frame" });
+        recordDiagnostic("scroll-checkpoint", {
+          source,
+          checkpoint: "next-frame",
+        });
       });
       for (const delayMs of [80, 260, 1_000, 2_000]) {
         const timeoutId = window.setTimeout(() => {
-          recordDiagnostic("scroll-checkpoint", { source, checkpoint: `${delayMs}ms` });
+          recordDiagnostic("scroll-checkpoint", {
+            source,
+            checkpoint: `${delayMs}ms`,
+          });
         }, delayMs);
         diagnosticTimeoutsRef.current.push(timeoutId);
       }
@@ -390,8 +456,7 @@ function TranscriptVirtualListInner<TItem>(
       0,
       element.scrollHeight - element.clientHeight - element.scrollTop,
     );
-    const isAtEnd =
-      !readerDetachedRef.current && (initialEndFollowEligibleRef.current || isAtRenderedTail());
+    const isAtEnd = scrollOwnerRef.current === "tail";
     const virtualItems = virtualizer.getVirtualItems();
     const anchor =
       virtualItems.find((item) => item.end > element.scrollTop + 0.5) ?? virtualItems.at(0) ?? null;
@@ -411,7 +476,7 @@ function TranscriptVirtualListInner<TItem>(
       anchorOffset,
       isAtEnd,
     });
-  }, [isAtRenderedTail, recordDiagnostic, viewportMemoryKey, virtualizer]);
+  }, [recordDiagnostic, viewportMemoryKey, virtualizer]);
   const captureViewportRef = useRef(captureViewport);
   captureViewportRef.current = captureViewport;
   useLayoutEffect(() => {
@@ -444,6 +509,20 @@ function TranscriptVirtualListInner<TItem>(
     ref,
     () => ({
       scrollToEnd: (options) => {
+        // Acquire tail ownership before starting the DOM motion. Cleanup may
+        // run before a smooth scroll reaches its target, and must preserve the
+        // requested destination rather than its transient pixel offset.
+        scrollOwnerRef.current = "tail";
+        wasAtEndRef.current = true;
+        if (initialAnchorRestoreActiveRef.current) {
+          initialAnchorRestoreActiveRef.current = false;
+          if (initialAnchorRestoreTimerRef.current !== null) {
+            window.clearTimeout(initialAnchorRestoreTimerRef.current);
+            initialAnchorRestoreTimerRef.current = null;
+          }
+          initialEndFollowEligibleRef.current = true;
+          initialEndFollowRef.current = true;
+        }
         recordDiagnostic("imperative-scroll-to-end:before", {
           animated: options?.animated ?? false,
           initialPlacementResolved: initialPlacementResolvedRef.current,
@@ -456,9 +535,17 @@ function TranscriptVirtualListInner<TItem>(
           // up to five seconds. DOM scrolling has the ownership semantics a
           // chat needs: native input cancels smooth motion, and an auto write
           // has no latent target to replay after detachment.
+          const beforeTop = element.scrollTop;
+          const requestedTop = element.scrollHeight;
           element.scrollTo({
             top: element.scrollHeight,
             behavior: options?.animated ? "smooth" : "auto",
+          });
+          markChatScrollWrite(element, {
+            owner: "list:imperative-scroll-to-end",
+            requestedTop,
+            beforeTop,
+            afterTop: element.scrollTop,
           });
           if (
             options?.animated !== true &&
@@ -474,6 +561,11 @@ function TranscriptVirtualListInner<TItem>(
         scheduleDiagnosticCheckpoints("imperative-scroll-to-end");
       },
       scrollToIndex: (options) => {
+        // Search/jump navigation is an explicit request to leave the tail.
+        // Preserve that destination across a thread switch just like a reader
+        // scroll, even if its smooth motion is interrupted.
+        scrollOwnerRef.current = "reader";
+        wasAtEndRef.current = false;
         virtualizer.scrollToIndex(options.index, {
           align: alignFromViewPosition(options.viewPosition),
           behavior: options.animated ? "smooth" : "auto",
@@ -481,20 +573,13 @@ function TranscriptVirtualListInner<TItem>(
       },
       getScrollableNode: () => scrollElementRef.current,
       getState: () => ({
-        // While the list still owns initial end-follow, transient virtual
-        // estimates must not advertise a reader-authored scroll-away to the
-        // parent. Explicit reader input revokes this ownership synchronously.
-        isAtEnd:
-          !readerDetachedRef.current && (initialEndFollowEligibleRef.current || isAtRenderedTail()),
+        // Transient virtual estimates must not advertise a reader-authored
+        // scroll-away to the parent. Explicit reader input transfers this
+        // ownership synchronously.
+        isAtEnd: scrollOwnerRef.current === "tail",
       }),
     }),
-    [
-      isAtRenderedTail,
-      recordDiagnostic,
-      scheduleDiagnosticCheckpoints,
-      viewportMemoryKey,
-      virtualizer,
-    ],
+    [recordDiagnostic, scheduleDiagnosticCheckpoints, viewportMemoryKey, virtualizer],
   );
 
   const didInitialScrollRef = useRef(false);
@@ -536,7 +621,33 @@ function TranscriptVirtualListInner<TItem>(
         }
 
         initialEndFrameCountRef.current += 1;
-        element.scrollTop = element.scrollHeight;
+        const beforeTop = element.scrollTop;
+        const ownedTailKey = initialEndFollowTailKeyRef.current;
+        const tailElement = Array.from(
+          element.querySelectorAll<HTMLElement>("[data-row-key]"),
+        ).find((candidate) => candidate.getAttribute("data-row-key") === ownedTailKey);
+        let requestedTop = element.scrollHeight;
+        if (tailElement) {
+          // Use the same causal-tail target as ResizeObserver corrections.
+          // `scrollHeight` also contains virtual padding and provisional
+          // estimates; alternating between those two targets made the live
+          // tail move by one row gap on successive paints.
+          const viewportRect = element.getBoundingClientRect();
+          const tailRect = tailElement.getBoundingClientRect();
+          requestedTop = beforeTop + tailRect.bottom - (viewportRect.bottom - paddingEnd);
+          element.scrollTop = requestedTop;
+        } else {
+          // The first estimated range may not contain the tail yet. Move to
+          // the provisional end once so the virtualizer mounts it; the next
+          // correction aligns the real tail rectangle before reveal.
+          element.scrollTop = element.scrollHeight;
+        }
+        markChatScrollWrite(element, {
+          owner: "list:initial-end-correction",
+          requestedTop,
+          beforeTop,
+          afterTop: element.scrollTop,
+        });
         if (
           virtualizer.scrollOffset !== null &&
           Math.abs(virtualizer.scrollOffset - element.scrollTop) > 0.5
@@ -634,7 +745,16 @@ function TranscriptVirtualListInner<TItem>(
       initialAnchorRestoreAttemptRef.current += 1;
       const virtualItem = virtualizer.getVirtualItems().find((item) => item.index === targetIndex);
       if (!virtualItem) {
-        virtualizer.scrollToIndex(targetIndex, { align: "start", behavior: "auto" });
+        markChatScrollWrite(element, {
+          owner: "list:anchor-restore-index",
+          requestedTop: null,
+          beforeTop: element.scrollTop,
+          afterTop: element.scrollTop,
+        });
+        virtualizer.scrollToIndex(targetIndex, {
+          align: "start",
+          behavior: "auto",
+        });
         initialAnchorRestoreStableTicksRef.current = 0;
         initialAnchorRestoreLastTargetOffsetRef.current = null;
       } else {
@@ -646,7 +766,14 @@ function TranscriptVirtualListInner<TItem>(
           0,
           element.scrollTop + currentAnchorOffset - snapshot.anchorOffset,
         );
+        const beforeTop = element.scrollTop;
         element.scrollTop = targetOffset;
+        markChatScrollWrite(element, {
+          owner: "list:anchor-restore-offset",
+          requestedTop: targetOffset,
+          beforeTop,
+          afterTop: element.scrollTop,
+        });
         if (
           virtualizer.scrollOffset !== null &&
           Math.abs(virtualizer.scrollOffset - element.scrollTop) > 0.5
@@ -697,11 +824,11 @@ function TranscriptVirtualListInner<TItem>(
   scheduleInitialAnchorRestoreRef.current = scheduleInitialAnchorRestore;
 
   useLayoutEffect(() => {
-    recordDiagnostic("initial-placement:mounted", {
+    recordDiagnosticRef.current("initial-placement:mounted", {
       memoryKey: viewportMemoryKey ?? null,
       mode: initialAnchorRestoreActiveRef.current ? "restore-anchor" : "tail",
     });
-  }, [recordDiagnostic, viewportMemoryKey]);
+  }, [viewportMemoryKey]);
 
   useLayoutEffect(() => {
     const previousKeys = previousDataKeysRef.current;
@@ -768,6 +895,58 @@ function TranscriptVirtualListInner<TItem>(
   }, [anchorRevision, data, hasData, keyExtractor, recordDiagnostic, scheduleInitialEndCorrection]);
 
   const virtualItems = virtualizer.getVirtualItems();
+
+  useEffect(() => {
+    if (!areChatScrollDiagnosticsEnabled()) return;
+    let frameId = 0;
+    let remainingFrames = 240;
+    let previous:
+      | {
+          scrollTop: number;
+          scrollHeight: number;
+          clientHeight: number;
+          anchorKey: string | null;
+        }
+      | undefined;
+    const sampleFrame = () => {
+      const element = scrollElementRef.current;
+      if (!element || remainingFrames <= 0) return;
+      remainingFrames -= 1;
+      const rendered = virtualizer.getVirtualItems();
+      const anchor =
+        rendered.find((item) => item.end > element.scrollTop + 0.5) ?? rendered.at(0) ?? null;
+      const next = {
+        scrollTop: element.scrollTop,
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight,
+        anchorKey: anchor ? String(anchor.key) : null,
+      };
+      if (
+        !previous ||
+        Math.abs(previous.scrollTop - next.scrollTop) > 0.5 ||
+        Math.abs(previous.scrollHeight - next.scrollHeight) > 0.5 ||
+        Math.abs(previous.clientHeight - next.clientHeight) > 0.5 ||
+        previous.anchorKey !== next.anchorKey
+      ) {
+        const attribution = readChatScrollWriteAttribution(element);
+        recordDiagnostic("frame-geometry-change", {
+          frame: 240 - remainingFrames,
+          memoryKey: viewportMemoryKey ?? null,
+          previous: previous ?? null,
+          next,
+          lastWriter: attribution?.owner ?? "unattributed",
+          lastWriteSequence: attribution?.sequence ?? null,
+          lastWriteAgeMs: attribution ? performance.now() - attribution.recordedAt : null,
+          lastRequestedTop: attribution?.requestedTop ?? null,
+        });
+      }
+      previous = next;
+      frameId = window.requestAnimationFrame(sampleFrame);
+    };
+    frameId = window.requestAnimationFrame(sampleFrame);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [recordDiagnostic, viewportMemoryKey, virtualizer]);
+
   const containerStyle: CSSProperties = {
     position: "relative",
     width: "100%",
@@ -782,24 +961,25 @@ function TranscriptVirtualListInner<TItem>(
       const element = event.currentTarget;
       const distanceFromEnd = element.scrollHeight - element.clientHeight - element.scrollTop;
       if (distanceFromEnd <= END_THRESHOLD_PX) {
-        readerDetachedRef.current = false;
+        scrollOwnerRef.current = "tail";
       }
       // ResizeObserver and virtualizer corrections also emit scroll events.
       // They are not reader intent and may temporarily move geometry away from
       // the end while dynamic tail rows settle. Explicit input handlers below
       // revoke ownership before their resulting scroll event reaches here.
-      wasAtEndRef.current =
-        !readerDetachedRef.current && (initialEndFollowEligibleRef.current || isAtRenderedTail());
+      wasAtEndRef.current = scrollOwnerRef.current === "tail";
       recordDiagnostic("dom-scroll", {
         wasAtEnd: wasAtEndRef.current,
         distanceFromEnd,
+        isTrusted: event.nativeEvent.isTrusted,
+        lastWriter: readChatScrollWriteAttribution(element)?.owner ?? "unattributed",
       });
       if (element.scrollTop <= START_PAGINATION_THRESHOLD_PX) {
         onNearStart?.();
       }
       onScroll?.(event);
     },
-    [isAtRenderedTail, onNearStart, onScroll, recordDiagnostic],
+    [onNearStart, onScroll, recordDiagnostic],
   );
 
   useLayoutEffect(() => {
@@ -818,7 +998,7 @@ function TranscriptVirtualListInner<TItem>(
       data-initial-placement={initialPlacementResolvedRef.current ? "resolved" : "pending"}
       onKeyDown={(event) => {
         if (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home") {
-          readerDetachedRef.current = true;
+          scrollOwnerRef.current = "reader";
           wasAtEndRef.current = false;
         }
         cancelInitialPlacement("keyboard");
@@ -828,7 +1008,7 @@ function TranscriptVirtualListInner<TItem>(
         // A pointer directly on the scroll viewport can be a scrollbar drag.
         // Nested transcript interaction does not imply scroll ownership.
         if (event.target === event.currentTarget) {
-          readerDetachedRef.current = true;
+          scrollOwnerRef.current = "reader";
           wasAtEndRef.current = false;
         }
         cancelInitialPlacement("pointer");
@@ -840,7 +1020,7 @@ function TranscriptVirtualListInner<TItem>(
         onTouchStart?.(event);
       }}
       onTouchMove={(event) => {
-        readerDetachedRef.current = true;
+        scrollOwnerRef.current = "reader";
         wasAtEndRef.current = false;
         onTouchMove?.(event);
       }}
@@ -851,7 +1031,7 @@ function TranscriptVirtualListInner<TItem>(
           deltaMode: event.deltaMode,
         });
         if (event.deltaY < 0) {
-          readerDetachedRef.current = true;
+          scrollOwnerRef.current = "reader";
           wasAtEndRef.current = false;
         }
         cancelInitialPlacement("wheel");
