@@ -53,7 +53,7 @@ export function RuntimeUsageControls({
                   render={
                     <Button
                       size="sm"
-                      variant="chrome"
+                      variant="ghost"
                       className={cn(
                         "!h-[26px] min-w-0 shrink-0 justify-start gap-1 whitespace-nowrap rounded-full px-1.5 font-normal sm:!h-[26px] sm:px-1.5 [&_svg]:mx-0",
                         COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,

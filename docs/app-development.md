@@ -341,13 +341,16 @@ call is re-authorized against the host-owned App, Space, Thread, tab, installati
 state; messages cannot select another origin or renderer. Reload creates a new port and invalidates
 old tab references without changing the App×Space origin.
 
-The operation controller is not a hidden webpage and cannot inspect the shell or any App tab DOM.
+The operation controller is not a hidden webpage and receives no shell or App-tab DOM access from
+the controller SDK.
 Penkra starts one dedicated Node process for each active App installation and Space, loads the declared
 `operations.js`, and exposes its narrow SDK as `globalThis.penkra` and through
 `@penkra/sdk/controller`. Controller
 code may use standard Node facilities such as `node:fs`, `Buffer`, `fetch`, `node:crypto`, streams,
-and packaged JavaScript dependencies. The initial controller policy disables child processes,
-worker threads, WASI, and native add-ons; use a host SDK service when work genuinely needs a
+and packaged dependencies, including child processes, worker threads, WASI, and compatible native
+add-ons. Controllers run with the user's OS permissions, not a Node permission sandbox.
+Apps are responsible for stopping subprocesses they launch; Penkra does not guarantee descendant
+cleanup when a controller exits. Use a host SDK service when work genuinely needs a
 Penkra-owned native lifecycle, such as Simulator. A controller crash disables that App runtime in
 the affected Space and cancels its outstanding operations; it does not compromise a visual tab's
 browser boundary.
@@ -375,7 +378,7 @@ The runtime boundary determines the API; whether code belongs to the same App do
 
 Permissions describe privileged Penkra services. They are not a complete description of everything
 controller code can do: the controller is packaged Node code and can use ordinary Node networking
-and filesystem APIs within its process policy. Review both the manifest declarations and the
+and filesystem APIs with the user's OS permissions. Review both the manifest declarations and the
 controller bundle and dependencies.
 
 Every permission declaration has a supported lowercase `name`, a boolean `required`, and a concise,

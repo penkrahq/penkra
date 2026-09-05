@@ -91,7 +91,7 @@ describe("ElectronAppControllerProcessFactory", () => {
     });
   });
 
-  it("starts a dedicated permission-bounded Node process and waits for controller readiness", async () => {
+  it("starts a dedicated Node process without inherited runtime flags and waits for readiness", async () => {
     const test = fixture();
     const controller = test.factory.create({
       installedApp: test.app,
@@ -106,7 +106,7 @@ describe("ElectronAppControllerProcessFactory", () => {
       ["/profile/apps/com.acme.linear/1.0.0/operations.js", "com.acme.linear"],
       expect.objectContaining({
         cwd: "/profile/apps/com.acme.linear/1.0.0",
-        execArgv: ["--permission", "--allow-fs-read=*", "--allow-fs-write=*", "--no-addons"],
+        execArgv: [],
         execPath: process.execPath,
         env: expect.objectContaining({ ELECTRON_RUN_AS_NODE: "1" }),
         serialization: "advanced",

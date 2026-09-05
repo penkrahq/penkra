@@ -7,6 +7,9 @@ import { providerUsageLearnMoreHref } from "@penkra/shared/providerUsage";
 
 export interface RateLimitWindow {
   window: string;
+  bucketId?: string;
+  bucketName?: string;
+  observedAt?: string;
   usedPercent?: number;
   utilization?: number;
   resetsAt?: string;
@@ -331,9 +334,13 @@ export function deriveVisibleRateLimitRows(
       const usedPercent = resolveUsedPercent(limit);
       if (usedPercent === undefined) continue;
 
-      const label = normalizeRateLimitLabel(limit.window, limit.windowDurationMins);
+      const windowLabel = normalizeRateLimitLabel(limit.window, limit.windowDurationMins);
+      const label = limit.bucketName ? `${limit.bucketName} · ${windowLabel}` : windowLabel;
+      const rowKey = limit.bucketId
+        ? JSON.stringify([rateLimit.provider, limit.bucketId, windowLabel])
+        : label;
       const row = {
-        id: `${rateLimit.provider}-${label}`,
+        id: limit.bucketId ? rowKey : `${rateLimit.provider}-${label}`,
         label,
         remainingPercent: Math.round(100 - usedPercent),
         ...(limit.resetsAt ? { resetsAt: limit.resetsAt } : {}),
@@ -343,9 +350,9 @@ export function deriveVisibleRateLimitRows(
         usedPercent,
       };
 
-      const existing = rowsByLabel.get(label);
+      const existing = rowsByLabel.get(rowKey);
       if (!existing || usedPercent > existing.usedPercent) {
-        rowsByLabel.set(label, row);
+        rowsByLabel.set(rowKey, row);
       }
     }
   }

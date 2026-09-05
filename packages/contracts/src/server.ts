@@ -111,6 +111,9 @@ export type ServerListWorktreesResult = typeof ServerListWorktreesResult.Type;
 
 export const ServerProviderUsageLimit = Schema.Struct({
   window: TrimmedNonEmptyString,
+  bucketId: Schema.optional(TrimmedNonEmptyString),
+  bucketName: Schema.optional(TrimmedNonEmptyString),
+  observedAt: Schema.optional(IsoDateTime),
   usedPercent: Schema.optional(
     Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)).check(Schema.isLessThanOrEqualTo(100)),
   ),

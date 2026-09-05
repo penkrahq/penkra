@@ -45,6 +45,9 @@ export function normalizeServerProviderUsageRateLimit(
     updatedAt: snapshot.updatedAt,
     limits: snapshot.limits.map((limit) => ({
       window: limit.window,
+      ...(limit.bucketId ? { bucketId: limit.bucketId } : {}),
+      ...(limit.bucketName ? { bucketName: limit.bucketName } : {}),
+      ...(limit.observedAt ? { observedAt: limit.observedAt } : {}),
       ...(limit.usedPercent !== undefined ? { usedPercent: limit.usedPercent } : {}),
       ...(limit.resetsAt ? { resetsAt: limit.resetsAt } : {}),
       ...(limit.windowDurationMins !== undefined

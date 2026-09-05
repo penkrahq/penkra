@@ -189,8 +189,7 @@ export const COMPOSER_COMMAND_MENU_ITEM_ACTIVE_CLASS_NAME =
 
 export const COMPOSER_INPUT_SURFACE_BANNER_CLASS_NAME = `chat-composer-surface-banner border-b ${COMPOSER_SURFACE_BORDER_CLASS_NAME} bg-[var(--color-background-elevated-secondary)]`;
 
-export const RUNTIME_FULL_ACCESS_ACCENT_CLASS_NAME =
-  "text-[var(--runtime-full-access-accent)] hover:opacity-85";
+export const RUNTIME_FULL_ACCESS_ACCENT_CLASS_NAME = "text-[var(--runtime-full-access-accent)]";
 
 /** Pencil composer baseline: 13px editor text on a 16px line box. */
 export const COMPOSER_EDITOR_LINE_HEIGHT_CLASS_NAME = "leading-4";

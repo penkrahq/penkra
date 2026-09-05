@@ -5,6 +5,7 @@ import type { ServerProviderUsageLimit, ServerProviderUsageSnapshot } from "@pen
 
 import type { ConnectionRateLimitFactRecord } from "../persistence/Services/ConnectionUsageFacts";
 import { asFiniteNumber, asRecord, clampPercent, isoFromUnixSeconds } from "./parse";
+import { codexQuotaObservations } from "./codexQuotaBuckets";
 
 function usedPercent(value: Record<string, unknown>): number | undefined {
   const direct = asFiniteNumber(value.usedPercent);
@@ -114,7 +115,24 @@ export function snapshotFromConnectionRateLimitFact(
   } catch {
     return null;
   }
-  const limits = extractLimits(payload);
+  const buckets =
+    fact.provider === "codex" ? codexQuotaObservations(payload, fact.updatedAt) : new Map();
+  const limits: ServerProviderUsageLimit[] =
+    buckets.size > 0
+      ? [...buckets].flatMap(([bucketId, observation]) => {
+          const suppliedName =
+            typeof observation.bucket.limitName === "string"
+              ? observation.bucket.limitName.trim()
+              : "";
+          const bucketName = suppliedName || (bucketId === "codex" ? "" : bucketId);
+          return extractLimits(observation.bucket).map((limit) => ({
+            ...limit,
+            bucketId,
+            observedAt: observation.observedAt,
+            ...(bucketName ? { bucketName } : {}),
+          }));
+        })
+      : extractLimits(payload);
   if (limits.length === 0) return null;
   return {
     provider: fact.provider,
@@ -142,6 +160,13 @@ export function mergeConnectionUsageSnapshots(input: {
   readonly fetched: ServerProviderUsageSnapshot;
 }): ServerProviderUsageSnapshot {
   if (!input.runtime) return input.fetched;
+  if (
+    (input.fetched.status ?? "ok") === "ok" &&
+    input.fetched.limits.length === 0 &&
+    input.fetched.usageLines.length === 0
+  ) {
+    return input.runtime;
+  }
   if (input.fetched.status === "error") {
     return {
       ...input.runtime,
@@ -152,10 +177,16 @@ export function mergeConnectionUsageSnapshots(input: {
   if ((input.fetched.status ?? "ok") !== "ok") return input.fetched;
 
   const limitsByWindow = new Map(
-    input.runtime.limits.map((limit) => [normalizedWindowKey(limit.window), limit] as const),
+    input.runtime.limits.map(
+      (limit) =>
+        [
+          JSON.stringify([limit.bucketId ?? null, normalizedWindowKey(limit.window)]),
+          limit,
+        ] as const,
+    ),
   );
   for (const limit of input.fetched.limits) {
-    const key = normalizedWindowKey(limit.window);
+    const key = JSON.stringify([limit.bucketId ?? null, normalizedWindowKey(limit.window)]);
     limitsByWindow.set(key, { ...limitsByWindow.get(key), ...limit });
   }
   const usageLinesByLabel = new Map(
