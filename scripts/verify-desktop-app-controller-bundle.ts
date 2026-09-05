@@ -17,7 +17,10 @@ const DEFAULT_RUNNER_PATH = resolve(
   SCRIPT_DIRECTORY,
   "../apps/desktop/dist-electron/appNodeControllerRunner.js",
 );
-const require = createRequire(import.meta.url);
+// Resolve the executable from the workspace that owns Electron. Bun may hoist
+// it at the repository root locally, but a clean workspace install is allowed
+// to keep it beneath apps/desktop/node_modules.
+const requireDesktop = createRequire(resolve(SCRIPT_DIRECTORY, "../apps/desktop/package.json"));
 
 export function inspectDesktopAppControllerBundle(source: string): string[] {
   const failures: string[] = [];
@@ -146,7 +149,7 @@ function assertControllerSmokeResult(value: unknown): void {
 }
 
 function resolveElectronExecutable(): string {
-  const executable = require("electron");
+  const executable = requireDesktop("electron");
   if (typeof executable !== "string" || executable.trim().length === 0) {
     throw new Error("The Electron package did not resolve to an executable path.");
   }
