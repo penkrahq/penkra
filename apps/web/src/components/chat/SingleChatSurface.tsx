@@ -7,6 +7,7 @@ import { canComposerHandlePanelWidth } from "../../lib/panelResize";
 import {
   ThreadResourceOpenerContext,
   createThreadResourceOpener,
+  showThreadResourceContextMenu,
 } from "../../lib/threadResourceOpener";
 import { selectRightDockState, useRightDockStore } from "../../rightDockStore";
 import type { RightDockPane } from "../../rightDockStore.logic";
@@ -394,6 +395,19 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME,
           "relative",
         )}
+        onContextMenuCapture={(event) => {
+          if (
+            !showThreadResourceContextMenu({
+              opener: resourceOpener,
+              target: event.target,
+              position: { x: event.clientX, y: event.clientY },
+            })
+          ) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+        }}
       >
         <div className="flex h-full min-h-0 flex-1" style={{ minWidth: THREAD_PANEL_MIN_WIDTH }}>
           <RouteInsetSurface

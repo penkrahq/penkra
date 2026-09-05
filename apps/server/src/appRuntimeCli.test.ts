@@ -149,10 +149,63 @@ describe("penkra_exec_command structure", () => {
     });
   });
 
-  it("rejects duplicate options instead of silently choosing one", () => {
-    expect(() => parsePenkraCommand("canvas documents create --title One --title Two")).toThrow(
-      "only once",
+  it("keeps escaped JSON inside a double-quoted input value", () => {
+    expect(
+      parsePenkraCommand(
+        'penkra threads wait --input "{\\"threadIds\\":[\\"thread-1\\"],\\"timeoutMs\\":0}"',
+      ),
+    ).toMatchObject({
+      command: ["penkra", "threads", "wait"],
+      input: { threadIds: ["thread-1"], timeoutMs: 0 },
+    });
+  });
+
+  it("does not evaluate shell-looking content while tokenizing", () => {
+    expect(
+      parsePenkraCommand('penkra threads send --message "Use $HOME and `whoami` literally"'),
+    ).toMatchObject({
+      command: ["penkra", "threads", "send"],
+      flags: { message: "Use $HOME and `whoami` literally" },
+    });
+  });
+
+  it("rejects unterminated quoted values", () => {
+    expect(() => parsePenkraCommand('penkra threads send --message "unfinished')).toThrow(
+      "unterminated double-quoted value",
     );
+  });
+
+  it("rejects duplicate options instead of silently choosing one", () => {
+    const parsed = parsePenkraCommand("canvas documents create --title One --title Two");
+    expect(() =>
+      parseOperationInput(
+        {
+          type: "object",
+          properties: { title: { type: "string" } },
+          additionalProperties: false,
+        },
+        parsed.input,
+        parsed.flags ?? {},
+      ),
+    ).toThrow("only once");
+  });
+
+  it("preserves repeated flags for schema-declared string arrays", () => {
+    const parsed = parsePenkraCommand(
+      "penkra threads wait --thread-id thread-a --thread-id thread-b",
+    );
+    expect(
+      parseOperationInput(
+        {
+          type: "object",
+          properties: { threadId: { type: "array", items: { type: "string" } } },
+          required: ["threadId"],
+          additionalProperties: false,
+        },
+        parsed.input,
+        parsed.flags ?? {},
+      ),
+    ).toEqual({ threadId: ["thread-a", "thread-b"] });
   });
 
   it("reports exact App publication validator findings through the status command", async () => {

@@ -282,20 +282,34 @@ describe("AppCommandPipeServer", () => {
     const path = Path.join(directory, "command.sock");
     let operationSignal: AbortSignal | undefined;
     let resolveAborted!: () => void;
-    const observedAbort = new Promise<void>((resolve) => { resolveAborted = resolve; });
+    const observedAbort = new Promise<void>((resolve) => {
+      resolveAborted = resolve;
+    });
     const invoke = vi.fn(async (input: { signal: AbortSignal }) => {
       operationSignal = input.signal;
       await new Promise<never>((_resolve, reject) => {
-        input.signal.addEventListener("abort", () => {
-          resolveAborted();
-          reject(input.signal.reason);
-        }, { once: true });
+        input.signal.addEventListener(
+          "abort",
+          () => {
+            resolveAborted();
+            reject(input.signal.reason);
+          },
+          { once: true },
+        );
       });
     });
     const current = {
-      id: "tab-1", rendererId: 101, appId: "com.acme.linear", slug: "linear",
-      name: "Linear", iconDataUrl: null, spaceId: "personal", threadId: "thread-1",
-      route: "/", status: "ready" as const, documentUrl: "penkra-app://linear/app.html",
+      id: "tab-1",
+      rendererId: 101,
+      appId: "com.acme.linear",
+      slug: "linear",
+      name: "Linear",
+      iconDataUrl: null,
+      spaceId: "personal",
+      threadId: "thread-1",
+      route: "/",
+      status: "ready" as const,
+      documentUrl: "penkra-app://linear/app.html",
     };
     const server = new AppCommandPipeServer({
       path,
@@ -315,12 +329,14 @@ describe("AppCommandPipeServer", () => {
     const socket = Net.createConnection(path);
     await new Promise<void>((resolve, reject) => {
       socket.once("connect", () => {
-        socket.write(`${JSON.stringify({
-          id: "request-abort",
-          token: "secret",
-          method: "operations.invoke",
-          params: { app: "linear", operation: "issues.create", input: {} },
-        })}\n`);
+        socket.write(
+          `${JSON.stringify({
+            id: "request-abort",
+            token: "secret",
+            method: "operations.invoke",
+            params: { app: "linear", operation: "issues.create", input: {} },
+          })}\n`,
+        );
         resolve();
       });
       socket.once("error", reject);

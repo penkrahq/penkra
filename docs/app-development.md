@@ -261,10 +261,10 @@ Prefer `instructionsPath` for a substantial operation manual so it remains an or
 Markdown document. Inline `instructions` is the compact form for brief guidance; it is not the
 recommended home for a long manual.
 
-Conversely, do not hide essential App semantics in an optional Skill. If every correct use of an
-operation depends on a fact, that fact belongs in always-available App or operation help. A Skill is
-appropriate only when it packages an optional, named workflow that composes capabilities toward a
-particular outcome.
+Conversely, correctness must never depend on an optional Skill. Apply one test: if losing the
+guidance would produce a wrong result, it belongs in always-available help or in a runtime check
+that refuses the bad outcome; if losing it would only cost an agent wasted effort before a clear
+failure, a Skill is the right home. See [Agent Skills](#agent-skills) for what a Skill may carry.
 
 The manifest's App `summary` appears in Penkra's live capability catalog, and each operation
 `summary` appears in generated help. Write both as concrete agent-facing descriptions: name the
@@ -285,17 +285,40 @@ package-relative directory and declaring that directory in `contributions.skills
 ```
 
 `penkra app package` requires the exact referenced `skills/create-issue/SKILL.md` to exist inside
-the package; missing, duplicate, absolute, or escaping paths are rejected. A contributed Skill
-should represent an optional, discoverable capability or methodology—such as importing a register,
-running a structured audit, or preparing a release—that an agent may choose for a particular user
-outcome. It may compose several operations, Apps, references, scripts, or templates and define the
-checks between them.
+the package; missing, duplicate, absolute, or escaping paths are rejected.
 
-Do not use a Skill as required documentation for the App itself or as the only explanation of a
-public operation. Skills can be disabled individually, are loaded only when selected, and may not be
-present in every agent context. If disabling a Skill makes the underlying operation impossible to
-use correctly, its essential content belongs in root or leaf help instead. A Skill cannot grant
-permissions or prove another capability is installed.
+Each `SKILL.md` opens with Agent Skills frontmatter. Penkra reads `name` and `description`, and
+accepts optional `display-name`, `short-description`, and `disable-model-invocation`:
+
+```markdown
+---
+name: canvas-deck
+description: Use when working with a Canvas deck document, including adding or reordering slides and preparing a PowerPoint export.
+---
+```
+
+`description` is the only text an agent reads before deciding to load a Skill, so describe the
+situation it applies to rather than what it contains. Penkra merges App Skills into one flat catalog
+alongside provider-native Skills and the portable `~/.penkra/skills` collection, deduplicated by
+case-insensitive name, with provider-native entries winning a conflict. Qualify the name with the
+App—`canvas-deck` rather than `deck`—so a common word cannot be claimed by another source. An
+omitted `name` silently falls back to the directory name; set it explicitly.
+
+A contributed Skill carries knowledge an agent needs for some work with the App but not for all of
+it. Two kinds qualify. A **workflow Skill** packages an optional named procedure that composes
+capabilities toward one outcome—importing a register, running a structured audit, preparing a
+release—and may draw on several operations, Apps, references, scripts, or templates and define the
+checks between them. A **variant Skill** carries one branch of an App whose subject matter divides
+into types an agent never needs at once: an App that authors both presentations and print layouts
+holds two bodies of type-specific knowledge, and loading both into every session spends context to
+no purpose. Name each variant in root or operation help, next to the fact that selects it, so an
+agent knows which one to load and when.
+
+Neither kind may hold a fact the App cannot work without. Skills can be disabled individually, are
+loaded only when selected, and may not be present in every agent context, so a Skill is where
+guidance lives and never where a guarantee lives. Enforce the guarantee in the operation, and let
+the Skill spare the agent the wasted trip toward it. A Skill also cannot grant permissions or prove
+another capability is installed.
 
 Contributed Skills are enabled by default with their App in one Space. The user can disable an
 individual Skill for that App and Space; the host stores this per-Space override. At load time
@@ -431,6 +454,11 @@ handle is writable even when its selected leaf does not exist yet. Use `files.st
 handle. `open({ handleId, relativePath, with: "system" })` asks the trusted host to open one selected
 resource with the operating system.
 
+File and directory handlers receive scoped handles by default. An App with a trusted Node
+controller may instead declare `input: "path"`; its manifest-declared operation then receives the
+validated absolute path as `{ path }`. The controller can use ordinary Node filesystem APIs and a
+visual tab can call private controller handlers through `controller.invoke(...)`.
+
 Do not substitute `window.showOpenFilePicker()` or `window.showSaveFilePicker()`. Apps run in a
 cross-origin child frame, and Chromium rejects File System Access API pickers from that frame with
 a `SecurityError`. The host `files.pick` methods are the supported user-selection boundary.
@@ -497,8 +525,8 @@ panel resizing stays inside the browser's synchronous CSS layout pass.
 
 Open With applies to declared URL, file-extension, and directory handlers. For a validated local
 path, Penkra resolves an explicitly requested App, a saved compatible preference, or one unique
-compatible App. Otherwise it uses the operating system. An App handler receives a scoped handle,
-not the local path.
+compatible App. Otherwise it uses the operating system. An App handler receives a scoped handle by
+default, or `{ path }` when it explicitly declares `input: "path"`.
 
 ### `account-data`
 

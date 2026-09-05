@@ -43,11 +43,39 @@ export class AppControllerHost {
   readonly #broker: AppControllerHostDependencies["broker"];
   readonly #rpc: AppControllerHostDependencies["rpc"];
   readonly #processes: AppControllerProcessFactory;
+  readonly #active = new Map<string, AppControllerProcess>();
 
   constructor(dependencies: AppControllerHostDependencies) {
     this.#broker = dependencies.broker;
     this.#rpc = dependencies.rpc;
     this.#processes = dependencies.processes;
+  }
+
+  invoke(input: {
+    appId: string;
+    spaceId: string;
+    threadId: string;
+    tabId: string;
+    handler: string;
+    value: unknown;
+    signal?: AbortSignal;
+  }): Promise<unknown> {
+    const process = this.#active.get(controllerKey(input.appId, input.spaceId));
+    if (!process) {
+      throw Object.assign(new Error("The App controller is not active."), {
+        code: "CONTROLLER_NOT_ACTIVE",
+      });
+    }
+    return this.#rpc.request(
+      process.id,
+      "controller.internal.invoke",
+      {
+        handler: input.handler,
+        input: input.value,
+        context: { threadId: input.threadId, tabId: input.tabId },
+      },
+      input.signal ? { signal: input.signal } : undefined,
+    );
   }
 
   async activate(input: {
@@ -57,8 +85,8 @@ export class AppControllerHost {
     onUnexpectedExit?: (error: Error) => void;
   }): Promise<(reason?: OperationCancellationCode) => Promise<void>> {
     const operations = input.installedApp.manifest.operations ?? [];
-    if (operations.length === 0) return async () => undefined;
     const entrypoint = input.installedApp.manifest.entrypoints.controller;
+    if (!entrypoint && operations.length === 0) return async () => undefined;
     if (!entrypoint) {
       throw new Error(
         `${input.installedApp.appId} declares operations without a controller entrypoint.`,
@@ -77,6 +105,12 @@ export class AppControllerHost {
     ): Promise<void> => {
       if (released) return;
       released = true;
+      if (
+        this.#active.get(controllerKey(input.installedApp.appId, input.spaceId)) ===
+        controllerProcess
+      ) {
+        this.#active.delete(controllerKey(input.installedApp.appId, input.spaceId));
+      }
       removeDestroyedListener?.();
       unregisterController?.();
       unregisterRpc?.(unexpected ? "host-stopped" : reason);
@@ -94,6 +128,7 @@ export class AppControllerHost {
         throw new Error("App controller entrypoint escapes its installed package.");
       }
       await controllerProcess.start(entrypointPath);
+      this.#active.set(controllerKey(input.installedApp.appId, input.spaceId), controllerProcess);
       const controller: AppOperationController = {
         appId: input.installedApp.appId,
         spaceId: input.spaceId,
@@ -225,4 +260,8 @@ function requireNonEmptyString(value: unknown, label: string): string {
 
 function contextError(code: string, message: string): Error & { code: string } {
   return Object.assign(new Error(message), { code });
+}
+
+function controllerKey(appId: string, spaceId: string): string {
+  return `${spaceId}\u0000${appId}`;
 }

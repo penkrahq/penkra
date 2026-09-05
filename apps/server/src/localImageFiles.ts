@@ -34,6 +34,7 @@ export interface LocalPreviewGrantResult {
 
 const LOCAL_PREVIEW_GRANT_TTL_MS = 2 * 60 * 1000;
 const localPreviewGrantByToken = new Map<string, { realFilePath: string; expiresAtMs: number }>();
+const PROVIDER_CONNECTION_PROFILE_KEY_REGEX = /^[a-f0-9]{64}$/;
 
 function pruneExpiredPreviewGrants(nowMs = Date.now()): void {
   for (const [token, grant] of localPreviewGrantByToken) {
@@ -66,6 +67,26 @@ export function resolveLocalPreviewGrantRealPath(input: {
 function isPathInside(candidate: string, root: string): boolean {
   const relative = path.relative(root, candidate);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function isProviderConnectionGeneratedImagePath(input: {
+  readonly filePath: string;
+  readonly providerConnectionsRoot: string;
+}): boolean {
+  if (!isPathInside(input.filePath, input.providerConnectionsRoot)) {
+    return false;
+  }
+  const relativeParts = path
+    .relative(input.providerConnectionsRoot, input.filePath)
+    .split(path.sep);
+  const [profileKey, codexHome, generatedImages, ...imagePathParts] = relativeParts;
+  return (
+    profileKey !== undefined &&
+    PROVIDER_CONNECTION_PROFILE_KEY_REGEX.test(profileKey) &&
+    codexHome === "codex-home" &&
+    generatedImages === "generated_images" &&
+    imagePathParts.length > 0
+  );
 }
 
 async function realpathOrNull(candidate: string | undefined): Promise<string | null> {
@@ -124,6 +145,7 @@ async function resolveWorkspaceRoot(cwd: string | null): Promise<string | null> 
 export async function resolveAllowedLocalPreviewFile(input: {
   readonly requestedPath: string | null;
   readonly cwd: string | null;
+  readonly stateDir?: string;
   readonly codexHomePath?: string;
   readonly allowAbsoluteLocalPreviewFile?: boolean;
   readonly previewGrant?: string | null;
@@ -188,6 +210,15 @@ export async function resolveAllowedLocalPreviewFile(input: {
   // chat markdown; keep them image-only so they never serve documents.
   if (!isSupportedLocalImagePath(realFilePath)) {
     return null;
+  }
+  const providerConnectionsRoot = input.stateDir
+    ? await realpathOrNull(path.join(input.stateDir, "provider-connections"))
+    : null;
+  if (
+    providerConnectionsRoot !== null &&
+    isProviderConnectionGeneratedImagePath({ filePath: realFilePath, providerConnectionsRoot })
+  ) {
+    return resolved;
   }
   const generatedImagesRoots = await Promise.all(
     resolveCodexGeneratedImagesRoots(input.codexHomePath).map(realpathOrNull),

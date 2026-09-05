@@ -18,7 +18,7 @@ afterEach(async () => {
 });
 
 describe("openLocalAppResource", () => {
-  it("hands an exact file handle to Explorer and reuses its Thread tab", async () => {
+  it("hands Explorer an absolute path when its controller requests path input", async () => {
     const directory = await temporaryDirectory();
     const path = Path.join(directory, "AGENTS.md");
     await FS.promises.writeFile(path, "# Instructions\n");
@@ -47,6 +47,7 @@ describe("openLocalAppResource", () => {
           slug: "explorer",
           name: "Explorer",
           operation: "resources.open",
+          resourceInput: "path",
         }),
       } as never,
       openSystem: vi.fn(),
@@ -63,10 +64,11 @@ describe("openLocalAppResource", () => {
       operation: "resources.open",
       tabId: "explorer-tab",
       callerKind: "user",
-      input: { kind: "file", name: "AGENTS.md" },
+      input: {
+        path,
+      },
     });
-    const handleId = operationInput.input.handleId as string;
-    expect(fileHandles.resolve("com.penkra.explorer", "personal", handleId).rootPath).toBe(path);
+    expect(fileHandles.list("com.penkra.explorer", "personal")).toEqual([]);
     expect(present).toHaveBeenCalledWith("explorer-tab");
     expect(result).toMatchObject({ destination: "app", appId: "com.penkra.explorer" });
   });

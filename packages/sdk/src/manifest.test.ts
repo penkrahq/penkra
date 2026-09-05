@@ -339,6 +339,7 @@ describe("validateAppManifest", () => {
               intent: "open-file",
               operation: "installations.install",
               extensions: [".penkra-app"],
+              input: "path",
             },
             { intent: "open-directory", operation: "installations.install" },
           ],

@@ -16,7 +16,7 @@ export function resolvePathIntent(input: {
   spaceId: string;
 }): ResolvedAppIntent | null {
   if (input.kind === "directory") {
-    const preferredAppId = input.openWith.get(input.spaceId, "open-directory");
+    const preferredAppId = input.openWith.get("open-directory");
     return input.intents.resolve(input.spaceId, {
       intent: "open-directory",
       ...(input.requestedApp ? { requestedApp: input.requestedApp } : {}),
@@ -25,7 +25,7 @@ export function resolvePathIntent(input: {
   }
 
   const extension = Path.extname(input.path).toLowerCase();
-  const preferredAppId = input.openWith.get(input.spaceId, "open-file", extension);
+  const preferredAppId = input.openWith.get("open-file", extension);
   return input.intents.resolve(input.spaceId, {
     intent: "open-file",
     extension,

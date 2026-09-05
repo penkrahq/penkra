@@ -40,7 +40,6 @@ export function InlineLinkChip({
       openExternalLink(url);
     }
   };
-
   const content = (
     <InlineChipContent
       icon={<LinkChipIcon url={url} className={COMPOSER_INLINE_CHIP_INLINE_ICON_CLASS_NAME} />}
@@ -50,7 +49,13 @@ export function InlineLinkChip({
 
   if (interactive) {
     return (
-      <button type="button" className={chipClassName} title={url} onClick={onClick}>
+      <button
+        type="button"
+        className={chipClassName}
+        title={url}
+        onClick={onClick}
+        data-thread-resource-url={url}
+      >
         {content}
       </button>
     );
@@ -64,6 +69,7 @@ export function InlineLinkChip({
       suppressContentEditableWarning
       spellCheck={false}
       onClick={onClick}
+      data-thread-resource-url={url}
       role="link"
     >
       {content}

@@ -66,13 +66,13 @@ export function SettingsGeneralPage() {
         current = false;
       };
     }
-    void window.desktopBridge.appOpenWith.get({ spaceId: activeSpaceId }).then((value) => {
+    void window.desktopBridge.appOpenWith.get().then((value) => {
       if (current) setOpenWith(value);
     });
     return () => {
       current = false;
     };
-  }, [activeSpaceId]);
+  }, [activeSpaceId, installations]);
 
   return (
     <div className="flex flex-col gap-6" data-pencil-page="general">
@@ -82,7 +82,6 @@ export function SettingsGeneralPage() {
           intent="open-url"
           label="Links"
           onChange={setOpenWith}
-          spaceId={activeSpaceId}
           {...(openWith["open-url"] !== undefined ? { value: openWith["open-url"] } : {})}
         />
         <HandlerPreferenceRow
@@ -90,7 +89,6 @@ export function SettingsGeneralPage() {
           intent="open-directory"
           label="Folders"
           onChange={setOpenWith}
-          spaceId={activeSpaceId}
           {...(openWith["open-directory"] !== undefined
             ? { value: openWith["open-directory"] }
             : {})}
@@ -103,7 +101,6 @@ export function SettingsGeneralPage() {
             key={row.extension}
             label={fileTypeLabel(row.extension)}
             onChange={setOpenWith}
-            spaceId={activeSpaceId}
             {...(openWith.files[row.extension] !== undefined
               ? { value: openWith.files[row.extension] }
               : {})}
@@ -156,7 +153,6 @@ function HandlerPreferenceRow({
   intent,
   label,
   onChange,
-  spaceId,
   value,
 }: {
   apps: ReadonlyArray<{ id: string; name: string }>;
@@ -164,7 +160,6 @@ function HandlerPreferenceRow({
   intent: DesktopAppOpenIntent;
   label: string;
   onChange: (value: DesktopAppOpenWithPreferences) => void;
-  spaceId: string | null;
   value?: string;
 }) {
   return (
@@ -175,10 +170,9 @@ function HandlerPreferenceRow({
           : `Choose how Penkra opens ${label.toLowerCase()}.`
       }
       onValueChange={(next) => {
-        if (!spaceId || !window.desktopBridge?.appOpenWith) return;
+        if (!window.desktopBridge?.appOpenWith) return;
         void window.desktopBridge.appOpenWith
           .set({
-            spaceId,
             intent,
             ...(extension ? { extension } : {}),
             appId: next === "system" ? null : next,

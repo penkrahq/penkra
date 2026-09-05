@@ -46,13 +46,8 @@ export class AppOpenWithPreferenceStore {
     return this.#state;
   }
 
-  forSpace(spaceId: string): AppOpenWithPreferences {
-    requireText(spaceId, "spaceId");
-    return this.#state;
-  }
-
-  get(spaceId: string, intent: AppOpenIntent, extension?: string): string | undefined {
-    const current = this.forSpace(spaceId);
+  get(intent: AppOpenIntent, extension?: string): string | undefined {
+    const current = this.#state;
     if (intent === "open-file") {
       const normalized = normalizeExtension(extension);
       return normalized === null ? undefined : current.files[normalized];
@@ -61,23 +56,40 @@ export class AppOpenWithPreferenceStore {
   }
 
   set(
-    spaceId: string,
     intent: AppOpenIntent,
     appId: string | null,
     extension?: string,
   ): Promise<AppOpenWithPreferences> {
-    requireText(spaceId, "spaceId");
+    return this.#set(intent, appId, extension, false);
+  }
+
+  setIfSystemDefault(
+    intent: AppOpenIntent,
+    appId: string,
+    extension?: string,
+  ): Promise<AppOpenWithPreferences> {
+    return this.#set(intent, appId, extension, true);
+  }
+
+  #set(
+    intent: AppOpenIntent,
+    appId: string | null,
+    extension: string | undefined,
+    onlyIfSystemDefault: boolean,
+  ): Promise<AppOpenWithPreferences> {
     const operation = this.#queue.then(async () => {
       let next: AppOpenWithPreferences;
       if (intent === "open-file") {
         const normalized = normalizeExtension(extension);
         if (normalized === null)
           throw new Error("A file Open With preference requires an extension.");
+        if (onlyIfSystemDefault && this.#state.files[normalized] !== undefined) return;
         const files = { ...this.#state.files };
         if (appId === null) delete files[normalized];
         else files[normalized] = requireText(appId, "appId");
         next = { ...this.#state, files };
       } else {
+        if (onlyIfSystemDefault && this.#state[intent] !== undefined) return;
         next = { ...this.#state, files: { ...this.#state.files } };
         if (appId === null) delete next[intent];
         else next[intent] = requireText(appId, "appId");

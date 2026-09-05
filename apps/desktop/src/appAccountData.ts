@@ -90,6 +90,7 @@ export async function subscribeAppAccountData(input: {
   appId: string;
   cookie: string;
   channel: string;
+  metadata?: Readonly<Record<string, string | number | boolean>>;
   onEvent: (event: AppAccountRealtimeEvent) => void;
   onConnectionStateChange?: (state: AppAccountRealtimeConnectionState) => void;
   connect?: typeof io;
@@ -117,7 +118,7 @@ export async function subscribeAppAccountData(input: {
   socket.on("app:event", listener);
   try {
     await waitForConnection(socket);
-    await subscribe(socket, input.channel);
+    await subscribe(socket, input.channel, input.metadata);
     input.onConnectionStateChange?.("connected");
   } catch (error) {
     socket.off("app:event", listener);
@@ -195,20 +196,28 @@ function waitForConnection(socket: Socket): Promise<void> {
   });
 }
 
-function subscribe(socket: Socket, channel: string): Promise<void> {
+function subscribe(
+  socket: Socket,
+  channel: string,
+  metadata?: Readonly<Record<string, string | number | boolean>>,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("Account-data subscription timed out.")),
       CONNECT_TIMEOUT_MS,
     );
-    socket.emit("app:subscribe", { channel }, (result: { ok?: unknown; error?: unknown }) => {
-      clearTimeout(timer);
-      if (result?.ok === true) resolve();
-      else
-        reject(
-          new Error(typeof result?.error === "string" ? result.error : "Subscription failed."),
-        );
-    });
+    socket.emit(
+      "app:subscribe",
+      { channel, metadata },
+      (result: { ok?: unknown; error?: unknown }) => {
+        clearTimeout(timer);
+        if (result?.ok === true) resolve();
+        else
+          reject(
+            new Error(typeof result?.error === "string" ? result.error : "Subscription failed."),
+          );
+      },
+    );
   });
 }
 

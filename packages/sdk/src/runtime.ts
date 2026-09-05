@@ -49,6 +49,8 @@ export type AppAccountRealtimeConnectionState = "connected" | "reconnecting";
 
 export interface AppAccountRealtimeSubscriptionOptions {
   onConnectionStateChange?(state: AppAccountRealtimeConnectionState): void;
+  /** Opaque subscription declaration interpreted only by the owning App backend. */
+  metadata?: Readonly<Record<string, string | number | boolean>>;
 }
 
 export interface AppContextMenuItem<T extends string = string> {
@@ -157,6 +159,49 @@ export type AppOperationHandler<Input = unknown, Result = unknown> = (
   context: OperationContext,
 ) => Promise<Result> | Result;
 
+export interface AppControllerRequestContext {
+  threadId: string;
+  tabId: string;
+  signal: AbortSignal;
+}
+
+export type AppControllerRequestHandler<Input = unknown, Result = unknown> = (
+  input: Input,
+  context: AppControllerRequestContext,
+) => Promise<Result> | Result;
+
+export interface AppShellOpenExternalOptions {
+  activate?: boolean;
+  workingDirectory?: string;
+  logUsage?: boolean;
+}
+
+export interface AppShellShortcutDetails {
+  target: string;
+  cwd?: string;
+  args?: string;
+  description?: string;
+  icon?: string;
+  iconIndex?: number;
+  appUserModelId?: string;
+  toastActivatorClsid?: string;
+}
+
+export interface AppShellApi {
+  beep(): Promise<void>;
+  openExternal(url: string, options?: AppShellOpenExternalOptions): Promise<void>;
+  openPath(path: string): Promise<string>;
+  showItemInFolder(fullPath: string): Promise<void>;
+  trashItem(path: string): Promise<void>;
+  readShortcutLink(shortcutPath: string): Promise<AppShellShortcutDetails>;
+  writeShortcutLink(
+    shortcutPath: string,
+    operation: "create" | "update" | "replace",
+    options: AppShellShortcutDetails,
+  ): Promise<boolean>;
+  writeShortcutLink(shortcutPath: string, options: AppShellShortcutDetails): Promise<boolean>;
+}
+
 export interface AppTabHandlerContext {
   signal: AbortSignal;
 }
@@ -209,6 +254,12 @@ export interface PenkraTabRuntimeApi {
   /** Visual-tab only. Show a native context menu at the current pointer position. */
   contextMenu: {
     show<T extends string>(items: ReadonlyArray<AppContextMenuItem<T>>): Promise<T | null>;
+  };
+  /** Electron's shell family, mirrored through the trusted desktop host. */
+  shell: AppShellApi;
+  /** Private calls to this App's Space-scoped Node controller. */
+  controller: {
+    invoke<Input = unknown, Result = unknown>(handler: string, input: Input): Promise<Result>;
   };
   /** Visual-tab only. User-selected or host-handed-off files scoped to this App and Space. */
   files: {
@@ -434,13 +485,19 @@ export interface PenkraTabRuntimeApi {
  */
 export type PenkraControllerRuntimeApi = Pick<
   PenkraTabRuntimeApi,
-  "identity" | "secrets" | "settings"
+  "identity" | "secrets" | "settings" | "shell"
 > & {
   readonly runtime: { readonly kind: "controller" };
   operations: {
     handle<Input = unknown, Result = unknown>(
       handlerKey: string,
       handler: AppOperationHandler<Input, Result>,
+    ): () => void;
+  };
+  controller: {
+    handle<Input = unknown, Result = unknown>(
+      handler: string,
+      callback: AppControllerRequestHandler<Input, Result>,
     ): () => void;
   };
   account: Pick<PenkraTabRuntimeApi["account"], "request">;
@@ -462,6 +519,30 @@ function runtime(): PenkraTabRuntimeApi {
 
 export const contextMenu: PenkraTabRuntimeApi["contextMenu"] = {
   show: (items) => runtime().contextMenu.show(items),
+};
+
+export const shell: PenkraTabRuntimeApi["shell"] = {
+  beep: () => runtime().shell.beep(),
+  openExternal: (url, options) => runtime().shell.openExternal(url, options),
+  openPath: (path) => runtime().shell.openPath(path),
+  showItemInFolder: (fullPath) => runtime().shell.showItemInFolder(fullPath),
+  trashItem: (path) => runtime().shell.trashItem(path),
+  readShortcutLink: (shortcutPath) => runtime().shell.readShortcutLink(shortcutPath),
+  writeShortcutLink: ((shortcutPath: string, operationOrOptions: unknown, options?: unknown) =>
+    options === undefined
+      ? runtime().shell.writeShortcutLink(
+          shortcutPath,
+          operationOrOptions as AppShellShortcutDetails,
+        )
+      : runtime().shell.writeShortcutLink(
+          shortcutPath,
+          operationOrOptions as "create" | "update" | "replace",
+          options as AppShellShortcutDetails,
+        )) as PenkraTabRuntimeApi["shell"]["writeShortcutLink"],
+};
+
+export const controller: PenkraTabRuntimeApi["controller"] = {
+  invoke: (handler, input) => runtime().controller.invoke(handler, input),
 };
 
 export const files: PenkraTabRuntimeApi["files"] = {

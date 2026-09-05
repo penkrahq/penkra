@@ -64,7 +64,8 @@ export interface AppDeveloperOperations {
   status: typeof appPublicationStatus;
 }
 
-export type PenkraExecFlagValue = string | number | boolean;
+export type PenkraExecFlagScalar = string | number | boolean;
+export type PenkraExecFlagValue = PenkraExecFlagScalar | ReadonlyArray<PenkraExecFlagScalar>;
 
 export interface PenkraExecCommandInput {
   command: string;
@@ -838,7 +839,7 @@ export function parsePenkraCommand(command: string): ParsedPenkraExecCommand {
   if (typeof command !== "string" || !command.trim()) {
     throw new Error("command must be a non-empty string.");
   }
-  const parsed = parseArgs(command, {
+  const parsed = parseArgs(tokenizePenkraCommand(command), {
     configuration: {
       "boolean-negation": false,
       "camel-case-expansion": false,
@@ -857,13 +858,14 @@ export function parsePenkraCommand(command: string): ParsedPenkraExecCommand {
   let help = false;
   for (const [name, value] of Object.entries(parsed)) {
     if (name === "_" || name === "--") continue;
-    if (Array.isArray(value)) throw new Error(`--${name} may be supplied only once.`);
     if (name === "help" || name === "h") {
+      if (Array.isArray(value)) throw new Error(`--${name} may be supplied only once.`);
       if (value !== true) throw new Error(`--${name} does not accept a value.`);
       help = true;
       continue;
     }
     if (name === "tab-id") {
+      if (Array.isArray(value)) throw new Error(`--${name} may be supplied only once.`);
       if (typeof value !== "string" || !value) {
         throw new Error("--tab-id requires a non-empty value.");
       }
@@ -871,6 +873,7 @@ export function parsePenkraCommand(command: string): ParsedPenkraExecCommand {
       continue;
     }
     if (name === "input") {
+      if (Array.isArray(value)) throw new Error(`--${name} may be supplied only once.`);
       if (typeof value !== "string") throw new Error("--input requires a JSON value.");
       try {
         input = JSON.parse(value);
@@ -884,7 +887,14 @@ export function parsePenkraCommand(command: string): ParsedPenkraExecCommand {
       }
       continue;
     }
-    if (typeof value !== "string" && typeof value !== "boolean") {
+    if (
+      typeof value !== "string" &&
+      typeof value !== "boolean" &&
+      !(
+        Array.isArray(value) &&
+        value.every((entry) => typeof entry === "string" || typeof entry === "boolean")
+      )
+    ) {
       throw new Error(`--${name} must have one scalar value.`);
     }
     named[name] = value;
@@ -897,6 +907,81 @@ export function parsePenkraCommand(command: string): ParsedPenkraExecCommand {
     ...(Object.keys(named).length === 0 ? {} : { flags: named }),
     ...(tabId === undefined ? {} : { tabId }),
   };
+}
+
+/**
+ * Split the trusted command envelope without evaluating shell syntax.
+ *
+ * yargs-parser's string mode performs its own quote pass and loses the boundary
+ * around JSON written as `--input "{\"key\":\"value\"}"`; JSON keys can then
+ * be interpreted as top-level options. Supplying an already-tokenized array
+ * keeps option parsing and command quoting as separate responsibilities.
+ */
+export function tokenizePenkraCommand(command: string): string[] {
+  const tokens: string[] = [];
+  let token = "";
+  let tokenStarted = false;
+  let quote: "single" | "double" | null = null;
+
+  const finishToken = () => {
+    if (!tokenStarted) return;
+    tokens.push(token);
+    token = "";
+    tokenStarted = false;
+  };
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index]!;
+    if (quote === "single") {
+      if (character === "'") {
+        quote = null;
+      } else {
+        token += character;
+      }
+      continue;
+    }
+    if (quote === "double") {
+      if (character === '"') {
+        quote = null;
+        continue;
+      }
+      if (character === "\\" && index + 1 < command.length) {
+        const escaped = command[index + 1]!;
+        if (escaped === '"' || escaped === "\\") {
+          token += escaped;
+          index += 1;
+          continue;
+        }
+      }
+      token += character;
+      continue;
+    }
+    if (/\s/u.test(character)) {
+      finishToken();
+      continue;
+    }
+    tokenStarted = true;
+    if (character === "'") {
+      quote = "single";
+      continue;
+    }
+    if (character === '"') {
+      quote = "double";
+      continue;
+    }
+    if (character === "\\" && index + 1 < command.length) {
+      token += command[index + 1]!;
+      index += 1;
+      continue;
+    }
+    token += character;
+  }
+
+  if (quote !== null) {
+    throw new Error(`command contains an unterminated ${quote}-quoted value.`);
+  }
+  finishToken();
+  return tokens;
 }
 
 export function structuredArguments(
@@ -966,6 +1051,9 @@ export function parseOperationInput(
     if (Object.hasOwn(result, propertyName))
       throw new Error(`${propertyName} was supplied by both --input and --${name}.`);
     const type = (declaration as Record<string, unknown>).type;
+    if (type !== "array" && Array.isArray(raw)) {
+      throw new Error(`--${name} may be supplied only once.`);
+    }
     if (type === "boolean") {
       result[propertyName] = parseBoolean(raw, `--${name}`);
     } else if (type === "number" || type === "integer") {
@@ -974,7 +1062,22 @@ export function parseOperationInput(
         throw new Error(`--${name} must be a${type === "integer" ? "n integer" : " number"}.`);
       }
       result[propertyName] = value;
-    } else if (type === "object" || type === "array") {
+    } else if (type === "array") {
+      const itemDeclaration = (declaration as Record<string, unknown>).items;
+      if (
+        !itemDeclaration ||
+        typeof itemDeclaration !== "object" ||
+        Array.isArray(itemDeclaration) ||
+        (itemDeclaration as Record<string, unknown>).type !== "string"
+      ) {
+        throw new Error(`--${name} must be supplied through structured input.`);
+      }
+      const values = Array.isArray(raw) ? raw : [raw];
+      if (values.some((value) => typeof value !== "string")) {
+        throw new Error(`--${name} must contain string values.`);
+      }
+      result[propertyName] = values;
+    } else if (type === "object") {
       throw new Error(`--${name} must be supplied through structured input.`);
     } else {
       if (typeof raw !== "string") throw new Error(`--${name} must be a string.`);
@@ -1152,10 +1255,11 @@ async function request(method: string, params: unknown, env: NodeJS.ProcessEnv):
 export function appCommandTimeoutMs(method: string): number {
   if (method === "operations.invoke") return APP_OPERATION_TIMEOUT_MS;
   if (
-    method === "developer.submissions.create"
-    || method === "developer.submissions.resume-upload"
-    || method === "developer.sideload"
-  ) return DEVELOPER_MUTATION_TIMEOUT_MS;
+    method === "developer.submissions.create" ||
+    method === "developer.submissions.resume-upload" ||
+    method === "developer.sideload"
+  )
+    return DEVELOPER_MUTATION_TIMEOUT_MS;
   return TIMEOUT_MS;
 }
 

@@ -43,6 +43,7 @@ function makeServerConfig(overrides: Partial<ServerConfigShape> = {}): ServerCon
     chatWorkspaceRoot: resolveDefaultChatWorkspaceRoot({ homeDir: os.homedir() }),
     baseDir,
     keybindingsConfigPath: path.join(baseDir, "keybindings.json"),
+    stateDir: baseDir,
     serverRuntimeStatePath: path.join(baseDir, "runtime.json"),
     serverSettingsPath: path.join(baseDir, "settings.json"),
     attachmentsDir: path.join(baseDir, "attachments"),
@@ -174,6 +175,32 @@ describe("localImageEffectRouteLayer", () => {
       const downloadResponse = await fetch(`${origin}/api/local-image?${params}`);
       expect(downloadResponse.status).toBe(200);
       expect(downloadResponse.headers.get("content-disposition")).toContain("hero.png");
+    });
+  });
+
+  it("serves a connection-scoped Codex generated image", async () => {
+    const stateDir = makeTempDir("penkra-effect-provider-image-");
+    const profileKey = "c".repeat(64);
+    const imageDir = path.join(
+      stateDir,
+      "provider-connections",
+      profileKey,
+      "codex-home",
+      "generated_images",
+      "thread-1",
+    );
+    const imagePath = path.join(imageDir, "call.png");
+    mkdirSync(imageDir, { recursive: true });
+    writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const config = makeServerConfig({ stateDir });
+
+    await withEffectServer(config, localImageEffectRouteLayer, async (origin) => {
+      const params = new URLSearchParams({ path: imagePath });
+      const response = await fetch(`${origin}/api/local-image?${params}`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("image/png");
+      await expect(response.arrayBuffer()).resolves.toHaveProperty("byteLength", 4);
     });
   });
 

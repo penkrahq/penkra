@@ -17,6 +17,26 @@ interface ResourceTab {
   threadId: string;
 }
 
+export interface ResolvedLocalResource {
+  path: string;
+  kind: "directory" | "file";
+  intent: "open-directory" | "open-file";
+}
+
+export async function resolveLocalResource(pathInput: string): Promise<ResolvedLocalResource> {
+  if (!Path.isAbsolute(pathInput))
+    throw new Error("Penkra open requires a validated absolute path.");
+  const path = await FS.promises.realpath(pathInput);
+  const stats = await FS.promises.stat(path);
+  const kind = stats.isDirectory() ? "directory" : stats.isFile() ? "file" : null;
+  if (!kind) throw new Error("Only regular files and directories can be opened.");
+  return {
+    path,
+    kind,
+    intent: kind === "directory" ? "open-directory" : "open-file",
+  };
+}
+
 export async function openLocalAppResource(input: {
   appTabs: {
     currentFor(spaceId: string, threadId: string): ResourceTab | null;
@@ -44,13 +64,7 @@ export async function openLocalAppResource(input: {
   spaceId: string;
   threadId: string;
 }): Promise<unknown> {
-  if (!Path.isAbsolute(input.path))
-    throw new Error("Penkra open requires a validated absolute path.");
-  const path = await FS.promises.realpath(input.path);
-  const stats = await FS.promises.stat(path);
-  const kind = stats.isDirectory() ? "directory" : stats.isFile() ? "file" : null;
-  if (!kind) throw new Error("Only regular files and directories can be opened.");
-  const intent = kind === "directory" ? ("open-directory" as const) : ("open-file" as const);
+  const { path, kind, intent } = await resolveLocalResource(input.path);
   const resolved = resolvePathIntent({
     intents: input.intents,
     kind,
@@ -64,12 +78,15 @@ export async function openLocalAppResource(input: {
     return { destination: "system", intent, path };
   }
 
-  const handle = await input.fileHandles.grant({
-    appId: resolved.appId,
-    spaceId: input.spaceId,
-    path,
-    kind,
-  });
+  const handle =
+    resolved.resourceInput === "path"
+      ? null
+      : await input.fileHandles.grant({
+          appId: resolved.appId,
+          spaceId: input.spaceId,
+          path,
+          kind,
+        });
   const current = input.appTabs.currentFor(input.spaceId, input.threadId);
   const reusableTab =
     current?.appId === resolved.appId
@@ -86,7 +103,10 @@ export async function openLocalAppResource(input: {
   const result = await input.broker.invoke({
     app: resolved.slug,
     operation: resolved.operation,
-    input: { handleId: handle.id, kind: handle.kind, name: handle.name },
+    input:
+      resolved.resourceInput === "path"
+        ? { path }
+        : { handleId: handle!.id, kind: handle!.kind, name: handle!.name },
     spaceId: input.spaceId,
     threadId: input.threadId,
     ...(reusableTab ? { tabId: reusableTab.id } : {}),

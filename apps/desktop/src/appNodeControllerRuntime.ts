@@ -6,7 +6,6 @@ import type { AppTabHandle, OperationContext, PenkraControllerRuntimeApi } from 
 
 import type {
   AppRendererRpcContextCallMessage,
-  AppRendererRpcHostMessage,
   AppRendererRpcResponseMessage,
 } from "./appRendererRpc";
 
@@ -27,11 +26,17 @@ type RegisteredOperationHandler = (
   context: OperationContext,
 ) => unknown | Promise<unknown>;
 
+type RegisteredControllerHandler = (
+  input: unknown,
+  context: import("@penkra/sdk").AppControllerRequestContext,
+) => unknown | Promise<unknown>;
+
 export class AppNodeControllerRuntime {
   /** Exact controller contract. Visual-tab services are not part of this runtime. */
   readonly api: PenkraControllerRuntimeApi;
   readonly #transport: AppNodeControllerTransport;
   readonly #handlers = new Map<string, RegisteredOperationHandler>();
+  readonly #controllerHandlers = new Map<string, RegisteredControllerHandler>();
   readonly #active = new Map<string, ActiveRequest>();
   #nextContextCallId = 0;
   #unsubscribe: (() => void) | null = null;
@@ -61,9 +66,33 @@ export class AppNodeControllerRuntime {
       permissions: {
         query: (name) => transport.serviceCall("permissions.query", name),
       },
+      shell: {
+        beep: () => transport.serviceCall("shell.beep"),
+        openExternal: (url, options) =>
+          transport.serviceCall("shell.openExternal", { url, options }),
+        openPath: (path) => transport.serviceCall("shell.openPath", path),
+        showItemInFolder: (fullPath) => transport.serviceCall("shell.showItemInFolder", fullPath),
+        trashItem: (path) => transport.serviceCall("shell.trashItem", path),
+        readShortcutLink: (shortcutPath) =>
+          transport.serviceCall("shell.readShortcutLink", shortcutPath),
+        writeShortcutLink: ((
+          shortcutPath: string,
+          operationOrOptions: unknown,
+          options?: unknown,
+        ) =>
+          transport.serviceCall("shell.writeShortcutLink", {
+            shortcutPath,
+            operationOrOptions,
+            ...(options === undefined ? {} : { options }),
+          })) as PenkraControllerRuntimeApi["shell"]["writeShortcutLink"],
+      },
       operations: {
         handle: (key, handler) =>
           registerUnique(this.#handlers, key, handler as RegisteredOperationHandler),
+      },
+      controller: {
+        handle: (key, handler) =>
+          registerUnique(this.#controllerHandlers, key, handler as RegisteredControllerHandler),
       },
     } satisfies PenkraControllerRuntimeApi;
     this.api = api;
@@ -121,6 +150,27 @@ export class AppNodeControllerRuntime {
     const request: ActiveRequest = { controller: new AbortController(), contextCalls: new Map() };
     this.#active.set(id, request);
     try {
+      if (message.method === "controller.internal.invoke") {
+        const input = requireRecord(message.input);
+        const handlerKey = requireString(input.handler, "handler");
+        const handler = this.#controllerHandlers.get(handlerKey);
+        if (!handler) {
+          throw runtimeError(
+            "HANDLER_NOT_REGISTERED",
+            `Controller handler ${handlerKey} is not registered.`,
+          );
+        }
+        const requestContext = requireRecord(input.context);
+        const result = await handler(input.input, {
+          threadId: requireString(requestContext.threadId, "threadId"),
+          tabId: requireString(requestContext.tabId, "tabId"),
+          signal: request.controller.signal,
+        });
+        if (!request.controller.signal.aborted) {
+          this.#transport.send({ type: "result", id, result: result ?? null });
+        }
+        return;
+      }
       if (message.method !== "controller.invoke") {
         throw runtimeError(
           "METHOD_NOT_SUPPORTED",
@@ -243,14 +293,14 @@ export class AppNodeControllerRuntime {
   }
 }
 
-function registerUnique(
-  handlers: Map<string, RegisteredOperationHandler>,
+function registerUnique<Handler>(
+  handlers: Map<string, Handler>,
   key: string,
-  handler: RegisteredOperationHandler,
+  handler: Handler,
 ): () => void {
   if (typeof key !== "string" || key.trim().length === 0)
     throw new TypeError("Operation handler key must be a non-empty string.");
-  if (typeof handler !== "function") throw new TypeError("Operation handler must be a function.");
+  if (typeof handler !== "function") throw new TypeError("App handler must be a function.");
   if (handlers.has(key)) throw new Error(`Operation handler ${key} is already registered.`);
   handlers.set(key, handler);
   return () => {

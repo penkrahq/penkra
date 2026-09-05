@@ -30,6 +30,8 @@ interface InlineMentionChipProps {
   label?: ReactNode;
   /** When set, the chip renders as an openable anchor instead of a static span. */
   href?: string;
+  /** Absolute or Thread-relative local resource represented by this chip. */
+  resourcePath?: string;
   onActivate?: (event: MouseEvent<HTMLAnchorElement>) => void;
   /** Warm-up hook fired on hover/focus so activating the chip feels instant. */
   onHoverPrefetch?: (() => void) | undefined;
@@ -66,6 +68,7 @@ export function InlineMentionChip(props: InlineMentionChipProps) {
     opener !== null &&
     (props.kind === undefined || props.kind === "path") &&
     pathLooksLikeKnownFile(props.path);
+  const resourcePath = props.resourcePath ?? (contextOpenable ? props.path : null);
 
   if (props.href !== undefined || props.onActivate || contextOpenable) {
     const href = props.href ?? (contextOpenable ? props.path : undefined);
@@ -85,6 +88,7 @@ export function InlineMentionChip(props: InlineMentionChipProps) {
         title={props.path}
         {...(href !== undefined ? { href } : {})}
         {...(handleActivate ? { onClick: handleActivate } : {})}
+        {...(resourcePath ? { "data-thread-resource-path": resourcePath } : {})}
         {...(handleHoverPrefetch
           ? { onPointerEnter: handleHoverPrefetch, onFocus: handleHoverPrefetch }
           : {})}

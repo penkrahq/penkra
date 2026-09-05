@@ -2,7 +2,14 @@
 // Purpose: Composes trusted App persistence, isolation, controller, broker, and IPC services.
 // Layer: Desktop main-process bootstrap
 
-import { safeStorage, session, type IpcMain } from "electron";
+import {
+  safeStorage,
+  session,
+  shell,
+  type IpcMain,
+  type OpenExternalOptions,
+  type ShortcutDetails,
+} from "electron";
 import type {
   DesktopAppFrameHostMessage,
   DesktopAppTabClosed,
@@ -24,6 +31,10 @@ import {
   AppOpenWithPreferenceStore,
   resolveAppOpenWithPreferencesPath,
 } from "./appOpenWithPreferences";
+import {
+  appOpenWithHandlerFingerprint,
+  reconcileAppOpenWithPreferences,
+} from "./appOpenWithReconciler";
 import { AppRendererIpcBridge } from "./appRendererIpcBridge";
 import { AppRendererRpcHost } from "./appRendererRpc";
 import { AppRuntimeLifecycle } from "./appRuntimeLifecycle";
@@ -75,6 +86,14 @@ export interface DesktopAppRuntime {
   rendererIdentity(
     rendererId: number,
   ): { appId: string; spaceId: string; threadId?: string; tabId?: string } | null;
+  invokeController(input: {
+    appId: string;
+    spaceId: string;
+    threadId: string;
+    tabId: string;
+    handler: string;
+    value: unknown;
+  }): Promise<unknown>;
   stop(): Promise<void>;
 }
 
@@ -284,6 +303,33 @@ export async function startDesktopAppRuntime(input: {
             if (typeof request.input !== "string") throw new Error("Secret name must be a string.");
             await vault.deleteSecret(identity.appId, identity.spaceId, request.input);
             return null;
+          case "shell.beep":
+            shell.beep();
+            return null;
+          case "shell.openExternal": {
+            const value = requireControllerRecord(request.input, "Shell openExternal input");
+            if (typeof value.url !== "string") throw new Error("Shell URL must be a string.");
+            await shell.openExternal(value.url, parseShellOpenExternalOptions(value.options));
+            return null;
+          }
+          case "shell.openPath": {
+            if (typeof request.input !== "string") throw new Error("Shell path must be a string.");
+            return shell.openPath(request.input);
+          }
+          case "shell.showItemInFolder":
+            if (typeof request.input !== "string") throw new Error("Shell path must be a string.");
+            shell.showItemInFolder(request.input);
+            return null;
+          case "shell.trashItem":
+            if (typeof request.input !== "string") throw new Error("Shell path must be a string.");
+            await shell.trashItem(request.input);
+            return null;
+          case "shell.readShortcutLink":
+            if (typeof request.input !== "string")
+              throw new Error("Shortcut path must be a string.");
+            return shell.readShortcutLink(request.input);
+          case "shell.writeShortcutLink":
+            return writeShellShortcut(request.input);
           default:
             if (input.controllerServiceCall) return input.controllerServiceCall(request);
             throw Object.assign(
@@ -447,6 +493,20 @@ export async function startDesktopAppRuntime(input: {
       message: event.error.message,
     });
   });
+  let openWithHandlerFingerprint = appOpenWithHandlerFingerprint(installations.snapshot());
+  await reconcileAppOpenWithPreferences({ state: installations.snapshot(), openWith }).catch(
+    (error) => {
+      console.error("[penkra-app] Could not reconcile Open With preferences at startup.", error);
+    },
+  );
+  const unsubscribeOpenWithReconciliation = installations.subscribe((state) => {
+    const nextFingerprint = appOpenWithHandlerFingerprint(state);
+    if (nextFingerprint === openWithHandlerFingerprint) return;
+    openWithHandlerFingerprint = nextFingerprint;
+    void reconcileAppOpenWithPreferences({ state, openWith }).catch((error) => {
+      console.error("[penkra-app] Could not reconcile Open With preferences.", error);
+    });
+  });
   let stopped = false;
 
   return {
@@ -475,10 +535,15 @@ export async function startDesktopAppRuntime(input: {
       return identity?.appId === "com.penkra.apps" ? identity.spaceId : null;
     },
     rendererIdentity: (rendererId) => rendererIdentities.get(rendererId),
+    invokeController: async (request) => {
+      await ensureAppRuntimeActive(request.appId, request.spaceId);
+      return controllerHost.invoke(request);
+    },
     stop: async () => {
       if (stopped) return;
       stopped = true;
       try {
+        unsubscribeOpenWithReconciliation();
         unsubscribeUnexpectedDisable();
         unbindTabs();
         appTabs.closeAll("host-stopped");
@@ -492,4 +557,43 @@ export async function startDesktopAppRuntime(input: {
       }
     },
   };
+}
+
+function parseShellOpenExternalOptions(value: unknown): OpenExternalOptions | undefined {
+  if (value === undefined) return undefined;
+  const record = requireControllerRecord(value, "Shell openExternal options");
+  const options: OpenExternalOptions = {};
+  if (record.activate !== undefined) {
+    if (typeof record.activate !== "boolean") throw new Error("activate must be a boolean.");
+    options.activate = record.activate;
+  }
+  if (record.workingDirectory !== undefined) {
+    if (typeof record.workingDirectory !== "string")
+      throw new Error("workingDirectory must be a string.");
+    options.workingDirectory = record.workingDirectory;
+  }
+  if (record.logUsage !== undefined) {
+    if (typeof record.logUsage !== "boolean") throw new Error("logUsage must be a boolean.");
+    options.logUsage = record.logUsage;
+  }
+  return options;
+}
+
+function writeShellShortcut(value: unknown): boolean {
+  const record = requireControllerRecord(value, "Shell shortcut input");
+  if (typeof record.shortcutPath !== "string") throw new Error("Shortcut path must be a string.");
+  const options = requireControllerRecord(
+    record.options === undefined ? record.operationOrOptions : record.options,
+    "Shortcut details",
+  ) as unknown as ShortcutDetails;
+  if (typeof options.target !== "string") throw new Error("Shortcut target must be a string.");
+  if (record.options === undefined) return shell.writeShortcutLink(record.shortcutPath, options);
+  if (!["create", "update", "replace"].includes(String(record.operationOrOptions))) {
+    throw new Error("Shortcut operation is invalid.");
+  }
+  return shell.writeShortcutLink(
+    record.shortcutPath,
+    record.operationOrOptions as "create" | "update" | "replace",
+    options,
+  );
 }

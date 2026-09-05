@@ -583,6 +583,7 @@ function OpenableFileChip(props: {
   return (
     <InlineMentionChip
       path={chipPath}
+      resourcePath={chipPath}
       theme={props.theme}
       href={props.href ?? props.targetPath}
       onActivate={(event) => {

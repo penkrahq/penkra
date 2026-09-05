@@ -25,9 +25,10 @@ describe("resolveThreadResourcePath", () => {
 describe("createThreadResourceOpener", () => {
   it("routes files and URLs through the desktop resource bridge", () => {
     const open = vi.fn().mockResolvedValue(undefined);
+    const showContextMenu = vi.fn().mockResolvedValue(null);
     Object.defineProperty(globalThis, "window", {
       configurable: true,
-      value: { desktopBridge: { resources: { open } } },
+      value: { desktopBridge: { resources: { open, showContextMenu } } },
     });
     const opener = createThreadResourceOpener({
       directory: "/workspace/project",
@@ -37,6 +38,8 @@ describe("createThreadResourceOpener", () => {
 
     expect(opener.openFile("README.md")).toBe(true);
     expect(opener.openUrl("https://penkra.com/docs")).toBe(true);
+    expect(opener.showFileContextMenu("README.md:12", { x: 10, y: 20 })).toBe(true);
+    expect(opener.showUrlContextMenu("https://penkra.com/docs", { x: 30, y: 40 })).toBe(true);
     expect(open).toHaveBeenNthCalledWith(1, {
       path: "/workspace/project/README.md",
       spaceId: "space-1",
@@ -46,6 +49,18 @@ describe("createThreadResourceOpener", () => {
       url: "https://penkra.com/docs",
       spaceId: "space-1",
       threadId: "thread-1",
+    });
+    expect(showContextMenu).toHaveBeenNthCalledWith(1, {
+      path: "/workspace/project/README.md",
+      spaceId: "space-1",
+      threadId: "thread-1",
+      position: { x: 10, y: 20 },
+    });
+    expect(showContextMenu).toHaveBeenNthCalledWith(2, {
+      url: "https://penkra.com/docs",
+      spaceId: "space-1",
+      threadId: "thread-1",
+      position: { x: 30, y: 40 },
     });
   });
 });

@@ -194,6 +194,33 @@ describe("AppControllerHost", () => {
     );
   });
 
+  it("routes private tab calls to the active App and Space controller", async () => {
+    const test = fixture();
+    await test.host.activate({
+      installedApp: test.app,
+      spaceId: "personal",
+      session: test.session,
+    });
+    await test.host.invoke({
+      appId: test.app.appId,
+      spaceId: "personal",
+      threadId: "thread-1",
+      tabId: "tab-1",
+      handler: "explorer.stat",
+      value: { relativePath: "app.js" },
+    });
+    expect(test.rpc.request).toHaveBeenLastCalledWith(
+      44,
+      "controller.internal.invoke",
+      {
+        handler: "explorer.stat",
+        input: { relativePath: "app.js" },
+        context: { threadId: "thread-1", tabId: "tab-1" },
+      },
+      undefined,
+    );
+  });
+
   it("routes target-tab and newly opened tab handles only within the parent operation", async () => {
     const test = fixture();
     await test.host.activate({
