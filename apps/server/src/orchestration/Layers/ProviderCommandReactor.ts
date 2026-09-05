@@ -91,8 +91,10 @@ import {
 } from "../../provider/reconstructedContinuation.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../../persistence/Layers/OrchestrationEventDeliveries.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
+import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { QueuedTurnPromotionRepositoryLive } from "../../persistence/Layers/QueuedTurnPromotions.ts";
 import { ProjectionPendingInteractionRepository } from "../../persistence/Services/ProjectionPendingInteractions.ts";
+import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import {
   OrchestrationEventDeliveryRepository,
   PROVIDER_COMMAND_REACTOR_CONSUMER,
@@ -397,6 +399,7 @@ const make = Effect.gen(function* () {
   const providerLaunchResolver = yield* ProviderLaunchResolver;
   const threadProviderBindings = yield* ThreadProviderBindingRepository;
   const pendingInteractions = yield* ProjectionPendingInteractionRepository;
+  const projectionTurnRepository = yield* ProjectionTurnRepository;
   const textGeneration = yield* TextGeneration;
   const serverSettings = yield* ServerSettingsService;
   const managedAttachments = yield* ManagedAttachmentRepository;
@@ -2062,7 +2065,9 @@ const make = Effect.gen(function* () {
           commandId: replaySafeServerCommandId("message-delivery-accepted", event.eventId),
           threadId: event.payload.threadId,
           messageId: event.payload.messageId,
+          turnId: event.payload.turnId,
           state: "accepted",
+          providerTurnId: startedTurn.turnId,
           createdAt: new Date().toISOString(),
         });
       }
@@ -2135,13 +2140,36 @@ const make = Effect.gen(function* () {
           actionEventId: event.eventId,
         });
         if (Option.isNone(pending)) {
+          if (event.payload.turnId !== undefined) {
+            const liveTurnId = yield* resolveLiveProviderTurnId(event.payload.threadId);
+            const targetTurn = yield* projectionTurnRepository.getByTurnId({
+              threadId: event.payload.threadId,
+              turnId: event.payload.turnId,
+            });
+            if (
+              liveTurnId === event.payload.turnId ||
+              (Option.isSome(targetTurn) && liveTurnId === targetTurn.value.providerTurnId)
+            ) {
+              yield* interruptProviderTurn({
+                threadId: event.payload.threadId,
+                turnId: event.payload.turnId,
+                createdAt: event.payload.createdAt,
+              });
+            }
+          }
           return;
         }
+        const sourceEvent = yield* readOrchestrationEventAtSequence(
+          pending.value.queuedEventSequence,
+        );
         yield* orchestrationEngine.dispatch({
           type: "thread.turn.start.cancel.complete",
           commandId: replaySafeServerCommandId("queued-turn-cancel-complete", event.eventId),
           threadId: event.payload.threadId,
           messageId: event.payload.messageId,
+          ...(sourceEvent?.type === "thread.turn-queued" && sourceEvent.payload.turnId !== undefined
+            ? { turnId: sourceEvent.payload.turnId }
+            : {}),
           createdAt: event.payload.createdAt,
         });
       }),
@@ -3125,10 +3153,33 @@ const make = Effect.gen(function* () {
       }
     }
     for (const queuedThreadId of clearedQueuedThreadIds) {
-      yield* queuedTurnPromotions.cancelThread({
+      const cancelledPromotions = yield* queuedTurnPromotions.cancelThread({
         threadId: queuedThreadId,
         updatedAt: input.createdAt,
       });
+      const projectedTurns = yield* projectionTurnRepository.listByThreadId({
+        threadId: queuedThreadId,
+      });
+      for (const promotion of cancelledPromotions) {
+        const projectedTurn = projectedTurns.find(
+          (turn) =>
+            turn.pendingMessageId === promotion.messageId &&
+            turn.state === "queued" &&
+            turn.completedAt === null,
+        );
+        if (!projectedTurn) continue;
+        yield* orchestrationEngine.dispatch({
+          type: "thread.turn.start.cancel.complete",
+          commandId: replaySafeServerCommandId(
+            "session-stop-queued-turn-cancel-complete",
+            EventId.makeUnsafe(`queued:${promotion.queuedEventSequence}`),
+          ),
+          threadId: queuedThreadId,
+          messageId: MessageId.makeUnsafe(promotion.messageId),
+          turnId: projectedTurn.turnId,
+          createdAt: input.createdAt,
+        });
+      }
       yield* clearEditResendTurnStartKeysForThread(queuedThreadId);
       drainingQueuedTurns.delete(queuedThreadId);
     }
@@ -4169,6 +4220,7 @@ export const makeProviderCommandReactorLive = (options?: ProviderCommandReactorL
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
     Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
     Layer.provideMerge(ProjectionPendingInteractionRepositoryLive),
+    Layer.provideMerge(ProjectionTurnRepositoryLive),
   );
 
 export const ProviderCommandReactorLive = makeProviderCommandReactorLive();

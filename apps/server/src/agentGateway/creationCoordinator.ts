@@ -166,6 +166,7 @@ export const makeCreateThreadHandler = Effect.fn(function* (
             type: "thread.turn.start",
             commandId: ids.turnStartCommandId,
             threadId: ids.threadId,
+            turnId: TurnId.makeUnsafe(`turn:${ids.turnStartCommandId}`),
             message: {
               messageId: ids.messageId,
               role: "user",
@@ -195,7 +196,8 @@ export const makeCreateThreadHandler = Effect.fn(function* (
           provider: target.provider,
           model: target.model,
           runtimeMode,
-          status: "task_dispatched" as const,
+          messageId: ids.messageId,
+          turnId: TurnId.makeUnsafe(`turn:${ids.turnStartCommandId}`),
         } satisfies PenkraCreateThreadResult;
       }).pipe(
         Effect.catch((error) =>

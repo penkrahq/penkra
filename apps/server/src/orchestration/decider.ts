@@ -1448,6 +1448,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.turn-start-requested",
         payload: {
           threadId: command.threadId,
+          turnId: command.turnId,
           messageId: command.messageId,
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
@@ -1541,6 +1542,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           messageId: command.messageId,
+          ...(command.type === "thread.turn.cancel-queued" && command.turnId !== undefined
+            ? { turnId: command.turnId }
+            : {}),
           createdAt: command.createdAt,
         },
       };
@@ -1971,6 +1975,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           messageId: command.messageId,
+          ...(command.turnId !== undefined ? { turnId: command.turnId } : {}),
           cancelledAt: command.createdAt,
         },
       };
@@ -1998,7 +2003,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           messageId: command.messageId,
+          ...(command.turnId !== undefined ? { turnId: command.turnId } : {}),
           state: command.state,
+          ...(command.providerTurnId !== undefined
+            ? { providerTurnId: command.providerTurnId }
+            : {}),
           ...(command.queued !== undefined ? { queued: command.queued } : {}),
           updatedAt: command.createdAt,
         },

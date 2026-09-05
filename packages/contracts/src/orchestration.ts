@@ -463,10 +463,12 @@ export const OrchestrationThreadActivity = Schema.Struct({
 export type OrchestrationThreadActivity = typeof OrchestrationThreadActivity.Type;
 
 const OrchestrationLatestTurnState = Schema.Literals([
+  "queued",
   "running",
   "interrupted",
   "completed",
   "error",
+  "cancelled",
 ]);
 export type OrchestrationLatestTurnState = typeof OrchestrationLatestTurnState.Type;
 
@@ -1049,6 +1051,7 @@ const ThreadQueuedTurnCancelCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   messageId: MessageId,
+  turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
 
@@ -1310,6 +1313,7 @@ const ThreadTurnStartCancelCompleteCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   messageId: MessageId,
+  turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
 
@@ -1318,7 +1322,11 @@ const ThreadMessageDeliverySetCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   messageId: MessageId,
+  /** Stable logical turn which owns this delivery. */
+  turnId: Schema.optional(TurnId),
   state: MessageDeliveryState,
+  /** Native provider turn which accepted this logical Penkra turn. */
+  providerTurnId: Schema.optional(TurnId),
   /** Sets durable queue provenance when runtime reconciliation re-queues a presumed direct start. */
   queued: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
@@ -1617,7 +1625,9 @@ export const ThreadMessageSentPayload = Schema.Struct({
 export const ThreadMessageDeliverySetPayload = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
+  turnId: Schema.optional(TurnId),
   state: MessageDeliveryState,
+  providerTurnId: Schema.optional(TurnId),
   queued: Schema.optional(Schema.Boolean),
   updatedAt: IsoDateTime,
 });
@@ -1655,12 +1665,14 @@ export const ThreadTurnInterruptRequestedPayload = Schema.Struct({
 export const ThreadTurnStartCancelledPayload = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
+  turnId: Schema.optional(TurnId),
   cancelledAt: IsoDateTime,
 });
 
 export const ThreadQueuedTurnMutationRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
+  turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
 

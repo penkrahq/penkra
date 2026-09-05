@@ -650,6 +650,8 @@ describe("migration backups", () => {
           [154, "RestartReconciliationIndexes"],
           [155, "ThreadSidebarPreviewIndex"],
           [156, "ActiveTurnProjectionSemantics"],
+          [157, "QueuedTurnLifecycle"],
+          [158, "LogicalTurnProviderBindings"],
         ]);
       }),
     );

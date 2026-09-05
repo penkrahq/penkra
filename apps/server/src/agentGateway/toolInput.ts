@@ -1,8 +1,4 @@
-import {
-  PenkraCreateThreadInput,
-  PenkraWaitForThreadsInput,
-  type ProviderKind,
-} from "@penkra/contracts";
+import { PenkraCreateThreadInput, type ProviderKind } from "@penkra/contracts";
 import { Schema } from "effect";
 
 import { AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION } from "./targetResolver.ts";
@@ -115,13 +111,5 @@ export function decodeCreateThreadInput(value: unknown) {
     return Schema.decodeUnknownSync(PenkraCreateThreadInput)(value);
   } catch (error) {
     throw new ToolInputError(`Invalid Penkra thread request: ${errorText(error)}`);
-  }
-}
-
-export function decodeWaitForThreadsInput(value: unknown) {
-  try {
-    return Schema.decodeUnknownSync(PenkraWaitForThreadsInput)(value);
-  } catch (error) {
-    throw new ToolInputError(`Invalid Penkra wait request: ${errorText(error)}`);
   }
 }

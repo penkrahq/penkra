@@ -200,16 +200,14 @@ const make = Effect.gen(function* () {
     // later `releaseClaim` the row back to 'queued', resurrecting it. Cancelling
     // the 'promoting' row means the later `releaseClaim` (WHERE state='promoting')
     // no longer matches, so the cancelled turn stays dead.
-    sql`
+    sql<QueuedTurnPromotion>`
       UPDATE queued_turn_promotions
       SET state = 'cancelled', claim_owner = NULL, claimed_at = NULL,
           claim_expires_at = NULL, updated_at = ${input.updatedAt},
           action_kind = NULL, action_event_id = NULL
       WHERE thread_id = ${input.threadId} AND state IN ('queued', 'promoting')
-    `.pipe(
-      Effect.asVoid,
-      Effect.mapError(toPersistenceSqlError("QueuedTurnPromotion.cancelThread")),
-    );
+      RETURNING ${columns(sql)}
+    `.pipe(Effect.mapError(toPersistenceSqlError("QueuedTurnPromotion.cancelThread")));
 
   const hasPendingMessage: QueuedTurnPromotionRepositoryShape["hasPendingMessage"] = (input) =>
     sql<{ readonly count: number }>`

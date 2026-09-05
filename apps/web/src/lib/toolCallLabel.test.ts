@@ -98,11 +98,6 @@ describe("derivePenkraMcpToolTitle", () => {
         "Penkra retried thread projection",
       ],
       ["penkra_create_thread", "Penkra is creating a thread", "Penkra created a thread"],
-      [
-        "penkra_wait_for_threads",
-        "Penkra is waiting for threads",
-        "Penkra finished waiting for threads",
-      ],
       ["penkra_send_message", "Penkra is sending a message", "Penkra sent a message"],
       ["penkra_interrupt_thread", "Penkra is interrupting a thread", "Penkra interrupted a thread"],
       ["penkra_set_thread_title", "Penkra is renaming a thread", "Penkra renamed a thread"],

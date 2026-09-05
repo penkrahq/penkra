@@ -58,7 +58,12 @@ export function deriveAgentThreadStatus(thread: {
   if (thread.hasPendingUserInput) return "waiting-for-user-input";
   const sessionStatus = thread.session?.status;
   const turnState = thread.latestTurn?.state;
-  if (turnState === "running" || sessionStatus === "running" || sessionStatus === "starting") {
+  if (
+    turnState === "queued" ||
+    turnState === "running" ||
+    sessionStatus === "running" ||
+    sessionStatus === "starting"
+  ) {
     return "working";
   }
   if (turnState === "error" || sessionStatus === "error") return "error";
@@ -78,12 +83,18 @@ export interface AgentThreadListItem {
   readonly creationSource: string | null;
   readonly archived: boolean;
   readonly isSelf: boolean;
+  readonly latestTurn: {
+    readonly turnId: string;
+    readonly state: string;
+  } | null;
+  readonly queuedTurns: number;
   readonly updatedAt: string;
 }
 
 export function summarizeThreadShell(
   thread: OrchestrationThreadShell,
   callerThreadId: string,
+  queuedTurns = 0,
 ): AgentThreadListItem {
   return {
     threadId: thread.id,
@@ -97,6 +108,10 @@ export function summarizeThreadShell(
     creationSource: thread.creationSource ?? null,
     archived: (thread.archivedAt ?? null) !== null,
     isSelf: thread.id === callerThreadId,
+    latestTurn: thread.latestTurn
+      ? { turnId: thread.latestTurn.turnId, state: thread.latestTurn.state }
+      : null,
+    queuedTurns,
     updatedAt: thread.updatedAt,
   };
 }
@@ -105,7 +120,6 @@ export const READ_THREAD_DEFAULT_MESSAGE_LIMIT = 20;
 export const READ_THREAD_MAX_MESSAGE_LIMIT = 100;
 export const READ_THREAD_DEFAULT_MESSAGE_CHARS = 1500;
 export const READ_THREAD_MAX_MESSAGE_CHARS = 20_000;
-export const WAIT_THREAD_SUMMARY_MAX_CHARS = 2_000;
 export const READ_THREAD_RESPONSE_TEXT_BUDGET = 20_000;
 export const READ_THREAD_DEFAULT_ITEM_LIMIT = 20;
 export const READ_THREAD_MAX_ITEM_LIMIT = 100;
@@ -138,6 +152,7 @@ export interface AgentTranscriptMessageItem extends AgentTranscriptItemBase {
   readonly text: string;
   readonly textRange?: { readonly start: number; readonly end: number; readonly total: number };
   readonly streaming: boolean;
+  readonly delivery: "queued" | "delivered";
   readonly dispatchOrigin?: string;
 }
 
@@ -283,6 +298,10 @@ export function packAgentTranscriptPage(input: {
           ? { textRange: { start, end, total: item.message.text.length } }
           : {}),
         streaming: item.message.streaming,
+        delivery:
+          item.message.delivery?.queued === true && item.message.delivery.state === "queued"
+            ? "queued"
+            : "delivered",
         ...(item.message.dispatchOrigin !== undefined
           ? { dispatchOrigin: item.message.dispatchOrigin }
           : {}),
@@ -361,27 +380,6 @@ function truncateMessageText(
   if (text.length <= maxChars) return { text, truncated: false };
   return {
     text: `${text.slice(0, maxChars)}\n[... truncated ${text.length - maxChars} chars]`,
-    truncated: true,
-  };
-}
-
-export function summarizeWaitThreadText(text: string | null | undefined): {
-  readonly summary: string | null;
-  readonly truncated: boolean;
-} {
-  if (text === null || text === undefined) return { summary: null, truncated: false };
-  if (text.length <= WAIT_THREAD_SUMMARY_MAX_CHARS) {
-    return { summary: text, truncated: false };
-  }
-  let retainedChars = WAIT_THREAD_SUMMARY_MAX_CHARS;
-  let marker = "";
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    marker = `\n[... truncated ${text.length - retainedChars} chars]`;
-    retainedChars = Math.max(0, WAIT_THREAD_SUMMARY_MAX_CHARS - marker.length);
-  }
-  marker = `\n[... truncated ${text.length - retainedChars} chars]`;
-  return {
-    summary: `${text.slice(0, retainedChars)}${marker}`,
     truncated: true,
   };
 }

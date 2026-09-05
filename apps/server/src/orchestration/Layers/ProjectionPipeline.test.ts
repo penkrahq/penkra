@@ -4067,6 +4067,284 @@ it.layer(
     }),
   );
 
+  it.effect("settles every logical turn bound to one provider invocation", () =>
+    Effect.gen(function* () {
+      const eventStore = yield* OrchestrationEventStore;
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.makeUnsafe("thread-native-steer-aliases");
+      const providerTurnId = TurnId.makeUnsafe("turn-provider-native-steer");
+      const settledAt = "2026-09-05T07:11:04.000Z";
+      const logicalTurns = [
+        {
+          turnId: TurnId.makeUnsafe("turn-logical-original"),
+          messageId: MessageId.makeUnsafe("message-logical-original"),
+          requestedAt: "2026-09-05T07:11:00.000Z",
+        },
+        {
+          turnId: TurnId.makeUnsafe("turn-logical-steer"),
+          messageId: MessageId.makeUnsafe("message-logical-steer"),
+          requestedAt: "2026-09-05T07:11:02.000Z",
+        },
+      ] as const;
+
+      for (const [index, logicalTurn] of logicalTurns.entries()) {
+        yield* eventStore.append({
+          type: "thread.turn-start-requested",
+          eventId: EventId.makeUnsafe(`evt-native-steer-start-${index}`),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: logicalTurn.requestedAt,
+          commandId: CommandId.makeUnsafe(`cmd-native-steer-start-${index}`),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe(`cmd-native-steer-start-${index}`),
+          metadata: {},
+          payload: {
+            threadId,
+            turnId: logicalTurn.turnId,
+            messageId: logicalTurn.messageId,
+            runtimeMode: "full-access",
+            createdAt: logicalTurn.requestedAt,
+          },
+        });
+        yield* eventStore.append({
+          type: "thread.message-delivery-set",
+          eventId: EventId.makeUnsafe(`evt-native-steer-accepted-${index}`),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: logicalTurn.requestedAt,
+          commandId: CommandId.makeUnsafe(`cmd-native-steer-accepted-${index}`),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe(`cmd-native-steer-accepted-${index}`),
+          metadata: {},
+          payload: {
+            threadId,
+            messageId: logicalTurn.messageId,
+            turnId: logicalTurn.turnId,
+            state: "accepted",
+            providerTurnId,
+            updatedAt: logicalTurn.requestedAt,
+          },
+        });
+      }
+      yield* eventStore.append({
+        type: "thread.session-set",
+        eventId: EventId.makeUnsafe("evt-native-steer-ready"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: settledAt,
+        commandId: CommandId.makeUnsafe("cmd-native-steer-ready"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-native-steer-ready"),
+        metadata: {},
+        payload: {
+          threadId,
+          session: {
+            threadId,
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: settledAt,
+          },
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+
+      const rows = yield* sql<{
+        readonly turnId: string;
+        readonly providerTurnId: string | null;
+        readonly state: string;
+        readonly completedAt: string | null;
+      }>`
+        SELECT
+          turn_id AS "turnId",
+          provider_turn_id AS "providerTurnId",
+          state,
+          completed_at AS "completedAt"
+        FROM projection_turns
+        WHERE thread_id = ${threadId}
+        ORDER BY requested_at ASC
+      `;
+      assert.deepEqual(
+        rows,
+        logicalTurns.map((logicalTurn) => ({
+          turnId: logicalTurn.turnId,
+          providerTurnId,
+          state: "completed",
+          completedAt: settledAt,
+        })),
+      );
+    }),
+  );
+
+  it.effect("keeps one logical turn identity across restart provider invocations", () =>
+    Effect.gen(function* () {
+      const eventStore = yield* OrchestrationEventStore;
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.makeUnsafe("thread-restart-logical-turn");
+      const logicalTurnId = TurnId.makeUnsafe("turn-restart-logical-turn");
+      const messageId = MessageId.makeUnsafe("message-restart-logical-turn");
+      const firstProviderTurnId = TurnId.makeUnsafe("turn-provider-before-restart");
+      const resumedProviderTurnId = TurnId.makeUnsafe("turn-provider-after-restart");
+
+      yield* eventStore.append({
+        type: "thread.turn-start-requested",
+        eventId: EventId.makeUnsafe("evt-restart-logical-start"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-09-05T07:20:00.000Z",
+        commandId: CommandId.makeUnsafe("cmd-restart-logical-start"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-restart-logical-start"),
+        metadata: {},
+        payload: {
+          threadId,
+          turnId: logicalTurnId,
+          messageId,
+          runtimeMode: "full-access",
+          createdAt: "2026-09-05T07:20:00.000Z",
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.message-delivery-set",
+        eventId: EventId.makeUnsafe("evt-restart-logical-first-accepted"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-09-05T07:20:01.000Z",
+        commandId: CommandId.makeUnsafe("cmd-restart-logical-first-accepted"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-restart-logical-first-accepted"),
+        metadata: {},
+        payload: {
+          threadId,
+          messageId,
+          turnId: logicalTurnId,
+          state: "accepted",
+          providerTurnId: firstProviderTurnId,
+          updatedAt: "2026-09-05T07:20:01.000Z",
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.session-set",
+        eventId: EventId.makeUnsafe("evt-restart-logical-interrupted"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-09-05T07:20:02.000Z",
+        commandId: CommandId.makeUnsafe("cmd-restart-logical-interrupted"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-restart-logical-interrupted"),
+        metadata: {},
+        payload: {
+          threadId,
+          session: {
+            threadId,
+            status: "interrupted",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-09-05T07:20:02.000Z",
+          },
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.turn-start-requested",
+        eventId: EventId.makeUnsafe("evt-restart-logical-resume"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-09-05T07:20:03.000Z",
+        commandId: CommandId.makeUnsafe("cmd-restart-logical-resume"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-restart-logical-resume"),
+        metadata: {},
+        payload: {
+          threadId,
+          turnId: logicalTurnId,
+          messageId: MessageId.makeUnsafe("message-invisible-restart-recovery"),
+          recoveryOfTurnId: logicalTurnId,
+          restartRecovery: true,
+          runtimeMode: "full-access",
+          createdAt: "2026-09-05T07:20:03.000Z",
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.message-delivery-set",
+        eventId: EventId.makeUnsafe("evt-restart-logical-resumed-accepted"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-09-05T07:20:04.000Z",
+        commandId: CommandId.makeUnsafe("cmd-restart-logical-resumed-accepted"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-restart-logical-resumed-accepted"),
+        metadata: {},
+        payload: {
+          threadId,
+          messageId: MessageId.makeUnsafe("message-invisible-restart-recovery"),
+          turnId: logicalTurnId,
+          state: "accepted",
+          providerTurnId: resumedProviderTurnId,
+          updatedAt: "2026-09-05T07:20:04.000Z",
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.session-set",
+        eventId: EventId.makeUnsafe("evt-restart-logical-completed"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-09-05T07:20:05.000Z",
+        commandId: CommandId.makeUnsafe("cmd-restart-logical-completed"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-restart-logical-completed"),
+        metadata: {},
+        payload: {
+          threadId,
+          session: {
+            threadId,
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-09-05T07:20:05.000Z",
+          },
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+
+      const turns = yield* sql<{
+        readonly turnId: string;
+        readonly providerTurnId: string | null;
+        readonly state: string;
+      }>`
+        SELECT turn_id AS "turnId", provider_turn_id AS "providerTurnId", state
+        FROM projection_turns
+        WHERE thread_id = ${threadId}
+      `;
+      assert.deepStrictEqual(turns, [
+        {
+          turnId: logicalTurnId,
+          providerTurnId: resumedProviderTurnId,
+          state: "completed",
+        },
+      ]);
+      const bindings = yield* sql<{ readonly providerTurnId: string }>`
+        SELECT provider_turn_id AS "providerTurnId"
+        FROM projection_turn_provider_bindings
+        WHERE thread_id = ${threadId} AND turn_id = ${logicalTurnId}
+        ORDER BY bound_at ASC
+      `;
+      assert.deepStrictEqual(bindings, [
+        { providerTurnId: firstProviderTurnId },
+        { providerTurnId: resumedProviderTurnId },
+      ]);
+    }),
+  );
+
   it.effect("matches in-memory turn settlement for terminal session statuses", () =>
     Effect.gen(function* () {
       const eventStore = yield* OrchestrationEventStore;

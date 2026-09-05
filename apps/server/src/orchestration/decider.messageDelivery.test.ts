@@ -4,6 +4,7 @@ import {
   MessageId,
   SpaceId,
   ThreadId,
+  TurnId,
   type OrchestrationReadModel,
 } from "@penkra/contracts";
 import { Effect } from "effect";
@@ -62,6 +63,29 @@ const shellOnlyReadModel: OrchestrationReadModel = {
 };
 
 describe("message delivery decisions", () => {
+  it("preserves the admitted logical turn id when a queued turn is promoted", async () => {
+    const turnId = TurnId.makeUnsafe("turn:agent:queued-handle:send");
+    const decided = await Effect.runPromise(
+      decideOrchestrationCommand({
+        readModel: shellOnlyReadModel,
+        command: {
+          type: "thread.turn.dispatch-queued",
+          commandId: CommandId.makeUnsafe("server:dispatch-queued-turn:42"),
+          threadId,
+          turnId,
+          messageId,
+          runtimeMode: "full-access",
+          createdAt: NOW,
+        },
+      }),
+    );
+
+    expect(decided).toMatchObject({
+      type: "thread.turn-start-requested",
+      payload: { threadId, turnId, messageId },
+    });
+  });
+
   it("appends a normal send behind an existing queue even when the projected session is idle", async () => {
     const queuedHeadId = MessageId.makeUnsafe("queued-head-before-idle-admission");
     const readModel: OrchestrationReadModel = {

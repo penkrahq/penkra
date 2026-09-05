@@ -67,7 +67,7 @@ export interface QueuedTurnPromotionRepositoryShape {
   readonly cancelThread: (input: {
     readonly threadId: string;
     readonly updatedAt: string;
-  }) => Effect.Effect<void, PersistenceSqlError>;
+  }) => Effect.Effect<ReadonlyArray<QueuedTurnPromotion>, PersistenceSqlError>;
   readonly hasPendingMessage: (input: {
     readonly threadId: string;
     readonly messageId: string;

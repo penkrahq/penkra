@@ -162,6 +162,8 @@ import Migration0153 from "./Migrations/153_TypedLegacyPendingInteractionProject
 import Migration0154 from "./Migrations/154_RestartReconciliationIndexes.ts";
 import Migration0155 from "./Migrations/155_ThreadSidebarPreviewIndex.ts";
 import Migration0156 from "./Migrations/156_ActiveTurnProjectionSemantics.ts";
+import Migration0157 from "./Migrations/157_QueuedTurnLifecycle.ts";
+import Migration0158 from "./Migrations/158_LogicalTurnProviderBindings.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -323,6 +325,8 @@ export const migrationEntries = [
   [154, "RestartReconciliationIndexes", Migration0154],
   [155, "ThreadSidebarPreviewIndex", Migration0155],
   [156, "ActiveTurnProjectionSemantics", Migration0156],
+  [157, "QueuedTurnLifecycle", Migration0157],
+  [158, "LogicalTurnProviderBindings", Migration0158],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

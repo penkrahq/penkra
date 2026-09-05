@@ -131,7 +131,7 @@ const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   completedAt: Schema.NullOr(IsoDateTime),
   assistantMessageId: Schema.NullOr(MessageId),
 });
-const ProjectionPendingTurnStartDbRowSchema = Schema.Struct({
+const ProjectionUnboundTurnStartDbRowSchema = Schema.Struct({
   messageId: MessageId,
 });
 const ProjectionOpenTurnCountRowSchema = Schema.Struct({
@@ -351,7 +351,11 @@ function toProjectedLatestTurn(row: ProjectionLatestTurnDbRow): OrchestrationLat
           ? "interrupted"
           : row.state === "completed"
             ? "completed"
-            : "running",
+            : row.state === "queued"
+              ? "queued"
+              : row.state === "cancelled"
+                ? "cancelled"
+                : "running",
     requestedAt: row.requestedAt,
     startedAt: row.startedAt,
     completedAt: row.completedAt,
@@ -867,7 +871,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT thread_id AS "threadId", COUNT(*) AS "count"
         FROM projection_turns
-        WHERE state IN ('pending', 'running')
+        WHERE state = 'running'
         GROUP BY thread_id
         ORDER BY thread_id ASC
       `,
@@ -1833,15 +1837,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const getPendingTurnStartRowByThread = SqlSchema.findOneOption({
+  const getUnboundTurnStartRowByThread = SqlSchema.findOneOption({
     Request: ThreadIdLookupInput,
-    Result: ProjectionPendingTurnStartDbRowSchema,
+    Result: ProjectionUnboundTurnStartDbRowSchema,
     execute: ({ threadId }) =>
       sql`
         SELECT pending_message_id AS "messageId"
         FROM projection_turns
         WHERE thread_id = ${threadId}
-          AND state = 'pending'
+          AND state = 'running'
+          AND provider_turn_id IS NULL
+          AND started_at IS NULL
           AND pending_message_id IS NOT NULL
         ORDER BY requested_at DESC
         LIMIT 1
@@ -2626,7 +2632,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ),
           ),
         ),
-        getPendingTurnStartRowByThread({ threadId }).pipe(
+        getUnboundTurnStartRowByThread({ threadId }).pipe(
           Effect.mapError(
             toPersistenceSqlOrDecodeError(
               `${options.tracePrefix}:getPendingTurnStart:query`,

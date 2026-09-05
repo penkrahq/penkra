@@ -155,8 +155,10 @@ const THREAD_ACTIVITY_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"
 ]);
 
 const THREAD_TURN_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
+  "thread.turn-queued",
   "thread.turn-start-requested",
   "thread.turn-start-cancelled",
+  "thread.message-delivery-set",
   "thread.session-set",
   "thread.conversation-rolled-back",
 ]);
@@ -1177,22 +1179,110 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   ) =>
     Effect.gen(function* () {
       switch (event.type) {
-        case "thread.turn-start-requested": {
+        case "thread.turn-queued": {
           const penkraTurnId = event.payload.turnId ?? TurnId.makeUnsafe(`turn:${event.commandId}`);
-          yield* projectionTurnRepository.replacePendingTurnStart({
+          yield* projectionTurnRepository.upsertByTurnId({
             threadId: event.payload.threadId,
             turnId: penkraTurnId,
-            messageId: event.payload.messageId,
+            providerTurnId: null,
+            pendingMessageId: event.payload.messageId,
+            assistantMessageId: null,
+            state: "queued",
             requestedAt: event.payload.createdAt,
+            startedAt: null,
+            completedAt: null,
           });
           return;
         }
 
-        case "thread.turn-start-cancelled":
-          yield* projectionTurnRepository.deletePendingTurnStartByThreadId({
+        case "thread.turn-start-requested": {
+          const penkraTurnId = event.payload.turnId ?? TurnId.makeUnsafe(`turn:${event.commandId}`);
+          if (
+            event.payload.restartRecovery &&
+            event.payload.recoveryOfTurnId === penkraTurnId &&
+            Option.isSome(
+              yield* projectionTurnRepository.getByTurnId({
+                threadId: event.payload.threadId,
+                turnId: penkraTurnId,
+              }),
+            )
+          ) {
+            yield* projectionTurnRepository.reopenForRestart({
+              threadId: event.payload.threadId,
+              turnId: penkraTurnId,
+            });
+            return;
+          }
+          yield* projectionTurnRepository.upsertByTurnId({
             threadId: event.payload.threadId,
+            turnId: penkraTurnId,
+            providerTurnId: null,
+            pendingMessageId: event.payload.messageId,
+            assistantMessageId: null,
+            state: "running",
+            requestedAt: event.payload.createdAt,
+            startedAt: null,
+            completedAt: null,
           });
           return;
+        }
+
+        case "thread.message-delivery-set": {
+          const turns = yield* projectionTurnRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          if (event.payload.state === "accepted" && event.payload.providerTurnId !== undefined) {
+            const acceptedTurn = turns.find(
+              (turn) =>
+                (turn.turnId === event.payload.turnId ||
+                  turn.pendingMessageId === event.payload.messageId) &&
+                turn.completedAt === null &&
+                turn.state === "running",
+            );
+            if (acceptedTurn) {
+              yield* projectionTurnRepository.upsertByTurnId({
+                ...acceptedTurn,
+                providerTurnId: event.payload.providerTurnId,
+                startedAt: acceptedTurn.startedAt ?? event.payload.updatedAt,
+              });
+            }
+            return;
+          }
+          if (event.payload.state !== "queued" || event.payload.queued !== true) return;
+          const requeuedTurn = turns.find(
+            (turn) =>
+              turn.pendingMessageId === event.payload.messageId &&
+              turn.completedAt === null &&
+              turn.state === "running",
+          );
+          if (requeuedTurn) {
+            yield* projectionTurnRepository.upsertByTurnId({
+              ...requeuedTurn,
+              state: "queued",
+              startedAt: null,
+            });
+          }
+          return;
+        }
+
+        case "thread.turn-start-cancelled": {
+          const existingTurns = yield* projectionTurnRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const cancelledTurn =
+            (event.payload.turnId
+              ? existingTurns.find((turn) => turn.turnId === event.payload.turnId)
+              : undefined) ??
+            existingTurns.find((turn) => turn.pendingMessageId === event.payload.messageId);
+          if (cancelledTurn) {
+            yield* projectionTurnRepository.upsertByTurnId({
+              ...cancelledTurn,
+              state: "cancelled",
+              completedAt: event.payload.cancelledAt,
+            });
+          }
+          return;
+        }
 
         case "thread.session-set": {
           const turnId = event.payload.session.activeTurnId;
@@ -1222,15 +1312,26 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                 openTurns.at(0);
 
               if (turnToFinalize) {
-                yield* projectionTurnRepository.upsertByTurnId({
-                  ...turnToFinalize,
-                  state:
-                    settleTurnStateFromSession(event.payload.session, turnToFinalize.state) ??
-                    turnToFinalize.state,
-                  startedAt: turnToFinalize.startedAt ?? event.payload.session.updatedAt,
-                  requestedAt: turnToFinalize.requestedAt ?? event.payload.session.updatedAt,
-                  completedAt: event.payload.session.updatedAt,
-                });
+                // A native steer is a new logical Penkra turn riding the same
+                // provider invocation. Every logical turn bound to that exact
+                // provider turn settles together, while distinct overlapping
+                // provider turns remain independent.
+                const turnsToFinalize =
+                  turnToFinalize.providerTurnId === null
+                    ? [turnToFinalize]
+                    : openTurns.filter(
+                        (row) => row.providerTurnId === turnToFinalize.providerTurnId,
+                      );
+                yield* Effect.forEach(turnsToFinalize, (row) =>
+                  projectionTurnRepository.upsertByTurnId({
+                    ...row,
+                    state:
+                      settleTurnStateFromSession(event.payload.session, row.state) ?? row.state,
+                    startedAt: row.startedAt ?? event.payload.session.updatedAt,
+                    requestedAt: row.requestedAt ?? event.payload.session.updatedAt,
+                    completedAt: event.payload.session.updatedAt,
+                  }),
+                );
               }
             }
             return;
@@ -1240,7 +1341,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             threadId: event.payload.threadId,
             turnId,
           });
-          const pendingTurnStart = yield* projectionTurnRepository.getPendingTurnStartByThreadId({
+          const pendingTurnStart = yield* projectionTurnRepository.getUnboundTurnStartByThreadId({
             threadId: event.payload.threadId,
           });
           const providerBoundTurn = (yield* projectionTurnRepository.listByThreadId({
@@ -1256,7 +1357,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                     providerTurnId: turnId,
                     pendingMessageId: pendingTurnStart.value.messageId,
                     assistantMessageId: null,
-                    state: "pending" as const,
+                    state: "running" as const,
                     requestedAt: pendingTurnStart.value.requestedAt,
                     startedAt: null,
                     completedAt: null,
@@ -1266,7 +1367,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             const nextState =
               existingTurn.state === "completed" ||
               existingTurn.state === "interrupted" ||
-              existingTurn.state === "error"
+              existingTurn.state === "error" ||
+              existingTurn.state === "cancelled"
                 ? existingTurn.state
                 : "running";
             yield* projectionTurnRepository.upsertByTurnId({
@@ -1323,7 +1425,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             const existingIsTerminal =
               existingTurn.state === "completed" ||
               existingTurn.state === "error" ||
-              existingTurn.state === "interrupted";
+              existingTurn.state === "interrupted" ||
+              existingTurn.state === "cancelled";
             yield* projectionTurnRepository.upsertByTurnId({
               ...existingTurn,
               assistantMessageId: event.payload.messageId,
