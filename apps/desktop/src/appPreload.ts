@@ -29,7 +29,10 @@ const runtime = new AppPreloadRuntime({
   accountDataSubscribe: (channel, listener, options) =>
     subscribeAccountDataWithBufferedHandshake({
       start: () =>
-        ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.accountDataSubscribeStart, { channel }),
+        ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.accountDataSubscribeStart, {
+          channel,
+          metadata: options?.metadata,
+        }),
       listen: (onMessage) => {
         const wrapped = (
           _event: Electron.IpcRendererEvent,

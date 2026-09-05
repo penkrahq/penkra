@@ -8,7 +8,7 @@ import type {
   PenkraTabRuntimeApi,
 } from "@penkra/sdk";
 
-import type { AppRendererRpcHostMessage, AppRendererRpcResponseMessage } from "./appRendererRpc";
+import type { AppRendererRpcResponseMessage } from "./appRendererRpc";
 
 export type AppPreloadRendererMessage = AppRendererRpcResponseMessage;
 
@@ -88,6 +88,28 @@ export class AppPreloadRuntime {
       runtime: { kind: "tab" },
       contextMenu: {
         show: (items) => this.#transport.showContextMenu(items),
+      },
+      shell: {
+        beep: () => this.#runtimeV2Call("shell.beep"),
+        openExternal: (url, options) => this.#runtimeV2Call("shell.openExternal", { url, options }),
+        openPath: (path) => this.#runtimeV2Call("shell.openPath", path),
+        showItemInFolder: (fullPath) => this.#runtimeV2Call("shell.showItemInFolder", fullPath),
+        trashItem: (path) => this.#runtimeV2Call("shell.trashItem", path),
+        readShortcutLink: (shortcutPath) =>
+          this.#runtimeV2Call("shell.readShortcutLink", shortcutPath),
+        writeShortcutLink: ((
+          shortcutPath: string,
+          operationOrOptions: unknown,
+          options?: unknown,
+        ) =>
+          this.#runtimeV2Call("shell.writeShortcutLink", {
+            shortcutPath,
+            operationOrOptions,
+            ...(options === undefined ? {} : { options }),
+          })) as PenkraTabRuntimeApi["shell"]["writeShortcutLink"],
+      },
+      controller: {
+        invoke: (handler, input) => this.#runtimeV2Call("controller.invoke", { handler, input }),
       },
       files: {
         list: () => this.#runtimeV2Call("files.list"),

@@ -261,7 +261,14 @@ describe("MessagesTimeline tool details", () => {
     const openFile = vi.fn(() => true);
     const host = createTimelineHost();
     const screen = await render(
-      <ThreadResourceOpenerContext.Provider value={{ openFile, openUrl: () => false }}>
+      <ThreadResourceOpenerContext.Provider
+        value={{
+          openFile,
+          openUrl: () => false,
+          showFileContextMenu: () => false,
+          showUrlContextMenu: () => false,
+        }}
+      >
         <TimelineWorkEntryRow
           workEntry={{
             id: "file-live-activity",
@@ -304,7 +311,14 @@ describe("MessagesTimeline tool details", () => {
     const openFile = vi.fn(() => true);
     const host = createTimelineHost();
     const screen = await render(
-      <ThreadResourceOpenerContext.Provider value={{ openFile, openUrl: () => false }}>
+      <ThreadResourceOpenerContext.Provider
+        value={{
+          openFile,
+          openUrl: () => false,
+          showFileContextMenu: () => false,
+          showUrlContextMenu: () => false,
+        }}
+      >
         <TimelineWorkEntryRow
           workEntry={{
             id: "read-live-activity",

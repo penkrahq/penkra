@@ -107,11 +107,25 @@ function createSimulatorMock(): PenkraTabRuntimeApi["simulator"] {
   };
 }
 
+function createShellMock(): PenkraTabRuntimeApi["shell"] {
+  return {
+    beep: vi.fn(),
+    openExternal: vi.fn(),
+    openPath: vi.fn(),
+    showItemInFolder: vi.fn(),
+    trashItem: vi.fn(),
+    readShortcutLink: vi.fn(),
+    writeShortcutLink: vi.fn(),
+  };
+}
+
 describe("framework-neutral App runtime exports", () => {
   it("forwards visual tab registration to the preload-owned global API", async () => {
     const runtime: PenkraTabRuntimeApi = {
       runtime: { kind: "tab" },
       contextMenu: { show: vi.fn(async () => null) },
+      shell: createShellMock(),
+      controller: { invoke: vi.fn() },
       files: createFilesMock(),
       storage: createStorageMock(),
       transfer: createTransferMock(),
@@ -188,6 +202,8 @@ describe("framework-neutral App runtime exports", () => {
     const runtime: PenkraTabRuntimeApi = {
       runtime: { kind: "tab" },
       contextMenu: { show: vi.fn(async () => null) },
+      shell: createShellMock(),
+      controller: { invoke: vi.fn() },
       files: createFilesMock(),
       storage: createStorageMock(),
       transfer: createTransferMock(),

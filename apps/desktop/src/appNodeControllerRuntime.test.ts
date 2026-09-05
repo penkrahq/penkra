@@ -87,6 +87,38 @@ describe("AppNodeControllerRuntime", () => {
     });
   });
 
+  it("keeps private controller handlers distinct from manifest operations", async () => {
+    const test = fixture();
+    const handler = vi.fn(async (input, context) => ({
+      input,
+      threadId: context.threadId,
+      tabId: context.tabId,
+    }));
+    test.runtime.api.controller.handle("explorer.stat", handler);
+    test.host({
+      type: "request",
+      id: "private-1",
+      method: "controller.internal.invoke",
+      input: {
+        handler: "explorer.stat",
+        input: { relativePath: "app.js" },
+        context: { threadId: "thread-1", tabId: "tab-1" },
+      },
+    });
+    await vi.waitFor(() =>
+      expect(test.sent).toContainEqual({
+        type: "result",
+        id: "private-1",
+        result: {
+          input: { relativePath: "app.js" },
+          threadId: "thread-1",
+          tabId: "tab-1",
+        },
+      }),
+    );
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
   it("constructs operation-scoped tab handles over context calls", async () => {
     const test = fixture();
     test.runtime.api.operations.handle("issues.create", async (_input, context) => {
@@ -143,12 +175,14 @@ describe("AppNodeControllerRuntime", () => {
     expect(test.runtime.api.runtime).toEqual({ kind: "controller" });
     expect(Object.keys(test.runtime.api).sort()).toEqual([
       "account",
+      "controller",
       "identity",
       "operations",
       "permissions",
       "runtime",
       "secrets",
       "settings",
+      "shell",
     ]);
     expect("network" in test.runtime.api).toBe(false);
     await expect(test.runtime.api.settings.get("theme")).resolves.toBe("theme");

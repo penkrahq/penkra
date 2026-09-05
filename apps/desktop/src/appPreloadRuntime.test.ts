@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { AppPreloadRuntime, type AppPreloadRendererMessage } from "./appPreloadRuntime";
+import {
+  AppPreloadRuntime,
+  type AppPreloadRendererMessage,
+  type AppPreloadTransport,
+} from "./appPreloadRuntime";
 
 function fixture() {
   const sent: AppPreloadRendererMessage[] = [];
@@ -30,7 +34,16 @@ function fixture() {
     orientation: "portrait",
     lastError: null,
   }));
+  const calls: Array<[string, unknown?]> = [];
+  const call: NonNullable<AppPreloadTransport["call"]> = async <Result = unknown>(
+    method: string,
+    input?: unknown,
+  ): Promise<Result> => {
+    calls.push(input === undefined ? [method] : [method, input]);
+    return input as Result;
+  };
   const runtime = new AppPreloadRuntime({
+    call,
     onEvent: (name, listener) => {
       eventListeners.set(name, listener);
       return () => eventListeners.delete(name);
@@ -107,6 +120,7 @@ function fixture() {
     tabSetRoute,
     browserCall,
     simulatorCall,
+    calls,
     browserState: (state: import("@penkra/sdk").AppBrowserSessionState) =>
       browserStateListener?.(state),
     simulatorState: (state: import("@penkra/sdk").AppSimulatorSessionState) =>
@@ -215,6 +229,19 @@ describe("AppPreloadRuntime", () => {
         { id: "uninstall", label: "Uninstall", destructive: true },
       ]),
     ).resolves.toBeNull();
+  });
+
+  it("mirrors Electron shell names and private controller invocation", async () => {
+    const test = fixture();
+    await test.runtime.api.shell.showItemInFolder("/tmp/report.txt");
+    await test.runtime.api.shell.trashItem("/tmp/old.txt");
+    await test.runtime.api.controller.invoke("explorer.stat", { path: "/tmp/report.txt" });
+
+    expect(test.calls).toEqual([
+      ["shell.showItemInFolder", "/tmp/report.txt"],
+      ["shell.trashItem", "/tmp/old.txt"],
+      ["controller.invoke", { handler: "explorer.stat", input: { path: "/tmp/report.txt" } }],
+    ]);
   });
 
   it("dispatches point-to-point tab operations and navigation", async () => {

@@ -8,6 +8,7 @@ import type { OperationCancellationCode } from "@penkra/sdk";
 
 export const APP_RENDERER_RPC_METHODS = [
   "controller.invoke",
+  "controller.internal.invoke",
   "tab.invoke",
   "tab.navigate",
   "tab.navigate-for-result",

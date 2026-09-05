@@ -20,6 +20,14 @@ export interface ResolvedAppIntent {
   slug: string;
   name: string;
   operation: string;
+  resourceInput?: "path";
+}
+
+export function compareAppIntentCandidates(
+  left: Pick<ResolvedAppIntent, "appId" | "slug">,
+  right: Pick<ResolvedAppIntent, "appId" | "slug">,
+): number {
+  return left.slug.localeCompare(right.slug) || left.appId.localeCompare(right.appId);
 }
 
 export class AppIntentRouterError extends Error {
@@ -46,9 +54,12 @@ export class AppIntentRouter {
           slug: app.slug,
           name: app.name,
           operation: handler.operation,
+          ...(handler.intent !== "open-url" && handler.input
+            ? { resourceInput: handler.input }
+            : {}),
         })),
       )
-      .sort((left, right) => left.slug.localeCompare(right.slug));
+      .sort(compareAppIntentCandidates);
   }
 
   resolve(spaceId: string, request: AppIntentRequest): ResolvedAppIntent | null {

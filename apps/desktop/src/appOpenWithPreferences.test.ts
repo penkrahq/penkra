@@ -20,17 +20,33 @@ describe("AppOpenWithPreferenceStore", () => {
     const path = resolveAppOpenWithPreferencesPath(root);
     const store = await AppOpenWithPreferenceStore.open(path);
 
-    await store.set("personal", "open-url", "com.penkra.browser");
-    await store.set("personal", "open-directory", "com.penkra.explorer");
-    await store.set("personal", "open-file", "com.penkra.explorer", ".MD");
+    await store.set("open-url", "com.penkra.browser");
+    await store.set("open-directory", "com.penkra.explorer");
+    await store.set("open-file", "com.penkra.explorer", ".MD");
 
     const reopened = await AppOpenWithPreferenceStore.open(path);
-    expect(reopened.get("work", "open-url")).toBe("com.penkra.browser");
-    expect(reopened.get("work", "open-directory")).toBe("com.penkra.explorer");
-    expect(reopened.get("work", "open-file", ".md")).toBe("com.penkra.explorer");
-    await reopened.set("work", "open-url", null);
+    expect(reopened.get("open-url")).toBe("com.penkra.browser");
+    expect(reopened.get("open-directory")).toBe("com.penkra.explorer");
+    expect(reopened.get("open-file", ".md")).toBe("com.penkra.explorer");
+    await reopened.set("open-url", null);
     expect(reopened.snapshot()).toEqual({
       "open-directory": "com.penkra.explorer",
+      files: { ".md": "com.penkra.explorer" },
+    });
+  });
+
+  it("sets a default only while the preference is still System default", async () => {
+    const root = await mkdtemp(join(tmpdir(), "penkra-open-with-"));
+    roots.push(root);
+    const store = await AppOpenWithPreferenceStore.open(resolveAppOpenWithPreferencesPath(root));
+
+    await store.setIfSystemDefault("open-url", "com.penkra.browser");
+    await store.setIfSystemDefault("open-url", "com.acme.web");
+    await store.setIfSystemDefault("open-file", "com.penkra.explorer", ".MD");
+    await store.setIfSystemDefault("open-file", "com.acme.notes", ".md");
+
+    expect(store.snapshot()).toEqual({
+      "open-url": "com.penkra.browser",
       files: { ".md": "com.penkra.explorer" },
     });
   });

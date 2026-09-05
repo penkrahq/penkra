@@ -53,6 +53,7 @@ export async function createDesktopSimulatorAdapterBundle(input: {
   userDataPath: string;
   environment?: NodeJS.ProcessEnv;
   pathExists?: (path: string) => Promise<boolean>;
+  discoverAppleSimulator?: () => Promise<SimulatorPlatformDiscovery>;
   reviewAndroidLicense?(prompt: AndroidSdkLicensePrompt, signal: AbortSignal): Promise<boolean>;
 }): Promise<DesktopSimulatorAdapterBundle> {
   const environment = input.environment ?? process.env;
@@ -123,7 +124,8 @@ export async function createDesktopSimulatorAdapterBundle(input: {
     appiumExecutable = initialToolchain?.appiumExecutable ?? null;
     webDriverAgentProject = initialToolchain?.webDriverAgentProject ?? null;
     const appleCatalog = cachedCatalog(async () => {
-      const discovery = await discoverAppleSimulator("darwin");
+      const discovery = await (input.discoverAppleSimulator?.() ??
+        discoverAppleSimulator("darwin"));
       if (discovery.availability.status !== "available") return discovery;
       if (!(await toolchain.resolve())) {
         return {

@@ -414,8 +414,13 @@ export interface DesktopInstalledApp {
   skills: ReadonlyArray<{ path: string }>;
   handlers: ReadonlyArray<
     | { intent: "open-url"; operation: string; schemes: ReadonlyArray<string> }
-    | { intent: "open-file"; operation: string; extensions: ReadonlyArray<string> }
-    | { intent: "open-directory"; operation: string }
+    | {
+        intent: "open-file";
+        operation: string;
+        extensions: ReadonlyArray<string>;
+        input?: "path";
+      }
+    | { intent: "open-directory"; operation: string; input?: "path" }
   >;
 }
 
@@ -719,13 +724,26 @@ export interface DesktopResourceOpenInput {
   threadId: string;
 }
 
+export interface DesktopResourceContextMenuInput {
+  path?: string;
+  url?: string;
+  spaceId: string;
+  threadId: string;
+  position: { x: number; y: number };
+}
+
+export interface DesktopResourceOpenResult {
+  destination: "app" | "system";
+  intent: "open-url" | "open-file" | "open-directory";
+  appId?: string;
+  slug?: string;
+}
+
 export interface DesktopResourcesBridge {
-  open(input: DesktopResourceOpenInput): Promise<{
-    destination: "app" | "system";
-    intent: "open-url" | "open-file" | "open-directory";
-    appId?: string;
-    slug?: string;
-  }>;
+  open(input: DesktopResourceOpenInput): Promise<DesktopResourceOpenResult>;
+  showContextMenu(
+    input: DesktopResourceContextMenuInput,
+  ): Promise<DesktopResourceOpenResult | null>;
 }
 
 export interface DesktopAppDiagnosticEntry {
@@ -767,9 +785,8 @@ export interface DesktopAppOpenWithPreferences {
 }
 
 export interface DesktopAppOpenWithBridge {
-  get: (input: { spaceId: string }) => Promise<DesktopAppOpenWithPreferences>;
+  get: () => Promise<DesktopAppOpenWithPreferences>;
   set: (input: {
-    spaceId: string;
     intent: DesktopAppOpenIntent;
     extension?: string;
     appId: string | null;

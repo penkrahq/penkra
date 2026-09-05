@@ -194,7 +194,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     },
   },
   appOpenWith: {
-    get: (input) => ipcRenderer.invoke(IPC.appOpenWith.get, input),
+    get: () => ipcRenderer.invoke(IPC.appOpenWith.get),
     set: (input) => ipcRenderer.invoke(IPC.appOpenWith.set, input),
   },
   appTabs: {
@@ -248,6 +248,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
   resources: {
     open: (input) => ipcRenderer.invoke(IPC.resourceOpen, input),
+    showContextMenu: (input) => ipcRenderer.invoke(IPC.resourceContextMenu, input),
   },
   appDiagnostics: {
     list: (input) => ipcRenderer.invoke(IPC.appDiagnostics.list, input),

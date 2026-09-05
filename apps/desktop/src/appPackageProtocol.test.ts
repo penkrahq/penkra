@@ -48,6 +48,7 @@ describe("App package protocol", () => {
     expect(response.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
     const contentSecurityPolicy = response.headers.get("content-security-policy");
     expect(contentSecurityPolicy).toContain("script-src 'self' 'wasm-unsafe-eval'");
+    expect(contentSecurityPolicy).toContain("img-src 'self' data: blob:");
     expect(contentSecurityPolicy).toContain("connect-src 'self'");
     expect(contentSecurityPolicy).not.toContain("connect-src http:");
     expect(contentSecurityPolicy).not.toContain("connect-src https:");

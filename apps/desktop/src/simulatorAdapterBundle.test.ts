@@ -5,6 +5,16 @@ import {
   createDesktopSimulatorAdapterBundle,
 } from "./simulatorAdapterBundle";
 
+const missingAppleSimulator = async () => ({
+  availability: {
+    platform: "ios" as const,
+    supported: true,
+    status: "setup-required" as const,
+    message: "Apple Simulator is unavailable in this test.",
+  },
+  inventory: { runtimes: [], deviceTypes: [] },
+});
+
 describe("desktop simulator adapter bundle", () => {
   it("composes Android on every supported host and Apple only on macOS", async () => {
     const mac = await createDesktopSimulatorAdapterBundle({
@@ -12,12 +22,14 @@ describe("desktop simulator adapter bundle", () => {
       userDataPath: "/tmp/penkra-test",
       environment: {},
       pathExists: async () => false,
+      discoverAppleSimulator: missingAppleSimulator,
     });
     const linux = await createDesktopSimulatorAdapterBundle({
       platform: "linux",
       userDataPath: "/tmp/penkra-test",
       environment: {},
       pathExists: async () => false,
+      discoverAppleSimulator: missingAppleSimulator,
     });
 
     expect(mac.adapters.map((adapter) => adapter.platform)).toEqual(["android", "ios"]);
@@ -39,6 +51,7 @@ describe("desktop simulator adapter bundle", () => {
       userDataPath: "/tmp/penkra-test",
       environment: {},
       pathExists: async () => false,
+      discoverAppleSimulator: missingAppleSimulator,
     });
 
     const environment = await new (

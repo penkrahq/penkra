@@ -52,6 +52,7 @@ function addFileApp(
   slug: string,
   spaceId: string,
   extensions: string[],
+  resourceInput?: "path",
 ) {
   let next = registerVerifiedAppPackage(
     state,
@@ -77,7 +78,12 @@ function addFileApp(
         ],
         contributions: {
           handlers: [
-            { intent: "open-file", operation: "resources.open", extensions },
+            {
+              intent: "open-file",
+              operation: "resources.open",
+              extensions,
+              ...(resourceInput ? { input: resourceInput } : {}),
+            },
             { intent: "open-directory", operation: "resources.open" },
           ],
         },
@@ -158,6 +164,23 @@ describe("App intent router", () => {
     );
     expect(router.resolve("personal", { intent: "open-directory" })?.slug).toBe("explorer");
     expect(router.resolve("personal", { intent: "open-file", extension: ".pdf" })).toBeNull();
+  });
+
+  it("preserves an open-file handler's requested path input", () => {
+    const state = addFileApp(
+      createEmptyAppInstallationState(),
+      "com.penkra.explorer",
+      "explorer",
+      "personal",
+      [".js"],
+      "path",
+    );
+    const router = new AppIntentRouter(() => state);
+
+    expect(router.resolve("personal", { intent: "open-file", extension: ".js" })).toMatchObject({
+      slug: "explorer",
+      resourceInput: "path",
+    });
   });
 
   it("requires a preference when multiple file handlers match", () => {

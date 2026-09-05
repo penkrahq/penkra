@@ -67,8 +67,9 @@ App×Space-scoped handle IDs.
 The host validates every descendant and symlink boundary and never reveals an absolute path.
 Handles survive iframe reload but currently expire when the desktop runtime restarts; there is no
 filesystem manifest permission or ambient filesystem namespace. Apps may also declare exact
-`open-file` extensions or `open-directory`; trusted host openings deliver the same kind of scoped
-handle to the declared operation. Use `readBinary` for bounded reads and the
+`open-file` extensions or `open-directory`; trusted host openings deliver a scoped handle by
+default. A Node-controller handler can explicitly declare `input: "path"` to receive `{ path }`
+instead. Use `readBinary` for bounded reads and the
 `beginWrite` / `writeChunk` / `commitWrite` session for larger atomic writes; abort unfinished
 writes when App-side work fails.
 
@@ -78,6 +79,11 @@ opaque handle or App storage use permission-gated `transfer.begin`, `transfer.se
 `transfer.receive`; subscribe with `transfer.onProgress` for host-measured remote progress. Bulk
 bytes do not cross renderer RPC. Do not use these renderer services from `operations.js`; use
 ordinary Node HTTP, filesystem, and stream APIs there.
+
+Tabs call private handlers in their own App×Space controller with `controller.invoke(...)`; Node
+controllers register those handlers with `controller.handle(...)`. This channel is separate from
+manifest-declared operations. Both runtimes expose Electron's `shell` method family through
+`shell`, using Electron's method names and serializable options.
 
 Privileged Penkra APIs require matching manifest declarations and per-Space grants. Hosted browser
 APIs require `browser-session`, and hosted simulated-device APIs require `simulator-session`. Both

@@ -100,10 +100,13 @@ export type AppHandlerDeclaration =
       intent: "open-file";
       operation: string;
       extensions: ReadonlyArray<string>;
+      /** Ask the trusted Node controller to receive `{ path }` instead of an opaque tab handle. */
+      input?: "path";
     }
   | {
       intent: "open-directory";
       operation: string;
+      input?: "path";
     };
 
 export interface PenkraAppManifest {
@@ -783,6 +786,12 @@ function validateHandlerContributions(
             "invalid-format",
             "open-directory handlers cannot declare schemes or extensions.",
           );
+        }
+        if (candidate.input !== undefined && candidate.input !== "path") {
+          issue(issues, `${path}.input`, "invalid-format", "handler input must be path.");
+        }
+        if (candidate.intent === "open-url" && candidate.input !== undefined) {
+          issue(issues, path, "invalid-format", "open-url handlers cannot declare path input.");
         }
       });
       validateUniqueNames(intents, issues);

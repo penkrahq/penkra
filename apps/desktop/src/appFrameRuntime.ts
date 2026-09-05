@@ -99,7 +99,10 @@ class AppFramePortTransport implements AppPreloadTransport {
     listener: (event: AppAccountRealtimeEvent) => void,
     options?: AppAccountRealtimeSubscriptionOptions,
   ): Promise<() => void> {
-    const subscriptionId = await this.#call<string>("account.subscribe", { channel });
+    const subscriptionId = await this.#call<string>("account.subscribe", {
+      channel,
+      metadata: options?.metadata,
+    });
     const eventName = `account.subscription.${subscriptionId}`;
     const unsubscribeEvent = this.#onEvent(eventName, (payload) => {
       if (!isRecord(payload)) return;

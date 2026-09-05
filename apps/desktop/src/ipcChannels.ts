@@ -15,6 +15,7 @@ export const DESKTOP_IPC_CHANNELS = {
   openExternal: "desktop:open-external",
   showInFolder: "desktop:show-in-folder",
   resourceOpen: "desktop:resource-open",
+  resourceContextMenu: "desktop:resource-context-menu",
   clipboardWriteImage: "desktop:clipboard-write-image",
   windowMinimize: "desktop:window-minimize",
   windowToggleMaximize: "desktop:window-toggle-maximize",

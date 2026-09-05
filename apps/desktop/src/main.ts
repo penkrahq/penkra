@@ -35,6 +35,8 @@ import type {
   FileFilter,
   IpcMainEvent,
   MenuItemConstructorOptions,
+  OpenExternalOptions,
+  ShortcutDetails,
   WebContents,
 } from "electron";
 import * as Effect from "effect/Effect";
@@ -74,6 +76,7 @@ import { prepareAppBrowserDownload } from "./appBrowserDownload";
 import { requestAppIdentityToken } from "./appIdentityToken";
 import { parseAppHostedSurfaceInsets } from "./appHostedSurfaceLayout";
 import { openLocalAppResource } from "./appLocalResourceOpener";
+import { buildAppResourceContextMenu } from "./appResourceContextMenu";
 import {
   appScopedFileEntry,
   resolveExistingAppScopedPath,
@@ -322,6 +325,7 @@ import {
 } from "./appTabIpc";
 import { parseAppListingDeepLink } from "./appListingDeepLink";
 import { getInstalledAppPackage, type VerifiedAppPackageInput } from "./appInstallationState";
+import { resolveDevRemoteDebuggingPort } from "./devRemoteDebugging";
 
 // Capture the real archive identity before any explicit app.asar lookup. Static
 // snapshotting and the runtime watcher both use this same generation as their
@@ -356,6 +360,13 @@ const desktopFlavor = resolvePenkraDesktopFlavor({
 });
 const isDevelopment = desktopFlavor === "development";
 const isPackagedRuntime = app.isPackaged && !isDevelopment;
+const devRemoteDebuggingPort = isDevelopment ? resolveDevRemoteDebuggingPort(process.env) : null;
+if (devRemoteDebuggingPort) {
+  // Chromium reads this switch before `ready`; a later application argument is
+  // visible in process.argv but does not open the debugging endpoint.
+  app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
+  app.commandLine.appendSwitch("remote-debugging-port", devRemoteDebuggingPort);
+}
 const desktopPlatform = resolveDesktopPlatformAdapter();
 const penkraAppDataBase = resolveDesktopAppDataBase({
   platform: desktopPlatform.platform,
@@ -529,7 +540,9 @@ async function requestAppComposerStage(
   runtime: DesktopAppRuntime,
   identity: { appId: string; spaceId: string; threadId?: string },
   value: unknown,
-): Promise<{ resolvedModel: import("@penkra/sdk").AppComposerModelSelection | null }> {
+): Promise<{
+  resolvedModel: import("@penkra/sdk").AppComposerModelSelection | null;
+}> {
   if (!identity.threadId) {
     throw new Error("Only an App surface attached to a thread can stage its composer.");
   }
@@ -911,7 +924,7 @@ async function openPenkraResource(input: {
       throw new Error("Only HTTP and HTTPS URLs can be opened.");
     }
     const intent = "open-url" as const;
-    const preferredAppId = runtime.openWith.get(input.spaceId, intent);
+    const preferredAppId = runtime.openWith.get(intent);
     const resolved = runtime.intents.resolve(input.spaceId, {
       intent,
       url: url.href,
@@ -955,6 +968,69 @@ async function openPenkraResource(input: {
       if (error) throw new Error(error);
     },
   });
+}
+
+async function showPenkraResourceContextMenu(input: {
+  path?: string;
+  url?: string;
+  spaceId: string;
+  threadId: string;
+  position: { x: number; y: number };
+}): Promise<unknown | null> {
+  const runtime = desktopAppRuntime;
+  if (!runtime) throw new Error("The App runtime is not ready.");
+  const model = await buildAppResourceContextMenu({
+    intents: runtime.intents,
+    platform: process.platform,
+    request: input,
+  });
+  if (model.choices.length === 0) return null;
+
+  const window = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  if (!window) return null;
+  const selection = createContextMenuSelection<string>();
+  const choices = new Map(model.choices.map((choice) => [choice.id, choice]));
+  Menu.buildFromTemplate([
+    {
+      label: model.label,
+      submenu: model.choices.map((choice) => ({
+        label: choice.label,
+        click: () => selection.select(choice.id),
+      })),
+    },
+  ]).popup({
+    window,
+    x: Math.max(0, Math.floor(input.position.x)),
+    y: Math.max(0, Math.floor(input.position.y)),
+    callback: selection.dismiss,
+  });
+
+  const selectedId = await selection.result;
+  const choice = selectedId ? choices.get(selectedId) : undefined;
+  if (!choice) return null;
+  if (choice.destination === "app") {
+    if (!choice.requestedApp) throw new Error("The selected App destination is invalid.");
+    const resource =
+      "url" in model.resource ? { url: model.resource.url } : { path: model.resource.path };
+    return openPenkraResource({
+      ...resource,
+      requestedApp: choice.requestedApp,
+      spaceId: input.spaceId,
+      threadId: input.threadId,
+      callerKind: "user",
+    });
+  }
+  if ("url" in model.resource) {
+    await shell.openExternal(model.resource.url);
+    return { destination: "system", intent: model.intent, url: model.resource.url };
+  }
+  if (model.resource.kind === "directory") {
+    const error = await shell.openPath(model.resource.path);
+    if (error) throw new Error(error);
+  } else {
+    shell.showItemInFolder(model.resource.path);
+  }
+  return { destination: "system", intent: model.intent, path: model.resource.path };
 }
 
 let backendAuthToken = "";
@@ -1173,6 +1249,52 @@ async function runtimeV2FileEntry(
   return appScopedFileEntry(handle, Path.relative(handle.rootPath, absolutePath));
 }
 
+function parseRuntimeShellOpenExternalOptions(value: unknown): OpenExternalOptions | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Shell openExternal options must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  const options: OpenExternalOptions = {};
+  if (record.activate !== undefined) {
+    if (typeof record.activate !== "boolean") throw new Error("activate must be a boolean.");
+    options.activate = record.activate;
+  }
+  if (record.workingDirectory !== undefined) {
+    if (typeof record.workingDirectory !== "string")
+      throw new Error("workingDirectory must be a string.");
+    options.workingDirectory = record.workingDirectory;
+  }
+  if (record.logUsage !== undefined) {
+    if (typeof record.logUsage !== "boolean") throw new Error("logUsage must be a boolean.");
+    options.logUsage = record.logUsage;
+  }
+  return options;
+}
+
+function writeRuntimeShellShortcut(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Shell shortcut input must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.shortcutPath !== "string") throw new Error("Shortcut path must be a string.");
+  const rawOptions = record.options === undefined ? record.operationOrOptions : record.options;
+  if (!rawOptions || typeof rawOptions !== "object" || Array.isArray(rawOptions)) {
+    throw new Error("Shortcut details must be an object.");
+  }
+  const options = rawOptions as ShortcutDetails;
+  if (typeof options.target !== "string") throw new Error("Shortcut target must be a string.");
+  if (record.options === undefined) return shell.writeShortcutLink(record.shortcutPath, options);
+  if (!["create", "update", "replace"].includes(String(record.operationOrOptions))) {
+    throw new Error("Shortcut operation is invalid.");
+  }
+  return shell.writeShortcutLink(
+    record.shortcutPath,
+    record.operationOrOptions as "create" | "update" | "replace",
+    options,
+  );
+}
+
 async function invokeRuntimeV2BrowserCall(input: {
   tabId: string;
   appId: string;
@@ -1252,7 +1374,10 @@ async function invokeRuntimeV2BrowserCall(input: {
       );
     case "forward":
       return toAppBrowserState(
-        browserManager.goForward({ threadId: browserSessionId, tabId: pageId() }),
+        browserManager.goForward({
+          threadId: browserSessionId,
+          tabId: pageId(),
+        }),
       );
     case "newPage": {
       const record =
@@ -1269,11 +1394,17 @@ async function invokeRuntimeV2BrowserCall(input: {
     }
     case "closePage":
       return toAppBrowserState(
-        browserManager.closeTab({ threadId: browserSessionId, tabId: pageId() }),
+        browserManager.closeTab({
+          threadId: browserSessionId,
+          tabId: pageId(),
+        }),
       );
     case "selectPage":
       return toAppBrowserState(
-        browserManager.selectTab({ threadId: browserSessionId, tabId: pageId() }),
+        browserManager.selectTab({
+          threadId: browserSessionId,
+          tabId: pageId(),
+        }),
       );
     case "openExtensionAction": {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -1310,7 +1441,10 @@ async function invokeRuntimeV2BrowserCall(input: {
       });
     }
     case "stopFind":
-      browserManager.stopFindInPage({ threadId: browserSessionId, tabId: pageId() });
+      browserManager.stopFindInPage({
+        threadId: browserSessionId,
+        tabId: pageId(),
+      });
       return;
     case "capture": {
       const result = await browserManager.captureScreenshot({
@@ -1368,7 +1502,10 @@ function runtimeV2SimulatorViewport(
       const current = runtimeV2SimulatorSurfaces.get(owner.tabId);
       current?.stopFrames?.();
       const generation = (current?.generation ?? 0) + 1;
-      runtimeV2SimulatorSurfaces.set(owner.tabId, { stopFrames: null, generation });
+      runtimeV2SimulatorSurfaces.set(owner.tabId, {
+        stopFrames: null,
+        generation,
+      });
       desktopAppRuntime?.appTabs.sendFrameEvent(owner.tabId, "simulator.surface", bounds);
       if (!bounds || bounds.width === 0 || bounds.height === 0) return;
       if (manager.getState(owner).phase !== "ready") return;
@@ -1447,7 +1584,11 @@ function startBrowserPerformanceLogging(): void {
       }));
     const processTypes: Record<string, { count: number; cpu: number; memMb: number }> = {};
     for (const metric of allProcessMetrics) {
-      const summary = processTypes[metric.type] ?? { count: 0, cpu: 0, memMb: 0 };
+      const summary = processTypes[metric.type] ?? {
+        count: 0,
+        cpu: 0,
+        memMb: 0,
+      };
       summary.count += 1;
       summary.cpu += metric.cpu.percentCPUUsage;
       summary.memMb += metric.memory.workingSetSize / 1024;
@@ -4865,6 +5006,10 @@ function registerIpcHandlers(): void {
       input && typeof input === "object" && !Array.isArray(input)
         ? (input as { channel?: unknown }).channel
         : undefined;
+    const metadata =
+      input && typeof input === "object" && !Array.isArray(input)
+        ? (input as { metadata?: unknown }).metadata
+        : undefined;
     if (typeof channel !== "string") throw new Error("Account-data channel must be a string.");
     const subscriptionId = Crypto.randomUUID();
     const senderId = event.sender.id;
@@ -4873,6 +5018,9 @@ function registerIpcHandlers(): void {
       appId: identity.appId,
       cookie: getPenkraAccountCookie(),
       channel,
+      ...(metadata && typeof metadata === "object" && !Array.isArray(metadata)
+        ? { metadata: metadata as Record<string, string | number | boolean> }
+        : {}),
       onEvent: (accountEvent) => {
         const target = webContents.fromId(senderId);
         if (!target || target.isDestroyed()) return;
@@ -5128,7 +5276,10 @@ function registerIpcHandlers(): void {
       }
       case "reload":
         return toAppBrowserState(
-          browserManager.reload({ threadId: browserSessionId, tabId: pageId() }),
+          browserManager.reload({
+            threadId: browserSessionId,
+            tabId: pageId(),
+          }),
         );
       case "stop":
         return toAppBrowserState(
@@ -5136,11 +5287,17 @@ function registerIpcHandlers(): void {
         );
       case "back":
         return toAppBrowserState(
-          browserManager.goBack({ threadId: browserSessionId, tabId: pageId() }),
+          browserManager.goBack({
+            threadId: browserSessionId,
+            tabId: pageId(),
+          }),
         );
       case "forward":
         return toAppBrowserState(
-          browserManager.goForward({ threadId: browserSessionId, tabId: pageId() }),
+          browserManager.goForward({
+            threadId: browserSessionId,
+            tabId: pageId(),
+          }),
         );
       case "newPage": {
         const record =
@@ -5157,11 +5314,17 @@ function registerIpcHandlers(): void {
       }
       case "closePage":
         return toAppBrowserState(
-          browserManager.closeTab({ threadId: browserSessionId, tabId: pageId() }),
+          browserManager.closeTab({
+            threadId: browserSessionId,
+            tabId: pageId(),
+          }),
         );
       case "selectPage":
         return toAppBrowserState(
-          browserManager.selectTab({ threadId: browserSessionId, tabId: pageId() }),
+          browserManager.selectTab({
+            threadId: browserSessionId,
+            tabId: pageId(),
+          }),
         );
       case "openExtensionAction": {
         if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -5200,7 +5363,10 @@ function registerIpcHandlers(): void {
         });
       }
       case "stopFind":
-        browserManager.stopFindInPage({ threadId: browserSessionId, tabId: pageId() });
+        browserManager.stopFindInPage({
+          threadId: browserSessionId,
+          tabId: pageId(),
+        });
         return;
       case "capture": {
         const result = await browserManager.captureScreenshot({
@@ -5885,7 +6051,9 @@ function registerIpcHandlers(): void {
           : runtimeV2FilePath(handle, record.relativePath));
         if (method === "files.stat") return runtimeV2FileEntry(handle, absolutePath);
         if (method === "files.listDirectory") {
-          const entries = await FS.promises.readdir(absolutePath, { withFileTypes: true });
+          const entries = await FS.promises.readdir(absolutePath, {
+            withFileTypes: true,
+          });
           const resolved = await Promise.allSettled(
             entries.map((entry) => runtimeV2FileEntry(handle, Path.join(absolutePath, entry.name))),
           );
@@ -6017,7 +6185,11 @@ function registerIpcHandlers(): void {
             tabId,
             rendererId,
           },
-          { writeId: record.writeId, offset: record.offset, bytes: record.bytes },
+          {
+            writeId: record.writeId,
+            offset: record.offset,
+            bytes: record.bytes,
+          },
         );
       }
       case "files.commitWrite":
@@ -6053,6 +6225,54 @@ function registerIpcHandlers(): void {
         watcher?.close();
         return;
       }
+      case "controller.invoke": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Controller invocation input must be an object.");
+        }
+        const request = value as Record<string, unknown>;
+        if (typeof request.handler !== "string" || !request.handler.trim()) {
+          throw new Error("Controller handler must be a non-empty string.");
+        }
+        return runtime.invokeController({
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          threadId: identity.threadId,
+          tabId,
+          handler: request.handler,
+          value: request.input,
+        });
+      }
+      case "shell.beep":
+        shell.beep();
+        return;
+      case "shell.openExternal": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Shell openExternal input must be an object.");
+        }
+        const request = value as Record<string, unknown>;
+        if (typeof request.url !== "string") throw new Error("Shell URL must be a string.");
+        await shell.openExternal(
+          request.url,
+          parseRuntimeShellOpenExternalOptions(request.options),
+        );
+        return;
+      }
+      case "shell.openPath":
+        if (typeof value !== "string") throw new Error("Shell path must be a string.");
+        return shell.openPath(value);
+      case "shell.showItemInFolder":
+        if (typeof value !== "string") throw new Error("Shell path must be a string.");
+        shell.showItemInFolder(value);
+        return;
+      case "shell.trashItem":
+        if (typeof value !== "string") throw new Error("Shell path must be a string.");
+        await shell.trashItem(value);
+        return;
+      case "shell.readShortcutLink":
+        if (typeof value !== "string") throw new Error("Shortcut path must be a string.");
+        return shell.readShortcutLink(value);
+      case "shell.writeShortcutLink":
+        return writeRuntimeShellShortcut(value);
       case "resources.open": {
         if (!value || typeof value !== "object" || Array.isArray(value)) {
           throw new Error("Resource open input must be an object.");
@@ -6106,6 +6326,14 @@ function registerIpcHandlers(): void {
             ? (value as { channel?: unknown }).channel
             : undefined;
         if (typeof channel !== "string") throw new Error("Account-data channel must be a string.");
+        const metadataValue =
+          value && typeof value === "object" && !Array.isArray(value)
+            ? (value as { metadata?: unknown }).metadata
+            : undefined;
+        const metadata =
+          metadataValue && typeof metadataValue === "object" && !Array.isArray(metadataValue)
+            ? (metadataValue as Record<string, string | number | boolean>)
+            : undefined;
         const subscriptionId = Crypto.randomUUID();
         const push = (payload: unknown) => {
           try {
@@ -6123,6 +6351,7 @@ function registerIpcHandlers(): void {
           appId: identity.appId,
           cookie: getPenkraAccountCookie(),
           channel,
+          ...(metadata ? { metadata } : {}),
           onEvent: (accountEvent) => push({ kind: "event", event: accountEvent }),
           onConnectionStateChange: (state) => push({ kind: "connection-state", state }),
         });
@@ -6168,7 +6397,11 @@ function registerIpcHandlers(): void {
         }
         const { key, value: settingValue } = value as Record<string, unknown>;
         if (typeof key !== "string") throw new Error("Setting key must be a string.");
-        await runtime.installations.setSetting({ ...identity, key, value: settingValue });
+        await runtime.installations.setSetting({
+          ...identity,
+          key,
+          value: settingValue,
+        });
         return;
       }
       case "settings.reset":
@@ -6545,11 +6778,7 @@ function registerIpcHandlers(): void {
     if (!input || typeof input !== "object" || Array.isArray(input)) {
       throw new Error("Open With input must be an object.");
     }
-    const record = input as Record<string, unknown>;
-    if (typeof record.spaceId !== "string" || !record.spaceId.trim()) {
-      throw new Error("Open With spaceId is required.");
-    }
-    return record;
+    return input as Record<string, unknown>;
   };
   const requireOpenWithStore = (senderId: number) => {
     if (mainWindow?.webContents.id !== senderId) {
@@ -6559,9 +6788,8 @@ function registerIpcHandlers(): void {
     return desktopAppRuntime.openWith;
   };
   ipcMain.removeHandler(IPC.appOpenWith.get);
-  ipcMain.handle(IPC.appOpenWith.get, async (event, input: unknown) => {
-    const record = parseOpenWithInput(input);
-    return requireOpenWithStore(event.sender.id).forSpace(record.spaceId as string);
+  ipcMain.handle(IPC.appOpenWith.get, async (event) => {
+    return requireOpenWithStore(event.sender.id).snapshot();
   });
   ipcMain.removeHandler(IPC.appOpenWith.set);
   ipcMain.handle(IPC.appOpenWith.set, async (event, input: unknown) => {
@@ -6581,7 +6809,6 @@ function registerIpcHandlers(): void {
     }
     const store = requireOpenWithStore(event.sender.id);
     const state = await store.set(
-      record.spaceId as string,
       record.intent,
       record.appId as string | null,
       typeof record.extension === "string" ? record.extension : undefined,
@@ -6807,6 +7034,44 @@ function registerIpcHandlers(): void {
     return path
       ? openPenkraResource({ ...context, path })
       : openPenkraResource({ ...context, url: url! });
+  });
+
+  ipcMain.removeHandler(IPC.resourceContextMenu);
+  ipcMain.handle(IPC.resourceContextMenu, async (event, input: unknown) => {
+    if (mainWindow?.webContents.id !== event.sender.id) {
+      throw new Error("Only the Penkra shell can show a host resource menu.");
+    }
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error("Resource context menu input must be an object.");
+    }
+    const record = input as Record<string, unknown>;
+    if (typeof record.spaceId !== "string" || typeof record.threadId !== "string") {
+      throw new Error("Resource context menu requires Space and Thread IDs.");
+    }
+    const position = record.position;
+    if (!position || typeof position !== "object" || Array.isArray(position)) {
+      throw new Error("Resource context menu requires a screen position.");
+    }
+    const point = position as Record<string, unknown>;
+    if (
+      typeof point.x !== "number" ||
+      !Number.isFinite(point.x) ||
+      typeof point.y !== "number" ||
+      !Number.isFinite(point.y)
+    ) {
+      throw new Error("Resource context menu position must contain finite coordinates.");
+    }
+    const path = typeof record.path === "string" ? record.path : undefined;
+    const url = typeof record.url === "string" ? record.url : undefined;
+    if ((path === undefined) === (url === undefined)) {
+      throw new Error("Resource context menu requires exactly one path or URL.");
+    }
+    return showPenkraResourceContextMenu({
+      ...(path ? { path } : { url: url! }),
+      spaceId: record.spaceId,
+      threadId: record.threadId,
+      position: { x: point.x, y: point.y },
+    });
   });
 
   ipcMain.removeHandler(IPC.clipboardWriteImage);

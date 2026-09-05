@@ -813,6 +813,7 @@ export const localImageEffectRouteLayer = HttpRouter.add(
       resolveAllowedLocalPreviewFile({
         requestedPath: url.searchParams.get("path"),
         cwd: url.searchParams.get("cwd"),
+        stateDir: config.stateDir,
         allowAbsoluteLocalPreviewFile: true,
         previewGrant: url.searchParams.get("grant"),
       }).catch(() => null),

@@ -104,6 +104,63 @@ describe("resolveAllowedLocalPreviewFile", () => {
     }
   });
 
+  it("allows images from a connection-scoped Codex generated_images root", async () => {
+    const fakeRoot = path.join(
+      process.cwd(),
+      `.test-provider-generated-image-${process.pid}-${Date.now()}`,
+    );
+    const stateDir = path.join(fakeRoot, "userdata");
+    const profileKey = "a".repeat(64);
+    const imageDir = path.join(
+      stateDir,
+      "provider-connections",
+      profileKey,
+      "codex-home",
+      "generated_images",
+      "thread-1",
+    );
+    const imagePath = path.join(imageDir, "call.png");
+    mkdirSync(imageDir, { recursive: true });
+    writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    try {
+      const result = await resolveAllowedLocalPreviewFile({
+        requestedPath: imagePath,
+        cwd: null,
+        stateDir,
+      });
+
+      assert.equal(result?.path, realpathSync(imagePath));
+    } finally {
+      rmSync(fakeRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects images elsewhere in a connection-scoped Codex profile", async () => {
+    const fakeRoot = path.join(
+      process.cwd(),
+      `.test-provider-profile-image-${process.pid}-${Date.now()}`,
+    );
+    const stateDir = path.join(fakeRoot, "userdata");
+    const profileKey = "b".repeat(64);
+    const profileRoot = path.join(stateDir, "provider-connections", profileKey, "codex-home");
+    const imagePath = path.join(profileRoot, "not-generated.png");
+    mkdirSync(profileRoot, { recursive: true });
+    writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    try {
+      const result = await resolveAllowedLocalPreviewFile({
+        requestedPath: imagePath,
+        cwd: null,
+        stateDir,
+      });
+
+      assert.equal(result, null);
+    } finally {
+      rmSync(fakeRoot, { recursive: true, force: true });
+    }
+  });
+
   it("allows PDFs inside the current workspace", async () => {
     const workspace = makeTempDir("penkra-pdf-workspace-");
     writeFileSync(path.join(workspace, ".git"), "gitdir: .git");

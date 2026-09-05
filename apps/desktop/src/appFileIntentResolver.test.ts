@@ -16,7 +16,7 @@ describe("resolvePathIntent", () => {
         spaceId: "personal",
       }),
     ).toEqual({ slug: "explorer" });
-    expect(get).toHaveBeenCalledWith("personal", "open-file", ".md");
+    expect(get).toHaveBeenCalledWith("open-file", ".md");
     expect(resolve).toHaveBeenCalledWith("personal", {
       intent: "open-file",
       extension: ".md",
