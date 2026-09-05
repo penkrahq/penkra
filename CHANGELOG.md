@@ -74,6 +74,8 @@
 - Fixed queued normal messages racing terminal reconciliation, long running Threads oscillating
   between estimated and measured scroll anchors, and upward reader input being overridden by live
   tail following.
+- Fixed follow-ups typed during a new Thread's first provider admission being discarded when the
+  temporary draft identity was promoted to a durable Thread.
 - Fixed Claude credential rotation and provider-runtime changes losing native continuation state;
   authentication and state preparation now complete before an atomic Connection switch.
 - Fixed command parsing for escaped JSON strings so content cannot be reinterpreted as top-level

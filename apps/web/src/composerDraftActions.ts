@@ -459,11 +459,35 @@ export const createComposerDraftStoreState =
       });
     },
     finalizePromotedDraftThread: (threadId) => {
-      const draftThread = get().draftThreadsByThreadId[threadId];
-      if (!draftThread?.promotedTo) {
-        return;
-      }
-      get().clearDraftThread(threadId);
+      set((state) => {
+        const draftThread = state.draftThreadsByThreadId[threadId];
+        if (!draftThread?.promotedTo) {
+          return state;
+        }
+
+        // Promotion ends the local draft-thread identity, not the composer's
+        // live state. A person can type or queue a follow-up while the first
+        // turn is still crossing provider admission; deleting the whole draft
+        // here would silently discard that newer work as soon as the server
+        // projects the first turn.
+        const { [threadId]: _removedDraftThread, ...restDraftThreadsByThreadId } =
+          state.draftThreadsByThreadId;
+        const nextProjectDraftThreadIdByFolderId = Object.fromEntries(
+          Object.entries(state.projectDraftThreadIdByFolderId).filter(
+            ([, draftThreadId]) => draftThreadId !== threadId,
+          ),
+        ) as Record<string, ThreadId>;
+        const draft = state.draftsByThreadId[threadId];
+        const nextDraftsByThreadId = { ...state.draftsByThreadId };
+        if (draft && shouldRemoveDraft(draft)) {
+          delete nextDraftsByThreadId[threadId];
+        }
+        return {
+          draftsByThreadId: nextDraftsByThreadId,
+          draftThreadsByThreadId: restDraftThreadsByThreadId,
+          projectDraftThreadIdByFolderId: nextProjectDraftThreadIdByFolderId,
+        };
+      });
     },
     clearDraftThread: (threadId) => {
       if (threadId.length === 0) {
