@@ -8,6 +8,15 @@ interface ScrollGeometrySource {
   readonly scrollHeight: number;
 }
 
+export interface ChatScrollWriteAttribution {
+  readonly sequence: number;
+  readonly recordedAt: number;
+  readonly owner: string;
+  readonly requestedTop: number | null;
+  readonly beforeTop: number | null;
+  readonly afterTop: number | null;
+}
+
 interface VirtualItemSnapshot {
   readonly index: number;
   readonly key?: string | number | bigint;
@@ -18,7 +27,10 @@ interface VirtualItemSnapshot {
 
 export interface TranscriptVirtualizerDiagnosticsSource {
   readonly scrollOffset?: number | null;
-  readonly range?: { readonly startIndex: number; readonly endIndex: number } | null;
+  readonly range?: {
+    readonly startIndex: number;
+    readonly endIndex: number;
+  } | null;
   getTotalSize?: () => number;
   getVirtualItems?: () => readonly VirtualItemSnapshot[];
   isAtEnd?: (threshold?: number) => boolean;
@@ -112,6 +124,9 @@ const state = {
   nextSequence: 1,
   samples: [] as ChatScrollDiagnosticSample[],
 };
+
+let writeAttributionByElement = new WeakMap<object, ChatScrollWriteAttribution>();
+let nextWriteSequence = 1;
 
 function diagnosticsAvailable(): boolean {
   return typeof performance !== "undefined";
@@ -242,7 +257,10 @@ function appendChatDiagnostic(
 }
 
 export function recordChatScrollDiagnostic(input: RecordChatScrollDiagnosticInput): void {
-  appendChatDiagnostic(input, { alwaysInDev: false, consoleLabel: "[chat-scroll]" });
+  appendChatDiagnostic(input, {
+    alwaysInDev: false,
+    consoleLabel: "[chat-scroll]",
+  });
 }
 
 /**
@@ -284,6 +302,35 @@ export function disableChatScrollDiagnostics(): void {
 export function resetChatScrollDiagnostics(): void {
   state.nextSequence = 1;
   state.samples = [];
+  writeAttributionByElement = new WeakMap<object, ChatScrollWriteAttribution>();
+  nextWriteSequence = 1;
+}
+
+/**
+ * Attributes a transcript offset mutation without owning the mutation itself.
+ * A frame observer can then distinguish an application write from browser
+ * scroll anchoring or an owner that has not yet been instrumented.
+ */
+export function markChatScrollWrite(
+  element: object | null | undefined,
+  input: Omit<ChatScrollWriteAttribution, "sequence" | "recordedAt">,
+): ChatScrollWriteAttribution | null {
+  if (!element || !diagnosticsAvailable() || !state.enabled) return null;
+  const attribution: ChatScrollWriteAttribution = {
+    sequence: nextWriteSequence,
+    recordedAt: performance.now(),
+    ...input,
+  };
+  nextWriteSequence += 1;
+  writeAttributionByElement.set(element, attribution);
+  return attribution;
+}
+
+export function readChatScrollWriteAttribution(
+  element: object | null | undefined,
+): ChatScrollWriteAttribution | null {
+  if (!element) return null;
+  return writeAttributionByElement.get(element) ?? null;
 }
 
 export function getChatScrollDiagnosticSamples(): readonly ChatScrollDiagnosticSample[] {

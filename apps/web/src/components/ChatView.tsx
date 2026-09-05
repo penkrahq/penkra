@@ -78,6 +78,10 @@ import { serverConfigQueryOptions, serverQueryKeys } from "~/lib/serverReactQuer
 import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
 import { SINGLE_CHAT_PANE_SCOPE_ID } from "~/lib/chatPaneScope";
 import {
+  isThreadReadAcknowledgementDeferred,
+  releaseThreadReadAcknowledgement,
+} from "../threadReadAcknowledgement";
+import {
   composerMentionPathNeedsQuoting,
   formatComposerMentionToken,
   filterPromptProviderMentionReferences,
@@ -99,6 +103,7 @@ import {
 import { isElectron } from "../env";
 import { isScrollContainerNearBottom } from "../chat-scroll";
 import {
+  markChatScrollWrite,
   nextChatScrollDiagnosticInstanceId,
   recordChatScrollDiagnostic,
 } from "../chatScrollDiagnostics";
@@ -1688,7 +1693,15 @@ export default function ChatView({
     : (draftThread?.workingDirectory ?? null);
 
   useEffect(() => {
+    const viewedThreadId = activeThread?.id;
+    return () => {
+      if (viewedThreadId) releaseThreadReadAcknowledgement(viewedThreadId);
+    };
+  }, [activeThread?.id]);
+
+  useEffect(() => {
     if (!activeThread?.id) return;
+    if (isThreadReadAcknowledgementDeferred(activeThread.id)) return;
     if (
       !hasUnseenThreadCompletion({
         latestTurn: activeLatestTurn,
@@ -1839,7 +1852,10 @@ export default function ChatView({
     const result: Partial<
       Record<
         ProviderKind,
-        { connectionId: ProviderConnectionId | null; internalProviderId: string | null }
+        {
+          connectionId: ProviderConnectionId | null;
+          internalProviderId: string | null;
+        }
       >
     > = {};
     for (const provider of ["codex", "claudeAgent", "opencode"] as const) {
@@ -1875,7 +1891,10 @@ export default function ChatView({
             (modelProviderId === null || candidate.internalProviderId === modelProviderId),
         );
         if (route !== undefined) {
-          result[provider] = { connectionId: null, internalProviderId: route.internalProviderId };
+          result[provider] = {
+            connectionId: null,
+            internalProviderId: route.internalProviderId,
+          };
         }
         continue;
       }
@@ -3870,8 +3889,6 @@ export default function ChatView({
   const latestTranscriptMessage = useMemo(() => {
     return timelineMessages.at(-1) ?? null;
   }, [timelineMessages]);
-  const latestTranscriptMessageIsStreamingAssistant =
-    latestTranscriptMessage?.role === "assistant" && latestTranscriptMessage.streaming;
   const transcriptTailKey = latestTranscriptMessage
     ? [
         latestTranscriptMessage.id,
@@ -3913,7 +3930,9 @@ export default function ChatView({
         return;
       }
       isAtEndRef.current = isAtEnd;
-      recordTranscriptControllerDiagnostic("controller:at-end-changed", { isAtEnd });
+      recordTranscriptControllerDiagnostic("controller:at-end-changed", {
+        isAtEnd,
+      });
       if (isAtEnd) {
         showScrollDebouncer.current.cancel();
         setShowScrollToBottom(false);
@@ -3966,10 +3985,24 @@ export default function ChatView({
         const delta = nextTop - anchor.top;
         if (Math.abs(delta) < 0.5) return;
 
+        const beforeTop = activeScrollContainer.scrollTop;
+        const requestedTop = beforeTop + delta;
         activeScrollContainer.scrollTop += delta;
+        markChatScrollWrite(activeScrollContainer, {
+          owner: "controller:interaction-anchor",
+          requestedTop,
+          beforeTop,
+          afterTop: activeScrollContainer.scrollTop,
+        });
+        recordTranscriptControllerDiagnostic("controller:scroll-write:interaction-anchor", {
+          delta,
+          beforeTop,
+          requestedTop,
+          afterTop: activeScrollContainer.scrollTop,
+        });
       });
     },
-    [cancelPendingInteractionAnchorAdjustment],
+    [cancelPendingInteractionAnchorAdjustment, recordTranscriptControllerDiagnostic],
   );
   const onMessagesPointerCancelBase = useCallback(() => {
     clearTranscriptAutoFollow();
@@ -4015,38 +4048,34 @@ export default function ChatView({
     [clearTranscriptAutoFollow, recordTranscriptControllerDiagnostic],
   );
   useLayoutEffect(() => {
-    if (
-      latestTranscriptMessageIsStreamingAssistant &&
-      isAtEndRef.current &&
-      activeThread?.id !== undefined
-    ) {
-      autoFollowThreadIdRef.current = activeThread.id;
-    }
-    const shouldFollowPendingTurn =
+    const ownsExplicitFollowRequest =
       activeThread?.id !== undefined && autoFollowThreadIdRef.current === activeThread.id;
-    if (!isAtEndRef.current && !shouldFollowPendingTurn) {
+    if (!ownsExplicitFollowRequest) {
       recordTranscriptControllerDiagnostic("controller:auto-follow-skipped", {
-        isAtEnd: false,
-        ownsPendingTurn: false,
+        isAtEnd: isAtEndRef.current,
+        ownsExplicitFollowRequest: false,
       });
       return;
     }
-    // Re-apply the bottom stick only for real transcript messages; tool/work
-    // rows can arrive quickly and should not churn scroll/layout work.
+    // The controller acquires tail ownership once for an explicit send/steer.
+    // After that handoff, TranscriptVirtualList is the sole geometry owner for
+    // streaming appends and row measurements. Reissuing an imperative scroll
+    // for every text revision races the virtualizer's measurement correction
+    // and was the second writer behind the recorded oscillation.
     const frameId = window.requestAnimationFrame(() => {
+      if (activeThread?.id === undefined || autoFollowThreadIdRef.current !== activeThread.id) {
+        return;
+      }
       const shouldAnimate = animateNextAutoFollowScrollRef.current;
       animateNextAutoFollowScrollRef.current = false;
       scrollToEnd(shouldAnimate);
-      if (!latestTranscriptMessageIsStreamingAssistant) {
-        autoFollowThreadIdRef.current = null;
-      }
+      autoFollowThreadIdRef.current = null;
     });
     return () => {
       window.cancelAnimationFrame(frameId);
     };
   }, [
     activeThread?.id,
-    latestTranscriptMessageIsStreamingAssistant,
     recordTranscriptControllerDiagnostic,
     scrollToEnd,
     transcriptAutoFollowSignal,
@@ -4195,7 +4224,20 @@ export default function ChatView({
         // Composer/approval chrome changed the viewport; no transcript item
         // arrived. Preserve an existing tail position directly instead of
         // entering the semantic message auto-follow path.
+        const beforeTop = scrollContainer.scrollTop;
+        const requestedTop = scrollContainer.scrollHeight;
         scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        markChatScrollWrite(scrollContainer, {
+          owner: "controller:composer-resize",
+          requestedTop,
+          beforeTop,
+          afterTop: scrollContainer.scrollTop,
+        });
+        recordTranscriptControllerDiagnostic("controller:scroll-write:composer-resize", {
+          beforeTop,
+          requestedTop,
+          afterTop: scrollContainer.scrollTop,
+        });
       }, 0);
     });
 
@@ -4206,7 +4248,13 @@ export default function ChatView({
         window.clearTimeout(pendingScrollTimeout);
       }
     };
-  }, [activeThread?.id, isInactiveSplitPane, secondaryChromeReady, shouldRenderChatPaneContent]);
+  }, [
+    activeThread?.id,
+    isInactiveSplitPane,
+    recordTranscriptControllerDiagnostic,
+    secondaryChromeReady,
+    shouldRenderChatPaneContent,
+  ]);
 
   useEffect(() => {
     showScrollDebouncer.current.cancel();
@@ -5233,7 +5281,9 @@ export default function ChatView({
       clearComposerDraftContent(activeThread.id);
       setComposerDraftPrompt(activeThread.id, nextPrompt);
       // Editing a queued turn should recreate the same draft state the user queued.
-      setDraftThreadContext(activeThread.id, { runtimeMode: queuedTurn.runtimeMode });
+      setDraftThreadContext(activeThread.id, {
+        runtimeMode: queuedTurn.runtimeMode,
+      });
       if (restoredImages.length > 0) {
         addComposerImagesToDraft(restoredImages);
       }
