@@ -32,4 +32,22 @@ describe("native updater feed evaluation", () => {
       }),
     ).toThrow();
   });
+
+  it("captures replacement output without changing its executable, arguments or environment", () => {
+    const spawnLog = vi.fn();
+    const updater = { setFeedURL: vi.fn(), spawnLog };
+    const openSync = vi.fn(() => 42);
+    const requireApp = (name: string) =>
+      name === "electron-updater" ? { autoUpdater: updater } : { openSync };
+    runInNewContext(`(${configureNativeUpgradeFeed.toString()})(electron, feed)`, {
+      electron: { app: { getAppPath: () => "/package/app.asar" } },
+      feed: { url: "http://127.0.0.1:32123", launchLog: "/owned/relaunch.log" },
+      process: { mainModule: { require: () => ({ createRequire: () => requireApp }) } },
+    });
+    const env = { OWNED: "value" };
+    updater.spawnLog("/owned/Penkra.AppImage", [], env);
+    expect(openSync).toHaveBeenCalledWith("/owned/relaunch.log", "a");
+    expect(spawnLog).toHaveBeenCalledWith("/owned/Penkra.AppImage", [], env, ["ignore", 42, 42]);
+    expect(spawnLog.mock.instances[0]).toBe(updater);
+  });
 });
