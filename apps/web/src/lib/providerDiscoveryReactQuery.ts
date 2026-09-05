@@ -49,6 +49,7 @@ const EMPTY_PLUGINS_RESULT: ProviderListPluginsResult = {
 
 const OPENCODE_MODEL_CACHE_KEY_PREFIX = "penkra:opencode-model-catalog:v1:";
 const OPENCODE_MODEL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+export const PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS = 24 * 60 * 60_000;
 const decodeProviderListModelsResult = Schema.decodeUnknownSync(ProviderListModelsResult);
 
 function openCodeModelCacheKey(input: {
@@ -359,7 +360,7 @@ export function providerModelsQueryOptions(input: {
     },
     enabled: input.enabled ?? true,
     retry: 3,
-    staleTime: 60_000,
+    staleTime: PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS,
     ...(input.provider === "opencode"
       ? {
           initialData: () => readOpenCodeModelCache(discoveryIdentity),

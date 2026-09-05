@@ -20,6 +20,7 @@ export type ProviderOptions = ProviderModelOptions[ProviderKind];
 export interface ProviderModelOption {
   slug: string;
   name: string;
+  isDefault?: true;
   description?: string;
   upstreamProviderId?: string;
   upstreamProviderName?: string;
@@ -76,6 +77,7 @@ export function mergeDynamicModelOptions(input: {
     description?: string | null | undefined;
     upstreamProviderId?: string | null | undefined;
     upstreamProviderName?: string | null | undefined;
+    isDefault?: true | undefined;
   }>;
 }): ReadonlyArray<ProviderModelOption & { isCustom?: boolean }> {
   const dynamicNormalizedSlugs = new Set<string>();
@@ -115,6 +117,7 @@ export function mergeDynamicModelOptions(input: {
         rawName.toLowerCase() !== normalizedSlug.toLowerCase()
           ? rawName
           : displayNameFallback,
+      ...(dynamicModel.isDefault === true ? { isDefault: true as const } : {}),
       ...(dynamicModel.description?.trim() ? { description: dynamicModel.description.trim() } : {}),
       ...(dynamicModel.upstreamProviderId?.trim()
         ? { upstreamProviderId: dynamicModel.upstreamProviderId.trim() }

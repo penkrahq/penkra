@@ -406,12 +406,14 @@ export function parseCodexModelListResponse(response: unknown): ProviderListMode
         "fastServiceTier",
         "fast_service_tier",
       ]) ?? (hasFastSpeedTier ? true : undefined);
+    const isDefault = readFirstBoolean(model, ["isDefault", "is_default"]);
 
     seen.add(trimmedSlug);
     return [
       {
         slug: trimmedSlug,
         name: trimmedName,
+        ...(isDefault === true ? { isDefault: true as const } : {}),
         ...(supportedReasoningEfforts.length > 0 ? { supportedReasoningEfforts } : {}),
         ...(trimmedDefaultReasoningEffort &&
         supportedReasoningEfforts.some(
