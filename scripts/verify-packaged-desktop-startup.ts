@@ -528,7 +528,7 @@ function terminateWindowsProcessTree(processId: number): void {
   });
 }
 
-async function terminateProcessesInsideRoot(root: string): Promise<void> {
+export async function terminateProcessesInsideRoot(root: string): Promise<void> {
   if (process.platform === "win32") {
     const processes = inventoryWindowsProcessesInsideRoot(root);
     for (const entry of processes) {

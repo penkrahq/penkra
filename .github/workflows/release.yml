@@ -293,6 +293,21 @@ jobs:
             --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
             --skip-build --verbose
 
+      - name: Download previous stable native installer
+        if: matrix.platform == 'linux' || matrix.platform == 'win'
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NATIVE_PLATFORM: ${{ matrix.platform }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous_tag="$(gh release view --repo penkrahq/penkra --json tagName --jq .tagName)"
+          pattern='*.AppImage'
+          if [[ "$NATIVE_PLATFORM" == 'win' ]]; then pattern='*-x64.exe'; fi
+          gh release download "$previous_tag" --repo penkrahq/penkra --pattern "$pattern" --dir .penkra/scratch/previous-native-release
+          echo "version=${previous_tag#v}" >> "$GITHUB_OUTPUT"
+
       - name: Verify macOS artifact
         if: matrix.platform == 'mac'
         env:
@@ -322,6 +337,7 @@ jobs:
         run: |
           set -euo pipefail
           export PENKRA_PACKAGE_VERSION="${{ steps.release.outputs.version }}"
+          export PENKRA_PREVIOUS_PACKAGE_VERSION="${{ steps.previous.outputs.version }}"
           dbus-run-session -- bash -euo pipefail -c '
             export XDG_CURRENT_DESKTOP=GNOME
             keyring_environment="$(printf "%s" "$PENKRA_CI_KEYRING_PASSWORD" | gnome-keyring-daemon --unlock --components=secrets)"
@@ -331,6 +347,9 @@ jobs:
               --platform linux \
               --arch x64 \
               --version "$PENKRA_PACKAGE_VERSION"
+            xvfb-run -a node scripts/verify-native-desktop-upgrade.mjs \
+              .penkra/scratch/previous-native-release release \
+              "$PENKRA_PREVIOUS_PACKAGE_VERSION" "$PENKRA_PACKAGE_VERSION"
           '
           node scripts/write-release-artifact-provenance.ts \
             --assets-dir release --platform linux --arch x64 --target AppImage \
@@ -346,6 +365,9 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/verify-packaged-desktop-startup.ts --assets-dir release --platform win --arch x64 --version "${{ steps.release.outputs.version }}"
+          node scripts/verify-native-desktop-upgrade.mjs \
+            .penkra/scratch/previous-native-release release \
+            "${{ steps.previous.outputs.version }}" "${{ steps.release.outputs.version }}"
           rm -f release/latest.yml release/*.exe.blockmap
           node scripts/write-release-artifact-provenance.ts \
             --assets-dir release --platform win --arch x64 --target nsis \
