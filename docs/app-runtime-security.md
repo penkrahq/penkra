@@ -2,7 +2,7 @@
 
 This document defines the trust boundaries and enforceable invariants for installable Penkra Apps.
 It is an implementation contract, not a second product plan. Product scope and sequencing remain in
-the workspace-root `TODO.md`.
+the ignored repository-root `TODO.md`.
 
 ## Trust boundaries
 

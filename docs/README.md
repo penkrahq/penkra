@@ -22,8 +22,8 @@ The repository `README.md`, `AGENTS.md`, this directory's remaining architecture
 itself. They may document internal development and production environments, testing, QA, migration,
 deployment, release, recovery, and implementation details.
 
-[`release.md`](release.md) is the desktop release runbook. The root `TODO.md` is the active product
-and implementation plan; the root `ROADMAP.md` contains explicit deferrals.
+[`release.md`](release.md) is the desktop release runbook. The ignored repository-root `TODO.md` is
+the single plan for active work and explicit deferrals.
 [`npm-package-release.md`](npm-package-release.md) is the independent runbook for publishing the
 public SDK and UI packages.
 
