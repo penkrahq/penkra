@@ -6,12 +6,9 @@ import {
   PenkraCreateThreadInput,
   PenkraCreateThreadResult,
   PenkraGatewayErrorResult,
-  PenkraWaitForThreadsInput,
-  PenkraWaitForThreadsResult,
 } from "./agentGateway";
 
 const decodeCreate = Schema.decodeUnknownSync(PenkraCreateThreadInput);
-const decodeWait = Schema.decodeUnknownSync(PenkraWaitForThreadsInput);
 
 const thread = {
   prompt: "Explain this repository",
@@ -59,13 +56,7 @@ describe("agent gateway contracts", () => {
     );
   });
 
-  it("bounds wait targets and timeout", () => {
-    assert.equal(decodeWait({ threadIds: ["thread-1"], timeoutMs: 60_000 }).timeoutMs, 60_000);
-    assert.throws(() => decodeWait({ threadIds: [] }));
-    assert.throws(() => decodeWait({ threadIds: ["thread-1"], timeoutMs: 60_001 }));
-  });
-
-  it("decodes typed capability, creation, wait, and error results", () => {
+  it("decodes typed capability, creation, and error results", () => {
     assert.doesNotThrow(() =>
       Schema.decodeUnknownSync(PenkraCapabilitiesResult)({
         targetConstruction: {
@@ -109,10 +100,6 @@ describe("agent gateway contracts", () => {
             authStatus: "authenticated",
           },
         ],
-        limits: {
-          maxThreadsPerWait: 20,
-          maxWaitMs: 60_000,
-        },
       }),
     );
     assert.doesNotThrow(() =>
@@ -126,31 +113,8 @@ describe("agent gateway contracts", () => {
         provider: "codex",
         model: "gpt-5.6-terra",
         runtimeMode: "approval-required",
-        status: "task_dispatched",
-      }),
-    );
-    assert.doesNotThrow(() =>
-      Schema.decodeUnknownSync(PenkraWaitForThreadsResult)({
-        callerThreadId: "thread-parent",
-        runIds: ["turn-1"],
-        allTerminal: true,
-        timedOut: false,
-        threads: [
-          {
-            threadId: "thread-1",
-            runId: "turn-1",
-            state: "completed",
-            terminal: true,
-            timedOut: false,
-            summary: "Done",
-            summaryTruncated: false,
-            error: null,
-            readThread: {
-              tool: "penkra_read_thread",
-              arguments: { threadId: "thread-1" },
-            },
-          },
-        ],
+        messageId: "message-1",
+        turnId: "turn-1",
       }),
     );
     assert.doesNotThrow(() =>

@@ -13,11 +13,12 @@ import type { Effect } from "effect";
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
 export const ProjectionTurnState = Schema.Literals([
-  "pending",
+  "queued",
   "running",
   "interrupted",
   "completed",
   "error",
+  "cancelled",
 ]);
 export type ProjectionTurnState = typeof ProjectionTurnState.Type;
 
@@ -47,13 +48,13 @@ export const ProjectionTurnById = Schema.Struct({
 });
 export type ProjectionTurnById = typeof ProjectionTurnById.Type;
 
-export const ProjectionPendingTurnStart = Schema.Struct({
+export const ProjectionUnboundTurnStart = Schema.Struct({
   threadId: ThreadId,
   turnId: TurnId,
   messageId: MessageId,
   requestedAt: IsoDateTime,
 });
-export type ProjectionPendingTurnStart = typeof ProjectionPendingTurnStart.Type;
+export type ProjectionUnboundTurnStart = typeof ProjectionUnboundTurnStart.Type;
 
 export const ListProjectionTurnsByThreadInput = Schema.Struct({
   threadId: ThreadId,
@@ -66,6 +67,12 @@ export const GetProjectionTurnByTurnIdInput = Schema.Struct({
 });
 export type GetProjectionTurnByTurnIdInput = typeof GetProjectionTurnByTurnIdInput.Type;
 
+export const ProjectionTurnIdentityInput = Schema.Struct({
+  threadId: ThreadId,
+  turnId: TurnId,
+});
+export type ProjectionTurnIdentityInput = typeof ProjectionTurnIdentityInput.Type;
+
 export interface ProjectionTurnWaitSnapshot {
   readonly existingThreadIds: ReadonlyArray<GetProjectionTurnByTurnIdInput["threadId"]>;
   readonly turns: ReadonlyArray<{
@@ -76,10 +83,10 @@ export interface ProjectionTurnWaitSnapshot {
   }>;
 }
 
-export const GetProjectionPendingTurnStartInput = Schema.Struct({
+export const GetProjectionUnboundTurnStartInput = Schema.Struct({
   threadId: ThreadId,
 });
-export type GetProjectionPendingTurnStartInput = typeof GetProjectionPendingTurnStartInput.Type;
+export type GetProjectionUnboundTurnStartInput = typeof GetProjectionUnboundTurnStartInput.Type;
 
 export const DeleteProjectionTurnsByThreadInput = Schema.Struct({
   threadId: ThreadId,
@@ -94,32 +101,31 @@ export interface ProjectionTurnRepositoryShape {
     row: ProjectionTurnById,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 
-  /**
-   * Inserts or refreshes the pending state for a Penkra-owned turn identity.
-   */
-  readonly replacePendingTurnStart: (
-    row: ProjectionPendingTurnStart,
+  /** Reopens one interrupted logical turn for an invisible restart continuation. */
+  readonly reopenForRestart: (
+    input: ProjectionTurnIdentityInput,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 
-  /**
-   * Returns the newest pending start for a thread.
-   */
-  readonly getPendingTurnStartByThreadId: (
-    input: GetProjectionPendingTurnStartInput,
-  ) => Effect.Effect<Option.Option<ProjectionPendingTurnStart>, ProjectionRepositoryError>;
+  /** Lists every provider-native turn identity that has carried this logical turn. */
+  readonly listProviderTurnIds: (
+    input: ProjectionTurnIdentityInput,
+  ) => Effect.Effect<ReadonlyArray<TurnId>, ProjectionRepositoryError>;
 
-  /**
-   * Deletes pending-start rows for a thread and leaves running or terminal rows untouched.
-   */
-  readonly deletePendingTurnStartByThreadId: (
-    input: GetProjectionPendingTurnStartInput,
-  ) => Effect.Effect<void, ProjectionRepositoryError>;
+  /** Returns the newest admitted start that has not received a provider turn id. */
+  readonly getUnboundTurnStartByThreadId: (
+    input: GetProjectionUnboundTurnStartInput,
+  ) => Effect.Effect<Option.Option<ProjectionUnboundTurnStart>, ProjectionRepositoryError>;
 
   /**
    * Lists all projection rows for a thread.
    */
   readonly listByThreadId: (
     input: ListProjectionTurnsByThreadInput,
+  ) => Effect.Effect<ReadonlyArray<ProjectionTurn>, ProjectionRepositoryError>;
+
+  /** Lists canonical turn rows for several threads in one query. */
+  readonly listByThreadIds: (
+    threadIds: ReadonlyArray<ThreadId>,
   ) => Effect.Effect<ReadonlyArray<ProjectionTurn>, ProjectionRepositoryError>;
 
   /**

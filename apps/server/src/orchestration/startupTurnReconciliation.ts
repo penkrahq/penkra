@@ -80,7 +80,7 @@ export interface ReconcilableThread {
   readonly session: OrchestrationSession | null;
   readonly latestTurn: {
     readonly turnId?: TurnId;
-    readonly state: "running" | "interrupted" | "completed" | "error";
+    readonly state: "queued" | "running" | "interrupted" | "completed" | "error" | "cancelled";
   } | null;
   readonly activities?: ReadonlyArray<
     Pick<OrchestrationThreadActivity, "createdAt" | "id" | "kind" | "payload" | "sequence">
@@ -92,7 +92,7 @@ export interface ReconcilableThread {
   readonly pendingInteractions?: ReadonlyArray<
     Pick<ProjectionPendingInteraction, "interactionKind" | "requestId" | "status">
   >;
-  /** Every pending/running projection row, including older rows hidden by latestTurn. */
+  /** Every running projection row, including older rows hidden by latestTurn. */
   readonly openTurnCount?: number;
 }
 
@@ -246,7 +246,10 @@ export function planRestartTurnReconciliation(input: {
       thread.session?.activeTurnId !== null &&
       thread.session?.activeTurnId !== undefined &&
       thread.latestTurn?.turnId === thread.session.activeTurnId &&
-      (thread.latestTurn.state === "completed" || thread.latestTurn.state === "error");
+      (thread.latestTurn.state === "completed" ||
+        thread.latestTurn.state === "error" ||
+        thread.latestTurn.state === "interrupted" ||
+        thread.latestTurn.state === "cancelled");
     const hasInFlightTurn =
       !activeTurnAlreadyTerminal && (threadHasInFlightTurn(thread) || openTurnCount > 0);
     // A streaming message cannot have a surviving producer across a process

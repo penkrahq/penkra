@@ -22,8 +22,7 @@ import {
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 
-import { Deferred, Effect, Fiber, Layer, Option, Schema, Stream } from "effect";
-import { TestClock } from "effect/testing";
+import { Deferred, Effect, Layer, Option, Schema, Stream } from "effect";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
@@ -146,14 +145,13 @@ interface GatewayHarness {
   readonly setProjectionTurn: (input: {
     readonly threadId: string;
     readonly turnId: string;
-    readonly state: "pending" | "running" | "completed" | "error" | "interrupted";
+    readonly state: "queued" | "running" | "completed" | "error" | "interrupted" | "cancelled";
     readonly assistantMessageId?: string | null;
+    readonly pendingMessageId?: string | null;
+    readonly providerTurnId?: string | null;
+    readonly providerTurnIds?: ReadonlyArray<string>;
   }) => void;
   readonly setProviderStatuses: (statuses: ReadonlyArray<ServerProviderStatus>) => void;
-  readonly getWaitReadCounts: () => {
-    readonly detailReads: number;
-    readonly batchTurnReads: number;
-  };
   readonly callTool: (input: {
     readonly token: string;
     readonly name: string;
@@ -181,7 +179,6 @@ const TEST_TOOL_COMMANDS: Readonly<Record<string, ReadonlyArray<string>>> = {
   penkra_list_folders: ["penkra", "folders", "list"],
   penkra_list_threads: ["penkra", "threads", "list"],
   penkra_read_thread: ["penkra", "threads", "read"],
-  penkra_wait_for_threads: ["penkra", "threads", "wait"],
   penkra_read_thread_activity: ["penkra", "diagnostics", "threads", "activity"],
   penkra_read_thread_events: ["penkra", "diagnostics", "threads", "events"],
   penkra_read_thread_runtime_events: ["penkra", "diagnostics", "threads", "runtime-events"],
@@ -283,12 +280,13 @@ function makeHarnessLayer(
     {
       readonly threadId: string;
       readonly turnId: string;
-      readonly state: "pending" | "running" | "completed" | "error" | "interrupted";
+      readonly state: "queued" | "running" | "completed" | "error" | "interrupted" | "cancelled";
       readonly assistantMessageId: string | null;
+      readonly pendingMessageId: string | null;
+      readonly providerTurnId: string | null;
+      readonly providerTurnIds: ReadonlyArray<string>;
     }
   >();
-  let threadDetailReads = 0;
-  let batchTurnReads = 0;
 
   const snapshotLayer = Layer.succeed(ProjectionSnapshotQuery, {
     getShellSnapshot: () =>
@@ -337,7 +335,6 @@ function makeHarnessLayer(
       ),
     getThreadDetailById: (threadId: ThreadIdType) =>
       Effect.sync(() => {
-        threadDetailReads += 1;
         return Option.fromNullishOr(
           threadDetailsById.get(threadId as string) ??
             Option.getOrUndefined(
@@ -524,6 +521,13 @@ function makeHarnessLayer(
         Effect.flatMap(() =>
           Effect.suspend(() => {
             dispatched.push(command);
+            if (command.type === "thread.turn.cancel-queued" && command.turnId !== undefined) {
+              const key = `${command.threadId}:${command.turnId}`;
+              const projected = projectionTurnsByKey.get(key);
+              if (projected) {
+                projectionTurnsByKey.set(key, { ...projected, state: "cancelled" });
+              }
+            }
             const advancedTurnState = options.advanceParentTurnAfterDispatch?.state ?? "running";
             if (
               options.advanceParentTurnAfterDispatch?.commandType === command.type &&
@@ -633,17 +637,22 @@ function makeHarnessLayer(
       return {
         threadId: ThreadId.makeUnsafe(pinned.threadId),
         turnId: TurnId.makeUnsafe(pinned.turnId),
-        providerTurnId: null,
-        pendingMessageId: null,
+        providerTurnId:
+          pinned.providerTurnId === null ? null : TurnId.makeUnsafe(pinned.providerTurnId),
+        pendingMessageId:
+          pinned.pendingMessageId === null ? null : MessageId.makeUnsafe(pinned.pendingMessageId),
         assistantMessageId:
           pinned.assistantMessageId === null
             ? null
             : MessageId.makeUnsafe(pinned.assistantMessageId),
         state: pinned.state,
         requestedAt: NOW,
-        startedAt: pinned.state === "pending" ? null : NOW,
+        startedAt: pinned.state === "queued" ? null : NOW,
         completedAt:
-          pinned.state === "completed" || pinned.state === "error" || pinned.state === "interrupted"
+          pinned.state === "completed" ||
+          pinned.state === "error" ||
+          pinned.state === "interrupted" ||
+          pinned.state === "cancelled"
             ? NOW
             : null,
       };
@@ -677,11 +686,31 @@ function makeHarnessLayer(
           ? [...pinned, latest]
           : pinned;
       }),
+    listByThreadIds: (threadIds: ReadonlyArray<string>) =>
+      Effect.sync(() =>
+        threadIds.flatMap((threadId) => {
+          const pinned = [...projectionTurnsByKey.values()]
+            .filter((turn) => turn.threadId === threadId)
+            .map((turn) => readProjectionTurn(turn.threadId, turn.turnId))
+            .filter((turn): turn is NonNullable<typeof turn> => turn !== undefined);
+          const latestTurnId = threadsById.get(threadId)?.latestTurn?.turnId;
+          const latest = latestTurnId ? readProjectionTurn(threadId, latestTurnId) : undefined;
+          return latest && !pinned.some((turn) => turn.turnId === latest.turnId)
+            ? [...pinned, latest]
+            : pinned;
+        }),
+      ),
     getByTurnId: ({ threadId, turnId }: { threadId: string; turnId: string }) =>
       Effect.succeed(Option.fromNullishOr(readProjectionTurn(threadId, turnId))),
+    reopenForRestart: () => Effect.void,
+    listProviderTurnIds: ({ threadId, turnId }: { threadId: string; turnId: string }) =>
+      Effect.succeed(
+        (projectionTurnsByKey.get(`${threadId}:${turnId}`)?.providerTurnIds ?? []).map((id) =>
+          TurnId.makeUnsafe(id),
+        ),
+      ),
     getManyByTurnId: (input: ReadonlyArray<{ threadId: string; turnId: string }>) =>
       Effect.sync(() => {
-        batchTurnReads += 1;
         return input.flatMap(({ threadId, turnId }) => {
           const turn = readProjectionTurn(threadId, turnId);
           return turn ? [turn] : [];
@@ -692,7 +721,6 @@ function makeHarnessLayer(
       readonly turns: ReadonlyArray<{ threadId: string; turnId: string }>;
     }) =>
       Effect.sync(() => {
-        batchTurnReads += 1;
         return {
           existingThreadIds: input.threadIds.filter((threadId) => threadsById.has(threadId)),
           turns: input.turns.flatMap(({ threadId, turnId }) => {
@@ -762,15 +790,18 @@ function makeHarnessLayer(
           turnId: input.turnId,
           state: input.state,
           assistantMessageId: input.assistantMessageId ?? null,
+          pendingMessageId: input.pendingMessageId ?? null,
+          providerTurnId: input.providerTurnId ?? null,
+          providerTurnIds:
+            input.providerTurnIds ??
+            (input.providerTurnId === undefined || input.providerTurnId === null
+              ? []
+              : [input.providerTurnId]),
         });
       },
       setProviderStatuses: (statuses) => {
         providerStatuses = statuses;
       },
-      getWaitReadCounts: () => ({
-        detailReads: threadDetailReads,
-        batchTurnReads,
-      }),
       callTool,
       postRaw,
     } satisfies GatewayHarness;
@@ -1014,7 +1045,7 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("exposes exactly the eight ordinary thread commands in help", () => {
+  it.effect("exposes exactly the seven ordinary thread commands in help", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
@@ -1025,18 +1056,358 @@ describe("AgentGateway", () => {
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       const text = toolErrorText(response.result);
-      const commandNames = [
-        "archive",
-        "create",
-        "interrupt",
-        "list",
-        "read",
-        "send",
-        "unarchive",
-        "wait",
-      ];
+      const commandNames = ["archive", "create", "interrupt", "list", "read", "send", "unarchive"];
       const exposed = [...text.matchAll(/- `penkra threads ([^` ]+)`/g)].map((match) => match[1]);
       assert.deepEqual(exposed.toSorted(), commandNames);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("lists several exact threads with latest and queued turn summaries", () => {
+    const first = makeThreadShell("thread-list-first", {
+      latestTurn: {
+        turnId: TurnId.makeUnsafe("turn-list-first"),
+        state: "running",
+        requestedAt: NOW,
+        startedAt: NOW,
+        completedAt: null,
+        assistantMessageId: null,
+      },
+    });
+    const second = makeThreadShell("thread-list-second", {
+      latestTurn: {
+        turnId: TurnId.makeUnsafe("turn-list-second"),
+        state: "queued",
+        requestedAt: NOW,
+        startedAt: null,
+        completedAt: null,
+        assistantMessageId: null,
+      },
+    });
+    const { gatewayLayer, makeHarness } = makeHarnessLayer([
+      makeThreadShell("thread-parent"),
+      first,
+      second,
+    ]);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      harness.setProjectionTurn({
+        threadId: second.id,
+        turnId: "turn-list-second",
+        state: "queued",
+      });
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_list_threads",
+        args: { threadId: [first.id, second.id] },
+      });
+      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      const rows = toolResultJson(response.result).threads as Array<{
+        threadId: string;
+        latestTurn: { turnId: string; state: string } | null;
+        queuedTurns: number;
+      }>;
+      assert.deepEqual(
+        rows.map((row) => ({
+          threadId: row.threadId,
+          latestTurn: row.latestTurn,
+          queuedTurns: row.queuedTurns,
+        })),
+        [
+          {
+            threadId: second.id,
+            latestTurn: { turnId: "turn-list-second", state: "queued" },
+            queuedTurns: 1,
+          },
+          {
+            threadId: first.id,
+            latestTurn: { turnId: "turn-list-first", state: "running" },
+            queuedTurns: 0,
+          },
+        ],
+      );
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("polls one queued turn with its exact FIFO position", () => {
+    const target = makeThreadShell("thread-turn-poll");
+    const { gatewayLayer, makeHarness } = makeHarnessLayer([
+      makeThreadShell("thread-parent"),
+      target,
+    ]);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      harness.setProjectionTurn({
+        threadId: target.id,
+        turnId: "turn-queued-first",
+        state: "queued",
+      });
+      harness.setProjectionTurn({
+        threadId: target.id,
+        turnId: "turn-queued-second",
+        state: "queued",
+      });
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_read_thread",
+        args: { threadId: target.id, turnId: "turn-queued-second" },
+      });
+      assert.deepInclude(toolResultJson(response.result), {
+        threadId: target.id,
+        turn: { turnId: "turn-queued-second", state: "queued", position: 2 },
+        items: [],
+        pageInfo: { nextCursor: null },
+      });
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("collects only assistant output belonging to the requested turn", () => {
+    const target = makeThreadShell("thread-turn-result");
+    const requestedTurnId = TurnId.makeUnsafe("turn-requested-result");
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [makeThreadShell("thread-parent"), target],
+      {
+        threadDetails: new Map([
+          [
+            target.id,
+            {
+              ...makeThreadDetail(target),
+              messages: [
+                {
+                  id: MessageId.makeUnsafe("message-other-result"),
+                  role: "assistant",
+                  text: "other answer",
+                  turnId: TurnId.makeUnsafe("turn-other-result"),
+                  streaming: false,
+                  source: "native",
+                  createdAt: NOW,
+                  updatedAt: NOW,
+                },
+                {
+                  id: MessageId.makeUnsafe("message-requested-result"),
+                  role: "assistant",
+                  text: "requested answer",
+                  turnId: requestedTurnId,
+                  streaming: false,
+                  source: "native",
+                  createdAt: NOW,
+                  updatedAt: NOW,
+                },
+              ],
+            },
+          ],
+        ]),
+      },
+    );
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      harness.setProjectionTurn({
+        threadId: target.id,
+        turnId: requestedTurnId,
+        state: "completed",
+        assistantMessageId: "message-requested-result",
+      });
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_read_thread",
+        args: { threadId: target.id, turnId: requestedTurnId },
+      });
+      const payload = toolResultJson(response.result);
+      assert.deepEqual(payload.turn, { turnId: requestedTurnId, state: "completed" });
+      assert.deepEqual(
+        (payload.items as Array<{ text?: string }>).map((item) => item.text),
+        ["requested answer"],
+      );
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect(
+    "collects provider-native output after the logical turn's initiating message boundary",
+    () => {
+      const target = makeThreadShell("thread-logical-provider-result");
+      const logicalTurnId = TurnId.makeUnsafe("turn-logical-provider-result");
+      const providerTurnId = TurnId.makeUnsafe("turn-provider-native-result");
+      const resumedProviderTurnId = TurnId.makeUnsafe("turn-provider-resumed-result");
+      const pendingMessageId = MessageId.makeUnsafe("message-logical-provider-request");
+      const nextLogicalTurnId = TurnId.makeUnsafe("turn-logical-native-steer");
+      const nextPendingMessageId = MessageId.makeUnsafe("message-logical-native-steer");
+      const { gatewayLayer, makeHarness } = makeHarnessLayer(
+        [makeThreadShell("thread-parent"), target],
+        {
+          threadDetails: new Map([
+            [
+              target.id,
+              {
+                ...makeThreadDetail(target),
+                messages: [
+                  {
+                    id: MessageId.makeUnsafe("message-provider-before-request"),
+                    role: "assistant",
+                    text: "provider output before the logical dispatch",
+                    turnId: providerTurnId,
+                    streaming: false,
+                    source: "native",
+                    sequence: 9,
+                    createdAt: "2026-09-05T07:10:59.000Z",
+                    updatedAt: "2026-09-05T07:10:59.000Z",
+                  },
+                  {
+                    id: pendingMessageId,
+                    role: "user",
+                    text: "pivot now",
+                    turnId: logicalTurnId,
+                    delivery: { state: "accepted", queued: false, sequence: 14 },
+                    streaming: false,
+                    source: "native",
+                    sequence: 10,
+                    createdAt: "2026-09-05T07:11:00.000Z",
+                    updatedAt: "2026-09-05T07:11:00.000Z",
+                  },
+                  {
+                    id: nextPendingMessageId,
+                    role: "user",
+                    text: "do this now",
+                    turnId: nextLogicalTurnId,
+                    delivery: { state: "accepted", queued: true, sequence: 15 },
+                    streaming: false,
+                    source: "native",
+                    sequence: 11,
+                    createdAt: "2026-09-05T07:11:01.000Z",
+                    updatedAt: "2026-09-05T07:11:04.000Z",
+                  },
+                  {
+                    id: MessageId.makeUnsafe("message-provider-after-request"),
+                    role: "assistant",
+                    text: "provider output after the logical dispatch",
+                    turnId: providerTurnId,
+                    streaming: false,
+                    source: "native",
+                    sequence: 12,
+                    createdAt: "2026-09-05T07:11:02.000Z",
+                    updatedAt: "2026-09-05T07:11:02.000Z",
+                  },
+                  {
+                    id: MessageId.makeUnsafe("message-provider-after-restart"),
+                    role: "assistant",
+                    text: "provider output after restart",
+                    turnId: resumedProviderTurnId,
+                    streaming: false,
+                    source: "native",
+                    sequence: 13,
+                    createdAt: "2026-09-05T07:11:03.000Z",
+                    updatedAt: "2026-09-05T07:11:03.000Z",
+                  },
+                  {
+                    id: MessageId.makeUnsafe("message-provider-after-native-steer"),
+                    role: "assistant",
+                    text: "provider output for the later logical steer",
+                    turnId: resumedProviderTurnId,
+                    streaming: false,
+                    source: "native",
+                    sequence: 16,
+                    createdAt: "2026-09-05T07:11:06.000Z",
+                    updatedAt: "2026-09-05T07:11:06.000Z",
+                  },
+                ],
+              },
+            ],
+          ]),
+        },
+      );
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        harness.setProjectionTurn({
+          threadId: target.id,
+          turnId: logicalTurnId,
+          state: "completed",
+          pendingMessageId,
+          providerTurnId: resumedProviderTurnId,
+          providerTurnIds: [providerTurnId, resumedProviderTurnId],
+        });
+        harness.setProjectionTurn({
+          threadId: target.id,
+          turnId: nextLogicalTurnId,
+          state: "completed",
+          pendingMessageId: nextPendingMessageId,
+          providerTurnId: resumedProviderTurnId,
+          providerTurnIds: [resumedProviderTurnId],
+        });
+        const response = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_read_thread",
+          args: { threadId: target.id, turnId: logicalTurnId },
+        });
+        const payload = toolResultJson(response.result);
+        assert.deepEqual(payload.turn, { turnId: logicalTurnId, state: "completed" });
+        assert.deepEqual(
+          (payload.items as Array<{ text?: string }>).map((item) => item.text),
+          ["provider output after the logical dispatch", "provider output after restart"],
+        );
+        const nextResponse = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_read_thread",
+          args: { threadId: target.id, turnId: nextLogicalTurnId },
+        });
+        const nextPayload = toolResultJson(nextResponse.result);
+        assert.deepEqual(nextPayload.turn, {
+          turnId: nextLogicalTurnId,
+          state: "completed",
+        });
+        assert.deepEqual(
+          (nextPayload.items as Array<{ text?: string }>).map((item) => item.text),
+          ["provider output for the later logical steer"],
+        );
+      }).pipe(Effect.provide(gatewayLayer));
+    },
+  );
+
+  it.effect("polls a running turn with its partial streaming output", () => {
+    const target = makeThreadShell("thread-turn-running");
+    const requestedTurnId = TurnId.makeUnsafe("turn-running-result");
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [makeThreadShell("thread-parent"), target],
+      {
+        threadDetails: new Map([
+          [
+            target.id,
+            {
+              ...makeThreadDetail(target),
+              messages: [
+                {
+                  id: MessageId.makeUnsafe("message-running-result"),
+                  role: "assistant",
+                  text: "partial answer",
+                  turnId: requestedTurnId,
+                  streaming: true,
+                  source: "native",
+                  createdAt: NOW,
+                  updatedAt: NOW,
+                },
+              ],
+            },
+          ],
+        ]),
+      },
+    );
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      harness.setProjectionTurn({
+        threadId: target.id,
+        turnId: requestedTurnId,
+        state: "running",
+        assistantMessageId: "message-running-result",
+      });
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_read_thread",
+        args: { threadId: target.id, turnId: requestedTurnId },
+      });
+      const payload = toolResultJson(response.result);
+      assert.deepEqual(payload.turn, { turnId: requestedTurnId, state: "running" });
+      assert.deepInclude((payload.items as Array<Record<string, unknown>>)[0] ?? {}, {
+        type: "message",
+        text: "partial answer",
+        streaming: true,
+      });
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -1558,6 +1929,8 @@ describe("AgentGateway", () => {
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       const payload = toolResultJson(response.result);
       assert.equal(payload.provider, "opencode");
+      assert.equal(typeof payload.messageId, "string");
+      assert.equal(typeof payload.turnId, "string");
       assert.strictEqual("parentThreadId" in payload, false);
 
       assert.equal(harness.dispatched.length, 3);
@@ -1580,6 +1953,8 @@ describe("AgentGateway", () => {
       if (turn.type === "thread.turn.start") {
         assert.equal(turn.dispatchOrigin, "agent");
         assert.equal(turn.message.text, "analyze the feature");
+        assert.equal(payload.messageId, turn.message.messageId);
+        assert.equal(payload.turnId, turn.turnId);
       }
     }).pipe(Effect.provide(gatewayLayer));
   });
@@ -1656,385 +2031,6 @@ describe("AgentGateway", () => {
     },
   );
 
-  it.effect(
-    "waits for pinned terminal turns and resolves previews by authoritative message id",
-    () => {
-      const first = makeThreadShell("thread-result-a", {
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-result-a"),
-          state: "completed",
-          requestedAt: NOW,
-          startedAt: NOW,
-          completedAt: NOW,
-          assistantMessageId: MessageId.makeUnsafe("message-result-a"),
-        },
-      });
-      const second = makeThreadShell("thread-result-b", {
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-result-b"),
-          state: "completed",
-          requestedAt: NOW,
-          startedAt: NOW,
-          completedAt: NOW,
-          assistantMessageId: MessageId.makeUnsafe("message-result-b"),
-        },
-      });
-      const firstDetail: OrchestrationThread = {
-        ...makeThreadDetail(first),
-        messages: [
-          {
-            id: MessageId.makeUnsafe("message-result-a"),
-            role: "assistant",
-            text: "First result",
-            // Provider-native turn identities need not equal Penkra's pinned run id.
-            // The projection's assistantMessageId is the authoritative link.
-            turnId: TurnId.makeUnsafe("provider-turn-result-a"),
-            streaming: false,
-            source: "native",
-            createdAt: NOW,
-            updatedAt: NOW,
-          },
-        ],
-      };
-      const secondDetail: OrchestrationThread = {
-        ...makeThreadDetail(second),
-        messages: [
-          {
-            id: MessageId.makeUnsafe("message-result-b"),
-            role: "assistant",
-            text: "Second result",
-            turnId: TurnId.makeUnsafe("turn-result-b"),
-            streaming: false,
-            source: "native",
-            createdAt: NOW,
-            updatedAt: NOW,
-          },
-        ],
-      };
-      const { gatewayLayer, makeHarness } = makeHarnessLayer(
-        [makeThreadShell("thread-parent"), first, second],
-        {
-          threadDetails: new Map([
-            ["thread-result-a", firstDetail],
-            ["thread-result-b", secondDetail],
-          ]),
-        },
-      );
-      return Effect.gen(function* () {
-        const harness = yield* makeHarness;
-        const response = yield* harness.callTool({
-          token: "token-parent",
-          name: "penkra_wait_for_threads",
-          args: {
-            threadId: ["thread-result-a", "thread-result-b"],
-            timeoutMs: 0,
-          },
-        });
-        assert.isFalse(isToolError(response.result), toolErrorText(response.result));
-        const payload = toolResultJson(response.result);
-        assert.equal(payload.allTerminal, true);
-        assert.deepEqual(payload.runIds, ["turn-result-a", "turn-result-b"]);
-        assert.deepEqual(
-          (payload.threads as Array<{ latestAssistantPreview: string }>).map(
-            (entry) => entry.latestAssistantPreview,
-          ),
-          ["First result", "Second result"],
-        );
-        assert.deepEqual(harness.getWaitReadCounts(), {
-          detailReads: 2,
-          batchTurnReads: 1,
-        });
-        assert.equal(harness.dispatched.length, 0);
-      }).pipe(Effect.provide(gatewayLayer));
-    },
-  );
-
-  it.effect("does not treat a newly created thread awaiting its first turn as terminal", () => {
-    const created = makeThreadShell("thread-awaiting-first-turn", {
-      creationSource: "penkra_mcp",
-      latestTurn: null,
-    });
-    const { gatewayLayer, makeHarness } = makeHarnessLayer([
-      makeThreadShell("thread-parent"),
-      created,
-    ]);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_wait_for_threads",
-        args: { threadId: ["thread-awaiting-first-turn"], timeoutMs: 0 },
-      });
-      const payload = toolResultJson(response.result);
-      const result = (payload.threads as Array<Record<string, unknown>>)[0]!;
-      assert.equal(result.state, "pending");
-      assert.equal(result.terminal, false);
-      assert.equal(result.timedOut, true);
-      assert.equal(payload.allTerminal, false);
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("labels bounded wait previews and points callers to paginated thread reads", () => {
-    const runId = TurnId.makeUnsafe("turn-long-result");
-    const messageId = MessageId.makeUnsafe("message-long-result");
-    const shell = makeThreadShell("thread-long-result", {
-      latestTurn: {
-        turnId: runId,
-        state: "completed",
-        requestedAt: NOW,
-        startedAt: NOW,
-        completedAt: NOW,
-        assistantMessageId: messageId,
-      },
-    });
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(
-      [makeThreadShell("thread-parent"), shell],
-      {
-        threadDetails: new Map([
-          [
-            "thread-long-result",
-            {
-              ...makeThreadDetail(shell),
-              messages: [
-                {
-                  id: messageId,
-                  role: "assistant",
-                  text: "x".repeat(5_000),
-                  turnId: runId,
-                  streaming: false,
-                  source: "native",
-                  createdAt: NOW,
-                  updatedAt: NOW,
-                },
-              ],
-            },
-          ],
-        ]),
-      },
-    );
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_wait_for_threads",
-        args: { threadId: ["thread-long-result"], timeoutMs: 0 },
-      });
-      const result = (
-        toolResultJson(response.result).threads as Array<Record<string, unknown>>
-      )[0]!;
-      assert.equal(result.previewTruncated, true);
-      assert.match(result.latestAssistantPreview as string, /\[\.\.\. truncated \d+ chars\]$/);
-      assert.equal((result.latestAssistantPreview as string).length, 2_000);
-      assert.deepEqual(result.readThread, {
-        command: "penkra threads read --thread-id thread-long-result",
-      });
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect(
-    "checks twenty pending waits with one batched turn read and no transcript loads",
-    () => {
-      const pending = Array.from({ length: 20 }, (_, index) =>
-        makeThreadShell(`thread-pending-${index}`, {
-          latestTurn: {
-            turnId: TurnId.makeUnsafe(`turn-pending-${index}`),
-            state: "running",
-            requestedAt: NOW,
-            startedAt: NOW,
-            completedAt: null,
-            assistantMessageId: null,
-          },
-        }),
-      );
-      const { gatewayLayer, makeHarness } = makeHarnessLayer([
-        makeThreadShell("thread-parent"),
-        ...pending,
-      ]);
-      return Effect.gen(function* () {
-        const harness = yield* makeHarness;
-        const response = yield* harness.callTool({
-          token: "token-parent",
-          name: "penkra_wait_for_threads",
-          args: { threadId: pending.map((thread) => thread.id), timeoutMs: 0 },
-        });
-        assert.equal(toolResultJson(response.result).timedOut, true);
-        assert.deepEqual(harness.getWaitReadCounts(), {
-          detailReads: 0,
-          batchTurnReads: 1,
-        });
-      }).pipe(Effect.provide(gatewayLayer));
-    },
-  );
-
-  it.effect("fails a long wait when a pinned thread is deleted between polls", () => {
-    const running = makeThreadShell("thread-deleted-during-wait", {
-      latestTurn: {
-        turnId: TurnId.makeUnsafe("turn-deleted-during-wait"),
-        state: "running",
-        requestedAt: NOW,
-        startedAt: NOW,
-        completedAt: null,
-        assistantMessageId: null,
-      },
-    });
-    const { gatewayLayer, makeHarness } = makeHarnessLayer([
-      makeThreadShell("thread-parent"),
-      running,
-    ]);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const fiber = yield* harness
-        .callTool({
-          token: "token-parent",
-          name: "penkra_wait_for_threads",
-          args: {
-            threadId: ["thread-deleted-during-wait"],
-            timeoutMs: 5_000,
-          },
-        })
-        .pipe(Effect.forkChild);
-      yield* Effect.yieldNow;
-      assert.equal(harness.getWaitReadCounts().batchTurnReads, 1);
-      harness.deleteThread("thread-deleted-during-wait");
-      yield* TestClock.adjust("200 millis");
-      const response = yield* Fiber.join(fiber);
-      assert.equal(
-        (toolResultJson(response.result).error as { code: string }).code,
-        "thread_not_found",
-      );
-      assert.equal(harness.getWaitReadCounts().detailReads, 0);
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("wait reports idle, failure, timeout, and a later-completed pinned run", () => {
-    const idle = makeThreadShell("thread-wait-idle");
-    const failed = makeThreadShell("thread-wait-failed", {
-      latestTurn: {
-        turnId: TurnId.makeUnsafe("turn-wait-failed"),
-        state: "error",
-        requestedAt: NOW,
-        startedAt: NOW,
-        completedAt: NOW,
-        assistantMessageId: null,
-      },
-      session: {
-        threadId: ThreadId.makeUnsafe("thread-wait-failed"),
-        status: "error",
-        providerName: "claudeAgent",
-        runtimeMode: "approval-required",
-        activeTurnId: null,
-        lastError: "Child failed",
-        updatedAt: NOW,
-      },
-    });
-    const running = makeThreadShell("thread-wait-running", {
-      latestTurn: {
-        turnId: TurnId.makeUnsafe("turn-wait-pinned"),
-        state: "running",
-        requestedAt: NOW,
-        startedAt: NOW,
-        completedAt: null,
-        assistantMessageId: null,
-      },
-    });
-    const { gatewayLayer, makeHarness } = makeHarnessLayer([
-      makeThreadShell("thread-parent"),
-      idle,
-      failed,
-      running,
-    ]);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const first = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_wait_for_threads",
-        args: {
-          threadId: ["thread-wait-idle", "thread-wait-failed", "thread-wait-running"],
-          timeoutMs: 0,
-        },
-      });
-      const firstThreads = toolResultJson(first.result).threads as Array<{
-        state: string;
-        timedOut: boolean;
-        error: string | null;
-      }>;
-      assert.deepEqual(
-        firstThreads.map(({ state, timedOut }) => ({ state, timedOut })),
-        [
-          { state: "idle", timedOut: false },
-          { state: "error", timedOut: false },
-          { state: "running", timedOut: true },
-        ],
-      );
-      assert.equal(firstThreads[1]?.error, "Child failed");
-
-      harness.setProjectionTurn({
-        threadId: "thread-wait-running",
-        turnId: "turn-wait-pinned",
-        state: "completed",
-        assistantMessageId: "message-wait-pinned",
-      });
-      harness.setThreadDetail({
-        ...makeThreadDetail(
-          makeThreadShell("thread-wait-running", {
-            latestTurn: {
-              turnId: TurnId.makeUnsafe("turn-wait-later"),
-              state: "running",
-              requestedAt: NOW,
-              startedAt: NOW,
-              completedAt: null,
-              assistantMessageId: null,
-            },
-          }),
-        ),
-        messages: [
-          {
-            id: MessageId.makeUnsafe("message-wait-pinned"),
-            role: "assistant",
-            text: "Pinned run finished",
-            turnId: TurnId.makeUnsafe("turn-wait-pinned"),
-            streaming: false,
-            source: "native",
-            createdAt: NOW,
-            updatedAt: NOW,
-          },
-        ],
-      });
-      harness.setThreadDetail(
-        makeThreadDetail(
-          makeThreadShell("thread-parent", {
-            latestTurn: {
-              turnId: TurnId.makeUnsafe("turn-parent-active"),
-              state: "interrupted",
-              requestedAt: NOW,
-              startedAt: NOW,
-              completedAt: NOW,
-              assistantMessageId: null,
-            },
-          }),
-        ),
-      );
-      const second = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_wait_for_threads",
-        args: {
-          threadId: ["thread-wait-running"],
-          runIds: ["turn-wait-pinned"],
-          timeoutMs: 0,
-        },
-      });
-      const secondThread = (
-        toolResultJson(second.result).threads as Array<{
-          state: string;
-          latestAssistantPreview: string;
-        }>
-      )[0];
-      assert.equal(secondThread?.state, "completed");
-      assert.equal(secondThread?.latestAssistantPreview, "Pinned run finished");
-      assert.equal(harness.dispatched.length, 0);
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
   it.effect("sends a follow-up message with the agent dispatch origin", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer([
       ...baseThreads.filter((thread) => thread.id !== "thread-child"),
@@ -2059,7 +2055,7 @@ describe("AgentGateway", () => {
         args: {
           threadId: "thread-child",
           message: "status check please",
-          mode: "steer",
+          now: true,
         },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -2069,6 +2065,30 @@ describe("AgentGateway", () => {
         assert.equal(turn.dispatchOrigin, "agent");
         assert.equal(turn.dispatchMode, "steer");
         assert.equal(turn.threadId, "thread-child");
+        assert.equal(toolResultJson(response.result).turnId, turn.turnId);
+        assert.equal(toolResultJson(response.result).messageId, turn.message.messageId);
+      }
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("preserves FIFO delivery by default without exposing the internal mechanism", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_send_message",
+        args: { threadId: "thread-child", message: "follow the existing work" },
+      });
+      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      const payload = toolResultJson(response.result);
+      assert.strictEqual("dispatched" in payload, false);
+      const turn = harness.dispatched[0];
+      assert.equal(turn?.type, "thread.turn.start");
+      if (turn?.type === "thread.turn.start") {
+        assert.equal(turn.dispatchMode, "queue");
+        assert.equal(payload.messageId, turn.message.messageId);
+        assert.equal(payload.turnId, turn.turnId);
       }
     }).pipe(Effect.provide(gatewayLayer));
   });
@@ -2083,17 +2103,50 @@ describe("AgentGateway", () => {
         args: {
           threadId: "thread-child",
           message: "status check please",
-          mode: "steer",
+          now: true,
         },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       // The projection snapshot can lag the runtime in both directions, so
       // the gateway must not downgrade; the reactor rechecks live state.
-      assert.equal(toolResultJson(response.result).dispatched, "steer");
+      assert.equal(typeof toolResultJson(response.result).turnId, "string");
       const turn = harness.dispatched[0]!;
       assert.equal(turn.type, "thread.turn.start");
       if (turn.type === "thread.turn.start") {
         assert.equal(turn.dispatchMode, "steer");
+      }
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("targets one queued turn for cancellation by its stable handle", () => {
+    const target = makeThreadShell("thread-cancel-queued");
+    const { gatewayLayer, makeHarness } = makeHarnessLayer([
+      makeThreadShell("thread-parent"),
+      target,
+    ]);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      harness.setProjectionTurn({
+        threadId: target.id,
+        turnId: "turn-cancel-queued",
+        state: "queued",
+        pendingMessageId: "message-cancel-queued",
+      });
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_interrupt_thread",
+        args: { threadId: target.id, turnId: "turn-cancel-queued" },
+      });
+      assert.deepInclude(toolResultJson(response.result), {
+        threadId: target.id,
+        turnId: "turn-cancel-queued",
+        state: "cancelled",
+      });
+      const command = harness.dispatched[0];
+      assert.equal(command?.type, "thread.turn.cancel-queued");
+      if (command?.type === "thread.turn.cancel-queued") {
+        assert.equal(command.turnId, "turn-cancel-queued");
+        assert.equal(command.messageId, "message-cancel-queued");
       }
     }).pipe(Effect.provide(gatewayLayer));
   });

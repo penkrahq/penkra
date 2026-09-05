@@ -1809,7 +1809,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             '2026-07-20T23:59:00.000Z', '2026-07-20T23:59:01.000Z', NULL
           ),
           (
-            'thread-queued-oldest', 'turn-queued', NULL, NULL, 'pending',
+            'thread-queued-oldest', 'turn-queued', NULL, NULL, 'queued',
             '2026-07-21T00:00:00.000Z', NULL, NULL
           )
       `;
@@ -1871,7 +1871,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
 
       assert.deepEqual(yield* snapshotQuery.listOpenTurnCounts(), [
-        { threadId: ThreadId.makeUnsafe("thread-queued-oldest"), count: 2 },
+        // Restart reconciliation settles only provider work that was actually
+        // running. The durable queued turn remains eligible for later promotion.
+        { threadId: ThreadId.makeUnsafe("thread-queued-oldest"), count: 1 },
       ]);
 
       const candidates = yield* snapshotQuery.listStaleInFlightThreadIds({

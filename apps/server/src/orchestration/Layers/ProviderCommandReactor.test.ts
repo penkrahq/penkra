@@ -63,6 +63,7 @@ import {
 } from "../../persistence/Services/OrchestrationEventDeliveries.ts";
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import { ProjectionPendingInteractionRepository } from "../../persistence/Services/ProjectionPendingInteractions.ts";
+import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import {
@@ -555,6 +556,9 @@ describe("ProviderCommandReactor", () => {
     const pendingInteractionRepository = await runtime.runPromise(
       Effect.service(ProjectionPendingInteractionRepository),
     );
+    const projectionTurnRepository = await runtime.runPromise(
+      Effect.service(ProjectionTurnRepository),
+    );
     scope = await Effect.runPromise(Scope.make("sequential"));
     let reactorStarted = false;
     const startReactor = async () => {
@@ -683,6 +687,7 @@ describe("ProviderCommandReactor", () => {
       startReactor,
       deliveryRepository,
       pendingInteractionRepository,
+      projectionTurnRepository,
       persistWithoutLivePublication: async (
         events: ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
       ) => {
@@ -4182,6 +4187,7 @@ describe("ProviderCommandReactor", () => {
   it("cancels one durable queued turn without interrupting the active turn", async () => {
     const harness = await createHarness();
     const messageId = asMessageId("msg-cancel-durable-queue");
+    const queuedTurnId = asTurnId(`turn:cmd-turn-${messageId}`);
     await seedQueuedTurnBehindLiveTurn(harness, {
       liveTurnId: asTurnId("turn-live-during-queue-cancel"),
       messageId,
@@ -4195,6 +4201,7 @@ describe("ProviderCommandReactor", () => {
         commandId: CommandId.makeUnsafe("cmd-cancel-durable-queue"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         messageId,
+        turnId: queuedTurnId,
         createdAt: new Date().toISOString(),
       }),
     );
@@ -4209,6 +4216,13 @@ describe("ProviderCommandReactor", () => {
       ),
     ).toBe(false);
     expect(harness.interruptTurn).not.toHaveBeenCalled();
+    const cancelledTurn = await Effect.runPromise(
+      harness.projectionTurnRepository.getByTurnId({
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        turnId: queuedTurnId,
+      }),
+    );
+    expect(cancelledTurn.pipe(Option.getOrThrow).state).toBe("cancelled");
     const events = await Effect.runPromise(
       Stream.runCollect(harness.engine.readEvents(0)).pipe(
         Effect.map((collected) => Array.from(collected)),
@@ -4950,6 +4964,22 @@ describe("ProviderCommandReactor", () => {
       threadId: ThreadId.makeUnsafe("thread-1"),
       input: "first queued turn",
     });
+    const eventsAfterFirstPromotion = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((collected) => Array.from(collected)),
+      ),
+    );
+    expect(
+      eventsAfterFirstPromotion.find(
+        (event) =>
+          event.type === "thread.turn-start-requested" &&
+          event.payload.messageId === "msg-queue-promoted-1",
+      ),
+    ).toMatchObject({
+      payload: {
+        turnId: "turn:cmd-turn-msg-queue-promoted-1",
+      },
+    });
 
     harness.setRuntimeSessionTurnState({
       threadId: "thread-1",
@@ -5363,6 +5393,13 @@ describe("ProviderCommandReactor", () => {
     );
     await harness.drain();
     expect(harness.sendTurn).not.toHaveBeenCalled();
+    const queuedChildTurn = await Effect.runPromise(
+      harness.projectionTurnRepository.getByTurnId({
+        threadId: ThreadId.makeUnsafe("thread-child-before-parent-stop"),
+        turnId: asTurnId("turn:cmd-child-turn-queued-before-parent-stop"),
+      }),
+    );
+    expect(queuedChildTurn.pipe(Option.getOrThrow).state).toBe("queued");
 
     await Effect.runPromise(
       harness.engine.dispatch({
@@ -5373,6 +5410,27 @@ describe("ProviderCommandReactor", () => {
       }),
     );
     await waitFor(() => harness.stopSession.mock.calls.length === 1);
+    await harness.drain();
+    const stopEvents = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((collected) => Array.from(collected)),
+      ),
+    );
+    expect(
+      stopEvents.some(
+        (event) =>
+          event.type === "thread.turn-start-cancelled" &&
+          event.payload.threadId === "thread-child-before-parent-stop" &&
+          event.payload.turnId === "turn:cmd-child-turn-queued-before-parent-stop",
+      ),
+    ).toBe(true);
+    const cancelledChildTurn = await Effect.runPromise(
+      harness.projectionTurnRepository.getByTurnId({
+        threadId: ThreadId.makeUnsafe("thread-child-before-parent-stop"),
+        turnId: asTurnId("turn:cmd-child-turn-queued-before-parent-stop"),
+      }),
+    );
+    expect(cancelledChildTurn.pipe(Option.getOrThrow).state).toBe("cancelled");
 
     harness.setRuntimeSessionTurnState({ threadId: "thread-1", status: "ready" });
     await harness.emitRuntimeEvent({
@@ -5773,6 +5831,18 @@ describe("ProviderCommandReactor", () => {
         thread?.messages.find((message) => message.id === "msg-steer-codex")?.delivery?.state ===
         "accepted"
       );
+    });
+    const logicalSteer = await Effect.runPromise(
+      harness.projectionTurnRepository.getByTurnId({
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        turnId: asTurnId("turn:cmd-turn-steer-codex"),
+      }),
+    );
+    expect(Option.getOrThrow(logicalSteer)).toMatchObject({
+      turnId: asTurnId("turn:cmd-turn-steer-codex"),
+      providerTurnId: asTurnId("turn-steer-1"),
+      pendingMessageId: asMessageId("msg-steer-codex"),
+      state: "running",
     });
   });
 

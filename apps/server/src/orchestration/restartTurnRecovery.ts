@@ -72,13 +72,12 @@ export const recoverRestartInterruptedTurns = Effect.gen(function* () {
 
         const recoveryMessageId = MessageId.makeUnsafe(`restart-recovery:${crypto.randomUUID()}`);
         const commandId = CommandId.makeUnsafe(`restart-recovery:${crypto.randomUUID()}`);
-        const turnId = TurnId.makeUnsafe(`turn:${commandId}`);
         const createdAt = new Date().toISOString();
         yield* engine.dispatch({
           type: "thread.turn.recover",
           commandId,
           threadId,
-          turnId,
+          turnId: interruptedTurnId,
           recoveryMessageId,
           interruptedTurnId,
           connectionId:
@@ -91,7 +90,7 @@ export const recoverRestartInterruptedTurns = Effect.gen(function* () {
         yield* Effect.logInfo("started restart turn continuation", {
           threadId,
           interruptedTurnId,
-          recoveryTurnId: turnId,
+          recoveryTurnId: interruptedTurnId,
           connectionId: recovery.connectionId,
           bindingRevision: recovery.bindingRevision,
         });

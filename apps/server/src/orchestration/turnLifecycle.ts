@@ -1,6 +1,6 @@
 import type { OrchestrationSession } from "@penkra/contracts";
 
-type TurnState = "pending" | "running" | "completed" | "interrupted" | "error";
+type TurnState = "queued" | "running" | "completed" | "interrupted" | "error" | "cancelled";
 
 /**
  * Returns the terminal turn state implied by a session update, or `null` while
@@ -9,7 +9,7 @@ type TurnState = "pending" | "running" | "completed" | "interrupted" | "error";
 export function settleTurnStateFromSession(
   session: Pick<OrchestrationSession, "status" | "activeTurnId">,
   existingState: TurnState,
-): Exclude<TurnState, "pending" | "running"> | null {
+): Exclude<TurnState, "queued" | "running"> | null {
   if (session.activeTurnId !== null && session.status !== "error") {
     return null;
   }
@@ -21,11 +21,11 @@ export function settleTurnStateFromSession(
     case "stopped":
       return "interrupted";
     case "ready":
-      return existingState === "error"
-        ? "error"
-        : existingState === "interrupted"
-          ? "interrupted"
-          : "completed";
+      return existingState === "error" ||
+        existingState === "interrupted" ||
+        existingState === "cancelled"
+        ? existingState
+        : "completed";
     case "idle":
     case "starting":
     case "running":

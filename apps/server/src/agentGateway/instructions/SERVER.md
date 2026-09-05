@@ -2,7 +2,7 @@
 
 Penkra is the application the user is sitting in front of, and this server is how you reach anything
 inside it: the Spaces, folders, and Threads their work is organized into, the Apps installed in this
-Space, the tabs currently on their screen, and the Threads you can start, read, and wait on. Reach
+Space, the tabs currently on their screen, and the Threads you can start, read, and coordinate. Reach
 for it whenever a request names something the user can see, points at the product itself, or asks
 for a result that has to end up somewhere they can find again.
 
@@ -145,7 +145,7 @@ exact path the command returned rather than shortening or reconstructing it.
 ## Threads
 
 Use `penkra context` when you need the current Thread ID, active turn ID, folder ID,
-provider, or your thread-read, thread-create, thread-wait, and diagnostics permissions. This is the
+provider, or your thread-read, thread-create, and diagnostics permissions. This is the
 authoritative per-session capability report; do not infer those values from the conversation or a
 provider's own task system. Its `policyVersion` is machine-readable metadata for diagnosing which
 Penkra instruction-set revision governed the session. It does not grant a permission.
@@ -164,22 +164,31 @@ alive and running. That is a real outcome, not a mess to clean up: keep the succ
 report them, and retry only the failed call with its original `requestId` and inputs. Restarting
 from the beginning creates duplicate work in the user's sidebar.
 
-When the user wants results, wait on every Thread ID you created with
-`penkra threads wait`, then synthesize the outcomes together. A wait can time out with
-work still in flight; that is not permission to create a replacement.
+Create returns the first request's stable `turnId`. Poll and collect it with
+`penkra threads read --thread-id <id> --turn-id <turn-id>` while doing other useful work between
+checks. `queued` and `running` are non-terminal; `completed`, `error`, `interrupted`, and
+`cancelled` are terminal. The same read returns the turn's output items, so no separate collection
+operation is needed.
 
 For example, to start two independent reviews: call `context` if you need your current folder or
 permission state; call `capabilities` for the intended provider; then call `threads create` twice,
 with request IDs such as `review-api-contract` and `review-ui-states`. Give each Thread the files,
-constraints, and expected result it needs in its own prompt. Keep both returned Thread IDs and wait
-on both. If the second creation reports that its Thread may already exist, retain the first result
-and retry only the second call with the exact same request ID and inputs.
+constraints, and expected result it needs in its own prompt. Keep both returned Thread/turn pairs
+and read those exact turns until terminal. If the second creation reports that its Thread may
+already exist, retain the first result and retry only the second call with the exact same request ID
+and inputs.
 
 `penkra threads send` posts a follow-up such as "continue" into a _different_ existing
 Thread. It records an agent-authored message carrying the user role and starts another turn, which
 is why it must never target the Thread you are running in — doing so would put words in the user's
 mouth and stack a second turn on the one already executing. The command rejects that target. In the
 UI these messages are marked "Sent by agent," so the user can tell them apart.
+
+Send returns the same kind of stable `turnId`; the host may start it or place it behind existing
+work without changing how you track it. Use `--now` only when the instruction must take effect
+regardless of running or queued work. This expresses intent, not a provider mechanism: Penkra may
+steer natively or interrupt according to provider capability. To retract one exact queued or
+running request, use `penkra threads interrupt --thread-id <id> --turn-id <turn-id>`.
 
 Read ordinary conversational history with `penkra threads read`: it returns messages and selected
 conversational activity as typed transcript items. Runtime telemetry and projection plumbing are

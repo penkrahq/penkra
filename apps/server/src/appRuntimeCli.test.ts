@@ -152,11 +152,11 @@ describe("penkra_exec_command structure", () => {
   it("keeps escaped JSON inside a double-quoted input value", () => {
     expect(
       parsePenkraCommand(
-        'penkra threads wait --input "{\\"threadIds\\":[\\"thread-1\\"],\\"timeoutMs\\":0}"',
+        'penkra threads read --input "{\\"threadId\\":\\"thread-1\\",\\"turnId\\":\\"turn-1\\"}"',
       ),
     ).toMatchObject({
-      command: ["penkra", "threads", "wait"],
-      input: { threadIds: ["thread-1"], timeoutMs: 0 },
+      command: ["penkra", "threads", "read"],
+      input: { threadId: "thread-1", turnId: "turn-1" },
     });
   });
 
@@ -192,7 +192,7 @@ describe("penkra_exec_command structure", () => {
 
   it("preserves repeated flags for schema-declared string arrays", () => {
     const parsed = parsePenkraCommand(
-      "penkra threads wait --thread-id thread-a --thread-id thread-b",
+      "penkra threads list --thread-id thread-a --thread-id thread-b",
     );
     expect(
       parseOperationInput(

@@ -7,14 +7,13 @@
  */
 import { Schema } from "effect";
 
-import { FolderId, ThreadId, TurnId } from "./baseSchemas";
+import { FolderId, MessageId, ThreadId, TurnId } from "./baseSchemas";
 import { ModelSelection, ProviderKind } from "./orchestration";
 import { ProviderModelDescriptor } from "./providerDiscovery";
 import { ServerProviderAuthStatus } from "./server";
 
 export const PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION = 20;
 export const PENKRA_GATEWAY_MAX_REQUEST_ID_LENGTH = 256;
-export const PENKRA_GATEWAY_MAX_WAIT_MS = 60_000;
 
 export const PenkraGatewayErrorCode = Schema.Literals([
   "caller_session_inactive",
@@ -25,7 +24,6 @@ export const PenkraGatewayErrorCode = Schema.Literals([
   "model_option_unavailable",
   "creation_limit_exceeded",
   "thread_not_found",
-  "wait_timed_out",
   "operation_failed",
 ]);
 export type PenkraGatewayErrorCode = typeof PenkraGatewayErrorCode.Type;
@@ -56,7 +54,6 @@ export const PenkraContextResult = Schema.Struct({
   capabilities: Schema.Struct({
     threadRead: Schema.Boolean,
     threadCreate: Schema.Boolean,
-    threadWait: Schema.Boolean,
     diagnostics: Schema.Boolean,
   }),
 });
@@ -122,10 +119,6 @@ export type PenkraGatewayTargetConstruction = typeof PenkraGatewayTargetConstruc
 export const PenkraCapabilitiesResult = Schema.Struct({
   targetConstruction: Schema.Record(Schema.String, PenkraGatewayTargetConstruction),
   providers: Schema.Array(PenkraProviderCatalog),
-  limits: Schema.Struct({
-    maxThreadsPerWait: Schema.Int,
-    maxWaitMs: Schema.Int,
-  }),
 });
 export type PenkraCapabilitiesResult = typeof PenkraCapabilitiesResult.Type;
 
@@ -138,7 +131,8 @@ export const PenkraCreatedThreadResult = Schema.Struct({
   provider: ProviderKind,
   model: Schema.String,
   runtimeMode: Schema.Literals(["approval-required", "full-access"]),
-  status: Schema.Literal("task_dispatched"),
+  messageId: MessageId,
+  turnId: TurnId,
 });
 export type PenkraCreatedThreadResult = typeof PenkraCreatedThreadResult.Type;
 
@@ -152,48 +146,7 @@ export const PenkraCreateThreadResult = Schema.Struct({
   provider: ProviderKind,
   model: Schema.String,
   runtimeMode: Schema.Literals(["approval-required", "full-access"]),
-  status: Schema.Literal("task_dispatched"),
+  messageId: MessageId,
+  turnId: TurnId,
 });
 export type PenkraCreateThreadResult = typeof PenkraCreateThreadResult.Type;
-
-export const PenkraWaitForThreadsInput = Schema.Struct({
-  threadIds: Schema.Array(ThreadId)
-    .check(Schema.isMinLength(1))
-    .check(Schema.isMaxLength(PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION)),
-  runIds: Schema.optional(
-    Schema.Array(Schema.NullOr(TurnId)).check(
-      Schema.isMaxLength(PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION),
-    ),
-  ),
-  timeoutMs: Schema.optional(
-    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).check(
-      Schema.isLessThanOrEqualTo(PENKRA_GATEWAY_MAX_WAIT_MS),
-    ),
-  ),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
-export type PenkraWaitForThreadsInput = typeof PenkraWaitForThreadsInput.Type;
-
-export const PenkraWaitedThreadResult = Schema.Struct({
-  threadId: ThreadId,
-  runId: Schema.NullOr(TurnId),
-  state: Schema.Literals(["idle", "pending", "running", "completed", "error", "interrupted"]),
-  terminal: Schema.Boolean,
-  timedOut: Schema.Boolean,
-  summary: Schema.NullOr(Schema.String),
-  summaryTruncated: Schema.Boolean,
-  error: Schema.NullOr(Schema.String),
-  readThread: Schema.Struct({
-    tool: Schema.Literal("penkra_read_thread"),
-    arguments: Schema.Struct({ threadId: ThreadId }),
-  }),
-});
-export type PenkraWaitedThreadResult = typeof PenkraWaitedThreadResult.Type;
-
-export const PenkraWaitForThreadsResult = Schema.Struct({
-  callerThreadId: ThreadId,
-  runIds: Schema.Array(Schema.NullOr(TurnId)),
-  allTerminal: Schema.Boolean,
-  timedOut: Schema.Boolean,
-  threads: Schema.Array(PenkraWaitedThreadResult),
-});
-export type PenkraWaitForThreadsResult = typeof PenkraWaitForThreadsResult.Type;

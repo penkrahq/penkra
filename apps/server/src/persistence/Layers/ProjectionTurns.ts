@@ -6,12 +6,13 @@ import { Effect, Layer, Option, Schema } from "effect";
 import { toPersistenceSqlError, toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
   DeleteProjectionTurnsByThreadInput,
-  GetProjectionPendingTurnStartInput,
+  GetProjectionUnboundTurnStartInput,
   GetProjectionTurnByTurnIdInput,
   ListProjectionTurnsByThreadInput,
-  ProjectionPendingTurnStart,
+  ProjectionUnboundTurnStart,
   ProjectionTurn,
   ProjectionTurnById,
+  ProjectionTurnIdentityInput,
   ProjectionTurnState,
   ProjectionTurnRepository,
   type ProjectionTurnRepositoryShape,
@@ -19,6 +20,7 @@ import {
 
 const ProjectionTurnDbRowSchema = ProjectionTurn;
 const ProjectionTurnByIdDbRowSchema = ProjectionTurnById;
+const ProjectionProviderTurnIdDbRowSchema = Schema.Struct({ providerTurnId: TurnId });
 
 const ProjectionWaitTurnDbRowSchema = Schema.Struct({
   threadId: ThreadId,
@@ -62,65 +64,23 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           assistant_message_id = excluded.assistant_message_id,
           provider_turn_id = COALESCE(projection_turns.provider_turn_id, excluded.provider_turn_id),
           state = CASE
-            WHEN projection_turns.state IN ('completed', 'interrupted', 'error')
+            WHEN projection_turns.state IN ('completed', 'interrupted', 'error', 'cancelled')
               THEN projection_turns.state
             ELSE excluded.state
           END,
           requested_at = excluded.requested_at,
           started_at = COALESCE(projection_turns.started_at, excluded.started_at),
           completed_at = CASE
-            WHEN projection_turns.state IN ('completed', 'interrupted', 'error')
+            WHEN projection_turns.state IN ('completed', 'interrupted', 'error', 'cancelled')
               THEN projection_turns.completed_at
             ELSE excluded.completed_at
           END
       `,
   });
 
-  const insertPendingProjectionTurn = SqlSchema.void({
-    Request: ProjectionPendingTurnStart,
-    execute: (row) =>
-      sql`
-        INSERT INTO projection_turns (
-          thread_id,
-          turn_id,
-          provider_turn_id,
-          pending_message_id,
-          assistant_message_id,
-          state,
-          requested_at,
-          started_at,
-          completed_at
-        )
-        VALUES (
-          ${row.threadId},
-          ${row.turnId},
-          NULL,
-          ${row.messageId},
-          NULL,
-          'pending',
-          ${row.requestedAt},
-          NULL,
-          NULL
-        )
-        ON CONFLICT (thread_id, turn_id) DO UPDATE SET
-          pending_message_id = excluded.pending_message_id,
-          requested_at = excluded.requested_at
-      `,
-  });
-
-  const deletePendingProjectionTurnsByThread = SqlSchema.void({
-    Request: DeleteProjectionTurnsByThreadInput,
-    execute: ({ threadId }) =>
-      sql`
-        DELETE FROM projection_turns
-        WHERE thread_id = ${threadId}
-          AND state = 'pending'
-      `,
-  });
-
-  const getPendingProjectionTurn = SqlSchema.findOneOption({
-    Request: GetProjectionPendingTurnStartInput,
-    Result: ProjectionPendingTurnStart,
+  const getUnboundProjectionTurn = SqlSchema.findOneOption({
+    Request: GetProjectionUnboundTurnStartInput,
+    Result: ProjectionUnboundTurnStart,
     execute: ({ threadId }) =>
       sql`
         SELECT
@@ -130,7 +90,9 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           requested_at AS "requestedAt"
         FROM projection_turns
         WHERE thread_id = ${threadId}
-          AND state = 'pending'
+          AND state = 'running'
+          AND provider_turn_id IS NULL
+          AND started_at IS NULL
           AND pending_message_id IS NOT NULL
         ORDER BY requested_at DESC
         LIMIT 1
@@ -157,6 +119,26 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
         ORDER BY requested_at ASC,
           turn_id ASC
       `,
+  });
+
+  const listProjectionTurnsByThreads = SqlSchema.findAll({
+    Request: Schema.Array(ThreadId),
+    Result: ProjectionTurnDbRowSchema,
+    execute: (threadIds) => sql`
+      SELECT
+        thread_id AS "threadId",
+        turn_id AS "turnId",
+        provider_turn_id AS "providerTurnId",
+        pending_message_id AS "pendingMessageId",
+        assistant_message_id AS "assistantMessageId",
+        state,
+        requested_at AS "requestedAt",
+        started_at AS "startedAt",
+        completed_at AS "completedAt"
+      FROM projection_turns
+      WHERE thread_id IN ${sql.in([...new Set(threadIds)])}
+      ORDER BY thread_id ASC, requested_at ASC, turn_id ASC
+    `,
   });
 
   const getProjectionTurnByTurnId = SqlSchema.findOneOption({
@@ -202,6 +184,31 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
       `,
   });
 
+  const reopenProjectionTurnForRestart = SqlSchema.void({
+    Request: ProjectionTurnIdentityInput,
+    execute: ({ threadId, turnId }) => sql`
+      UPDATE projection_turns
+      SET provider_turn_id = NULL,
+          state = 'running',
+          started_at = NULL,
+          completed_at = NULL
+      WHERE thread_id = ${threadId}
+        AND turn_id = ${turnId}
+    `,
+  });
+
+  const listProjectionProviderTurnIds = SqlSchema.findAll({
+    Request: ProjectionTurnIdentityInput,
+    Result: ProjectionProviderTurnIdDbRowSchema,
+    execute: ({ threadId, turnId }) => sql`
+      SELECT provider_turn_id AS "providerTurnId"
+      FROM projection_turn_provider_bindings
+      WHERE thread_id = ${threadId}
+        AND turn_id = ${turnId}
+      ORDER BY bound_at ASC, provider_turn_id ASC
+    `,
+  });
+
   const getProjectionWaitSnapshot = SqlSchema.findAll({
     Request: Schema.Struct({
       threadIds: Schema.Array(ThreadId),
@@ -245,7 +252,20 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
   });
 
   const upsertByTurnId: ProjectionTurnRepositoryShape["upsertByTurnId"] = (row) =>
-    upsertProjectionTurnById(row).pipe(
+    Effect.gen(function* () {
+      yield* upsertProjectionTurnById(row);
+      if (row.providerTurnId !== null) {
+        yield* sql`
+          INSERT INTO projection_turn_provider_bindings (
+            thread_id, turn_id, provider_turn_id, bound_at
+          ) VALUES (
+            ${row.threadId}, ${row.turnId}, ${row.providerTurnId},
+            ${row.startedAt ?? row.requestedAt}
+          )
+          ON CONFLICT (thread_id, turn_id, provider_turn_id) DO NOTHING
+        `;
+      }
+    }).pipe(
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "ProjectionTurnRepository.upsertByTurnId:query",
@@ -254,29 +274,32 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
       ),
     );
 
-  const replacePendingTurnStart: ProjectionTurnRepositoryShape["replacePendingTurnStart"] = (row) =>
-    insertPendingProjectionTurn(row).pipe(
+  const reopenForRestart: ProjectionTurnRepositoryShape["reopenForRestart"] = (input) =>
+    reopenProjectionTurnForRestart(input).pipe(
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
-          "ProjectionTurnRepository.replacePendingTurnStart:query",
-          "ProjectionTurnRepository.replacePendingTurnStart:encodeRequest",
+          "ProjectionTurnRepository.reopenForRestart:query",
+          "ProjectionTurnRepository.reopenForRestart:encodeRequest",
         ),
       ),
     );
 
-  const getPendingTurnStartByThreadId: ProjectionTurnRepositoryShape["getPendingTurnStartByThreadId"] =
-    (input) =>
-      getPendingProjectionTurn(input).pipe(
-        Effect.mapError(
-          toPersistenceSqlError("ProjectionTurnRepository.getPendingTurnStartByThreadId:query"),
+  const listProviderTurnIds: ProjectionTurnRepositoryShape["listProviderTurnIds"] = (input) =>
+    listProjectionProviderTurnIds(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionTurnRepository.listProviderTurnIds:query",
+          "ProjectionTurnRepository.listProviderTurnIds:decodeRows",
         ),
-      );
+      ),
+      Effect.map((rows) => rows.map((row) => row.providerTurnId)),
+    );
 
-  const deletePendingTurnStartByThreadId: ProjectionTurnRepositoryShape["deletePendingTurnStartByThreadId"] =
+  const getUnboundTurnStartByThreadId: ProjectionTurnRepositoryShape["getUnboundTurnStartByThreadId"] =
     (input) =>
-      deletePendingProjectionTurnsByThread(input).pipe(
+      getUnboundProjectionTurn(input).pipe(
         Effect.mapError(
-          toPersistenceSqlError("ProjectionTurnRepository.deletePendingTurnStartByThreadId:query"),
+          toPersistenceSqlError("ProjectionTurnRepository.getUnboundTurnStartByThreadId:query"),
         ),
       );
 
@@ -290,6 +313,19 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
       ),
       Effect.map((rows) => rows as ReadonlyArray<Schema.Schema.Type<typeof ProjectionTurn>>),
     );
+
+  const listByThreadIds: ProjectionTurnRepositoryShape["listByThreadIds"] = (threadIds) => {
+    if (threadIds.length === 0) return Effect.succeed([]);
+    return listProjectionTurnsByThreads([...threadIds]).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionTurnRepository.listByThreadIds:query",
+          "ProjectionTurnRepository.listByThreadIds:decodeRows",
+        ),
+      ),
+      Effect.map((rows) => rows as ReadonlyArray<Schema.Schema.Type<typeof ProjectionTurn>>),
+    );
+  };
 
   const getByTurnId: ProjectionTurnRepositoryShape["getByTurnId"] = (input) =>
     getProjectionTurnByTurnId(input).pipe(
@@ -367,10 +403,11 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
 
   return {
     upsertByTurnId,
-    replacePendingTurnStart,
-    getPendingTurnStartByThreadId,
-    deletePendingTurnStartByThreadId,
+    reopenForRestart,
+    listProviderTurnIds,
+    getUnboundTurnStartByThreadId,
     listByThreadId,
+    listByThreadIds,
     getByTurnId,
     getManyByTurnId,
     getManyWaitSnapshot,

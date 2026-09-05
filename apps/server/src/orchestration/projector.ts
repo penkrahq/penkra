@@ -56,7 +56,12 @@ function isTerminalLatestTurn(
   if (!latestTurn?.completedAt) {
     return false;
   }
-  return latestTurn.state === "completed" || latestTurn.state === "error";
+  return (
+    latestTurn.state === "completed" ||
+    latestTurn.state === "error" ||
+    latestTurn.state === "interrupted" ||
+    latestTurn.state === "cancelled"
+  );
 }
 
 // Turn lifecycle must settle with the session: once a session leaves "running",

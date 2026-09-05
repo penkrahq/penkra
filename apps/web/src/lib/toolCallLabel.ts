@@ -175,11 +175,6 @@ const PENKRA_MCP_TOOL_PRESENTATIONS = {
     completed: "Penkra created a thread",
     failed: "Penkra couldn't create a thread",
   },
-  penkra_wait_for_threads: {
-    running: "Penkra is waiting for threads",
-    completed: "Penkra finished waiting for threads",
-    failed: "Penkra couldn't wait for threads",
-  },
   penkra_send_message: {
     running: "Penkra is sending a message",
     completed: "Penkra sent a message",

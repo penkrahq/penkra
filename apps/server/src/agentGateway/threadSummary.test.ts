@@ -53,7 +53,9 @@ const session = (
   updatedAt: "2026-03-01T00:00:00.000Z",
 });
 
-const latestTurn = (state: "running" | "completed" | "interrupted" | "error") => ({
+const latestTurn = (
+  state: "queued" | "running" | "completed" | "interrupted" | "error" | "cancelled",
+) => ({
   turnId: TurnId.makeUnsafe("turn-1"),
   state,
   requestedAt: "2026-03-01T00:00:00.000Z",
@@ -88,6 +90,13 @@ describe("deriveAgentThreadStatus", () => {
   it("reports working while a turn runs", () => {
     assert.equal(
       deriveAgentThreadStatus({ session: session("running"), latestTurn: latestTurn("running") }),
+      "working",
+    );
+  });
+
+  it("reports working while an admitted turn waits in the durable queue", () => {
+    assert.equal(
+      deriveAgentThreadStatus({ session: session("ready"), latestTurn: latestTurn("queued") }),
       "working",
     );
   });
@@ -192,6 +201,22 @@ describe("paginateThreadMessages", () => {
 });
 
 describe("packAgentTranscriptPage", () => {
+  it("distinguishes a queued user message from one already delivered", () => {
+    const queued = {
+      ...makeMessage(0, "queued"),
+      delivery: { state: "queued" as const, queued: true, sequence: 2 },
+    };
+    const delivered = {
+      ...makeMessage(1, "delivered"),
+      delivery: { state: "starting" as const, queued: true, sequence: 3 },
+    };
+    const page = packAgentTranscriptPage({ messages: [queued, delivered], activities: [] });
+    assert.deepEqual(
+      page.items.map((item) => (item.type === "message" ? item.delivery : null)),
+      ["queued", "delivered"],
+    );
+  });
+
   it("continues a long message losslessly without rewriting its text", () => {
     const text = Array.from({ length: 45_514 }, (_, index) => String(index % 10)).join("");
     const message = {
