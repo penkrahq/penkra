@@ -157,7 +157,7 @@ import {
 } from "./backendSupervisionPolicy";
 import { captureBackendProcessOutput } from "./backendProcessOutput";
 import { syncShellEnvironment } from "./syncShellEnvironment";
-import { resolvePenkraAccountServiceEndpoints } from "./accountServiceEndpoints";
+import { initializePenkraAccountServiceEnvironment } from "./accountServiceEndpoints";
 import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
 import {
   RENDERER_MAX_AUTOMATIC_RELOADS,
@@ -372,10 +372,7 @@ const penkraAppDataBase = resolveDesktopAppDataBase({
   platform: desktopPlatform.platform,
 });
 const penkraRootPointerPath = resolvePenkraRootPointerPath(penkraAppDataBase);
-const penkraAccountServices = resolvePenkraAccountServiceEndpoints({
-  configuredApiUrl: process.env.PENKRA_API_URL,
-  configuredWebsiteOrigin: process.env.PENKRA_WEBSITE_ORIGIN,
-});
+const penkraAccountServices = initializePenkraAccountServiceEnvironment(process.env);
 const penkraRuntime = resolvePenkraRuntime({
   isDevelopment,
   configuredRoot: process.env.PENKRA_ROOT,
@@ -387,7 +384,6 @@ const PENKRA_ROOT = penkraRuntime.root;
 const PENKRA_PICKER_USER_DATA = Path.join(penkraAppDataBase, "Penkra", "picker-userdata");
 const PENKRA_API_URL = penkraRuntime.apiUrl;
 process.env.PENKRA_ROOT = PENKRA_ROOT;
-process.env.PENKRA_API_URL = PENKRA_API_URL;
 process.env.PENKRA_HOME = Path.join(PENKRA_ROOT, ".penkra");
 const developmentInstance = resolvePenkraDevInstance(process.env.PENKRA_DEV_INSTANCE_NUMBER);
 const desktopIdentity = penkraDesktopIdentity(desktopFlavor, developmentInstance);
