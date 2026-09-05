@@ -20,7 +20,7 @@ export function ComposerQuickSettings({ onSelect }: { onSelect: () => void }) {
                   aria-label="Change mode"
                   className="!size-[26px] shrink-0 rounded-full p-0 text-[var(--color-text-foreground-secondary)] hover:text-[var(--color-text-foreground)] sm:!size-[26px] [&_svg]:mx-0"
                   size="icon-sm"
-                  variant="chrome"
+                  variant="ghost"
                 />
               }
             />

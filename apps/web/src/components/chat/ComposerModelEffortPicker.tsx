@@ -165,7 +165,7 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
   const triggerButton = (
     <Button
       size="sm"
-      variant="chrome"
+      variant="ghost"
       disabled={props.disabled ?? false}
       className={cn(
         "!h-[25px] min-w-0 shrink-0 justify-start gap-[5px] whitespace-nowrap rounded-lg px-2 py-0 sm:!h-[25px] sm:px-2 [&_svg]:mx-0",

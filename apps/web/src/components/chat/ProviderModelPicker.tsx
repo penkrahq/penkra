@@ -562,6 +562,7 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
 
   const triggerButton = (
     <PickerTriggerButton
+      variant="ghost"
       disabled={props.disabled ?? false}
       compact={props.compact ?? false}
       hideLabel={props.hideLabel ?? false}

@@ -18,6 +18,22 @@ function fact(limits: unknown): ConnectionRateLimitFactRecord {
 }
 
 describe("provider runtime usage facts", () => {
+  it("does not restamp saved observations when no fresh usage was fetched", () => {
+    const runtime = snapshotFromConnectionRateLimitFact(fact({ primary: { usedPercent: 20 } }))!;
+    const merged = mergeConnectionUsageSnapshots({
+      runtime,
+      fetched: {
+        provider: "codex",
+        updatedAt: "2026-09-05T19:00:00.000Z",
+        limits: [],
+        usageLines: [],
+        status: "ok",
+        source: "provider-runtime-awaiting-rate-limits",
+      },
+    });
+    expect(merged).toEqual(runtime);
+    expect(merged.updatedAt).toBe(updatedAt);
+  });
   it("normalizes nested Codex app-server windows", () => {
     const snapshot = snapshotFromConnectionRateLimitFact(
       fact({

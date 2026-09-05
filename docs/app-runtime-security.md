@@ -6,16 +6,16 @@ the ignored repository-root `TODO.md`.
 
 ## Trust boundaries
 
-| Principal                                    | Trust              | Authority                                                                                      |
-| -------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------- |
-| Penkra main process                          | Trusted            | Package verification, App lifecycle, sessions, permissions, tab routing, privileged operations |
-| Apps installation binding                    | Trusted and narrow | Verified package mutation only; unavailable to ordinary Apps                                   |
-| App controller                               | Untrusted          | Permission-bounded Node plus supported Penkra services for one App in one Space                |
-| App tab renderer                             | Untrusted          | Visual UI for one App in one Space and one Penkra thread                                       |
-| Registry/package/README/INSTRUCTIONS content | Untrusted input    | Data only until separately verified, sanitized, and authorized                                 |
-| Another App, agent, or CLI caller            | Untrusted caller   | Only declared operation input and explicit host context                                        |
+| Principal                                    | Trust                     | Authority                                                                                      |
+| -------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------- |
+| Penkra main process                          | Trusted                   | Package verification, App lifecycle, sessions, permissions, tab routing, privileged operations |
+| Apps installation binding                    | Trusted and narrow        | Verified package mutation only; unavailable to ordinary Apps                                   |
+| App controller                               | Installed executable code | Node with the user's OS permissions; supported Penkra services remain App/Space-authorized     |
+| App tab renderer                             | Untrusted                 | Visual UI for one App in one Space and one Penkra thread                                       |
+| Registry/package/README/INSTRUCTIONS content | Untrusted input           | Data only until separately verified, sanitized, and authorized                                 |
+| Another App, agent, or CLI caller            | Untrusted caller          | Only declared operation input and explicit host context                                        |
 
-First-party App packages receive the same sandbox and permission checks as third-party packages.
+First-party and third-party App packages receive the same runtime boundaries and SDK permission checks.
 `com.penkra.apps` is not generally privileged; only its trusted host-owned installation binding is.
 
 ## Identity and isolation invariants
@@ -29,9 +29,12 @@ First-party App packages receive the same sandbox and permission checks as third
 - Each App tab receives a host-minted stable `tabId` and is bound to one App ID, Space ID, and
   Penkra thread ID. A caller-supplied `tabId` is validated against all three before delivery.
 - App renderers run with sandboxing and context isolation enabled and Node, `<webview>`, insecure
-  content, and direct filesystem access disabled. Controllers are separate permission-bounded Node
-  processes with ordinary filesystem and networking APIs; the initial controller policy disables
-  child processes, worker threads, WASI, and native add-ons.
+  content, and direct filesystem access disabled. Controllers are separate Node processes with the
+  user's OS permissions, including filesystem, networking, subprocesses, workers, WASI, and compatible
+  native add-ons. They are not a sandbox for hostile code. Host/provider credentials are filtered
+  from their inherited environment, and Penkra SDK calls remain independently authorized.
+  Apps are responsible for subprocess cleanup; stopping a controller does not guarantee stopping
+  its descendants. No managed-job API or heuristic process tracking is provided.
 - App package documents load only from their assigned `penkra-app://<app-id>` origin. Top-level
   navigation to another origin is denied. External links use a separate mediated host action.
 - Package-path resolution percent-decodes once, rejects invalid encoding and NUL bytes, and proves
@@ -125,7 +128,7 @@ for every effect even if a model misinterprets a malicious summary.
 - Downloads, external-protocol links, clipboard, microphone, camera, notifications, hosted browser
   pages, and simulated devices each require their dedicated visual-tab host policy. Renderers have
   no generic escape hatch, raw-socket API, or process-spawn API. Controllers may use ordinary Node
-  networking, including sockets; their process policy independently denies process spawning.
+  networking, including sockets, and may launch local programs using Node APIs.
 
 ## Local byte URLs
 
@@ -156,5 +159,5 @@ for every effect even if a model misinterprets a malicious summary.
 
 Before ordinary App packages can run, tests must demonstrate cross-App and cross-Space partition
 separation, package traversal rejection, navigation/window denial, renderer Node isolation,
-controller process-policy enforcement, exact-tab routing, renderer-only SDK rejection in controllers,
+controller Node capabilities and environment filtering, exact-tab routing, renderer-only SDK rejection in controllers,
 permission revocation races, cancellation, crash containment, atomic update rollback, and safe start.

@@ -69,13 +69,15 @@ to a declared handler and validates its data at the boundary.
 
 An App's **controller** is its isolated, non-visual execution context for operations. Penkra starts
 one controller for an active App installation in a Space and routes declared operation calls to it. The
-controller is a permission-bounded Node process: ordinary Node filesystem, HTTP, crypto, Buffer,
-stream, and packaged JavaScript facilities are available, while child processes, worker threads,
-WASI, and native add-ons are disabled by the initial controller policy. Penkra-owned capabilities
-remain available only through the controller subset of the public SDK.
+controller is a separate Node process with the user's OS permissions: filesystem, HTTP, crypto,
+Buffer, streams, child processes, worker threads, WASI, and compatible native add-ons are available.
+Apps own cleanup of their subprocesses; controller exit does not guarantee descendant cleanup.
+Penkra-owned capabilities remain available through the controller subset of the public SDK.
 
-A controller is not an App tab and has no trusted shell access. It can ask Penkra to open or target
-an App-owned tab through the SDK, but it cannot inspect arbitrary windows, Threads, or other Apps.
+A controller is not an App tab and receives no Penkra shell DOM or raw IPC bridge. It can ask Penkra
+to open or target an App-owned tab through the SDK; that SDK does not authorize inspection of
+arbitrary windows, Threads, or other Apps. This is an SDK boundary, not OS-level containment of
+controller code.
 Visual-tab services such as file pickers, opaque handles, App storage, transfers, composer staging,
 hosted browser or simulator control, context menus, and tab-local routing are not controller APIs.
 

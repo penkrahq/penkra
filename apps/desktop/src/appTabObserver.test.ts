@@ -201,6 +201,37 @@ describe("resolveAppTabObservationTarget", () => {
 });
 
 describe("AppTabObserver", () => {
+  it("dispatches structured shortcuts to the exact retained tab", async () => {
+    const { contents, sendCommand } = makeContents();
+    const resolve = vi.fn(() => ({ descriptor, webContents: contents }));
+    const observer = new AppTabObserver({ resolve });
+    await observer.press("tab-1", "Meta+Shift+ArrowRight");
+    expect(resolve).toHaveBeenCalledWith("tab-1");
+    const events = sendCommand.mock.calls.filter(([method]) => method === "Input.dispatchKeyEvent");
+    expect(events).toEqual([
+      [
+        "Input.dispatchKeyEvent",
+        {
+          type: "keyDown",
+          key: "ArrowRight",
+          code: "ArrowRight",
+          modifiers: 12,
+          windowsVirtualKeyCode: 39,
+        },
+      ],
+      [
+        "Input.dispatchKeyEvent",
+        {
+          type: "keyUp",
+          key: "ArrowRight",
+          code: "ArrowRight",
+          modifiers: 12,
+          windowsVirtualKeyCode: 39,
+        },
+      ],
+    ]);
+  });
+
   it("reports delayed browser JavaScript dialogs and requires explicit handling", async () => {
     const { contents, emitDebugger, sendCommand } = makeContents();
     const observer = new AppTabObserver({

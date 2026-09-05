@@ -1,5 +1,5 @@
 // FILE: electronAppControllerProcess.ts
-// Purpose: Runs App operation controllers as dedicated permission-bounded Node processes.
+// Purpose: Runs App operation controllers as dedicated Node processes.
 // Layer: Trusted desktop App runtime
 
 import { fork as forkNodeProcess, type ChildProcess } from "node:child_process";
@@ -58,7 +58,7 @@ export class ElectronAppControllerProcessFactory implements AppControllerProcess
           {
             cwd: input.installedApp.packagePath,
             execPath: process.execPath,
-            execArgv: ["--permission", "--allow-fs-read=*", "--allow-fs-write=*", "--no-addons"],
+            execArgv: [],
             env: appControllerEnvironment(process.env),
             serialization: "advanced",
             stdio: ["ignore", "pipe", "pipe", "ipc"],

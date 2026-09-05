@@ -138,14 +138,17 @@ function assertControllerSmokeResult(value: unknown): void {
   if (result.network !== "controller-network-ok") {
     throw new Error(`Controller network smoke failed: ${JSON.stringify(result.network)}.`);
   }
-  for (const capability of ["childProcess", "worker", "wasi", "nativeAddon"] as const) {
-    const observation = requireRecord(result[capability], `Controller ${capability} observation`);
-    if (observation.denied !== true) {
-      throw new Error(
-        `Controller permission policy unexpectedly allowed ${capability}: ${JSON.stringify(observation)}.`,
-      );
-    }
+  if (
+    result.childProcess !== "controller-child-ok" ||
+    result.worker !== "controller-worker-ok" ||
+    result.wasi !== true
+  ) {
+    throw new Error(`Controller Node capability smoke failed: ${JSON.stringify(result)}.`);
   }
+  // A missing binary must reach the loader, not fail at a permission gate.
+  // This is a loader-access check, not proof of compatibility with every add-on.
+  if (result.nativeAddon !== "ERR_DLOPEN_FAILED")
+    throw new Error(`Controller native loader is unavailable: ${String(result.nativeAddon)}.`);
 }
 
 function resolveElectronExecutable(): string {
@@ -185,27 +188,31 @@ import { readFile, writeFile } from "node:fs/promises";
 import { WASI } from "node:wasi";
 import { Worker } from "node:worker_threads";
 
-function denied(action) {
-  try {
-    const value = action();
-    value?.terminate?.();
-    return { denied: false };
-  } catch (error) {
-    return { denied: true, code: error?.code ?? null, name: error?.name ?? null };
-  }
-}
-
 globalThis.penkra.operations.handle("verification.smoke", async (input) => {
   await writeFile(input.filePath, "controller-file-ok", "utf8");
   const file = await readFile(input.filePath, "utf8");
   const network = await fetch(input.networkUrl).then((response) => response.text());
+  const child = spawnSync(process.execPath, ["-e", "process.stdout.write('controller-child-ok')"], { encoding: "utf8" });
+  if (child.error || child.status !== 0) throw child.error ?? new Error(child.stderr);
+  const worker = new Worker("require('node:worker_threads').parentPort.postMessage('controller-worker-ok')", { eval: true });
+  let workerResult;
+  try {
+    workerResult = await new Promise((resolve, reject) => {
+      worker.once("message", resolve);
+      worker.once("error", reject);
+      worker.once("exit", (code) => { if (code !== 0) reject(new Error("Worker exited: " + code)); });
+    });
+  } finally { await worker.terminate(); }
+  let nativeAddon;
+  try { process.dlopen({ exports: {} }, input.nativeAddonPath); }
+  catch (error) { nativeAddon = error.code; }
   return {
     file,
     network,
-    childProcess: denied(() => spawnSync(process.execPath, ["--version"])),
-    worker: denied(() => new Worker("", { eval: true })),
-    wasi: denied(() => new WASI({ version: "preview1" })),
-    nativeAddon: denied(() => process.dlopen({}, input.nativeAddonPath)),
+    childProcess: child.stdout,
+    worker: workerResult,
+    wasi: typeof new WASI({ version: "preview1" }).initialize === "function",
+    nativeAddon,
   };
 });
 `,
@@ -228,7 +235,7 @@ globalThis.penkra.operations.handle("verification.smoke", async (input) => {
     child = fork(runnerPath, [operationPath, "com.penkra.apps"], {
       cwd: dirname(operationPath),
       execPath: resolveElectronExecutable(),
-      execArgv: ["--permission", "--allow-fs-read=*", "--allow-fs-write=*", "--no-addons"],
+      execArgv: [],
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
       serialization: "advanced",
       stdio: ["ignore", "ignore", "pipe", "ipc"],

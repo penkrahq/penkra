@@ -63,7 +63,7 @@ export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
                 render={
                   <Button
                     size="icon-sm"
-                    variant="chrome"
+                    variant="ghost"
                     className="!size-[26px] shrink-0 rounded-full p-0 sm:!size-[26px]"
                     aria-label="Attach files"
                   />

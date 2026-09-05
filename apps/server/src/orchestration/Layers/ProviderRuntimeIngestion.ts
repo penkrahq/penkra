@@ -29,6 +29,7 @@ import {
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { mergeCodexQuotaFacts } from "../../providerUsage/codexQuotaBuckets.ts";
 import { makeDrainableWorker, startDrainableWorkerProducers } from "@penkra/shared/DrainableWorker";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import {
@@ -715,17 +716,31 @@ const make = Effect.gen(function* () {
             ? String((rateLimits as { readonly status?: unknown }).status ?? "") || null
             : null;
         yield* Effect.gen(function* () {
-          const existing = yield* sql<{ readonly sourceEventId: string }>`
-              SELECT last_source_event_id AS "sourceEventId"
+          const existing = yield* sql<{
+            readonly sourceEventId: string;
+            readonly limitsJson: string;
+            readonly updatedAt: string;
+          }>`
+              SELECT last_source_event_id AS "sourceEventId", limits_json AS "limitsJson", updated_at AS "updatedAt"
               FROM connection_rate_limits WHERE connection_id = ${connectionId}
             `;
           if (existing[0]?.sourceEventId === event.eventId) return;
+          const incomingJson = JSON.stringify(rateLimits);
+          const limitsJson =
+            event.provider === "codex"
+              ? mergeCodexQuotaFacts(
+                  existing[0]?.limitsJson,
+                  existing[0]?.updatedAt,
+                  incomingJson,
+                  event.createdAt,
+                )
+              : incomingJson;
           yield* sql`
               INSERT INTO connection_rate_limits (
                 connection_id, provider, limits_json, status,
                 last_source_event_id, updated_at
               ) VALUES (
-                ${connectionId}, ${event.provider}, ${JSON.stringify(rateLimits)}, ${status},
+                ${connectionId}, ${event.provider}, ${limitsJson}, ${status},
                 ${event.eventId}, ${event.createdAt}
               )
               ON CONFLICT(connection_id) DO UPDATE SET

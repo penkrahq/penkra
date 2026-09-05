@@ -14,6 +14,33 @@ const layer = it.layer(
 );
 
 layer("ConnectionUsageFactRepository", (it) => {
+  it.effect("stores quota buckets independently across login updates", () =>
+    Effect.gen(function* () {
+      const repository = yield* ConnectionUsageFactRepository;
+      yield* runMigrations();
+      const connectionId = ProviderConnectionId.makeUnsafe("bucket-account");
+      for (const [limitId, usedPercent] of [
+        ["codex", 66],
+        ["codex_bengalfox", 0],
+      ] as const) {
+        yield* repository.putRateLimits({
+          connectionId,
+          provider: "codex",
+          status: null,
+          sourceEventId: limitId,
+          updatedAt: "2026-09-05T19:00:00.000Z",
+          limitsJson: JSON.stringify({
+            rateLimits: { limitId, primary: { usedPercent, windowDurationMins: 10080 } },
+          }),
+        });
+      }
+      const stored = Option.getOrThrow(yield* repository.getRateLimits(connectionId));
+      const buckets = JSON.parse(stored.limitsJson).quotaBuckets;
+      assert.strictEqual(buckets.codex.bucket.primary.usedPercent, 66);
+      assert.strictEqual(buckets.codex_bengalfox.bucket.primary.usedPercent, 0);
+      assert.strictEqual(buckets.codex.observedAt, "2026-09-05T19:00:00.000Z");
+    }),
+  );
   it.effect("upserts a provider-owned rate-limit fact", () =>
     Effect.gen(function* () {
       const repository = yield* ConnectionUsageFactRepository;

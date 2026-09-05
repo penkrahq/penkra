@@ -7,6 +7,7 @@ import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 import { randomUUID } from "node:crypto";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { appTabKeyDefinition } from "./appTabKeyboard";
 
 const MAX_VALUE_LENGTH = 2_000;
 const MAX_INLINE_SCREENSHOT_BYTES = 12 * 1024 * 1024;
@@ -636,16 +637,18 @@ export class AppTabObserver {
       ? (await this.#protocolTarget(sourceTarget)).target
       : sourceTarget;
     const normalized = bounded(key, 100);
+    const definition = appTabKeyDefinition(normalized);
+    const { text: _text, ...released } = definition;
     await this.#cdp(
       target.webContents,
       "Input.dispatchKeyEvent",
-      { type: "keyDown", key: normalized },
+      { type: "keyDown", ...definition },
       target.cdpSessionId,
     );
     await this.#cdp(
       target.webContents,
       "Input.dispatchKeyEvent",
-      { type: "keyUp", key: normalized },
+      { type: "keyUp", ...released },
       target.cdpSessionId,
     );
     return this.#actionResult(tabId, { tabId, key: normalized, pressed: true }, observe);

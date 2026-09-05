@@ -1,7 +1,8 @@
 // FILE: ConnectionUsageFacts.ts
 // Purpose: SQLite reader for provider-owned account usage facts.
 
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
+import { mergeCodexQuotaFacts } from "../../providerUsage/codexQuotaBuckets.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
@@ -66,14 +67,32 @@ const makeConnectionUsageFactRepository = Effect.gen(function* () {
         ),
       ),
     putRateLimits: (record) =>
-      upsertRateLimits(record).pipe(
-        Effect.mapError(
-          toPersistenceSqlOrDecodeError(
-            "ConnectionUsageFactRepository.putRateLimits:query",
-            "ConnectionUsageFactRepository.putRateLimits:decode",
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const previous = Option.getOrUndefined(
+              yield* selectRateLimits({ connectionId: record.connectionId }),
+            );
+            const limitsJson =
+              record.provider === "codex"
+                ? mergeCodexQuotaFacts(
+                    previous?.limitsJson,
+                    previous?.updatedAt,
+                    record.limitsJson,
+                    record.updatedAt,
+                  )
+                : record.limitsJson;
+            yield* upsertRateLimits({ ...record, limitsJson });
+          }),
+        )
+        .pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ConnectionUsageFactRepository.putRateLimits:query",
+              "ConnectionUsageFactRepository.putRateLimits:decode",
+            ),
           ),
         ),
-      ),
   } satisfies ConnectionUsageFactRepositoryShape;
 });
 
