@@ -18,6 +18,7 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { basename, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { configureNativeUpgradeFeed } from "./lib/native-upgrade-feed.ts";
 import {
   createPackagedDesktopSmokeEnvironment,
   resolvePackagedDesktopSmokeLogPath,
@@ -144,15 +145,7 @@ try {
     await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
     const feed = `http://127.0.0.1:${server.address().port}`;
     const page = await launch(executable, previousVersion, updateEnv);
-    await application.evaluate(async ({ app }, url) => {
-      const { createRequire } = await import("node:module");
-      const requireApp = createRequire(`${app.getAppPath()}/package.json`);
-      requireApp("electron-updater").autoUpdater.setFeedURL({
-        provider: "generic",
-        url,
-        useMultipleRangeRequest: false,
-      });
-    }, feed);
+    await application.evaluate(configureNativeUpgradeFeed, feed);
     await page.evaluate(() => window.desktopBridge.checkForUpdates());
     // Penkra normally starts preparation as soon as an update is discovered.
     // Join that real lifecycle rather than treating an already-running download as failure.
