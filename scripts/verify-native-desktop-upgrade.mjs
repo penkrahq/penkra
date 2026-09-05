@@ -19,6 +19,7 @@ import { createRequire } from "node:module";
 import { basename, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { configureNativeUpgradeFeed } from "./lib/native-upgrade-feed.ts";
+import { stopNativeUpgradeProcesses } from "./lib/native-upgrade-processes.ts";
 import {
   createPackagedDesktopSmokeEnvironment,
   resolvePackagedDesktopSmokeLogPath,
@@ -70,9 +71,13 @@ function run(command, args, cwd = root) {
   assert.equal(result.status, 0, `${basename(command)} failed: ${result.stderr}`);
 }
 async function until(check, description, timeout = 120_000) {
+  console.log(`[native-upgrade] waiting: ${description}`);
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
-    if (await check()) return;
+    if (await check()) {
+      console.log(`[native-upgrade] passed: ${description}`);
+      return;
+    }
     await delay(500);
   }
   throw new Error(`Timed out: ${description}`);
@@ -86,6 +91,12 @@ async function launch(executablePath, version, launchEnv = env) {
     env: launchEnv,
     timeout: 90_000,
   });
+  application.process().stderr?.on("data", (data) => process.stderr.write(data));
+  application
+    .process()
+    .on("exit", (code, signal) =>
+      console.log(`[native-upgrade] initial process exited: ${code}, ${signal}`),
+    );
   assert.equal(await application.evaluate(({ app }) => app.getVersion()), version);
   const page = await application.firstWindow();
   await page.waitForFunction(() => Boolean(window.desktopBridge), null, { timeout: 60_000 });
@@ -126,6 +137,9 @@ try {
       APPIMAGE: installed,
       APPDIR: appDir,
       APPIMAGE_EXTRACT_AND_RUN: "1",
+      // The updater relaunch has no CLI flags. Keep the disposable runner's
+      // sandbox exception identical across both launches, without changing the App.
+      ELECTRON_DISABLE_SANDBOX: "1",
     };
     delete updateEnv.PENKRA_DISABLE_AUTO_UPDATE;
     const allowed = new Set(
@@ -188,12 +202,19 @@ try {
   );
   console.log(JSON.stringify(evidence));
 } catch (error) {
+  console.error("[native-upgrade] failed", error);
   const logPath = resolvePackagedDesktopSmokeLogPath(stateRoot);
   if (existsSync(logPath)) console.error(readFileSync(logPath, "utf8").slice(-24_000));
   throw error;
 } finally {
-  if (application) await application.close().catch(() => {});
-  if (server) await new Promise((resolveClose) => server.close(resolveClose));
+  // A disconnected inspector can leave Playwright.close pending indefinitely.
+  // Stop exact-profile owners before removing any state, including extracted relaunches.
+  if (platform === "linux") await stopNativeUpgradeProcesses(join(stateRoot, "user-data"));
   await terminateProcessesInsideRoot(root);
+  if (application) await Promise.race([application.close().catch(() => {}), delay(5_000)]);
+  if (server) {
+    server.closeAllConnections();
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
   removePackagedDesktopSmokeRoot(root);
 }

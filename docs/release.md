@@ -180,6 +180,10 @@ Native upgrade checks run only on disposable GitHub runners. They use isolated p
 the artifacts. The Linux test redirects only the updater feed; download, install, shutdown, and
 restart use the packaged application's production implementation. The Windows test invokes NSIS's
 silent per-user install path, not archive extraction and not Windows auto-update.
+The disposable Linux runner carries `ELECTRON_DISABLE_SANDBOX=1` across both launches, matching
+the startup smoke's test-only sandbox exception even though the updater relaunch has no CLI flags.
+This setting is not embedded in the application. Cleanup identifies relocated AppImage processes
+by the exact isolated profile marker and stops them before deleting test state.
 
 The workflow uses only the repository-scoped `GITHUB_TOKEN` to stage and publish the GitHub Release.
 It does not require AWS credentials, an update token, a private repository token, or a GitHub
