@@ -320,6 +320,22 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         if (input.targetGenerationId === null) {
           return yield* fail("The native provider switch has no target state generation.");
         }
+        // A settled turn can still leave its provider session alive and owning
+        // the exact native conversation. Release that writer before a second
+        // installation/profile verifies the cloned continuation. The durable
+        // native state remains the source of truth and is cloned below.
+        yield* provider
+          .stopSession({ threadId: input.command.threadId })
+          .pipe(
+            mapOperationError("Could not release the source provider session before switching."),
+          );
+        yield* Effect.logInfo("provider switch released source session before verification", {
+          threadId: input.command.threadId,
+          harness: selection.harness,
+          sourceConnectionId: selection.previousConnectionId,
+          targetConnectionId: selection.connectionId,
+          targetGenerationId: input.targetGenerationId,
+        });
         const verified = yield* verifier
           .verifySwitch({
             selection,

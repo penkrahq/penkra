@@ -122,6 +122,7 @@ let unchangedSelection = false;
 let resolvedStateRevision = 2;
 let advanceStateRevisionOnInterrupt = false;
 let verifiedStateRevision: number | undefined;
+let stoppedSessionCount = 0;
 const order: string[] = [];
 
 const prepareRuntimeUpgrade = () =>
@@ -448,7 +449,11 @@ const dependencies = Layer.mergeAll(
           resumeCursor: { openCodeSessionId: "forked-native-session", cwd: "/workspace" },
         };
       }),
-    stopSession: () => Effect.void,
+    stopSession: () =>
+      Effect.sync(() => {
+        stoppedSessionCount += 1;
+        order.push("stop-session");
+      }),
   } as never),
   Layer.succeed(ProviderNativeContinuationVerifier, {
     verifySwitch: (input: { selection: ResolvedProviderTurnSelection }) =>
@@ -600,6 +605,7 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
       operation = undefined;
       runtimeUpgradeSelection = true;
       verificationFails = false;
+      stoppedSessionCount = 0;
       order.length = 0;
       const coordinator = yield* ProviderThreadSwitchCoordinator;
 
@@ -620,6 +626,8 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
 
       assert.strictEqual(result.sequence, 42);
       assert.include(order, "verify");
+      assert.strictEqual(stoppedSessionCount, 1);
+      assert.isBelow(order.indexOf("stop-session"), order.indexOf("verify"));
       assert.strictEqual(activation?.active.installationId, targetInstallationId);
       assert.strictEqual(activation?.previous?.installationId, installationId);
       assert.isTrue(
@@ -646,6 +654,7 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         runtimeUpgradeSelection = true;
         verificationFails = true;
         dispatchCount = 0;
+        stoppedSessionCount = 0;
         order.length = 0;
         const coordinator = yield* ProviderThreadSwitchCoordinator;
 
@@ -668,6 +677,8 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
 
         assert.strictEqual(result._tag, "Success");
         assert.strictEqual(dispatchCount, 1);
+        assert.strictEqual(stoppedSessionCount, 1);
+        assert.isBelow(order.indexOf("stop-session"), order.indexOf("verify"));
         assert.strictEqual(repositoryActiveInstallationId, targetInstallationId);
         assert.strictEqual(activation?.active.installationId, targetInstallationId);
         assert.strictEqual(activation?.previous?.installationId, installationId);
@@ -811,10 +822,11 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
           cwd: "/workspace",
         });
         assert.strictEqual(first.sequence, 42);
-        assert.deepStrictEqual(order.slice(0, 6), [
+        assert.deepStrictEqual(order.slice(0, 7), [
           "journal",
           "interrupt",
           "interrupted",
+          "stop-session",
           "verify",
           "verified",
           "dispatch",
@@ -882,9 +894,10 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
       yield* Fiber.join(switchFiber);
 
       assert.notInclude(order, "interrupt");
-      assert.deepStrictEqual(order.slice(0, 5), [
+      assert.deepStrictEqual(order.slice(0, 6), [
         "journal",
         "interrupted",
+        "stop-session",
         "verify",
         "verified",
         "dispatch",
@@ -918,10 +931,11 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
       });
 
-      assert.deepStrictEqual(order.slice(0, 6), [
+      assert.deepStrictEqual(order.slice(0, 7), [
         "journal",
         "interrupt",
         "interrupted",
+        "stop-session",
         "verify",
         "verified",
         "dispatch",
@@ -959,10 +973,11 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
 
       assert.strictEqual(currentOperation()?.sourceStateRevision, 3);
       assert.strictEqual(verifiedStateRevision, 3);
-      assert.deepStrictEqual(order.slice(0, 6), [
+      assert.deepStrictEqual(order.slice(0, 7), [
         "journal",
         "interrupt",
         "interrupted",
+        "stop-session",
         "verify",
         "verified",
         "dispatch",
@@ -996,7 +1011,13 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
 
       assert.isAtLeast(projectionSettlementReadCount, 2);
       assert.notInclude(order, "interrupt");
-      assert.deepStrictEqual(order.slice(0, 4), ["journal", "interrupted", "verify", "verified"]);
+      assert.deepStrictEqual(order.slice(0, 5), [
+        "journal",
+        "interrupted",
+        "stop-session",
+        "verify",
+        "verified",
+      ]);
     }),
   );
 
@@ -1036,7 +1057,13 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
 
       assert.strictEqual(currentOperation()?.sourceStateRevision, 3);
       assert.strictEqual(currentOperation()?.state, "committed");
-      assert.deepStrictEqual(order.slice(0, 4), ["interrupted", "verify", "verified", "dispatch"]);
+      assert.deepStrictEqual(order.slice(0, 5), [
+        "interrupted",
+        "stop-session",
+        "verify",
+        "verified",
+        "dispatch",
+      ]);
       resolvedStateRevision = 2;
       operation = undefined;
     }),

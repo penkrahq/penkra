@@ -966,6 +966,7 @@ const make = Effect.gen(function* () {
       readonly managedLaunch?: ProviderManagedLaunchContext;
       readonly nativeResumeCursor?: unknown;
       readonly bindingRevision?: number;
+      readonly requiresReconstruction?: boolean;
     },
   ) {
     const thread = yield* resolveThread(threadId);
@@ -1027,6 +1028,7 @@ const make = Effect.gen(function* () {
       providerService.startSession(threadId, {
         ...providerSessionOptions,
         ...(preferredProvider ? { provider: preferredProvider } : {}),
+        ...(options?.requiresReconstruction === true ? { resumePolicy: "fresh" as const } : {}),
         ...(resumeCursor !== undefined ? { resumeCursor } : {}),
       });
 
@@ -1059,7 +1061,24 @@ const make = Effect.gen(function* () {
       );
 
     // Only reuse projected session state when the runtime still has a live session to attach to.
-    const activeSession = yield* resolveActiveSession(threadId);
+    const discoveredActiveSession = yield* resolveActiveSession(threadId);
+    if (options?.requiresReconstruction === true) {
+      // Reconstruction is an explicit fresh-session boundary. An existing
+      // runtime may still carry the source native cursor after an admitted
+      // provider/runtime switch; allowing it into the restart path would turn
+      // the fallback back into the exact resume that already failed.
+      yield* Effect.logInfo("provider command reactor preparing reconstructed continuation", {
+        threadId,
+        provider: desiredModelSelection.provider,
+        hadActiveSession: discoveredActiveSession !== undefined,
+        resumePolicy: "fresh",
+      });
+      if (discoveredActiveSession) {
+        yield* providerService.stopSession({ threadId });
+      }
+    }
+    const activeSession =
+      options?.requiresReconstruction === true ? undefined : discoveredActiveSession;
     if (activeSession && thread.forkSourceThreadId && thread.session === null) {
       const persistedIdentity = providerNativeResumeIdentity(
         desiredModelSelection.provider,
@@ -1158,10 +1177,12 @@ const make = Effect.gen(function* () {
       }
 
       const resumeCursor =
-        options?.nativeResumeCursor ??
-        (providerChanged || shouldRestartForModelChange || runtimeModeChanged
+        options?.requiresReconstruction === true
           ? undefined
-          : (activeSession?.resumeCursor ?? undefined));
+          : (options?.nativeResumeCursor ??
+            (providerChanged || shouldRestartForModelChange || runtimeModeChanged
+              ? undefined
+              : (activeSession?.resumeCursor ?? undefined)));
       yield* Effect.logInfo("provider command reactor restarting provider session", {
         threadId,
         existingSessionThreadId,
@@ -1402,6 +1423,7 @@ const make = Effect.gen(function* () {
             managedLaunch: managedRuntime.managedLaunch,
             nativeResumeCursor: managedRuntime.resumeCursor,
             bindingRevision: managedRuntime.bindingRevision,
+            requiresReconstruction: managedRuntime.requiresReconstruction,
           }),
     }).pipe(
       Effect.catch((error) =>

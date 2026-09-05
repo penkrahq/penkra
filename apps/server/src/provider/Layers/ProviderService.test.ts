@@ -2392,6 +2392,37 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("does not inherit a persisted resume cursor for an explicit fresh start", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-explicit-fresh-start");
+
+      const initial = yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        cwd: "/tmp/project-fresh-start",
+        runtimeMode: "full-access",
+      });
+      assert.notEqual(initial.resumeCursor, undefined);
+
+      routing.codex.startSession.mockClear();
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        cwd: "/tmp/project-fresh-start",
+        runtimeMode: "full-access",
+        resumePolicy: "fresh",
+      });
+
+      assert.equal(routing.codex.startSession.mock.calls.length, 1);
+      const freshStartInput = routing.codex.startSession.mock.calls[0]?.[0];
+      assert.equal(typeof freshStartInput === "object" && freshStartInput !== null, true);
+      if (freshStartInput && typeof freshStartInput === "object") {
+        assert.equal("resumeCursor" in freshStartInput, false);
+      }
+    }),
+  );
+
   it.effect("clears stale resume cursor while preserving provider options for fresh restart", () =>
     Effect.gen(function* () {
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-service-clear-"));
