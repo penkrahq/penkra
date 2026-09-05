@@ -6,6 +6,8 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
+import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +17,7 @@ const DEFAULT_RUNNER_PATH = resolve(
   SCRIPT_DIRECTORY,
   "../apps/desktop/dist-electron/appNodeControllerRunner.js",
 );
+const require = createRequire(import.meta.url);
 
 export function inspectDesktopAppControllerBundle(source: string): string[] {
   const failures: string[] = [];
@@ -64,6 +67,92 @@ function waitForControllerReady(child: ChildProcess, stderr: () => string): Prom
   });
 }
 
+function waitForControllerResult(
+  child: ChildProcess,
+  requestId: string,
+  stderr: () => string,
+): Promise<unknown> {
+  return new Promise((resolveResult, rejectResult) => {
+    let settled = false;
+    const settle = (error?: Error, result?: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      child.removeListener("message", onMessage);
+      child.removeListener("error", onError);
+      child.removeListener("exit", onExit);
+      if (error) rejectResult(error);
+      else resolveResult(result);
+    };
+    const timeout = setTimeout(
+      () => settle(new Error(`App controller operation timed out.\n${stderr()}`)),
+      10_000,
+    );
+    const onMessage = (message: unknown) => {
+      if (!message || typeof message !== "object") return;
+      const response = message as {
+        type?: unknown;
+        id?: unknown;
+        result?: unknown;
+        code?: unknown;
+        message?: unknown;
+      };
+      if (response.id !== requestId) return;
+      if (response.type === "result") settle(undefined, response.result);
+      if (response.type === "error") {
+        settle(
+          new Error(
+            `App controller operation failed (${String(response.code)}): ${String(response.message)}.\n${stderr()}`,
+          ),
+        );
+      }
+    };
+    const onError = (error: Error) => settle(error);
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) =>
+      settle(
+        new Error(
+          `App controller exited during operation (code=${code ?? "null"}, signal=${signal ?? "null"}).\n${stderr()}`,
+        ),
+      );
+    child.on("message", onMessage);
+    child.once("error", onError);
+    child.once("exit", onExit);
+  });
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function assertControllerSmokeResult(value: unknown): void {
+  const result = requireRecord(value, "Controller smoke result");
+  if (result.file !== "controller-file-ok") {
+    throw new Error(`Controller filesystem smoke failed: ${JSON.stringify(result.file)}.`);
+  }
+  if (result.network !== "controller-network-ok") {
+    throw new Error(`Controller network smoke failed: ${JSON.stringify(result.network)}.`);
+  }
+  for (const capability of ["childProcess", "worker", "wasi", "nativeAddon"] as const) {
+    const observation = requireRecord(result[capability], `Controller ${capability} observation`);
+    if (observation.denied !== true) {
+      throw new Error(
+        `Controller permission policy unexpectedly allowed ${capability}: ${JSON.stringify(observation)}.`,
+      );
+    }
+  }
+}
+
+function resolveElectronExecutable(): string {
+  const executable = require("electron");
+  if (typeof executable !== "string" || executable.trim().length === 0) {
+    throw new Error("The Electron package did not resolve to an executable path.");
+  }
+  return executable;
+}
+
 async function stopController(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   const exited = new Promise<void>((resolveExit) => {
@@ -84,16 +173,58 @@ export async function verifyDesktopAppControllerBundle(
 
   const root = mkdtempSync(join(tmpdir(), "penkra-app-controller-bundle-"));
   const operationPath = join(root, "operations.js");
+  const filePath = join(root, "controller-file.txt");
+  const nativeAddonPath = join(root, "missing-native-addon.node");
   writeFileSync(
     operationPath,
-    'globalThis.penkra.operations.handle("verification.ready", async () => null);\n',
+    `import { spawnSync } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
+import { WASI } from "node:wasi";
+import { Worker } from "node:worker_threads";
+
+function denied(action) {
+  try {
+    const value = action();
+    value?.terminate?.();
+    return { denied: false };
+  } catch (error) {
+    return { denied: true, code: error?.code ?? null, name: error?.name ?? null };
+  }
+}
+
+globalThis.penkra.operations.handle("verification.smoke", async (input) => {
+  await writeFile(input.filePath, "controller-file-ok", "utf8");
+  const file = await readFile(input.filePath, "utf8");
+  const network = await fetch(input.networkUrl).then((response) => response.text());
+  return {
+    file,
+    network,
+    childProcess: denied(() => spawnSync(process.execPath, ["--version"])),
+    worker: denied(() => new Worker("", { eval: true })),
+    wasi: denied(() => new WASI({ version: "preview1" })),
+    nativeAddon: denied(() => process.dlopen({}, input.nativeAddonPath)),
+  };
+});
+`,
   );
   let child: ChildProcess | null = null;
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end("controller-network-ok");
+  });
   try {
+    await new Promise<void>((resolveListen, rejectListen) => {
+      server.once("error", rejectListen);
+      server.listen(0, "127.0.0.1", () => resolveListen());
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Controller smoke HTTP server did not expose a TCP address.");
+    }
     let stderr = "";
     child = fork(runnerPath, [operationPath, "com.penkra.apps"], {
       cwd: dirname(operationPath),
-      execPath: process.execPath,
+      execPath: resolveElectronExecutable(),
       execArgv: ["--permission", "--allow-fs-read=*", "--allow-fs-write=*", "--no-addons"],
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
       serialization: "advanced",
@@ -104,8 +235,34 @@ export async function verifyDesktopAppControllerBundle(
       stderr = `${stderr}${chunk}`.slice(-16_000);
     });
     await waitForControllerReady(child, () => stderr);
+    const requestId = "verification-smoke";
+    child.send({
+      type: "request",
+      id: requestId,
+      method: "controller.invoke",
+      input: {
+        handler: "verification.smoke",
+        input: {
+          filePath,
+          nativeAddonPath,
+          networkUrl: `http://127.0.0.1:${address.port}/`,
+        },
+        invocation: {
+          id: requestId,
+          app: "verification",
+          operation: "verification.smoke",
+          threadId: "verification-thread",
+          spaceId: "verification-space",
+        },
+        caller: { kind: "user" },
+      },
+    });
+    assertControllerSmokeResult(await waitForControllerResult(child, requestId, () => stderr));
   } finally {
     if (child) await stopController(child);
+    await new Promise<void>((resolveClose, rejectClose) =>
+      server.close((error) => (error ? rejectClose(error) : resolveClose())),
+    );
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
