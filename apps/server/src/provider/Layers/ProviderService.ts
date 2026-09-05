@@ -688,7 +688,12 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         const adapter = yield* registry.getByProvider(binding.provider);
         const sessions = yield* adapter.listSessions();
         const activeSession = sessions.find((session) => session.threadId === event.threadId);
-        return activeSession?.resumeCursor ?? binding.resumeCursor;
+        if (activeSession === undefined || activeSession.resumeCursor === undefined) {
+          return binding.resumeCursor;
+        }
+        // `null` is the adapter's explicit invalidation tombstone. It must not
+        // be replaced by the older persisted cursor.
+        return activeSession.resumeCursor;
       }).pipe(
         Effect.catchCause((cause) =>
           Effect.logWarning("provider.session.resume_cursor_refresh_failed", {
@@ -1300,7 +1305,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         if (yield* adapter.hasSession(input.threadId)) {
           if (options?.resolveManagedLaunch) {
             const currentLaunch = yield* options
-              .resolveManagedLaunch({ threadId: input.threadId, provider: binding.provider })
+              .resolveManagedLaunch({
+                threadId: input.threadId,
+                provider: binding.provider,
+              })
               .pipe(Effect.mapError(mapManagedLaunchError(input.operation)));
             const persistedIsolationKey = readPersistedManagedIsolationKey(binding.runtimePayload);
             const activeTurnId = runtimeActiveTurnId(binding.runtimePayload);
@@ -2750,11 +2758,11 @@ export function makeManagedDurableProviderServiceLive(options?: ProviderServiceL
             if (state.value.harness !== provider) {
               return yield* Effect.fail(new Error("Provider-native cursor harness mismatch."));
             }
+            const nativeStateLocatorJson = JSON.stringify(resumeCursor);
             const providerSessionId = providerNativeResumeIdentity(provider, resumeCursor);
-            if (providerSessionId === null) {
+            if (resumeCursor !== null && providerSessionId === null) {
               return yield* Effect.fail(new Error("Provider-native cursor has no exact identity."));
             }
-            const nativeStateLocatorJson = JSON.stringify(resumeCursor);
             if (
               state.value.providerSessionId === providerSessionId &&
               state.value.nativeStateLocatorJson === nativeStateLocatorJson

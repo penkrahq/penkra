@@ -68,7 +68,10 @@ describe("planRestartTurnReconciliation", () => {
         latestTurn: { state: "completed" },
       }),
       makeThread("stopped", {
-        session: makeSession("stopped", { status: "stopped", activeTurnId: null }),
+        session: makeSession("stopped", {
+          status: "stopped",
+          activeTurnId: null,
+        }),
         latestTurn: { state: "interrupted" },
       }),
       makeThread("errored", {
@@ -298,7 +301,7 @@ describe("planRestartTurnReconciliation", () => {
     ]);
     expect(commands[0]).toEqual({
       type: "thread.message.assistant.complete",
-      commandId: "restart-reconcile-streaming-message:streaming-thread:streaming-message",
+      commandId: `restart-reconcile-streaming-message:streaming-thread:streaming-message:${NOW}`,
       threadId: "streaming-thread",
       messageId: "streaming-message",
       turnId: "streaming-turn",
@@ -332,8 +335,7 @@ describe("planRestartTurnReconciliation", () => {
     expect(commands).toEqual([
       {
         type: "thread.message.assistant.complete",
-        commandId:
-          "restart-reconcile-streaming-message:already-interrupted:orphaned-streaming-message",
+        commandId: `restart-reconcile-streaming-message:already-interrupted:orphaned-streaming-message:${NOW}`,
         threadId: "already-interrupted",
         messageId: "orphaned-streaming-message",
         turnId: "already-interrupted-turn",
@@ -511,10 +513,16 @@ describe("planRestartTurnReconciliation", () => {
   it("reconciles an in-flight session even with no active turn id (starting/running)", () => {
     const threads = [
       makeThread("starting", {
-        session: makeSession("starting", { status: "starting", activeTurnId: null }),
+        session: makeSession("starting", {
+          status: "starting",
+          activeTurnId: null,
+        }),
       }),
       makeThread("running-no-turn", {
-        session: makeSession("running-no-turn", { status: "running", activeTurnId: null }),
+        session: makeSession("running-no-turn", {
+          status: "running",
+          activeTurnId: null,
+        }),
       }),
     ];
 
@@ -531,7 +539,10 @@ describe("planRestartTurnReconciliation", () => {
   it("heals an open turn projection even when the session already looks terminal", () => {
     const threads = [
       makeThread("orphan-turn", {
-        session: makeSession("orphan-turn", { status: "interrupted", activeTurnId: null }),
+        session: makeSession("orphan-turn", {
+          status: "interrupted",
+          activeTurnId: null,
+        }),
         latestTurn: { state: "running" },
       }),
     ];
@@ -544,7 +555,10 @@ describe("planRestartTurnReconciliation", () => {
   it("settles every restart-orphaned turn even when older open rows hide behind a terminal latest turn", () => {
     const threads = [
       makeThread("hidden-open-turns", {
-        session: makeSession("hidden-open-turns", { status: "ready", activeTurnId: null }),
+        session: makeSession("hidden-open-turns", {
+          status: "ready",
+          activeTurnId: null,
+        }),
         latestTurn: { state: "completed" },
         openTurnCount: 2,
       }),
@@ -582,7 +596,10 @@ describe("planRestartTurnReconciliation", () => {
   it("selects only the stuck threads from a mixed set, preserving order", () => {
     const threads = [
       makeThread("clean-a", {
-        session: makeSession("clean-a", { status: "ready", activeTurnId: null }),
+        session: makeSession("clean-a", {
+          status: "ready",
+          activeTurnId: null,
+        }),
         latestTurn: { state: "completed" },
       }),
       makeThread("stuck-a", {
@@ -610,5 +627,30 @@ describe("planRestartTurnReconciliation", () => {
     const second = planRestartTurnReconciliation({ threads, now: NOW });
     expect(first[0]?.commandId).toBe(second[0]?.commandId);
     expect(first[0]?.commandId).toBe(`restart-reconcile:stuck:${NOW}`);
+  });
+
+  it("gives streaming settlement commands distinct identities across startups", () => {
+    const threads = [
+      makeThread("streaming-across-startups", {
+        messages: [
+          {
+            id: MessageId.makeUnsafe("streaming-across-startups-message"),
+            role: "assistant",
+            streaming: true,
+            turnId: TurnId.makeUnsafe("streaming-across-startups-turn"),
+          },
+        ],
+      }),
+    ];
+
+    const first = planRestartTurnReconciliation({ threads, now: NOW });
+    const secondNow = "2026-08-22T12:35:56.000Z";
+    const second = planRestartTurnReconciliation({ threads, now: secondNow });
+    expect(first[0]?.commandId).toBe(
+      `restart-reconcile-streaming-message:streaming-across-startups:streaming-across-startups-message:${NOW}`,
+    );
+    expect(second[0]?.commandId).toBe(
+      `restart-reconcile-streaming-message:streaming-across-startups:streaming-across-startups-message:${secondNow}`,
+    );
   });
 });

@@ -11,10 +11,13 @@ import { Data, Effect, Schema, ServiceMap } from "effect";
 import type { ResolvedProviderTurnSelection } from "./ProviderTurnSelectionResolver.ts";
 
 export const VerifiedProviderNativeContinuation = Schema.Struct({
+  kind: Schema.optional(Schema.Literals(["native", "reconstructed"])).pipe(
+    Schema.withDecodingDefault(() => "native" as const),
+  ),
   generationId: ProviderNativeStateGenerationId,
   adapterSchemaVersion: TrimmedNonEmptyString,
   stateManifestJson: Schema.String,
-  providerSessionId: TrimmedNonEmptyString,
+  providerSessionId: Schema.NullOr(TrimmedNonEmptyString),
   nativeStateLocatorJson: Schema.String,
   verifiedAt: Schema.String,
 });

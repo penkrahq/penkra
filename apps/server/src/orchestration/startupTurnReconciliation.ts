@@ -105,7 +105,7 @@ function planStreamingMessageSettlementCommands(input: {
     .map((message) => ({
       type: "thread.message.assistant.complete",
       commandId: CommandId.makeUnsafe(
-        `restart-reconcile-streaming-message:${input.thread.id}:${message.id}`,
+        `restart-reconcile-streaming-message:${input.thread.id}:${message.id}:${input.now}`,
       ),
       threadId: input.thread.id,
       messageId: message.id,

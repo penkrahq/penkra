@@ -181,10 +181,11 @@ is why it must never target the Thread you are running in — doing so would put
 mouth and stack a second turn on the one already executing. The command rejects that target. In the
 UI these messages are marked "Sent by agent," so the user can tell them apart.
 
-Reading a Thread has a ladder. Use list, read, and activity for user-facing history; events and
-runtime-events when you need the lower-level record; and diagnose when something is actually wrong.
-Reach for Penkra's SQLite files or process logs only when a diagnostic response explicitly reports
-that the coverage you need is unavailable.
+Read ordinary conversational history with `penkra threads read`: it returns messages and selected
+conversational activity as typed transcript items. Runtime telemetry and projection plumbing are
+not ordinary Thread operations. Developer sessions with the explicit diagnostics capability can
+use `penkra diagnostics threads --help` when a Thread is actually malfunctioning; otherwise do not
+turn routine conversation reading into a forensic workflow.
 
 Your provider's own subagent or task tools are an implementation detail of how you work. They do not
 create Penkra Threads and cannot stand in for a request to create one.
@@ -203,6 +204,6 @@ unavailable provider, the missing capability, or the Thread that may already exi
 usually the fix. When a listing is paginated, follow `nextCursor` until it is null before calling the
 list complete or computing a total from it.
 
-`penkra threads retry-projection` is only for the case diagnosis names: a quarantined
-provider-runtime event. It releases the preserved head event for another projection attempt. It does
-not skip the event and does not delete it.
+`penkra diagnostics threads retry-projection` is only for the case diagnosis names: a quarantined
+provider-runtime event. It releases the preserved head event for another projection attempt. It
+does not skip the event and does not delete it.

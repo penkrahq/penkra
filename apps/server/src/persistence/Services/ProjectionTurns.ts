@@ -71,6 +71,7 @@ export interface ProjectionTurnWaitSnapshot {
   readonly turns: ReadonlyArray<{
     readonly threadId: GetProjectionTurnByTurnIdInput["threadId"];
     readonly turnId: GetProjectionTurnByTurnIdInput["turnId"];
+    readonly assistantMessageId: MessageId | null;
     readonly state: ProjectionTurnState;
   }>;
 }

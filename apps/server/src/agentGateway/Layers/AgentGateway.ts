@@ -225,7 +225,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_create_thread",
       description:
-        "Use when work should run in a separate Penkra conversation. Create one standalone thread from a self-contained prompt and a target returned by penkra_capabilities; optionally choose a folder returned by penkra_list_folders. Retrying the same requestId is idempotent. Separate create calls are independent and non-atomic, so retain successful thread ids if a later call fails.",
+        "Use when work should run in a separate Penkra conversation. Create one standalone Thread from a self-contained prompt and a target returned by `penkra capabilities`; optionally choose a folder returned by `penkra folders list`. Retrying the same requestId is idempotent. Separate create calls are independent and non-atomic, so retain successful Thread ids if a later call fails.",
       inputSchema: {
         type: "object",
         properties: {
@@ -357,7 +357,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_interrupt_thread",
       description:
-        "Use to request that an existing Penkra thread stop its current running turn. This does not delete the thread or its transcript; use penkra_send_message to steer or queue new direction instead when the work should continue.",
+        "Use to request that an existing Penkra Thread stop its current running turn. This does not delete the Thread or its transcript; use `penkra threads send` to steer or queue new direction instead when the work should continue.",
       inputSchema: {
         type: "object",
         properties: {
@@ -433,7 +433,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: archived ? "penkra_archive_thread" : "penkra_unarchive_thread",
       description: archived
-        ? "Use to hide an inactive Penkra thread from normal listings without deleting its transcript. Archived threads remain discoverable with includeArchived and can be restored with penkra_unarchive_thread."
+        ? "Use to hide an inactive Penkra Thread from normal listings without deleting its transcript. Archived Threads remain discoverable with includeArchived and can be restored with `penkra threads unarchive`."
         : "Use to restore an archived Penkra thread to normal listings. This preserves its existing transcript and does not start a new turn.",
       inputSchema: {
         type: "object",
@@ -478,7 +478,6 @@ export const makeAgentGateway = Effect.gen(function* () {
     createThread,
     sendMessage,
     interruptThread,
-    setThreadTitle,
     archiveThread,
     unarchiveThread,
   ] as const;
@@ -508,32 +507,32 @@ export const makeAgentGateway = Effect.gen(function* () {
     command(
       ["threads", "wait"],
       requireInternalTool("penkra_wait_for_threads"),
-      'penkra threads wait --input \'{"threadIds":["<thread-id>"]}\'',
+      "penkra threads wait --thread-id <thread-id> --thread-id <thread-id>",
     ),
     command(
-      ["threads", "activity"],
+      ["diagnostics", "threads", "activity"],
       requireInternalTool("penkra_read_thread_activity"),
-      "penkra threads activity --thread-id <thread-id> --include-details true",
+      "penkra diagnostics threads activity --thread-id <thread-id> --include-details true",
     ),
     command(
-      ["threads", "events"],
+      ["diagnostics", "threads", "events"],
       requireInternalTool("penkra_read_thread_events"),
-      "penkra threads events --thread-id <thread-id>",
+      "penkra diagnostics threads events --thread-id <thread-id>",
     ),
     command(
-      ["threads", "runtime-events"],
+      ["diagnostics", "threads", "runtime-events"],
       requireInternalTool("penkra_read_thread_runtime_events"),
-      "penkra threads runtime-events --thread-id <thread-id>",
+      "penkra diagnostics threads runtime-events --thread-id <thread-id>",
     ),
     command(
-      ["threads", "diagnose"],
+      ["diagnostics", "threads", "diagnose"],
       requireInternalTool("penkra_diagnose_thread"),
-      "penkra threads diagnose --thread-id <thread-id>",
+      "penkra diagnostics threads diagnose --thread-id <thread-id>",
     ),
     command(
-      ["threads", "retry-projection"],
+      ["diagnostics", "threads", "retry-projection"],
       requireInternalTool("penkra_retry_thread_projection"),
-      "penkra threads retry-projection --thread-id <thread-id>",
+      "penkra diagnostics threads retry-projection --thread-id <thread-id>",
     ),
     command(
       ["threads", "create"],
@@ -549,11 +548,6 @@ export const makeAgentGateway = Effect.gen(function* () {
       ["threads", "interrupt"],
       interruptThread,
       "penkra threads interrupt --thread-id <thread-id>",
-    ),
-    command(
-      ["threads", "rename"],
-      setThreadTitle,
-      "penkra threads rename --thread-id <thread-id> --title 'API review'",
     ),
     command(
       ["threads", "archive"],

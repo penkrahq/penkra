@@ -5,6 +5,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import * as Path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { ServerConfig } from "../../config.ts";
 import {
@@ -175,6 +176,81 @@ layer("ProviderNativeStateMaterializer", (it) => {
     }),
   );
 
+  it.effect("recovers an exact Claude conversation from retired profile lineage", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig;
+      const sql = yield* SqlClient.SqlClient;
+      const materializer = yield* ProviderNativeStateMaterializer;
+      const source = ProviderNativeStateGenerationId.makeUnsafe("materializer-lineage-source");
+      const target = ProviderNativeStateGenerationId.makeUnsafe("materializer-lineage-target");
+      const sourceConnectionId = ProviderConnectionId.makeUnsafe("claude-lineage-source");
+      const targetConnectionId = ProviderConnectionId.makeUnsafe("claude-lineage-target");
+      yield* createClaudeConnections(sourceConnectionId, targetConnectionId);
+      const activeProfileRef = `provider-profile:${sourceConnectionId}`;
+      const retiredProfileRef = "provider-profile:claude-lineage-retired";
+      yield* sql`
+        INSERT INTO provider_credential_profiles (
+          profile_ref, harness_kind, authentication_target_id, authentication_method_id,
+          lifecycle, connection_id, login_operation_id, created_at, updated_at, retired_at
+        ) VALUES
+          (${activeProfileRef}, 'claudeAgent', 'anthropic-first-party', 'account', 'active',
+            ${sourceConnectionId}, NULL, '2026-09-03T00:00:00.000Z',
+            '2026-09-03T02:00:00.000Z', NULL),
+          (${retiredProfileRef}, 'claudeAgent', 'anthropic-first-party', 'account', 'retired',
+            ${sourceConnectionId}, NULL, '2026-09-02T00:00:00.000Z',
+            '2026-09-03T01:00:00.000Z', '2026-09-03T01:00:00.000Z')
+      `;
+      const activeProfile = providerConnectionProfileRoot(config.stateDir, sourceConnectionId);
+      const retiredProfile = providerConnectionProfileRoot(
+        config.stateDir,
+        "claude-lineage-retired",
+      );
+      const sessionId = "550e8400-e29b-41d4-a716-446655440099";
+      for (const profile of [activeProfile, retiredProfile]) {
+        yield* Effect.promise(() =>
+          mkdir(`${profile}/claude-config/projects/-workspace`, {
+            recursive: true,
+            mode: 0o700,
+          }),
+        );
+      }
+      yield* Effect.promise(() =>
+        writeFile(
+          `${activeProfile}/claude-config/projects/-workspace/${sessionId}.jsonl`,
+          JSON.stringify({ type: "last-prompt", sessionId }),
+        ),
+      );
+      const realConversation = `${JSON.stringify({
+        type: "assistant",
+        uuid: "assistant-real",
+        sessionId,
+      })}\n`;
+      yield* Effect.promise(() =>
+        writeFile(
+          `${retiredProfile}/claude-config/projects/-workspace/${sessionId}.jsonl`,
+          realConversation,
+        ),
+      );
+
+      yield* materializer.clone({
+        harness: "claudeAgent",
+        providerSessionId: sessionId,
+        sourceStorage: "connection-profile",
+        sourceConnectionId,
+        targetConnectionId,
+        sourceGenerationId: source,
+        targetGenerationId: target,
+      });
+      const targetProfile = providerConnectionProfileRoot(config.stateDir, targetConnectionId);
+      assert.strictEqual(
+        yield* Effect.promise(() =>
+          readFile(`${targetProfile}/claude-config/projects/-workspace/${sessionId}.jsonl`, "utf8"),
+        ),
+        realConversation,
+      );
+    }),
+  );
+
   it.effect("resolves the effective profile used by a static Claude API-key Connection", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig;
@@ -261,8 +337,14 @@ layer("ProviderNativeStateMaterializer", (it) => {
       const targetSession = `${targetProfile}/${relativeSession}`;
       yield* Effect.promise(() =>
         Promise.all([
-          mkdir(Path.dirname(sourceSession), { recursive: true, mode: 0o700 }),
-          mkdir(Path.dirname(targetSession), { recursive: true, mode: 0o700 }),
+          mkdir(Path.dirname(sourceSession), {
+            recursive: true,
+            mode: 0o700,
+          }),
+          mkdir(Path.dirname(targetSession), {
+            recursive: true,
+            mode: 0o700,
+          }),
         ]),
       );
       yield* Effect.promise(() => writeFile(sourceSession, "current"));
@@ -376,7 +458,10 @@ layer("ProviderNativeStateMaterializer", (it) => {
       const target = ProviderNativeStateGenerationId.makeUnsafe("materializer-opencode-target");
       const sourceRoot = providerNativeStateRoot(config.stateDir, source);
       yield* Effect.promise(() =>
-        mkdir(`${sourceRoot}/xdg-data/opencode/storage`, { recursive: true, mode: 0o700 }),
+        mkdir(`${sourceRoot}/xdg-data/opencode/storage`, {
+          recursive: true,
+          mode: 0o700,
+        }),
       );
       yield* Effect.sync(() => {
         const database = new DatabaseSync(`${sourceRoot}/opencode.db`);
@@ -409,7 +494,9 @@ layer("ProviderNativeStateMaterializer", (it) => {
       );
       assert.strictEqual(
         yield* Effect.sync(() => {
-          const database = new DatabaseSync(`${targetRoot}/opencode.db`, { readOnly: true });
+          const database = new DatabaseSync(`${targetRoot}/opencode.db`, {
+            readOnly: true,
+          });
           try {
             return database.prepare("SELECT id FROM sessions").get()?.id;
           } finally {

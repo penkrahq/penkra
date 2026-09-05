@@ -8,13 +8,17 @@ import {
 } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 import { ServerConfig } from "../../config.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
-import { providerCredentialProfileRoot } from "../providerNativeStatePaths.ts";
+import {
+  providerConnectionProfileRoot,
+  providerCredentialProfileRoot,
+} from "../providerNativeStatePaths.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import { ProviderLaunchResolverLive } from "./ProviderLaunchResolver.ts";
 
@@ -233,7 +237,10 @@ it.effect("keeps the real OS home for a Connection-scoped Codex keyring", () =>
       installationId,
       internalProviderId: null,
     });
-    const environment = launch.childEnvironment({ HOME: "/Users/operator", PATH: "/usr/bin" });
+    const environment = launch.childEnvironment({
+      HOME: "/Users/operator",
+      PATH: "/usr/bin",
+    });
 
     if (process.platform === "darwin") {
       assert.strictEqual(environment.HOME, "/Users/operator");
@@ -249,6 +256,154 @@ it.effect("keeps the real OS home for a Connection-scoped Codex keyring", () =>
   }).pipe(
     Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(codexDependencies))),
     Effect.provide(codexDependencies),
+    Effect.provide(NodeServices.layer),
+  ),
+);
+
+const claudeActiveProfileRef = "provider-profile:claude-active-profile";
+const claudeRetiredProfileRef = "provider-profile:claude-retired-profile";
+const claudeSessionId = "550e8400-e29b-41d4-a716-446655440088";
+const claudeDependencies = Layer.mergeAll(
+  configLayer,
+  Layer.succeed(ThreadProviderBindingRepository, {
+    getHarnessState: () =>
+      Effect.succeed(
+        Option.some({
+          threadId,
+          harness: "claudeAgent",
+          nativeStateGenerationId:
+            ProviderNativeStateGenerationId.makeUnsafe("native-claude-launch"),
+          providerSessionId: claudeSessionId,
+          nativeStateLocatorJson: JSON.stringify({ resume: claudeSessionId }),
+          lastVerifiedResumeAt: timestamp,
+          revision: 0,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }),
+      ),
+  } as never),
+  Layer.succeed(ProviderInstallationRepository, {
+    getRecord: () =>
+      Effect.succeed(
+        Option.some({
+          id: installationId,
+          harness: "claudeAgent",
+          version: "2.1.259",
+          platform: "darwin",
+          architecture: "arm64",
+          executablePath: "/managed/claude",
+          artifactSource: "github-release",
+          artifactUrl: "https://example.invalid/claude",
+          artifactSha256: "a".repeat(64),
+          adapterVersion: "1",
+          protocolVersion: "v1",
+          lifecycle: "active",
+          healthReason: null,
+          installedAt: timestamp,
+          activatedAt: timestamp,
+          retiredAt: null,
+        }),
+      ),
+  } as never),
+  Layer.succeed(ProviderConnectionRepository, {
+    getRecord: () =>
+      Effect.succeed(
+        Option.some({
+          id: connectionId,
+          harness: "claudeAgent",
+          authenticationTargetId: "anthropic-first-party",
+          authenticationMethodId: "claude-account",
+          label: "Claude",
+          credentialRef: null,
+          profileRef: claudeActiveProfileRef,
+          providerIdentityId: "person@example.com",
+          health: "ready",
+          healthReason: null,
+          lastCheckedAt: timestamp,
+          lifecycle: "active",
+          terminationReason: null,
+          terminatedAt: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }),
+      ),
+    listManagedProfilesForConnection: () =>
+      Effect.succeed([
+        {
+          profileRef: claudeActiveProfileRef,
+          harness: "claudeAgent",
+          authenticationTargetId: "anthropic-first-party",
+          authenticationMethodId: "claude-account",
+          lifecycle: "active",
+          connectionId,
+          loginOperationId: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          retiredAt: null,
+        },
+        {
+          profileRef: claudeRetiredProfileRef,
+          harness: "claudeAgent",
+          authenticationTargetId: "anthropic-first-party",
+          authenticationMethodId: "claude-account",
+          lifecycle: "retired",
+          connectionId,
+          loginOperationId: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          retiredAt: timestamp,
+        },
+      ]),
+  } as never),
+  Layer.succeed(ProviderCredentialBroker, {
+    available: true,
+    readOnce: () => Effect.die("unused"),
+  } as never),
+);
+
+it.effect("restores the best Claude lineage before every native resume", () =>
+  Effect.gen(function* () {
+    const config = yield* ServerConfig;
+    const activeRoot = providerConnectionProfileRoot(config.stateDir, "claude-active-profile");
+    const retiredRoot = providerConnectionProfileRoot(config.stateDir, "claude-retired-profile");
+    const relative = `claude-config/projects/-workspace/${claudeSessionId}.jsonl`;
+    yield* Effect.promise(() =>
+      Promise.all([
+        mkdir(Path.dirname(Path.join(activeRoot, relative)), {
+          recursive: true,
+        }),
+        mkdir(Path.dirname(Path.join(retiredRoot, relative)), {
+          recursive: true,
+        }),
+      ]),
+    );
+    yield* Effect.promise(() =>
+      writeFile(
+        Path.join(activeRoot, relative),
+        `${JSON.stringify({ type: "last-prompt", sessionId: claudeSessionId })}\n`,
+      ),
+    );
+    const real = `${JSON.stringify({
+      type: "assistant",
+      uuid: "assistant-real",
+      sessionId: claudeSessionId,
+    })}\n`;
+    yield* Effect.promise(() => writeFile(Path.join(retiredRoot, relative), real));
+
+    const resolver = yield* ProviderLaunchResolver;
+    yield* resolver.resolve({
+      threadId,
+      connectionId,
+      installationId,
+      internalProviderId: null,
+    });
+    assert.strictEqual(
+      yield* Effect.promise(() => readFile(Path.join(activeRoot, relative), "utf8")),
+      real,
+    );
+  }).pipe(
+    Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(claudeDependencies))),
+    Effect.provide(claudeDependencies),
     Effect.provide(NodeServices.layer),
   ),
 );

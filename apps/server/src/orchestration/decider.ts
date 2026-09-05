@@ -1327,12 +1327,18 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       const hasTurnInFlight =
         targetThread.session?.status === "starting" ||
         (targetThread.session?.status === "running" && targetThread.session.activeTurnId !== null);
+      // Queue ownership is causal, not a presentation detail. A terminal event
+      // can make the projected provider session look ready before the durable
+      // queue head has been promoted. A normal message admitted in that window
+      // must join the existing FIFO instead of briefly presenting as a direct
+      // start and relying on the provider reactor to repair it later.
+      const hasQueuedWork = (targetThread.queuedMessageIds?.length ?? 0) > 0;
       // Subagent threads never queue: their messages steer the running child task
       // through the parent session, so deferring until the turn settles would
       // deliver the message only after the subagent already finished.
       const shouldQueue =
         targetThread.parentThreadId === null &&
-        hasTurnInFlight &&
+        (hasTurnInFlight || hasQueuedWork) &&
         (dispatchMode === "queue" || !providerSupportsNativeTurnSteering(activeProvider));
       const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({

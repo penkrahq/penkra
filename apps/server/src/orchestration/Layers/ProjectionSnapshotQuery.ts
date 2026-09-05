@@ -82,6 +82,7 @@ const ProjectionStreamingAssistantMessageRow = Schema.Struct({
   messageId: MessageId,
   turnId: Schema.NullOr(TurnId),
 });
+const ProjectionThreadMessageCountRow = Schema.Struct({ count: NonNegativeInt });
 const ProjectionFolderDbRowSchema = ProjectionFolder.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(ModelSelectionJsonUnknown),
@@ -883,6 +884,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       FROM projection_thread_messages
       WHERE role = 'assistant' AND is_streaming = 1
       ORDER BY thread_id ASC, created_at ASC, message_id ASC
+    `,
+  });
+
+  const countThreadMessageRows = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionThreadMessageCountRow,
+    execute: ({ threadId }) => sql`
+      SELECT COUNT(*) AS count
+      FROM projection_thread_messages
+      WHERE thread_id = ${threadId}
     `,
   });
 
@@ -2298,6 +2309,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ),
     );
 
+  const countThreadMessages: ProjectionSnapshotQueryShape["countThreadMessages"] = (threadId) =>
+    countThreadMessageRows({ threadId }).pipe(
+      Effect.map((rows) => rows[0]?.count ?? 0),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.countThreadMessages:query",
+          "ProjectionSnapshotQuery.countThreadMessages:decodeRows",
+        ),
+      ),
+    );
+
   const getSnapshotSequence: ProjectionSnapshotQueryShape["getSnapshotSequence"] = () =>
     listProjectionStateRows(undefined).pipe(
       Effect.mapError(
@@ -2898,6 +2920,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     listStaleInFlightThreadIds,
     listOpenTurnCounts,
     listStreamingAssistantMessages,
+    countThreadMessages,
     getActiveFolderByWorkspaceRoot,
     getFolderShellById,
     getSpaceShellById,

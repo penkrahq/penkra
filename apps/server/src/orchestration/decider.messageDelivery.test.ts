@@ -62,6 +62,46 @@ const shellOnlyReadModel: OrchestrationReadModel = {
 };
 
 describe("message delivery decisions", () => {
+  it("appends a normal send behind an existing queue even when the projected session is idle", async () => {
+    const queuedHeadId = MessageId.makeUnsafe("queued-head-before-idle-admission");
+    const readModel: OrchestrationReadModel = {
+      ...shellOnlyReadModel,
+      threads: shellOnlyReadModel.threads.map((thread) => ({
+        ...thread,
+        parentThreadId: null,
+        queuedMessageIds: [queuedHeadId],
+      })),
+    };
+
+    const decided = await Effect.runPromise(
+      decideOrchestrationCommand({
+        readModel,
+        command: {
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe("send-behind-existing-queue"),
+          threadId,
+          message: {
+            messageId: MessageId.makeUnsafe("message-behind-existing-queue"),
+            role: "user",
+            text: "Open up B1",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          createdAt: NOW,
+        },
+      }),
+    );
+
+    const events = Array.isArray(decided) ? decided : [decided];
+    expect(events.map((event) => event.type)).toEqual([
+      "thread.message-sent",
+      "thread.turn-queued",
+    ]);
+    expect(events[0]).toMatchObject({
+      payload: { delivery: { state: "queued", queued: true } },
+    });
+  });
+
   it("accepts a durable acknowledgement after shell-only restart hydration", async () => {
     const decided = await Effect.runPromise(
       decideOrchestrationCommand({

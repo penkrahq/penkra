@@ -834,13 +834,32 @@ export function projectProviderRuntimeActivities(
         return [];
       }
 
+      // Providers with a full item lifecycle also emit this canonical boundary
+      // for recovery. The item is the visible row; projecting both would create
+      // a second terminal entry for the same compaction.
+      if (event.itemId !== undefined) {
+        return [];
+      }
+
+      const detail = event.payload.detail;
+      const trigger =
+        detail && typeof detail === "object" && !Array.isArray(detail)
+          ? ((detail as { compact_metadata?: { trigger?: unknown }; trigger?: unknown })
+              .compact_metadata?.trigger ?? (detail as { trigger?: unknown }).trigger)
+          : undefined;
+
       return [
         {
           id: event.eventId,
           createdAt: event.createdAt,
           tone: "info",
           kind: "context-compaction",
-          summary: "Context compacted manually",
+          summary:
+            trigger === "auto"
+              ? "Context compacted automatically"
+              : trigger === "manual"
+                ? "Context compacted manually"
+                : "Context compacted",
           payload: toActivityPayload({
             state: event.payload.state,
             ...(event.payload.detail !== undefined ? { detail: event.payload.detail } : {}),
@@ -877,9 +896,22 @@ export function projectProviderRuntimeActivities(
       if (event.payload.itemType === "context_compaction") {
         const failed = event.type === "item.completed" && event.payload.status === "failed";
         const inProgress = event.type !== "item.completed";
+        const data = event.payload.data;
+        const trigger =
+          data && typeof data === "object" && !Array.isArray(data)
+            ? (data as { trigger?: unknown }).trigger
+            : undefined;
         return [
           {
-            id: event.eventId,
+            // Heartbeats and completion are distinct journal events but one
+            // visible semantic item. Reuse a thread-scoped activity identity
+            // so projection append replaces the row instead of accumulating
+            // one "Compacting..." entry per heartbeat.
+            id: event.itemId
+              ? EventId.makeUnsafe(
+                  `provider-item:${event.provider}:${event.threadId}:${event.itemId}:context-compaction`,
+                )
+              : event.eventId,
             createdAt: event.createdAt,
             tone: failed ? "error" : "info",
             kind: "context-compaction",
@@ -887,8 +919,13 @@ export function projectProviderRuntimeActivities(
               ? "Compacting conversation..."
               : failed
                 ? "Context compaction failed"
-                : "Context compacted",
+                : trigger === "auto"
+                  ? "Context compacted automatically"
+                  : trigger === "manual"
+                    ? "Context compacted manually"
+                    : "Context compacted",
             payload: toActivityPayload({
+              ...(event.itemId ? { compactionId: event.itemId } : {}),
               itemType: event.payload.itemType,
               status: event.payload.status,
               ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),

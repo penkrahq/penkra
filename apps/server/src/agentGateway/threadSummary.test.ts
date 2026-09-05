@@ -1,12 +1,31 @@
 import { assert, describe, it } from "@effect/vitest";
-import type { OrchestrationMessage } from "@penkra/contracts";
-import { MessageId, ThreadId, TurnId } from "@penkra/contracts";
+import type { OrchestrationMessage, OrchestrationThreadActivity } from "@penkra/contracts";
+import { EventId, MessageId, ThreadId, TurnId } from "@penkra/contracts";
 
 import {
   deriveAgentThreadStatus,
+  packAgentTranscriptPage,
   paginateThreadMessages,
   resolveActiveTurn,
 } from "./threadSummary.ts";
+
+function makeActivity(
+  id: string,
+  kind: string,
+  sequence: number,
+  payload: OrchestrationThreadActivity["payload"] = { ok: true },
+): OrchestrationThreadActivity {
+  return {
+    id: EventId.makeUnsafe(id),
+    tone: kind.startsWith("tool.") ? "tool" : "info",
+    kind,
+    summary: `${kind} summary`,
+    payload,
+    turnId: TurnId.makeUnsafe("turn-activity"),
+    sequence,
+    createdAt: `2026-03-01T00:00:${String(sequence).padStart(2, "0")}.000Z`,
+  };
+}
 
 function makeMessage(index: number, text = `message ${index}`): OrchestrationMessage {
   return {
@@ -169,5 +188,106 @@ describe("paginateThreadMessages", () => {
     const message = { ...makeMessage(0), dispatchOrigin: "agent" as const };
     const page = paginateThreadMessages({ messages: [message] });
     assert.equal(page.messages[0]?.dispatchOrigin, "agent");
+  });
+});
+
+describe("packAgentTranscriptPage", () => {
+  it("continues a long message losslessly without rewriting its text", () => {
+    const text = Array.from({ length: 45_514 }, (_, index) => String(index % 10)).join("");
+    const message = {
+      ...makeMessage(0, text),
+      turnId: TurnId.makeUnsafe("turn-long"),
+      sequence: 7,
+      streaming: true,
+      dispatchOrigin: "agent" as const,
+    };
+
+    const fragments: string[] = [];
+    let anchor: Parameters<typeof packAgentTranscriptPage>[0]["anchor"];
+    do {
+      const page = packAgentTranscriptPage({
+        messages: [message],
+        activities: [],
+        ...(anchor ? { anchor } : {}),
+        textBudget: 10_000,
+      });
+      assert.equal(page.items.length, 1);
+      const item = page.items[0]!;
+      assert.equal(item.type, "message");
+      if (item.type !== "message") throw new Error("Expected message item.");
+      assert.equal(item.messageId, "m-0");
+      assert.equal(item.turnId, "turn-long");
+      assert.equal(item.sequence, 7);
+      assert.equal(item.streaming, true);
+      assert.equal(item.dispatchOrigin, "agent");
+      assert.notInclude(item.text, "[... truncated");
+      fragments.unshift(item.text);
+      anchor = page.nextAnchor;
+    } while (anchor !== undefined);
+
+    assert.equal(fragments.join(""), text);
+  });
+
+  it("returns typed conversational activity in transcript order", () => {
+    const before = { ...makeMessage(0, "before"), sequence: 1 };
+    const after = { ...makeMessage(1, "after"), sequence: 3 };
+    const page = packAgentTranscriptPage({
+      messages: [after, before],
+      activities: [makeActivity("activity-1", "tool.completed", 2, { output: "done" })],
+    });
+
+    assert.deepEqual(
+      page.items.map((item) => item.type),
+      ["message", "tool", "message"],
+    );
+    const tool = page.items[1]!;
+    assert.equal(tool.type, "tool");
+    if (tool.type === "tool") {
+      assert.equal(tool.activityId, "activity-1");
+      assert.equal(tool.turnId, "turn-activity");
+      assert.equal(tool.lifecycle, "tool.completed");
+      assert.include(tool.detail, '"output": "done"');
+    }
+  });
+
+  it("filters activity categories and omits runtime telemetry", () => {
+    const page = packAgentTranscriptPage({
+      messages: [makeMessage(0)],
+      activities: [
+        makeActivity("approval", "approval.requested", 1),
+        makeActivity("compaction", "context-compaction", 2),
+        makeActivity("telemetry", "context-window.updated", 3),
+      ],
+      include: new Set(["approvals"]),
+    });
+
+    assert.deepEqual(
+      page.items.map((item) => item.type),
+      ["approval"],
+    );
+  });
+
+  it("uses the next older item as the cursor without duplicating an item", () => {
+    const messages = [0, 1, 2].map((index) => ({
+      ...makeMessage(index),
+      sequence: index,
+    }));
+    const first = packAgentTranscriptPage({ messages, activities: [], limit: 2 });
+    const second = packAgentTranscriptPage({
+      messages,
+      activities: [],
+      limit: 2,
+      ...(first.nextAnchor ? { anchor: first.nextAnchor } : {}),
+    });
+
+    assert.deepEqual(
+      first.items.map((item) => item.type === "message" && item.messageId),
+      ["m-1", "m-2"],
+    );
+    assert.deepEqual(
+      second.items.map((item) => item.type === "message" && item.messageId),
+      ["m-0"],
+    );
+    assert.isUndefined(second.nextAnchor);
   });
 });

@@ -15,6 +15,7 @@ import {
   providerNativeStateRoot,
 } from "../providerNativeStatePaths.ts";
 import { requireOneExactCodexRollout } from "../codexManagedNativeState.ts";
+import { resolveClaudeSessionCandidate } from "../claudeManagedNativeState.ts";
 import {
   ProviderNativeStateMaterializationError,
   ProviderNativeStateMaterializer,
@@ -186,7 +187,10 @@ async function readClaudeRollbackManifest(
   ) {
     throw new Error("Claude profile rollback metadata is invalid.");
   }
-  return { targetProfileIdentity, mutations: decoded.mutations as ClaudeProfileMutation[] };
+  return {
+    targetProfileIdentity,
+    mutations: decoded.mutations as ClaudeProfileMutation[],
+  };
 }
 
 async function collectExactClaudeSessionFiles(
@@ -308,13 +312,47 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
       ),
     );
 
+  const connectionProfileLineage = (connectionId: Parameters<typeof connections.getRecord>[0]) =>
+    Effect.gen(function* () {
+      // Static-secret Connections predate credential-profile generations and
+      // legitimately have only the effective profile on the Connection row.
+      const current = yield* connectionProfile(connectionId);
+      const profiles = yield* connections
+        .listManagedProfilesForConnection(connectionId)
+        .pipe(
+          Effect.mapError((cause) =>
+            failure("Could not resolve the Connection credential-profile lineage.", cause),
+          ),
+        );
+      const resolved = [
+        current,
+        ...profiles.flatMap((profile) => {
+          const profileIdentity = providerCredentialProfileIdentity(profile.profileRef);
+          return profileIdentity === null
+            ? []
+            : [
+                {
+                  profileIdentity,
+                  profileRoot: providerConnectionProfileRoot(config.stateDir, profileIdentity),
+                },
+              ];
+        }),
+      ];
+      return resolved.filter(
+        (profile, index) =>
+          resolved.findIndex(
+            (candidate) => candidate.profileIdentity === profile.profileIdentity,
+          ) === index,
+      );
+    });
+
   const clone: ProviderNativeStateMaterializerShape["clone"] = (input) =>
     Effect.gen(function* () {
       const sourceConnectionProfile =
         input.harness === "claudeAgent" && input.sourceStorage === "connection-profile"
           ? input.sourceConnectionId === null
             ? yield* Effect.fail(failure("Claude native state requires an exact source profile."))
-            : yield* connectionProfile(input.sourceConnectionId)
+            : yield* connectionProfileLineage(input.sourceConnectionId)
           : null;
       const targetConnectionProfile =
         input.harness === "claudeAgent"
@@ -347,7 +385,12 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
             const sourceProfile =
               input.sourceStorage === "generation"
                 ? generationSource
-                : sourceConnectionProfile!.profileRoot;
+                : (
+                    await resolveClaudeSessionCandidate({
+                      profileRoots: sourceConnectionProfile!.map((profile) => profile.profileRoot),
+                      providerSessionId: input.providerSessionId,
+                    })
+                  ).profileRoot;
             const targetProfile = targetConnectionProfile!.profileRoot;
             const mutations: ClaudeProfileMutation[] = [];
             try {
@@ -452,12 +495,18 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
           recursive: true,
           force: true,
         });
-        await rm(Path.join(generationRoot, CLAUDE_PROFILE_ROLLBACK_MANIFEST), { force: true });
+        await rm(Path.join(generationRoot, CLAUDE_PROFILE_ROLLBACK_MANIFEST), {
+          force: true,
+        });
       },
       catch: (cause) => failure("Could not finalize the provider-native state generation.", cause),
     });
 
-  return { clone, discard, finalize } satisfies ProviderNativeStateMaterializerShape;
+  return {
+    clone,
+    discard,
+    finalize,
+  } satisfies ProviderNativeStateMaterializerShape;
 });
 
 export const ProviderNativeStateMaterializerLive = Layer.effect(

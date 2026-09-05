@@ -109,6 +109,11 @@ export interface ProjectionSnapshotQueryShape {
     ProjectionRepositoryError
   >;
 
+  /** Count the complete durable message projection for one Thread. */
+  readonly countThreadMessages?: (
+    threadId: ThreadId,
+  ) => Effect.Effect<number, ProjectionRepositoryError>;
+
   /**
    * Read the latest orchestration shell snapshot.
    *

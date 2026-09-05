@@ -3778,7 +3778,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
       const runtimeEventFiber = yield* adapter.streamEvents.pipe(
-        Stream.filter((event) => event.type === "item.updated"),
+        Stream.filter((event) => event.type === "item.started"),
         Stream.runHead,
         Effect.forkChild,
       );
@@ -3802,8 +3802,8 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       if (runtimeEvent._tag !== "Some") {
         return;
       }
-      assert.equal(runtimeEvent.value.type, "item.updated");
-      if (runtimeEvent.value.type !== "item.updated") {
+      assert.equal(runtimeEvent.value.type, "item.started");
+      if (runtimeEvent.value.type !== "item.started") {
         return;
       }
       assert.equal(runtimeEvent.value.payload.itemType, "context_compaction");
@@ -3814,6 +3814,88 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       Effect.provide(harness.layer),
     );
   });
+
+  it.effect(
+    "keeps repeated Claude compaction heartbeats in one uniquely journaled lifecycle",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const runtimeEventsFiber = yield* adapter.streamEvents.pipe(
+          Stream.filter(
+            (event) =>
+              ((event.type === "item.started" ||
+                event.type === "item.updated" ||
+                event.type === "item.completed") &&
+                event.payload.itemType === "context_compaction") ||
+              (event.type === "session.state.changed" &&
+                event.payload.reason === "status:compacting") ||
+              (event.type === "thread.state.changed" && event.payload.state === "compacted"),
+          ),
+          Stream.take(6),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+
+        for (const uuid of ["status-compacting-1", "status-compacting-2"]) {
+          harness.query.emit({
+            type: "system",
+            subtype: "status",
+            status: "compacting",
+            session_id: "sdk-session-compacting-lifecycle",
+            uuid,
+          } as unknown as SDKMessage);
+        }
+        harness.query.emit({
+          type: "system",
+          subtype: "compact_boundary",
+          compact_metadata: {
+            trigger: "auto",
+            pre_tokens: 198_000,
+            post_tokens: 42_000,
+            duration_ms: 151_200,
+          },
+          session_id: "sdk-session-compacting-lifecycle",
+          uuid: "compact-boundary-auto",
+        } as unknown as SDKMessage);
+
+        const events = Array.from(yield* Fiber.join(runtimeEventsFiber));
+        assert.equal(events.length, 6);
+        assert.equal(new Set(events.map((event) => event.eventId)).size, events.length);
+
+        const itemEvents = events.filter(
+          (event) =>
+            event.type === "item.started" ||
+            event.type === "item.updated" ||
+            event.type === "item.completed",
+        );
+        assert.deepEqual(
+          itemEvents.map((event) => event.type),
+          ["item.started", "item.updated", "item.completed"],
+        );
+        assert.equal(new Set(itemEvents.map((event) => event.itemId)).size, 1);
+        const completed = itemEvents.at(-1);
+        assert.equal(completed?.type, "item.completed");
+        if (completed?.type === "item.completed") {
+          assert.equal(
+            (completed.payload.data as { trigger?: unknown } | undefined)?.trigger,
+            "auto",
+          );
+        }
+        const boundary = events.find((event) => event.type === "thread.state.changed");
+        assert.equal(boundary?.itemId, completed?.itemId);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
 
   it.effect("retires a subagent on a terminal task_updated without task_notification", () => {
     const harness = makeHarness();
