@@ -339,6 +339,10 @@ interface ClaudeSessionContext {
   lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
   lastAssistantUuid: string | undefined;
   lastThreadStartedId: string | undefined;
+  // One semantic compaction survives the SDK's repeated `status: compacting`
+  // heartbeats. Journal events remain unique, while itemId ties the visible
+  // started/updated/completed lifecycle together.
+  activeCompaction: { readonly itemId: RuntimeItemId } | undefined;
   // Original API model id the runtime rerouted away from (safeguard refusal
   // fallback). Tracks the in-flight turn only; turn completion restores the
   // user-selected model via setModel so the fallback cannot pin later turns.
@@ -1585,7 +1589,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         return override(input);
       }
       const { query } = await loadClaudeAgentSdk();
-      return query({ prompt: input.prompt, options: input.options }) as ClaudeQueryRuntime;
+      return query({
+        prompt: input.prompt,
+        options: input.options,
+      }) as ClaudeQueryRuntime;
     };
     const createWarmQuery = async (input: {
       readonly options: ClaudeQueryOptions;
@@ -1709,7 +1716,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       // fail while trying to reap the same never-spawned child before reaching a
       // newly repaired executable.
       if (process.pid === undefined) {
-        return Effect.logWarning("claude.process.spawn_not_started", { threadId }).pipe(
+        return Effect.logWarning("claude.process.spawn_not_started", {
+          threadId,
+        }).pipe(
           Effect.tap(() =>
             Effect.sync(() => {
               delete owner.process;
@@ -2449,7 +2458,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               input: tool.input,
               data: toolLifecycleEventData(tool),
             },
-            providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
+            providerRefs: nativeProviderRefs(context, {
+              providerItemId: tool.itemId,
+            }),
             raw: {
               source: "claude.sdk.message",
               method: "claude/result",
@@ -2587,6 +2598,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           lastKnownTokenUsage: undefined,
           lastAssistantUuid: undefined,
           lastThreadStartedId: undefined,
+          activeCompaction: undefined,
           rerouteOriginalApiModelId: undefined,
           emittedContextUsageWarnings: new Set(),
           stopped: false,
@@ -2664,7 +2676,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             input: tool.input,
             data: toolLifecycleEventData(tool),
           },
-          providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
+          providerRefs: nativeProviderRefs(context, {
+            providerItemId: tool.itemId,
+          }),
           raw: {
             source: "claude.sdk.message",
             method: input.rawMethod,
@@ -2801,7 +2815,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 input: nextTool.input,
                 data: toolLifecycleEventData(nextTool),
               },
-              providerRefs: nativeProviderRefs(context, { providerItemId: nextTool.itemId }),
+              providerRefs: nativeProviderRefs(context, {
+                providerItemId: nextTool.itemId,
+              }),
               raw: {
                 source: "claude.sdk.message",
                 method: "claude/stream_event/content_block_delta/input_json_delta",
@@ -2927,7 +2943,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               input: tool.input,
               data: toolData,
             },
-            providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
+            providerRefs: nativeProviderRefs(context, {
+              providerItemId: tool.itemId,
+            }),
             raw: {
               source: "claude.sdk.message",
               method: "claude/user",
@@ -2950,7 +2968,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 streamKind,
                 delta: toolResult.text,
               },
-              providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
+              providerRefs: nativeProviderRefs(context, {
+                providerItemId: tool.itemId,
+              }),
               raw: {
                 source: "claude.sdk.message",
                 method: "claude/user",
@@ -3006,7 +3026,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                   ? { workflowScriptPath: workflowLaunch.scriptPath }
                   : {}),
               },
-              providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
+              providerRefs: nativeProviderRefs(context, {
+                providerItemId: tool.itemId,
+              }),
               raw: {
                 source: "claude.sdk.message",
                 method: "claude/user",
@@ -3039,7 +3061,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               input: tool.input,
               data: toolData,
             },
-            providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
+            providerRefs: nativeProviderRefs(context, {
+              providerItemId: tool.itemId,
+            }),
             raw: {
               source: "claude.sdk.message",
               method: "claude/user",
@@ -3579,9 +3603,20 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             return;
           case "status":
             if (message.status === "compacting") {
+              const isCompactionStart = context.activeCompaction === undefined;
+              const activeCompaction =
+                context.activeCompaction ??
+                (() => {
+                  const created = {
+                    itemId: RuntimeItemId.makeUnsafe(`claude-compaction:${base.eventId}`),
+                  };
+                  context.activeCompaction = created;
+                  return created;
+                })();
               yield* offerRuntimeEvent(context, {
                 ...base,
-                type: "item.updated",
+                type: isCompactionStart ? "item.started" : "item.updated",
+                itemId: activeCompaction.itemId,
                 payload: {
                   itemType: "context_compaction",
                   status: "inProgress",
@@ -3591,8 +3626,15 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 },
               });
             }
+            // A provider message may legitimately produce more than one
+            // canonical event, but the durable journal requires a globally
+            // unique eventId for each one. Reusing `base.eventId` here caused
+            // every compaction heartbeat's state event to be quarantined.
+            const stateStamp = yield* makeEventStamp();
             yield* offerRuntimeEvent(context, {
               ...base,
+              eventId: stateStamp.eventId,
+              createdAt: stateStamp.createdAt,
               type: "session.state.changed",
               payload: {
                 state: message.status === "compacting" ? "waiting" : "running",
@@ -3601,16 +3643,40 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               },
             });
             return;
-          case "compact_boundary":
+          case "compact_boundary": {
+            const compaction = context.activeCompaction ?? {
+              itemId: RuntimeItemId.makeUnsafe(`claude-compaction:${base.eventId}`),
+            };
             yield* offerRuntimeEvent(context, {
               ...base,
+              type: "item.completed",
+              itemId: compaction.itemId,
+              payload: {
+                itemType: "context_compaction",
+                status: "completed",
+                title: "Context compaction",
+                detail:
+                  message.compact_metadata.trigger === "auto"
+                    ? "Context compacted automatically"
+                    : "Context compacted manually",
+                data: message.compact_metadata,
+              },
+            });
+            const boundaryStamp = yield* makeEventStamp();
+            yield* offerRuntimeEvent(context, {
+              ...base,
+              eventId: boundaryStamp.eventId,
+              createdAt: boundaryStamp.createdAt,
               type: "thread.state.changed",
+              itemId: compaction.itemId,
               payload: {
                 state: "compacted",
                 detail: message,
               },
             });
+            context.activeCompaction = undefined;
             return;
+          }
           case "hook_started":
             yield* offerRuntimeEvent(context, {
               ...base,
@@ -4069,6 +4135,12 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               // transcript instead of replaying the same broken id forever.
               context.resumeSessionId = undefined;
               context.lastAssistantUuid = undefined;
+              context.session = {
+                ...context.session,
+                // `null` is an explicit tombstone. An omitted cursor only
+                // means an adapter snapshot did not refresh it.
+                resumeCursor: null,
+              };
               // The map is the source for `turn.tasks.updated`, so clearing it
               // silently would strand the turn's task chips: the next dispatch
               // sees an empty map and emits no correction.
@@ -4287,7 +4359,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const handleAskUserQuestion = (
           context: ClaudeSessionContext,
           toolInput: Record<string, unknown>,
-          callbackOptions: { readonly signal: AbortSignal; readonly toolUseID?: string },
+          callbackOptions: {
+            readonly signal: AbortSignal;
+            readonly toolUseID?: string;
+          },
         ) =>
           Effect.gen(function* () {
             const requestId = ApprovalRequestId.makeUnsafe(yield* Random.nextUUIDv4);
@@ -4348,7 +4423,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               pendingUserInputs.delete(requestId);
               Effect.runFork(Deferred.succeed(answersDeferred, {} as ProviderUserInputAnswers));
             };
-            callbackOptions.signal.addEventListener("abort", onAbort, { once: true });
+            callbackOptions.signal.addEventListener("abort", onAbort, {
+              once: true,
+            });
 
             // Block until the user provides answers.
             const answers = remapAnswersToClaudeQuestionText(
@@ -4715,7 +4792,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                         ...(result.isError === undefined ? {} : { isError: result.isError }),
                       };
                     },
-                    { annotations: PENKRA_EXEC_COMMAND_ANNOTATIONS, alwaysLoad: true },
+                    {
+                      annotations: PENKRA_EXEC_COMMAND_ANNOTATIONS,
+                      alwaysLoad: true,
+                    },
                   ),
                 ],
               }),
@@ -4923,6 +5003,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             lastKnownTokenUsage: undefined,
             lastAssistantUuid: resumeState?.resumeSessionAt,
             lastThreadStartedId: undefined,
+            activeCompaction: undefined,
             rerouteOriginalApiModelId: undefined,
             emittedContextUsageWarnings: new Set(),
             stopped: false,
@@ -5220,7 +5301,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               try: () =>
                 context.query.applyFlagSettings({
                   ...(effortChanged
-                    ? { effortLevel: requestedEffort as Exclude<ClaudeApiEffort, "max"> | null }
+                    ? {
+                        effortLevel: requestedEffort as Exclude<ClaudeApiEffort, "max"> | null,
+                      }
                     : {}),
                   ...(ultracodeChanged ? { ultracode: requestedUltracode ? true : null } : {}),
                   ...(fastModeChanged ? { fastMode: requestedFastMode ? true : null } : {}),
@@ -5280,7 +5363,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           threadId: context.session.threadId,
           turnId,
           payload: context.currentApiModelId
-            ? { model: stripClaudeContextWindowSuffix(context.currentApiModelId) }
+            ? {
+                model: stripClaudeContextWindowSuffix(context.currentApiModelId),
+              }
             : modelSelection?.model
               ? { model: modelSelection.model }
               : {},
@@ -5545,7 +5630,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       });
 
     // Native command discovery cache — avoids spawning a process per query.
-    let commandsCache: { result: ProviderListCommandsResult; cwd: string } | null = null;
+    let commandsCache: {
+      result: ProviderListCommandsResult;
+      cwd: string;
+    } | null = null;
     let pendingCommandDiscovery: Promise<ProviderListCommandsResult> | null = null;
 
     async function discoverCommandsViaTemporaryProcess(
@@ -5621,7 +5709,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
         // 2. Return from cache if valid and not force-reloading.
         if (commandsCache && commandsCache.cwd === input.cwd && !input.forceReload) {
-          return { ...commandsCache.result, cached: true } satisfies ProviderListCommandsResult;
+          return {
+            ...commandsCache.result,
+            cached: true,
+          } satisfies ProviderListCommandsResult;
         }
 
         // 3. Spawn a temporary process for discovery (deduplicating concurrent requests).

@@ -75,6 +75,17 @@ export interface ProviderConnectionRepositoryShape {
   readonly getRecord: (
     id: ProviderConnectionId,
   ) => Effect.Effect<Option.Option<ProviderConnectionRecord>, ProviderConnectionRepositoryError>;
+  readonly findManagedIdentity: (input: {
+    readonly harness: ProviderKind;
+    readonly authenticationTargetId: string;
+    readonly providerIdentityId: string;
+  }) => Effect.Effect<Option.Option<ProviderConnectionRecord>, ProviderConnectionRepositoryError>;
+  readonly listManagedProfilesForConnection: (
+    connectionId: ProviderConnectionId,
+  ) => Effect.Effect<
+    ReadonlyArray<ProviderCredentialProfileRecord>,
+    ProviderConnectionRepositoryError
+  >;
   readonly list: (input?: {
     readonly includeTerminated?: boolean;
   }) => Effect.Effect<ReadonlyArray<ProviderConnection>, ProviderConnectionRepositoryError>;

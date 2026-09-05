@@ -11,6 +11,7 @@
 import type {
   OrchestrationMessage,
   OrchestrationThread,
+  OrchestrationThreadActivity,
   OrchestrationThreadShell,
 } from "@penkra/contracts";
 
@@ -72,6 +73,7 @@ export interface AgentThreadListItem {
   readonly provider: string;
   readonly model: string;
   readonly status: AgentThreadStatus;
+  readonly lastError: string | null;
   readonly parentThreadId: string | null;
   readonly creationSource: string | null;
   readonly archived: boolean;
@@ -90,6 +92,7 @@ export function summarizeThreadShell(
     provider: thread.modelSelection.provider,
     model: thread.modelSelection.model,
     status: deriveAgentThreadStatus(thread),
+    lastError: thread.session?.lastError ?? null,
     parentThreadId: thread.parentThreadId ?? null,
     creationSource: thread.creationSource ?? null,
     archived: (thread.archivedAt ?? null) !== null,
@@ -103,6 +106,237 @@ export const READ_THREAD_MAX_MESSAGE_LIMIT = 100;
 export const READ_THREAD_DEFAULT_MESSAGE_CHARS = 1500;
 export const READ_THREAD_MAX_MESSAGE_CHARS = 20_000;
 export const WAIT_THREAD_SUMMARY_MAX_CHARS = 2_000;
+export const READ_THREAD_RESPONSE_TEXT_BUDGET = 20_000;
+export const READ_THREAD_DEFAULT_ITEM_LIMIT = 20;
+export const READ_THREAD_MAX_ITEM_LIMIT = 100;
+
+export type AgentTranscriptInclude =
+  | "messages"
+  | "tools"
+  | "approvals"
+  | "user-input"
+  | "tasks"
+  | "compaction"
+  | "turns";
+
+export interface AgentTranscriptCursorAnchor {
+  readonly itemType: "message" | "activity";
+  readonly itemId: string;
+  readonly charEnd?: number;
+}
+
+interface AgentTranscriptItemBase {
+  readonly turnId: string | null;
+  readonly sequence: number | null;
+  readonly createdAt: string;
+}
+
+export interface AgentTranscriptMessageItem extends AgentTranscriptItemBase {
+  readonly type: "message";
+  readonly messageId: string;
+  readonly role: string;
+  readonly text: string;
+  readonly textRange?: { readonly start: number; readonly end: number; readonly total: number };
+  readonly streaming: boolean;
+  readonly dispatchOrigin?: string;
+}
+
+export interface AgentTranscriptActivityItem extends AgentTranscriptItemBase {
+  readonly type: "tool" | "approval" | "user-input" | "task" | "compaction" | "turn";
+  readonly activityId: string;
+  readonly lifecycle: string;
+  readonly summary: string;
+  readonly detail: string;
+  readonly detailRange?: { readonly start: number; readonly end: number; readonly total: number };
+}
+
+export type AgentTranscriptItem = AgentTranscriptMessageItem | AgentTranscriptActivityItem;
+
+export interface AgentTranscriptPackedPage {
+  readonly items: ReadonlyArray<AgentTranscriptItem>;
+  readonly nextAnchor?: AgentTranscriptCursorAnchor;
+  readonly exhaustedPage: boolean;
+  readonly messageCount: number;
+}
+
+function activityInclude(activity: OrchestrationThreadActivity): {
+  readonly include: AgentTranscriptInclude;
+  readonly type: AgentTranscriptActivityItem["type"];
+} | null {
+  if (activity.kind.startsWith("tool.")) return { include: "tools", type: "tool" };
+  if (activity.kind.startsWith("approval.")) return { include: "approvals", type: "approval" };
+  if (activity.kind.startsWith("user-input.")) return { include: "user-input", type: "user-input" };
+  if (activity.kind.startsWith("task.")) return { include: "tasks", type: "task" };
+  if (activity.kind === "context-compaction") return { include: "compaction", type: "compaction" };
+  if (activity.kind.startsWith("turn.")) return { include: "turns", type: "turn" };
+  return null;
+}
+
+function transcriptOrder(
+  left: { readonly sequence: number | undefined; readonly createdAt: string; readonly id: string },
+  right: { readonly sequence: number | undefined; readonly createdAt: string; readonly id: string },
+): number {
+  if (
+    left.sequence !== undefined &&
+    right.sequence !== undefined &&
+    left.sequence !== right.sequence
+  ) {
+    return left.sequence - right.sequence;
+  }
+  if (left.sequence === undefined && right.sequence !== undefined) return -1;
+  if (left.sequence !== undefined && right.sequence === undefined) return 1;
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
+
+/**
+ * Pack one durable transcript page within a server-owned response budget.
+ * Long content is continued by an item identity plus character offset; text is
+ * never rewritten with a truncation marker and no suffix becomes unreachable.
+ */
+export function packAgentTranscriptPage(input: {
+  readonly messages: ReadonlyArray<OrchestrationMessage>;
+  readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
+  readonly include?: ReadonlySet<AgentTranscriptInclude>;
+  readonly anchor?: AgentTranscriptCursorAnchor;
+  readonly limit?: number;
+  readonly textBudget?: number;
+}): AgentTranscriptPackedPage {
+  const include =
+    input.include ??
+    new Set<AgentTranscriptInclude>([
+      "messages",
+      "tools",
+      "approvals",
+      "user-input",
+      "tasks",
+      "compaction",
+      "turns",
+    ]);
+  const source = [
+    ...(include.has("messages")
+      ? input.messages.map((message) => ({
+          itemType: "message" as const,
+          id: message.id as string,
+          sequence:
+            message.delivery?.queued === true &&
+            message.delivery.state !== "queued" &&
+            message.delivery.sequence !== undefined
+              ? message.delivery.sequence
+              : message.sequence,
+          createdAt: message.createdAt,
+          message,
+        }))
+      : []),
+    ...input.activities.flatMap((activity) => {
+      const classified = activityInclude(activity);
+      return classified && include.has(classified.include)
+        ? [
+            {
+              itemType: "activity" as const,
+              id: activity.id as string,
+              sequence: activity.sequence,
+              createdAt: activity.createdAt,
+              activity,
+              classified,
+            },
+          ]
+        : [];
+    }),
+  ].toSorted(transcriptOrder);
+
+  let index = source.length - 1;
+  if (input.anchor) {
+    index = source.findIndex(
+      (item) => item.itemType === input.anchor!.itemType && item.id === input.anchor!.itemId,
+    );
+  }
+  if (index < 0) {
+    return { items: [], exhaustedPage: true, messageCount: 0 };
+  }
+
+  const itemLimit = Math.max(
+    1,
+    Math.min(input.limit ?? READ_THREAD_DEFAULT_ITEM_LIMIT, READ_THREAD_MAX_ITEM_LIMIT),
+  );
+  let budget = Math.max(1, input.textBudget ?? READ_THREAD_RESPONSE_TEXT_BUDGET);
+  const reversed: AgentTranscriptItem[] = [];
+  let nextAnchor: AgentTranscriptCursorAnchor | undefined;
+  let messageCount = 0;
+
+  for (; index >= 0 && reversed.length < itemLimit && budget > 0; index -= 1) {
+    const item = source[index]!;
+    if (item.itemType === "message") {
+      const end =
+        input.anchor?.itemType === "message" && input.anchor.itemId === item.id
+          ? Math.min(input.anchor.charEnd ?? item.message.text.length, item.message.text.length)
+          : item.message.text.length;
+      const start = Math.max(0, end - budget);
+      const text = item.message.text.slice(start, end);
+      reversed.push({
+        type: "message",
+        messageId: item.message.id,
+        turnId: item.message.turnId ?? null,
+        sequence: item.sequence ?? null,
+        role: item.message.role,
+        text,
+        ...(start > 0 || end < item.message.text.length
+          ? { textRange: { start, end, total: item.message.text.length } }
+          : {}),
+        streaming: item.message.streaming,
+        ...(item.message.dispatchOrigin !== undefined
+          ? { dispatchOrigin: item.message.dispatchOrigin }
+          : {}),
+        createdAt: item.message.createdAt,
+      });
+      messageCount += 1;
+      budget -= text.length;
+      if (start > 0) {
+        nextAnchor = { itemType: "message", itemId: item.id, charEnd: start };
+        break;
+      }
+      continue;
+    }
+
+    const serializedPayload = JSON.stringify(item.activity.payload, null, 2);
+    const content = serializedPayload === undefined ? "" : serializedPayload;
+    const end =
+      input.anchor?.itemType === "activity" && input.anchor.itemId === item.id
+        ? Math.min(input.anchor.charEnd ?? content.length, content.length)
+        : content.length;
+    const start = Math.max(0, end - budget);
+    const detail = content.slice(start, end);
+    reversed.push({
+      type: item.classified.type,
+      activityId: item.activity.id,
+      turnId: item.activity.turnId ?? null,
+      sequence: item.activity.sequence ?? null,
+      lifecycle: item.activity.kind,
+      summary: item.activity.summary,
+      detail,
+      ...(start > 0 || end < content.length
+        ? { detailRange: { start, end, total: content.length } }
+        : {}),
+      createdAt: item.activity.createdAt,
+    });
+    budget -= detail.length;
+    if (start > 0) {
+      nextAnchor = { itemType: "activity", itemId: item.id, charEnd: start };
+      break;
+    }
+  }
+
+  if (!nextAnchor && index >= 0 && reversed.length > 0) {
+    const next = source[index]!;
+    nextAnchor = { itemType: next.itemType, itemId: next.id };
+  }
+
+  return {
+    items: reversed.reverse(),
+    ...(nextAnchor ? { nextAnchor } : {}),
+    exhaustedPage: nextAnchor === undefined,
+    messageCount,
+  };
+}
 
 export interface AgentThreadMessageSummary {
   readonly index: number;

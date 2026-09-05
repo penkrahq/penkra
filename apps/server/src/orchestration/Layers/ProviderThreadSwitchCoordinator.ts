@@ -302,9 +302,15 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         if (input.targetGenerationId === null) {
           return yield* fail("The native provider switch has no target state generation.");
         }
-        yield* materializer
-          .finalize(input.targetGenerationId)
-          .pipe(mapOperationError("Could not finalize the committed provider-switch state."));
+        const preparation =
+          input.verificationJson === null
+            ? null
+            : yield* decodeVerification(input.verificationJson);
+        if (preparation?.kind !== "reconstructed") {
+          yield* materializer
+            .finalize(input.targetGenerationId)
+            .pipe(mapOperationError("Could not finalize the committed provider-switch state."));
+        }
       }
       return result;
     }
@@ -323,13 +329,31 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             runtimeMode: (input.command.runtimeMode ?? "full-access") as RuntimeMode,
           })
           .pipe(
-            Effect.mapError(
-              (cause) =>
-                new ProviderThreadSwitchCoordinatorError({
-                  detail: cause.message,
-                  cause,
+            Effect.catch((cause) => {
+              const preparedAt = new Date().toISOString();
+              return Effect.logWarning(
+                "provider switch falling back to deterministic transcript reconstruction",
+                {
+                  threadId: input.command.threadId,
+                  harness: selection.harness,
+                  targetConnectionId: selection.connectionId,
+                  cause: cause.message,
+                },
+              ).pipe(
+                Effect.as({
+                  kind: "reconstructed" as const,
+                  generationId: input.targetGenerationId!,
+                  adapterSchemaVersion: "penkra-reconstructed-continuation-v1",
+                  stateManifestJson: JSON.stringify({
+                    format: "penkra-reconstructed-continuation-v1",
+                    reason: cause.message,
+                  }),
+                  providerSessionId: null,
+                  nativeStateLocatorJson: '{"penkraReconstruction":true}',
+                  verifiedAt: preparedAt,
                 }),
-            ),
+              );
+            }),
           );
         verificationJson = JSON.stringify(verified);
       }
@@ -420,9 +444,11 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
       if (input.targetGenerationId === null) {
         return yield* fail("The native provider switch has no target state generation.");
       }
-      yield* materializer
-        .finalize(input.targetGenerationId)
-        .pipe(mapOperationError("Could not finalize the committed provider-switch state."));
+      if (verified?.kind !== "reconstructed") {
+        yield* materializer
+          .finalize(input.targetGenerationId)
+          .pipe(mapOperationError("Could not finalize the committed provider-switch state."));
+      }
     }
     return result;
   });

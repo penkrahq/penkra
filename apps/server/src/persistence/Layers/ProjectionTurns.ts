@@ -1,4 +1,4 @@
-import { ThreadId, TurnId } from "@penkra/contracts";
+import { MessageId, ThreadId, TurnId } from "@penkra/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { Effect, Layer, Option, Schema } from "effect";
@@ -23,6 +23,7 @@ const ProjectionTurnByIdDbRowSchema = ProjectionTurnById;
 const ProjectionWaitTurnDbRowSchema = Schema.Struct({
   threadId: ThreadId,
   turnId: Schema.NullOr(TurnId),
+  assistantMessageId: Schema.NullOr(MessageId),
   state: Schema.NullOr(ProjectionTurnState),
 });
 
@@ -213,6 +214,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
             SELECT
               threads.thread_id AS "threadId",
               turns.turn_id AS "turnId",
+              turns.assistant_message_id AS "assistantMessageId",
               turns.state
             FROM projection_threads AS threads
             LEFT JOIN projection_turns AS turns
@@ -225,6 +227,7 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
             SELECT
               threads.thread_id AS "threadId",
               NULL AS "turnId",
+              NULL AS "assistantMessageId",
               NULL AS state
             FROM projection_threads AS threads
             WHERE threads.thread_id IN ${sql.in(threadIds)}
@@ -343,7 +346,14 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
           row.turnId !== null &&
           row.state !== null &&
           requested.has(`${row.threadId}\u0000${row.turnId}`)
-            ? [{ threadId: row.threadId, turnId: row.turnId, state: row.state }]
+            ? [
+                {
+                  threadId: row.threadId,
+                  turnId: row.turnId,
+                  assistantMessageId: row.assistantMessageId,
+                  state: row.state,
+                },
+              ]
             : [],
         ),
       })),

@@ -145,7 +145,9 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         updatedAt: "2026-07-09T00:00:10.000Z",
       });
 
-      const persisted = yield* states.getByProjector({ projector: "projection.hot" });
+      const persisted = yield* states.getByProjector({
+        projector: "projection.hot",
+      });
       assert.deepStrictEqual(Option.getOrNull(persisted), {
         projector: "projection.hot",
         lastAppliedSequence: 20,
@@ -224,6 +226,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         {
           threadId: ThreadId.makeUnsafe("thread-wait-active"),
           turnId: TurnId.makeUnsafe("turn-wait-active"),
+          assistantMessageId: null,
           state: "running",
         },
       ]);

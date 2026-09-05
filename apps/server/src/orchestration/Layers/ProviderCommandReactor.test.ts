@@ -182,6 +182,7 @@ describe("ProviderCommandReactor", () => {
     readonly stopSession?: ProviderServiceShape["stopSession"];
     readonly commandEventTimeout?: Duration.Duration;
     readonly queuedTurnRecoveryInterval?: Duration.Duration;
+    readonly nativeStateLocatorJson?: string;
   }) {
     const now = new Date().toISOString();
     const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "penkra-reactor-"));
@@ -476,7 +477,7 @@ describe("ProviderCommandReactor", () => {
               nativeStateGenerationId:
                 ProviderNativeStateGenerationId.makeUnsafe("test-native-generation"),
               providerSessionId: null,
-              nativeStateLocatorJson: "null",
+              nativeStateLocatorJson: input?.nativeStateLocatorJson ?? "null",
               lastVerifiedResumeAt: null,
               revision: 0,
               createdAt: "2026-08-08T00:00:00.000Z",
@@ -816,6 +817,103 @@ describe("ProviderCommandReactor", () => {
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
     return readModel.threads.find((thread) => thread.id === threadId);
   }
+
+  it.each([
+    ["codex", "gpt-5.5"],
+    ["claudeAgent", "claude-sonnet-5"],
+    ["opencode", "opencode-go/kimi-k2.5"],
+  ] as const)(
+    "reconstructs a fresh %s continuation from the latest compaction boundary",
+    async (provider, model) => {
+      const harness = await createHarness({
+        nativeStateLocatorJson: JSON.stringify({ penkraReconstruction: true }),
+        threadModelSelection: { provider, model },
+      });
+      const threadId = ThreadId.makeUnsafe("thread-1");
+      const beforeCompaction = "2026-08-08T00:00:01.000Z";
+      const compactedAt = "2026-08-08T00:00:02.000Z";
+      const afterCompaction = "2026-08-08T00:00:03.000Z";
+      const currentAt = "2026-08-08T00:00:04.000Z";
+
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.messages.import",
+          commandId: CommandId.makeUnsafe("cmd-reconstruction-import-before"),
+          threadId,
+          messages: [
+            {
+              messageId: asMessageId("message-before-compaction"),
+              role: "user",
+              text: "secret history before the retained boundary",
+              createdAt: beforeCompaction,
+              updatedAt: beforeCompaction,
+            },
+          ],
+          createdAt: beforeCompaction,
+        }),
+      );
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.makeUnsafe("cmd-reconstruction-compaction"),
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-reconstruction-compaction"),
+            tone: "info",
+            kind: "context-compaction",
+            summary: "Context compacted",
+            payload: {},
+            turnId: null,
+            createdAt: compactedAt,
+          },
+          createdAt: compactedAt,
+        }),
+      );
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.messages.import",
+          commandId: CommandId.makeUnsafe("cmd-reconstruction-import-after"),
+          threadId,
+          messages: [
+            {
+              messageId: asMessageId("message-after-compaction"),
+              role: "assistant",
+              text: "retained answer after compaction",
+              createdAt: afterCompaction,
+              updatedAt: afterCompaction,
+            },
+          ],
+          createdAt: afterCompaction,
+        }),
+      );
+
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          connectionId: TEST_CONNECTION_ID,
+          bindingRevision: 0,
+          commandId: CommandId.makeUnsafe("cmd-reconstruction-current-turn"),
+          threadId,
+          message: {
+            messageId: asMessageId("message-reconstruction-current"),
+            role: "user",
+            text: "Continue with the current request",
+            attachments: [],
+          },
+          runtimeMode: "approval-required",
+          createdAt: currentAt,
+        }),
+      );
+
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      const sent = harness.sendTurn.mock.calls[0]?.[0] as { readonly input?: string } | undefined;
+      expect(sent?.input).toContain("<penkra-reconstructed-continuation>");
+      expect(sent?.input).toContain("retained answer after compaction");
+      expect(sent?.input).toContain("Continue with the current request");
+      expect(sent?.input).toContain("penkra threads read --thread-id thread-1");
+      expect(sent?.input).not.toContain("secret history before the retained boundary");
+    },
+  );
 
   it("continues an interrupted turn without persisting a synthetic user message", async () => {
     const harness = await createHarness();

@@ -145,7 +145,9 @@ function makeFakeCodexAdapter(
           status: "ready",
           runtimeMode: input.runtimeMode,
           threadId: input.threadId,
-          resumeCursor: input.resumeCursor ?? { opaque: `resume-${String(input.threadId)}` },
+          resumeCursor: input.resumeCursor ?? {
+            opaque: `resume-${String(input.threadId)}`,
+          },
           cwd: input.cwd ?? process.cwd(),
           createdAt: now,
           updatedAt: now,
@@ -444,7 +446,10 @@ const managedLaunch = {
   isolationKey: "managed:test",
   profileRoot: "/managed/profile",
   nativeStateRoot: "/managed/native",
-  childEnvironment: (baseEnv: NodeJS.ProcessEnv) => ({ ...baseEnv, CODEX_HOME: "/managed/home" }),
+  childEnvironment: (baseEnv: NodeJS.ProcessEnv) => ({
+    ...baseEnv,
+    CODEX_HOME: "/managed/home",
+  }),
 };
 const resolveManagedLaunch = vi.fn(() => Effect.succeed(managedLaunch));
 const managedRouting = makeProviderServiceLayer({ resolveManagedLaunch });
@@ -494,7 +499,9 @@ it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", (
 
     const runtime = yield* Effect.gen(function* () {
       const repository = yield* ProviderSessionRuntimeRepository;
-      return yield* repository.getByThreadId({ threadId: asThreadId("thread-stale") });
+      return yield* repository.getByThreadId({
+        threadId: asThreadId("thread-stale"),
+      });
     }).pipe(Effect.provide(runtimeRepositoryLayer));
     assert.equal(Option.isSome(runtime), true);
 
@@ -643,7 +650,9 @@ it.effect(
 
       const persistedAfterStopAll = yield* Effect.gen(function* () {
         const repository = yield* ProviderSessionRuntimeRepository;
-        return yield* repository.getByThreadId({ threadId: startedSession.threadId });
+        return yield* repository.getByThreadId({
+          threadId: startedSession.threadId,
+        });
       }).pipe(Effect.provide(runtimeRepositoryLayer));
       assert.equal(Option.isSome(persistedAfterStopAll), true);
       if (Option.isSome(persistedAfterStopAll)) {
@@ -1308,7 +1317,10 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const startInput = routing.claude.startSession.mock.calls[0]?.[0];
       assert.equal(typeof startInput === "object" && startInput !== null, true);
       if (startInput && typeof startInput === "object") {
-        const startPayload = startInput as { provider?: string; cwd?: string };
+        const startPayload = startInput as {
+          provider?: string;
+          cwd?: string;
+        };
         assert.equal(startPayload.provider, "claudeAgent");
         assert.equal(startPayload.cwd, "/tmp/project-claude");
       }
@@ -1542,7 +1554,10 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const newerTurnId = asTurnId("turn-overlapping-newer");
       const olderResumeCursor = { cursor: "older-resume" };
       const newerResumeCursor = { cursor: "newer-resume" };
-      const olderModelSelection = { provider: "codex" as const, model: "gpt-5.1-codex-mini" };
+      const olderModelSelection = {
+        provider: "codex" as const,
+        model: "gpt-5.1-codex-mini",
+      };
       const newerModelSelection = {
         provider: "opencode" as const,
         model: "opencode/minimax-m2.5-free",
@@ -1605,7 +1620,11 @@ routing.layer("ProviderServiceLive routing", (it) => {
       if (!release) {
         assert.fail("Expected delayed older dispatch release callback");
       }
-      release({ threadId, turnId: olderTurnId, resumeCursor: olderResumeCursor });
+      release({
+        threadId,
+        turnId: olderTurnId,
+        resumeCursor: olderResumeCursor,
+      });
       yield* Fiber.join(olderSendFiber);
 
       const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
@@ -1654,7 +1673,11 @@ routing.layer("ProviderServiceLive routing", (it) => {
         .pipe(Effect.forkChild);
       yield* waitUntil(() => releaseOlder !== undefined, 500, 20, "older dispatch start");
       yield* provider.sendTurn({ threadId, input: "newer", attachments: [] });
-      releaseOlder?.({ threadId, turnId: olderTurnId, resumeCursor: { cursor: "older" } });
+      releaseOlder?.({
+        threadId,
+        turnId: olderTurnId,
+        resumeCursor: { cursor: "older" },
+      });
       yield* Fiber.join(olderFiber);
 
       const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
@@ -1671,7 +1694,10 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const threadId = asThreadId("thread-promote-older-success");
       const olderTurnId = asTurnId("turn-promoted-older");
       const olderCursor = { cursor: "promoted-older" };
-      const olderModelSelection = { provider: "codex" as const, model: "gpt-5-codex" };
+      const olderModelSelection = {
+        provider: "codex" as const,
+        model: "gpt-5-codex",
+      };
       const newerFailure = new ProviderAdapterSessionNotFoundError({
         provider: "codex",
         threadId,
@@ -1716,7 +1742,11 @@ routing.layer("ProviderServiceLive routing", (it) => {
         .pipe(Effect.forkChild);
       yield* waitUntil(() => failNewer !== undefined, 500, 20, "newer dispatch start");
 
-      releaseOlder?.({ threadId, turnId: olderTurnId, resumeCursor: olderCursor });
+      releaseOlder?.({
+        threadId,
+        turnId: olderTurnId,
+        resumeCursor: olderCursor,
+      });
       yield* Fiber.join(olderFiber);
       const beforeNewerFailure = Option.getOrUndefined(yield* directory.getBinding(threadId));
       const beforeFailurePayload = beforeNewerFailure?.runtimePayload as
@@ -1766,12 +1796,20 @@ routing.layer("ProviderServiceLive routing", (it) => {
         .mockImplementationOnce(() => Effect.fail(persistenceFailure));
 
       const failedResult = yield* Effect.result(
-        provider.sendTurn({ threadId, input: "fails to persist", attachments: [] }),
+        provider.sendTurn({
+          threadId,
+          input: "fails to persist",
+          attachments: [],
+        }),
       );
       assertFailure(failedResult, persistenceFailure);
       upsertSpy.mockRestore();
 
-      yield* provider.sendTurn({ threadId, input: "next turn", attachments: [] });
+      yield* provider.sendTurn({
+        threadId,
+        input: "next turn",
+        attachments: [],
+      });
       yield* routing.codex.waitForRuntimeSubscribers();
       routing.codex.emit({
         type: "turn.completed",
@@ -1806,7 +1844,11 @@ routing.layer("ProviderServiceLive routing", (it) => {
       routing.codex.sendTurn.mockImplementationOnce((input) =>
         Effect.succeed({ threadId: input.threadId, turnId }),
       );
-      yield* provider.sendTurn({ threadId, input: "spawn a subagent", attachments: [] });
+      yield* provider.sendTurn({
+        threadId,
+        input: "spawn a subagent",
+        attachments: [],
+      });
       yield* routing.codex.waitForRuntimeSubscribers();
 
       // A stopped subagent completes its child turn and flips its child session
@@ -1891,7 +1933,10 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const reviewTurnId = asTurnId("turn-newer-review");
       const staleSteerCursor = { cursor: "stale-steer-resume" };
       const reviewCursor = { cursor: "newer-review-resume" };
-      const initialModelSelection = { provider: "codex" as const, model: "gpt-5-codex" };
+      const initialModelSelection = {
+        provider: "codex" as const,
+        model: "gpt-5-codex",
+      };
       const staleSteerModelSelection = {
         provider: "opencode" as const,
         model: "opencode/minimax-m2.5-free",
@@ -1941,7 +1986,11 @@ routing.layer("ProviderServiceLive routing", (it) => {
       if (!release) {
         assert.fail("Expected delayed steer release callback");
       }
-      release({ threadId, turnId: staleSteerTurnId, resumeCursor: staleSteerCursor });
+      release({
+        threadId,
+        turnId: staleSteerTurnId,
+        resumeCursor: staleSteerCursor,
+      });
       yield* Fiber.join(steerFiber);
 
       const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
@@ -1998,6 +2047,53 @@ routing.layer("ProviderServiceLive routing", (it) => {
       if (Option.isSome(runtime)) {
         assert.deepEqual(runtime.value.resumeCursor, updatedResumeCursor);
       }
+    }),
+  );
+
+  it.effect("does not resurrect a cursor deliberately invalidated by the active adapter", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const threadId = asThreadId("thread-runtime-resume-invalidated");
+
+      const session = yield* provider.startSession(threadId, {
+        provider: "claudeAgent",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const turn = yield* provider.sendTurn({
+        threadId,
+        input: "continue",
+        attachments: [],
+      });
+      routing.claude.updateSession(threadId, (existing) => ({
+        ...existing,
+        resumeCursor: null,
+      }));
+      routing.claude.emit({
+        type: "turn.completed",
+        eventId: asEventId("runtime-resume-invalidated-completed"),
+        provider: "claudeAgent",
+        createdAt: "2026-09-03T11:00:00.000Z",
+        threadId,
+        turnId: turn.turnId,
+        payload: { status: "failed", error: "No conversation found" },
+      });
+
+      yield* waitUntilEffect(
+        () =>
+          runtimeRepository
+            .getByThreadId({ threadId })
+            .pipe(Effect.map(Option.exists((runtime) => runtime.resumeCursor === null))),
+        500,
+        20,
+        "invalidated resume cursor persistence",
+      );
+      const runtime = yield* runtimeRepository.getByThreadId({
+        threadId: session.threadId,
+      });
+      assert.equal(Option.isSome(runtime), true);
+      if (Option.isSome(runtime)) assert.equal(runtime.value.resumeCursor, null);
     }),
   );
 
@@ -2339,7 +2435,9 @@ routing.layer("ProviderServiceLive routing", (it) => {
         });
         assert.equal(typeof provider.clearSessionResumeCursor, "function");
         if (provider.clearSessionResumeCursor) {
-          yield* provider.clearSessionResumeCursor({ threadId: session.threadId });
+          yield* provider.clearSessionResumeCursor({
+            threadId: session.threadId,
+          });
         }
         return session;
       }).pipe(Effect.provide(firstProviderLayer));
@@ -2551,8 +2649,11 @@ managedRouting.layer("ProviderService managed launch enforcement", (it) => {
         resumeCursor: { threadId: `native-fork-${targetThreadId}` },
       });
       assert.strictEqual(
-        (managedRouting.codex.forkThread.mock.calls[0]?.[0] as { managedLaunch?: unknown })
-          .managedLaunch,
+        (
+          managedRouting.codex.forkThread.mock.calls[0]?.[0] as {
+            managedLaunch?: unknown;
+          }
+        ).managedLaunch,
         managedLaunch,
       );
     }),
@@ -2657,7 +2758,11 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
           Effect.succeed({ threadId: input.threadId, turnId: secondTurnId }),
         );
       yield* provider.sendTurn({ threadId, input: "first", attachments: [] });
-      yield* provider.sendTurn({ threadId, input: "second", attachments: [] });
+      yield* provider.sendTurn({
+        threadId,
+        input: "second",
+        attachments: [],
+      });
 
       idleCleanup.codex.stopSession.mockClear();
       yield* idleCleanup.codex.waitForRuntimeSubscribers();
@@ -3184,7 +3289,9 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       yield* sleep(100);
 
       assert.equal(idleCleanup.codex.stopSession.mock.calls.length, 1);
-      const persistedAfter = yield* runtimeRepository.getByThreadId({ threadId });
+      const persistedAfter = yield* runtimeRepository.getByThreadId({
+        threadId,
+      });
       assert.equal(Option.isSome(persistedAfter), true);
       if (Option.isSome(persistedAfter)) {
         assert.equal(persistedAfter.value.status, "running");
@@ -3801,7 +3908,10 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
       yield* Fiber.join(consumer);
       const received = yield* Ref.get(receivedRef);
       assert.deepEqual(
-        received.map((event) => ({ eventId: event.eventId, payload: event.payload })),
+        received.map((event) => ({
+          eventId: event.eventId,
+          payload: event.payload,
+        })),
         [
           {
             eventId: asEventId("evt-repeated-delta-1"),
@@ -4048,7 +4158,9 @@ validation.layer("ProviderServiceLive validation", (it) => {
   );
 });
 
-const boundedFanout = makeProviderServiceLayer({ runtimeEventBufferCapacity: 1 });
+const boundedFanout = makeProviderServiceLayer({
+  runtimeEventBufferCapacity: 1,
+});
 const shutdownDrain = makeProviderServiceLayer();
 shutdownDrain.layer("ProviderServiceLive shutdown drain", (it) => {
   it.effect("drains adapter events before closing their consumers", () =>

@@ -636,7 +636,7 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
   );
 
   it.effect(
-    "keeps a failed continuation scoped to the thread without changing provider activation",
+    "falls back to a thread-local reconstructed continuation without changing provider activation",
     () =>
       Effect.gen(function* () {
         yield* prepareRuntimeUpgrade();
@@ -666,58 +666,69 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
           provider: "opencode",
         });
 
-        assert.strictEqual(result._tag, "Failure");
-        assert.strictEqual(dispatchCount, 0);
+        assert.strictEqual(result._tag, "Success");
+        assert.strictEqual(dispatchCount, 1);
         assert.strictEqual(repositoryActiveInstallationId, targetInstallationId);
         assert.strictEqual(activation?.active.installationId, targetInstallationId);
         assert.strictEqual(activation?.previous?.installationId, installationId);
         assert.strictEqual(activation?.rejected, null);
-        assert.match(currentOperation()?.failureReason ?? "", /resume rejected/);
+        assert.strictEqual(currentOperation()?.state, "committed");
+        assert.strictEqual(currentOperation()?.failureReason, null);
+        assert.strictEqual(
+          JSON.parse(currentOperation()?.verificationJson ?? "{}").kind,
+          "reconstructed",
+        );
+        assert.deepInclude(
+          (acceptedProviderSwitchContext as { commit: { input: object } }).commit.input,
+          {
+            providerSessionId: null,
+            nativeStateLocatorJson: '{"penkraReconstruction":true}',
+          },
+        );
         verificationFails = false;
         runtimeUpgradeSelection = false;
       }),
   );
 
-  it.effect(
-    "does not reactivate an unrelated predecessor when a thread-local migration fails",
-    () =>
-      Effect.gen(function* () {
-        yield* prepareRuntimeUpgradeWithIntermediatePredecessor();
-        hasBinding = true;
-        activeTurn = false;
-        operation = undefined;
-        runtimeUpgradeSelection = true;
-        verificationFails = true;
-        dispatchCount = 0;
-        order.length = 0;
-        const coordinator = yield* ProviderThreadSwitchCoordinator;
+  it.effect("does not reactivate an unrelated predecessor when migration reconstructs", () =>
+    Effect.gen(function* () {
+      yield* prepareRuntimeUpgradeWithIntermediatePredecessor();
+      hasBinding = true;
+      activeTurn = false;
+      operation = undefined;
+      runtimeUpgradeSelection = true;
+      verificationFails = true;
+      dispatchCount = 0;
+      order.length = 0;
+      const coordinator = yield* ProviderThreadSwitchCoordinator;
 
-        const result = yield* Effect.exit(
-          coordinator.dispatchTurnStart({
-            command: {
-              ...command,
-              commandId: CommandId.makeUnsafe("command-runtime-upgrade-intermediate-fallback"),
-              connectionId: undefined,
-              bindingRevision: undefined,
-              modelSelection: undefined,
-            },
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          }),
-        );
-        const activation = yield* readManagedProviderRuntimeActivation({
-          stateDir: runtimeStateDir,
-          provider: "opencode",
-        });
+      const result = yield* Effect.exit(
+        coordinator.dispatchTurnStart({
+          command: {
+            ...command,
+            commandId: CommandId.makeUnsafe("command-runtime-upgrade-intermediate-fallback"),
+            connectionId: undefined,
+            bindingRevision: undefined,
+            modelSelection: undefined,
+          },
+          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+        }),
+      );
+      const activation = yield* readManagedProviderRuntimeActivation({
+        stateDir: runtimeStateDir,
+        provider: "opencode",
+      });
 
-        assert.strictEqual(result._tag, "Failure");
-        assert.strictEqual(dispatchCount, 0);
-        assert.strictEqual(repositoryActiveInstallationId, targetInstallationId);
-        assert.strictEqual(activation?.active.installationId, targetInstallationId);
-        assert.strictEqual(activation?.previous?.installationId, intermediateInstallationId);
-        assert.strictEqual(activation?.rejected, null);
-        verificationFails = false;
-        runtimeUpgradeSelection = false;
-      }),
+      assert.strictEqual(result._tag, "Success");
+      assert.strictEqual(dispatchCount, 1);
+      assert.strictEqual(repositoryActiveInstallationId, targetInstallationId);
+      assert.strictEqual(activation?.active.installationId, targetInstallationId);
+      assert.strictEqual(activation?.previous?.installationId, intermediateInstallationId);
+      assert.strictEqual(activation?.rejected, null);
+      assert.strictEqual(currentOperation()?.state, "committed");
+      verificationFails = false;
+      runtimeUpgradeSelection = false;
+    }),
   );
 
   it.effect("resolves and commits the default initial binding with the first message", () =>

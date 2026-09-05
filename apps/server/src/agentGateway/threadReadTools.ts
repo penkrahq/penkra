@@ -1,8 +1,10 @@
 import {
   PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
+  SpaceId,
   ThreadId,
   TurnId,
   type OrchestrationThreadShell,
+  type OrchestrationGetThreadTurnsPageResult,
   type ProviderKind,
 } from "@penkra/contracts";
 import { Effect, Option } from "effect";
@@ -20,12 +22,17 @@ import {
 } from "./targetResolver.ts";
 import {
   deriveAgentThreadStatus,
-  summarizeThreadDetail,
   summarizeThreadShell,
   summarizeWaitThreadText,
+  packAgentTranscriptPage,
+  READ_THREAD_DEFAULT_ITEM_LIMIT,
+  READ_THREAD_MAX_ITEM_LIMIT,
+  type AgentTranscriptCursorAnchor,
+  type AgentTranscriptInclude,
   WAIT_THREAD_SUMMARY_MAX_CHARS,
 } from "./threadSummary.ts";
 import { resolveAuthoritativeActiveTurn } from "./activeExecution.ts";
+import { requireThreadSpaceId } from "./threadSpaceContext.ts";
 import {
   decodeWaitForThreadsInput,
   errorText,
@@ -44,8 +51,172 @@ import {
 } from "./toolRuntime.ts";
 
 const LIST_THREADS_DEFAULT_LIMIT = 50;
-const LIST_THREADS_MAX_LIMIT = 200;
+const LIST_THREADS_MAX_PAGE_SIZE = 100;
 const CAPABILITIES_RESPONSE_MAX_CHARS = 40_000;
+const AGENT_THREAD_STATUSES = [
+  "working",
+  "idle",
+  "waiting-for-approval",
+  "waiting-for-user-input",
+  "interrupted",
+  "error",
+] as const;
+const THREAD_CREATED_BY_VALUES = ["human", "penkra-mcp", "provider-native"] as const;
+
+interface ThreadListCursor {
+  readonly updatedAt: string;
+  readonly threadId: string;
+}
+
+interface ThreadReadCursor {
+  readonly version: 1;
+  readonly threadId: string;
+  readonly pageBefore: string | null;
+  readonly anchor?: AgentTranscriptCursorAnchor;
+}
+
+interface ThreadSearchCursor {
+  readonly version: 1;
+  readonly mode: "search";
+  readonly query: string;
+  readonly threadId: string | null;
+  readonly folderId: string | null;
+  readonly spaceId: string;
+  readonly anchor: {
+    readonly createdAt: string;
+    readonly threadId: string;
+    readonly messageId: string;
+  };
+}
+
+function encodeThreadReadCursor(cursor: ThreadReadCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeThreadReadCursor(
+  value: string | undefined,
+  threadId: string,
+): ThreadReadCursor | undefined {
+  if (value === undefined) return undefined;
+  try {
+    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as unknown;
+    if (
+      !decoded ||
+      typeof decoded !== "object" ||
+      Array.isArray(decoded) ||
+      (decoded as ThreadReadCursor).version !== 1 ||
+      (decoded as ThreadReadCursor).threadId !== threadId ||
+      !(
+        (decoded as ThreadReadCursor).pageBefore === null ||
+        typeof (decoded as ThreadReadCursor).pageBefore === "string"
+      )
+    ) {
+      throw new Error("invalid shape");
+    }
+    return decoded as ThreadReadCursor;
+  } catch {
+    throw new ToolInputError('Argument "cursor" is not a valid cursor for this Thread.');
+  }
+}
+
+function encodeThreadSearchCursor(cursor: ThreadSearchCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeThreadSearchCursor(
+  value: string | undefined,
+  expected: Omit<ThreadSearchCursor, "version" | "mode" | "anchor">,
+): ThreadSearchCursor | undefined {
+  if (value === undefined) return undefined;
+  try {
+    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as unknown;
+    const cursor = decoded as ThreadSearchCursor;
+    if (
+      !decoded ||
+      typeof decoded !== "object" ||
+      Array.isArray(decoded) ||
+      cursor.version !== 1 ||
+      cursor.mode !== "search" ||
+      cursor.query !== expected.query ||
+      cursor.threadId !== expected.threadId ||
+      cursor.folderId !== expected.folderId ||
+      cursor.spaceId !== expected.spaceId ||
+      !cursor.anchor ||
+      typeof cursor.anchor.createdAt !== "string" ||
+      typeof cursor.anchor.threadId !== "string" ||
+      typeof cursor.anchor.messageId !== "string"
+    ) {
+      throw new Error("invalid shape");
+    }
+    return cursor;
+  } catch {
+    throw new ToolInputError('Argument "cursor" is not valid for this transcript search.');
+  }
+}
+
+const isAfterSearchAnchor = (
+  candidate: {
+    readonly createdAt: string;
+    readonly threadId: string;
+    readonly messageId: string;
+  },
+  anchor: ThreadSearchCursor["anchor"],
+) =>
+  candidate.createdAt < anchor.createdAt ||
+  (candidate.createdAt === anchor.createdAt && candidate.threadId < anchor.threadId) ||
+  (candidate.createdAt === anchor.createdAt &&
+    candidate.threadId === anchor.threadId &&
+    candidate.messageId < anchor.messageId);
+
+const AGENT_TRANSCRIPT_INCLUDES: ReadonlyArray<AgentTranscriptInclude> = [
+  "messages",
+  "tools",
+  "approvals",
+  "user-input",
+  "tasks",
+  "compaction",
+  "turns",
+];
+
+function readTranscriptIncludes(value: string | undefined): ReadonlySet<AgentTranscriptInclude> {
+  if (value === undefined || value === "all") return new Set(AGENT_TRANSCRIPT_INCLUDES);
+  const requested = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const invalid = requested.filter(
+    (entry) => !AGENT_TRANSCRIPT_INCLUDES.includes(entry as AgentTranscriptInclude),
+  );
+  if (requested.length === 0 || invalid.length > 0) {
+    throw new ToolInputError(
+      `Argument "include" must be "all" or a comma-separated subset of: ${AGENT_TRANSCRIPT_INCLUDES.join(", ")}.`,
+    );
+  }
+  return new Set(requested as AgentTranscriptInclude[]);
+}
+
+function encodeThreadListCursor(cursor: ThreadListCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeThreadListCursor(value: string | undefined): ThreadListCursor | undefined {
+  if (value === undefined) return undefined;
+  try {
+    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as unknown;
+    if (
+      !decoded ||
+      typeof decoded !== "object" ||
+      Array.isArray(decoded) ||
+      typeof (decoded as ThreadListCursor).updatedAt !== "string" ||
+      typeof (decoded as ThreadListCursor).threadId !== "string"
+    ) {
+      throw new Error("invalid shape");
+    }
+    return decoded as ThreadListCursor;
+  } catch {
+    throw new ToolInputError('Argument "cursor" is not a valid thread-list cursor.');
+  }
+}
 
 export interface ThreadReadToolsInput {
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
@@ -80,7 +251,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_context",
       description:
-        "Use when you need the caller's own Penkra thread id, active turn id, folder, provider, or coordination permissions. This identifies the current execution context; use penkra_list_threads to discover other threads and penkra_capabilities to choose a provider/model target.",
+        "Use when you need the caller's own Penkra thread id, active turn id, folder, provider, or coordination permissions. This identifies the current execution context; use `penkra threads list` to discover other Threads and `penkra capabilities` to choose a provider/model target.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -122,7 +293,9 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     requiredCapability: "thread:read",
     definition: {
       name: "penkra_capabilities",
-      description: `Use immediately before penkra_create_thread when you need a valid provider/model target or provider-specific option keys. By default it returns a compact summary of available providers; pass provider for one exact catalog or detail "full" for complete model metadata. Returns canonical targets and gateway limits, not existing threads or folders; use penkra_list_threads or penkra_list_folders for those. ${AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION}`,
+      description:
+        'Use immediately before `penkra threads create` when you need a valid provider/model target or provider-specific option keys. By default it returns a compact summary of available providers; pass provider for one exact catalog or detail "full" for complete model metadata. Returns canonical targets and gateway limits, not existing Threads or folders; use `penkra threads list` or `penkra folders list` for those. ' +
+        AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION,
       inputSchema: {
         type: "object",
         properties: {
@@ -245,7 +418,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_list_folders",
       description:
-        "Use to resolve a Penkra folder id and workspace root before creating or filtering threads in another folder. Returns folder metadata only; use penkra_list_threads to discover conversations and penkra_context for the caller's current folder.",
+        "Use to resolve a Penkra folder id and workspace root before creating or filtering Threads in another folder. Returns folder metadata only; use `penkra threads list` to discover conversations and `penkra context` for the caller's current folder.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -256,20 +429,22 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         ...READ_ONLY_TOOL_ANNOTATIONS,
       },
     },
-    handler: () =>
-      snapshotQuery.getShellSnapshot().pipe(
-        Effect.map((snapshot) =>
-          mcpToolResultJson({
-            folders: snapshot.folders.map((project) => ({
-              folderId: project.id,
-              title: project.title,
-              workspaceRoot: project.workspaceRoot,
-              isPinned: project.isPinned,
-            })),
-          }),
-        ),
-        Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error)))),
-      ),
+    handler: (_args, context) =>
+      Effect.gen(function* () {
+        yield* requireThreadShell(context.callerThreadId);
+        const snapshot = yield* snapshotQuery.getShellSnapshot();
+        const spaceById = new Map(snapshot.spaces.map((space) => [space.id, space]));
+        return mcpToolResultJson({
+          folders: snapshot.folders.map((folder) => ({
+            folderId: folder.id,
+            spaceId: folder.spaceId,
+            spaceTitle: spaceById.get(folder.spaceId)?.name ?? null,
+            title: folder.title,
+            workspaceRoot: folder.workspaceRoot,
+            isPinned: folder.isPinned,
+          })),
+        });
+      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
 
   const listThreads: ToolEntry = {
@@ -277,13 +452,21 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_list_threads",
       description:
-        "Use to discover existing Penkra threads or child threads before reading, waiting, sending, interrupting, or diagnosing them. Filters by folder, hierarchy, provider/model, status, title, source, and update window; archived threads are hidden unless includeArchived is true. Use penkra_read_thread once you know the exact thread id.",
+        "Use to discover existing Penkra Threads or child Threads before reading, waiting, sending, or interrupting them. Filters by folder, hierarchy, provider/model, status, title, source, and update window; archived Threads are hidden unless includeArchived is true. Use `penkra threads read` once you know the exact Thread id.",
       inputSchema: {
         type: "object",
         properties: {
           folderId: {
             type: "string",
             description: "Only threads in this exact Penkra folder id.",
+          },
+          threadId: {
+            type: "string",
+            description: "Only this exact Penkra thread id.",
+          },
+          spaceId: {
+            type: "string",
+            description: "Only threads in this exact Space; defaults to the caller's Space.",
           },
           parentThreadId: {
             type: "string",
@@ -297,16 +480,17 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           model: { type: "string", description: "Exact model slug." },
           status: {
             type: "string",
-            description:
-              "Derived thread status such as working, idle, error, or waiting-for-approval.",
+            enum: [...AGENT_THREAD_STATUSES],
+            description: "Exact derived thread status.",
           },
           titleContains: {
             type: "string",
             description: "Case-insensitive title substring.",
           },
-          creationSource: {
+          createdBy: {
             type: "string",
-            description: "Exact thread creation source.",
+            enum: [...THREAD_CREATED_BY_VALUES],
+            description: "human, penkra-mcp, or provider-native.",
           },
           updatedAfter: {
             type: "string",
@@ -322,7 +506,11 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           },
           limit: {
             type: "number",
-            description: "Max results (default 50, max 200).",
+            description: "Items per page (default 50, max 100).",
+          },
+          cursor: {
+            type: "string",
+            description: "Opaque nextCursor from the preceding page.",
           },
         },
         additionalProperties: false,
@@ -334,13 +522,15 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     },
     handler: (args, context) =>
       Effect.gen(function* () {
+        const exactThreadId = readStringArg(args, "threadId");
         const folderId = readStringArg(args, "folderId");
+        const requestedSpaceId = readStringArg(args, "spaceId");
         const parentThreadId = readStringArg(args, "parentThreadId");
         const provider = readStringArg(args, "provider");
         const model = readStringArg(args, "model");
         const status = readStringArg(args, "status");
         const titleContains = readStringArg(args, "titleContains")?.toLocaleLowerCase();
-        const creationSource = readStringArg(args, "creationSource");
+        const createdBy = readStringArg(args, "createdBy");
         const updatedAfter = readIsoTimestampArg(args, "updatedAfter");
         const updatedBefore = readIsoTimestampArg(args, "updatedBefore");
         const includeArchived = readBooleanArg(args, "includeArchived") ?? false;
@@ -348,13 +538,22 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           1,
           Math.min(
             readNumberArg(args, "limit") ?? LIST_THREADS_DEFAULT_LIMIT,
-            LIST_THREADS_MAX_LIMIT,
+            LIST_THREADS_MAX_PAGE_SIZE,
           ),
         );
+        const cursor = decodeThreadListCursor(readStringArg(args, "cursor"));
+        const caller = yield* requireThreadShell(context.callerThreadId);
+        const callerSpaceId = yield* requireThreadSpaceId(snapshotQuery, caller);
+        const spaceId = requestedSpaceId ? SpaceId.makeUnsafe(requestedSpaceId) : callerSpaceId;
         const snapshot = yield* snapshotQuery
           .getShellSnapshot()
           .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
         const matching = snapshot.threads
+          .filter((thread) => (exactThreadId ? thread.id === exactThreadId : true))
+          .filter((thread) => {
+            const folder = snapshot.folders.find((candidate) => candidate.id === thread.folderId);
+            return folder?.spaceId === spaceId;
+          })
           .filter((thread) => (folderId ? thread.folderId === folderId : true))
           .filter((thread) => (parentThreadId ? thread.parentThreadId === parentThreadId : true))
           .filter((thread) => (provider ? thread.modelSelection.provider === provider : true))
@@ -363,17 +562,36 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           .filter((thread) =>
             titleContains ? thread.title.toLocaleLowerCase().includes(titleContains) : true,
           )
-          .filter((thread) =>
-            creationSource ? (thread.creationSource ?? null) === creationSource : true,
-          )
+          .filter((thread) => {
+            if (!createdBy) return true;
+            if (createdBy === "human") return (thread.creationSource ?? null) === null;
+            return thread.creationSource === createdBy.replace("-", "_");
+          })
           .filter((thread) => (updatedAfter ? thread.updatedAt >= updatedAfter : true))
           .filter((thread) => (updatedBefore ? thread.updatedAt <= updatedBefore : true))
           .filter((thread) => (includeArchived ? true : (thread.archivedAt ?? null) === null))
-          .toSorted((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
-        const threads = matching
-          .slice(0, limit)
-          .map((thread) => summarizeThreadShell(thread, context.callerThreadId));
-        return mcpToolResultJson({ threads, totalMatching: matching.length });
+          .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))
+          .filter((thread) =>
+            cursor
+              ? thread.updatedAt < cursor.updatedAt ||
+                (thread.updatedAt === cursor.updatedAt && thread.id < cursor.threadId)
+              : true,
+          );
+        const page = matching.slice(0, limit);
+        const threads = page.map((thread) => summarizeThreadShell(thread, context.callerThreadId));
+        const last = page.at(-1);
+        return mcpToolResultJson({
+          threads,
+          pageInfo: {
+            nextCursor:
+              matching.length > page.length && last
+                ? encodeThreadListCursor({
+                    updatedAt: last.updatedAt,
+                    threadId: last.id,
+                  })
+                : null,
+          },
+        });
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
 
@@ -382,28 +600,42 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_read_thread",
       description:
-        "Use after penkra_list_threads when you need one thread's status and transcript. Returns newest-last message pages with bounded text; follow nextCursor until null before treating the transcript as complete. Use penkra_read_thread_activity for the work log or penkra_diagnose_thread when behavior is inconsistent.",
+        "Read durable Penkra transcript items. With threadId, start at the tail, inspect before.messages, then search relevant terms instead of blindly paging a long Thread. With query and no threadId, search the caller's current Space; optionally narrow with folderId. Results may include messages, tools, approvals, user input, tasks, compaction, and turn lifecycle. Always follow pageInfo.nextCursor when present; cursors are stable anchors and can continue inside one large item without clipping or changing its text.",
       inputSchema: {
         type: "object",
         properties: {
           threadId: {
             type: "string",
-            description: "Exact Penkra thread id to read.",
+            description:
+              "Exact Penkra thread id to read or search. Required unless query searches the current Space.",
+          },
+          spaceId: {
+            type: "string",
+            description: "Search only this Space; defaults to the caller's Space.",
+          },
+          folderId: {
+            type: "string",
+            description: "When searching, only Threads in this exact folder.",
           },
           cursor: {
             type: "string",
-            description: "Opaque nextCursor from the preceding transcript page.",
+            description: "Opaque pageInfo.nextCursor from the preceding read.",
           },
-          messageLimit: {
-            type: "number",
-            description: "Messages per page (default 20, max 100).",
+          query: {
+            type: "string",
+            description:
+              "Case-insensitive text to find. Without threadId, searches non-archived Threads in the selected Space.",
           },
-          maxMessageChars: {
+          include: {
+            type: "string",
+            description:
+              '"all" (default) or a comma-separated subset of messages, tools, approvals, user-input, tasks, compaction, turns.',
+          },
+          limit: {
             type: "number",
-            description: "Per-message truncation limit (default 1500).",
+            description: "Items per page (default 20, max 100).",
           },
         },
-        required: ["threadId"],
         additionalProperties: false,
       },
       annotations: {
@@ -413,27 +645,248 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     },
     handler: (args, context) =>
       Effect.gen(function* () {
-        const threadId = readStringArg(args, "threadId", { required: true })!;
-        const cursor = readStringArg(args, "cursor");
-        const messageLimit = readNumberArg(args, "messageLimit");
-        const maxMessageChars = readNumberArg(args, "maxMessageChars");
-        const detail = yield* snapshotQuery.getThreadDetailById(ThreadId.makeUnsafe(threadId)).pipe(
-          Effect.mapError((error) => new ToolInputError(errorText(error))),
-          Effect.flatMap(
-            Option.match({
-              onNone: () => Effect.fail(new ToolInputError(`Thread "${threadId}" was not found.`)),
-              onSome: (thread) => Effect.succeed(thread),
-            }),
+        const threadId = readStringArg(args, "threadId");
+        const folderId = readStringArg(args, "folderId");
+        const requestedSpaceId = readStringArg(args, "spaceId");
+        const cursorValue = readStringArg(args, "cursor");
+        const query = readStringArg(args, "query")?.toLocaleLowerCase();
+        const include = readTranscriptIncludes(readStringArg(args, "include"));
+        const limit = Math.max(
+          1,
+          Math.min(
+            readNumberArg(args, "limit") ?? READ_THREAD_DEFAULT_ITEM_LIMIT,
+            READ_THREAD_MAX_ITEM_LIMIT,
           ),
         );
-        return mcpToolResultJson(
-          summarizeThreadDetail({
-            thread: detail,
-            cursor,
-            messageLimit,
-            maxMessageChars,
-          }),
-        );
+        if (!threadId && !query) {
+          throw new ToolInputError('Argument "threadId" is required unless "query" is provided.');
+        }
+        const caller = yield* requireThreadShell(context.callerThreadId);
+        const callerSpaceId = yield* requireThreadSpaceId(snapshotQuery, caller);
+        let requestedScopeSpaceId = requestedSpaceId
+          ? SpaceId.makeUnsafe(requestedSpaceId)
+          : callerSpaceId;
+        const scopeSpace = yield* snapshotQuery.getSpaceShellById(requestedScopeSpaceId);
+        if (Option.isNone(scopeSpace)) {
+          throw new ToolInputError(`Space "${requestedScopeSpaceId}" was not found.`);
+        }
+        const shell = threadId
+          ? yield* snapshotQuery.getThreadShellById(ThreadId.makeUnsafe(threadId)).pipe(
+              Effect.mapError((error) => new ToolInputError(errorText(error))),
+              Effect.flatMap(
+                Option.match({
+                  onNone: () =>
+                    Effect.fail(new ToolInputError(`Thread "${threadId}" was not found.`)),
+                  onSome: Effect.succeed,
+                }),
+              ),
+            )
+          : undefined;
+        if (shell) {
+          const targetSpaceId = yield* requireThreadSpaceId(snapshotQuery, shell);
+          if (!requestedSpaceId) requestedScopeSpaceId = targetSpaceId;
+          if (requestedSpaceId && requestedScopeSpaceId !== targetSpaceId) {
+            throw new ToolInputError(
+              `Thread "${threadId}" was not found in Space "${requestedScopeSpaceId}".`,
+            );
+          }
+          if (folderId && shell.folderId !== folderId) {
+            throw new ToolInputError(`Thread "${threadId}" is not in folder "${folderId}".`);
+          }
+        }
+        if (query !== undefined) {
+          if (!query.trim()) throw new ToolInputError('Argument "query" must not be blank.');
+          const snapshot = yield* snapshotQuery.getShellSnapshot();
+          const folderById = new Map(snapshot.folders.map((folder) => [folder.id, folder]));
+          const candidates = (shell ? [shell] : snapshot.threads)
+            .filter(
+              (candidate) => folderById.get(candidate.folderId)?.spaceId === requestedScopeSpaceId,
+            )
+            .filter((candidate) => (folderId ? candidate.folderId === folderId : true))
+            .filter((candidate) => (shell ? true : (candidate.archivedAt ?? null) === null));
+          const searchScope = {
+            query,
+            threadId: threadId ?? null,
+            folderId: folderId ?? null,
+            spaceId: requestedScopeSpaceId as string,
+          };
+          const searchCursor = decodeThreadSearchCursor(cursorValue, searchScope);
+          const matches: Array<{
+            readonly type: "message";
+            readonly threadId: string;
+            readonly threadTitle: string;
+            readonly messageId: string;
+            readonly turnId: string | null;
+            readonly role: string;
+            readonly text: string;
+            readonly textRange: {
+              readonly start: number;
+              readonly end: number;
+              readonly total: number;
+            };
+            readonly matches: ReadonlyArray<{
+              readonly start: number;
+              readonly end: number;
+            }>;
+            readonly createdAt: string;
+          }> = [];
+          yield* Effect.forEach(
+            candidates,
+            (candidate) =>
+              Effect.gen(function* () {
+                let before: string | undefined;
+                do {
+                  const page = yield* snapshotQuery.getThreadTurnsPage({
+                    threadId: candidate.id,
+                    ...(before ? { before } : {}),
+                  });
+                  for (const message of page.messages) {
+                    const haystack = message.text.toLocaleLowerCase();
+                    const matchStart = haystack.indexOf(query);
+                    if (matchStart < 0) continue;
+                    const start = Math.max(0, matchStart - 600);
+                    const end = Math.min(message.text.length, matchStart + query.length + 600);
+                    matches.push({
+                      type: "message",
+                      threadId: candidate.id,
+                      threadTitle: candidate.title,
+                      messageId: message.id,
+                      turnId: message.turnId ?? null,
+                      role: message.role,
+                      text: message.text.slice(start, end),
+                      textRange: { start, end, total: message.text.length },
+                      matches: [{ start: matchStart, end: matchStart + query.length }],
+                      createdAt: message.createdAt,
+                    });
+                  }
+                  if (!page.hasOlder || !page.nextCursor) break;
+                  before = page.nextCursor;
+                } while (true);
+              }),
+            { concurrency: 4, discard: true },
+          );
+          const ordered = matches
+            .toSorted(
+              (left, right) =>
+                right.createdAt.localeCompare(left.createdAt) ||
+                right.threadId.localeCompare(left.threadId) ||
+                right.messageId.localeCompare(left.messageId),
+            )
+            .filter((match) =>
+              searchCursor ? isAfterSearchAnchor(match, searchCursor.anchor) : true,
+            );
+          const selected: typeof ordered = [];
+          let remainingBudget = 20_000;
+          for (const match of ordered) {
+            if (selected.length >= limit) break;
+            if (match.text.length > remainingBudget && selected.length > 0) break;
+            selected.push(match);
+            remainingBudget -= match.text.length;
+          }
+          const last = selected.at(-1);
+          const nextCursor =
+            last && ordered.length > selected.length
+              ? encodeThreadSearchCursor({
+                  version: 1,
+                  mode: "search",
+                  ...searchScope,
+                  anchor: {
+                    createdAt: last.createdAt,
+                    threadId: last.threadId,
+                    messageId: last.messageId,
+                  },
+                })
+              : null;
+          return mcpToolResultJson({
+            scope: shell
+              ? { kind: "thread", threadId: shell.id, title: shell.title }
+              : {
+                  kind: "space",
+                  spaceId: requestedScopeSpaceId,
+                  folderId: folderId ?? null,
+                },
+            query,
+            items: selected,
+            pageInfo: { nextCursor },
+          });
+        }
+
+        if (!shell || !threadId) {
+          throw new ToolInputError('Argument "threadId" is required when "query" is absent.');
+        }
+        const cursor = decodeThreadReadCursor(cursorValue, threadId);
+
+        let pageBefore = cursor?.pageBefore ?? undefined;
+        let page: OrchestrationGetThreadTurnsPageResult;
+        let packed: ReturnType<typeof packAgentTranscriptPage>;
+        // If a live Thread grew by more than one turn page since the prior read,
+        // walk durable page anchors until the cursor's item is found. New output
+        // can never make a cursor skip or duplicate older transcript content.
+        while (true) {
+          page = yield* snapshotQuery.getThreadTurnsPage({
+            threadId: shell.id,
+            ...(pageBefore ? { before: pageBefore } : {}),
+          });
+          packed = packAgentTranscriptPage({
+            messages: page.messages,
+            activities: page.activities,
+            include,
+            ...(cursor?.anchor ? { anchor: cursor.anchor } : {}),
+            limit,
+          });
+          if (packed.items.length > 0 || !page.hasOlder || !page.nextCursor) {
+            break;
+          }
+          pageBefore = page.nextCursor;
+        }
+
+        const nextCursor = packed.nextAnchor
+          ? encodeThreadReadCursor({
+              version: 1,
+              threadId,
+              pageBefore: pageBefore ?? null,
+              anchor: packed.nextAnchor,
+            })
+          : page.hasOlder && page.nextCursor
+            ? encodeThreadReadCursor({
+                version: 1,
+                threadId,
+                pageBefore: page.nextCursor,
+              })
+            : null;
+        const totalMessages = snapshotQuery.countThreadMessages
+          ? yield* snapshotQuery.countThreadMessages(shell.id)
+          : page.messages.length;
+        return mcpToolResultJson({
+          threadId: shell.id,
+          folderId: shell.folderId,
+          title: shell.title,
+          provider: shell.modelSelection.provider,
+          model: shell.modelSelection.model,
+          status: deriveAgentThreadStatus(shell),
+          sessionStatus: shell.session?.status ?? null,
+          latestTurnState: shell.latestTurn?.state ?? null,
+          parentThreadId: shell.parentThreadId ?? null,
+          createdBy:
+            shell.creationSource === "penkra_mcp"
+              ? "penkra-mcp"
+              : shell.creationSource === "provider_native"
+                ? "provider-native"
+                : "human",
+          archived: (shell.archivedAt ?? null) !== null,
+          lastError: shell.session?.lastError ?? null,
+          createdAt: shell.createdAt,
+          updatedAt: shell.updatedAt,
+          items: packed.items,
+          ...(cursor === undefined
+            ? {
+                before: {
+                  messages: Math.max(0, totalMessages - page.messages.length),
+                },
+              }
+            : {}),
+          pageInfo: { nextCursor },
+        });
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
 
@@ -441,16 +894,17 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     requiredCapability: "thread:read",
     definition: {
       name: "penkra_wait_for_threads",
-      description: `Use after creating or otherwise identifying background Penkra threads when you need all of their turn outcomes. Waits for 1–20 pinned turns and returns every result in input order. Assistant summaries are capped at ${WAIT_THREAD_SUMMARY_MAX_CHARS} characters; use each result's readThread call for the full transcript. A timeout reports progress only and never retries, replaces, cancels, or creates work.`,
+      description: `Use after creating or otherwise identifying background Penkra threads when you need all of their turn outcomes. Waits for 1–20 pinned turns and returns every result in input order. latestAssistantPreview is a clearly labelled, capped preview of the terminal assistant message (${WAIT_THREAD_SUMMARY_MAX_CHARS} characters), not a generated summary; use each result's readThread command for the complete transcript. A timeout reports progress only and never retries, replaces, cancels, or creates work.`,
       inputSchema: {
         type: "object",
         properties: {
-          threadIds: {
+          threadId: {
             type: "array",
             minItems: 1,
             maxItems: PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
             items: { type: "string" },
-            description: "Exact Penkra thread ids to wait for, in the desired result order.",
+            description:
+              "Exact Penkra thread ids to wait for, in the desired result order. Repeat --thread-id for multiple Threads.",
           },
           runIds: {
             type: "array",
@@ -465,7 +919,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             description: "Long-poll duration; defaults to 30000ms.",
           },
         },
-        required: ["threadIds"],
+        required: ["threadId"],
         additionalProperties: false,
       },
       annotations: {
@@ -475,7 +929,11 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     },
     handler: (args, context) =>
       Effect.gen(function* () {
-        const waitInput = decodeWaitForThreadsInput(args);
+        const waitInput = decodeWaitForThreadsInput({
+          threadIds: args.threadId,
+          ...(args.runIds === undefined ? {} : { runIds: args.runIds }),
+          ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
+        });
         if (waitInput.runIds && waitInput.runIds.length !== waitInput.threadIds.length) {
           throw new ToolInputError('Argument "runIds" must have the same length as "threadIds".');
         }
@@ -511,69 +969,98 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           }),
         );
         const readPinnedStates = () =>
-          projectionTurns
-            .getManyWaitSnapshot({
-              threadIds: pinned.map((pin) => ThreadId.makeUnsafe(pin.threadId)),
-              turns: pinned.flatMap((pin) =>
-                pin.runId === null
-                  ? []
-                  : [
-                      {
-                        threadId: pin.threadId,
-                        turnId: TurnId.makeUnsafe(pin.runId),
-                      },
-                    ],
-              ),
-            })
-            .pipe(
-              Effect.mapError((error) => new ToolInputError(errorText(error))),
-              Effect.flatMap((snapshot) => {
-                const existingThreadIds = new Set(snapshot.existingThreadIds);
-                const missing = pinned.find((pin) => !existingThreadIds.has(pin.threadId));
-                if (missing) {
-                  return Effect.fail(
-                    new GatewayToolError(
-                      "thread_not_found",
-                      `Thread "${missing.threadId}" was not found.`,
+          Effect.gen(function* () {
+            // A newly created Thread can be visible before its first turn is
+            // projected. Null therefore means "not pinned yet", not "idle and
+            // terminal". Discover and pin the first turn that appears while
+            // this wait call is alive.
+            yield* Effect.forEach(
+              pinned.filter((pin) => pin.runId === null),
+              (pin) =>
+                snapshotQuery.getThreadShellById(pin.threadId).pipe(
+                  Effect.mapError((error) => new ToolInputError(errorText(error))),
+                  Effect.tap(
+                    Option.match({
+                      onNone: () => Effect.void,
+                      onSome: (thread) =>
+                        Effect.sync(() => {
+                          if (thread.latestTurn) pin.runId = thread.latestTurn.turnId;
+                        }),
+                    }),
+                  ),
+                ),
+              { discard: true },
+            );
+            return yield* projectionTurns
+              .getManyWaitSnapshot({
+                threadIds: pinned.map((pin) => ThreadId.makeUnsafe(pin.threadId)),
+                turns: pinned.flatMap((pin) =>
+                  pin.runId === null
+                    ? []
+                    : [
+                        {
+                          threadId: pin.threadId,
+                          turnId: TurnId.makeUnsafe(pin.runId),
+                        },
+                      ],
+                ),
+              })
+              .pipe(
+                Effect.mapError((error) => new ToolInputError(errorText(error))),
+                Effect.flatMap((snapshot) => {
+                  const existingThreadIds = new Set(snapshot.existingThreadIds);
+                  const missing = pinned.find((pin) => !existingThreadIds.has(pin.threadId));
+                  if (missing) {
+                    return Effect.fail(
+                      new GatewayToolError(
+                        "thread_not_found",
+                        `Thread "${missing.threadId}" was not found.`,
+                      ),
+                    );
+                  }
+                  const turnsByKey = new Map(
+                    snapshot.turns.map(
+                      (turn) => [`${turn.threadId}\u0000${turn.turnId}`, turn] as const,
                     ),
                   );
-                }
-                const turnsByKey = new Map(
-                  snapshot.turns.map(
-                    (turn) => [`${turn.threadId}\u0000${turn.turnId}`, turn] as const,
-                  ),
-                );
-                return Effect.succeed(
-                  pinned.map((pin) => {
-                    const state =
-                      pin.runId === null
-                        ? ("idle" as const)
-                        : (turnsByKey.get(`${pin.threadId}\u0000${pin.runId}`)?.state ??
-                          initialStateByKey.get(`${pin.threadId}\u0000${pin.runId}`) ??
-                          "pending");
-                    const terminal =
-                      state === "idle" ||
-                      state === "completed" ||
-                      state === "error" ||
-                      state === "interrupted";
-                    return {
-                      threadId: pin.threadId,
-                      runId: pin.runId,
-                      state,
-                      terminal,
-                      timedOut: false,
-                      summary: null as string | null,
-                      summaryTruncated: false,
-                      error: null as string | null,
-                      readThread: {
-                        tool: "penkra_read_thread" as const,
-                        arguments: { threadId: pin.threadId },
-                      },
-                    };
-                  }),
-                );
-              }),
-            );
+                  return Effect.succeed(
+                    pinned.map((pin) => {
+                      const state =
+                        pin.runId === null
+                          ? pin.shell.creationSource === "penkra_mcp"
+                            ? ("pending" as const)
+                            : ("idle" as const)
+                          : (turnsByKey.get(`${pin.threadId}\u0000${pin.runId}`)?.state ??
+                            initialStateByKey.get(`${pin.threadId}\u0000${pin.runId}`) ??
+                            "pending");
+                      const terminal =
+                        state === "idle" ||
+                        state === "completed" ||
+                        state === "error" ||
+                        state === "interrupted";
+                      return {
+                        threadId: pin.threadId,
+                        runId: pin.runId,
+                        assistantMessageId:
+                          pin.runId === null
+                            ? null
+                            : (turnsByKey.get(`${pin.threadId}\u0000${pin.runId}`)
+                                ?.assistantMessageId ?? null),
+                        state,
+                        terminal,
+                        timedOut: false,
+                        latestAssistantPreview: null as string | null,
+                        previewTruncated: false,
+                        error: null as string | null,
+                        readThread: {
+                          command: `penkra threads read --thread-id ${pin.threadId}`,
+                        },
+                      };
+                    }),
+                  );
+                }),
+              );
+          });
 
         let results = yield* readPinnedStates();
         let pollDelayMs = 200;
@@ -585,8 +1072,12 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const timedOut = results.some((result) => !result.terminal);
         const finalResults = yield* Effect.forEach(results, (result) =>
           Effect.gen(function* () {
+            const { assistantMessageId, ...publicResult } = result;
             if (!result.terminal || result.runId === null) {
-              return { ...result, timedOut: !result.terminal && timedOut };
+              return {
+                ...publicResult,
+                timedOut: !result.terminal && timedOut,
+              };
             }
             const detail = yield* snapshotQuery.getThreadDetailById(result.threadId).pipe(
               Effect.mapError((error) => new ToolInputError(errorText(error))),
@@ -603,15 +1094,20 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
                 }),
               ),
             );
-            const assistantMessage = detail.messages.findLast(
-              (message) => message.role === "assistant" && message.turnId === result.runId,
-            );
-            const summary = summarizeWaitThreadText(assistantMessage?.text);
+            const assistantMessage =
+              assistantMessageId !== null
+                ? detail.messages.findLast(
+                    (message) => message.role === "assistant" && message.id === assistantMessageId,
+                  )
+                : detail.messages.findLast(
+                    (message) => message.role === "assistant" && message.turnId === result.runId,
+                  );
+            const preview = summarizeWaitThreadText(assistantMessage?.text);
             return {
-              ...result,
+              ...publicResult,
               timedOut: false,
-              summary: summary.summary,
-              summaryTruncated: summary.truncated,
+              latestAssistantPreview: preview.summary,
+              previewTruncated: preview.truncated,
               error:
                 result.state === "error" ? (detail.session?.lastError ?? "Turn failed.") : null,
             };

@@ -141,7 +141,7 @@ describe("projected activities satisfy the orchestration command schema", () => 
     );
 
     expect(activity).toMatchObject({
-      id: "context-compaction-started",
+      id: "provider-item:codex:thread-activity-projection:compaction-item:context-compaction",
       kind: "context-compaction",
       tone: "info",
       summary: "Compacting conversation...",

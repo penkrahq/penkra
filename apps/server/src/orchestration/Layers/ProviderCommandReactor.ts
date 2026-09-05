@@ -85,6 +85,10 @@ import type { ProviderManagedLaunchContext } from "../../provider/Services/Provi
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { resolveProviderDispatchAttachments } from "../../provider/providerAttachmentPaths.ts";
 import { providerNativeResumeIdentity } from "../../provider/nativeResumeIdentity.ts";
+import {
+  formatReconstructedContinuation,
+  selectReconstructedContinuation,
+} from "../../provider/reconstructedContinuation.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../../persistence/Layers/OrchestrationEventDeliveries.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
 import { QueuedTurnPromotionRepositoryLive } from "../../persistence/Layers/QueuedTurnPromotions.ts";
@@ -632,6 +636,50 @@ const make = Effect.gen(function* () {
     return Option.getOrUndefined(yield* projectionSnapshotQuery.getThreadDetailById(threadId));
   });
 
+  const buildReconstructedTurnInput = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly provider: ProviderKind;
+    readonly currentMessageId: string;
+    readonly currentInput: string;
+  }) {
+    const messages: OrchestrationThread["messages"][number][] = [];
+    const activities: OrchestrationThread["activities"][number][] = [];
+    let before: string | undefined;
+    let foundCompaction = false;
+    do {
+      const page = yield* projectionSnapshotQuery.getThreadTurnsPage({
+        threadId: input.threadId,
+        ...(before ? { before } : {}),
+      });
+      messages.push(...page.messages);
+      activities.push(...page.activities);
+      foundCompaction = page.activities.some((activity) => activity.kind === "context-compaction");
+      if (foundCompaction || !page.hasOlder || page.nextCursor === null) break;
+      before = page.nextCursor;
+    } while (true);
+
+    const hasPriorTranscript = messages.some((message) => message.id !== input.currentMessageId);
+    if (!hasPriorTranscript && !foundCompaction) return null;
+    const continuation = selectReconstructedContinuation({
+      messages,
+      activities,
+      currentMessageId: input.currentMessageId,
+    });
+    const reconstructed = formatReconstructedContinuation({
+      threadId: input.threadId,
+      continuation,
+      currentInput: input.currentInput,
+    });
+    if (reconstructed.length > PROVIDER_SEND_TURN_MAX_INPUT_CHARS) {
+      return yield* new ProviderAdapterValidationError({
+        provider: input.provider,
+        operation: "thread.turn.reconstruct",
+        issue: `The deterministic retained transcript is ${reconstructed.length} characters, exceeding the provider input limit of ${PROVIDER_SEND_TURN_MAX_INPUT_CHARS}. Penkra did not trim or discard it.`,
+      });
+    }
+    return reconstructed;
+  });
+
   const resolveProviderSessionThread = (threadId: ThreadId) =>
     resolveProviderSessionThreadFromProjection(projectionSnapshotQuery, threadId);
 
@@ -865,6 +913,11 @@ const make = Effect.gen(function* () {
       // session identity yet. Start fresh; JSON null is a persisted sentinel,
       // not a provider resume cursor.
       resumeCursor: state.providerSessionId === null ? undefined : resumeCursor,
+      requiresReconstruction:
+        state.providerSessionId === null &&
+        typeof resumeCursor === "object" &&
+        resumeCursor !== null &&
+        (resumeCursor as { readonly penkraReconstruction?: unknown }).penkraReconstruction === true,
       managedLaunch: {
         binaryPath: launch.binaryPath,
         isolationKey: launch.isolationKey,
@@ -1415,6 +1468,23 @@ const make = Effect.gen(function* () {
         ...(input.skills !== undefined ? { skills: input.skills } : {}),
       }),
     );
+    const reconstructedInput =
+      managedRuntime?.requiresReconstruction === true
+        ? yield* buildReconstructedTurnInput({
+            threadId: input.threadId,
+            provider: selectedProvider as ProviderKind,
+            currentMessageId: input.messageId,
+            currentInput: normalizedInput ?? "",
+          })
+        : null;
+    if (reconstructedInput !== null) {
+      yield* Effect.logWarning("provider turn using deterministic reconstructed continuation", {
+        threadId: input.threadId,
+        provider: selectedProvider,
+        messageId: input.messageId,
+      });
+    }
+    const effectiveInput = reconstructedInput ?? normalizedInput;
     const normalizedAttachments = yield* resolveProviderDispatchAttachments({
       attachments: input.attachments,
       attachmentsDir: serverConfig.attachmentsDir,
@@ -1492,7 +1562,7 @@ const make = Effect.gen(function* () {
         yield* completeCancelledTurnStart(input);
         return;
       }
-      const sentTurn = yield* sendQueuedProviderTurn(normalizedInput).pipe(
+      const sentTurn = yield* sendQueuedProviderTurn(effectiveInput).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
             if (selectedProvider !== "claudeAgent" || !isStaleClaudeResumeError(error)) {
@@ -1531,7 +1601,7 @@ const make = Effect.gen(function* () {
                 messageId: input.messageId,
               },
             );
-            return yield* sendQueuedProviderTurn(normalizedInput);
+            return yield* sendQueuedProviderTurn(effectiveInput);
           }),
         ),
       );

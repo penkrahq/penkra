@@ -6174,8 +6174,84 @@ describe("ProviderRuntimeIngestion", () => {
     const activity = thread.activities.find(
       (candidate: ProviderRuntimeTestActivity) => candidate.kind === "context-compaction",
     );
-    expect(activity?.summary).toBe("Context compacted manually");
+    expect(activity?.summary).toBe("Context compacted");
     expect(activity?.tone).toBe("info");
+  });
+
+  it("projects one stable Claude compaction lifecycle and ignores its duplicate boundary", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const itemId = "claude-compaction-lifecycle-1";
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-claude-compaction-started"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-1"),
+      itemId,
+      payload: {
+        itemType: "context_compaction",
+        status: "inProgress",
+        detail: "Compacting context",
+      },
+    });
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-claude-compaction-updated"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-1"),
+      itemId,
+      payload: {
+        itemType: "context_compaction",
+        status: "inProgress",
+        detail: "Compacting context",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-claude-compaction-completed"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-1"),
+      itemId,
+      payload: {
+        itemType: "context_compaction",
+        status: "completed",
+        data: { trigger: "auto" },
+      },
+    });
+    harness.emit({
+      type: "thread.state.changed",
+      eventId: asEventId("evt-claude-compaction-boundary"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-1"),
+      itemId,
+      payload: {
+        state: "compacted",
+        detail: { trigger: "auto" },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "context-compaction" &&
+          activity.summary === "Context compacted automatically",
+      ),
+    );
+    const compactions = thread.activities.filter(
+      (activity: ProviderRuntimeTestActivity) => activity.kind === "context-compaction",
+    );
+    expect(compactions).toHaveLength(1);
+    expect(compactions[0]?.summary).toBe("Context compacted automatically");
+    expect(compactions[0]?.payload).toMatchObject({ compactionId: itemId, status: "completed" });
   });
 
   it.each(["item.started", "item.updated"] as const)(

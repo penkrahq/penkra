@@ -158,7 +158,10 @@ interface GatewayHarness {
     readonly token: string;
     readonly name: string;
     readonly args: Record<string, unknown>;
-  }) => Effect.Effect<{ status: number; result: Record<string, unknown> | undefined }>;
+  }) => Effect.Effect<{
+    status: number;
+    result: Record<string, unknown> | undefined;
+  }>;
   readonly postRaw: (input: {
     readonly authorizationHeader: string | undefined;
     readonly body: unknown;
@@ -179,15 +182,14 @@ const TEST_TOOL_COMMANDS: Readonly<Record<string, ReadonlyArray<string>>> = {
   penkra_list_threads: ["penkra", "threads", "list"],
   penkra_read_thread: ["penkra", "threads", "read"],
   penkra_wait_for_threads: ["penkra", "threads", "wait"],
-  penkra_read_thread_activity: ["penkra", "threads", "activity"],
-  penkra_read_thread_events: ["penkra", "threads", "events"],
-  penkra_read_thread_runtime_events: ["penkra", "threads", "runtime-events"],
-  penkra_diagnose_thread: ["penkra", "threads", "diagnose"],
-  penkra_retry_thread_projection: ["penkra", "threads", "retry-projection"],
+  penkra_read_thread_activity: ["penkra", "diagnostics", "threads", "activity"],
+  penkra_read_thread_events: ["penkra", "diagnostics", "threads", "events"],
+  penkra_read_thread_runtime_events: ["penkra", "diagnostics", "threads", "runtime-events"],
+  penkra_diagnose_thread: ["penkra", "diagnostics", "threads", "diagnose"],
+  penkra_retry_thread_projection: ["penkra", "diagnostics", "threads", "retry-projection"],
   penkra_create_thread: ["penkra", "threads", "create"],
   penkra_send_message: ["penkra", "threads", "send"],
   penkra_interrupt_thread: ["penkra", "threads", "interrupt"],
-  penkra_set_thread_title: ["penkra", "threads", "rename"],
   penkra_archive_thread: ["penkra", "threads", "archive"],
   penkra_unarchive_thread: ["penkra", "threads", "unarchive"],
 };
@@ -292,7 +294,19 @@ function makeHarnessLayer(
     getShellSnapshot: () =>
       Effect.succeed({
         snapshotSequence: 1,
+        spaces: [
+          {
+            id: SPACE_ID,
+            name: "Personal",
+            icon: "home",
+            sortOrder: 0,
+            createdAt: NOW,
+            updatedAt: NOW,
+          },
+        ],
+        archivedSpaces: [],
         folders: [makeProjectShell(options.projectScripts), ...(options.extraFolders ?? [])],
+        archivedFolders: [],
         threads: [...threadsById.values()],
         updatedAt: NOW,
       }),
@@ -300,9 +314,26 @@ function makeHarnessLayer(
       Effect.succeed(Option.fromNullishOr(threadsById.get(threadId as string))),
     getFolderShellById: (folderId: string) =>
       Effect.succeed(
-        folderId === (PROJECT_ID as string)
-          ? Option.some(makeProjectShell(options.projectScripts))
-          : Option.none<OrchestrationFolderShell>(),
+        Option.fromNullishOr(
+          [makeProjectShell(options.projectScripts), ...(options.extraFolders ?? [])].find(
+            (folder) => folder.id === folderId,
+          ),
+        ),
+      ),
+    getSpaceShellById: (spaceId: string) =>
+      Effect.succeed(
+        Option.fromNullishOr(
+          spaceId === SPACE_ID
+            ? {
+                id: SPACE_ID,
+                name: "Personal",
+                icon: "home",
+                sortOrder: 0,
+                createdAt: NOW,
+                updatedAt: NOW,
+              }
+            : undefined,
+        ),
       ),
     getThreadDetailById: (threadId: ThreadIdType) =>
       Effect.sync(() => {
@@ -316,6 +347,41 @@ function makeHarnessLayer(
               ),
             ),
         );
+      }),
+    countThreadMessages: (threadId: ThreadIdType) =>
+      Effect.sync(
+        () =>
+          (
+            threadDetailsById.get(threadId as string) ??
+            Option.getOrUndefined(
+              Option.map(
+                Option.fromNullishOr(threadsById.get(threadId as string)),
+                makeThreadDetail,
+              ),
+            )
+          )?.messages.length ?? 0,
+      ),
+    getThreadTurnsPage: (input: { threadId: ThreadIdType; before?: string }) =>
+      Effect.sync(() => {
+        const thread =
+          threadDetailsById.get(input.threadId as string) ??
+          Option.getOrUndefined(
+            Option.map(
+              Option.fromNullishOr(threadsById.get(input.threadId as string)),
+              makeThreadDetail,
+            ),
+          );
+        return {
+          threadId: input.threadId,
+          snapshotSequence: 1,
+          conversationTurnCount:
+            thread?.messages.filter((message) => message.role === "user").length ?? 0,
+          messages: thread?.messages ?? [],
+          activities: thread?.activities ?? [],
+          pendingInteractions: thread?.pendingInteractions ?? [],
+          hasOlder: false,
+          nextCursor: null,
+        };
       }),
   } as unknown as (typeof ProjectionSnapshotQuery)["Service"]);
 
@@ -535,7 +601,10 @@ function makeHarnessLayer(
         claudeAgent: [{ slug: "claude-sonnet-5", name: "Claude Sonnet 5" }],
         opencode: [{ slug: "openai/gpt-5", name: "OpenAI GPT-5" }],
       };
-      return Effect.succeed({ models: modelsByProvider[provider] ?? [], source: "test" });
+      return Effect.succeed({
+        models: modelsByProvider[provider] ?? [],
+        source: "test",
+      });
     },
   } as unknown as (typeof ProviderDiscoveryService)["Service"]);
 
@@ -727,7 +796,9 @@ function toolErrorText(result: Record<string, unknown> | undefined): string {
 describe("AgentGateway", () => {
   const baseThreads = [
     makeThreadShell("thread-parent"),
-    makeThreadShell("thread-child", { parentThreadId: ThreadId.makeUnsafe("thread-parent") }),
+    makeThreadShell("thread-child", {
+      parentThreadId: ThreadId.makeUnsafe("thread-parent"),
+    }),
     makeThreadShell("thread-archived", { archivedAt: NOW }),
   ];
 
@@ -758,7 +829,10 @@ describe("AgentGateway", () => {
           jsonrpc: "2.0",
           id: true,
           method: "tools/call",
-          params: { name: "penkra_set_thread_title", arguments: { title: "Must not run" } },
+          params: {
+            name: "penkra_archive_thread",
+            arguments: { threadId: "Must not run" },
+          },
         },
       });
       assert.equal((response.body as { error?: { code: number } }).error?.code, -32600);
@@ -940,6 +1014,32 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
+  it.effect("exposes exactly the eight ordinary thread commands in help", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_exec_command",
+        args: { command: "penkra threads --help" },
+      });
+      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      const text = toolErrorText(response.result);
+      const commandNames = [
+        "archive",
+        "create",
+        "interrupt",
+        "list",
+        "read",
+        "send",
+        "unarchive",
+        "wait",
+      ];
+      const exposed = [...text.matchAll(/- `penkra threads ([^` ]+)`/g)].map((match) => match[1]);
+      assert.deepEqual(exposed.toSorted(), commandNames);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
   it.effect("returns provider-specific target option keys before the model catalog", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
     return Effect.gen(function* () {
@@ -1044,7 +1144,7 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("reports the full matching count when the limit truncates the thread list", () => {
+  it.effect("returns a durable cursor when the limit truncates the thread list", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
@@ -1056,7 +1156,89 @@ describe("AgentGateway", () => {
       const payload = toolResultJson(response.result);
       const threads = payload.threads as Array<Record<string, unknown>>;
       assert.equal(threads.length, 1);
-      assert.equal(payload.totalMatching, 2);
+      assert.isString((payload.pageInfo as { nextCursor: string | null }).nextCursor);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("searches transcript windows across the caller Space with a stable cursor", () => {
+    const firstShell = makeThreadShell("thread-search-new", {
+      title: "Newer result",
+    });
+    const secondShell = makeThreadShell("thread-search-old", {
+      title: "Older result",
+    });
+    const firstDetail: OrchestrationThread = {
+      ...makeThreadDetail(firstShell),
+      messages: [
+        {
+          id: MessageId.makeUnsafe("message-search-new"),
+          role: "assistant",
+          text: "The architecture uses a durable anchor for every page.",
+          turnId: TurnId.makeUnsafe("turn-search-new"),
+          streaming: false,
+          source: "native",
+          createdAt: "2026-08-31T12:00:02.000Z",
+          updatedAt: "2026-08-31T12:00:02.000Z",
+        },
+      ],
+    };
+    const secondDetail: OrchestrationThread = {
+      ...makeThreadDetail(secondShell),
+      messages: [
+        {
+          id: MessageId.makeUnsafe("message-search-old"),
+          role: "user",
+          text: "Please explain the earlier architecture decision.",
+          turnId: TurnId.makeUnsafe("turn-search-old"),
+          streaming: false,
+          source: "native",
+          createdAt: "2026-08-31T12:00:01.000Z",
+          updatedAt: "2026-08-31T12:00:01.000Z",
+        },
+      ],
+    };
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [makeThreadShell("thread-parent"), firstShell, secondShell],
+      {
+        threadDetails: new Map([
+          [firstShell.id, firstDetail],
+          [secondShell.id, secondDetail],
+        ]),
+      },
+    );
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const first = toolResultJson(
+        (yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_read_thread",
+          args: { query: "architecture", limit: 1 },
+        })).result,
+      );
+      const firstItems = first.items as Array<{
+        threadId: string;
+        messageId: string;
+      }>;
+      assert.lengthOf(firstItems, 1);
+      assert.equal(firstItems[0]?.threadId, "thread-search-new");
+      assert.equal(firstItems[0]?.messageId, "message-search-new");
+      const cursor = (first.pageInfo as { nextCursor: string | null }).nextCursor;
+      assert.isString(cursor);
+
+      const second = toolResultJson(
+        (yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_read_thread",
+          args: { query: "architecture", limit: 1, cursor },
+        })).result,
+      );
+      const secondItems = second.items as Array<{
+        threadId: string;
+        messageId: string;
+      }>;
+      assert.equal(secondItems[0]?.threadId, "thread-search-old");
+      assert.equal(secondItems[0]?.messageId, "message-search-old");
+      assert.isNull((second.pageInfo as { nextCursor: string | null }).nextCursor);
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -1093,13 +1275,13 @@ describe("AgentGateway", () => {
             provider: "codex",
             status: "working",
             titleContains: "STREAM",
-            creationSource: "penkra_mcp",
+            createdBy: "penkra-mcp",
             updatedAfter: "2026-03-01T00:00:00.000Z",
             updatedBefore: "2026-03-03T00:00:00.000Z",
           },
         });
         const payload = toolResultJson(response.result);
-        assert.equal(payload.totalMatching, 1);
+        assert.isNull((payload.pageInfo as { nextCursor: string | null }).nextCursor);
         assert.equal(
           (payload.threads as Array<{ threadId: string }>)[0]?.threadId,
           "thread-parent",
@@ -1138,7 +1320,11 @@ describe("AgentGateway", () => {
         (yield* harness.callTool({
           token: "token-parent",
           name: "penkra_read_thread_activity",
-          args: { threadId: "thread-parent", limit: 1, cursor: first.nextCursor },
+          args: {
+            threadId: "thread-parent",
+            limit: 1,
+            cursor: first.nextCursor,
+          },
         })).result,
       );
       assert.equal((second.activities as Array<{ sequence: number }>)[0]?.sequence, 2);
@@ -1470,87 +1656,125 @@ describe("AgentGateway", () => {
     },
   );
 
-  it.effect("waits for two pinned terminal turns without creating replacements", () => {
-    const first = makeThreadShell("thread-result-a", {
-      latestTurn: {
-        turnId: TurnId.makeUnsafe("turn-result-a"),
-        state: "completed",
-        requestedAt: NOW,
-        startedAt: NOW,
-        completedAt: NOW,
-        assistantMessageId: MessageId.makeUnsafe("message-result-a"),
-      },
-    });
-    const second = makeThreadShell("thread-result-b", {
-      latestTurn: {
-        turnId: TurnId.makeUnsafe("turn-result-b"),
-        state: "completed",
-        requestedAt: NOW,
-        startedAt: NOW,
-        completedAt: NOW,
-        assistantMessageId: MessageId.makeUnsafe("message-result-b"),
-      },
-    });
-    const firstDetail: OrchestrationThread = {
-      ...makeThreadDetail(first),
-      messages: [
-        {
-          id: MessageId.makeUnsafe("message-result-a"),
-          role: "assistant",
-          text: "First result",
+  it.effect(
+    "waits for pinned terminal turns and resolves previews by authoritative message id",
+    () => {
+      const first = makeThreadShell("thread-result-a", {
+        latestTurn: {
           turnId: TurnId.makeUnsafe("turn-result-a"),
-          streaming: false,
-          source: "native",
-          createdAt: NOW,
-          updatedAt: NOW,
+          state: "completed",
+          requestedAt: NOW,
+          startedAt: NOW,
+          completedAt: NOW,
+          assistantMessageId: MessageId.makeUnsafe("message-result-a"),
         },
-      ],
-    };
-    const secondDetail: OrchestrationThread = {
-      ...makeThreadDetail(second),
-      messages: [
-        {
-          id: MessageId.makeUnsafe("message-result-b"),
-          role: "assistant",
-          text: "Second result",
+      });
+      const second = makeThreadShell("thread-result-b", {
+        latestTurn: {
           turnId: TurnId.makeUnsafe("turn-result-b"),
-          streaming: false,
-          source: "native",
-          createdAt: NOW,
-          updatedAt: NOW,
+          state: "completed",
+          requestedAt: NOW,
+          startedAt: NOW,
+          completedAt: NOW,
+          assistantMessageId: MessageId.makeUnsafe("message-result-b"),
         },
-      ],
-    };
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(
-      [makeThreadShell("thread-parent"), first, second],
-      {
-        threadDetails: new Map([
-          ["thread-result-a", firstDetail],
-          ["thread-result-b", secondDetail],
-        ]),
-      },
-    );
+      });
+      const firstDetail: OrchestrationThread = {
+        ...makeThreadDetail(first),
+        messages: [
+          {
+            id: MessageId.makeUnsafe("message-result-a"),
+            role: "assistant",
+            text: "First result",
+            // Provider-native turn identities need not equal Penkra's pinned run id.
+            // The projection's assistantMessageId is the authoritative link.
+            turnId: TurnId.makeUnsafe("provider-turn-result-a"),
+            streaming: false,
+            source: "native",
+            createdAt: NOW,
+            updatedAt: NOW,
+          },
+        ],
+      };
+      const secondDetail: OrchestrationThread = {
+        ...makeThreadDetail(second),
+        messages: [
+          {
+            id: MessageId.makeUnsafe("message-result-b"),
+            role: "assistant",
+            text: "Second result",
+            turnId: TurnId.makeUnsafe("turn-result-b"),
+            streaming: false,
+            source: "native",
+            createdAt: NOW,
+            updatedAt: NOW,
+          },
+        ],
+      };
+      const { gatewayLayer, makeHarness } = makeHarnessLayer(
+        [makeThreadShell("thread-parent"), first, second],
+        {
+          threadDetails: new Map([
+            ["thread-result-a", firstDetail],
+            ["thread-result-b", secondDetail],
+          ]),
+        },
+      );
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const response = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_wait_for_threads",
+          args: {
+            threadId: ["thread-result-a", "thread-result-b"],
+            timeoutMs: 0,
+          },
+        });
+        assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+        const payload = toolResultJson(response.result);
+        assert.equal(payload.allTerminal, true);
+        assert.deepEqual(payload.runIds, ["turn-result-a", "turn-result-b"]);
+        assert.deepEqual(
+          (payload.threads as Array<{ latestAssistantPreview: string }>).map(
+            (entry) => entry.latestAssistantPreview,
+          ),
+          ["First result", "Second result"],
+        );
+        assert.deepEqual(harness.getWaitReadCounts(), {
+          detailReads: 2,
+          batchTurnReads: 1,
+        });
+        assert.equal(harness.dispatched.length, 0);
+      }).pipe(Effect.provide(gatewayLayer));
+    },
+  );
+
+  it.effect("does not treat a newly created thread awaiting its first turn as terminal", () => {
+    const created = makeThreadShell("thread-awaiting-first-turn", {
+      creationSource: "penkra_mcp",
+      latestTurn: null,
+    });
+    const { gatewayLayer, makeHarness } = makeHarnessLayer([
+      makeThreadShell("thread-parent"),
+      created,
+    ]);
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_wait_for_threads",
-        args: { threadIds: ["thread-result-a", "thread-result-b"], timeoutMs: 0 },
+        args: { threadId: ["thread-awaiting-first-turn"], timeoutMs: 0 },
       });
-      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       const payload = toolResultJson(response.result);
-      assert.equal(payload.allTerminal, true);
-      assert.deepEqual(payload.runIds, ["turn-result-a", "turn-result-b"]);
-      assert.deepEqual(
-        (payload.threads as Array<{ summary: string }>).map((entry) => entry.summary),
-        ["First result", "Second result"],
-      );
-      assert.deepEqual(harness.getWaitReadCounts(), { detailReads: 2, batchTurnReads: 1 });
-      assert.equal(harness.dispatched.length, 0);
+      const result = (payload.threads as Array<Record<string, unknown>>)[0]!;
+      assert.equal(result.state, "pending");
+      assert.equal(result.terminal, false);
+      assert.equal(result.timedOut, true);
+      assert.equal(payload.allTerminal, false);
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("bounds wait summaries and points callers to paginated thread reads", () => {
+  it.effect("labels bounded wait previews and points callers to paginated thread reads", () => {
     const runId = TurnId.makeUnsafe("turn-long-result");
     const messageId = MessageId.makeUnsafe("message-long-result");
     const shell = makeThreadShell("thread-long-result", {
@@ -1593,17 +1817,16 @@ describe("AgentGateway", () => {
       const response = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_wait_for_threads",
-        args: { threadIds: ["thread-long-result"], timeoutMs: 0 },
+        args: { threadId: ["thread-long-result"], timeoutMs: 0 },
       });
       const result = (
         toolResultJson(response.result).threads as Array<Record<string, unknown>>
       )[0]!;
-      assert.equal(result.summaryTruncated, true);
-      assert.match(result.summary as string, /\[\.\.\. truncated \d+ chars\]$/);
-      assert.equal((result.summary as string).length, 2_000);
+      assert.equal(result.previewTruncated, true);
+      assert.match(result.latestAssistantPreview as string, /\[\.\.\. truncated \d+ chars\]$/);
+      assert.equal((result.latestAssistantPreview as string).length, 2_000);
       assert.deepEqual(result.readThread, {
-        tool: "penkra_read_thread",
-        arguments: { threadId: "thread-long-result" },
+        command: "penkra threads read --thread-id thread-long-result",
       });
     }).pipe(Effect.provide(gatewayLayer));
   });
@@ -1632,10 +1855,13 @@ describe("AgentGateway", () => {
         const response = yield* harness.callTool({
           token: "token-parent",
           name: "penkra_wait_for_threads",
-          args: { threadIds: pending.map((thread) => thread.id), timeoutMs: 0 },
+          args: { threadId: pending.map((thread) => thread.id), timeoutMs: 0 },
         });
         assert.equal(toolResultJson(response.result).timedOut, true);
-        assert.deepEqual(harness.getWaitReadCounts(), { detailReads: 0, batchTurnReads: 1 });
+        assert.deepEqual(harness.getWaitReadCounts(), {
+          detailReads: 0,
+          batchTurnReads: 1,
+        });
       }).pipe(Effect.provide(gatewayLayer));
     },
   );
@@ -1661,7 +1887,10 @@ describe("AgentGateway", () => {
         .callTool({
           token: "token-parent",
           name: "penkra_wait_for_threads",
-          args: { threadIds: ["thread-deleted-during-wait"], timeoutMs: 5_000 },
+          args: {
+            threadId: ["thread-deleted-during-wait"],
+            timeoutMs: 5_000,
+          },
         })
         .pipe(Effect.forkChild);
       yield* Effect.yieldNow;
@@ -1720,7 +1949,7 @@ describe("AgentGateway", () => {
         token: "token-parent",
         name: "penkra_wait_for_threads",
         args: {
-          threadIds: ["thread-wait-idle", "thread-wait-failed", "thread-wait-running"],
+          threadId: ["thread-wait-idle", "thread-wait-failed", "thread-wait-running"],
           timeoutMs: 0,
         },
       });
@@ -1789,7 +2018,7 @@ describe("AgentGateway", () => {
         token: "token-parent",
         name: "penkra_wait_for_threads",
         args: {
-          threadIds: ["thread-wait-running"],
+          threadId: ["thread-wait-running"],
           runIds: ["turn-wait-pinned"],
           timeoutMs: 0,
         },
@@ -1797,11 +2026,11 @@ describe("AgentGateway", () => {
       const secondThread = (
         toolResultJson(second.result).threads as Array<{
           state: string;
-          summary: string;
+          latestAssistantPreview: string;
         }>
       )[0];
       assert.equal(secondThread?.state, "completed");
-      assert.equal(secondThread?.summary, "Pinned run finished");
+      assert.equal(secondThread?.latestAssistantPreview, "Pinned run finished");
       assert.equal(harness.dispatched.length, 0);
     }).pipe(Effect.provide(gatewayLayer));
   });
@@ -1827,7 +2056,11 @@ describe("AgentGateway", () => {
       const response = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_send_message",
-        args: { threadId: "thread-child", message: "status check please", mode: "steer" },
+        args: {
+          threadId: "thread-child",
+          message: "status check please",
+          mode: "steer",
+        },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       const turn = harness.dispatched[0]!;
@@ -1847,7 +2080,11 @@ describe("AgentGateway", () => {
       const response = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_send_message",
-        args: { threadId: "thread-child", message: "status check please", mode: "steer" },
+        args: {
+          threadId: "thread-child",
+          message: "status check please",
+          mode: "steer",
+        },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       // The projection snapshot can lag the runtime in both directions, so
@@ -1871,7 +2108,10 @@ describe("AgentGateway", () => {
       const response = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_send_message",
-        args: { threadId: "thread-full-access", message: "run something dangerous" },
+        args: {
+          threadId: "thread-full-access",
+          message: "run something dangerous",
+        },
       });
       assert.isTrue(isToolError(response.result));
       assert.include(toolErrorText(response.result), "full-access");
@@ -1945,22 +2185,16 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("archives and renames threads through meta commands", () => {
+  it.effect("archives threads through the public meta command", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
       yield* harness.callTool({
         token: "token-parent",
-        name: "penkra_set_thread_title",
-        args: { threadId: "thread-child", title: "Renamed worker" },
-      });
-      yield* harness.callTool({
-        token: "token-parent",
         name: "penkra_archive_thread",
         args: { threadId: "thread-child" },
       });
-      assert.equal(harness.dispatched[0]?.type, "thread.update");
-      assert.equal(harness.dispatched[1]?.type, "thread.archive");
+      assert.equal(harness.dispatched[0]?.type, "thread.archive");
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -1971,14 +2205,6 @@ describe("AgentGateway", () => {
     ]);
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
-
-      const rename = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_set_thread_title",
-        args: { threadId: "thread-elevated", title: "Hidden work" },
-      });
-      assert.isTrue(isToolError(rename.result));
-      assert.include(toolErrorText(rename.result), "full-access");
 
       const archive = yield* harness.callTool({
         token: "token-parent",

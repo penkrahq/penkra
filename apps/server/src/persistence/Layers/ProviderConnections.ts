@@ -1,7 +1,7 @@
 // FILE: ProviderConnections.ts
 // Purpose: SQLite implementation of durable Connection identity and lifecycle.
 
-import { ProviderConnection } from "@penkra/contracts";
+import { ProviderConnection, ProviderConnectionId } from "@penkra/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -152,6 +152,26 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
     `,
   });
 
+  const listProfilesForConnection = SqlSchema.findAll({
+    Request: Schema.Struct({ connectionId: ProviderConnectionId }),
+    Result: ProviderCredentialProfileRecord,
+    execute: ({ connectionId }) => sql`
+      SELECT profile.profile_ref AS "profileRef", profile.harness_kind AS harness,
+        profile.authentication_target_id AS "authenticationTargetId",
+        profile.authentication_method_id AS "authenticationMethodId", profile.lifecycle,
+        profile.connection_id AS "connectionId",
+        profile.login_operation_id AS "loginOperationId",
+        profile.created_at AS "createdAt", profile.updated_at AS "updatedAt",
+        profile.retired_at AS "retiredAt"
+      FROM provider_credential_profiles profile
+      WHERE profile.connection_id = ${connectionId}
+        AND profile.lifecycle IN ('active', 'retired')
+      ORDER BY CASE profile.lifecycle WHEN 'active' THEN 0 ELSE 1 END,
+        COALESCE(profile.retired_at, profile.updated_at) DESC,
+        profile.profile_ref ASC
+    `,
+  });
+
   const mapped = <A>(operation: string, effect: Effect.Effect<A, unknown>) =>
     effect.pipe(
       Effect.mapError(toPersistenceSqlOrDecodeError(`${operation}:query`, `${operation}:decode`)),
@@ -285,6 +305,13 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
         ),
       ),
     getRecord,
+    findManagedIdentity: (input) =>
+      mapped("ProviderConnectionRepository.findManagedIdentity", selectIdentity(input)),
+    listManagedProfilesForConnection: (connectionId) =>
+      mapped(
+        "ProviderConnectionRepository.listManagedProfilesForConnection",
+        listProfilesForConnection({ connectionId }),
+      ),
     list: (input) =>
       mapped(
         "ProviderConnectionRepository.list",

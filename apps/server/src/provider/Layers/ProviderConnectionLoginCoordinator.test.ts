@@ -3,6 +3,8 @@ import { ProviderConnectionId, ProviderInstallationId } from "@penkra/contracts"
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 import { ServerConfig } from "../../config.ts";
 import { ProviderConnectionLoginRepositoryLive } from "../../persistence/Layers/ProviderConnectionLogins.ts";
@@ -23,6 +25,11 @@ import type {
   CodexManagedApiKeyImportHandle,
   CodexManagedApiKeySnapshot,
 } from "../codexManagedApiKeyLogin.ts";
+import type {
+  ClaudeManagedAccountSnapshot,
+  ClaudeManagedLoginHandle,
+} from "../claudeManagedAccountLogin.ts";
+import { providerCredentialProfileRoot } from "../providerNativeStatePaths.ts";
 import {
   ProviderCredentialBroker,
   ProviderCredentialBrokerError,
@@ -42,6 +49,12 @@ let pendingApiKeyImport:
   | {
       readonly handle: CodexManagedApiKeyImportHandle;
       readonly resolve: (account: CodexManagedApiKeySnapshot) => void;
+    }
+  | undefined;
+let pendingClaudeLogin:
+  | {
+      readonly handle: ClaudeManagedLoginHandle;
+      readonly resolve: (account: ClaudeManagedAccountSnapshot) => void;
     }
   | undefined;
 let importedApiKey: string | null = null;
@@ -81,6 +94,21 @@ const startApiKeyImport = (input: { readonly secret: string }): CodexManagedApiK
     cancel: async () => undefined,
   };
   pendingApiKeyImport = { handle, resolve };
+  return handle;
+};
+
+const startClaudeLogin = async (): Promise<ClaudeManagedLoginHandle> => {
+  let resolve!: (account: ClaudeManagedAccountSnapshot) => void;
+  const completion = new Promise<ClaudeManagedAccountSnapshot>((complete) => {
+    resolve = complete;
+  });
+  const handle: ClaudeManagedLoginHandle = {
+    loginId: `claude-login-${id}`,
+    authUrl: null,
+    completion,
+    cancel: async () => undefined,
+  };
+  pendingClaudeLogin = { handle, resolve };
   return handle;
 };
 
@@ -126,6 +154,9 @@ const coordinatorLayer = Layer.effect(
     now: () => timestamp,
     startLogin,
     startApiKeyImport,
+    startClaudeLogin,
+    probeClaudeAccount: async () => null,
+    logoutClaude: async () => undefined,
     probeAccount: async () => {
       if (probeFailure !== null) {
         const failure = probeFailure;
@@ -157,6 +188,25 @@ const activateCodex = Effect.gen(function* () {
     artifactSource: "test",
     artifactUrl: "https://example.invalid/codex",
     artifactSha256: "a".repeat(64),
+    adapterVersion: "1",
+    protocolVersion: "v1",
+    installedAt: timestamp,
+    activatedAt: timestamp,
+  });
+});
+
+const activateClaude = Effect.gen(function* () {
+  const installations = yield* ProviderInstallationRepository;
+  yield* installations.activate({
+    id: ProviderInstallationId.makeUnsafe("managed-claude-installation"),
+    harness: "claudeAgent",
+    version: "2.1.245",
+    platform: "darwin",
+    architecture: "arm64",
+    executablePath: "/managed/claude",
+    artifactSource: "test",
+    artifactUrl: "https://example.invalid/claude",
+    artifactSha256: "b".repeat(64),
     adapterVersion: "1",
     protocolVersion: "v1",
     installedAt: timestamp,
@@ -339,7 +389,9 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
 
       yield* coordinator.recover;
 
-      const failed = yield* coordinator.get({ operationId: "unverifiable-managed-login" });
+      const failed = yield* coordinator.get({
+        operationId: "unverifiable-managed-login",
+      });
       assert.strictEqual(failed.state, "failed");
       assert.strictEqual(
         failed.failureReason,
@@ -455,6 +507,143 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         "active",
       );
       assert.isTrue(Option.isNone(yield* connections.getRecord(duplicate.connectionId)));
+    }),
+  );
+
+  it.effect("preserves Claude conversations before rotating the logical Connection profile", () =>
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* activateClaude;
+      const coordinator = yield* ProviderConnectionLoginCoordinator;
+      const connections = yield* ProviderConnectionRepository;
+      const config = yield* ServerConfig;
+
+      const first = yield* coordinator.begin({
+        harness: "claudeAgent",
+        authenticationTargetId: "anthropic-first-party",
+        authenticationMethodId: "claude-account",
+      });
+      pendingClaudeLogin?.resolve({
+        type: "claude-account",
+        email: "claude@example.com",
+        subscriptionType: "max",
+      });
+      yield* waitForCompleted(first.operationId);
+
+      const sourceRoot = providerCredentialProfileRoot(
+        config.stateDir,
+        `provider-profile:${first.connectionId}`,
+      );
+      assert.isNotNull(sourceRoot);
+      const relativeTranscript = path.join(
+        "claude-config",
+        "projects",
+        "-workspace",
+        "session-before-reauth.jsonl",
+      );
+      const sourceTranscript = path.join(sourceRoot!, relativeTranscript);
+      const sourceBytes = `${JSON.stringify({
+        type: "assistant",
+        uuid: "assistant-before-reauth",
+        sessionId: "session-before-reauth",
+      })}\n`;
+      yield* Effect.promise(async () => {
+        await mkdir(path.dirname(sourceTranscript), { recursive: true });
+        await writeFile(sourceTranscript, sourceBytes);
+      });
+
+      const reauthenticated = yield* coordinator.begin({
+        harness: "claudeAgent",
+        authenticationTargetId: "anthropic-first-party",
+        authenticationMethodId: "claude-account",
+      });
+      const targetRoot = providerCredentialProfileRoot(
+        config.stateDir,
+        `provider-profile:${reauthenticated.connectionId}`,
+      );
+      assert.isNotNull(targetRoot);
+      pendingClaudeLogin?.resolve({
+        type: "claude-account",
+        email: "claude@example.com",
+        subscriptionType: "max",
+      });
+      const completed = yield* waitForCompleted(reauthenticated.operationId);
+
+      assert.strictEqual(completed.connectionId, first.connectionId);
+      assert.strictEqual(
+        Option.getOrThrow(yield* connections.getRecord(first.connectionId)).profileRef,
+        `provider-profile:${reauthenticated.connectionId}`,
+      );
+      assert.strictEqual(
+        yield* Effect.promise(() => readFile(path.join(targetRoot!, relativeTranscript), "utf8")),
+        sourceBytes,
+      );
+    }),
+  );
+
+  it.effect("rejects divergent Claude history without advancing the logical Connection", () =>
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* activateClaude;
+      const coordinator = yield* ProviderConnectionLoginCoordinator;
+      const connections = yield* ProviderConnectionRepository;
+      const config = yield* ServerConfig;
+
+      const first = yield* coordinator.begin({
+        harness: "claudeAgent",
+        authenticationTargetId: "anthropic-first-party",
+        authenticationMethodId: "claude-account",
+      });
+      pendingClaudeLogin?.resolve({
+        type: "claude-account",
+        email: "divergent@example.com",
+        subscriptionType: "max",
+      });
+      yield* waitForCompleted(first.operationId);
+      const sourceProfileRef = `provider-profile:${first.connectionId}`;
+      const sourceRoot = providerCredentialProfileRoot(config.stateDir, sourceProfileRef);
+      assert.isNotNull(sourceRoot);
+
+      const reauthenticated = yield* coordinator.begin({
+        harness: "claudeAgent",
+        authenticationTargetId: "anthropic-first-party",
+        authenticationMethodId: "claude-account",
+      });
+      const targetProfileRef = `provider-profile:${reauthenticated.connectionId}`;
+      const targetRoot = providerCredentialProfileRoot(config.stateDir, targetProfileRef);
+      assert.isNotNull(targetRoot);
+      const relativeTranscript = path.join(
+        "claude-config",
+        "projects",
+        "-workspace",
+        "divergent-session.jsonl",
+      );
+      yield* Effect.promise(async () => {
+        const sourceTranscript = path.join(sourceRoot!, relativeTranscript);
+        const targetTranscript = path.join(targetRoot!, relativeTranscript);
+        await Promise.all([
+          mkdir(path.dirname(sourceTranscript), { recursive: true }),
+          mkdir(path.dirname(targetTranscript), { recursive: true }),
+        ]);
+        await Promise.all([
+          writeFile(sourceTranscript, `${JSON.stringify({ type: "assistant", uuid: "source" })}\n`),
+          writeFile(targetTranscript, `${JSON.stringify({ type: "assistant", uuid: "target" })}\n`),
+        ]);
+      });
+
+      pendingClaudeLogin?.resolve({
+        type: "claude-account",
+        email: "divergent@example.com",
+        subscriptionType: "max",
+      });
+      const failed = yield* waitForFailed(reauthenticated.operationId);
+
+      assert.match(failed.failureReason ?? "", /preserve Claude conversations/i);
+      assert.strictEqual(
+        Option.getOrThrow(yield* connections.getRecord(first.connectionId)).profileRef,
+        sourceProfileRef,
+      );
+      assert.isTrue(Option.isNone(yield* connections.getRecord(reauthenticated.connectionId)));
     }),
   );
 
@@ -630,7 +819,10 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       });
 
       const result = yield* Effect.exit(
-        coordinator.terminateProfile({ connectionId, reason: "disconnected" }),
+        coordinator.terminateProfile({
+          connectionId,
+          reason: "disconnected",
+        }),
       );
       logoutFailure = null;
       assert.strictEqual(result._tag, "Failure");
@@ -651,7 +843,9 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         authenticationTargetId: "openai-first-party",
         authenticationMethodId: "chatgpt",
       });
-      const cancelled = yield* coordinator.cancel({ operationId: started.operationId });
+      const cancelled = yield* coordinator.cancel({
+        operationId: started.operationId,
+      });
       assert.strictEqual(cancelled.state, "cancelled");
       assert.strictEqual(logoutCount, 1);
     }),

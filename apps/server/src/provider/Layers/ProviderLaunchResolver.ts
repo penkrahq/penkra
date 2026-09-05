@@ -12,6 +12,10 @@ import { ThreadProviderBindingRepository } from "../../persistence/Services/Thre
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
 import {
+  resolveClaudeSessionCandidate,
+  synchronizeClaudeSession,
+} from "../claudeManagedNativeState.ts";
+import {
   providerConnectionProfileRoot,
   providerCredentialProfileIdentity,
   providerNativeStateRoot,
@@ -30,7 +34,10 @@ import {
 
 const fail = (detail: string, cause?: unknown) =>
   Effect.fail(
-    new ProviderLaunchResolutionError({ detail, ...(cause === undefined ? {} : { cause }) }),
+    new ProviderLaunchResolutionError({
+      detail,
+      ...(cause === undefined ? {} : { cause }),
+    }),
   );
 
 export const makeProviderLaunchResolver = Effect.gen(function* () {
@@ -127,7 +134,10 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
 
       const profileRoot = providerConnectionProfileRoot(config.stateDir, profileIdentity);
       const nativeStateRoot = providerNativeStateRoot(config.stateDir, input.nativeStateIdentity);
-      const environment = manifest.buildStateEnvironment({ profileRoot, nativeStateRoot });
+      const environment = manifest.buildStateEnvironment({
+        profileRoot,
+        nativeStateRoot,
+      });
       yield* Effect.tryPromise({
         try: async () => {
           await Promise.all(
@@ -194,7 +204,7 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
         return yield* fail("The thread has not started a provider harness.");
       const nativeStateGenerationId =
         input.nativeStateGenerationId ?? state.value.nativeStateGenerationId;
-      return yield* resolveProfile({
+      const launch = yield* resolveProfile({
         harness: state.value.harness,
         connectionId: input.connectionId,
         installationId: input.installationId,
@@ -202,6 +212,59 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
         nativeStateIdentity: nativeStateGenerationId,
         allowRetiredInstallation: true,
       });
+      if (
+        state.value.harness === "claudeAgent" &&
+        state.value.providerSessionId !== null &&
+        input.connectionId !== null
+      ) {
+        const profiles = yield* connections
+          .listManagedProfilesForConnection(input.connectionId)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderLaunchResolutionError({
+                  detail: "Could not inspect Claude credential-profile lineage.",
+                  cause,
+                }),
+            ),
+          );
+        const lineageRoots = [
+          launch.profileRoot,
+          ...profiles.flatMap((profile) => {
+            const identity = providerCredentialProfileIdentity(profile.profileRef);
+            return identity === null
+              ? []
+              : [providerConnectionProfileRoot(config.stateDir, identity)];
+          }),
+        ].filter((root, index, roots) => roots.indexOf(root) === index);
+        const reconciliation = yield* Effect.tryPromise({
+          try: async () => {
+            const source = await resolveClaudeSessionCandidate({
+              profileRoots: lineageRoots,
+              providerSessionId: state.value.providerSessionId!,
+            });
+            const outcome = await synchronizeClaudeSession({
+              sourceProfileRoot: source.profileRoot,
+              targetProfileRoot: launch.profileRoot,
+              providerSessionId: state.value.providerSessionId!,
+            });
+            return { sourceProfileRoot: source.profileRoot, outcome };
+          },
+          catch: (cause) =>
+            new ProviderLaunchResolutionError({
+              detail: "Could not prepare the exact Claude conversation for resume.",
+              cause,
+            }),
+        });
+        yield* Effect.logInfo("provider.claude_native_state.resume_prepared", {
+          threadId: input.threadId,
+          providerSessionId: state.value.providerSessionId,
+          sourceWasActiveProfile: reconciliation.sourceProfileRoot === launch.profileRoot,
+          inspectedProfileCount: lineageRoots.length,
+          outcome: reconciliation.outcome,
+        });
+      }
+      return launch;
     });
 
   return { resolve, resolveProfile } satisfies ProviderLaunchResolverShape;
