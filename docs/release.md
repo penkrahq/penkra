@@ -119,6 +119,10 @@ create the matching tag manually: the workflow creates it only after every nativ
    - requires the aggregate Penkra CI quality gate to have passed for that exact commit;
    - consumes that commit-bound result instead of repeating the same validation suite;
    - builds each advertised platform on a native GitHub-hosted runner;
+   - installs the previous stable Windows NSIS package and upgrades it with the candidate,
+     verifying both installed versions launch and retain the isolated profile;
+   - exercises Linux's production updater against a loopback candidate feed, verifying the exact
+     AppImage bytes replace the previous image, the application restarts, and profile data remains;
    - signs/notarizes macOS and emits Linux and explicitly unsigned Windows checksum/provenance
      evidence;
    - creates each installer, update payload, blockmap where applicable, and matching updater manifest
@@ -170,6 +174,12 @@ The release workflow intentionally fails when required macOS signing/notarizatio
 Linux AppImages are explicitly unsigned at the OS package layer and rely on exact
 checksums plus GitHub build-provenance attestations; release metadata must not describe them as
 code-signed.
+
+Native upgrade checks run only on disposable GitHub runners. They use isolated profiles and retain
+`native-upgrade-linux.json` / `native-upgrade-win.json` as completed transaction evidence alongside
+the artifacts. The Linux test redirects only the updater feed; download, install, shutdown, and
+restart use the packaged application's production implementation. The Windows test invokes NSIS's
+silent per-user install path, not archive extraction and not Windows auto-update.
 
 The workflow uses only the repository-scoped `GITHUB_TOKEN` to stage and publish the GitHub Release.
 It does not require AWS credentials, an update token, a private repository token, or a GitHub
