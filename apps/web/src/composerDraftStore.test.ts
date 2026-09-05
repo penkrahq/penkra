@@ -335,7 +335,7 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
   });
 
-  it("marks promoted drafts without deleting composer state until finalization", () => {
+  it("ends promoted draft identity without deleting newer composer state", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(folderId, threadId);
     store.setPrompt(threadId, "keep me while server thread hydrates");
@@ -351,10 +351,12 @@ describe("composerDraftStore project draft thread mapping", () => {
     useComposerDraftStore.getState().finalizePromotedDraftThread(threadId);
 
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toBeNull();
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.prompt).toBe(
+      "keep me while server thread hydrates",
+    );
   });
 
-  it("finalizes every promoted draft exposed by the facade batch helper", () => {
+  it("finalizes every promoted identity while retaining each live composer draft", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(folderId, threadId);
     store.setProjectDraftThreadId(otherFolderId, otherThreadId);
@@ -366,8 +368,26 @@ describe("composerDraftStore project draft thread mapping", () => {
 
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toBeNull();
     expect(useComposerDraftStore.getState().getDraftThread(otherThreadId)).toBeNull();
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
-    expect(useComposerDraftStore.getState().draftsByThreadId[otherThreadId]).toBeUndefined();
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.prompt).toBe(
+      "first promoted draft",
+    );
+    expect(useComposerDraftStore.getState().draftsByThreadId[otherThreadId]?.prompt).toBe(
+      "second promoted draft",
+    );
+  });
+
+  it("retains a follow-up queued while the first turn is being admitted", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(folderId, threadId);
+    markPromotedDraftThreads(new Set([threadId]));
+    store.enqueueQueuedTurn(threadId, makeQueuedChatTurn("queued-during-first-admission"));
+
+    finalizePromotedDraftThreads(new Set([threadId]));
+
+    expect(useComposerDraftStore.getState().getDraftThread(threadId)).toBeNull();
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.queuedTurns).toEqual([
+      expect.objectContaining({ id: "queued-during-first-admission" }),
+    ]);
   });
 
   it("updates branch context on an existing draft thread", () => {
