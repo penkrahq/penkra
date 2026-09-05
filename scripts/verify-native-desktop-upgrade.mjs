@@ -19,7 +19,10 @@ import { createRequire } from "node:module";
 import { basename, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { configureNativeUpgradeFeed } from "./lib/native-upgrade-feed.ts";
-import { stopNativeUpgradeProcesses } from "./lib/native-upgrade-processes.ts";
+import {
+  findNativeUpgradeProcesses,
+  stopNativeUpgradeProcesses,
+} from "./lib/native-upgrade-processes.ts";
 import {
   createPackagedDesktopSmokeEnvironment,
   resolvePackagedDesktopSmokeLogPath,
@@ -55,6 +58,7 @@ const scratch = resolve(".penkra/scratch");
 mkdirSync(scratch, { recursive: true });
 const root = mkdtempSync(join(scratch, "native-upgrade-"));
 const stateRoot = join(root, "state");
+const launchLog = join(root, "replacement-launch.log");
 const env = createPackagedDesktopSmokeEnvironment(stateRoot, {
   platform,
   version: previousVersion,
@@ -159,7 +163,7 @@ try {
     await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
     const feed = `http://127.0.0.1:${server.address().port}`;
     const page = await launch(executable, previousVersion, updateEnv);
-    await application.evaluate(configureNativeUpgradeFeed, feed);
+    await application.evaluate(configureNativeUpgradeFeed, { url: feed, launchLog });
     await page.evaluate(() => window.desktopBridge.checkForUpdates());
     // Penkra normally starts preparation as soon as an update is discovered.
     // Join that real lifecycle rather than treating an already-running download as failure.
@@ -203,6 +207,24 @@ try {
   console.log(JSON.stringify(evidence));
 } catch (error) {
   console.error("[native-upgrade] failed", error);
+  if (platform === "linux") {
+    for (const pid of findNativeUpgradeProcesses(join(stateRoot, "user-data"))) {
+      try {
+        console.error("[native-upgrade] surviving owned process", {
+          pid,
+          command: readFileSync(`/proc/${pid}/cmdline`, "utf8").replaceAll("\0", " "),
+          waitChannel: readFileSync(`/proc/${pid}/wchan`, "utf8"),
+        });
+      } catch {
+        /* The process may exit during inspection. */
+      }
+    }
+  }
+  if (existsSync(launchLog))
+    console.error(
+      "[native-upgrade] replacement output:",
+      readFileSync(launchLog, "utf8").slice(-24_000),
+    );
   const logPath = resolvePackagedDesktopSmokeLogPath(stateRoot);
   if (existsSync(logPath)) console.error(readFileSync(logPath, "utf8").slice(-24_000));
   throw error;

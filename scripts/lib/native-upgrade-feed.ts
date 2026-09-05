@@ -2,16 +2,25 @@
 // has neither a global require nor a dynamic-import callback.
 export function configureNativeUpgradeFeed(
   { app }: { app: { getAppPath(): string } },
-  url: string,
+  input: string | { url: string; launchLog: string },
 ): void {
   const mainModule = process.mainModule;
   if (!mainModule) throw new Error("Packaged Electron main module is unavailable.");
   const requireApp = mainModule
     .require("node:module")
     .createRequire(`${app.getAppPath()}/package.json`);
-  requireApp("electron-updater").autoUpdater.setFeedURL({
+  const updater = requireApp("electron-updater").autoUpdater;
+  updater.setFeedURL({
     provider: "generic",
-    url,
+    url: typeof input === "string" ? input : input.url,
     useMultipleRangeRequest: false,
   });
+  if (typeof input !== "string") {
+    // Capture failures before the replacement's application logger initializes.
+    // Preserve the updater's executable, arguments, environment and spawn logic.
+    const fd = requireApp("node:fs").openSync(input.launchLog, "a");
+    const spawnLog = updater.spawnLog.bind(updater);
+    updater.spawnLog = (command: string, args: string[], env: NodeJS.ProcessEnv) =>
+      spawnLog(command, args, env, ["ignore", fd, fd]);
+  }
 }
