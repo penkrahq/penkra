@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.12.0 - 2026-09-04
+
 ### Added
 
 - Added App developer memberships with pending-email invitations, `developer` and `publisher`
@@ -17,6 +19,15 @@
   `penkra tabs handle-dialog` closes only a previously reported native dialog.
 - Added one acknowledged, replayable orchestration synchronization stream and turn-boundary
   transcript pagination so reconnects and long Threads recover from durable sequence cursors.
+- Added an eight-operation agent Thread surface with Space-aware discovery, typed transcript items,
+  stable cursor pagination, contextual search, pinned waits, and lossless continuation through long
+  messages.
+- Added deterministic provider-independent continuation reconstruction when an exact native session
+  cannot be resumed, using the latest completed compaction boundary without heuristic trimming.
+- Added host-mediated Electron shell access and private tab-to-controller request handlers to the
+  App SDK, plus App-defined metadata on account-data realtime subscriptions.
+- Added resource-chip context menus that let people choose an installed App or the system handler
+  for transcript links and local paths.
 
 ### Changed
 
@@ -39,6 +50,8 @@
 - Unified shell, active-Thread, and live event hydration behind the durable synchronization stream;
   recently viewed Thread detail remains a bounded client-side cache rather than another live
   subscription.
+- Separated unique provider journal events from stable visible lifecycle identities so compaction
+  heartbeats update one transcript item instead of accumulating duplicate rows.
 
 ### Fixed
 
@@ -58,6 +71,18 @@
   the conversation, which could strand authentication-first failures on an unusable resume target.
 - Fixed transcript page merging, promoted-queue ordering, detached-reader scrolling, and WebSocket
   recovery after clean completion or hung connection attempts.
+- Fixed queued normal messages racing terminal reconciliation, long running Threads oscillating
+  between estimated and measured scroll anchors, and upward reader input being overridden by live
+  tail following.
+- Fixed Claude credential rotation and provider-runtime changes losing native continuation state;
+  authentication and state preparation now complete before an atomic Connection switch.
+- Fixed command parsing for escaped JSON strings so content cannot be reinterpreted as top-level
+  flags, while repeated array-valued flags remain schema-validated.
+- Fixed pinned agent waits losing their terminal assistant preview when Penkra and provider-native
+  turn identities differ.
+- Fixed repeated startup reconciliation rejecting orphaned streaming-message cleanup because a
+  prior startup had bound the same command ID to a different timestamp.
+- Fixed Connection-scoped Codex generated images being rejected by the local-image preview route.
 
 ## 0.9.2 - 2026-08-07
 
