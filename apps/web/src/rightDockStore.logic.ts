@@ -28,6 +28,7 @@ export interface RightDockThreadState {
 }
 
 export interface OpenPaneInput {
+  preserveSelection?: boolean;
   paneId: string;
   kind: "app";
   appId: string;
@@ -123,10 +124,14 @@ export function openPaneInState(
     const panes = state.panes.map((candidate) =>
       candidate.id === input.paneId ? pane : candidate,
     );
-    return { ...state, open: true, panes, activePaneId: existing.id };
+    return input.preserveSelection
+      ? { ...state, panes }
+      : { ...state, open: true, panes, activePaneId: existing.id };
   }
   const pane = createPane(input);
-  return { ...state, open: true, panes: [...state.panes, pane], activePaneId: pane.id };
+  return input.preserveSelection
+    ? { ...state, panes: [...state.panes, pane] }
+    : { ...state, open: true, panes: [...state.panes, pane], activePaneId: pane.id };
 }
 
 export function closePaneInState(

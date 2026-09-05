@@ -105,7 +105,7 @@ describe("ElectronAppTabHost", () => {
     expect(host.current()).toBeNull();
     onOpened.mockClear();
     host.present(descriptor.id);
-    expect(onOpened).toHaveBeenCalledWith(descriptor);
+    expect(onOpened).toHaveBeenCalledWith({ ...descriptor, selection: "activate" });
     expect(onState).not.toHaveBeenCalled();
     expect(registerRendererIdentity).toHaveBeenCalledWith({
       appId: app.appId,
@@ -149,6 +149,7 @@ describe("ElectronAppTabHost", () => {
 
   it("restores an updated App with the same tab identity", async () => {
     const app = installedApp();
+    const onOpened = vi.fn();
     const attachedViews = new Set<unknown>();
     const retireGeneration = vi.fn();
     const retireTab = vi.fn();
@@ -167,7 +168,7 @@ describe("ElectronAppTabHost", () => {
       broker: { registerTab: vi.fn(() => vi.fn()) },
       rpc: createRpcMock(),
       ipcBridge: { waitForReady: vi.fn(async () => undefined) },
-      onOpened: vi.fn(),
+      onOpened,
       onState: vi.fn(),
       authority: { retireGeneration, retireTab },
     });
@@ -192,6 +193,13 @@ describe("ElectronAppTabHost", () => {
 
     const restored = host.list()[0];
     expect(restored).toBeDefined();
+    expect(onOpened).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: original.id,
+        threadId: "thread-1",
+        selection: "preserve",
+      }),
+    );
     if (!restored) throw new Error("Updated App tab was not restored.");
     expect(restored.rendererId).not.toBe(original.rendererId);
     expect(restored.documentUrl).not.toBe(original.documentUrl);

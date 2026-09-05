@@ -645,6 +645,11 @@ export interface DesktopAppTabDescriptor {
   documentUrl: string;
 }
 
+/** Selection intent belongs to the event, never the retained tab descriptor. */
+export interface DesktopAppTabOpened extends DesktopAppTabDescriptor {
+  selection: "activate" | "preserve";
+}
+
 export interface DesktopAppFrameHostMessage {
   tabId: string;
   rendererId: number;
@@ -710,7 +715,7 @@ export interface DesktopAppTabsBridge {
   navigate: (input: { tabId: string; route: string; state?: unknown }) => Promise<void>;
   close: (input: { tabId: string }) => Promise<void>;
   onListingRequested: (listener: (input: { appId: string }) => void) => () => void;
-  onOpened: (listener: (tab: DesktopAppTabDescriptor) => void) => () => void;
+  onOpened: (listener: (tab: DesktopAppTabOpened) => void) => () => void;
   onState: (listener: (tab: DesktopAppTabDescriptor) => void) => () => void;
   onClosed: (listener: (tab: DesktopAppTabClosed) => void) => () => void;
   onFrameHostMessage: (listener: (message: DesktopAppFrameHostMessage) => void) => () => void;
