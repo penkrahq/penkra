@@ -42,6 +42,12 @@ import type {
 
 export type ProviderServiceSessionStartInput = ProviderSessionStartInput & {
   readonly managedLaunch?: ProviderManagedLaunchContext;
+  /**
+   * Start without inheriting a resume cursor from the persisted provider
+   * binding. Reconstruction is a deliberate new native conversation even
+   * when routing metadata for the previous conversation still exists.
+   */
+  readonly resumePolicy?: "use-persisted" | "fresh";
 };
 
 export type ProviderServiceForkThreadInput = ProviderForkThreadInput & {

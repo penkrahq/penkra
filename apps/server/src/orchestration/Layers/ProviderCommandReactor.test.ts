@@ -887,6 +887,14 @@ describe("ProviderCommandReactor", () => {
         }),
       );
 
+      // A failed exact-continuation verification can leave the source runtime
+      // visible in memory while the committed binding explicitly requires a
+      // fresh reconstructed continuation. It must be stopped and its native
+      // cursor must never leak into the new session.
+      harness.setRuntimeSessionTurnState({ threadId: "thread-1", status: "ready" });
+      harness.stopSession.mockClear();
+      harness.startSession.mockClear();
+
       await Effect.runPromise(
         harness.engine.dispatch({
           type: "thread.turn.start",
@@ -906,6 +914,10 @@ describe("ProviderCommandReactor", () => {
       );
 
       await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      expect(harness.stopSession).toHaveBeenCalledWith({ threadId });
+      expect(harness.startSession).toHaveBeenCalledTimes(1);
+      expect(harness.startSession.mock.calls[0]?.[1]).not.toHaveProperty("resumeCursor");
+      expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({ resumePolicy: "fresh" });
       const sent = harness.sendTurn.mock.calls[0]?.[0] as { readonly input?: string } | undefined;
       expect(sent?.input).toContain("<penkra-reconstructed-continuation>");
       expect(sent?.input).toContain("retained answer after compaction");
