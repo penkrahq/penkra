@@ -14,6 +14,7 @@ import type {
   DesktopAppFrameHostMessage,
   DesktopAppTabClosed,
   DesktopAppTabDescriptor,
+  DesktopAppTabOpened,
 } from "@penkra/contracts";
 
 import { AppControllerHost } from "./appControllerHost";
@@ -110,7 +111,7 @@ export async function startDesktopAppRuntime(input: {
   appControllerRunnerPath: string;
   appFrameRuntimePath: string;
   ipcMain: Pick<IpcMain, "on" | "removeListener">;
-  onTabOpened: (descriptor: DesktopAppTabDescriptor) => void;
+  onTabOpened: (descriptor: DesktopAppTabOpened) => void;
   onTabState: (descriptor: DesktopAppTabDescriptor) => void;
   onFrameHostMessage?: (input: DesktopAppFrameHostMessage) => void;
   onTabClosed: (descriptor: DesktopAppTabClosed) => void;

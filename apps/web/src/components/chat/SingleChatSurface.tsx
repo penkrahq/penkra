@@ -151,7 +151,10 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
         return;
       }
       setConfirmedAppPaneIds((current) => new Set(current).add(tab.id));
-      openPane(tab.threadId as ThreadId, appPaneFromTab(tab));
+      openPane(tab.threadId as ThreadId, {
+        ...appPaneFromTab(tab),
+        preserveSelection: tab.selection === "preserve",
+      });
     });
     const removeState = bridge.onState((tab) => {
       updatePane(tab.threadId as ThreadId, tab.id, {
@@ -205,7 +208,10 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           for (const tab of currentTabs) {
             const stateForThread = currentDockStates[tab.threadId];
             if (!stateForThread?.panes.some((pane) => pane.id === tab.id)) {
-              openPane(tab.threadId as ThreadId, appPaneFromTab(tab));
+              openPane(tab.threadId as ThreadId, {
+                ...appPaneFromTab(tab),
+                preserveSelection: true,
+              });
             } else {
               updatePane(tab.threadId as ThreadId, tab.id, {
                 appIconDataUrl: tab.iconDataUrl,

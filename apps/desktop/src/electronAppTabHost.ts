@@ -5,7 +5,11 @@
 import { randomUUID } from "node:crypto";
 
 import type { AppTabHandle, OperationCancellationCode } from "@penkra/sdk";
-import type { DesktopAppTabClosed, DesktopAppTabDescriptor } from "@penkra/contracts";
+import type {
+  DesktopAppTabClosed,
+  DesktopAppTabDescriptor,
+  DesktopAppTabOpened,
+} from "@penkra/contracts";
 
 import type { AppInstallationService } from "./appInstallationService";
 import { resolveInstalledAppIconDataUrl } from "./appIconDataUrl";
@@ -92,7 +96,7 @@ export class ElectronAppTabHost implements AppTabHost {
     "registerTarget" | "request" | "acceptResponse" | "acceptContextCall"
   >;
   readonly #ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
-  readonly #opened: ProtectedPublisher<DesktopAppTabDescriptor>;
+  readonly #opened: ProtectedPublisher<DesktopAppTabOpened>;
   readonly #state: ProtectedPublisher<DesktopAppTabDescriptor>;
   readonly #onFrameHostMessage: (input: {
     tabId: string;
@@ -129,7 +133,7 @@ export class ElectronAppTabHost implements AppTabHost {
       "registerTarget" | "request" | "acceptResponse" | "acceptContextCall"
     >;
     ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
-    onOpened: (descriptor: DesktopAppTabDescriptor) => void;
+    onOpened: (descriptor: DesktopAppTabOpened) => void;
     onState: (descriptor: DesktopAppTabDescriptor) => void;
     onFrameHostMessage?: (input: {
       tabId: string;
@@ -320,7 +324,7 @@ export class ElectronAppTabHost implements AppTabHost {
 
   /** Re-announces an existing tab so the trusted shell opens its dock and selects it. */
   present(tabId: string): void {
-    this.#opened.publish(this.#require(tabId).descriptor);
+    this.#opened.publish({ ...this.#require(tabId).descriptor, selection: "activate" });
   }
 
   async applyTheme(css: string): Promise<void> {
@@ -682,7 +686,12 @@ export class ElectronAppTabHost implements AppTabHost {
       };
       this.#records.set(id, record);
       rollback.commit();
-      this.#opened.publish(record.descriptor);
+      // A supplied ID restores an existing logical tab; recreating its renderer
+      // must not replace the user's selection, even in another Thread.
+      this.#opened.publish({
+        ...record.descriptor,
+        selection: input.tabId === undefined ? "activate" : "preserve",
+      });
       this.#diagnostics.publish({
         kind: "tab-opened",
         appId: input.app.appId,

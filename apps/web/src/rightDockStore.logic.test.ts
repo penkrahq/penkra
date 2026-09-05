@@ -24,6 +24,33 @@ const APP_PANE = {
 };
 
 describe("App tab state", () => {
+  it("restores App X while preserving App Y selection and a closed dock", () => {
+    const withX = openPaneInState(createDefaultRightDockState(), APP_PANE);
+    const withY = openPaneInState(withX, { ...APP_PANE, paneId: "app-y" });
+    for (const open of [true, false]) {
+      const restored = openPaneInState(
+        { ...withY, open },
+        {
+          ...APP_PANE,
+          appRendererId: -42,
+          preserveSelection: true,
+        },
+      );
+      expect(restored.activePaneId).toBe("app-y");
+      expect(restored.open).toBe(open);
+      expect(restored.panes[0]?.appRendererId).toBe(-42);
+      expect(openPaneInState(restored, APP_PANE).activePaneId).toBe(APP_PANE.paneId);
+    }
+  });
+
+  it("discovers a retained pane without selecting it or opening its dock", () => {
+    const state = createDefaultRightDockState();
+    const restored = openPaneInState(state, { ...APP_PANE, preserveSelection: true });
+    expect(restored.panes).toHaveLength(1);
+    expect(restored.activePaneId).toBeNull();
+    expect(restored.open).toBe(false);
+  });
+
   it("opens, activates, updates, and closes App tabs", () => {
     const first = openPaneInState(createDefaultRightDockState(), APP_PANE);
     const second = openPaneInState(first, {
