@@ -2273,6 +2273,130 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     );
   });
 
+  it("does not append buffered deltas to an authoritative part before assistant role arrives", async () => {
+    const eventQueue = createSubscribedEventQueue();
+    const runtime = createMockOpenCodeRuntime();
+    const client = runtime.runtime.createOpenCodeSdkClient({
+      baseUrl: "http://127.0.0.1:4099",
+      directory: process.cwd(),
+    }) as unknown as {
+      event: {
+        subscribe: () => Promise<{ stream: AsyncIterable<unknown> }>;
+      };
+    };
+    client.event.subscribe = async () => ({ stream: eventQueue.stream });
+
+    const events = await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 5)).pipe(
+          Effect.forkChild,
+        );
+
+        yield* adapter.startSession({
+          provider: "opencode",
+          threadId: asThreadId("thread-late-assistant-role"),
+          runtimeMode: "full-access",
+        });
+        yield* adapter.sendTurn({
+          threadId: asThreadId("thread-late-assistant-role"),
+          input: "hello",
+          attachments: [],
+          modelSelection: {
+            provider: "opencode",
+            model: "openai/gpt-5.4",
+          },
+        });
+
+        eventQueue.push({
+          type: "message.part.updated",
+          properties: {
+            sessionID: "opencode-session-1",
+            part: {
+              id: "part-late-role",
+              messageID: "assistant-message-late-role",
+              type: "text",
+              text: "",
+              time: { start: 1 },
+            },
+          },
+        });
+        for (const delta of ["ABCDEFGH", "IJKLMNOPQR", "STUVWXYZ."]) {
+          eventQueue.push({
+            type: "message.part.delta",
+            properties: {
+              sessionID: "opencode-session-1",
+              messageID: "assistant-message-late-role",
+              partID: "part-late-role",
+              field: "text",
+              delta,
+            },
+          });
+        }
+        eventQueue.push({
+          type: "message.part.updated",
+          properties: {
+            sessionID: "opencode-session-1",
+            part: {
+              id: "part-late-role",
+              messageID: "assistant-message-late-role",
+              type: "text",
+              text: "ABCDEFGHIJKLMNOPQRSTUVWXYZ.",
+              time: { start: 1, end: 2 },
+            },
+          },
+        });
+        eventQueue.push({
+          type: "message.updated",
+          properties: {
+            sessionID: "opencode-session-1",
+            info: {
+              id: "assistant-message-late-role",
+              role: "assistant",
+            },
+          },
+        });
+
+        const collected = Array.from(yield* Fiber.join(eventsFiber));
+        eventQueue.close();
+        return collected;
+      }).pipe(
+        Effect.provide(
+          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), {
+                prefix: "opencode-adapter-test-",
+              }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "session.started",
+      "thread.started",
+      "turn.started",
+      "content.delta",
+      "item.completed",
+    ]);
+    expect(events[3]).toMatchObject({
+      type: "content.delta",
+      payload: {
+        streamKind: "assistant_text",
+        delta: "ABCDEFGHIJKLMNOPQRSTUVWXYZ.",
+      },
+    });
+    expect(events[4]).toMatchObject({
+      type: "item.completed",
+      payload: {
+        itemType: "assistant_message",
+        detail: "ABCDEFGHIJKLMNOPQRSTUVWXYZ.",
+      },
+    });
+  });
+
   it("filters synthetic and ignored text parts from assistant transcript", async () => {
     const eventQueue = createSubscribedEventQueue();
     const runtime = createMockOpenCodeRuntime();

@@ -596,8 +596,21 @@ function applyPendingTextDeltaToPart(context: OpenCodeSessionContext, part: Part
     return part;
   }
 
-  const { nextText } = appendOpenCodeAssistantTextDelta(part.text, pendingDelta);
   context.pendingTextDeltasByPartId.delete(part.id);
+  // A completed OpenCode part is the provider's authoritative snapshot. Deltas can arrive before
+  // the corresponding message role, leaving the final fragment buffered; appending that fragment
+  // to a terminal snapshot duplicates its suffix (for example `ABC` + buffered `C` => `ABCC`).
+  if (part.type === "text" && part.time?.end !== undefined) {
+    return part;
+  }
+
+  const previousPart = context.partById.get(part.id);
+  const previousText =
+    previousPart?.type === "text" || previousPart?.type === "reasoning" ? previousPart.text : "";
+  const pendingText = appendOpenCodeAssistantTextDelta(previousText, pendingDelta).nextText;
+  // Non-terminal snapshots and buffered deltas are two views of the same growing part. Preserve
+  // whichever is the longer compatible prefix instead of blindly appending the delta twice.
+  const nextText = resolveLatestAssistantText(pendingText, part.text);
   return nextText === part.text ? part : { ...part, text: nextText };
 }
 
