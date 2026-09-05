@@ -303,7 +303,7 @@ export function deriveEffectiveComposerModelState(input: {
   projectModelSelection: ModelSelection | null | undefined;
   customModelsByProvider: Record<ProviderKind, readonly string[]>;
   availableModelOptionsByProvider?: Partial<
-    Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>
+    Record<ProviderKind, ReadonlyArray<{ slug: string; name: string; isDefault?: true }>>
   >;
 }): EffectiveComposerModelState {
   const availableOptions = input.availableModelOptionsByProvider?.[input.selectedProvider];
@@ -333,6 +333,7 @@ export function deriveEffectiveComposerModelState(input: {
     input.selectedProvider,
     threadSelection?.model ?? projectSelection?.model ?? getDefaultModel(input.selectedProvider),
   );
+  const providerDeclaredDefault = availableOptions?.find((option) => option.isDefault)?.slug;
   const selectedModel =
     available(draftSelection?.model) ??
     available(threadSelection?.model) ??
@@ -344,6 +345,7 @@ export function deriveEffectiveComposerModelState(input: {
     (authoritativeCodex
       ? null
       : normalizeModelSlug(projectSelection?.model, input.selectedProvider)) ??
+    providerDeclaredDefault ??
     availableOptions?.[0]?.slug ??
     selectedDraftModel ??
     fallback ??

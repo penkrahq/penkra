@@ -14,6 +14,7 @@ describe("Codex discovery catalog", () => {
       item: {
         id: "gpt-5.6-sol",
         name: "GPT-5.6 Sol",
+        isDefault: true,
         supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
         defaultReasoningEffort: "low",
         additionalSpeedTiers: ["fast"],
@@ -24,6 +25,7 @@ describe("Codex discovery catalog", () => {
       item: {
         id: "gpt-5.6-sol",
         name: "GPT-5.6 Sol",
+        is_default: true,
         supported_reasoning_efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
         default_reasoning_effort: "low",
         additional_speed_tiers: ["fast"],
@@ -40,6 +42,7 @@ describe("Codex discovery catalog", () => {
       {
         slug: "gpt-5.6-sol",
         name: "GPT-5.6 Sol",
+        isDefault: true,
         supportedReasoningEfforts: [
           { value: "low" },
           { value: "medium" },

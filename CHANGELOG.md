@@ -83,6 +83,10 @@
 - Fixed repeated startup reconciliation rejecting orphaned streaming-message cleanup because a
   prior startup had bound the same command ID to a different timestamp.
 - Fixed Connection-scoped Codex generated images being rejected by the local-image preview route.
+- Fixed newly available provider models remaining absent until Penkra restarted by bounding model
+  discovery caches to 24 hours, retaining stale catalogs only when refresh fails, and honoring each
+  selected Connection's provider-declared default without overriding an existing user or Space
+  selection.
 
 ## 0.9.2 - 2026-08-07
 

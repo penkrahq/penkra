@@ -223,7 +223,8 @@ export function loadAgentGatewayProviderCatalog(input: {
     .pipe(
       Effect.map((result: ProviderListModelsResult) => ({
         provider: input.provider,
-        defaultModel,
+        defaultModel:
+          result.models.find((model) => model.isDefault === true)?.slug ?? defaultModel,
         models: result.models,
         enabled: true,
         available: result.models.length > 0 || defaultModel !== null,

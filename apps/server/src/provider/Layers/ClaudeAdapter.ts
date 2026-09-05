@@ -486,9 +486,14 @@ function claudeModelDisplayName(model: ModelInfo): string {
 function mapSupportedModels(models: ModelInfo[]): ProviderListModelsResult {
   const seenSlugs = new Set<string>();
   const descriptors: Array<ProviderListModelsResult["models"][number]> = [];
+  const defaultModelSlug = models
+    .find((model) => model.value.trim().toLowerCase() === "default")
+    ?.resolvedModel?.replace(/\[[^\]]+\]$/u, "")
+    .trim();
 
   for (const model of models) {
-    if (model.value.trim().toLowerCase() === "default") {
+    const isDefaultSelector = model.value.trim().toLowerCase() === "default";
+    if (isDefaultSelector && !model.resolvedModel?.trim()) {
       continue;
     }
 
@@ -503,6 +508,7 @@ function mapSupportedModels(models: ModelInfo[]): ProviderListModelsResult {
     descriptors.push({
       slug,
       name: claudeModelDisplayName(model),
+      ...(isDefaultSelector || defaultModelSlug === slug ? { isDefault: true as const } : {}),
       ...(model.description.trim() ? { description: model.description.trim() } : {}),
       ...(model.supportedEffortLevels && model.supportedEffortLevels.length > 0
         ? {
@@ -5831,7 +5837,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       });
 
     const pendingModelDiscoveries = new Map<string, Promise<ProviderListModelsResult>>();
-    const MODEL_DISCOVERY_CACHE_TTL_MS = 60_000;
+    const MODEL_DISCOVERY_CACHE_TTL_MS = 24 * 60 * 60_000;
 
     async function discoverModelsViaTemporaryProcess(
       cwd: string,

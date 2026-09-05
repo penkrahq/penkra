@@ -57,10 +57,10 @@ describe("mergeDynamicModelOptions", () => {
           { slug: "gpt-5.2", name: "GPT-5.2" },
           { slug: "custom/private-model", name: "Custom model", isCustom: true },
         ],
-        dynamicModels: [{ slug: "gpt-5.6-sol", name: "GPT-5.6 Sol" }],
+        dynamicModels: [{ slug: "gpt-5.6-sol", name: "GPT-5.6 Sol", isDefault: true }],
       }),
     ).toEqual([
-      { slug: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+      { slug: "gpt-5.6-sol", name: "GPT-5.6 Sol", isDefault: true },
       { slug: "custom/private-model", name: "Custom model", isCustom: true },
     ]);
   });

@@ -19,6 +19,7 @@ import { buildCodexProcessEnv } from "./codexProcessEnv";
 import {
   buildCodexInitializeParams,
   buildCodexDynamicTools,
+  CODEX_MODEL_DISCOVERY_CACHE_TTL_MS,
   CODEX_DEVELOPER_INSTRUCTIONS,
   __codexCliVersionGateTesting,
   CodexAppServerManager,
@@ -2238,6 +2239,96 @@ describe("CodexAppServerManager discovery", () => {
       limit: 50,
       includeHidden: false,
     });
+  });
+
+  it("refreshes a cached model catalog after one day", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T00:00:00.000Z"));
+    try {
+      const manager = new CodexAppServerManager();
+      const context = {
+        session: {
+          provider: "codex",
+          status: "ready",
+          threadId: "thread_1",
+          runtimeMode: "full-access",
+          model: "gpt-5.6-sol",
+        },
+        account: { type: "unknown", planType: null, sparkEnabled: true },
+        collabReceiverTurns: new Map(),
+        collabReceiverParents: new Map(),
+      };
+      vi.spyOn(
+        manager as unknown as { resolveContextForDiscovery: () => unknown },
+        "resolveContextForDiscovery",
+      ).mockReturnValue(context);
+      const sendRequest = vi
+        .spyOn(
+          manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
+          "sendRequest",
+        )
+        .mockResolvedValueOnce({ result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] } })
+        .mockResolvedValueOnce({
+          result: { items: [{ id: "gpt-6-astra", name: "Astra", isDefault: true }] },
+        });
+
+      await expect(manager.listModels("thread_1")).resolves.toMatchObject({
+        models: [{ slug: "gpt-5.6-sol" }],
+        cached: false,
+      });
+      vi.advanceTimersByTime(CODEX_MODEL_DISCOVERY_CACHE_TTL_MS - 1);
+      await expect(manager.listModels("thread_1")).resolves.toMatchObject({
+        models: [{ slug: "gpt-5.6-sol" }],
+        cached: true,
+      });
+      vi.advanceTimersByTime(1);
+      await expect(manager.listModels("thread_1")).resolves.toMatchObject({
+        models: [{ slug: "gpt-6-astra", isDefault: true }],
+        cached: false,
+      });
+      expect(sendRequest).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retains an expired model catalog when automatic refresh fails", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T00:00:00.000Z"));
+    try {
+      const manager = new CodexAppServerManager();
+      const context = {
+        session: {
+          provider: "codex",
+          status: "ready",
+          threadId: "thread_1",
+          runtimeMode: "full-access",
+          model: "gpt-5.6-sol",
+        },
+        account: { type: "unknown", planType: null, sparkEnabled: true },
+        collabReceiverTurns: new Map(),
+        collabReceiverParents: new Map(),
+      };
+      vi.spyOn(
+        manager as unknown as { resolveContextForDiscovery: () => unknown },
+        "resolveContextForDiscovery",
+      ).mockReturnValue(context);
+      vi.spyOn(
+        manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
+        "sendRequest",
+      )
+        .mockResolvedValueOnce({ result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] } })
+        .mockRejectedValueOnce(new Error("provider unavailable"));
+
+      await manager.listModels("thread_1");
+      vi.advanceTimersByTime(CODEX_MODEL_DISCOVERY_CACHE_TTL_MS);
+      await expect(manager.listModels("thread_1")).resolves.toMatchObject({
+        models: [{ slug: "gpt-5.6-sol" }],
+        cached: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects discovery instead of reusing an unrelated active Connection session", async () => {

@@ -790,6 +790,12 @@ export interface CodexAppServerManagerEvents {
 }
 
 const CODEX_DISCOVERY_CACHE_MAX_ENTRIES = 128;
+export const CODEX_MODEL_DISCOVERY_CACHE_TTL_MS = 24 * 60 * 60_000;
+
+type TimedDiscoveryCacheEntry<T> = {
+  readonly result: T;
+  readonly cachedAtMs: number;
+};
 
 function getRecentCacheEntry<K, V>(cache: Map<K, V>, key: K): V | undefined {
   const value = cache.get(key);
@@ -825,7 +831,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private readonly skillsCache = new Map<string, ProviderListSkillsResult>();
   private readonly pluginsCache = new Map<string, ProviderListPluginsResult>();
   private readonly pluginDetailCache = new Map<string, ProviderReadPluginResult>();
-  private readonly modelCache = new Map<string, ProviderListModelsResult>();
+  private readonly modelCache = new Map<
+    string,
+    TimedDiscoveryCacheEntry<ProviderListModelsResult>
+  >();
 
   private runPromise: (effect: Effect.Effect<unknown, never>) => Promise<unknown>;
   private readonly penkraSkillsDir: string | undefined;
@@ -2443,32 +2452,48 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ? `managed:${managedDiscovery.managedLaunch.isolationKey}:${managedDiscovery.cwd ?? ""}`
       : threadId?.trim() || "__default__";
     const cached = getRecentCacheEntry(this.modelCache, cacheKey);
-    if (cached) {
+    if (cached && Date.now() - cached.cachedAtMs < CODEX_MODEL_DISCOVERY_CACHE_TTL_MS) {
       return {
-        ...cached,
+        ...cached.result,
         cached: true,
       };
     }
 
-    const context = managedDiscovery
-      ? await this.getOrCreateDiscoverySession(
-          managedDiscovery.cwd?.trim() || process.cwd(),
-          managedDiscovery.managedLaunch,
-        )
-      : await this.resolveContextForDiscovery(threadId);
-    const response = await this.sendRequest<Record<string, unknown>>(context, "model/list", {
-      cursor: null,
-      limit: 50,
-      includeHidden: false,
-    });
-    const models = parseCodexModelListResponse(response);
-    const result: ProviderListModelsResult = {
-      models,
-      source: "codex-app-server",
-      cached: false,
-    };
-    setRecentCacheEntry(this.modelCache, cacheKey, result);
-    return result;
+    try {
+      const context = managedDiscovery
+        ? await this.getOrCreateDiscoverySession(
+            managedDiscovery.cwd?.trim() || process.cwd(),
+            managedDiscovery.managedLaunch,
+          )
+        : await this.resolveContextForDiscovery(threadId);
+      const response = await this.sendRequest<Record<string, unknown>>(context, "model/list", {
+        cursor: null,
+        limit: 50,
+        includeHidden: false,
+      });
+      const models = parseCodexModelListResponse(response);
+      const result: ProviderListModelsResult = {
+        models,
+        source: "codex-app-server",
+        cached: false,
+      };
+      setRecentCacheEntry(this.modelCache, cacheKey, {
+        result,
+        cachedAtMs: Date.now(),
+      });
+      return result;
+    } catch (error) {
+      if (!cached) throw error;
+      log.warn("model/list refresh failed; retaining stale catalog", {
+        cacheKey,
+        cachedAtMs: cached.cachedAtMs,
+        error,
+      });
+      return {
+        ...cached.result,
+        cached: true,
+      };
+    }
   }
 
   async transcribeVoice(

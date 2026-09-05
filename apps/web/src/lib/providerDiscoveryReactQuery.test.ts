@@ -8,6 +8,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS,
   isInitialModelDiscoveryPending,
   providerModelsQueryOptions,
 } from "./providerDiscoveryReactQuery";
@@ -70,6 +71,13 @@ describe("isInitialModelDiscoveryPending", () => {
 });
 
 describe("providerModelsQueryOptions", () => {
+  it("keeps successful model discovery fresh for one day", () => {
+    expect(providerModelsQueryOptions({ provider: "codex" }).staleTime).toBe(
+      PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS,
+    );
+    expect(PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS).toBe(24 * 60 * 60_000);
+  });
+
   it("keeps retrying transient failures for other providers", () => {
     expect(providerModelsQueryOptions({ provider: "codex" }).retry).toBe(3);
     expect(providerModelsQueryOptions({ provider: "opencode" }).retry).toBe(3);

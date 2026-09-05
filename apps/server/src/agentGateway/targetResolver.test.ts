@@ -6,6 +6,7 @@ import type { ProviderDiscoveryServiceShape } from "../provider/Services/Provide
 import {
   AgentGatewayTargetError,
   agentGatewayTargetOptionGuidance,
+  loadAgentGatewayProviderCatalog,
   resolveAgentGatewayTarget,
 } from "./targetResolver.ts";
 
@@ -53,6 +54,27 @@ function makeVariantDescriptor(slug: string): ProviderModelDescriptor {
 }
 
 describe("agent gateway target resolver", () => {
+  it.effect("preserves the provider-declared default in its catalog", () =>
+    Effect.gen(function* () {
+      const providerDiscovery = {
+        listModels: () =>
+          Effect.succeed({
+            source: "test",
+            models: [
+              { slug: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+              { slug: "gpt-6-astra", name: "GPT-6 Astra", isDefault: true as const },
+            ],
+          }),
+      } as unknown as ProviderDiscoveryServiceShape;
+
+      const catalog = yield* loadAgentGatewayProviderCatalog({
+        provider: "codex",
+        discovery: providerDiscovery,
+      });
+      assert.equal(catalog.defaultModel, "gpt-6-astra");
+    }),
+  );
+
   it.effect("builds examples from the exact model restrictions and preserves option types", () =>
     Effect.gen(function* () {
       const codexCatalog = {

@@ -392,7 +392,7 @@ describe("composerDraftStore modelSelection", () => {
     expect(state.selectedModel).toBe("opencode/gpt-5-nano");
   });
 
-  it("replaces a stale Codex selection with the first model available to the signed-in account", () => {
+  it("replaces a stale Codex selection with the provider-declared default", () => {
     const state = deriveEffectiveComposerModelState({
       draft: {
         modelSelectionByProvider: {
@@ -415,7 +415,30 @@ describe("composerDraftStore modelSelection", () => {
       availableModelOptionsByProvider: {
         codex: [
           { slug: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
-          { slug: "gpt-5.6-terra", name: "GPT-5.6 Terra" },
+          { slug: "gpt-5.6-terra", name: "GPT-5.6 Terra", isDefault: true },
+        ],
+      },
+    });
+
+    expect(state.selectedModel).toBe("gpt-5.6-terra");
+  });
+
+  it("keeps a valid user Codex selection ahead of the provider-declared default", () => {
+    const state = deriveEffectiveComposerModelState({
+      draft: {
+        modelSelectionByProvider: {
+          codex: modelSelection("codex", "gpt-5.6-sol"),
+        },
+        activeProvider: "codex",
+      },
+      selectedProvider: "codex",
+      threadModelSelection: null,
+      projectModelSelection: null,
+      customModelsByProvider: { codex: [], claudeAgent: [], opencode: [] },
+      availableModelOptionsByProvider: {
+        codex: [
+          { slug: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+          { slug: "gpt-6-astra", name: "GPT-6 Astra", isDefault: true },
         ],
       },
     });

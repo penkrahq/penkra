@@ -292,6 +292,7 @@ export type ProviderContextWindowDescriptor = typeof ProviderContextWindowDescri
 export const ProviderModelDescriptor = Schema.Struct({
   slug: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
+  isDefault: Schema.optional(Schema.Literal(true)),
   description: Schema.optional(TrimmedNonEmptyString),
   upstreamProviderId: Schema.optional(TrimmedNonEmptyString),
   upstreamProviderName: Schema.optional(TrimmedNonEmptyString),

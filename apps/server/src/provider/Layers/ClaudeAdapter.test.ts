@@ -7756,6 +7756,12 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       assert.deepEqual(result, {
         models: [
           {
+            slug: "claude-sonnet-6",
+            name: "Sonnet 6",
+            isDefault: true,
+            description: "Sonnet 6",
+          },
+          {
             slug: "claude-opus-6",
             name: "Opus 6",
             description: "Opus 6 · Most capable",
