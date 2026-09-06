@@ -68,6 +68,13 @@ authority rechecks across same-native steering and rejection after a genuinely d
 
 These checks are source/Dev evidence, not evidence that a packaged release was published.
 
+The separate creation-retry characterization suite passed 5/5 on an independent coordinator run;
+server typecheck also passed after its addition. It checks deterministic command/Thread/turn IDs,
+preservation of an existing account over a changed default, pre-dispatch explicit-account conflict
+rejection, stale-binding rejection, and no dispatch/account substitution on discovery failure.
+Its synthetic dispatch fixtures do not establish durable receipt replay by themselves. A changed
+binding or unavailable catalog can still reject a retry; this is not universal success replay.
+
 ## Observed native-steer authority failure
 
 Production worker `agent-bcd2c5f70e6bc6e1d19d2bb1437f4133` received a native steer while working.
