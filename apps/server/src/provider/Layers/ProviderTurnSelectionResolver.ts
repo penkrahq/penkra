@@ -11,6 +11,8 @@ import { ProjectionSnapshotQuery } from "../../orchestration/Services/Projection
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import { parseOpenCodeModelSlug } from "../opencodeRuntime.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
+import { resolveDefaultConnection } from "../defaultConnection.ts";
 import {
   findConnectionAuthenticationMethod,
   findManagedLoginMethod,
@@ -52,6 +54,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
   const projections = yield* ProjectionSnapshotQuery;
   const registry = yield* ProviderAdapterRegistry;
   const launchResolver = yield* ProviderLaunchResolver;
+  const serverSettings = yield* ServerSettingsService;
 
   const requireAvailableModel = Effect.fnUntraced(function* (input: {
     readonly harness: Parameters<typeof getProviderConnectionManifest>[0];
@@ -194,54 +197,48 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
           harness,
           input.modelSelection.model,
         );
-        const selected = yield* connections.list().pipe(
+        const settings = yield* serverSettings.getSettings.pipe(
           Effect.mapError(
             (cause) =>
               new ProviderTurnSelectionResolutionError({
-                detail: "Could not read available Connections.",
+                detail: "Could not read the default Connection.",
                 cause,
               }),
           ),
-          Effect.map((entries) => {
-            const connection = entries.find((entry) => {
-              if (entry.harness !== harness || entry.lifecycle !== "active") return false;
-              const method = findConnectionAuthenticationMethod(entry);
-              return method?.authorizesInternalProvider(internalProviderId) === true;
-            });
-            return connection ? { connectionId: connection.id } : undefined;
-          }),
         );
-        if (selected) {
-          const selectedConnection = yield* connections.getRecord(selected.connectionId).pipe(
-            Effect.mapError(
-              (cause) =>
-                new ProviderTurnSelectionResolutionError({
-                  detail: "Could not read the selected Connection.",
-                  cause,
-                }),
-            ),
-          );
-          const selectedMethod = Option.isSome(selectedConnection)
-            ? findConnectionAuthenticationMethod(selectedConnection.value)
-            : null;
-          if (
-            Option.isSome(selectedConnection) &&
-            selectedConnection.value.lifecycle === "active" &&
-            selectedConnection.value.harness === harness &&
-            selectedMethod?.authorizesInternalProvider(internalProviderId) === true
-          ) {
-            yield* requireAuthorizedConnection({
-              harness,
-              connectionId: selected.connectionId,
-              internalProviderId,
-            });
-            return selected.connectionId;
-          }
+        const entries = yield* connections.list().pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderTurnSelectionResolutionError({
+                detail: "Could not read Connections.",
+                cause,
+              }),
+          ),
+        );
+        const requestedConnectionId = yield* Effect.try({
+          try: () =>
+            resolveDefaultConnection({
+              provider: harness,
+              settings,
+              connections: entries,
+              ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+            }),
+          catch: (cause) =>
+            new ProviderTurnSelectionResolutionError({
+              detail: cause instanceof Error ? cause.message : "Could not resolve the Connection.",
+              cause,
+            }),
+        });
+        if (requestedConnectionId === null) {
           if (manifest.anonymous?.authorizesInternalProvider(internalProviderId)) return null;
-          return yield* fail("The selected Connection cannot authorize this model route.");
+          return yield* fail("The selected anonymous route cannot authorize this model.");
         }
-        if (manifest.anonymous?.authorizesInternalProvider(internalProviderId)) return null;
-        return yield* fail(`No compatible Connection is available for this harness.`);
+        yield* requireAuthorizedConnection({
+          harness,
+          connectionId: requestedConnectionId,
+          internalProviderId,
+        });
+        return requestedConnectionId;
       });
 
   const resolveInitial: ProviderTurnSelectionResolverShape["resolveInitial"] = (input) =>

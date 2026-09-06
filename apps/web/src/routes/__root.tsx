@@ -84,6 +84,7 @@ import { resolveSplitViewThreadIds, selectSplitView, useSplitViewStore } from ".
 import { providerModelDiscoveryInvalidationFingerprint } from "../lib/providerDiscoveryInvalidation";
 import { providerDiscoveryQueryKeys } from "../lib/providerDiscoveryReactQuery";
 import { useAppSettings } from "../appSettings";
+import { ConnectionDefaultsMigration } from "../components/ConnectionDefaultsMigration";
 import {
   getVisibleProviderUpdateStatuses,
   isProviderUpdateActive,
@@ -225,6 +226,7 @@ function RootRouteView() {
               <GlobalWhatsNewSurface />
               <TaskCompletionNotifications />
               <ProviderUpdateNotifications />
+              <ConnectionDefaultsMigration />
               <QueuedComposerTurnDispatcher />
               <Outlet />
             </AnchoredToastProvider>

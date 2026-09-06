@@ -91,6 +91,7 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(ProviderCredentialBrokerLive),
   );
   const providerTurnSelectionResolverLayer = ProviderTurnSelectionResolverLive.pipe(
+    Layer.provideMerge(ServerSettingsLive),
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(ProviderInstallationRepositoryLive),
     Layer.provideMerge(OrchestrationLayerLive),

@@ -39,6 +39,8 @@ import { AgentGatewayToolBridge } from "../Services/AgentGatewayToolBridge.ts";
 import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
 import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
+import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { type AgentGatewayProviderAvailability } from "../targetResolver.ts";
 import {
   extractPenkraExecRichResult,
@@ -127,6 +129,8 @@ export const makeAgentGateway = Effect.gen(function* () {
   const providerDiscovery = yield* ProviderDiscoveryService;
   const providerHealth = yield* ProviderHealth;
   const serverSettings = yield* ServerSettingsService;
+  const connections = yield* ProviderConnectionRepository;
+  const threadBindings = yield* ThreadProviderBindingRepository;
   const projectionTurns = yield* ProjectionTurnRepository;
   const eventStore = yield* OrchestrationEventStore;
   const eventDeliveries = yield* OrchestrationEventDeliveryRepository;
@@ -226,6 +230,8 @@ export const makeAgentGateway = Effect.gen(function* () {
     });
 
   const readTools = makeThreadReadTools({
+    loadConnections: connections.list(),
+    loadSettings: serverSettings.getSettings,
     snapshotQuery,
     projectionTurns,
     providerDiscovery,
@@ -248,6 +254,7 @@ export const makeAgentGateway = Effect.gen(function* () {
   // --- write tools ----------------------------------------------------------
 
   const runCreateThread = yield* makeCreateThreadHandler({
+    loadExistingBinding: (threadId) => threadBindings.getRuntimeBinding(threadId),
     snapshotQuery,
     orchestrationEngine,
     providerDiscovery,
@@ -284,6 +291,11 @@ export const makeAgentGateway = Effect.gen(function* () {
           },
           target: {
             ...MODEL_SELECTION_INPUT_SCHEMA,
+          },
+          connectionId: {
+            type: ["string", "null"],
+            description:
+              "Exact Connection from capabilities. Omit to use the default; null requests an anonymous route. Never substitutes another account.",
           },
           folderId: {
             type: "string",

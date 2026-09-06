@@ -3,6 +3,7 @@ import {
   CODEX_REASONING_EFFORT_OPTIONS,
   DEFAULT_MODEL_BY_PROVIDER,
   type ModelSelection,
+  type ProviderConnectionId,
   type ProviderKind,
   type ProviderListModelsResult,
   type ProviderModelDescriptor,
@@ -192,19 +193,21 @@ function providerDefaultModel(provider: ProviderKind): string | null {
 }
 
 export function loadAgentGatewayProviderCatalog(input: {
+  readonly connectionId?: ProviderConnectionId | null;
   readonly provider: ProviderKind;
   readonly discovery: ProviderDiscoveryServiceShape;
   readonly availability?: AgentGatewayProviderAvailability;
   readonly cwd?: string;
 }): Effect.Effect<AgentGatewayProviderCatalog> {
-  const defaultModel = providerDefaultModel(input.provider);
+  const exactConnection = input.connectionId !== undefined;
+  const defaultModel = exactConnection ? null : providerDefaultModel(input.provider);
   const availability = input.availability ?? { enabled: true };
   const unavailableReason =
     availability.enabled === false
       ? `Provider "${input.provider}" is disabled in Penkra settings.`
-      : availability.available === false
+      : !exactConnection && availability.available === false
         ? (availability.message ?? `Provider "${input.provider}" is not available.`)
-        : availability.authStatus === "unauthenticated"
+        : !exactConnection && availability.authStatus === "unauthenticated"
           ? (availability.message ?? `Provider "${input.provider}" is not authenticated.`)
           : null;
   if (unavailableReason !== null) {
@@ -219,7 +222,11 @@ export function loadAgentGatewayProviderCatalog(input: {
     });
   }
   return input.discovery
-    .listModels({ provider: input.provider, ...(input.cwd ? { cwd: input.cwd } : {}) })
+    .listModels({
+      provider: input.provider,
+      ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+      ...(input.cwd ? { cwd: input.cwd } : {}),
+    })
     .pipe(
       Effect.map((result: ProviderListModelsResult) => ({
         provider: input.provider,
@@ -227,7 +234,9 @@ export function loadAgentGatewayProviderCatalog(input: {
         models: result.models,
         enabled: true,
         available: result.models.length > 0 || defaultModel !== null,
-        ...(availability.authStatus ? { authStatus: availability.authStatus } : {}),
+        ...(!exactConnection && availability.authStatus
+          ? { authStatus: availability.authStatus }
+          : {}),
         ...(result.source ? { source: result.source } : {}),
       })),
       Effect.catch((error) =>
@@ -237,7 +246,9 @@ export function loadAgentGatewayProviderCatalog(input: {
           models: [],
           enabled: true,
           available: defaultModel !== null,
-          ...(availability.authStatus ? { authStatus: availability.authStatus } : {}),
+          ...(!exactConnection && availability.authStatus
+            ? { authStatus: availability.authStatus }
+            : {}),
           error: error instanceof Error ? error.message : String(error),
         }),
       ),
@@ -553,6 +564,7 @@ function validateAdvertisedOption(
 
 /** Resolve an exact advertised target before any git/orchestration side effect. */
 export function resolveAgentGatewayTarget(input: {
+  readonly connectionId?: ProviderConnectionId | null;
   readonly target: ModelSelection;
   readonly discovery: ProviderDiscoveryServiceShape;
   readonly availability?: AgentGatewayProviderAvailability;
@@ -561,6 +573,7 @@ export function resolveAgentGatewayTarget(input: {
   return Effect.gen(function* () {
     const catalog = yield* loadAgentGatewayProviderCatalog({
       provider: input.target.provider,
+      ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
       discovery: input.discovery,
       ...(input.availability ? { availability: input.availability } : {}),
       ...(input.cwd ? { cwd: input.cwd } : {}),

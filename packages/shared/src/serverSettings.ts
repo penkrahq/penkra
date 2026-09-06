@@ -1,6 +1,7 @@
 import {
   type ModelSelection,
   type ProviderStartOptions,
+  type ProviderKind,
   type ServerSettings,
   type ServerSettingsPatch,
 } from "@penkra/contracts";
@@ -17,7 +18,21 @@ export function applyServerSettingsPatch(
   patch: ServerSettingsPatch,
 ): ServerSettings {
   const selectionPatch = patch.textGenerationModelSelection;
-  const next = deepMerge(current, patch as DeepPartial<ServerSettings>);
+  const providers = { ...patch.providers };
+  for (const provider of Object.keys(providers) as ProviderKind[]) {
+    const providerPatch = providers[provider];
+    if (!providerPatch) continue;
+    const { initializeDefaultConnectionId, ...updates } = providerPatch;
+    providers[provider] = {
+      ...updates,
+      ...(initializeDefaultConnectionId !== undefined &&
+      current.providers[provider].defaultConnectionId === undefined &&
+      updates.defaultConnectionId === undefined
+        ? { defaultConnectionId: initializeDefaultConnectionId }
+        : {}),
+    };
+  }
+  const next = deepMerge(current, { ...patch, providers } as DeepPartial<ServerSettings>);
   if (selectionPatch === undefined) {
     return next;
   }

@@ -32,8 +32,127 @@ import {
   threadsOf,
 } from "./storeTestFixtures";
 import { DEFAULT_RUNTIME_MODE } from "./types";
+import { createSidebarTreeThreadsSelector } from "./storeSelectors";
 
 describe("store event reducer", () => {
+  it("registers six external creations in the sidebar without a snapshot or opened detail", () => {
+    const initial = makeState(makeThread());
+    const folderId = FolderId.makeUnsafe("project-1");
+    const events = Array.from({ length: 6 }, (_, index) =>
+      makeDomainEvent(
+        "thread.created",
+        {
+          threadId: ThreadId.makeUnsafe(`agent-worker-${index}`),
+          folderId,
+          title: `Worker ${index}`,
+          modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          sidebarSortOrder: index,
+          workingDirectory: null,
+          isPinned: false,
+          parentThreadId: null,
+          creationSource: "penkra_mcp",
+          sourceThreadId: ThreadId.makeUnsafe("thread-1"),
+          subagentAgentId: null,
+          subagentNickname: null,
+          subagentRole: null,
+          forkSourceThreadId: null,
+          createdAt: "2026-09-06T00:10:00.000Z",
+          updatedAt: "2026-09-06T00:10:00.000Z",
+        },
+        { sequence: index + 1 },
+      ),
+    );
+    const next = applyOrchestrationEvents(initial, events);
+    const rows = createSidebarTreeThreadsSelector()(next);
+    expect(rows.filter((row) => row.id.startsWith("agent-worker-"))).toHaveLength(6);
+    for (const event of events) {
+      expect(rows.find((row) => row.id === event.payload.threadId)?.folderId).toBe(folderId);
+      expect(next.threadShellById?.[event.payload.threadId]?.creationSource).toBe("penkra_mcp");
+    }
+    expect(applyOrchestrationEvents(next, events)).toBe(next);
+    const workerId = events[0]!.payload.threadId;
+    const permissionsChanged = applyOrchestrationEvents(next, [
+      makeDomainEvent(
+        "thread.runtime-mode-set",
+        {
+          threadId: workerId,
+          runtimeMode: "approval-required",
+          updatedAt: "2026-09-06T00:10:01.000Z",
+        },
+        { sequence: 7 },
+      ),
+    ]);
+    expect(permissionsChanged.threadShellById?.[workerId]?.runtimeMode).toBe("approval-required");
+    const moved = applyOrchestrationEvents(next, [
+      makeDomainEvent(
+        "sidebar.layout-updated",
+        {
+          folderUpdates: [],
+          threadUpdates: [
+            {
+              threadId: workerId,
+              folderId: FolderId.makeUnsafe("project-2"),
+              sidebarSortOrder: 12,
+            },
+          ],
+          updatedAt: "2026-09-06T00:10:01.000Z",
+        },
+        { sequence: 7 },
+      ),
+    ]);
+    expect(moved.sidebarThreadSummaryById[workerId]).toMatchObject({
+      folderId: "project-2",
+      sidebarSortOrder: 12,
+    });
+    const archived = applyOrchestrationEvents(moved, [
+      makeDomainEvent(
+        "thread.archived",
+        {
+          threadId: workerId,
+          archivedAt: "2026-09-06T00:10:02.000Z",
+          updatedAt: "2026-09-06T00:10:02.000Z",
+        },
+        { sequence: 8 },
+      ),
+    ]);
+    expect(createSidebarTreeThreadsSelector()(archived).some((row) => row.id === workerId)).toBe(
+      false,
+    );
+    const restored = applyOrchestrationEvents(archived, [
+      makeDomainEvent(
+        "thread.unarchived",
+        {
+          threadId: workerId,
+          updatedAt: "2026-09-06T00:10:03.000Z",
+        },
+        { sequence: 9 },
+      ),
+    ]);
+    expect(createSidebarTreeThreadsSelector()(restored).some((row) => row.id === workerId)).toBe(
+      true,
+    );
+    expect(
+      applyOrchestrationEvents(restored, events).sidebarThreadSummaryById[workerId]?.folderId,
+    ).toBe("project-2");
+    const deleted = applyOrchestrationEvents(next, [
+      makeDomainEvent(
+        "thread.deleted",
+        {
+          threadId: events[0]!.payload.threadId,
+          deletedAt: "2026-09-06T00:11:00.000Z",
+        },
+        { sequence: 10 },
+      ),
+    ]);
+    const replayed = applyOrchestrationEvents(deleted, [events[0]!]);
+    expect(
+      createSidebarTreeThreadsSelector()(replayed).some(
+        (row) => row.id === events[0]!.payload.threadId,
+      ),
+    ).toBe(false);
+  });
+
   it("hydrates and removes empty Spaces without manufacturing null folder assignments", () => {
     const spaceId = SpaceId.makeUnsafe("space-work");
     let state = applyOrchestrationEvents(makeState(makeThread()), [
@@ -54,6 +173,23 @@ describe("store event reducer", () => {
 
     expect(state.spaces.map((space) => space.id)).toEqual([spaceId]);
     expect(state.folders[0]?.spaceId).toBe(spaceId);
+
+    state = applyOrchestrationEvents(state, [
+      makeDomainEvent("space.archived", {
+        spaceId,
+        archivedAt: "2026-07-15T10:00:01.100Z",
+      }),
+    ]);
+    expect(state.spaces).toEqual([]);
+    state = applyOrchestrationEvents(state, [
+      makeDomainEvent("space.restored", {
+        spaceId,
+        name: "Restored Work",
+        restoredAt: "2026-07-15T10:00:01.200Z",
+      }),
+    ]);
+    expect(state.spaces[0]).toMatchObject({ id: spaceId, name: "Restored Work", icon: "bag" });
+    expect(state.archivedSpaces).toEqual([]);
 
     state = applyOrchestrationEvents(state, [
       makeDomainEvent("space.deleted", {

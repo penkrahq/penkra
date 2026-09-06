@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import type { ModelSelection, ProviderKind, ProviderModelDescriptor } from "@penkra/contracts";
+import { ProviderConnectionId } from "@penkra/contracts";
 import { Effect } from "effect";
 
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
@@ -54,6 +55,49 @@ function makeVariantDescriptor(slug: string): ProviderModelDescriptor {
 }
 
 describe("agent gateway target resolver", () => {
+  it.effect("uses the exact account catalog despite unrelated global authentication health", () =>
+    Effect.gen(function* () {
+      const connectionId = ProviderConnectionId.makeUnsafe("selected-account");
+      for (const provider of ["codex", "claudeAgent", "opencode"] as const) {
+        const calls: unknown[] = [];
+        const catalog = yield* loadAgentGatewayProviderCatalog({
+          provider,
+          connectionId,
+          availability: { enabled: true, available: false, authStatus: "unauthenticated" },
+          discovery: {
+            listModels: (input: unknown) => {
+              calls.push(input);
+              return Effect.succeed({
+                models: [{ slug: "account-only-model", name: "Account model", isDefault: true }],
+                source: "test",
+              });
+            },
+          } as unknown as ProviderDiscoveryServiceShape,
+        });
+        assert.deepEqual(calls, [{ provider, connectionId }]);
+        assert.isTrue(catalog.available);
+        assert.equal(catalog.defaultModel, "account-only-model");
+        assert.isUndefined(catalog.authStatus);
+      }
+    }),
+  );
+
+  it.effect("does not fabricate a default when an exact account catalog fails", () =>
+    Effect.gen(function* () {
+      const catalog = yield* loadAgentGatewayProviderCatalog({
+        provider: "codex",
+        connectionId: ProviderConnectionId.makeUnsafe("account"),
+        discovery: {
+          listModels: () => Effect.fail(new Error("account expired")),
+        } as unknown as ProviderDiscoveryServiceShape,
+      });
+      assert.isFalse(catalog.available);
+      assert.isNull(catalog.defaultModel);
+      assert.deepEqual(catalog.models, []);
+      assert.equal(catalog.error, "account expired");
+    }),
+  );
+
   it.effect("preserves the provider-declared default in its catalog", () =>
     Effect.gen(function* () {
       const providerDiscovery = {

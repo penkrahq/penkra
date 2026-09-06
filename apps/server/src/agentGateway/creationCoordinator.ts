@@ -9,6 +9,7 @@ import {
   type PenkraCreateThreadInput,
   type PenkraCreateThreadResult,
   type ProviderKind,
+  type ThreadRuntimeBinding,
 } from "@penkra/contracts";
 import { buildPromptThreadTitleFallback } from "@penkra/shared/chatThreads";
 import { Effect, Option, Schema } from "effect";
@@ -30,6 +31,9 @@ import { ToolInputError, errorText } from "./toolInput.ts";
 import { GatewayToolError, gatewayToolErrorResult } from "./toolRuntime.ts";
 
 interface CreationCoordinatorDependencies {
+  readonly loadExistingBinding: (
+    threadId: ThreadId,
+  ) => Effect.Effect<Option.Option<ThreadRuntimeBinding>, unknown>;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
   readonly orchestrationEngine: OrchestrationEngineShape;
   readonly providerDiscovery: ProviderDiscoveryServiceShape;
@@ -131,17 +135,37 @@ export const makeCreateThreadHandler = Effect.fn(function* (
             ? (caller.workingDirectory ?? folder.workspaceRoot)
             : folder.workspaceRoot) ?? process.cwd();
         const availabilities = yield* loadProviderAvailabilities;
+        const existingBinding = yield* dependencies
+          .loadExistingBinding(ids.threadId)
+          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
+        if (
+          Option.isSome(existingBinding) &&
+          input.connectionId !== undefined &&
+          input.connectionId !== existingBinding.value.connectionId
+        ) {
+          return yield* Effect.fail(
+            new ToolInputError(
+              "This request already created a thread with a different Connection. It cannot be rerouted by retrying creation.",
+            ),
+          );
+        }
+        const connectionId = Option.isSome(existingBinding)
+          ? existingBinding.value.connectionId
+          : yield* providerTurnSelectionResolver
+              .resolveNewThreadConnection({
+                modelSelection: input.target,
+                ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+              })
+              .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
         const target = yield* resolveAgentGatewayTarget({
           target: input.target,
+          connectionId,
           discovery: providerDiscovery,
           ...(availabilities.get(input.target.provider) !== undefined
             ? { availability: availabilities.get(input.target.provider)! }
             : {}),
           cwd: workspaceRoot,
         });
-        const connectionId = yield* providerTurnSelectionResolver
-          .resolveNewThreadConnection({ modelSelection: target })
-          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
 
         yield* context.assertAuthority();
         dispatchAttempted = true;
@@ -189,6 +213,7 @@ export const makeCreateThreadHandler = Effect.fn(function* (
         return {
           operationId,
           requestId: input.requestId,
+          connectionId,
           threadId: ids.threadId,
           folderId,
           title,

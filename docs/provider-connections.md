@@ -26,11 +26,11 @@ anonymous model route, such as an OpenCode Zen free model, is not a Connection.
    isolated profile, then terminates the durable Connection record. Existing
    Thread bindings remain exact and fail on their next send until the user
    explicitly chooses an available Connection.
-8. The composer remembers the last explicitly selected Connection per harness.
-   New Threads reuse that preference when it can authorize the selected model;
-   otherwise they use the first compatible active Connection.
-9. An anonymous model route is selected by the model itself and never creates or
-   mutates a Connection preference.
+8. The host remembers the last explicitly selected Connection per harness, shared
+   across Spaces and used by both the composer and agent-created Threads. An
+   unavailable or incompatible selection fails instead of choosing another account.
+9. An explicit anonymous selection is stored as a null default for a harness that
+   declares anonymous access. It does not create a Connection record.
 
 ## Durable shape
 
@@ -68,11 +68,27 @@ Connection. It is not recognized by the runtime after that migration.
 
 ## Selection flow
 
-For a new Thread, the composer resolves one exact route from the selected model:
-the last compatible Connection selected in the composer, the first compatible
-active Connection, or an explicitly provider-declared anonymous route. The
-first send verifies the managed installation, route, credential backend, and
-live model catalog before committing the initial binding.
+For a new Thread, resolve the Connection before discovering or validating models:
+an explicit selection wins, otherwise use the host's per-harness default. Only
+when no default has been established may a single active Connection be selected
+automatically. Multiple active Connections require a choice; zero Connections
+permit only a provider-declared anonymous route. Database ordering and model
+compatibility never select a different account. The first send verifies the
+managed installation, route, credential backend, and Connection-specific live
+model catalog before committing the initial binding.
+
+The former browser-local preference seeds an absent host default through an atomic
+initialize-only settings patch. It cannot overwrite an explicit host selection,
+including null. The app shell owns this migration; ordinary settings readers do
+not initialize composer persistence.
+
+`penkra capabilities` returns safe Connection identifiers and labels and resolves
+models against the selected/default Connection. Supply `provider` and
+`connectionId` for an exact account catalog; a structured JSON null selects
+anonymous access. `penkra threads create` accepts the same optional `connectionId`
+and returns the resolved identifier. Omitting it uses the host default, not the
+caller Thread's account. A retry with an existing binding preserves that binding
+and rejects a conflicting explicit Connection.
 
 For a started Thread, choosing a model or Connection does not interrupt the
 current turn and does not change durable state. The next send carries the exact
@@ -138,10 +154,11 @@ records agree; a plausible response by itself is not proof of routing.
    binding or transcript. Explicitly select a remaining Connection and verify
    the next send switches successfully. Re-add the disconnected provider as a
    new Connection; no retired identity is revived.
-8. Save a Connection in the composer, switch Spaces, and start a new Thread.
-   Verify the saved compatible Connection remains selected. Disconnect it and
-   verify a new Thread uses the first compatible active Connection while
-   existing Thread bindings remain unchanged.
+8. Save a Connection in the composer, switch Spaces, and start both a composer
+   Thread and an agent-created Thread without an explicit Connection. Verify both
+   use the saved account. Supply a different explicit Connection and verify only
+   that creation uses it. Disconnect the default and verify admission fails
+   without falling through to another account; existing bindings stay unchanged.
 9. Interrupt Penkra once in each open operation phase: Connection login,
    credential creation, Connection termination, queued/steered switch, and
    native-state materialization. Restart and verify the same journal either

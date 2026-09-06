@@ -7,7 +7,7 @@
  */
 import { Schema } from "effect";
 
-import { FolderId, MessageId, ThreadId, TurnId } from "./baseSchemas";
+import { FolderId, MessageId, ProviderConnectionId, ThreadId, TurnId } from "./baseSchemas";
 import { ModelSelection, ProviderKind } from "./orchestration";
 import { ProviderModelDescriptor } from "./providerDiscovery";
 import { ServerProviderAuthStatus } from "./server";
@@ -63,6 +63,7 @@ export const PenkraCreateThreadSpec = Schema.Struct({
   prompt: Schema.String.check(Schema.isNonEmpty()),
   title: Schema.optional(Schema.String.check(Schema.isNonEmpty())),
   target: ModelSelection,
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   folderId: Schema.optional(FolderId),
   runtimeMode: Schema.optional(Schema.Literals(["approval-required", "full-access"])),
 });
@@ -137,6 +138,7 @@ export const PenkraCreatedThreadResult = Schema.Struct({
 export type PenkraCreatedThreadResult = typeof PenkraCreatedThreadResult.Type;
 
 export const PenkraCreateThreadResult = Schema.Struct({
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   operationId: Schema.String,
   requestId: PenkraGatewayRequestId,
   threadId: ThreadId,
