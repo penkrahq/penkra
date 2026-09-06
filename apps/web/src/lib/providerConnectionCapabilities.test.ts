@@ -172,7 +172,7 @@ describe("provider Connection capabilities", () => {
         startedThreadBinding: { loaded: false, connectionId: undefined },
         hasThreadStarted: false,
       }),
-    ).toBe(goConnectionId);
+    ).toBeUndefined();
   });
 
   it("honors the exact Connections that exposed a model in managed discovery", () => {
@@ -195,14 +195,14 @@ describe("provider Connection capabilities", () => {
     ).toBe(false);
   });
 
-  it("treats an anonymous OpenCode model as a model route, not a Connection choice", () => {
+  it("honors an explicit OpenCode Free selection independently of saved paid accounts", () => {
     expect(
       resolveComposerConnection({
         snapshot,
         provider: "opencode",
         model: "opencode/gpt-5-nano",
         availableConnectionIds: [null],
-        explicitSelection: { specified: false, connectionId: undefined },
+        explicitSelection: { specified: true, connectionId: null },
         startedThreadBinding: { loaded: false, connectionId: undefined },
         hasThreadStarted: false,
       }),
@@ -255,7 +255,7 @@ describe("provider Connection capabilities", () => {
         provider: "opencode",
         model: "opencode-go/kimi-k2.5",
         availableConnectionIds: [goConnectionId],
-        explicitSelection: { specified: false, connectionId: undefined },
+        explicitSelection: { specified: true, connectionId: goConnectionId },
         startedThreadBinding: { loaded: false, connectionId: undefined },
         hasThreadStarted: false,
       }),
@@ -276,7 +276,7 @@ describe("provider Connection capabilities", () => {
         provider: "opencode",
         model: "opencode-go/kimi-k2.5",
         availableConnectionIds: [],
-        explicitSelection: { specified: false, connectionId: undefined },
+        explicitSelection: { specified: true, connectionId: goConnectionId },
         startedThreadBinding: { loaded: false, connectionId: undefined },
         hasThreadStarted: false,
       }),

@@ -165,10 +165,15 @@ export function resolveComposerConnection(input: {
       ? null
       : undefined;
   }
-  const firstAvailableConnection = input.snapshot.connections.find(
-    (connection) => connection.harness === input.provider && connectionIsValid(connection.id),
-  )?.id;
-  if (firstAvailableConnection !== undefined) return firstAvailableConnection;
+  const activeConnections = input.snapshot.connections.filter(
+    (connection) => connection.harness === input.provider && connection.lifecycle === "active",
+  );
+  // Match host admission: an absent default must not choose by repository order.
+  if (activeConnections.length > 1) return undefined;
+  if (activeConnections.length === 1) {
+    const connectionId = activeConnections[0]!.id;
+    return connectionIsValid(connectionId) ? connectionId : undefined;
+  }
   return anonymousRouteAuthorizesModel({
     snapshot: input.snapshot,
     provider: input.provider,

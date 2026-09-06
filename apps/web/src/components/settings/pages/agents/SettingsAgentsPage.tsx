@@ -25,6 +25,7 @@ import {
 import { providerDiscoveryQueryKeys } from "~/lib/providerDiscoveryReactQuery";
 import { ensureNativeApi } from "~/nativeApi";
 import { useComposerDraftStore } from "~/composerDraftStore";
+import { saveDefaultConnection } from "~/lib/connectionDefaults";
 
 function authenticationMethodSelectionId(input: {
   authenticationTargetId: string;
@@ -34,6 +35,13 @@ function authenticationMethodSelectionId(input: {
 }
 
 function selectNewConnection(connection: ProviderConnection): void {
+  void saveDefaultConnection(connection.harness, connection.id).catch((error) =>
+    toastManager.add({
+      type: "error",
+      title: "Could not save default Connection",
+      description: String(error),
+    }),
+  );
   useComposerDraftStore.setState((state) => ({
     stickyConnectionByProvider: {
       ...state.stickyConnectionByProvider,

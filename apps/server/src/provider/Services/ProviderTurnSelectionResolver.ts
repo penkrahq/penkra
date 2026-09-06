@@ -51,9 +51,10 @@ export class ProviderTurnSelectionResolutionError extends Data.TaggedError(
 }
 
 export interface ProviderTurnSelectionResolverShape {
-  /** Resolve the first compatible Connection for a not-yet-started thread. */
+  /** Resolve an exact selection or the host-owned default for a new thread. */
   readonly resolveNewThreadConnection: (input: {
     readonly modelSelection: ModelSelection;
+    readonly connectionId?: ProviderConnectionId | null;
   }) => Effect.Effect<ProviderConnectionId | null, ProviderTurnSelectionResolutionError>;
   readonly resolveInitial: (input: {
     readonly threadId: ThreadId;

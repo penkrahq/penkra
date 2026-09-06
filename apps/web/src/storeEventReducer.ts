@@ -32,6 +32,7 @@ import {
 } from "./storeNormalization";
 import {
   applySpaceOrder,
+  applyShellEvent,
   applyThreadUpdate,
   removeSpace,
   removeDeletedProjectFromClientState,
@@ -494,6 +495,29 @@ function applyOrchestrationEvent(
   options?: ApplyOrchestrationEventOptions,
 ): AppState {
   switch (event.type) {
+    case "thread.created": {
+      // Creation is also delivered to clients which never opened this thread.
+      // Reuse shell registration without hydrating an invented transcript. A
+      // replay must not replace a newer shell/session with creation defaults.
+      const payload = event.payload;
+      if (state.threadShellById?.[payload.threadId]) return state;
+      return applyShellEvent(state, {
+        kind: "thread-upserted",
+        sequence: event.sequence,
+        thread: {
+          ...payload,
+          id: payload.threadId,
+          creationSource: payload.creationSource ?? null,
+          sourceThreadId: payload.sourceThreadId ?? null,
+          sourceTurnId: payload.sourceTurnId ?? null,
+          gatewayOperationId: payload.gatewayOperationId ?? null,
+          gatewayOperationIndex: payload.gatewayOperationIndex ?? null,
+          latestTurn: null,
+          session: null,
+          archivedAt: null,
+        },
+      });
+    }
     case "space.created":
       return upsertSpace(state, {
         id: event.payload.spaceId,
@@ -522,9 +546,18 @@ function applyOrchestrationEvent(
     case "space.archived":
       return removeSpace(state, event.payload.spaceId, event.payload.archivedAt, true);
 
-    case "space.restored":
-      // The shell stream supplies the restored row with its full name/icon/order metadata.
-      return state;
+    case "space.restored": {
+      const existing =
+        state.archivedSpaces.find((space) => space.id === event.payload.spaceId) ??
+        state.spaces.find((space) => space.id === event.payload.spaceId);
+      if (!existing) return state;
+      return upsertSpace(state, {
+        ...existing,
+        name: event.payload.name ?? existing.name,
+        archivedAt: null,
+        updatedAt: event.payload.restoredAt,
+      });
+    }
 
     case "space.deleted":
       return removeSpace(state, event.payload.spaceId, event.payload.deletedAt);
@@ -608,6 +641,57 @@ function applyOrchestrationEvent(
     case "folder.deleted": {
       return removeDeletedProjectFromClientState(state, event.payload.folderId, event.sequence);
     }
+
+    case "sidebar.layout-updated": {
+      let next = state;
+      for (const update of event.payload.folderUpdates) {
+        next = {
+          ...next,
+          folders: next.folders.map((folder) =>
+            folder.id === update.folderId
+              ? {
+                  ...folder,
+                  ...(update.sidebarSortOrder !== undefined
+                    ? { sidebarSortOrder: update.sidebarSortOrder }
+                    : {}),
+                  updatedAt:
+                    folder.updatedAt !== undefined && folder.updatedAt > event.payload.updatedAt
+                      ? folder.updatedAt
+                      : event.payload.updatedAt,
+                }
+              : folder,
+          ),
+        };
+      }
+      for (const update of event.payload.threadUpdates) {
+        next = applyThreadUpdate(
+          next,
+          update.threadId,
+          (thread) => ({
+            ...thread,
+            folderId: update.folderId ?? thread.folderId,
+            ...(update.sidebarSortOrder !== undefined
+              ? { sidebarSortOrder: update.sidebarSortOrder }
+              : {}),
+            updatedAt: resolveEventUpdatedAt(thread, event.payload.updatedAt),
+          }),
+          { updateSidebarSummary: true },
+        );
+      }
+      return next;
+    }
+
+    case "thread.runtime-mode-set":
+      return applyThreadUpdate(
+        state,
+        event.payload.threadId,
+        (thread) => ({
+          ...thread,
+          runtimeMode: event.payload.runtimeMode,
+          updatedAt: resolveEventUpdatedAt(thread, event.payload.updatedAt),
+        }),
+        { updateSidebarSummary: true },
+      );
 
     case "thread.deleted":
       // Deletion is terminal for both active sidebar rows and archived settings rows.

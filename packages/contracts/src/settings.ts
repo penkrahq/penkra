@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { TrimmedString } from "./baseSchemas";
+import { ProviderConnectionId, TrimmedString } from "./baseSchemas";
 import { ModelSelection, ProviderKind } from "./orchestration";
 
 const StringSetting = TrimmedString.check(Schema.isMaxLength(4096));
@@ -8,6 +8,8 @@ const CustomModels = Schema.Array(Schema.String.check(Schema.isMaxLength(256))).
 );
 
 const ManagedProviderSettingsBase = {
+  // Absent means not selected yet; null explicitly selects an anonymous route.
+  defaultConnectionId: Schema.optionalKey(Schema.NullOr(ProviderConnectionId)),
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   customModels: CustomModels,
 };
@@ -82,6 +84,9 @@ const ProviderSettingsBasePatch = {
 };
 
 const ManagedProviderSettingsBasePatch = {
+  // Migration-only seed. Applied atomically only while the default is absent.
+  initializeDefaultConnectionId: Schema.optionalKey(Schema.NullOr(ProviderConnectionId)),
+  defaultConnectionId: Schema.optionalKey(Schema.NullOr(ProviderConnectionId)),
   enabled: Schema.optionalKey(Schema.Boolean),
   customModels: Schema.optionalKey(CustomModels),
 };

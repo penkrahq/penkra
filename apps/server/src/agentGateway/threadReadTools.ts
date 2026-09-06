@@ -6,12 +6,16 @@ import {
   type OrchestrationThreadShell,
   type OrchestrationGetThreadTurnsPageResult,
   type ProviderKind,
+  ProviderConnectionId,
+  type ProviderConnection,
+  type ServerSettings,
 } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns.ts";
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
+import { resolveDefaultConnection } from "../provider/defaultConnection.ts";
 import { PENKRA_INSTRUCTION_SET_VERSION } from "./harnessPolicy.ts";
 import { mcpToolResultError, mcpToolResultJson } from "./protocol.ts";
 import {
@@ -19,6 +23,7 @@ import {
   agentGatewayTargetOptionGuidance,
   loadAgentGatewayProviderCatalog,
   type AgentGatewayProviderAvailability,
+  type AgentGatewayProviderCatalog,
 } from "./targetResolver.ts";
 import {
   deriveAgentThreadStatus,
@@ -215,6 +220,8 @@ function decodeThreadListCursor(value: string | undefined): ThreadListCursor | u
 }
 
 export interface ThreadReadToolsInput {
+  readonly loadConnections: Effect.Effect<ReadonlyArray<ProviderConnection>, unknown>;
+  readonly loadSettings: Effect.Effect<ServerSettings, unknown>;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
   readonly projectionTurns: ProjectionTurnRepositoryShape;
   readonly providerDiscovery: ProviderDiscoveryServiceShape;
@@ -300,6 +307,11 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             description:
               "Only this exact provider kind, including its unavailable reason when it cannot run.",
           },
+          connectionId: {
+            type: ["string", "null"],
+            description:
+              'Exact Connection ID; requires provider. Use --input \'{"provider":"opencode","connectionId":null}\' for the anonymous catalog; --connection-id null is a literal ID, not JSON null. Omit to use the default Connection catalog.',
+          },
           detail: {
             type: "string",
             enum: ["summary", "full"],
@@ -326,6 +338,23 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           );
         }
         const detail = readStringArg(args, "detail") ?? "summary";
+        const explicitConnectionId =
+          args.connectionId === null ? null : readStringArg(args, "connectionId");
+        if (explicitConnectionId !== undefined && requestedProvider === undefined)
+          throw new ToolInputError("connectionId requires provider.");
+        const connections = yield* input.loadConnections;
+        const settings = yield* input.loadSettings;
+        if (
+          explicitConnectionId != null &&
+          !connections.some(
+            (connection) =>
+              connection.id === explicitConnectionId &&
+              connection.harness === requestedProvider &&
+              connection.lifecycle === "active",
+          )
+        ) {
+          throw new ToolInputError("The selected Connection is unavailable for this provider.");
+        }
         if (detail !== "summary" && detail !== "full") {
           throw new ToolInputError(
             `Argument "detail" received "${detail}". Use "summary" or "full".`,
@@ -346,15 +375,53 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const providerKinds = requestedProvider
           ? [requestedProvider as ProviderKind]
           : PROVIDER_KINDS;
-        const discoveredProviders = yield* Effect.forEach(providerKinds, (provider) =>
-          loadAgentGatewayProviderCatalog({
+        const discoveredProviders = yield* Effect.forEach(
+          providerKinds,
+          (
             provider,
-            discovery: providerDiscovery,
-            ...(availabilities.get(provider) !== undefined
-              ? { availability: availabilities.get(provider)! }
-              : {}),
-            ...(project.workspaceRoot ? { cwd: project.workspaceRoot } : {}),
-          }),
+          ): Effect.Effect<
+            AgentGatewayProviderCatalog & { readonly connectionId?: ProviderConnectionId | null }
+          > =>
+            Effect.gen(function* () {
+              const connectionId = yield* Effect.try({
+                try: () =>
+                  resolveDefaultConnection({
+                    provider,
+                    settings,
+                    connections,
+                    ...(explicitConnectionId !== undefined
+                      ? {
+                          connectionId:
+                            explicitConnectionId === null
+                              ? null
+                              : ProviderConnectionId.makeUnsafe(explicitConnectionId),
+                        }
+                      : {}),
+                  }),
+                catch: (error) => new ToolInputError(errorText(error)),
+              });
+              const catalog = yield* loadAgentGatewayProviderCatalog({
+                provider,
+                connectionId,
+                discovery: providerDiscovery,
+                ...(availabilities.get(provider) !== undefined
+                  ? { availability: availabilities.get(provider)! }
+                  : {}),
+                ...(project.workspaceRoot ? { cwd: project.workspaceRoot } : {}),
+              });
+              return { ...catalog, connectionId };
+            }).pipe(
+              Effect.catch((error) =>
+                Effect.succeed({
+                  provider,
+                  defaultModel: null,
+                  models: [],
+                  enabled: settings.providers[provider].enabled,
+                  available: false,
+                  error: errorText(error),
+                }),
+              ),
+            ),
         );
         const providers = requestedProvider
           ? discoveredProviders
@@ -369,12 +436,26 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           ]),
         );
         const payload = {
+          connections: connections
+            .filter((connection) => !requestedProvider || connection.harness === requestedProvider)
+            .map((connection) => ({
+              connectionId: connection.id,
+              provider: connection.harness,
+              label: connection.label,
+              authenticationTargetId: connection.authenticationTargetId,
+              authenticationMethodId: connection.authenticationMethodId,
+              health: connection.health,
+              lifecycle: connection.lifecycle,
+              isDefault:
+                settings.providers[connection.harness].defaultConnectionId === connection.id,
+            })),
           targetConstruction,
           providers:
             detail === "full"
               ? providers
               : providers.map((provider) => ({
                   provider: provider.provider,
+                  ...("connectionId" in provider ? { connectionId: provider.connectionId } : {}),
                   defaultModel: provider.defaultModel,
                   enabled: provider.enabled,
                   available: provider.available,

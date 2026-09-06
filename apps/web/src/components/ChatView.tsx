@@ -75,6 +75,7 @@ import {
 } from "~/lib/providerConnectionCapabilities";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { serverConfigQueryOptions, serverQueryKeys } from "~/lib/serverReactQuery";
+import { saveDefaultConnection } from "~/lib/connectionDefaults";
 import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
 import { SINGLE_CHAT_PANE_SCOPE_ID } from "~/lib/chatPaneScope";
 import {
@@ -759,7 +760,7 @@ export default function ChatView({
   const markThreadDetailSyncFailed = useStore((store) => store.markThreadDetailSyncFailed);
   const clearThreadDetailSyncFailure = useStore((store) => store.clearThreadDetailSyncFailure);
   const setStoreThreadError = useStore((store) => store.setError);
-  const { settings } = useAppSettings();
+  const { settings, serverSettings } = useAppSettings();
   const assistantDeliveryMode = resolveAssistantDeliveryMode(settings);
   const desktopTopBarTrafficLightGutterClassName = useDesktopTopBarTrafficLightGutterClassName();
   const desktopTopBarWindowControlsGutterClassName =
@@ -1762,10 +1763,23 @@ export default function ChatView({
   >({});
   const selectedConnectionByProvider = useMemo(() => {
     const pendingConnectionByProvider = selectedConnectionByThread[threadId] ?? {};
+    const defaults = { ...stickyConnectionByProvider };
+    if (serverSettings) {
+      for (const provider of Object.keys(serverSettings.providers) as ProviderKind[]) {
+        const connectionId = serverSettings.providers[provider].defaultConnectionId;
+        if (connectionId !== undefined) defaults[provider] = connectionId;
+      }
+    }
     return hasThreadStarted
       ? pendingConnectionByProvider
-      : { ...stickyConnectionByProvider, ...pendingConnectionByProvider };
-  }, [hasThreadStarted, selectedConnectionByThread, stickyConnectionByProvider, threadId]);
+      : { ...defaults, ...pendingConnectionByProvider };
+  }, [
+    hasThreadStarted,
+    selectedConnectionByThread,
+    stickyConnectionByProvider,
+    threadId,
+    serverSettings,
+  ]);
   const setSelectedConnectionByProvider = useCallback(
     (update: (current: PendingConnectionSelection) => PendingConnectionSelection) => {
       setSelectedConnectionByThread((current) => ({
@@ -2062,6 +2076,15 @@ export default function ChatView({
     );
   }, [providerConnectionsQuery.data, selectedProvider]);
   const handleConnectionChange = (connectionId: ProviderConnectionId | null) => {
+    void saveDefaultConnection(selectedProvider, connectionId)
+      .then((settings) => queryClient.setQueryData(serverQueryKeys.settings(), settings))
+      .catch((error) =>
+        toastManager.add({
+          type: "error",
+          title: "Could not save default Connection",
+          description: String(error),
+        }),
+      );
     setSelectedConnectionByProvider((current) => ({
       ...current,
       [selectedProvider]: connectionId,

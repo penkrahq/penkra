@@ -15,6 +15,7 @@ import { ProviderTurnSelectionResolver } from "../Services/ProviderTurnSelection
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import { ProviderTurnSelectionResolverLive } from "./ProviderTurnSelectionResolver.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 
 const threadId = ThreadId.makeUnsafe("selection-thread");
 const connectionId = ProviderConnectionId.makeUnsafe("selection-go");
@@ -29,6 +30,7 @@ let hasRuntimeBinding = true;
 let installationLifecycle: "active" | "retired" = "active";
 
 const dependencies = Layer.mergeAll(
+  ServerSettingsService.layerTest(),
   Layer.succeed(ProviderAdapterRegistry, {
     getByProvider: () =>
       Effect.succeed({
@@ -226,13 +228,44 @@ const resolverLayer = ProviderTurnSelectionResolverLive.pipe(Layer.provide(depen
 const layer = it.layer(Layer.mergeAll(dependencies, resolverLayer));
 
 layer("ProviderTurnSelectionResolver", (it) => {
-  it.effect("uses the newest compatible active Connection for a new thread", () =>
+  it.effect("uses the sole compatible active Connection when no default was selected", () =>
     Effect.gen(function* () {
       const resolver = yield* ProviderTurnSelectionResolver;
       const selected = yield* resolver.resolveNewThreadConnection({
         modelSelection: { provider: "codex", model: "gpt-5.5" },
       });
       assert.strictEqual(selected, codexConnectionId);
+    }),
+  );
+
+  it.effect("uses the host default and never replaces an incompatible explicit account", () =>
+    Effect.gen(function* () {
+      const resolver = yield* ProviderTurnSelectionResolver;
+      const settings = yield* ServerSettingsService;
+      yield* settings.updateSettings({
+        providers: { codex: { defaultConnectionId: codexConnectionId } },
+      });
+      assert.strictEqual(
+        yield* resolver.resolveNewThreadConnection({
+          modelSelection: { provider: "codex", model: "gpt-5.5" },
+        }),
+        codexConnectionId,
+      );
+      const wrongHarness = yield* Effect.exit(
+        resolver.resolveNewThreadConnection({
+          modelSelection: { provider: "codex", model: "gpt-5.5" },
+          connectionId,
+        }),
+      );
+      assert.strictEqual(wrongHarness._tag, "Failure");
+      connectionLifecycle = "terminated";
+      const terminatedDefault = yield* Effect.exit(
+        resolver.resolveNewThreadConnection({
+          modelSelection: { provider: "codex", model: "gpt-5.5" },
+        }),
+      );
+      connectionLifecycle = "active";
+      assert.strictEqual(terminatedDefault._tag, "Failure");
     }),
   );
 

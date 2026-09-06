@@ -6,6 +6,7 @@ import type {
   OrchestrationThread,
   OrchestrationThreadShell,
   ProviderKind,
+  ThreadRuntimeBinding,
   ServerProviderStatus,
   ThreadId as ThreadIdType,
 } from "@penkra/contracts";
@@ -15,6 +16,7 @@ import {
   ModelSelection,
   FolderId,
   ProviderConnectionId,
+  ProviderInstallationId,
   SpaceId,
   ThreadId,
   TurnId,
@@ -43,8 +45,11 @@ import type {
 import type { ProviderBlockingDeliveryEvidence } from "../../persistence/Services/OrchestrationEventDeliveries.ts";
 import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
 import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
+import { connectionFixture } from "../../provider/defaultConnection.test-fixture.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
+import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { AgentGateway } from "../Services/AgentGateway.ts";
 import { AgentGatewayCredentials } from "../Services/AgentGatewayCredentials.ts";
 import { AgentGatewayLive } from "./AgentGateway.ts";
@@ -205,6 +210,9 @@ function makeHarnessLayer(
   threads: ReadonlyArray<OrchestrationThreadShell>,
   options: {
     readonly threadDetails?: ReadonlyMap<string, OrchestrationThread>;
+    readonly existingBinding?: ThreadRuntimeBinding;
+    readonly resolveConnection?: (input: unknown) => void;
+    readonly discoverModels?: (input: unknown) => void;
     readonly failDispatch?: (command: OrchestrationCommand) => boolean;
     readonly dispatchDelayMs?: number;
     readonly providerStatuses?: ReadonlyArray<ServerProviderStatus>;
@@ -574,7 +582,10 @@ function makeHarnessLayer(
       ),
   } as unknown as (typeof OrchestrationEngineService)["Service"]);
   const providerTurnSelectionResolverLayer = Layer.succeed(ProviderTurnSelectionResolver, {
-    resolveNewThreadConnection: () => Effect.succeed(CONNECTION_ID),
+    resolveNewThreadConnection: (input: unknown) => {
+      options.resolveConnection?.(input);
+      return Effect.succeed(CONNECTION_ID);
+    },
   } as unknown as (typeof ProviderTurnSelectionResolver)["Service"]);
   const providerThreadSwitchCoordinatorLayer = Layer.effect(
     ProviderThreadSwitchCoordinator,
@@ -589,7 +600,9 @@ function makeHarnessLayer(
   ).pipe(Layer.provide(engineLayer));
 
   const providerDiscoveryLayer = Layer.succeed(ProviderDiscoveryService, {
-    listModels: ({ provider }: { provider: string }) => {
+    listModels: (input: { provider: string }) => {
+      options.discoverModels?.(input);
+      const { provider } = input;
       const modelsByProvider: Record<string, ReadonlyArray<Record<string, unknown>>> = {
         codex: [
           { slug: "gpt-5.5", name: "GPT-5.5" },
@@ -741,6 +754,20 @@ function makeHarnessLayer(
     Layer.provide(providerDiscoveryLayer),
     Layer.provide(providerHealthLayer),
     Layer.provide(ServerSettingsService.layerTest()),
+    Layer.provide(
+      Layer.succeed(ThreadProviderBindingRepository, {
+        getRuntimeBinding: () => Effect.succeed(Option.fromNullishOr(options.existingBinding)),
+      } as unknown as (typeof ThreadProviderBindingRepository)["Service"]),
+    ),
+    Layer.provide(
+      Layer.succeed(ProviderConnectionRepository, {
+        list: () =>
+          Effect.succeed([
+            connectionFixture("codex", CONNECTION_ID),
+            connectionFixture("claudeAgent", "claude-default"),
+          ]),
+      } as unknown as (typeof ProviderConnectionRepository)["Service"]),
+    ),
     Layer.provide(projectionTurnsLayer),
     Layer.provide(diagnosticsLayer),
     Layer.provide(eventStoreLayer),
@@ -847,6 +874,96 @@ describe("AgentGateway", () => {
         body: { jsonrpc: "2.0", id: 1, method: "tools/list" },
       });
       assert.equal(invalid.status, 401);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  for (const replacement of ["same-native-steer", "different-execution"] as const) {
+    it.effect(`rechecks in-flight creation authority after ${replacement}`, () =>
+      Effect.gen(function* () {
+        const entered = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
+          pauseAfterDispatch: { commandType: "thread.create", entered, release },
+        });
+        return yield* Effect.gen(function* () {
+          const harness = yield* makeHarness;
+          harness.setProjectionTurn({
+            threadId: "thread-parent",
+            turnId: "turn-parent-active",
+            providerTurnId: "native-original",
+            state: "running",
+          });
+          const [response] = yield* Effect.all(
+            [
+              harness.callTool({
+                token: "token-parent",
+                name: "penkra_create_thread",
+                args: {
+                  requestId: `authority-${replacement}`,
+                  prompt: "Summarize the weather",
+                  target: { provider: "codex", model: "gpt-5.5" },
+                },
+              }),
+              Effect.gen(function* () {
+                yield* Deferred.await(entered);
+                if (replacement === "different-execution") {
+                  harness.setProjectionTurn({
+                    threadId: "thread-parent",
+                    turnId: "turn-parent-active",
+                    providerTurnId: "native-original",
+                    state: "completed",
+                  });
+                }
+                harness.setProjectionTurn({
+                  threadId: "thread-parent",
+                  turnId: "zz-followup",
+                  providerTurnId:
+                    replacement === "same-native-steer" ? "native-original" : "native-next",
+                  state: "running",
+                });
+                yield* Deferred.succeed(release, undefined);
+              }),
+            ],
+            { concurrency: "unbounded" },
+          );
+          const turnStarts = harness.dispatched.filter(
+            (command) => command.type === "thread.turn.start",
+          );
+          if (replacement === "same-native-steer") {
+            assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+            assert.equal(turnStarts.length, 1);
+          } else {
+            assert.isTrue(isToolError(response.result));
+            assert.include(toolErrorText(response.result), "no longer active");
+            assert.equal(turnStarts.length, 0);
+          }
+        }).pipe(Effect.provide(gatewayLayer));
+      }),
+    );
+  }
+
+  it.effect("allows a handoff write after an accepted steer shares the running invocation", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      for (const turnId of ["turn-parent-active", "zz-followup"]) {
+        harness.setProjectionTurn({
+          threadId: "thread-parent",
+          turnId,
+          providerTurnId: "native-shared",
+          state: "running",
+        });
+      }
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_send_message",
+        args: { threadId: "thread-child", message: "The regression checks passed." },
+      });
+      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      assert.equal(
+        harness.dispatched.filter((command) => command.type === "thread.turn.start").length,
+        1,
+      );
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -1910,6 +2027,124 @@ describe("AgentGateway", () => {
         })).result,
       );
       assert.equal(retryPayload.released, true);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect(
+    "exposes safe Connection identities and discovers explicit Free without an account",
+    () => {
+      const discoveryInputs: unknown[] = [];
+      const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
+        discoverModels: (input) => discoveryInputs.push(input),
+      });
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const selected = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_capabilities",
+          args: { provider: "codex", connectionId: CONNECTION_ID },
+        });
+        assert.isFalse(isToolError(selected.result), toolErrorText(selected.result));
+        const payload = toolResultJson(selected.result);
+        assert.deepInclude((payload.connections as object[])[0], {
+          connectionId: CONNECTION_ID,
+          provider: "codex",
+        });
+        assert.notInclude(JSON.stringify(payload), "credentialRef");
+        assert.notInclude(JSON.stringify(payload), "profileRef");
+        assert.deepInclude(discoveryInputs[0], { provider: "codex", connectionId: CONNECTION_ID });
+        const free = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_capabilities",
+          args: { provider: "opencode", connectionId: null },
+        });
+        assert.isFalse(isToolError(free.result), toolErrorText(free.result));
+        assert.deepInclude(discoveryInputs[1], { provider: "opencode", connectionId: null });
+        assert.deepInclude((toolResultJson(free.result).providers as object[])[0], {
+          connectionId: null,
+        });
+        const wrongProvider = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_capabilities",
+          args: { provider: "claudeAgent", connectionId: CONNECTION_ID },
+        });
+        assert.isTrue(isToolError(wrongProvider.result));
+        assert.equal(discoveryInputs.length, 2);
+      }).pipe(Effect.provide(gatewayLayer));
+    },
+  );
+
+  it.effect("preserves an existing creation binding instead of resolving a changed default", () => {
+    const originalAccount = ProviderConnectionId.makeUnsafe("original-account");
+    const discoveryInputs: unknown[] = [];
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
+      existingBinding: {
+        threadId: ThreadId.makeUnsafe("existing-created-thread"),
+        connectionId: originalAccount,
+        installationId: ProviderInstallationId.makeUnsafe("installation"),
+        internalProviderId: null,
+        modelId: "gpt-5.5",
+        revision: 0,
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+      resolveConnection: () => assert.fail("A creation retry must not select a new default"),
+      discoverModels: (input) => discoveryInputs.push(input),
+    });
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const args = {
+        requestId: "retry-existing",
+        prompt: "Analyze the feature",
+        target: { provider: "codex", model: "gpt-5.5" },
+      };
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_create_thread",
+        args,
+      });
+      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      assert.equal(toolResultJson(response.result).connectionId, originalAccount);
+      assert.deepInclude(discoveryInputs[0], { provider: "codex", connectionId: originalAccount });
+      const turn = harness.dispatched.find((command) => command.type === "thread.turn.start");
+      assert.equal(
+        turn?.type === "thread.turn.start" ? turn.connectionId : undefined,
+        originalAccount,
+      );
+      const count = harness.dispatched.length;
+      const conflict = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_create_thread",
+        args: { ...args, connectionId: CONNECTION_ID },
+      });
+      assert.isTrue(isToolError(conflict.result));
+      assert.include(toolErrorText(conflict.result), "different Connection");
+      assert.equal(harness.dispatched.length, count);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("forwards an explicit Connection before discovering or creating a thread", () => {
+    const selections: unknown[] = [];
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
+      resolveConnection: (input) => selections.push(input),
+    });
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_create_thread",
+        args: {
+          requestId: "explicit-connection",
+          prompt: "Analyze this feature",
+          connectionId: CONNECTION_ID,
+          target: { provider: "codex", model: "gpt-5.5" },
+        },
+      });
+      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      assert.deepEqual(selections, [
+        { modelSelection: { provider: "codex", model: "gpt-5.5" }, connectionId: CONNECTION_ID },
+      ]);
+      assert.equal(toolResultJson(response.result).connectionId, CONNECTION_ID);
     }).pipe(Effect.provide(gatewayLayer));
   });
 
