@@ -90,6 +90,11 @@ and returns the resolved identifier. Omitting it uses the host default, not the
 caller Thread's account. A retry with an existing binding preserves that binding
 and rejects a conflicting explicit Connection.
 
+Creation retry identifiers are scoped to the caller execution and request ID. Retrying does not
+override a subsequently changed child binding: a stale initial revision is rejected. Discovery
+must still succeed for the bound Connection; an unavailable catalog returns an error rather than
+substituting another account. These failures do not imply that the already-created child vanished.
+
 For a started Thread, choosing a model or Connection does not interrupt the
 current turn and does not change durable state. The next send carries the exact
 selection and current binding revision. A queued send journals the requested
