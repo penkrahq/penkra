@@ -162,10 +162,20 @@ export class ElectronAppControllerProcessFactory implements AppControllerProcess
           reportUnexpectedDestroy();
         });
       },
-      destroy: () => {
+      destroy: async () => {
         intentionallyDestroyed = true;
-        child?.kill();
-        child = null;
+        const owned = child;
+        if (!owned) return;
+        const closed = new Promise<void>((resolve) => owned.once("close", () => resolve()));
+        if (owned.exitCode != null || owned.signalCode != null) {
+          child = null;
+          return;
+        }
+        if (!owned.kill("SIGKILL")) {
+          if (owned.exitCode != null || owned.signalCode != null) return;
+          throw new Error("The owned App controller process could not be stopped.");
+        }
+        await closed;
       },
       onDestroyed: (listener) => {
         if (unexpectedlyDestroyed) {
