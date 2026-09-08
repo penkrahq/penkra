@@ -239,8 +239,10 @@ export function RightDock(props: RightDockProps) {
                   className={cn(
                     "absolute inset-0 flex min-h-0 w-full",
                     // Retained App renderers stay mounted and composited so switching tabs cannot
-                    // reveal a stale same-App frame. Visibility, not lifetime, owns presentation.
-                    !isVisible && "pointer-events-none invisible",
+                    // reveal a stale same-App frame. Zero opacity preserves the retained frame's
+                    // layout for exact tab-scoped semantic observation. aria-hidden keeps the
+                    // inactive pane out of the shell's user-facing accessibility tree.
+                    !isVisible && "pointer-events-none opacity-0",
                   )}
                 >
                   {props.renderPane(pane, { isVisible })}

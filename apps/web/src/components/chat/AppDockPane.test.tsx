@@ -24,4 +24,20 @@ describe("AppDockPane", () => {
     expect(html).toContain("data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=");
     expect(html).not.toContain("Loading App");
   });
+
+  it("keeps a retained non-visible App frame rendered for tab-scoped semantic access", () => {
+    const html = renderToStaticMarkup(
+      <AppDockPane
+        appName="Canvas"
+        rendererId={7}
+        documentUrl="penkra-app://canvas/app.html"
+        status="ready"
+        tabId="canvas-tab"
+        visible={false}
+      />,
+    );
+
+    expect(html).toContain('data-app-tab-id="canvas-tab"');
+    expect(html).not.toContain(' hidden=""');
+  });
 });
