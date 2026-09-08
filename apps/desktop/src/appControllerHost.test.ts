@@ -57,7 +57,7 @@ function fixture(app = installedApp()) {
     id: 44,
     send: vi.fn(),
     start: vi.fn(async () => undefined),
-    destroy: vi.fn(),
+    destroy: vi.fn(async () => undefined),
     onDestroyed: vi.fn((listener) => {
       destroyedListener = listener;
       return vi.fn();

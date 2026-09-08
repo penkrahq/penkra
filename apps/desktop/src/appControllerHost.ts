@@ -21,7 +21,8 @@ export interface AppControllerProcess {
   send(message: AppRendererRpcHostMessage): void;
   /** Resolves only after the Node runtime and controller entrypoint are ready. */
   start(entrypointPath: string): Promise<void>;
-  destroy(): void;
+  /** Force-stops this exact owned controller and resolves after its process and stdio close. */
+  destroy(): Promise<void>;
   onDestroyed(listener: () => void): () => void;
 }
 
@@ -114,7 +115,7 @@ export class AppControllerHost {
       removeDestroyedListener?.();
       unregisterController?.();
       unregisterRpc?.(unexpected ? "host-stopped" : reason);
-      if (!unexpected) controllerProcess.destroy();
+      if (!unexpected) await controllerProcess.destroy();
     };
 
     try {

@@ -210,9 +210,18 @@ describe("ElectronAppControllerProcessFactory", () => {
     const started = controller.start("/profile/apps/com.acme.linear/1.0.0/operations.js");
     test.child.emit("message", { type: "ready" });
     await started;
-    controller.destroy();
+    const release = controller.destroy();
+    expect(test.child.kill).toHaveBeenCalledWith("SIGKILL");
     test.child.emit("exit", 0);
-    expect(test.child.kill).toHaveBeenCalledOnce();
+    let released = false;
+    void release.then(() => {
+      released = true;
+    });
+    await Promise.resolve();
+    expect(released).toBe(false);
+    test.child.emit("close", 0);
+    await release;
+    expect(released).toBe(true);
     expect(destroyed).not.toHaveBeenCalled();
   });
 

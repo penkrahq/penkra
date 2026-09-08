@@ -148,10 +148,11 @@ void runHostPhase("electron-ready", () => app.whenReady())
     } finally {
       await runHostPhase("runtime-stop", () => runtime.stop(), 5_000).catch(() => undefined);
       window.destroy();
-      // The isolated host has no user-facing quit lifecycle to preserve. Exit
-      // synchronously after writing evidence so background Electron services
-      // cannot keep `penkra app test` alive until its outer timeout.
-      app.exit(typeof process.exitCode === "number" ? process.exitCode : 0);
+      // runtime.stop has observed exact controller process and stdio closure,
+      // and the result file is durable. Electron 40 app.exit() can return
+      // without terminating when this disposable host is supervised by pipes,
+      // so end the isolated process only after those cleanup receipts exist.
+      process.exit(typeof process.exitCode === "number" ? process.exitCode : 0);
     }
   })
   .catch(async (error) => {
@@ -160,7 +161,7 @@ void runHostPhase("electron-ready", () => app.whenReady())
       `${JSON.stringify({ ok: false, error: String(error), profilePath }, null, 2)}\n`,
       { mode: 0o600 },
     ).catch(() => undefined);
-    app.exit(1);
+    process.exit(1);
   });
 
 function requiredEnvironment(name: string): string {
