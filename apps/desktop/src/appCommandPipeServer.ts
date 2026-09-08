@@ -790,6 +790,8 @@ export class AppCommandPipeServer {
 
 export function serializeFailureResponse(error: unknown): string {
   const normalized = toError(error);
+  const retryable = readBoolean(error, "retryable");
+  const retryAfterMs = readNumber(error, "retryAfterMs");
   const code =
     typeof (normalized as Error & { code?: unknown }).code === "string"
       ? (normalized as Error & { code: string }).code
@@ -797,6 +799,8 @@ export function serializeFailureResponse(error: unknown): string {
   const bridgeError: AppRuntimeBridgeError = {
     code,
     message: normalized.message,
+    ...(retryable === undefined ? {} : { retryable }),
+    ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     failure: appRuntimeFailureDto(
       error instanceof AppRuntimeFailureError ? error.failure : appRuntimeFailure(error),
     ),
@@ -831,6 +835,18 @@ export function serializeFailureResponse(error: unknown): string {
     throw new Error("The minimal App command failure response exceeds the bridge byte ceiling.");
   }
   return serialized;
+}
+
+function readBoolean(value: unknown, key: string): boolean | undefined {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return undefined;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "boolean" ? candidate : undefined;
+}
+
+function readNumber(value: unknown, key: string): number | undefined {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return undefined;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "number" && Number.isFinite(candidate) ? candidate : undefined;
 }
 
 function deepestRemovableBranch(failure: AppRuntimeFailureDto | undefined): {

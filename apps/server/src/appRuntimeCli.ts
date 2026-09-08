@@ -38,7 +38,7 @@ const operationInputValidators = new WeakMap<object, ValidateFunction>();
 interface BridgeResponse {
   ok: boolean;
   result?: unknown;
-  error?: string | { code?: string; message?: string; failure?: AppRuntimeFailureDto };
+  error?: string | { code?: string; message?: string; retryable?: boolean; retryAfterMs?: number; failure?: AppRuntimeFailureDto };
 }
 
 interface CatalogEntry {
@@ -1246,6 +1246,8 @@ async function request(method: string, params: unknown, env: NodeJS.ProcessEnv):
       : "";
     throw Object.assign(new Error(`${code}: ${message}${detail}`), {
       code,
+      retryable: response.error?.retryable,
+      retryAfterMs: response.error?.retryAfterMs,
       failure: response.error?.failure,
     });
   }

@@ -20,6 +20,22 @@ afterEach(async () => {
 });
 
 describe("AppCommandPipeServer", () => {
+  it("preserves App renderer retry guidance across the command bridge", () => {
+    const error = Object.assign(new Error("The App is reloading; retry after 20 seconds."), {
+      code: "renderer-unavailable",
+      retryable: true,
+      retryAfterMs: 20_000,
+    });
+    expect(JSON.parse(serializeFailureResponse(error))).toMatchObject({
+      ok: false,
+      error: {
+        code: "renderer-unavailable",
+        retryable: true,
+        retryAfterMs: 20_000,
+      },
+    });
+  });
+
   it("serializes role-labelled failures within the real bridge byte ceiling", () => {
     const message = "x".repeat(20 * 1024 * 1024);
     const serialized = serializeFailureResponse(
