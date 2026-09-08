@@ -31,6 +31,8 @@ export type AppRuntimeFailureDto =
 export interface AppRuntimeBridgeError {
   code: string;
   message: string;
+  retryable?: boolean;
+  retryAfterMs?: number;
   failure?: AppRuntimeFailureDto;
   truncation?: { totalBytesExceeded?: boolean };
 }

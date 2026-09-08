@@ -97,12 +97,16 @@ export type AppRendererRpcErrorCode =
 export class AppRendererRpcError extends Error {
   readonly code: AppRendererRpcErrorCode;
   readonly rendererCode: string | undefined;
+  readonly retryable: boolean;
+  readonly retryAfterMs: number | undefined;
 
   constructor(code: AppRendererRpcErrorCode, message: string, rendererCode?: string) {
     super(message);
     this.name = "AppRendererRpcError";
     this.code = code;
     this.rendererCode = rendererCode;
+    this.retryable = code === "renderer-unavailable";
+    this.retryAfterMs = this.retryable ? 20_000 : undefined;
   }
 }
 
@@ -177,7 +181,11 @@ export class AppRendererRpcHost {
     this.#targets.set(target.id, target);
     return (reason = "tab-closed") => {
       if (this.#targets.get(target.id) !== target) return;
-      this.#cancelTarget(target.id, reason, "App renderer target closed.");
+      this.#cancelTarget(
+        target.id,
+        reason,
+        "The App renderer closed while handling the command. The App may be reloading after an update; retry the identical command after 20 seconds.",
+      );
       this.#targets.delete(target.id);
     };
   }
@@ -195,7 +203,7 @@ export class AppRendererRpcHost {
     if (!target) {
       throw new AppRendererRpcError(
         "renderer-unavailable",
-        `App renderer target ${targetId} is unavailable.`,
+        `The App renderer is temporarily unavailable. The App may be reloading after an update; retry the identical command after 20 seconds.`,
       );
     }
     assertPayloadSize(input, this.#maxPayloadBytes);

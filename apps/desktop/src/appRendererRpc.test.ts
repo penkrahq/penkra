@@ -61,7 +61,12 @@ describe("AppRendererRpcHost", () => {
       id: "request-1",
       reason: "tab-closed",
     });
-    await expect(result).rejects.toMatchObject({ code: "renderer-unavailable" });
+    await expect(result).rejects.toMatchObject({
+      code: "renderer-unavailable",
+      retryable: true,
+      retryAfterMs: 20_000,
+      message: expect.stringContaining("retry the identical command after 20 seconds"),
+    });
     expect(test.host.acceptResponse(17, { type: "result", id: "request-1", result: {} })).toBe(
       false,
     );
