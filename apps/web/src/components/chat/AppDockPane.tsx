@@ -175,7 +175,7 @@ export function AppDockPane(props: {
           data-app-tab-id={props.tabId}
           name={`penkra-app-tab:${props.tabId}`}
           className="h-full min-h-0 w-full border-0 bg-background"
-          hidden={!props.visible || props.status === "crashed"}
+          hidden={props.status === "crashed"}
           sandbox="allow-forms allow-modals allow-same-origin allow-scripts"
           src={props.documentUrl}
           title={props.appName ?? "App"}
