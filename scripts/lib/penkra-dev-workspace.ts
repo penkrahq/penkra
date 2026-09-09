@@ -15,11 +15,13 @@ import { dirname, join, resolve } from "node:path";
 
 const BACKEND_ORIGIN = "github.com/penkrahq/penkra-backend";
 const WEBSITE_ORIGIN = "github.com/penkrahq/penkra-website";
+const APPS_ORIGIN = "github.com/penkrahq/penkra-apps";
 
 export interface PenkraDevWorkspace {
   readonly desktopRoot: string;
   readonly backendRoot: string;
   readonly websiteRoot: string;
+  readonly appsRoot: string;
 }
 
 export function resolvePenkraDevWorkspaceConfigPath(homeDirectory = homedir()): string {
@@ -31,11 +33,13 @@ export function validatePenkraDevWorkspace(input: PenkraDevWorkspace): PenkraDev
     desktopRoot: resolve(input.desktopRoot),
     backendRoot: resolve(input.backendRoot),
     websiteRoot: resolve(input.websiteRoot),
+    appsRoot: resolve(input.appsRoot),
   };
   const requiredPaths = [
     join(workspace.desktopRoot, "scripts", "penkra-dev-launcher.ts"),
     join(workspace.backendRoot, "ops", "dev-workspace.mjs"),
     join(workspace.websiteRoot, "next.config.ts"),
+    join(workspace.appsRoot, "apps", "penkra-app.json"),
   ];
   const missingPath = requiredPaths.find((path) => !existsSync(path));
   if (missingPath) {
@@ -64,7 +68,9 @@ export function readPenkraDevWorkspace(
     !("backendRoot" in parsed) ||
     typeof parsed.backendRoot !== "string" ||
     !("websiteRoot" in parsed) ||
-    typeof parsed.websiteRoot !== "string"
+    typeof parsed.websiteRoot !== "string" ||
+    !("appsRoot" in parsed) ||
+    typeof parsed.appsRoot !== "string"
   ) {
     throw new Error(`Penkra Dev workspace configuration is invalid at ${configPath}.`);
   }
@@ -155,5 +161,26 @@ export function discoverPenkraWebsiteRoot(input: {
   }
   throw new Error(
     "Cannot locate the Penkra website repository. Set PENKRA_WEBSITE_ROOT or place its checkout in the same workspace before reinstalling Penkra Dev.",
+  );
+}
+
+export function discoverPenkraAppsRoot(input: {
+  readonly desktopRoot: string;
+  readonly configuredAppsRoot?: string;
+  readonly workspaceParent?: string;
+}): string {
+  const configured = input.configuredAppsRoot?.trim();
+  if (configured) return validateRepositoryPath(configured, join("apps", "penkra-app.json"));
+
+  const workspaceParent = resolve(input.workspaceParent ?? dirname(input.desktopRoot));
+  for (const entry of readdirSync(workspaceParent, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const candidate = join(workspaceParent, entry.name);
+    if (repositoryMatchesOrigin(candidate, APPS_ORIGIN)) {
+      return validateRepositoryPath(candidate, join("apps", "penkra-app.json"));
+    }
+  }
+  throw new Error(
+    "Cannot locate the Penkra Apps repository. Set PENKRA_APPS_ROOT or place its checkout in the same workspace before reinstalling Penkra Dev.",
   );
 }

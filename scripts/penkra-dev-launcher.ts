@@ -54,6 +54,7 @@ export interface PenkraDevLauncherPaths {
   readonly instanceDirectory: string;
   readonly instanceStatusPath: string;
   readonly instanceLogPath: string;
+  readonly desktopReadyPath: string;
   readonly developmentRoot: string;
 }
 
@@ -77,6 +78,7 @@ export function resolvePenkraDevLauncherPaths(
     instanceDirectory,
     instanceStatusPath: join(instanceDirectory, "status.json"),
     instanceLogPath: join(instanceDirectory, "launcher.log"),
+    desktopReadyPath: join(instanceDirectory, "desktop-ready.json"),
     developmentRoot: definition.developmentRoot,
   };
 }
@@ -130,6 +132,21 @@ export interface ProcessSnapshotEntry {
   readonly command: string;
 }
 
+function readProcessSnapshot(): ProcessSnapshotEntry[] {
+  const result = spawnSync("/bin/ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8" });
+  if (result.status !== 0) return [];
+  const processes: ProcessSnapshotEntry[] = [];
+  for (const line of result.stdout.split("\n")) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.+)$/u.exec(line);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const parentPid = Number(match[2]);
+    if (!Number.isSafeInteger(pid) || !Number.isSafeInteger(parentPid)) continue;
+    processes.push({ pid, parentPid, command: match[3] ?? "" });
+  }
+  return processes;
+}
+
 export function resolveOrphanedWorkspaceProcessRoots(
   processes: readonly ProcessSnapshotEntry[],
   workspaceRoots: readonly string[],
@@ -146,7 +163,15 @@ export function resolveOrphanedWorkspaceProcessRoots(
       if (!parent) break;
       root = parent;
     }
-    if (root.parentPid === 1) orphanedRoots.add(root.pid);
+    const rootOwnsWorkspace = workspaceRoots.some((workspaceRoot) =>
+      root.command.includes(workspaceRoot),
+    );
+    const rootIsKnownDevelopmentRunner =
+      /\b(?:bun|npm|pnpm|yarn)\b.*\b(?:dev|start)\b/iu.test(root.command) ||
+      /\bnext-server\b/iu.test(root.command);
+    if (root.parentPid === 1 && (rootOwnsWorkspace || rootIsKnownDevelopmentRunner)) {
+      orphanedRoots.add(root.pid);
+    }
   }
   return [...orphanedRoots].sort((left, right) => left - right);
 }
@@ -193,21 +218,50 @@ function readProcessCommand(pid: number): string {
   return result.status === 0 ? result.stdout.trim() : "";
 }
 
-function readOwner(paths: PenkraDevLauncherPaths): { pid: number; executable?: string } | null {
+interface PenkraDevSupervisorOwner {
+  readonly pid: number;
+  readonly executable?: string;
+  readonly desktopRoot?: string;
+  readonly backendRoot?: string;
+  readonly websiteRoot?: string;
+  readonly appsRoot?: string;
+}
+
+function readOwner(paths: PenkraDevLauncherPaths): PenkraDevSupervisorOwner | null {
   try {
     const value = JSON.parse(readFileSync(paths.ownerPath, "utf8")) as {
       pid?: unknown;
       executable?: unknown;
+      desktopRoot?: unknown;
+      backendRoot?: unknown;
+      websiteRoot?: unknown;
+      appsRoot?: unknown;
     };
     return typeof value.pid === "number" && value.pid > 0
       ? {
           pid: value.pid,
           ...(typeof value.executable === "string" ? { executable: value.executable } : {}),
+          ...(typeof value.desktopRoot === "string" ? { desktopRoot: value.desktopRoot } : {}),
+          ...(typeof value.backendRoot === "string" ? { backendRoot: value.backendRoot } : {}),
+          ...(typeof value.websiteRoot === "string" ? { websiteRoot: value.websiteRoot } : {}),
+          ...(typeof value.appsRoot === "string" ? { appsRoot: value.appsRoot } : {}),
         }
       : null;
   } catch {
     return null;
   }
+}
+
+export function supervisorOwnerMatchesWorkspace(
+  owner: PenkraDevSupervisorOwner,
+  workspace: PenkraDevWorkspace,
+): boolean {
+  return (
+    owner.desktopRoot === workspace.desktopRoot &&
+    owner.backendRoot === workspace.backendRoot &&
+    owner.websiteRoot === workspace.websiteRoot &&
+    owner.appsRoot === workspace.appsRoot
+  );
 }
 
 function supervisorIsRunning(paths: PenkraDevLauncherPaths): boolean {
@@ -488,6 +542,7 @@ async function waitForSharedReadiness(paths: PenkraDevLauncherPaths, children: C
 function startInstance(
   instance: number,
   bunExecutable: string,
+  workspace: PenkraDevWorkspace,
   instances: Map<number, ChildProcess>,
   isSupervisorStopping: () => boolean,
 ): void {
@@ -499,6 +554,7 @@ function startInstance(
   const paths = resolvePenkraDevLauncherPaths(homedir(), instance);
   mkdirSync(paths.instanceDirectory, { recursive: true, mode: 0o700 });
   const log = openSync(paths.instanceLogPath, "a", 0o600);
+  rmSync(paths.desktopReadyPath, { force: true });
   const child = spawn(bunExecutable, ["run", "dev:electron"], {
     cwd: join(repoRoot, "apps", "desktop"),
     detached: true,
@@ -520,6 +576,8 @@ function startInstance(
       PENKRA_ROOT: definition.developmentRoot,
       PENKRA_WEBSITE_ORIGIN: "http://localhost:3000",
       VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
+      PENKRA_REQUIRED_APPS_SOURCE_PATH: join(workspace.appsRoot, "apps"),
+      PENKRA_DEV_DESKTOP_READY_PATH: paths.desktopReadyPath,
     },
     stdio: ["ignore", log, log],
   });
@@ -538,7 +596,7 @@ function startInstance(
     );
   });
   void waitForDevelopmentElectron({
-    isRunning: () => developmentElectronIsRunning(instance),
+    isRunning: () => developmentElectronIsRunning(instance) && existsSync(paths.desktopReadyPath),
     onRunning: () =>
       writeInstanceStatus(instance, "running", `${definition.displayName} is running.`),
     shouldContinue: () => instances.has(instance),
@@ -576,10 +634,26 @@ async function supervise(bunExecutable: string): Promise<void> {
       desktopRoot: workspace.desktopRoot,
       backendRoot: workspace.backendRoot,
       websiteRoot: workspace.websiteRoot,
+      appsRoot: workspace.appsRoot,
       startedAt: new Date().toISOString(),
     });
     writeStatus(paths, "starting", "Starting shared Penkra Dev services.");
     await ensureDockerEngineReady(paths);
+    const orphanedWorkspaceRoots = resolveOrphanedWorkspaceProcessRoots(readProcessSnapshot(), [
+      workspace.desktopRoot,
+      workspace.backendRoot,
+      workspace.websiteRoot,
+    ]).filter((pid) => pid !== process.pid);
+    if (orphanedWorkspaceRoots.length > 0) {
+      writeStatus(
+        paths,
+        "stopping-orphans",
+        `Stopping ${orphanedWorkspaceRoots.length} orphaned Penkra Dev process${orphanedWorkspaceRoots.length === 1 ? "" : "es"}.`,
+      );
+      await Promise.allSettled(
+        orphanedWorkspaceRoots.map((pid) => terminateProcessTree(pid, "SIGTERM")),
+      );
+    }
     rmSync(paths.readyPath, { force: true });
     rmSync(paths.failurePath, { force: true });
 
@@ -629,7 +703,7 @@ async function supervise(bunExecutable: string): Promise<void> {
       for (const instance of takeLaunchRequests(paths)) {
         launchedAnyInstance = true;
         idleSince = null;
-        startInstance(instance, bunExecutable, instances, () => stopping);
+        startInstance(instance, bunExecutable, workspace, instances, () => stopping);
       }
       if (launchedAnyInstance && instances.size === 0) {
         idleSince ??= Date.now();
@@ -675,12 +749,22 @@ function sleep(milliseconds: number): Promise<void> {
 
 function launchDetachedSupervisor(bunExecutable: string): void {
   const paths = resolvePenkraDevLauncherPaths();
-  if (developmentElectronIsRunning()) {
-    focusDevelopmentElectron();
+  if (supervisorIsRunning(paths)) {
+    const owner = readOwner(paths);
+    const workspace = readPenkraDevWorkspace(resolvePenkraDevWorkspaceConfigPath());
+    if (!owner || !supervisorOwnerMatchesWorkspace(owner, workspace)) {
+      throw new Error(
+        "Penkra Dev is already running from a different workspace. Close the existing Penkra Dev windows, then launch this App again.",
+      );
+    }
+    if (developmentElectronIsRunning()) {
+      focusDevelopmentElectron();
+      return;
+    }
+    enqueueLaunchRequest(launcherInstance);
     return;
   }
   enqueueLaunchRequest(launcherInstance);
-  if (supervisorIsRunning(paths)) return;
   mkdirSync(paths.stateDirectory, { recursive: true, mode: 0o700 });
   const log = openSync(paths.logPath, "a", 0o600);
   try {
