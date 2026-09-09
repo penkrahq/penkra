@@ -75,7 +75,10 @@ export class AppControllerHost {
         input: input.value,
         context: { threadId: input.threadId, tabId: input.tabId },
       },
-      input.signal ? { signal: input.signal } : undefined,
+      {
+        ...(input.signal ? { signal: input.signal } : {}),
+        targetLabel: input.appId,
+      },
     );
   }
 
@@ -121,6 +124,7 @@ export class AppControllerHost {
     try {
       unregisterRpc = this.#rpc.registerTarget({
         id: controllerProcess.id,
+        label: input.installedApp.name,
         send: (message) => controllerProcess.send(message),
       });
       const packagePath = Path.resolve(input.installedApp.packagePath);
@@ -150,6 +154,7 @@ export class AppControllerHost {
                 },
                 {
                   signal: context.signal,
+                  targetLabel: input.installedApp.name,
                   handleContextCall: (method, contextInput, signal) =>
                     handleContextCall(context, openedTabs, method, contextInput, signal),
                 },
