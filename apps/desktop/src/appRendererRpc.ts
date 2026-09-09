@@ -71,12 +71,16 @@ export interface AppRendererRpcContextCallMessage {
 export interface AppRendererRpcTarget {
   /** Host-owned renderer identity, conventionally Electron webContents.id. */
   id: number;
+  /** User-facing App or target name used only in bounded failure guidance. */
+  label?: string;
   send(message: AppRendererRpcHostMessage): void;
 }
 
 export interface AppRendererRpcRequestOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Names the App when dispatch cannot begin because no target is registered. */
+  targetLabel?: string;
   handleContextCall?: (
     method: AppRendererContextMethod,
     input: unknown,
@@ -91,6 +95,7 @@ export type AppRendererRpcErrorCode =
   | "payload-too-large"
   | "app-error"
   | "renderer-unavailable"
+  | "renderer-outcome-unknown"
   | "target-overloaded"
   | "timeout";
 
@@ -184,7 +189,7 @@ export class AppRendererRpcHost {
       this.#cancelTarget(
         target.id,
         reason,
-        "The App renderer closed while handling the command. The App may be reloading after an update; retry the identical command after 20 seconds.",
+        `${targetLabel(target.label)} closed after the command was dispatched, possibly because the App is updating or reinstalling. The operation outcome is unknown: it may have committed. Inspect the App's state or operation receipt before retrying.`,
       );
       this.#targets.delete(target.id);
     };
@@ -203,7 +208,7 @@ export class AppRendererRpcHost {
     if (!target) {
       throw new AppRendererRpcError(
         "renderer-unavailable",
-        `The App renderer is temporarily unavailable. The App may be reloading after an update; retry the identical command after 20 seconds.`,
+        `${targetLabel(options.targetLabel)} is temporarily unavailable, possibly because the App is updating or reinstalling. The command was not dispatched and no App mutation ran. Retrying is safe after 20 seconds.`,
       );
     }
     assertPayloadSize(input, this.#maxPayloadBytes);
@@ -361,7 +366,7 @@ export class AppRendererRpcHost {
         id,
         reason,
         new AppRendererRpcError(
-          reason === "host-stopped" ? "host-stopped" : "renderer-unavailable",
+          reason === "host-stopped" ? "host-stopped" : "renderer-outcome-unknown",
           message,
         ),
       );
@@ -423,6 +428,12 @@ export class AppRendererRpcHost {
       // remains authoritative and will be cancelled when that event arrives.
     }
   }
+}
+
+function targetLabel(label: string | undefined): string {
+  return label === undefined || label.trim().length === 0
+    ? "The App renderer target"
+    : `The ${label.trim()} operation controller`;
 }
 
 function parseResponse(candidate: unknown, maxPayloadBytes: number): AppRendererRpcResponseMessage {

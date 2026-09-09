@@ -9,7 +9,11 @@ function fixture(options: ConstructorParameters<typeof AppRendererRpcHost>[0] = 
     mintRequestId: () => "request-1",
     ...options,
   });
-  const unregister = host.registerTarget({ id: 17, send: (message) => sent.push(message) });
+  const unregister = host.registerTarget({
+    id: 17,
+    label: "Canvas",
+    send: (message) => sent.push(message),
+  });
   return { host, sent, unregister };
 }
 
@@ -62,14 +66,26 @@ describe("AppRendererRpcHost", () => {
       reason: "tab-closed",
     });
     await expect(result).rejects.toMatchObject({
-      code: "renderer-unavailable",
-      retryable: true,
-      retryAfterMs: 20_000,
-      message: expect.stringContaining("retry the identical command after 20 seconds"),
+      code: "renderer-outcome-unknown",
+      retryable: false,
+      retryAfterMs: undefined,
+      message: expect.stringContaining("outcome is unknown"),
     });
     expect(test.host.acceptResponse(17, { type: "result", id: "request-1", result: {} })).toBe(
       false,
     );
+  });
+
+  it("distinguishes a safe pre-dispatch retry from an unknown post-dispatch outcome", async () => {
+    const host = new AppRendererRpcHost();
+    await expect(
+      host.request(404, "controller.invoke", {}, { targetLabel: "Canvas" }),
+    ).rejects.toMatchObject({
+      code: "renderer-unavailable",
+      retryable: true,
+      retryAfterMs: 20_000,
+      message: expect.stringContaining("was not dispatched"),
+    });
   });
 
   it("propagates caller abort and ignores a late result", async () => {

@@ -190,7 +190,10 @@ describe("AppControllerHost", () => {
         invocation: expect.objectContaining({ id: "inv-1", app: "linear" }),
         caller: { kind: "host" },
       },
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        targetLabel: "Linear",
+      }),
     );
   });
 
@@ -217,7 +220,7 @@ describe("AppControllerHost", () => {
         input: { relativePath: "app.js" },
         context: { threadId: "thread-1", tabId: "tab-1" },
       },
-      undefined,
+      { targetLabel: "com.acme.linear" },
     );
   });
 
