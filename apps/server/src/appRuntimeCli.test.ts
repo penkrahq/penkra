@@ -619,6 +619,49 @@ describe("penkra_exec_command discovery", () => {
     expect(clickHelp).toContain('"ref"');
   });
 
+  it("exposes receipt-bound operations for only the caller Thread", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const bridge = async (method: string, params: unknown) => {
+      calls.push({ method, params });
+      return method.endsWith("compose") ? { composeId: "compose-1" } : { ok: true };
+    };
+
+    await executePenkraExecCommand(
+      command("penkra", "threads", "current", "state"),
+      context,
+      {},
+      bridge,
+    );
+    await executePenkraExecCommand(
+      command("penkra", "threads", "current", "composer"),
+      context,
+      {},
+      bridge,
+    );
+    await executePenkraExecCommand(
+      { command: "penkra threads current compose --text 'Attend to new messages'" },
+      context,
+      {},
+      bridge,
+    );
+    await executePenkraExecCommand(
+      command("penkra", "threads", "current", "send", "--compose-id", "compose-1"),
+      context,
+      {},
+      bridge,
+    );
+
+    expect(calls).toEqual([
+      { method: "threads.current.state", params: { ...context, input: {} } },
+      { method: "threads.current.composer", params: { ...context, input: {} } },
+      {
+        method: "threads.current.compose",
+        params: { ...context, input: { text: "Attend to new messages" } },
+      },
+      { method: "threads.current.send", params: { ...context, input: { composeId: "compose-1" } } },
+    ]);
+  });
+
   it("parses scoped snapshots, observed actions, dialogs, and App-storage uploads", async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     const bridge = async (method: string, params: unknown) => {

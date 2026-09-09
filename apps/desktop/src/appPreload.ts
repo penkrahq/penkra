@@ -92,7 +92,8 @@ const runtime = new AppPreloadRuntime({
   networkFetch: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.networkFetch, input),
   storageCall: (method, input) =>
     ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.storageCall, { method, input }),
-  composerStage: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.composerStage, input),
+  threadCall: (method, input) =>
+    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.threadCall, { method, input }),
   showContextMenu: (items) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.contextMenu, items),
 });
 

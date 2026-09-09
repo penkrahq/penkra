@@ -29,6 +29,16 @@ export const PENKRA_APP_COMMAND_TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
 const MAX_REQUEST_BYTES = 1024 * 1024;
 export const APP_COMMAND_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
+export function assertAppTabAgentAddressable(
+  tab: Pick<DesktopAppTabDescriptor, "agentAddressable" | "name">,
+): void {
+  if (tab.agentAddressable !== false) return;
+  throw Object.assign(new Error(`${tab.name} does not allow agent observation or interaction.`), {
+    code: "APP_NOT_AGENT_ADDRESSABLE",
+    retryable: false,
+  });
+}
+
 type Request = {
   id: string;
   token: string;
@@ -52,6 +62,10 @@ type Request = {
     | "tabs.wait"
     | "tabs.handle-dialog"
     | "tabs.upload"
+    | "threads.current.state"
+    | "threads.current.composer"
+    | "threads.current.compose"
+    | "threads.current.send"
     | "developer.publishers.list"
     | "developer.publishers.create"
     | "developer.apps.list"
@@ -135,6 +149,12 @@ export class AppCommandPipeServer {
       }) => Promise<unknown>)
     | null;
   readonly #providerCredentialVault: ProviderCredentialVault;
+  readonly #thread: (input: {
+    spaceId: string;
+    threadId: string;
+    method: "read" | "compose" | "send";
+    value?: unknown;
+  }) => Promise<unknown>;
   #started = false;
   readonly #usesWindowsPipe = resolveDesktopPlatformAdapter().paths.pathSyntax === "windows";
 
@@ -159,6 +179,12 @@ export class AppCommandPipeServer {
       threadId: string;
     }) => Promise<unknown>;
     providerCredentialVault: ProviderCredentialVault;
+    thread?: (input: {
+      spaceId: string;
+      threadId: string;
+      method: "read" | "compose" | "send";
+      value?: unknown;
+    }) => Promise<unknown>;
   }) {
     this.#path = input.path;
     this.#token = input.token;
@@ -170,6 +196,11 @@ export class AppCommandPipeServer {
     this.#sideload = input.sideload ?? null;
     this.#open = input.open ?? null;
     this.#providerCredentialVault = input.providerCredentialVault;
+    this.#thread =
+      input.thread ??
+      (async () => {
+        throw new Error("The current Thread API is unavailable.");
+      });
     this.#server = Net.createServer((socket) => this.#accept(socket));
   }
 
@@ -351,6 +382,7 @@ export class AppCommandPipeServer {
             "The caller Thread does not currently own the visible App tab. Open or focus its App tab before taking a screenshot.",
           );
         }
+        assertAppTabAgentAddressable(tab);
         return {
           ok: true,
           id: request.id,
@@ -453,6 +485,56 @@ export class AppCommandPipeServer {
             optionalNumber(params.timeoutMs, "timeoutMs") ?? 10_000,
           ),
         };
+      case "threads.current.state": {
+        const context = this.#context(params);
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#thread({
+            spaceId: context.spaceId,
+            threadId: context.threadId,
+            method: "read",
+          }),
+        };
+      }
+      case "threads.current.composer": {
+        const context = this.#context(params);
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#thread({
+            spaceId: context.spaceId,
+            threadId: context.threadId,
+            method: "compose",
+          }),
+        };
+      }
+      case "threads.current.compose": {
+        const context = this.#context(params);
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#thread({
+            spaceId: context.spaceId,
+            threadId: context.threadId,
+            method: "compose",
+            value: params.input,
+          }),
+        };
+      }
+      case "threads.current.send": {
+        const context = this.#context(params);
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#thread({
+            spaceId: context.spaceId,
+            threadId: context.threadId,
+            method: "send",
+            value: params.input,
+          }),
+        };
+      }
       case "catalog.list": {
         const context = this.#context(params);
         return { ok: true, id: request.id, result: this.#catalog.list(context.spaceId) };
@@ -501,7 +583,9 @@ export class AppCommandPipeServer {
         const slug = requiredString(params.app, "app");
         const operation = requiredString(params.operation, "operation");
         const requestedTabId = optionalString(params.tabId, "tabId");
-        const tabId = requestedTabId ?? (context.slug === slug ? context.id : undefined);
+        const tabId =
+          requestedTabId ??
+          (context.slug === slug ? context.id : this.#implicitOperationTab(params, slug)?.id);
         const result = await this.#broker.invoke({
           app: slug,
           operation,
@@ -784,10 +868,24 @@ export class AppCommandPipeServer {
       : null;
   }
 
+  #implicitOperationTab(
+    params: Record<string, unknown>,
+    slug: string,
+  ): DesktopAppTabDescriptor | undefined {
+    const matching = this.#scopedTabs(params).filter((tab) => tab.slug === slug);
+    if (matching.length === 1) return matching[0];
+    if (matching.length > 1) {
+      const current = this.#scopedCurrentTab(params);
+      if (current?.slug === slug) return current;
+    }
+    return undefined;
+  }
+
   #tab(params: Record<string, unknown>): DesktopAppTabDescriptor {
     const tabId = requiredString(params.tabId, "tabId");
     const tab = this.#scopedTabs(params).find((candidate) => candidate.id === tabId);
     if (!tab) throw new Error(`App tab ${tabId} is not open in the caller Thread and Space.`);
+    assertAppTabAgentAddressable(tab);
     return tab;
   }
 }

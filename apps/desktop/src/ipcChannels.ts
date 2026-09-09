@@ -32,8 +32,8 @@ export const DESKTOP_IPC_CHANNELS = {
   notificationsShow: "desktop:notifications-show",
   mediaRequestMicrophoneAccess: "desktop:media-request-microphone-access",
   powerSetActiveWork: "desktop:power-set-active-work",
-  composerStageRequest: "desktop:composer-stage-request",
-  composerStageResponse: "desktop:composer-stage-response",
+  threadApiRequest: "desktop:thread-api-request",
+  threadApiResponse: "desktop:thread-api-response",
   composerDrafts: {
     readSnapshot: "desktop:composer-drafts-read-snapshot",
     writeSnapshot: "desktop:composer-drafts-write-snapshot",
@@ -97,7 +97,7 @@ export const DESKTOP_IPC_CHANNELS = {
     simulatorState: "penkra-app:simulator-state",
     networkFetch: "penkra-app:network-fetch",
     storageCall: "penkra-app:storage-call",
-    composerStage: "penkra-app:composer-stage",
+    threadCall: "penkra-app:thread-call",
   },
   simulatorLicenseReview: {
     response: "penkra-simulator-license-review:response",

@@ -1,7 +1,6 @@
 export {
   account,
   browser,
-  composer,
   controller,
   contextMenu,
   files,
@@ -15,6 +14,7 @@ export {
   simulator,
   storage,
   tab,
+  thread,
   transfer,
 } from "./runtime";
 
@@ -29,7 +29,9 @@ export type {
   AppBrowserPage,
   AppBrowserSessionState,
   AppComposerModelSelection,
-  AppComposerStageInput,
+  AppThreadComposeInput,
+  AppThreadComposition,
+  AppThreadState,
   AppControllerRequestContext,
   AppContextMenuItem,
   AppHostedSurfaceInsets,

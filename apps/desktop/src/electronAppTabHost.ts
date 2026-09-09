@@ -699,6 +699,7 @@ export class ElectronAppTabHost implements AppTabHost {
         appId: input.app.appId,
         slug: input.app.slug,
         name: input.app.name,
+        agentAddressable: input.app.manifest.agentAddressable !== false,
         iconDataUrl: await this.#resolveIconDataUrl(input.app),
         spaceId: input.spaceId,
         threadId: input.threadId,

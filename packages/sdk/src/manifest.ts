@@ -117,6 +117,8 @@ export interface PenkraAppManifest {
   name: string;
   /** One-line card and search description; rich content belongs in README.md. */
   summary: string;
+  /** Whether agent tab-observation and interaction commands may address this App. Defaults true. */
+  agentAddressable?: boolean;
   version: string;
   compatibility: {
     /** Supported Penkra host semantic-version range. */
@@ -262,6 +264,14 @@ export function validateAppManifest(
   }
   requireString(value.name, "name", issues);
   requireString(value.summary, "summary", issues);
+  if (value.agentAddressable !== undefined && typeof value.agentAddressable !== "boolean") {
+    issue(
+      issues,
+      "agentAddressable",
+      "invalid-format",
+      "agentAddressable must be a boolean when supplied.",
+    );
+  }
   requireString(value.version, "version", issues);
 
   if (!isRecord(value.compatibility)) {

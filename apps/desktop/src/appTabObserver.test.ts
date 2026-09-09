@@ -433,6 +433,40 @@ describe("AppTabObserver", () => {
     });
   });
 
+  it("omits a box when Chromium cannot compute layout for an accessibility node", async () => {
+    const { contents, sendCommand } = makeContents();
+    sendCommand.mockImplementation((async (method: string, params?: { backendNodeId?: number }) => {
+      if (method === "Accessibility.getFullAXTree") {
+        return {
+          nodes: [
+            {
+              backendDOMNodeId: 7,
+              role: { value: "button" },
+              name: { value: "Visible" },
+            },
+            {
+              backendDOMNodeId: 8,
+              role: { value: "option" },
+              name: { value: "Collapsed option" },
+            },
+          ],
+        };
+      }
+      if (method === "DOM.getBoxModel") {
+        if (params?.backendNodeId === 8) throw new Error("Could not compute box model.");
+        return { model: { border: [0, 0, 80, 0, 80, 30, 0, 30] } };
+      }
+      return {};
+    }) as never);
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents }),
+    });
+
+    await expect(observer.snapshot("tab-1", { boxes: true })).resolves.toMatchObject({
+      snapshot: '- button "Visible" [ref=e1] [box=0,0,80,30]\n- option "Collapsed option" [ref=e2]',
+    });
+  });
+
   it("finds snapshot context without returning a second full-document representation", async () => {
     const { contents } = makeContents();
     const observer = new AppTabObserver({

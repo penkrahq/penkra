@@ -620,110 +620,150 @@ async function invokeAppStorageCall(
   }
 }
 
-async function requestAppComposerStage(
+async function requestAppThreadOperation(
   runtime: DesktopAppRuntime,
-  identity: { appId: string; spaceId: string; threadId?: string },
+  identity: { appId: string; spaceId: string; threadId?: string; tabId?: string },
+  method: "read" | "compose" | "send",
   value: unknown,
-): Promise<{
-  resolvedModel: import("@penkra/sdk").AppComposerModelSelection | null;
-}> {
+  trustedCaller = false,
+): Promise<unknown> {
   if (!identity.threadId) {
-    throw new Error("Only an App surface attached to a thread can stage its composer.");
+    throw new Error("Only an App surface attached to a Thread can use the Thread API.");
   }
-  const permission = queryAppPermission(
-    runtime.installations.snapshot(),
-    identity,
-    "thread-compose",
-  );
-  if (!permission.declared || permission.state !== "granted") {
-    throw Object.assign(new Error("thread-compose is not granted for this App."), {
-      code: "PERMISSION_DENIED",
-    });
+  if (!identity.tabId) {
+    throw new Error("Only an App tab can use the current Thread API.");
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Composer stage input must be an object.");
+  const permissionName = method === "send" ? "thread-send" : "thread-compose";
+  if (!trustedCaller) {
+    const permission = queryAppPermission(
+      runtime.installations.snapshot(),
+      identity,
+      permissionName,
+    );
+    if (!permission.declared || permission.state !== "granted") {
+      throw Object.assign(new Error(`${permissionName} is not granted for this App.`), {
+        code: "PERMISSION_DENIED",
+      });
+    }
   }
   const targetWindow = resolveShellWindow();
   if (!targetWindow) throw new Error("The Penkra shell is unavailable.");
-  const input = value as import("@penkra/sdk").AppComposerStageInput;
-  const storage = appStorage;
-  if (!storage) throw new Error("The App storage service is not ready.");
-  const owner = { appId: identity.appId, spaceId: identity.spaceId };
-  const [files, images] = await Promise.all([
-    Promise.all((input.files ?? []).map((item) => storage.readComposerAttachment(owner, item))),
-    Promise.all((input.images ?? []).map((item) => storage.readComposerAttachment(owner, item))),
-  ]);
-  const contributed = await runtime.operationCatalog.skills(identity.spaceId);
-  const ownSkills = new Map(
-    contributed
-      .filter((skill) => skill.appId === identity.appId && skill.enabled)
-      .flatMap(
-        (skill) =>
-          [
-            [skill.name, { name: skill.name, path: skill.skillPath }],
-            [skill.path, { name: skill.name, path: skill.skillPath }],
-          ] as const,
-      ),
-  );
-  const skills = (input.skills ?? []).map((name) => {
-    const skill = ownSkills.get(name);
-    if (!skill) throw new Error(`Skill ${name} is not an enabled contribution from this App.`);
-    return skill;
-  });
-  const id = Crypto.randomUUID();
-  const request = {
-    id,
+  const base = {
+    id: Crypto.randomUUID(),
+    appId: identity.appId,
+    spaceId: identity.spaceId,
+    tabId: identity.tabId,
     threadId: identity.threadId,
-    input: {
-      ...(input.text === undefined ? {} : { text: input.text }),
-      ...(input.documents === undefined ? {} : { documents: input.documents }),
-      ...(files.length === 0 ? {} : { files }),
-      ...(images.length === 0 ? {} : { images }),
-      ...(skills.length === 0 ? {} : { skills }),
-      ...(input.model === undefined ? {} : { model: input.model }),
-      ...(input.effort === undefined ? {} : { effort: input.effort }),
-    },
   };
+  let request: import("@penkra/contracts").DesktopThreadApiRequest;
+  if (method === "read") {
+    request = { ...base, method };
+  } else if (method === "send") {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Thread send input must be an object.");
+    }
+    const input = value as { composeId?: unknown; mode?: unknown };
+    if (typeof input.composeId !== "string" || input.composeId.length === 0) {
+      throw new Error("Thread send requires a composition receipt.");
+    }
+    if (input.mode !== undefined && input.mode !== "queue" && input.mode !== "steer") {
+      throw new Error("Thread send mode must be queue or steer.");
+    }
+    request = {
+      ...base,
+      method,
+      input: { composeId: input.composeId, ...(input.mode ? { mode: input.mode } : {}) },
+    };
+  } else {
+    if (value === undefined) {
+      request = { ...base, method };
+    } else if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Thread compose input must be an object.");
+    } else {
+      const input = value as import("@penkra/sdk").AppThreadComposeInput;
+      const storage = appStorage;
+      if (!storage) throw new Error("The App storage service is not ready.");
+      const owner = { appId: identity.appId, spaceId: identity.spaceId };
+      const [files, images] = await Promise.all([
+        Promise.all((input.files ?? []).map((item) => storage.readComposerAttachment(owner, item))),
+        Promise.all(
+          (input.images ?? []).map((item) => storage.readComposerAttachment(owner, item)),
+        ),
+      ]);
+      const contributed = await runtime.operationCatalog.skills(identity.spaceId);
+      const ownSkills = new Map(
+        contributed
+          .filter((skill) => skill.appId === identity.appId && skill.enabled)
+          .flatMap(
+            (skill) =>
+              [
+                [skill.name, { name: skill.name, path: skill.skillPath }],
+                [skill.path, { name: skill.name, path: skill.skillPath }],
+              ] as const,
+          ),
+      );
+      const skills = (input.skills ?? []).map((name) => {
+        const skill = ownSkills.get(name);
+        if (!skill) throw new Error(`Skill ${name} is not an enabled contribution from this App.`);
+        return skill;
+      });
+      request = {
+        ...base,
+        method,
+        input: {
+          ...(input.text === undefined ? {} : { text: input.text }),
+          ...(input.documents === undefined ? {} : { documents: input.documents }),
+          ...(files.length === 0 ? {} : { files }),
+          ...(images.length === 0 ? {} : { images }),
+          ...(skills.length === 0 ? {} : { skills }),
+          ...(input.model === undefined ? {} : { model: input.model }),
+          ...(input.effort === undefined ? {} : { effort: input.effort }),
+        },
+      };
+    }
+  }
   const startedAt = performance.now();
   try {
     return await new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        pendingComposerStages.delete(id);
+        pendingThreadApiRequests.delete(request.id);
         reject(
-          Object.assign(new Error("Composer staging timed out."), {
-            code: "COMPOSER_STAGE_TIMEOUT",
+          Object.assign(new Error("The current Thread operation timed out."), {
+            code: "THREAD_API_TIMEOUT",
           }),
         );
       }, 30_000);
-      pendingComposerStages.set(id, { resolve, reject, timer });
-      targetWindow.webContents.send(IPC.composerStageRequest, request);
+      pendingThreadApiRequests.set(request.id, { resolve, reject, timer });
+      targetWindow.webContents.send(IPC.threadApiRequest, request);
     });
   } finally {
-    void runtime.diagnostics
-      .record({
-        kind: "permission-used",
-        appId: identity.appId,
-        spaceId: identity.spaceId,
-        operation: "thread-compose",
-        durationMs: Math.round(performance.now() - startedAt),
-      })
-      .catch(() => undefined);
+    if (!trustedCaller) {
+      void runtime.diagnostics
+        .record({
+          kind: "permission-used",
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          operation: permissionName,
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+        .catch(() => undefined);
+    }
   }
 }
 
-function acceptComposerStageResponse(
+function acceptThreadApiResponse(
   event: Electron.IpcMainEvent,
-  response: import("@penkra/contracts").DesktopComposerStageResponse,
+  response: import("@penkra/contracts").DesktopThreadApiResponse,
 ): void {
   if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
-    throw new Error("Composer staging responses are accepted only from the Penkra shell.");
+    throw new Error("Thread API responses are accepted only from the Penkra shell.");
   }
   if (!response || typeof response !== "object" || typeof response.id !== "string") return;
-  const pending = pendingComposerStages.get(response.id);
+  const pending = pendingThreadApiRequests.get(response.id);
   if (!pending) return;
-  pendingComposerStages.delete(response.id);
+  pendingThreadApiRequests.delete(response.id);
   clearTimeout(pending.timer);
-  if (response.ok) pending.resolve({ resolvedModel: response.resolvedModel });
+  if (response.ok) pending.resolve(response.result);
   else pending.reject(Object.assign(new Error(response.message), { code: response.code }));
 }
 
@@ -746,10 +786,10 @@ const appAccountSubscriptions = new AppAccountSubscriptionStore();
 const runtimeV2FileHandles = new AppScopedFileHandleStore();
 const runtimeV2FileWrites = new AppScopedFileWriteStore();
 let appStorage: AppStorageService | null = null;
-const pendingComposerStages = new Map<
+const pendingThreadApiRequests = new Map<
   string,
   {
-    resolve(value: { resolvedModel: import("@penkra/sdk").AppComposerModelSelection | null }): void;
+    resolve(value: unknown): void;
     reject(error: Error): void;
     timer: ReturnType<typeof setTimeout>;
   }
@@ -1443,6 +1483,62 @@ function writeRuntimeShellShortcut(value: unknown): boolean {
   );
 }
 
+async function uploadAppBrowserFiles(input: {
+  tabId: string;
+  appId: string;
+  spaceId: string;
+  value: unknown;
+}): Promise<{ uploaded: number }> {
+  if (!input.value || typeof input.value !== "object" || Array.isArray(input.value)) {
+    throw new Error("Browser upload input is required.");
+  }
+  const record = input.value as Record<string, unknown>;
+  if (typeof record.pageId !== "string" || !record.pageId)
+    throw new Error("Browser upload pageId is required.");
+  if (typeof record.selector !== "string" || !record.selector || record.selector.length > 1_000)
+    throw new Error("Browser upload selector is required.");
+  if (
+    !Array.isArray(record.paths) ||
+    record.paths.length === 0 ||
+    record.paths.length > 20 ||
+    record.paths.some((path) => typeof path !== "string" || !path)
+  ) {
+    throw new Error("Browser upload requires between 1 and 20 App-storage paths.");
+  }
+  if (!appStorage) throw new Error("The App storage service is not ready.");
+  const paths = await Promise.all(
+    record.paths.map((path) =>
+      appStorage!.resolveFile({ appId: input.appId, spaceId: input.spaceId }, path as string),
+    ),
+  );
+  const browserSessionId = input.tabId as ThreadId;
+  const document = (await browserManager.executeCdp({
+    threadId: browserSessionId,
+    tabId: record.pageId,
+    method: "DOM.getDocument",
+    params: { depth: 0, pierce: true },
+  })) as { root?: { nodeId?: number } };
+  const nodeId = document.root?.nodeId;
+  if (!nodeId) throw new Error("Browser document is unavailable for upload.");
+  const target = (await browserManager.executeCdp({
+    threadId: browserSessionId,
+    tabId: record.pageId,
+    method: "DOM.querySelector",
+    params: { nodeId, selector: record.selector },
+  })) as { nodeId?: number };
+  if (!target.nodeId)
+    throw Object.assign(new Error("Browser upload input was not found."), {
+      code: "BROWSER_UPLOAD_TARGET_NOT_FOUND",
+    });
+  await browserManager.executeCdp({
+    threadId: browserSessionId,
+    tabId: record.pageId,
+    method: "DOM.setFileInputFiles",
+    params: { nodeId: target.nodeId, files: paths },
+  });
+  return { uploaded: paths.length };
+}
+
 async function invokeRuntimeV2BrowserCall(input: {
   tabId: string;
   appId: string;
@@ -1647,6 +1743,8 @@ async function invokeRuntimeV2BrowserCall(input: {
       }
       return result.result?.value ?? null;
     }
+    case "upload":
+      return uploadAppBrowserFiles(input);
     default:
       throw new Error(`Unsupported browser method: ${input.method}.`);
   }
@@ -2650,6 +2748,20 @@ function handleFatalStartupError(stage: string, error: unknown): void {
   stopBackend();
   restoreStdIoCapture?.();
   app.quit();
+}
+
+function markDevelopmentDesktopReady(): void {
+  const readyPath = process.env.PENKRA_DEV_DESKTOP_READY_PATH?.trim();
+  if (!isDevelopment || !readyPath) return;
+  FS.mkdirSync(Path.dirname(readyPath), { recursive: true, mode: 0o700 });
+  const temporaryPath = `${readyPath}.${String(process.pid)}.tmp`;
+  FS.writeFileSync(
+    temporaryPath,
+    `${JSON.stringify({ pid: process.pid, readyAt: new Date().toISOString() })}\n`,
+    { mode: 0o600 },
+  );
+  FS.renameSync(temporaryPath, readyPath);
+  writeDesktopLogHeader(`bootstrap desktop ready path=${readyPath}`);
 }
 
 function registerDesktopProtocol(): void {
@@ -4937,8 +5049,8 @@ function registerIpcHandlers(): void {
       throw new Error("Composer drafts are available only to the Penkra shell.");
     }
   };
-  ipcMain.removeListener(IPC.composerStageResponse, acceptComposerStageResponse);
-  ipcMain.on(IPC.composerStageResponse, acceptComposerStageResponse);
+  ipcMain.removeListener(IPC.threadApiResponse, acceptThreadApiResponse);
+  ipcMain.on(IPC.threadApiResponse, acceptThreadApiResponse);
   for (const channel of Object.values(IPC.composerDrafts)) ipcMain.removeHandler(channel);
   ipcMain.handle(IPC.composerDrafts.readSnapshot, async (event) => {
     requireMainRenderer(event);
@@ -5573,6 +5685,13 @@ function registerIpcHandlers(): void {
           throw new Error(result.result?.description ?? "Browser evaluation failed.");
         return result.result?.value ?? null;
       }
+      case "upload":
+        return uploadAppBrowserFiles({
+          tabId: identity.tabId,
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          value,
+        });
       default:
         throw new Error(`Unsupported browser method: ${method}.`);
     }
@@ -5618,10 +5737,17 @@ function registerIpcHandlers(): void {
     if (typeof record.method !== "string") throw new Error("Storage method is required.");
     return invokeAppStorageCall(identity, record.method, record.input);
   });
-  ipcMain.removeHandler(IPC.appRuntime.composerStage);
-  ipcMain.handle(IPC.appRuntime.composerStage, async (event, input: unknown) => {
+  ipcMain.removeHandler(IPC.appRuntime.threadCall);
+  ipcMain.handle(IPC.appRuntime.threadCall, async (event, request: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
-    return requestAppComposerStage(runtime, identity, input);
+    if (!request || typeof request !== "object" || Array.isArray(request)) {
+      throw new Error("Thread operation request must be an object.");
+    }
+    const { method, input } = request as { method?: unknown; input?: unknown };
+    if (method !== "read" && method !== "compose" && method !== "send") {
+      throw new Error("Unsupported Thread operation.");
+    }
+    return requestAppThreadOperation(runtime, identity, method, input);
   });
   const requireAppInstallations = (senderId: number) => {
     const service = desktopAppRuntime?.installations;
@@ -6805,8 +6931,12 @@ function registerIpcHandlers(): void {
       case "storage.list":
       case "storage.usage":
         return invokeAppStorageCall(identity, method.slice("storage.".length), value);
-      case "composer.stage":
-        return requestAppComposerStage(runtime, identity, value);
+      case "thread.read":
+        return requestAppThreadOperation(runtime, identity, "read", value);
+      case "thread.compose":
+        return requestAppThreadOperation(runtime, identity, "compose", value);
+      case "thread.send":
+        return requestAppThreadOperation(runtime, identity, "send", value);
       case "installations.getState":
         requireAppsFrame();
         return installationSnapshot();
@@ -8334,6 +8464,14 @@ async function bootstrap(): Promise<void> {
     tabs: desktopAppRuntime.appTabs,
     observer: appTabObserver,
     providerCredentialVault: desktopAppRuntime.providerCredentialVault,
+    thread: async ({ spaceId, threadId, method, value }) =>
+      requestAppThreadOperation(
+        desktopAppRuntime!,
+        { appId: "penkra.host", spaceId, threadId, tabId: `host:${threadId}` },
+        method,
+        value,
+        true,
+      ),
     registry: appRegistryClient,
     open: openPenkraResource,
     sideload: async ({ sourcePath, spaceId }) => {
@@ -8363,6 +8501,7 @@ async function bootstrap(): Promise<void> {
           mainWindow = createWindow();
           writeDesktopLogHeader("bootstrap main window created");
         }
+        markDevelopmentDesktopReady();
       })
       .catch((error) => {
         if (isBackendReadinessAborted(error)) {
@@ -8376,6 +8515,7 @@ async function bootstrap(): Promise<void> {
           mainWindow = createWindow();
           writeDesktopLogHeader("bootstrap main window created after readiness warning");
         }
+        markDevelopmentDesktopReady();
       });
     return;
   }

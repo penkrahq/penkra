@@ -313,6 +313,63 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
   ),
 };
 
+const CURRENT_THREAD_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
+  state: {
+    command: "penkra threads current state",
+    summary: "Read the current Thread lifecycle and composer occupancy.",
+    instructions: "Returns the same current-Thread state exposed to Apps.",
+    input: { type: "object", properties: {}, additionalProperties: false },
+    output: GENERIC_RESULT_SCHEMA,
+    examples: [{ name: "Read current Thread state", command: "penkra threads current state" }],
+  },
+  composer: {
+    command: "penkra threads current composer",
+    summary: "Read the current Thread composer without changing it.",
+    instructions: "Returns whether the composer is empty and which owner holds it.",
+    input: { type: "object", properties: {}, additionalProperties: false },
+    output: GENERIC_RESULT_SCHEMA,
+    examples: [{ name: "Read current composer", command: "penkra threads current composer" }],
+  },
+  compose: {
+    command: "penkra threads current compose",
+    summary: "Write one exact text composition into the current Thread.",
+    instructions:
+      "Fails when the Thread is busy or the composer already contains content. Returns a receipt bound to the exact staged composition.",
+    input: {
+      type: "object",
+      properties: { text: { type: "string", minLength: 1, maxLength: 200000 } },
+      required: ["text"],
+      additionalProperties: false,
+    },
+    output: GENERIC_RESULT_SCHEMA,
+    examples: [
+      { name: "Compose exact text", command: "penkra threads current compose --text '<message>'" },
+    ],
+  },
+  send: {
+    command: "penkra threads current send",
+    summary: "Send exactly one previously composed current-Thread receipt.",
+    instructions:
+      "The receipt must still match the untouched composer. Repeating the same receipt returns the same submission result.",
+    input: {
+      type: "object",
+      properties: {
+        composeId: { type: "string", minLength: 1 },
+        mode: { type: "string", enum: ["queue", "steer"] },
+      },
+      required: ["composeId"],
+      additionalProperties: false,
+    },
+    output: GENERIC_RESULT_SCHEMA,
+    examples: [
+      {
+        name: "Send one composition",
+        command: "penkra threads current send --compose-id <compose-id>",
+      },
+    ],
+  },
+};
+
 function tabReferenceOperation(
   action: string,
   summary: string,
@@ -417,6 +474,39 @@ export async function executePenkraExecCommand(
         ...OPEN_OPERATION,
         parentHelp: "Run penkra --help for Penkra operating instructions.",
       });
+    }
+    if (args[1] === "threads" && args[2] === "current") {
+      if (args.length === 4 && args[3] === "--help") {
+        return assembleInstructions({
+          document:
+            "# Penkra current Thread\n\nRead, compose, and receipt-bound send on the caller Thread without creating or accessing another Thread.",
+          operations: Object.values(CURRENT_THREAD_OPERATIONS).map(({ command, summary }) => ({
+            command,
+            summary,
+          })),
+        });
+      }
+      const action = args[3];
+      const declaration = action ? CURRENT_THREAD_OPERATIONS[action] : undefined;
+      if (!declaration)
+        throw new Error(
+          `Unknown current Thread command ${action ?? ""}. Run penkra threads current --help.`,
+        );
+      const parsed = structuredArguments(args.slice(4), parsedRequest);
+      if (parsed.positionals.length > 0 || parsed.tabId !== undefined)
+        throw new Error(
+          `Invalid arguments for ${declaration.command}. Run ${declaration.command} --help.`,
+        );
+      if (parsed.help) {
+        if (parsed.input !== undefined || Object.keys(parsed.named).length > 0)
+          throw new Error(`${declaration.command} --help does not accept operation input.`);
+        return generateOperationHelp({
+          ...declaration,
+          parentHelp: "Run penkra threads current --help for current Thread operations.",
+        });
+      }
+      const input = parseOperationInput(declaration.input, parsed.input, parsed.named);
+      return bridgeRequest(`threads.current.${action}`, { ...scope, input }, env);
     }
     if (args[1] === "tabs" && args.length >= 3) {
       const action = args[2]!;
@@ -670,6 +760,7 @@ const APP_DEVELOPER_COMMANDS = Object.values(APP_DEVELOPER_OPERATIONS).map(
 
 const CORE_OPERATIONS = [
   ...Object.values(TAB_OPERATIONS).map(({ command, summary }) => ({ command, summary })),
+  ...Object.values(CURRENT_THREAD_OPERATIONS).map(({ command, summary }) => ({ command, summary })),
   { command: OPEN_OPERATION.command, summary: OPEN_OPERATION.summary },
 ] as const;
 

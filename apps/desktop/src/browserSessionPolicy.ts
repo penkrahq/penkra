@@ -51,10 +51,8 @@ export class BrowserSessionPolicy {
 
   private resolveUserAgent(): string {
     if (this.spoofedUserAgent === null) {
-      // Keep the host product token so packaged Penkra and Penkra Dev both identify
-      // themselves consistently. Removing it made only the packaged build look like
-      // Chromium while Dev accidentally retained PenkraDevN, and Google rejected the
-      // packaged identity as an insecure browser.
+      // Keep the product token for ordinary hosted pages. The URL-specific compatibility
+      // policy below removes it only for exact hosts that reject an otherwise current browser.
       this.spoofedUserAgent = deriveChromeUserAgent(app.userAgentFallback);
     }
     return this.spoofedUserAgent;
@@ -81,8 +79,7 @@ export class BrowserSessionPolicy {
       const userAgent = this.resolveUserAgent();
       partitionSession.setUserAgent(userAgent);
 
-      // Keep request hints aligned with Chromium's navigator.userAgentData. Claiming a
-      // Google Chrome brand only in HTTP headers creates a detectable split identity.
+      // Keep request hints aligned with Chromium's navigator.userAgentData.
       const clientHints = buildChromeClientHints(
         userAgent,
         resolveDesktopPlatformAdapter().platform,
