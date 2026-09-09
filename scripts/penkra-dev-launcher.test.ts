@@ -14,6 +14,7 @@ import {
   resolvePenkraDevLauncherPaths,
   resolvePenkraDevWorkspaceCommand,
   shouldRunPenkraDevLauncher,
+  supervisorOwnerMatchesWorkspace,
   waitForDevelopmentElectron,
   waitForDockerEngine,
 } from "./penkra-dev-launcher";
@@ -29,6 +30,40 @@ import { resolvePenkraDevWorkspaceConfigPath } from "./lib/penkra-dev-workspace"
 import { resolvePenkraDevInstanceDefinition } from "./lib/penkra-dev-instance";
 
 describe("Penkra Dev launcher", () => {
+  it("rejects a live supervisor owned by another configured workspace", () => {
+    const workspace = {
+      desktopRoot: "/workspace/new/penkra",
+      backendRoot: "/workspace/penkra-backend",
+      websiteRoot: "/workspace/penkra-website",
+      appsRoot: "/workspace/penkra-apps",
+    };
+
+    expect(
+      supervisorOwnerMatchesWorkspace(
+        {
+          pid: 42,
+          desktopRoot: workspace.desktopRoot,
+          backendRoot: workspace.backendRoot,
+          websiteRoot: workspace.websiteRoot,
+          appsRoot: workspace.appsRoot,
+        },
+        workspace,
+      ),
+    ).toBe(true);
+    expect(
+      supervisorOwnerMatchesWorkspace(
+        {
+          pid: 42,
+          desktopRoot: "/workspace/old/penkra",
+          backendRoot: workspace.backendRoot,
+          websiteRoot: workspace.websiteRoot,
+          appsRoot: workspace.appsRoot,
+        },
+        workspace,
+      ),
+    ).toBe(false);
+  });
+
   it("recognizes only the exact numbered Electron launch shape", () => {
     const repositoryRoot = "/workspace/penkra";
     const executable =
@@ -187,6 +222,7 @@ describe("Penkra Dev launcher", () => {
         desktopRoot: "/workspace/penkra",
         backendRoot: "/repositories/backend-checkout",
         websiteRoot: "/repositories/website-checkout",
+        appsRoot: "/repositories/apps-checkout",
       }),
     ).toEqual({
       executable: "/usr/local/bin/node",
@@ -215,6 +251,18 @@ describe("Penkra Dev launcher", () => {
         ["/workspace/backend", "/workspace/website"],
       ),
     ).toEqual([10]);
+  });
+
+  it("does not reap an unrelated parent application that owns a workspace child", () => {
+    expect(
+      resolveOrphanedWorkspaceProcessRoots(
+        [
+          { pid: 10, parentPid: 1, command: "/Applications/Editor.app/Contents/MacOS/Editor" },
+          { pid: 11, parentPid: 10, command: "node /workspace/backend/language-server.js" },
+        ],
+        ["/workspace/backend"],
+      ),
+    ).toEqual([]);
   });
 
   it("reaps only an orphaned embedded backend from the active desktop checkout", () => {

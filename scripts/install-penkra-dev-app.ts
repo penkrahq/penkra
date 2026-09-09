@@ -12,6 +12,7 @@ import { APP_DATA_USAGE_DESCRIPTION, APPLE_EVENTS_USAGE_DESCRIPTION } from "./li
 import { resolveMacDevelopmentSigningIdentity } from "./lib/macos-dev-signing.ts";
 export { parseAppleDevelopmentIdentity } from "./lib/macos-dev-signing.ts";
 import {
+  discoverPenkraAppsRoot,
   discoverPenkraBackendRoot,
   discoverPenkraWebsiteRoot,
   resolvePenkraDevWorkspaceConfigPath,
@@ -228,6 +229,7 @@ function install(): void {
     ...(configuredBackendRoot ? { configuredBackendRoot } : {}),
   });
   const configuredWebsiteRoot = process.env.PENKRA_WEBSITE_ROOT?.trim();
+  const configuredAppsRoot = process.env.PENKRA_APPS_ROOT?.trim();
   const workspace = writePenkraDevWorkspace(
     {
       desktopRoot: repoRoot,
@@ -236,6 +238,10 @@ function install(): void {
         desktopRoot: repoRoot,
         backendRoot,
         ...(configuredWebsiteRoot ? { configuredWebsiteRoot } : {}),
+      }),
+      appsRoot: discoverPenkraAppsRoot({
+        desktopRoot: repoRoot,
+        ...(configuredAppsRoot ? { configuredAppsRoot } : {}),
       }),
     },
     resolvePenkraDevWorkspaceConfigPath(),
@@ -263,7 +269,7 @@ function install(): void {
   });
 
   process.stdout.write(
-    `Installed Penkra Dev launchers:\n${installedPaths.map((path) => `  ${path}`).join("\n")}\nDesktop repository: ${workspace.desktopRoot}\nBackend repository: ${workspace.backendRoot}\nWebsite repository: ${workspace.websiteRoot}\nBun: ${bunExecutable}\nSigning identity: ${signingIdentity}\n`,
+    `Installed Penkra Dev launchers:\n${installedPaths.map((path) => `  ${path}`).join("\n")}\nDesktop repository: ${workspace.desktopRoot}\nBackend repository: ${workspace.backendRoot}\nWebsite repository: ${workspace.websiteRoot}\nApps repository: ${workspace.appsRoot}\nBun: ${bunExecutable}\nSigning identity: ${signingIdentity}\n`,
   );
 }
 
