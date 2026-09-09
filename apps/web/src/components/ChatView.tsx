@@ -117,6 +117,7 @@ import { parseChatRouteSearch } from "../chatRouteSearch";
 import { openThreadUrlReference, useThreadResourceOpener } from "../lib/threadResourceOpener";
 import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
 import { readActiveSpaceId, useSpacesUiStore } from "../spacesUiStore";
+import { registerDesktopThreadLiveHandlers } from "../desktopThreadApiBroker";
 import {
   buildComposerFileAttachmentsFromFiles,
   buildComposerImageAttachmentsFromFiles,
@@ -7642,6 +7643,54 @@ export default function ChatView({
   useLayoutEffect(() => {
     onSendRef.current = onSend;
   });
+
+  useLayoutEffect(
+    () =>
+      registerDesktopThreadLiveHandlers(threadId, {
+        read: () => ({
+          threadId,
+          phase:
+            activePendingProgress !== null
+              ? "waiting"
+              : isSendBusy || isConnecting
+                ? "submitting"
+                : phase === "running" || activeSessionTurnId !== null
+                  ? "running"
+                  : "idle",
+          activeTurnId: activeSessionTurnId,
+          queuedCount: queuedComposerTurns.length,
+          pendingUserInput: activePendingProgress !== null,
+          sendBusy: isSendBusy,
+          steeringPending: false,
+        }),
+        send: async ({ expectedText, mode }) => {
+          if (activePendingProgress !== null) {
+            throw Object.assign(new Error("The current Thread is waiting for a human answer."), {
+              code: "THREAD_WAITING_FOR_USER",
+            });
+          }
+          for (let attempt = 0; attempt < 10; attempt += 1) {
+            const editorText =
+              composerEditorRef.current?.readSnapshot()?.value ?? promptRef.current;
+            if (editorText === expectedText) return onSendRef.current(undefined, mode);
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          }
+          throw Object.assign(
+            new Error("The visible composer did not converge on the staged composition."),
+            { code: "COMPOSER_NOT_READY" },
+          );
+        },
+      }),
+    [
+      activePendingProgress,
+      activeSessionTurnId,
+      isConnecting,
+      isSendBusy,
+      phase,
+      queuedComposerTurns.length,
+      threadId,
+    ],
+  );
 
   const dispatchQueuedComposerTurn = useCallback(
     async (queuedTurn: QueuedComposerTurn, dispatchMode: "queue" | "steer"): Promise<boolean> => {

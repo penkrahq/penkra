@@ -109,7 +109,7 @@ function fixture() {
       body: new Uint8Array(),
     })),
     storageCall: vi.fn(),
-    composerStage: vi.fn(),
+    threadCall: vi.fn(),
     showContextMenu: vi.fn(async () => null),
   });
   runtime.start();
@@ -181,6 +181,18 @@ describe("AppPreloadRuntime", () => {
       url: "https://penkra.com",
     });
     expect(state.open).toBe(true);
+    await expect(
+      test.runtime.api.browser.upload({
+        pageId: "page-1",
+        selector: "input[type=file]",
+        paths: ["attachments/proposal.pdf"],
+      }),
+    ).resolves.toEqual(expect.objectContaining({ open: true }));
+    expect(test.browserCall).toHaveBeenCalledWith("upload", {
+      pageId: "page-1",
+      selector: "input[type=file]",
+      paths: ["attachments/proposal.pdf"],
+    });
     test.browserState(state);
     expect(listener).toHaveBeenCalledWith(state);
     unsubscribe();

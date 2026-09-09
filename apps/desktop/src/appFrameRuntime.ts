@@ -177,10 +177,8 @@ class AppFramePortTransport implements AppPreloadTransport {
     return this.#call(`storage.${method}`, input);
   }
 
-  composerStage(
-    input: import("@penkra/sdk").AppComposerStageInput,
-  ): ReturnType<PenkraTabRuntimeApi["composer"]["stage"]> {
-    return this.#call("composer.stage", input);
+  threadCall(method: "read" | "compose" | "send", input?: unknown): Promise<unknown> {
+    return this.#call(`thread.${method}`, input);
   }
 
   showContextMenu<T extends string>(

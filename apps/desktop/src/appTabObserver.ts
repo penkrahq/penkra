@@ -982,6 +982,12 @@ export class AppTabObserver {
       };
     } catch (error) {
       if ((error as { code?: unknown }).code === "STALE_REFERENCE") return null;
+      if (
+        error instanceof Error &&
+        /could not compute box model|no layout object|not visible/i.test(error.message)
+      ) {
+        return null;
+      }
       throw error;
     }
   }

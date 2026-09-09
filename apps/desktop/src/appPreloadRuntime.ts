@@ -57,9 +57,7 @@ export interface AppPreloadTransport {
     input: Parameters<import("@penkra/sdk").PenkraTabRuntimeApi["network"]["fetch"]>[0],
   ): ReturnType<import("@penkra/sdk").PenkraTabRuntimeApi["network"]["fetch"]>;
   storageCall(method: string, input?: unknown): Promise<unknown>;
-  composerStage(
-    input: import("@penkra/sdk").AppComposerStageInput,
-  ): ReturnType<import("@penkra/sdk").PenkraTabRuntimeApi["composer"]["stage"]>;
+  threadCall(method: "read" | "compose" | "send", input?: unknown): Promise<unknown>;
   showContextMenu<T extends string>(
     items: ReadonlyArray<import("@penkra/sdk").AppContextMenuItem<T>>,
   ): Promise<T | null>;
@@ -171,8 +169,39 @@ export class AppPreloadRuntime {
             listener(payload as import("@penkra/sdk").AppTransferProgressEvent),
           ) ?? (() => undefined),
       },
-      composer: {
-        stage: (input) => this.#transport.composerStage(input),
+      thread: {
+        read: () =>
+          this.#transport.threadCall("read") as ReturnType<PenkraTabRuntimeApi["thread"]["read"]>,
+        compose: ((input?: import("@penkra/sdk").AppThreadComposeInput) =>
+          this.#transport.threadCall("compose", input)) as PenkraTabRuntimeApi["thread"]["compose"],
+        onState: (listener) => {
+          let stopped = false;
+          let previous = "";
+          const read = async () => {
+            try {
+              const state = (await this.#transport.threadCall(
+                "read",
+              )) as import("@penkra/sdk").AppThreadState;
+              const serialized = JSON.stringify(state);
+              if (!stopped && serialized !== previous) {
+                previous = serialized;
+                listener(state);
+              }
+            } catch {
+              // A later successful read converges after transient host or navigation gaps.
+            }
+          };
+          void read();
+          const timer = setInterval(() => void read(), 500);
+          return () => {
+            stopped = true;
+            clearInterval(timer);
+          };
+        },
+        send: (input) =>
+          this.#transport.threadCall("send", input) as ReturnType<
+            PenkraTabRuntimeApi["thread"]["send"]
+          >,
       },
       open: (input) => this.#runtimeV2Call("resources.open", input),
       browser: {
@@ -231,6 +260,8 @@ export class AppPreloadRuntime {
         capture: (pageId) =>
           this.#transport.browserCall("capture", pageId) as Promise<{ dataUrl: string }>,
         evaluate: (input) => this.#transport.browserCall("evaluate", input),
+        upload: (input) =>
+          this.#transport.browserCall("upload", input) as Promise<{ uploaded: number }>,
       },
       simulator: {
         getEnvironment: () =>

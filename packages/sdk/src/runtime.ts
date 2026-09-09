@@ -234,7 +234,7 @@ export interface AppComposerModelSelection {
   options?: Readonly<Record<string, unknown>>;
 }
 
-export interface AppComposerStageInput {
+export interface AppThreadComposeInput {
   text?: string;
   documents?: Array<{ title: string; content: string }>;
   files?: Array<{ name?: string; mimeType?: string; path: string }>;
@@ -242,6 +242,38 @@ export interface AppComposerStageInput {
   skills?: string[];
   model?: ReadonlyArray<AppComposerModelSelection>;
   effort?: string;
+}
+
+export interface AppThreadState {
+  threadId: string;
+  phase: "idle" | "submitting" | "running" | "waiting" | "stopping" | "failed";
+  activeTurnId: string | null;
+  pendingQuestion: boolean;
+  composer: {
+    empty: boolean;
+    owner: "none" | "human" | "app";
+    composeId: string | null;
+  };
+  queued: { count: number; hasAppSubmission: boolean };
+  steering: { pending: boolean; hasAppSubmission: boolean };
+  updatedAt: string;
+}
+
+export interface AppThreadComposition {
+  composeId: string;
+  threadId: string;
+  createdAt: string;
+  expiresAt: string;
+  resolvedModel: AppComposerModelSelection | null;
+}
+
+export interface AppThreadSendReceipt {
+  submissionId: string;
+  composeId: string;
+  threadId: string;
+  mode: "queue" | "steer";
+  state: "accepted" | "queued" | "steering";
+  acceptedAt: string;
 }
 
 export type AppTabNavigationHandler<Result = void> = (
@@ -348,12 +380,17 @@ export interface PenkraTabRuntimeApi {
     }): Promise<{ id: string; bytes: number; sha256: string }>;
     onProgress(listener: (event: AppTransferProgressEvent) => void): () => void;
   };
-  /** Visual-tab only. */
-  composer: {
-    /** Stage a visible draft in this App surface's thread. Never sends it. */
-    stage(input: AppComposerStageInput): Promise<{
-      resolvedModel: AppComposerModelSelection | null;
-    }>;
+  /** Visual-tab only. Operates exclusively on this App surface's current Thread. */
+  thread: {
+    read(): Promise<AppThreadState>;
+    /** Reads composer ownership without changing it. */
+    compose(): Promise<AppThreadState["composer"]>;
+    /** Writes one visible composition and returns a receipt for those exact bytes. */
+    compose(input: AppThreadComposeInput): Promise<AppThreadComposition>;
+    /** Emits current state immediately and later meaningful changes. */
+    onState(listener: (state: AppThreadState) => void): () => void;
+    /** Sends the exact composition named by the receipt once. */
+    send(input: { composeId: string; mode?: "queue" | "steer" }): Promise<AppThreadSendReceipt>;
   };
   /** Visual-tab only. Open one scoped file with a trusted host handler. */
   open(input: { handleId: string; relativePath?: string; with: "system" }): Promise<void>;
@@ -382,6 +419,11 @@ export interface PenkraTabRuntimeApi {
     stopFind(pageId: string): Promise<void>;
     capture(pageId: string): Promise<{ dataUrl: string }>;
     evaluate(input: { pageId: string; expression: string }): Promise<unknown>;
+    upload(input: {
+      pageId: string;
+      selector: string;
+      paths: ReadonlyArray<string>;
+    }): Promise<{ uploaded: number }>;
   };
   /** Visual-tab only. The App owns simulator chrome; Penkra owns native lifecycle. */
   simulator: {
@@ -583,8 +625,14 @@ export const transfer: PenkraTabRuntimeApi["transfer"] = {
   onProgress: (listener) => runtime().transfer.onProgress(listener),
 };
 
-export const composer: PenkraTabRuntimeApi["composer"] = {
-  stage: (input) => runtime().composer.stage(input),
+export const thread: PenkraTabRuntimeApi["thread"] = {
+  read: () => runtime().thread.read(),
+  compose: ((input?: AppThreadComposeInput) =>
+    input === undefined
+      ? runtime().thread.compose()
+      : runtime().thread.compose(input)) as PenkraTabRuntimeApi["thread"]["compose"],
+  onState: (listener) => runtime().thread.onState(listener),
+  send: (input) => runtime().thread.send(input),
 };
 
 export const open: PenkraTabRuntimeApi["open"] = (input) => runtime().open(input);
@@ -609,6 +657,7 @@ export const browser: PenkraTabRuntimeApi["browser"] = {
   stopFind: (pageId) => runtime().browser.stopFind(pageId),
   capture: (pageId) => runtime().browser.capture(pageId),
   evaluate: (input) => runtime().browser.evaluate(input),
+  upload: (input) => runtime().browser.upload(input),
 };
 
 export const simulator: PenkraTabRuntimeApi["simulator"] = {

@@ -636,6 +636,8 @@ export interface DesktopAppTabDescriptor {
   appId: string;
   slug: string;
   name: string;
+  /** Host-resolved manifest policy. Omitted manifest values resolve to true. */
+  agentAddressable?: boolean;
   iconDataUrl: string | null;
   spaceId: string;
   threadId: string;
@@ -935,9 +937,9 @@ export interface DesktopBridge {
     /** Keep the display awake while this renderer observes active Penkra work. */
     setActiveWork: (input: { threadExecution: boolean; voice: boolean }) => Promise<void>;
   };
-  composerStage?: {
-    onRequest(listener: (request: DesktopComposerStageRequest) => void): () => void;
-    respond(response: DesktopComposerStageResponse): void;
+  threadApi?: {
+    onRequest(listener: (request: DesktopThreadApiRequest) => void): () => void;
+    respond(response: DesktopThreadApiResponse): void;
   };
   composerDrafts?: DesktopComposerDraftsBridge;
   accountAuth?: {
@@ -974,31 +976,48 @@ export interface DesktopBridge {
   };
 }
 
-export interface DesktopComposerStageAttachment {
+export interface DesktopThreadComposeAttachment {
   name: string;
   mimeType: string;
   bytes: Uint8Array;
 }
 
-export interface DesktopComposerStageRequest {
+interface DesktopThreadApiRequestBase {
   id: string;
+  appId: string;
+  spaceId: string;
+  tabId: string;
   threadId: string;
-  input: {
-    text?: string;
-    documents?: Array<{ title: string; content: string }>;
-    files?: DesktopComposerStageAttachment[];
-    images?: DesktopComposerStageAttachment[];
-    skills?: Array<{ name: string; path: string }>;
-    model?: ReadonlyArray<{ provider: string; model: string; options?: Record<string, unknown> }>;
-    effort?: string;
-  };
 }
 
-export type DesktopComposerStageResponse =
+export type DesktopThreadApiRequest =
+  | (DesktopThreadApiRequestBase & { method: "read" })
+  | (DesktopThreadApiRequestBase & {
+      method: "compose";
+      input?: {
+        text?: string;
+        documents?: Array<{ title: string; content: string }>;
+        files?: DesktopThreadComposeAttachment[];
+        images?: DesktopThreadComposeAttachment[];
+        skills?: Array<{ name: string; path: string }>;
+        model?: ReadonlyArray<{
+          provider: string;
+          model: string;
+          options?: Record<string, unknown>;
+        }>;
+        effort?: string;
+      };
+    })
+  | (DesktopThreadApiRequestBase & {
+      method: "send";
+      input: { composeId: string; mode?: "queue" | "steer" };
+    });
+
+export type DesktopThreadApiResponse =
   | {
       id: string;
       ok: true;
-      resolvedModel: { provider: string; model: string; options?: Record<string, unknown> } | null;
+      result: unknown;
     }
   | { id: string; ok: false; code: string; message: string };
 

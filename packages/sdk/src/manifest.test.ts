@@ -49,6 +49,15 @@ const validManifest = {
 } as const;
 
 describe("validateAppManifest", () => {
+  it("accepts a boolean agentAddressable policy and rejects other values", () => {
+    expect(validateAppManifest({ ...validManifest, agentAddressable: false }).ok).toBe(true);
+    const invalid = validateAppManifest({ ...validManifest, agentAddressable: "false" });
+    expect(invalid).toEqual({
+      ok: false,
+      issues: [expect.objectContaining({ path: "agentAddressable", code: "invalid-format" })],
+    });
+  });
+
   it("accepts the canonical Apps manifest shape", () => {
     expect(validateAppManifest(validManifest)).toEqual({ ok: true, manifest: validManifest });
     expect(defineApp(validManifest)).toBe(validManifest);

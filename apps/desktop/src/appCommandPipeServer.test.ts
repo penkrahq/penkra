@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   APP_COMMAND_MAX_RESPONSE_BYTES,
   AppCommandPipeServer,
+  assertAppTabAgentAddressable,
   resolveAppCommandPipePath,
   serializeFailureResponse,
 } from "./appCommandPipeServer";
@@ -20,6 +21,13 @@ afterEach(async () => {
 });
 
 describe("AppCommandPipeServer", () => {
+  it("rejects agent access to an App whose manifest disables it", () => {
+    expect(() => assertAppTabAgentAddressable({ name: "Sales", agentAddressable: false })).toThrow(
+      "Sales does not allow agent observation or interaction.",
+    );
+    expect(() => assertAppTabAgentAddressable({ name: "Base" })).not.toThrow();
+  });
+
   it("preserves App renderer retry guidance across the command bridge", () => {
     const error = Object.assign(new Error("The App is reloading; retry after 20 seconds."), {
       code: "renderer-unavailable",
@@ -80,6 +88,7 @@ describe("AppCommandPipeServer", () => {
     const invoke = vi.fn(async () => ({ created: true }));
     const open = vi.fn(async () => ({ destination: "system" }));
     const sideload = vi.fn(async () => ({ status: "installed" }));
+    const thread = vi.fn(async ({ method, value }) => ({ method, value }));
     const current = {
       id: "tab-1",
       rendererId: 101,
@@ -105,6 +114,14 @@ describe("AppCommandPipeServer", () => {
       rendererId: 103,
       threadId: "thread-2",
     };
+    const soleSalesTab = {
+      ...current,
+      id: "tab-sales",
+      rendererId: 104,
+      appId: "com.penkra.sales",
+      slug: "sales",
+      name: "Sales",
+    };
     const snapshot = vi.fn(async () => ({ snapshot: "" }));
     const screenshot = vi.fn(async () => ({ kind: "image" }));
     const server = new AppCommandPipeServer({
@@ -119,7 +136,7 @@ describe("AppCommandPipeServer", () => {
       } as never,
       broker: { invoke } as never,
       tabs: {
-        list: () => [current, secondTab, otherThreadTab],
+        list: () => [current, secondTab, otherThreadTab, soleSalesTab],
         current: () => current,
         currentFor: (_spaceId, threadId) =>
           threadId === "thread-1" ? current : threadId === "thread-2" ? otherThreadTab : null,
@@ -146,6 +163,7 @@ describe("AppCommandPipeServer", () => {
       } as never,
       open,
       sideload,
+      thread,
     });
     await server.start();
     disposers.push(async () => {
@@ -169,6 +187,31 @@ describe("AppCommandPipeServer", () => {
       spaceId: "personal",
       threadId: "thread-1",
       tabId: "tab-1",
+      signal: expect.any(AbortSignal),
+    });
+
+    await expect(
+      send(path, {
+        id: "request-sole-app-tab",
+        token: "secret",
+        method: "operations.invoke",
+        params: {
+          app: "sales",
+          operation: "whatsapp.send",
+          input: { phone: "+13073461585", text: "Hello" },
+          spaceId: "personal",
+          threadId: "thread-1",
+        },
+      }),
+    ).resolves.toEqual({ ok: true, id: "request-sole-app-tab", result: { created: true } });
+    expect(invoke).toHaveBeenLastCalledWith({
+      app: "sales",
+      callerKind: "agent",
+      operation: "whatsapp.send",
+      input: { phone: "+13073461585", text: "Hello" },
+      spaceId: "personal",
+      threadId: "thread-1",
+      tabId: "tab-sales",
       signal: expect.any(AbortSignal),
     });
 
@@ -215,12 +258,39 @@ describe("AppCommandPipeServer", () => {
 
     await expect(
       send(path, {
+        id: "request-thread-compose",
+        token: "secret",
+        method: "threads.current.compose",
+        params: {
+          spaceId: "personal",
+          threadId: "thread-1",
+          input: { text: "Attend to new messages" },
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-thread-compose",
+      result: { method: "compose", value: { text: "Attend to new messages" } },
+    });
+    expect(thread).toHaveBeenCalledWith({
+      spaceId: "personal",
+      threadId: "thread-1",
+      method: "compose",
+      value: { text: "Attend to new messages" },
+    });
+
+    await expect(
+      send(path, {
         id: "request-tabs",
         token: "secret",
         method: "tabs.list",
         params: { spaceId: "personal", threadId: "thread-1" },
       }),
-    ).resolves.toEqual({ ok: true, id: "request-tabs", result: [current, secondTab] });
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-tabs",
+      result: [current, secondTab, soleSalesTab],
+    });
 
     await expect(
       send(path, {

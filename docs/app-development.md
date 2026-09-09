@@ -388,14 +388,15 @@ reasons, invalid audiences, and `audience` on any other permission fail manifest
 
 This is the complete catalog:
 
-| Permission          | Risk     | Runtime                   | What it authorizes                                                                                                | Additional manifest field |
-| ------------------- | -------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| `network-fetch`     | Standard | Visual tab                | Attributed requests through `network.fetch` and remote byte movement through `transfer`                           | None                      |
-| `browser-session`   | High     | Visual tab                | Create and control isolated hosted web pages owned by this App and Space                                          | None                      |
-| `simulator-session` | High     | Visual tab                | Create, save, display, and control hosted Apple or Android simulated devices owned by this App and Space          | None                      |
-| `account-data`      | Standard | Visual tab and controller | Use the signed-in Account session only inside this App's Penkra-hosted backend namespace                          | None                      |
-| `account-identity`  | High     | Visual tab and controller | Receive a five-minute signed identity token for exactly one external backend audience                             | Lowercase DNS `audience`  |
-| `thread-compose`    | High     | Visual tab                | Stage visible text, attachments, Skills, effort, and model choices in the current Thread composer without sending | None                      |
+| Permission          | Risk     | Runtime                   | What it authorizes                                                                                       | Additional manifest field |
+| ------------------- | -------- | ------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `network-fetch`     | Standard | Visual tab                | Attributed requests through `network.fetch` and remote byte movement through `transfer`                  | None                      |
+| `browser-session`   | High     | Visual tab                | Create and control isolated hosted web pages owned by this App and Space                                 | None                      |
+| `simulator-session` | High     | Visual tab                | Create, save, display, and control hosted Apple or Android simulated devices owned by this App and Space | None                      |
+| `account-data`      | Standard | Visual tab and controller | Use the signed-in Account session only inside this App's Penkra-hosted backend namespace                 | None                      |
+| `account-identity`  | High     | Visual tab and controller | Receive a five-minute signed identity token for exactly one external backend audience                    | Lowercase DNS `audience`  |
+| `thread-compose`    | High     | Visual tab                | Read current Thread state and compose visible content in the App tab's current Thread                    | None                      |
+| `thread-send`       | High     | Visual tab                | Submit one exact App-owned composition in the App tab's current Thread                                   | `thread-compose`          |
 
 ### Required, optional, update, and revocation behavior
 
@@ -525,6 +526,11 @@ surface. Use `browser.setSurfaceLayout({ top, right, bottom, left })` to declare
 insets around that surface, and pass `null` while it is hidden. Report stable structural insets, not
 continuously measured width and height: Penkra lays the page out against those edges so ordinary
 panel resizing stays inside the browser's synchronous CSS layout pass.
+
+Use `browser.upload({ pageId, selector, paths })` when a hosted page exposes a file input. Every
+path is relative to the calling App's scoped storage; the host resolves and validates each file,
+then assigns those files to the matching input inside that App's browser session. The call accepts
+one to twenty paths and never exposes an absolute filesystem path to the App.
 
 Open With applies to declared URL, file-extension, and directory handlers. For a validated local
 path, Penkra resolves an explicitly requested App, a saved compatible preference, or one unique
@@ -1045,16 +1051,22 @@ Wait for pending transfers before deleting run data or closing a workflow.
 
 ### `thread-compose`
 
-An App declaring high-risk `thread-compose` may call `composer.stage` to stage text, titled
-documents, App-storage files/images, its own contributed Skills, effort, and an ordered list of model
-fallbacks. The host selects the first usable model and returns it. Staging never sends. It is rejected
-atomically with `COMPOSER_NOT_EMPTY` when the operator already has visible draft content or queued
-turns, so an App cannot silently overwrite work.
+An App declaring high-risk `thread-compose` may operate only on the Thread that contains its visual
+tab. `thread.read()` reports active work, queued or steering turns, pending human input, and visible
+composer occupancy. `thread.compose()` writes text, titled documents, App-storage files/images, the
+App's own contributed Skills, effort, and model fallbacks into the visible composer. It returns a
+ten-minute receipt bound to the App, Space, tab, Thread, and exact resulting composition.
 
-`composer.stage` intentionally remains a bounded draft-materialization call rather than a bulk-byte
-transport: App-storage attachments are read into the visible composer draft, with a 256 MiB limit per
-attachment. Use blob URLs and transfers for playback, previews, uploads, downloads, and other bulk
-flows that do not need to become composer attachments.
+`thread.send({ composeId })` admits those exact staged bytes through Penkra's ordinary send path. The
+receipt is single-use; a duplicate call returns the original admission, while any intervening human
+edit fails with `COMPOSITION_CHANGED`. Active turns use queue admission by default and may explicitly
+request `mode: "steer"`. Composition is rejected while a human draft, queued turn, active turn, send
+admission, or pending human question already owns the composer. Apps should call `thread.read()` and
+compose only when `canCompose` is true.
+
+The API remains a bounded composer operation rather than a bulk-byte transport: App-storage
+attachments are read into the visible composer draft, with a 256 MiB limit per attachment. Use blob
+URLs and transfers for other bulk flows.
 
 Agents call the single registered `penkra_exec_command` host tool. Its `command` field is one
 ordinary command-line string. Core commands start with `penkra`; App commands start with the

@@ -37,6 +37,16 @@ function createBrowserMock(): PenkraTabRuntimeApi["browser"] {
     stopFind: vi.fn(),
     capture: vi.fn(),
     evaluate: vi.fn(),
+    upload: vi.fn(),
+  };
+}
+
+function createThreadMock(): PenkraTabRuntimeApi["thread"] {
+  return {
+    read: vi.fn(),
+    compose: vi.fn() as PenkraTabRuntimeApi["thread"]["compose"],
+    onState: vi.fn(),
+    send: vi.fn(),
   };
 }
 
@@ -129,7 +139,7 @@ describe("framework-neutral App runtime exports", () => {
       files: createFilesMock(),
       storage: createStorageMock(),
       transfer: createTransferMock(),
-      composer: { stage: vi.fn() },
+      thread: createThreadMock(),
       open: vi.fn(),
       browser: createBrowserMock(),
       simulator: createSimulatorMock(),
@@ -207,7 +217,7 @@ describe("framework-neutral App runtime exports", () => {
       files: createFilesMock(),
       storage: createStorageMock(),
       transfer: createTransferMock(),
-      composer: { stage: vi.fn() },
+      thread: createThreadMock(),
       open: vi.fn(),
       browser: createBrowserMock(),
       simulator: createSimulatorMock(),

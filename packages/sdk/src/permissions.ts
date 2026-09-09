@@ -29,7 +29,12 @@ export const PENKRA_PERMISSIONS = {
   },
   "thread-compose": {
     name: "thread-compose",
-    summary: "Stage visible content and model choices in this App tab's thread composer.",
+    summary: "Read current Thread state and compose visible content in this App tab's Thread.",
+    risk: "high",
+  },
+  "thread-send": {
+    name: "thread-send",
+    summary: "Submit one exact App-owned composition in this App tab's current Thread.",
     risk: "high",
   },
 } as const;
