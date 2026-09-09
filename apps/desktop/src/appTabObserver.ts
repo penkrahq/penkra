@@ -220,8 +220,10 @@ export class AppTabObserver {
   ): Promise<unknown> {
     const startedAt = performance.now();
     this.#perfCounters.snapshotCalls += 1;
+    let restoreSemanticVisibility: (() => Promise<void>) | undefined;
     try {
       const target = await this.#target(tabId);
+      restoreSemanticVisibility = await this.#prepareSemanticVisibility(target);
       const state = this.#state(tabId, target);
       const scopedReference =
         options.target === undefined ? undefined : this.#reference(state, options.target);
@@ -270,8 +272,64 @@ export class AppTabObserver {
       const { snapshot: _snapshot, ...metadata } = result;
       return { ...metadata, filename: options.outputPath };
     } finally {
+      await restoreSemanticVisibility?.();
       this.#perfCounters.snapshotTotalMs += performance.now() - startedAt;
     }
+  }
+
+  async #prepareSemanticVisibility(
+    target: AppTabObservationTarget,
+  ): Promise<(() => Promise<void>) | undefined> {
+    // Retained App iframes live under an aria-hidden dock pane while another pane is
+    // visible. That is correct for the shell's accessibility tree, but Chromium also
+    // prunes the exact iframe AX tree requested by the trusted tab observer. Remove
+    // only that ancestor for the bounded observation and restore it in `finally`.
+    // Opacity and pointer-event styling remain untouched, so no pane becomes visual
+    // or interactive. Direct WebContents targets have no matching shell element and
+    // take the no-op path.
+    if (!target.frame || target.webContents.isDestroyed()) return undefined;
+    const tabId = JSON.stringify(target.descriptor.id);
+    const acquired = await target.webContents.executeJavaScript(
+      `(() => {
+        const tabId = ${tabId};
+        const frame = document.querySelector('[data-app-tab-id="' + CSS.escape(tabId) + '"]');
+        const pane = frame?.closest('[aria-hidden="true"], [data-penkra-semantic-observation]');
+        if (!(pane instanceof HTMLElement)) return false;
+        const count = Number(pane.dataset.penkraSemanticObservationCount ?? 0);
+        if (count === 0) {
+          pane.dataset.penkraSemanticObservationAriaHidden = pane.getAttribute('aria-hidden') ?? '';
+          pane.removeAttribute('aria-hidden');
+          pane.dataset.penkraSemanticObservation = 'true';
+        }
+        pane.dataset.penkraSemanticObservationCount = String(count + 1);
+        return true;
+      })()`,
+      false,
+    );
+    if (acquired !== true) return undefined;
+    return async () => {
+      if (target.webContents.isDestroyed()) return;
+      await target.webContents.executeJavaScript(
+        `(() => {
+          const tabId = ${tabId};
+          const frame = document.querySelector('[data-app-tab-id="' + CSS.escape(tabId) + '"]');
+          const pane = frame?.closest('[data-penkra-semantic-observation]');
+          if (!(pane instanceof HTMLElement)) return;
+          const count = Math.max(0, Number(pane.dataset.penkraSemanticObservationCount ?? 1) - 1);
+          if (count > 0) {
+            pane.dataset.penkraSemanticObservationCount = String(count);
+            return;
+          }
+          const prior = pane.dataset.penkraSemanticObservationAriaHidden;
+          delete pane.dataset.penkraSemanticObservation;
+          delete pane.dataset.penkraSemanticObservationCount;
+          delete pane.dataset.penkraSemanticObservationAriaHidden;
+          if (prior === undefined || prior === '') pane.removeAttribute('aria-hidden');
+          else pane.setAttribute('aria-hidden', prior);
+        })()`,
+        false,
+      );
+    };
   }
 
   async #snapshotLines(

@@ -308,6 +308,46 @@ describe("AppTabObserver", () => {
     });
   });
 
+  it("temporarily exposes a retained hidden iframe to the exact semantic observer", async () => {
+    const { contents, sendCommand } = makeContents();
+    const frame = {
+      url: descriptor.documentUrl,
+      executeJavaScript: vi.fn(async () => "Canvas document"),
+    };
+    let acquired = false;
+    vi.mocked(contents.executeJavaScript).mockImplementation(async (source: string) => {
+      if (source.includes("penkraSemanticObservationCount") && source.includes("return true")) {
+        acquired = true;
+        return true;
+      }
+      if (source.includes("Math.max(0")) {
+        acquired = false;
+        return undefined;
+      }
+      return undefined;
+    });
+    sendCommand.mockImplementation((async (method: string) => {
+      if (method === "Page.getFrameTree") {
+        return { frameTree: { frame: { id: "shell", url: "http://localhost:5173" }, childFrames: [{ frame: { id: "canvas-frame", url: descriptor.documentUrl } }] } };
+      }
+      if (method === "Accessibility.getFullAXTree") {
+        return acquired
+          ? { nodes: [{ backendDOMNodeId: 7, role: { value: "button" }, name: { value: "Save design" } }] }
+          : { nodes: [{ role: { value: "RootWebArea" }, name: { value: "Canvas" } }] };
+      }
+      return {};
+    }) as never);
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents, frame: frame as never }),
+    });
+
+    await expect(observer.snapshot("tab-1")).resolves.toMatchObject({
+      snapshot: '- button "Save design" [ref=e1]',
+    });
+    expect(acquired).toBe(false);
+    expect(contents.executeJavaScript).toHaveBeenCalledTimes(2);
+  });
+
   it("writes a complete snapshot to the requested artifact path", async () => {
     const directory = await mkdtemp(join(tmpdir(), "penkra-tab-snapshot-"));
     try {
