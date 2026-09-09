@@ -45,6 +45,11 @@ export interface AppState {
   activityByThreadId?: Record<ThreadId, Record<string, Thread["activities"][number]>>;
   threadDetailSyncById?: Record<ThreadId, ThreadDetailSyncState>;
   threadTurnPaginationById?: Record<ThreadId, ThreadTurnPaginationState>;
+  /** Latest unconsumed positive pending-start cancellation, bounded to one per thread. */
+  pendingStartCancellationByThreadId?: Record<
+    ThreadId,
+    { readonly messageId: MessageId; readonly sequence: number }
+  >;
   /**
    * Deletion tombstones, keyed by id, valued by the snapshot sequence at (or after) which the
    * deletion is guaranteed to be visible server-side. They stop a snapshot generated before the
@@ -88,6 +93,7 @@ export const initialState: AppState = {
   activityByThreadId: {},
   threadDetailSyncById: {},
   threadTurnPaginationById: {},
+  pendingStartCancellationByThreadId: {},
   deletedFolderIdsById: {},
   deletedThreadIdsById: {},
 };

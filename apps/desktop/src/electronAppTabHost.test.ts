@@ -122,10 +122,38 @@ describe("ElectronAppTabHost", () => {
       delivery: { kind: "event", name: "appearance.zoom", payload: 0.8 },
     });
 
-    host.setActive(descriptor.id, descriptor.rendererId, true);
+    host.setActive(descriptor.id, descriptor.rendererId, true, 101);
+    host.setActive(descriptor.id, descriptor.rendererId, true, 202);
+    expect(host.activeSurfaceId(descriptor.id)).toBe(202);
+    host.focusSurface(101);
+    expect(host.activeSurfaceId(descriptor.id)).toBe(101);
     expect(host.current()).toMatchObject({ ...descriptor, status: "ready" });
-    host.setActive(descriptor.id, descriptor.rendererId, false);
+    expect(host.currentFor("personal", "thread-1")).toMatchObject({
+      ...descriptor,
+      status: "ready",
+    });
+    host.setActive(descriptor.id, descriptor.rendererId, false, 101);
+    expect(host.activeSurfaceId(descriptor.id)).toBe(202);
+    expect(host.current()).toMatchObject({ ...descriptor, status: "ready" });
+    host.dropSurface(202);
     expect(host.current()).toBeNull();
+
+    const secondDescriptor = await host.openInstalled({
+      appId: app.appId,
+      spaceId: "personal",
+      threadId: "thread-2",
+      route: "/",
+    });
+    host.markFrameReady(secondDescriptor.id, secondDescriptor.rendererId);
+    host.setActive(descriptor.id, descriptor.rendererId, true, 303);
+    host.setActive(secondDescriptor.id, secondDescriptor.rendererId, true, 303);
+    expect(host.currentFor("personal", "thread-1")).toBeNull();
+    expect(host.currentFor("personal", "thread-2")).toMatchObject({
+      id: secondDescriptor.id,
+      threadId: "thread-2",
+      status: "ready",
+    });
+    host.close(secondDescriptor.id);
 
     await host.navigate(descriptor.id, { route: "/document/7", state: { page: 3 } });
     expect(host.captureForUpdate(app.appId, "personal")).toEqual([
@@ -140,9 +168,9 @@ describe("ElectronAppTabHost", () => {
     host.closeForAppSpace(app.appId, "personal");
     host.close(descriptor.id);
     expect(host.has(descriptor.id)).toBe(false);
-    expect(unregisterBroker).toHaveBeenCalledOnce();
+    expect(unregisterBroker).toHaveBeenCalledTimes(2);
     expect(unregisterRpc).toHaveBeenCalledWith("app-disabled");
-    expect(releaseIdentity).toHaveBeenCalledOnce();
+    expect(releaseIdentity).toHaveBeenCalledTimes(2);
     expect(onClosed).toHaveBeenCalledWith({ id: descriptor.id, threadId: "thread-1" });
     expect(host.list()).toEqual([]);
   });

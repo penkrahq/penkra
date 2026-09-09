@@ -17,6 +17,21 @@ export interface DesktopKeyboardInput {
 
 export type DesktopWindowZoomAction = "reset" | "zoomIn" | "zoomOut" | null;
 
+export function isDesktopNewWindowShortcut(
+  platform: NodeJS.Platform,
+  input: DesktopKeyboardInput,
+): boolean {
+  const usesMeta = platform === "darwin";
+  const hasPrimaryModifier = usesMeta ? input.meta && !input.control : input.control && !input.meta;
+  return (
+    input.type === "keyDown" &&
+    hasPrimaryModifier &&
+    input.shift &&
+    !input.alt &&
+    (input.key.toLowerCase() === "n" || input.code === "KeyN")
+  );
+}
+
 export function resolveDesktopWindowZoomAction(
   platform: NodeJS.Platform,
   input: DesktopKeyboardInput,

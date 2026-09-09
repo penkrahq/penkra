@@ -414,6 +414,58 @@ describe("AppDockPane Runtime v2 frame", () => {
     expect(bridge.browserWebviewDetach).not.toHaveBeenCalled();
   });
 
+  it("uses the registered vanilla Chromium identity for WhatsApp Web", async () => {
+    Object.defineProperty(window.navigator, "userAgent", {
+      configurable: true,
+      value:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) PenkraDev2/0.12.0 Chrome/144.0.7559.236 Electron/40.10.6 " +
+        "Safari/537.36",
+    });
+    const bridge = installBridge();
+    await render(
+      <AppDockPane
+        appName="Browser"
+        documentUrl={FRAME_DOCUMENT}
+        rendererId={-1}
+        status="ready"
+        tabId="browser-tab"
+        visible={true}
+      />,
+    );
+    await vi.waitFor(() => expect(bridge.frameReady).toHaveBeenCalledOnce());
+    bridge.emitHostMessage({
+      tabId: "browser-tab",
+      rendererId: -1,
+      delivery: {
+        kind: "event",
+        name: "browser.state",
+        payload: {
+          sessionId: "browser-tab",
+          activePageId: "page-1",
+          pages: [{ id: "page-1", url: "https://web.whatsapp.com/", title: "WhatsApp" }],
+        },
+      },
+    });
+    bridge.emitHostMessage({
+      tabId: "browser-tab",
+      rendererId: -1,
+      delivery: {
+        kind: "event",
+        name: "browser.surface",
+        payload: {
+          partition: "persist:app-space-browser",
+          insets: { top: 44, right: 8, bottom: 16, left: 8 },
+        },
+      },
+    });
+
+    await vi.waitFor(() => expect(document.querySelector("webview")).not.toBeNull());
+    const userAgent = document.querySelector("webview")?.getAttribute("useragent") ?? "";
+    expect(userAgent).not.toMatch(/Electron|Penkra/iu);
+    expect(userAgent).toContain("Chrome/144.0.7559.236");
+  });
+
   it("presents an OAuth auxiliary context as a host-managed Browser page", async () => {
     const bridge = installBridge();
     await render(

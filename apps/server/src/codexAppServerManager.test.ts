@@ -1835,6 +1835,147 @@ describe("startSession", () => {
 });
 
 describe("sendTurn", () => {
+  it("maps a protocol JSON-RPC turn/start error using only its message", async () => {
+    const manager = new CodexAppServerManager();
+    const context = {
+      nextRequestId: 1,
+      lastRequestMethod: undefined as string | undefined,
+      pending: new Map(),
+      stdinWriter: { write: vi.fn().mockResolvedValue(undefined) },
+    };
+    const request = (
+      manager as unknown as {
+        sendRequest: (context: unknown, method: string, params: unknown) => Promise<unknown>;
+      }
+    ).sendRequest(context, "turn/start", {});
+    await Promise.resolve();
+    (
+      manager as unknown as {
+        handleResponse: (context: unknown, response: unknown) => void;
+      }
+    ).handleResponse(context, {
+      id: 1,
+      error: {
+        code: -32000,
+        message: "usage limit reached",
+        data: {
+          error: {
+            message: "usage limit reached",
+            codexErrorInfo: "usageLimitExceeded",
+            additionalDetails: "Provider-supplied diagnostic text.",
+          },
+        },
+      },
+    });
+
+    await expect(request).rejects.toThrow("turn/start failed: usage limit reached");
+    expect(context.pending.size).toBe(0);
+  });
+
+  it.each([
+    ["failed", "error"],
+    ["completed", "ready"],
+    ["interrupted", "ready"],
+  ] as const)(
+    "settles a terminal %s turn/start result through turn/completed",
+    async (status, sessionStatus) => {
+      const { manager, context, sendRequest, updateSession } = createSendTurnHarness();
+      const events: unknown[] = [];
+      manager.on("event", (event) => events.push(event));
+      const error =
+        status === "failed"
+          ? {
+              message: "usage limit reached",
+              codexErrorInfo: "usageLimitExceeded",
+              additionalDetails: "Provider-supplied diagnostic text.",
+            }
+          : null;
+      sendRequest.mockResolvedValueOnce({
+        turn: { id: `turn_${status}`, status, items: [], error },
+      });
+
+      await expect(
+        manager.sendTurn({ threadId: asThreadId("thread_1"), input: "hello" }),
+      ).resolves.toMatchObject({ turnId: `turn_${status}` });
+      expect(updateSession).toHaveBeenLastCalledWith(context, {
+        status: sessionStatus,
+        activeTurnId: undefined,
+        lastError: status === "failed" ? "usage limit reached" : undefined,
+      });
+      expect(updateSession).not.toHaveBeenCalledWith(
+        context,
+        expect.objectContaining({ status: "running", activeTurnId: `turn_${status}` }),
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          method: "turn/completed",
+          turnId: `turn_${status}`,
+          payload: expect.objectContaining({
+            turn: expect.objectContaining({ id: `turn_${status}`, status, error }),
+          }),
+        }),
+      );
+    },
+  );
+
+  it("keeps an in-progress turn/start result running", async () => {
+    const { manager, context, sendRequest, updateSession } = createSendTurnHarness();
+    sendRequest.mockResolvedValueOnce({
+      turn: { id: "turn_running", status: "inProgress", items: [], error: null },
+    });
+    await expect(
+      manager.sendTurn({ threadId: asThreadId("thread_1"), input: "hello" }),
+    ).resolves.toMatchObject({ turnId: "turn_running" });
+    expect(updateSession).toHaveBeenLastCalledWith(
+      context,
+      expect.objectContaining({ status: "running", activeTurnId: "turn_running" }),
+    );
+  });
+
+  it("does not resurrect a turn when its terminal notification wins the response race", async () => {
+    const { manager, context, sendRequest, updateSession } = createSendTurnHarness();
+    let resolveResponse!: (value: unknown) => void;
+    sendRequest.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveResponse = resolve;
+        }),
+    );
+    const pending = manager.sendTurn({ threadId: asThreadId("thread_1"), input: "hello" });
+    await Promise.resolve();
+    const terminalNotification = {
+      method: "turn/completed",
+      params: {
+        threadId: "thread_1",
+        turn: { id: "turn_raced", status: "failed", items: [], error: { message: "failed" } },
+      },
+    };
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: unknown) => void;
+      }
+    ).handleServerNotification(context, terminalNotification);
+    resolveResponse({
+      turn: { id: "turn_raced", status: "inProgress", items: [], error: null },
+    });
+    await expect(pending).resolves.toMatchObject({ turnId: "turn_raced" });
+    expect(updateSession).not.toHaveBeenCalledWith(
+      context,
+      expect.objectContaining({ status: "running", activeTurnId: "turn_raced" }),
+    );
+
+    updateSession.mockClear();
+    context.session.status = "running";
+    context.session.activeTurnId = "turn_successor";
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: unknown) => void;
+      }
+    ).handleServerNotification(context, terminalNotification);
+    expect(updateSession).not.toHaveBeenCalled();
+    expect(context.session.activeTurnId).toBe("turn_successor");
+  });
+
   it("clears stale collaboration receiver routing before a new turn", async () => {
     const { manager, context } = createSendTurnHarness();
     context.collabReceiverTurns.set("reused-child", "old-turn");

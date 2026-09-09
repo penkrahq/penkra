@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Effect, Layer } from "effect";
 
 import {
   WsBootstrapRpcGroup,
@@ -7,10 +8,30 @@ import {
   WsRpcError,
   WsRpcGroup,
 } from "./rpc";
-import { ORCHESTRATION_WS_METHODS } from "./orchestration";
+import { ORCHESTRATION_WS_METHODS, OrchestrationRpcSchemas } from "./orchestration";
 import { WS_METHODS } from "./ws";
 
 describe("WS RPC contracts", () => {
+  it.each(Object.keys(OrchestrationRpcSchemas) as Array<keyof typeof OrchestrationRpcSchemas>)(
+    "registers the declared orchestration contract %s in the feature transport",
+    (name) => {
+      expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS[name])).toBe(true);
+    },
+  );
+
+  it("constructs the pending-start recovery handler in the feature RPC group", async () => {
+    const handlerLayer = WsFeatureRpcGroup.toLayerHandler(
+      ORCHESTRATION_WS_METHODS.getPendingStartOutcome,
+      () => Effect.die("not invoked"),
+    );
+    await expect(
+      Effect.runPromise(Effect.scoped(Layer.build(handlerLayer))),
+    ).resolves.toBeDefined();
+    expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.getPendingStartOutcome)).toBe(
+      true,
+    );
+  });
+
   it("exports the additive Effect RPC group", () => {
     expect(WsRpcGroup).toBeDefined();
     expect(WsBootstrapRpcGroup.requests.has("bootstrap.negotiate")).toBe(true);

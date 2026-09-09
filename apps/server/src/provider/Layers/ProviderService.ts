@@ -994,6 +994,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           }
 
           const currentActiveTurnId = runtimeActiveTurnId(binding.runtimePayload);
+          let resolvedTerminalTurnId: string | undefined;
           if (
             event.type === "turn.started" &&
             !isStartedTurnApplicable({
@@ -1024,6 +1025,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               }
               return;
             }
+            resolvedTerminalTurnId = applicability.resolvedTurnId;
             if (event.turnId === undefined && applicability.resolvedTurnId !== undefined) {
               recordRecentlyCompletedTurn(event.threadId, applicability.resolvedTurnId);
             }
@@ -1067,6 +1069,18 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               activeTurnId,
               lastRuntimeEvent: event.type,
               lastRuntimeEventAt: event.createdAt,
+              ...(event.type === "turn.completed" || event.type === "turn.aborted"
+                ? {
+                    // Preserve terminal ownership after activeTurnId clears so
+                    // inferred stale-state recovery cannot race the durable
+                    // terminal event while ingestion is still projecting it.
+                    lastTerminalEvent: event.type,
+                    lastTerminalEventAt: event.createdAt,
+                    lastTerminalTurnId: resolvedTerminalTurnId ?? null,
+                    lastTerminalState:
+                      event.type === "turn.completed" ? event.payload.state : "interrupted",
+                  }
+                : {}),
               ...(lastError !== undefined ? { lastError } : {}),
             },
           });

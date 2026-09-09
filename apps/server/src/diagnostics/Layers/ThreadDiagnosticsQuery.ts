@@ -35,7 +35,7 @@ const makeThreadDiagnosticsQuery = Effect.gen(function* () {
       SELECT
         COALESCE(MAX(sequence), 0) AS "highWaterSequence",
         COALESCE(SUM(CASE WHEN sequence IS NULL THEN 1 ELSE 0 END), 0) AS "unsequencedCount"
-      FROM projection_thread_activities
+      FROM thread_activities_read
       WHERE thread_id = ${threadId}
     `.pipe(
       Effect.map((rows) => rows[0] ?? { highWaterSequence: 0, unsequencedCount: 0 }),
@@ -61,7 +61,7 @@ const makeThreadDiagnosticsQuery = Effect.gen(function* () {
         payload_json AS "payloadJson",
         sequence,
         created_at AS "createdAt"
-      FROM projection_thread_activities
+      FROM thread_activities_read
       WHERE thread_id = ${input.threadId}
         AND sequence IS NOT NULL
         AND sequence <= ${throughSequence}

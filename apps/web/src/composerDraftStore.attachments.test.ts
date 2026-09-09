@@ -11,6 +11,7 @@ import {
   useComposerDraftStore,
   type ComposerImageAttachment,
 } from "./composerDraftStore";
+import { COMPOSER_DRAFT_STORAGE_VERSION } from "./composerDraftDomain";
 import {
   makeFile,
   makeImage,
@@ -434,7 +435,7 @@ describe("composerDraftStore prompt history saved draft", () => {
     setLocalStorageItem(
       COMPOSER_DRAFT_STORAGE_KEY,
       {
-        version: 6,
+        version: COMPOSER_DRAFT_STORAGE_VERSION,
         state: {
           draftsByThreadId: {
             [threadId]: {

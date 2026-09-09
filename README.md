@@ -84,7 +84,10 @@ The copyfile backend isolates Effect's intentional TypeScript patch from Bun's g
 
 Open **Penkra Dev**, **Penkra Dev 2**, or **Penkra Dev 3** from `/Applications`. The first app starts Docker and the shared local services; each numbered app has its own login, local database, tabs, Threads, Chromium profile, and logs. Closing one app leaves the others running, and the shared services stop after the last app closes.
 
-The default installer provisions slots 1–3 without imposing a maximum. Install another stable slot with `bun run dev:desktop:install-app -- 4`; after that, **Penkra Dev 4** launches normally from Applications.
+Slots 1–3 are the complete standard development and QA pool and should be reused for routine work.
+Create a slot beyond 3 only when a test inherently requires more than three simultaneous isolated
+desktops, such as a large multiplayer or concurrency scenario. Remove that extra launcher and its
+`~/Penkra_Dev/.instances/<slot>` state immediately after the test finishes or fails.
 
 ### Tech stack
 

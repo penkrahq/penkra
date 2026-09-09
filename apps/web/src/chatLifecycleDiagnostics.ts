@@ -11,6 +11,10 @@ export interface ChatLifecycleDiagnosticState {
   readonly projectedMessageCount: number;
   readonly optimisticUserMessageCount: number;
   readonly draftPromotedTo: string | null;
+  readonly localDispatchActive: boolean;
+  readonly localDispatchStartedAt: string | null;
+  readonly localDispatchExpectedUserMessageId: string | null;
+  readonly serverAcknowledgedLocalDispatch: boolean;
   readonly threadWorkStatus: string | null;
   readonly sessionStatus: string | null;
   readonly sessionUpdatedAt: string | null;
@@ -54,7 +58,9 @@ export type ChatLifecycleUiEvent =
   | "thinking-row-derived-visible"
   | "thinking-row-derived-hidden"
   | "working-timer-derived-visible"
-  | "working-timer-derived-hidden";
+  | "working-timer-derived-hidden"
+  | "transcript-surface-visible"
+  | "hydration-surface-visible";
 
 export interface ChatLifecycleUiDiagnosticSample {
   readonly event: ChatLifecycleUiEvent;
@@ -65,6 +71,8 @@ export interface ChatLifecycleUiDiagnosticSample {
   readonly activeTurnId: string | null;
   readonly activeTurnStartedAt: string | null;
   readonly isWorking: boolean;
+  readonly threadDetailHydration?: string;
+  readonly visibleTimelineEntryIds?: readonly string[];
 }
 
 export type ChatLifecycleSample = ChatLifecycleDiagnosticSample | ChatLifecycleUiDiagnosticSample;
@@ -159,7 +167,7 @@ export function getChatLifecycleDiagnosticSamples(
 ): readonly ChatLifecycleSample[] {
   return state.samples
     .filter((sample) => threadId === undefined || sample.threadId === threadId)
-    .map((sample) => ({ ...sample }));
+    .map((sample) => Object.assign({}, sample));
 }
 
 export function resetChatLifecycleDiagnostics(): void {

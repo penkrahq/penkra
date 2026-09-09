@@ -28,6 +28,91 @@ const projectionSnapshotLayer = it.layer(
 );
 
 projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
+  it.effect("uses exact durable delivery evidence and rejects ambiguous pending identities", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`DELETE FROM projection_state`;
+      yield* sql`DELETE FROM projection_thread_messages`;
+      yield* sql`DELETE FROM projection_turns`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_folders`;
+      yield* sql`
+        INSERT INTO projection_folders (
+          folder_id, title, workspace_root, default_model_selection_json, scripts_json,
+          created_at, updated_at, deleted_at
+        ) VALUES ('project-outcome', 'Outcome', '/tmp/outcome', NULL, '[]',
+          '2026-09-07T00:00:00.000Z', '2026-09-07T00:00:00.000Z', NULL)
+      `;
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, folder_id, title, model_selection_json, working_directory,
+          latest_turn_id, created_at, updated_at, deleted_at
+        ) VALUES ('thread-outcome', 'project-outcome', 'Outcome',
+          '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
+          '2026-09-07T00:00:00.000Z', '2026-09-07T00:00:00.000Z', NULL)
+      `;
+      for (const projector of Object.values(ORCHESTRATION_PROJECTOR_NAMES)) {
+        yield* sql`INSERT INTO projection_state (projector, last_applied_sequence, updated_at)
+          VALUES (${projector}, 20, '2026-09-07T00:00:00.000Z')`;
+      }
+      yield* sql`
+        INSERT INTO projection_turns (
+          thread_id, turn_id, provider_turn_id, pending_message_id, assistant_message_id,
+          state, requested_at, started_at, completed_at
+        ) VALUES ('thread-outcome', 'turn-one', NULL, 'message-outcome', NULL, 'cancelled',
+          '2026-09-07T00:00:01.000Z', NULL, '2026-09-07T00:00:02.000Z')
+      `;
+      yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id, thread_id, turn_id, role, text, delivery_state,
+          is_streaming, source, sequence, created_at, updated_at
+        ) VALUES ('message-outcome', 'thread-outcome', 'turn-one', 'user', 'accepted', 'accepted',
+          0, 'native', 10, '2026-09-07T00:00:01.000Z', '2026-09-07T00:00:02.000Z')
+      `;
+      const contradiction = yield* snapshotQuery.getPendingStartOutcome({
+        threadId: asThreadId("thread-outcome"),
+        messageId: asMessageId("message-outcome"),
+        minimumSequence: 20,
+      });
+      assert.equal(contradiction.outcome, "accepted");
+      const oldFrontier = yield* snapshotQuery.getPendingStartOutcome({
+        threadId: asThreadId("thread-outcome"),
+        messageId: asMessageId("message-outcome"),
+        minimumSequence: 21,
+      });
+      assert.equal(oldFrontier.outcome, "not-caught-up");
+
+      yield* sql`UPDATE projection_turns SET state = 'completed' WHERE turn_id = 'turn-one'`;
+      yield* sql`DELETE FROM projection_thread_messages WHERE message_id = 'message-outcome'`;
+      const terminalWithoutAcceptance = yield* snapshotQuery.getPendingStartOutcome({
+        threadId: asThreadId("thread-outcome"),
+        messageId: asMessageId("message-outcome"),
+        minimumSequence: 20,
+      });
+      assert.equal(terminalWithoutAcceptance.outcome, "unknown");
+      yield* sql`UPDATE projection_turns SET state = 'cancelled' WHERE turn_id = 'turn-one'`;
+      const cancelled = yield* snapshotQuery.getPendingStartOutcome({
+        threadId: asThreadId("thread-outcome"),
+        messageId: asMessageId("message-outcome"),
+        minimumSequence: 20,
+      });
+      assert.equal(cancelled.outcome, "cancelled");
+
+      yield* sql`INSERT INTO projection_turns (
+        thread_id, turn_id, provider_turn_id, pending_message_id, assistant_message_id,
+        state, requested_at, started_at, completed_at
+      ) VALUES ('thread-outcome', 'turn-two', NULL, 'message-outcome', NULL, 'cancelled',
+        '2026-09-07T00:00:03.000Z', NULL, '2026-09-07T00:00:04.000Z')`;
+      const ambiguous = yield* snapshotQuery.getPendingStartOutcome({
+        threadId: asThreadId("thread-outcome"),
+        messageId: asMessageId("message-outcome"),
+        minimumSequence: 20,
+      });
+      assert.equal(ambiguous.outcome, "unknown");
+      assert.isUndefined(ambiguous.turnId);
+    }),
+  );
   it.effect("hydrates Space identity and project assignments in full and shell snapshots", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

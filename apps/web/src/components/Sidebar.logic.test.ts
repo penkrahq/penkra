@@ -44,7 +44,7 @@ import {
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
 import { hasUnseenThreadCompletion } from "../threadCompletion";
-import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
+import { FolderId, MessageId, SpaceId, ThreadId } from "@penkra/contracts";
 import {
   DEFAULT_RUNTIME_MODE,
   type Project,
@@ -658,6 +658,48 @@ describe("resolveThreadStatusPill", () => {
             status: "connecting",
             orchestrationStatus: "starting",
           },
+        },
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+      }),
+    ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it("keeps a newly promoted draft working before shell lifecycle projection arrives", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          latestTurn: null,
+          session: null,
+        },
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        isPromotedDraftPending: true,
+      }),
+    ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it("keeps working after draft finalization while the shared send owner remains active", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...baseThread, latestTurn: null, session: null },
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        isPromotedDraftPending: false,
+        hasLocalSendOwner: true,
+      }),
+    ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it("keeps working from the admitted message until the server turn projection arrives", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          latestTurn: null,
+          session: null,
+          pendingTurnStartMessageId: MessageId.makeUnsafe("message-admitted"),
         },
         hasPendingApprovals: false,
         hasPendingUserInput: false,

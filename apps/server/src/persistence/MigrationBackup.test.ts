@@ -652,6 +652,9 @@ describe("migration backups", () => {
           [156, "ActiveTurnProjectionSemantics"],
           [157, "QueuedTurnLifecycle"],
           [158, "LogicalTurnProviderBindings"],
+          [159, "AgentGatewayCreationAdmissions"],
+          [160, "ProjectionTurnPendingMessageLookup"],
+          [161, "CanonicalActivitySequence"],
         ]);
       }),
     );

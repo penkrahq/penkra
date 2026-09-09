@@ -131,7 +131,7 @@ export function makeThreadDiagnosticTools(input: {
             }))
             .reverse(),
           coverage: {
-            source: "projection_thread_activities",
+            source: "thread_activities_read",
             highWaterSequence,
             sourceComplete: activityCoverage.unsequencedCount === 0,
             unsequencedCount: activityCoverage.unsequencedCount,
@@ -448,6 +448,10 @@ export function makeThreadDiagnosticTools(input: {
             limit: 100,
           }),
         ]);
+        const pendingStartingMessage =
+          detail.pendingTurnStartMessageId === null
+            ? undefined
+            : detail.messages.find((message) => message.id === detail.pendingTurnStartMessageId);
         const findings = [
           ...(detail.session?.lastError
             ? [
@@ -455,6 +459,20 @@ export function makeThreadDiagnosticTools(input: {
                   severity: "error",
                   code: "provider_session_error",
                   detail: detail.session.lastError,
+                },
+              ]
+            : []),
+          ...(detail.session?.status === "starting" &&
+          pendingStartingMessage !== undefined &&
+          pendingStartingMessage.delivery?.state !== "starting" &&
+          pendingStartingMessage.delivery?.state !== "steering"
+            ? [
+                {
+                  severity: "warning",
+                  code: "provider_starting_pending_delivery_inconsistent",
+                  detail:
+                    `The session is starting, but pending message ${detail.pendingTurnStartMessageId} ` +
+                    `has delivery state ${pendingStartingMessage.delivery?.state ?? "missing"}.`,
                 },
               ]
             : []),
@@ -531,7 +549,7 @@ export function makeThreadDiagnosticTools(input: {
           coverage: {
             messages: { source: "projection_thread_messages", boundedToNewest: 2_000 },
             activity: {
-              source: "projection_thread_activities",
+              source: "thread_activities_read",
               highWaterSequence: activityCoverage.highWaterSequence,
               sourceComplete: activityCoverage.unsequencedCount === 0,
               unsequencedCount: activityCoverage.unsequencedCount,

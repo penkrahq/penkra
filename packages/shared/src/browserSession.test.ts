@@ -6,11 +6,13 @@ import {
   buildChromeClientHints,
   chromeMajorVersionFromUserAgent,
   classifyBrowserWindowOpen,
+  deriveBrowserUserAgentForUrl,
   deriveChromeUserAgent,
   isLikelyOAuthHost,
   normalizeBrowserUrlInput,
   isBlankBrowserTabUrl,
   resolveCopyableBrowserTabUrl,
+  requiresVanillaChromeUserAgent,
 } from "./browserSession";
 
 const ELECTRON_UA =
@@ -37,6 +39,32 @@ describe("deriveChromeUserAgent", () => {
     expect(derived).toContain("Chrome/124.0.6367.91");
     expect(derived).not.toMatch(/Electron/i);
     expect(derived).not.toMatch(/Penkra/i);
+  });
+});
+
+describe("browser user-agent compatibility", () => {
+  it("uses vanilla Chromium only for exact registered HTTPS hosts", () => {
+    expect(requiresVanillaChromeUserAgent("https://web.whatsapp.com/")).toBe(true);
+    expect(requiresVanillaChromeUserAgent("http://web.whatsapp.com/")).toBe(false);
+    expect(requiresVanillaChromeUserAgent("https://web.whatsapp.com.example.com/")).toBe(false);
+    expect(requiresVanillaChromeUserAgent("https://example.com/?next=web.whatsapp.com")).toBe(
+      false,
+    );
+  });
+
+  it("removes Penkra product tokens only for registered compatibility hosts", () => {
+    expect(deriveBrowserUserAgentForUrl(ELECTRON_UA, "https://web.whatsapp.com/")).toBe(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.91 Safari/537.36",
+    );
+    expect(deriveBrowserUserAgentForUrl(ELECTRON_UA, "https://accounts.google.com/")).toContain(
+      "Penkra/0.3.1",
+    );
+    expect(
+      deriveBrowserUserAgentForUrl(
+        ELECTRON_UA.replace("Penkra/0.3.1", "PenkraDev3/0.3.1"),
+        "https://web.whatsapp.com/",
+      ),
+    ).not.toMatch(/Penkra/iu);
   });
 });
 

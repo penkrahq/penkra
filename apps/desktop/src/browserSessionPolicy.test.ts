@@ -6,7 +6,7 @@ const electronMocks = vi.hoisted(() => ({
     current: null as
       | null
       | ((
-          details: { requestHeaders: Record<string, string> },
+          details: { url?: string; requestHeaders: Record<string, string> },
           callback: (result: { requestHeaders: Record<string, string> }) => void,
         ) => void),
   },
@@ -103,6 +103,36 @@ describe("BrowserSessionPolicy", () => {
     }
   });
 
+  it("strips the Penkra token only for the exact WhatsApp compatibility host", () => {
+    const policy = new BrowserSessionPolicy();
+    policy.ensureConfigured();
+    const listener = electronMocks.headerListener.current;
+    expect(listener).not.toBeNull();
+    if (!listener) return;
+
+    const whatsappCallback = vi.fn();
+    listener(
+      {
+        url: "https://web.whatsapp.com/",
+        requestHeaders: { "User-Agent": appUserAgent() },
+      },
+      whatsappCallback,
+    );
+    const whatsappHeaders = whatsappCallback.mock.calls[0]?.[0].requestHeaders;
+    expect(normalizedHeader(whatsappHeaders, "user-agent")).not.toMatch(/Penkra/iu);
+
+    const lookalikeCallback = vi.fn();
+    listener(
+      {
+        url: "https://web.whatsapp.com.example.com/",
+        requestHeaders: { "User-Agent": appUserAgent() },
+      },
+      lookalikeCallback,
+    );
+    const lookalikeHeaders = lookalikeCallback.mock.calls[0]?.[0].requestHeaders;
+    expect(normalizedHeader(lookalikeHeaders, "user-agent")).toContain("Penkra/0.5.5");
+  });
+
   it("retries partition configuration after a transient failure", () => {
     electronMocks.fromPartition.mockImplementationOnce(() => {
       throw new Error("session not ready");
@@ -149,3 +179,11 @@ describe("BrowserSessionPolicy", () => {
     expect(secondContents.setUserAgent).toHaveBeenCalledWith(partitionUserAgent);
   });
 });
+
+function appUserAgent(): string {
+  return electronMocks.partitionSetUserAgent.mock.calls[0]?.[0] as string;
+}
+
+function normalizedHeader(headers: Record<string, string>, name: string): string {
+  return Object.entries(headers).find(([header]) => header.toLowerCase() === name)?.[1] ?? "";
+}

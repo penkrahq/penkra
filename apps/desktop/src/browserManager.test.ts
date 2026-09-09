@@ -37,7 +37,7 @@ vi.mock("electron", () => ({
     getName: () => "Penkra",
     getPreferredSystemLanguages: () => ["en-US"],
     userAgentFallback:
-      "Mozilla/5.0 AppleWebKit/537.36 Chrome/140.0.0.0 Electron/40.0.0 Safari/537.36",
+      "Mozilla/5.0 AppleWebKit/537.36 Chrome/140.0.0.0 Electron/40.0.0 Safari/537.36 Penkra/0.5.5",
   },
   BrowserWindow: class {},
   clipboard: { writeImage: vi.fn(), writeText: vi.fn() },
@@ -805,6 +805,26 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       ).toEqual({ action: "deny" });
       expect(manager.getState({ threadId: THREAD_ID }).tabs).toHaveLength(beforeSchemeDenial);
     }
+  });
+
+  it("switches the WebContents identity on exact-host navigation and restores it when leaving", () => {
+    const manager = new DesktopBrowserManager();
+    const contents = new FakeWebContents();
+    asCharacterizationAccess(manager).configureRuntimeWebContents({
+      key: "thread-1:tab-1",
+      threadId: THREAD_ID,
+      tabId: "tab-1",
+      webContents: contents as unknown as WebContents,
+      view: null,
+      ownsWebContents: false,
+      listenerDisposers: [],
+    });
+
+    contents.emit("will-navigate", {}, "https://web.whatsapp.com/", false, true);
+    expect(contents.setUserAgent.mock.calls.at(-1)?.[0]).not.toMatch(/Penkra/iu);
+
+    contents.emit("will-navigate", {}, "https://accounts.google.com/", false, true);
+    expect(contents.setUserAgent.mock.calls.at(-1)?.[0]).toContain("Penkra/0.5.5");
   });
 
   it("gives the shell first refusal on browser guest keyboard input", () => {

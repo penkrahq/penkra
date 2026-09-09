@@ -147,6 +147,16 @@ type ProviderAttemptOutcome =
   | { readonly _tag: "safe_retry"; readonly detail: string }
   | { readonly _tag: "uncertain"; readonly detail: string };
 
+class ProviderSessionStartupBeforeDispatchError extends Error {
+  readonly _tag = "ProviderSessionStartupBeforeDispatchError";
+
+  constructor(readonly providerCause: unknown) {
+    super("Provider session startup failed before the logical turn was dispatched.", {
+      cause: providerCause,
+    });
+  }
+}
+
 export function classifyProviderAttemptOutcome(
   exit: Exit.Exit<void, unknown>,
 ): ProviderAttemptOutcome {
@@ -482,6 +492,18 @@ const make = Effect.gen(function* () {
     pendingTerminalTurnIds?: Set<TurnId>;
   };
   const pendingQueuedDispatchBySessionThread = new Map<string, PendingQueuedDispatch>();
+  // A provider may publish the terminal notification for a newly accepted
+  // turn before `sendTurn` returns its id. Keep that exact id long enough for
+  // the start handler to bind its logical attempt without restoring running
+  // state. A set of observers avoids one concurrent start masking another.
+  type ObservedTerminalTurn = {
+    readonly state: "completed" | "interrupted" | "error";
+    readonly completedAt: string;
+  };
+  const inFlightTurnStartTerminalObserversBySessionThread = new Map<
+    string,
+    Set<Map<TurnId, ObservedTerminalTurn>>
+  >();
   // OpenCode steering interrupts the active turn, then promotes the steered
   // message after that exact turn's terminal event. Binding the barrier to a
   // turn prevents late parent or child events on the shared session from
@@ -1292,19 +1314,38 @@ const make = Effect.gen(function* () {
   const completeCancelledTurnStart = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly messageId: string;
-    readonly createdAt: string;
   }) {
     if (providerService.stopRuntimeSession) {
-      yield* providerService
-        .stopRuntimeSession({ threadId: input.threadId })
-        .pipe(Effect.catch(() => Effect.void));
+      yield* providerService.stopRuntimeSession({ threadId: input.threadId });
+    }
+    const completedAt = new Date().toISOString();
+    const thread = yield* resolveThread(input.threadId);
+    const session = thread?.session;
+    if (session?.status === "starting" && thread?.pendingTurnStartMessageId === input.messageId) {
+      yield* setThreadSession({
+        threadId: input.threadId,
+        session: {
+          ...session,
+          status: "interrupted",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: completedAt,
+        },
+        expectedSession: session,
+        createdAt: completedAt,
+      }).pipe(
+        // A replacement session or accepted turn won the boundary. Its exact
+        // lifecycle must remain authoritative; this cancellation owns only the
+        // pending startup observed after its runtime stop completed.
+        Effect.catchTag("OrchestrationCommandInvariantError", () => Effect.void),
+      );
     }
     yield* orchestrationEngine.dispatch({
       type: "thread.turn.start.cancel.complete",
       commandId: serverCommandId("turn-start-cancel-complete"),
       threadId: input.threadId,
       messageId: MessageId.makeUnsafe(input.messageId),
-      createdAt: input.createdAt,
+      createdAt: completedAt,
     });
     completedPendingTurnStartInterrupts.add(input.messageId);
   });
@@ -1436,6 +1477,7 @@ const make = Effect.gen(function* () {
           afterSequence: input.startRequestSequence,
         }).pipe(Effect.flatMap((cancelled) => (cancelled ? Effect.void : Effect.fail(error)))),
       ),
+      Effect.mapError((error) => new ProviderSessionStartupBeforeDispatchError(error)),
     );
     if (
       yield* hasTurnStartCancellationRequest({
@@ -1444,7 +1486,10 @@ const make = Effect.gen(function* () {
         afterSequence: input.startRequestSequence,
       })
     ) {
-      yield* completeCancelledTurnStart(input);
+      yield* completeCancelledTurnStart({
+        threadId: input.threadId,
+        messageId: input.messageId,
+      });
       return;
     }
     if (input.providerOptions !== undefined) {
@@ -1584,7 +1629,10 @@ const make = Effect.gen(function* () {
           afterSequence: input.startRequestSequence,
         })
       ) {
-        yield* completeCancelledTurnStart(input);
+        yield* completeCancelledTurnStart({
+          threadId: input.threadId,
+          messageId: input.messageId,
+        });
         return;
       }
       const sentTurn = yield* sendQueuedProviderTurn(effectiveInput).pipe(
@@ -1753,6 +1801,18 @@ const make = Effect.gen(function* () {
   ) {
     const sessionThreadId =
       (yield* resolveProviderSessionThread(event.payload.threadId))?.id ?? event.payload.threadId;
+    const terminalTurnsObservedBeforeSettlement = new Map<TurnId, ObservedTerminalTurn>();
+    const terminalObservers =
+      inFlightTurnStartTerminalObserversBySessionThread.get(sessionThreadId) ??
+      new Set<Map<TurnId, ObservedTerminalTurn>>();
+    terminalObservers.add(terminalTurnsObservedBeforeSettlement);
+    inFlightTurnStartTerminalObserversBySessionThread.set(sessionThreadId, terminalObservers);
+    const releaseTerminalObserver = Effect.sync(() => {
+      terminalObservers.delete(terminalTurnsObservedBeforeSettlement);
+      if (terminalObservers.size === 0) {
+        inFlightTurnStartTerminalObserversBySessionThread.delete(sessionThreadId);
+      }
+    });
     const matchesEvent = (entry: PendingQueuedDispatch | undefined) =>
       entry?.queuedThreadId === (event.payload.threadId as string) &&
       entry.messageId === event.payload.messageId;
@@ -1970,7 +2030,6 @@ const make = Effect.gen(function* () {
           ? "queue"
           : event.payload.dispatchMode;
       const editResendKey = editResendTurnStartKey(event.payload.threadId, event.payload.messageId);
-
       const startedTurn = yield* dispatchTurnForThread({
         threadId: event.payload.threadId,
         messageId: message.id,
@@ -2005,14 +2064,25 @@ const make = Effect.gen(function* () {
             ? Effect.failCause(cause)
             : Effect.gen(function* () {
                 const detail = Cause.pretty(cause);
+                const failure = Option.getOrUndefined(Cause.findErrorOption(cause));
+                const failedBeforeProviderDispatch =
+                  failure instanceof ProviderSessionStartupBeforeDispatchError;
+                const failedAt = new Date().toISOString();
                 if (!isRestartRecovery) {
                   yield* orchestrationEngine.dispatch({
                     type: "thread.message.delivery.set",
                     commandId: replaySafeServerCommandId("message-delivery-failed", event.eventId),
                     threadId: event.payload.threadId,
                     messageId: event.payload.messageId,
+                    ...(event.payload.turnId !== undefined ? { turnId: event.payload.turnId } : {}),
                     state: "failed",
-                    createdAt: new Date().toISOString(),
+                    ...(failedBeforeProviderDispatch
+                      ? {
+                          failurePhase: "before-provider-dispatch" as const,
+                          failureDetail: detail,
+                        }
+                      : {}),
+                    createdAt: failedAt,
                   });
                 }
                 yield* appendProviderFailureActivity({
@@ -2023,12 +2093,14 @@ const make = Effect.gen(function* () {
                   turnId: null,
                   createdAt: event.payload.createdAt,
                 });
-                yield* setThreadSessionError({
-                  threadId: event.payload.threadId,
-                  runtimeMode: event.payload.runtimeMode,
-                  detail,
-                  createdAt: event.payload.createdAt,
-                });
+                if (!failedBeforeProviderDispatch) {
+                  yield* setThreadSessionError({
+                    threadId: event.payload.threadId,
+                    runtimeMode: event.payload.runtimeMode,
+                    detail,
+                    createdAt: event.payload.createdAt,
+                  });
+                }
                 // A direct start has no provider turn and therefore cannot emit a
                 // terminal runtime event. Recover every queue sharing this
                 // provider session now; otherwise follow-ups queued before the
@@ -2038,28 +2110,51 @@ const make = Effect.gen(function* () {
                   yield* clearPendingQueuedDispatch;
                 }
                 yield* drainQueuedTurnsForSession(event.payload.threadId);
-                return yield* Effect.failCause(cause);
+                if (!failedBeforeProviderDispatch) {
+                  return yield* Effect.failCause(cause);
+                }
               }),
         ),
         Effect.ensuring(Effect.sync(() => editResendTurnStartKeys.delete(editResendKey))),
       );
-      if (startedTurn && isRestartRecovery) {
+      const terminalBeforeResult = startedTurn
+        ? terminalTurnsObservedBeforeSettlement.get(startedTurn.turnId)
+        : undefined;
+      const completedBeforeResult = terminalBeforeResult !== undefined;
+      const startedTurnStillOwnsRuntime = startedTurn !== undefined && !completedBeforeResult;
+      if (startedTurn && isRestartRecovery && startedTurnStillOwnsRuntime) {
         const acceptedAt = new Date().toISOString();
-        yield* setThreadSession({
-          threadId: event.payload.threadId,
-          session: {
+        const sessionBeforeRunning = (yield* resolveThread(event.payload.threadId))?.session;
+        const stillOwnsStartupSession =
+          sessionBeforeRunning !== null &&
+          sessionBeforeRunning !== undefined &&
+          ((sessionBeforeRunning.activeTurnId === null &&
+            (sessionBeforeRunning.status === "starting" ||
+              sessionBeforeRunning.status === "ready")) ||
+            (sessionBeforeRunning.status === "running" &&
+              sessionBeforeRunning.activeTurnId === startedTurn.turnId));
+        if (
+          stillOwnsStartupSession &&
+          !terminalTurnsObservedBeforeSettlement.has(startedTurn.turnId)
+        ) {
+          yield* setThreadSession({
             threadId: event.payload.threadId,
-            status: "running",
-            providerName,
-            runtimeMode: event.payload.runtimeMode,
-            activeTurnId: startedTurn.turnId,
-            lastError: null,
-            updatedAt: acceptedAt,
-          },
-          createdAt: acceptedAt,
-        });
+            session: {
+              threadId: event.payload.threadId,
+              status: "running",
+              providerName,
+              runtimeMode: event.payload.runtimeMode,
+              activeTurnId: startedTurn.turnId,
+              lastError: null,
+              updatedAt: acceptedAt,
+            },
+            expectedSession: sessionBeforeRunning,
+            createdAt: acceptedAt,
+          }).pipe(Effect.catchTag("OrchestrationCommandInvariantError", () => Effect.void));
+        }
       }
-      if (startedTurn && !isRestartRecovery) {
+      if (startedTurn) {
+        const terminalAtAcceptance = terminalTurnsObservedBeforeSettlement.get(startedTurn.turnId);
         yield* orchestrationEngine.dispatch({
           type: "thread.message.delivery.set",
           commandId: replaySafeServerCommandId("message-delivery-accepted", event.eventId),
@@ -2068,8 +2163,37 @@ const make = Effect.gen(function* () {
           turnId: event.payload.turnId,
           state: "accepted",
           providerTurnId: startedTurn.turnId,
+          ...(terminalAtAcceptance !== undefined
+            ? {
+                terminalState: terminalAtAcceptance.state,
+                terminalCompletedAt: terminalAtAcceptance.completedAt,
+              }
+            : {}),
           createdAt: new Date().toISOString(),
         });
+        const terminalAfterAcceptance = terminalTurnsObservedBeforeSettlement.get(
+          startedTurn.turnId,
+        );
+        if (
+          terminalAfterAcceptance !== undefined &&
+          terminalAfterAcceptance !== terminalAtAcceptance
+        ) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.message.delivery.set",
+            commandId: replaySafeServerCommandId(
+              "message-delivery-accepted-terminal-reconcile",
+              event.eventId,
+            ),
+            threadId: event.payload.threadId,
+            messageId: event.payload.messageId,
+            turnId: event.payload.turnId,
+            state: "accepted",
+            providerTurnId: startedTurn.turnId,
+            terminalState: terminalAfterAcceptance.state,
+            terminalCompletedAt: terminalAfterAcceptance.completedAt,
+            createdAt: new Date().toISOString(),
+          });
+        }
       }
       if (startedTurn && isPendingQueuedDispatch) {
         yield* bindPendingQueuedDispatchToTurn(startedTurn.turnId);
@@ -2080,6 +2204,7 @@ const make = Effect.gen(function* () {
           Exit.isSuccess(exit) || !Cause.hasInterruptsOnly(exit.cause),
         ),
       ),
+      Effect.ensuring(releaseTerminalObserver),
     );
   });
 
@@ -2445,6 +2570,25 @@ const make = Effect.gen(function* () {
       }
     }
     const reservation = pendingQueuedDispatchBySessionThread.get(sessionThreadId);
+    if (event.turnId !== undefined) {
+      const terminalState =
+        event.type === "turn.aborted"
+          ? "interrupted"
+          : event.type === "turn.completed" && event.payload.state === "failed"
+            ? "error"
+            : event.type === "turn.completed" && event.payload.state === "interrupted"
+              ? "interrupted"
+              : event.type === "turn.completed"
+                ? "completed"
+                : undefined;
+      for (const observer of inFlightTurnStartTerminalObserversBySessionThread.get(
+        sessionThreadId,
+      ) ?? []) {
+        if (terminalState !== undefined) {
+          observer.set(event.turnId, { state: terminalState, completedAt: event.createdAt });
+        }
+      }
+    }
     if (reservation) {
       if (event.turnId === undefined) {
         // Some adapters can only report that a stopped turn aborted, not the

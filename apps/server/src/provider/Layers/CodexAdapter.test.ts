@@ -521,6 +521,26 @@ const sessionErrorLayer = it.layer(
 );
 
 sessionErrorLayer("CodexAdapterLive session errors", (it) => {
+  it.effect("maps the manager's JSON-RPC rejection error without a machine reason", () =>
+    Effect.gen(function* () {
+      const managerRejection = new Error("turn/start failed: usage limit reached");
+      sessionErrorManager.sendTurnImpl.mockImplementationOnce(async () => {
+        throw managerRejection;
+      });
+      const adapter = yield* CodexAdapter;
+      const result = yield* adapter
+        .sendTurn({ threadId: asThreadId("thread-1"), input: "hello", attachments: [] })
+        .pipe(Effect.result);
+
+      assert.equal(result._tag, "Failure");
+      if (result._tag !== "Failure" || result.failure._tag !== "ProviderAdapterRequestError")
+        return;
+      assert.equal(result.failure.detail, "turn/start failed: usage limit reached");
+      assert.equal(result.failure.cause, managerRejection);
+      assert.equal(result.failure.code, undefined);
+    }),
+  );
+
   it.effect("maps unknown-session sendTurn errors to ProviderAdapterSessionNotFoundError", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
@@ -1144,6 +1164,40 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       }
       assert.equal(firstEvent.value.turnId, "turn-1");
       assert.equal(firstEvent.value.payload.message, "Reconnecting... 2/5");
+    }),
+  );
+
+  it.effect("normalizes a structured terminal usage error while retaining its raw detail", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      const payload = {
+        error: {
+          message: "usage limit reached",
+          codexErrorInfo: "usageLimitExceeded",
+          additionalDetails: "Provider-supplied diagnostic text.",
+        },
+        willRetry: false,
+      };
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-terminal-usage-limit"),
+        kind: "notification",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        createdAt: new Date().toISOString(),
+        method: "error",
+        turnId: asTurnId("turn-usage-limit"),
+        payload,
+      } satisfies ProviderEvent);
+
+      const result = yield* Fiber.join(firstEventFiber);
+      assert.equal(result._tag, "Some");
+      if (result._tag !== "Some" || result.value.type !== "runtime.error") return;
+      assert.deepStrictEqual(result.value.payload, {
+        message: "usage limit reached",
+        class: "provider_error",
+        detail: payload,
+      });
     }),
   );
 

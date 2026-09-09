@@ -4,10 +4,40 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isDesktopNewWindowShortcut,
   resolveDesktopMenuAccelerator,
   resolveDesktopWindowZoomAction,
   resolveKeyboardShortcutsMenuAccelerator,
 } from "./menuShortcuts";
+
+describe("isDesktopNewWindowShortcut", () => {
+  const input = {
+    type: "keyDown",
+    key: "n",
+    code: "KeyN",
+    control: false,
+    meta: true,
+    shift: true,
+    alt: false,
+  };
+
+  it("recognizes the native chord on macOS and Ctrl-based desktops", () => {
+    expect(isDesktopNewWindowShortcut("darwin", input)).toBe(true);
+    expect(isDesktopNewWindowShortcut("win32", { ...input, control: true, meta: false })).toBe(
+      true,
+    );
+    expect(isDesktopNewWindowShortcut("linux", { ...input, control: true, meta: false })).toBe(
+      true,
+    );
+  });
+
+  it("rejects key-up and conflicting modifier combinations", () => {
+    expect(isDesktopNewWindowShortcut("darwin", { ...input, type: "keyUp" })).toBe(false);
+    expect(isDesktopNewWindowShortcut("darwin", { ...input, alt: true })).toBe(false);
+    expect(isDesktopNewWindowShortcut("darwin", { ...input, control: true })).toBe(false);
+    expect(isDesktopNewWindowShortcut("win32", input)).toBe(false);
+  });
+});
 
 describe("resolveDesktopWindowZoomAction", () => {
   const windowsCtrlInput = {

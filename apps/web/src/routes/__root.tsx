@@ -941,6 +941,11 @@ function EventRouter() {
         ORCHESTRATION_SYNC_PUBLICATION_INTERVAL_MS,
       );
     });
+    // Durable synchronization is the canonical UI projection. Keep the legacy
+    // domain stream attached so compatibility producers cannot create an
+    // unobserved transport lifecycle, but never apply its duplicate events to
+    // the store a second time.
+    const unsubDomainEvent = api.orchestration.onDomainEvent(() => undefined);
 
     const unsubTerminalEvent = api.terminal.onEvent((event) => {
       const terminalThreadId = ThreadId.makeUnsafe(event.threadId);
@@ -1067,6 +1072,7 @@ function EventRouter() {
         syncDeliveryFlushTimer = null;
       }
       unsubSyncEvent();
+      unsubDomainEvent();
       unsubTerminalEvent();
       unsubDevServerEvent();
       unsubWorkspaceChange();

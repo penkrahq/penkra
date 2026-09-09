@@ -79,6 +79,8 @@ import type {
   OrchestrationGetThreadDetailSnapshotResult,
   OrchestrationGetThreadTurnsPageInput,
   OrchestrationGetThreadTurnsPageResult,
+  OrchestrationGetPendingStartOutcomeInput,
+  OrchestrationGetPendingStartOutcomeResult,
   OrchestrationImportThreadInput,
   OrchestrationImportThreadResult,
   OrchestrationListProviderDeliveryBlockersInput,
@@ -1142,6 +1144,9 @@ export interface NativeApi {
     getThreadTurnsPage: (
       input: OrchestrationGetThreadTurnsPageInput,
     ) => Promise<OrchestrationGetThreadTurnsPageResult>;
+    getPendingStartOutcome: (
+      input: OrchestrationGetPendingStartOutcomeInput,
+    ) => Promise<OrchestrationGetPendingStartOutcomeResult>;
     acknowledgeSync: (input: OrchestrationAcknowledgeSyncInput) => Promise<void>;
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     importThread: (

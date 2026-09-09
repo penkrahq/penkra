@@ -2008,7 +2008,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.providerTurnId !== undefined
             ? { providerTurnId: command.providerTurnId }
             : {}),
+          ...(command.terminalState !== undefined ? { terminalState: command.terminalState } : {}),
+          ...(command.terminalCompletedAt !== undefined
+            ? { terminalCompletedAt: command.terminalCompletedAt }
+            : {}),
           ...(command.queued !== undefined ? { queued: command.queued } : {}),
+          ...(command.failurePhase !== undefined ? { failurePhase: command.failurePhase } : {}),
+          ...(command.failureDetail !== undefined ? { failureDetail: command.failureDetail } : {}),
           updatedAt: command.createdAt,
         },
       };

@@ -65,7 +65,7 @@ const MACOS: DesktopPlatformAdapter = {
   platform: "darwin",
   application: {
     setWindowsAppUserModelId: false,
-    quitWhenAllWindowsClose: false,
+    quitWhenAllWindowsClose: true,
     activateBeforeFocus: true,
   },
   paths: { appData: "application-support", pathSyntax: "posix" },

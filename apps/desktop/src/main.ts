@@ -37,6 +37,7 @@ import type {
   MenuItemConstructorOptions,
   OpenExternalOptions,
   ShortcutDetails,
+  View,
   WebContents,
 } from "electron";
 import * as Effect from "effect/Effect";
@@ -175,7 +176,9 @@ import {
   shouldCheckForUpdatesOnForeground,
 } from "./updateState";
 import { registerDesktopVoiceTranscriptionHandler } from "./voiceTranscription";
+import { ShellWindowRegistry } from "./shellWindowRegistry";
 import {
+  isDesktopNewWindowShortcut,
   resolveDesktopMenuAccelerator,
   resolveDesktopWindowZoomAction,
   resolveKeyboardShortcutsMenuAccelerator,
@@ -470,8 +473,93 @@ const browserPerfLoggingEnabled = process.env.PENKRA_BROWSER_PERF === "1";
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
 let mainWindow: BrowserWindow | null = null;
+const shellWindowRegistry = new ShellWindowRegistry();
 let pendingAppListingRequest: { appId: string } | null = null;
 let desktopAppRuntime: DesktopAppRuntime | null = null;
+
+function shellWindows(): BrowserWindow[] {
+  return shellWindowRegistry.list();
+}
+
+function resolveShellWindow(): BrowserWindow | null {
+  return shellWindowRegistry.resolve(BrowserWindow.getFocusedWindow());
+}
+
+function shellWindowForSender(sender: WebContents): BrowserWindow | null {
+  return shellWindowRegistry.windowForWebContents(sender);
+}
+
+function isShellRendererId(senderId: number): boolean {
+  return shellWindows().some((window) => window.webContents.id === senderId);
+}
+
+function requireShellWindowForSender(sender: WebContents): BrowserWindow {
+  const window = shellWindowForSender(sender);
+  if (!window) throw new Error("Only a Penkra shell window can perform this action.");
+  return window;
+}
+
+function broadcastToShellWindows(channel: string, ...args: unknown[]): void {
+  shellWindowRegistry.broadcast(channel, ...args);
+}
+
+function orderedShellWindows(): BrowserWindow[] {
+  const focused = BrowserWindow.getFocusedWindow();
+  const windows = shellWindows();
+  return shellWindowRegistry.has(focused)
+    ? [focused, ...windows.filter((window) => window !== focused)]
+    : windows;
+}
+
+async function resolveShellAppFrameTarget(
+  descriptor: import("@penkra/contracts").DesktopAppTabDescriptor,
+  tabId: string,
+): Promise<import("./appTabObserver").AppTabObservationTarget> {
+  let retained: { window: BrowserWindow; frame: Electron.WebFrameMain } | undefined;
+  for (const window of orderedShellWindows()) {
+    const frame = window.webContents.mainFrame.framesInSubtree.find(
+      (candidate) => candidate.name === `penkra-app-tab:${tabId}`,
+    );
+    if (!frame) continue;
+    retained ??= { window, frame };
+    const bounds = await captureVisibleAppFrameBounds(window.webContents, tabId);
+    if (bounds) return appFrameObservationTarget(descriptor, window, frame, tabId);
+  }
+  if (!retained) throw new Error(`App frame ${tabId} is unavailable.`);
+  return appFrameObservationTarget(descriptor, retained.window, retained.frame, tabId);
+}
+
+function appFrameObservationTarget(
+  descriptor: import("@penkra/contracts").DesktopAppTabDescriptor,
+  window: BrowserWindow,
+  frame: Electron.WebFrameMain,
+  tabId: string,
+): import("./appTabObserver").AppTabObservationTarget {
+  return {
+    descriptor,
+    webContents: window.webContents,
+    frame,
+    captureBounds: () => captureVisibleAppFrameBounds(window.webContents, tabId),
+  };
+}
+
+async function captureVisibleAppFrameBounds(
+  shellContents: WebContents,
+  tabId: string,
+): Promise<Electron.Rectangle | null> {
+  if (shellContents.isDestroyed()) return null;
+  return (await shellContents.executeJavaScript(
+    `(() => {
+      const element = document.querySelector('[data-app-tab-id=${JSON.stringify(tabId)}]');
+      if (!(element instanceof HTMLElement)) throw new Error('App frame element is unavailable.');
+      if (element.hidden || element.getClientRects().length === 0 || !element.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return null;
+      const bounds = element.getBoundingClientRect();
+      if (!Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) || bounds.width <= 0 || bounds.height <= 0) return null;
+      return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+    })()`,
+    false,
+  )) as Electron.Rectangle | null;
+}
 
 function requireGrantedIdentityAudience(
   runtime: DesktopAppRuntime,
@@ -555,7 +643,8 @@ async function requestAppComposerStage(
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Composer stage input must be an object.");
   }
-  if (!mainWindow || mainWindow.isDestroyed()) throw new Error("The Penkra shell is unavailable.");
+  const targetWindow = resolveShellWindow();
+  if (!targetWindow) throw new Error("The Penkra shell is unavailable.");
   const input = value as import("@penkra/sdk").AppComposerStageInput;
   const storage = appStorage;
   if (!storage) throw new Error("The App storage service is not ready.");
@@ -607,7 +696,7 @@ async function requestAppComposerStage(
         );
       }, 30_000);
       pendingComposerStages.set(id, { resolve, reject, timer });
-      mainWindow?.webContents.send(IPC.composerStageRequest, request);
+      targetWindow.webContents.send(IPC.composerStageRequest, request);
     });
   } finally {
     void runtime.diagnostics
@@ -626,7 +715,7 @@ function acceptComposerStageResponse(
   event: Electron.IpcMainEvent,
   response: import("@penkra/contracts").DesktopComposerStageResponse,
 ): void {
-  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+  if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
     throw new Error("Composer staging responses are accepted only from the Penkra shell.");
   }
   if (!response || typeof response !== "object" || typeof response.id !== "string") return;
@@ -720,6 +809,7 @@ function retireAppTabAuthority(owner: {
   const writes = runtimeV2FileWrites.detachTab(owner);
   const simulatorSurface = runtimeV2SimulatorSurfaces.detachTab(owner);
   appBrowserSurfaceInsetsByTabId.detachTab(owner);
+  appBrowserSurfaceIdsByTabId.delete(owner.tabId);
   appBrowserOwnerByTabId.delete(owner.tabId);
 
   try {
@@ -761,6 +851,7 @@ let spacesMenuState: DesktopSpacesMenuInput = {
   activeSpaceId: null,
   spaces: [],
 };
+const spacesMenuStateByShellRendererId = new Map<number, DesktopSpacesMenuInput>();
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 
@@ -972,6 +1063,7 @@ async function showPenkraResourceContextMenu(input: {
   spaceId: string;
   threadId: string;
   position: { x: number; y: number };
+  ownerWindow?: BrowserWindow | null;
 }): Promise<unknown | null> {
   const runtime = desktopAppRuntime;
   if (!runtime) throw new Error("The App runtime is not ready.");
@@ -982,7 +1074,7 @@ async function showPenkraResourceContextMenu(input: {
   });
   if (model.choices.length === 0) return null;
 
-  const window = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  const window = input.ownerWindow ?? resolveShellWindow();
   if (!window) return null;
   const selection = createContextMenuSelection<string>();
   const choices = new Map(model.choices.map((choice) => [choice.id, choice]));
@@ -1091,14 +1183,73 @@ const browserManager = new DesktopBrowserManager({
 
     return handleDesktopWindowZoomShortcut(event, input);
   },
-  getWindowZoomFactor: () => mainWindow?.webContents.getZoomFactor() ?? 1,
+  getWindowZoomFactor: () => resolveShellWindow()?.webContents.getZoomFactor() ?? 1,
 });
 let appCommandPipeServer: AppCommandPipeServer | null = null;
 const appBrowserTrackedRendererIds = new Set<number>();
 const appBrowserOwnerByTabId = new Map<string, { appId: string; spaceId: string }>();
 const appBrowserSurfaceInsetsByTabId = new AppBrowserSurfaceInsetStore();
+const appBrowserSurfaceIdsByTabId = new Map<string, Set<number>>();
+const hostedBrowserPageBoundsByTabId = new Map<
+  string,
+  Map<
+    number,
+    {
+      pageId: string;
+      bounds: BrowserPanelBounds;
+      parentView: View;
+    }
+  >
+>();
 const configuredAppBrowserDownloadPartitions = new Set<string>();
 let configuredUpdaterCacheDirName: string | null = null;
+
+function dropAppBrowserSurface(surfaceId: number): void {
+  for (const [tabId, surfaceIds] of appBrowserSurfaceIdsByTabId) {
+    surfaceIds.delete(surfaceId);
+    if (surfaceIds.size > 0) continue;
+    appBrowserSurfaceIdsByTabId.delete(tabId);
+    appBrowserSurfaceInsetsByTabId.delete(tabId);
+    browserManager.setRendererSurfaceActive(tabId as ThreadId, false);
+    if (desktopAppRuntime?.appTabs.has(tabId)) {
+      desktopAppRuntime.appTabs.sendFrameEvent(tabId, "browser.surface", null);
+    }
+  }
+  for (const [tabId, boundsBySurfaceId] of hostedBrowserPageBoundsByTabId) {
+    const removed = boundsBySurfaceId.get(surfaceId);
+    boundsBySurfaceId.delete(surfaceId);
+    if (boundsBySurfaceId.size > 0) {
+      applyActiveHostedBrowserPageBounds(tabId);
+      continue;
+    }
+    hostedBrowserPageBoundsByTabId.delete(tabId);
+    if (removed) {
+      browserManager.setHostedPageBounds({
+        threadId: tabId as ThreadId,
+        tabId: removed.pageId,
+        bounds: null,
+        parentView: null,
+      });
+    }
+  }
+}
+
+function applyActiveHostedBrowserPageBounds(tabId: string): void {
+  const boundsBySurfaceId = hostedBrowserPageBoundsByTabId.get(tabId);
+  const preferredSurfaceId = desktopAppRuntime?.appTabs.activeSurfaceId(tabId) ?? null;
+  const selected =
+    (preferredSurfaceId === null ? undefined : boundsBySurfaceId?.get(preferredSurfaceId)) ??
+    boundsBySurfaceId?.values().next().value;
+  if (!selected) return;
+  const targetWindow = shellWindows().find((window) => window.contentView === selected.parentView);
+  if (targetWindow) browserManager.setWindow(targetWindow);
+  browserManager.setHostedPageBounds({
+    threadId: tabId as ThreadId,
+    tabId: selected.pageId,
+    bounds: selected.bounds,
+    parentView: selected.parentView,
+  });
+}
 
 browserManager.subscribe((state) => {
   const runtime = desktopAppRuntime;
@@ -1178,6 +1329,7 @@ function toAppBrowserState(
 async function showAppContextMenu(
   items: ReadonlyArray<ContextMenuItem>,
   position?: { x: number; y: number },
+  ownerWindow: BrowserWindow | null = resolveShellWindow(),
 ): Promise<string | null> {
   const normalizedItems = items
     .filter((item) => typeof item.id === "string" && typeof item.label === "string")
@@ -1196,7 +1348,7 @@ async function showAppContextMenu(
     position.y >= 0
       ? { x: Math.floor(position.x), y: Math.floor(position.y) }
       : null;
-  const window = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  const window = ownerWindow;
   if (!window) return null;
   const selection = createContextMenuSelection<string>();
   const template: MenuItemConstructorOptions[] = [];
@@ -1295,6 +1447,7 @@ async function invokeRuntimeV2BrowserCall(input: {
   tabId: string;
   appId: string;
   spaceId: string;
+  surfaceId: number;
   method: string;
   value: unknown;
 }): Promise<unknown> {
@@ -1326,12 +1479,21 @@ async function invokeRuntimeV2BrowserCall(input: {
       return state();
     case "setSurfaceLayout": {
       const insets = parseAppHostedSurfaceInsets(value);
+      const surfaceIds = appBrowserSurfaceIdsByTabId.get(input.tabId) ?? new Set<number>();
       if (insets === null) {
+        surfaceIds.delete(input.surfaceId);
+        if (surfaceIds.size > 0) {
+          appBrowserSurfaceIdsByTabId.set(input.tabId, surfaceIds);
+          return;
+        }
+        appBrowserSurfaceIdsByTabId.delete(input.tabId);
         appBrowserSurfaceInsetsByTabId.delete(input.tabId);
         browserManager.setRendererSurfaceActive(browserSessionId, false);
         desktopAppRuntime?.appTabs.sendFrameEvent(input.tabId, "browser.surface", null);
         return;
       }
+      surfaceIds.add(input.surfaceId);
+      appBrowserSurfaceIdsByTabId.set(input.tabId, surfaceIds);
       appBrowserSurfaceInsetsByTabId.set(input.tabId, insets);
       browserManager.setRendererSurfaceActive(browserSessionId, true);
       desktopAppRuntime?.appTabs.sendFrameEvent(input.tabId, "browser.surface", {
@@ -1554,8 +1716,9 @@ async function authorizeRuntimeV2SimulatorSetup(
       }. ` +
       "This downloads platform files and uses additional disk space. Penkra does not accept license terms automatically, and you can cancel while the installer is running.",
   };
-  const result = mainWindow
-    ? await dialog.showMessageBox(mainWindow, options)
+  const targetWindow = resolveShellWindow();
+  const result = targetWindow
+    ? await dialog.showMessageBox(targetWindow, options)
     : await dialog.showMessageBox(options);
   return result.response === 0;
 }
@@ -1722,7 +1885,7 @@ function getDesktopWindowState(window: BrowserWindow): {
   };
 }
 
-function emitDesktopWindowState(window: BrowserWindow | null = mainWindow): void {
+function emitDesktopWindowState(window: BrowserWindow | null = resolveShellWindow()): void {
   if (!window || window.isDestroyed()) return;
   window.webContents.send(IPC.windowState, getDesktopWindowState(window));
 }
@@ -1825,7 +1988,7 @@ function ensureInitialBackendWindowOpen(baseUrl: string): void {
   openInitialBackendWindow({
     isDevelopment,
     baseUrl,
-    hasExistingWindow: () => (mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null) !== null,
+    hasExistingWindow: () => shellWindowRegistry.first() !== null,
     createWindow: () => {
       mainWindow = createWindow();
     },
@@ -2519,12 +2682,8 @@ function registerDesktopProtocol(): void {
 }
 
 function dispatchMenuAction(action: string): void {
-  const existingWindow =
-    BrowserWindow.getFocusedWindow() ?? mainWindow ?? BrowserWindow.getAllWindows()[0];
+  const existingWindow = resolveShellWindow();
   const targetWindow = existingWindow ?? createWindow();
-  if (!existingWindow) {
-    mainWindow = targetWindow;
-  }
 
   const send = () => {
     if (targetWindow.isDestroyed()) return;
@@ -2544,7 +2703,7 @@ function dispatchMenuAction(action: string): void {
 }
 
 function resolveMenuTargetWindow(): BrowserWindow | null {
-  return BrowserWindow.getFocusedWindow() ?? mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null;
+  return resolveShellWindow();
 }
 
 function sendDesktopZoomFactor(webContents: Electron.WebContents): void {
@@ -2595,8 +2754,13 @@ function handleDesktopWindowZoomShortcut(event: Electron.Event, input: Electron.
   return true;
 }
 
-function attachDesktopWindowZoomShortcuts(webContents: Electron.WebContents): () => void {
+function attachDesktopWindowShortcuts(webContents: Electron.WebContents): () => void {
   const beforeInputEvent = (event: Electron.Event, input: Electron.Input) => {
+    if (isDesktopNewWindowShortcut(desktopPlatform.platform, input)) {
+      event.preventDefault();
+      createWindow({ cloneFrom: shellWindowForSender(webContents) });
+      return;
+    }
     handleDesktopWindowZoomShortcut(event, input);
   };
   webContents.on("before-input-event", beforeInputEvent);
@@ -2645,8 +2809,8 @@ function handleCheckForUpdatesMenuClick(): void {
     return;
   }
 
-  if (!BrowserWindow.getAllWindows().length) {
-    mainWindow = createWindow();
+  if (shellWindows().length === 0) {
+    createWindow();
   }
   void checkForUpdatesFromMenu();
 }
@@ -2755,6 +2919,12 @@ function configureApplicationMenu(): void {
     {
       label: "File",
       submenu: [
+        {
+          label: "New Window",
+          ...acceleratorProps("CmdOrCtrl+Shift+N"),
+          click: () => createAdditionalWindow(),
+        },
+        { type: "separator" },
         ...(desktopPlatform.platform === "darwin"
           ? []
           : [
@@ -2898,15 +3068,15 @@ function clearUnreadNotificationBadge(): void {
 // Reuse the existing desktop window when the app is launched again so users
 // don't end up with multiple packaged instances racing the same local state.
 function focusMainWindow(options: { stealAppFocus?: boolean } = {}): void {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    mainWindow = null;
+  const targetWindow = resolveShellWindow();
+  if (!targetWindow) {
     return;
   }
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore();
+  if (targetWindow.isMinimized()) {
+    targetWindow.restore();
   }
-  if (!mainWindow.isVisible()) {
-    mainWindow.show();
+  if (!targetWindow.isVisible()) {
+    targetWindow.show();
   }
   if (desktopPlatform.application.activateBeforeFocus && options.stealAppFocus === true) {
     // BrowserWindow.focus() alone does not activate a macOS app while another
@@ -2914,7 +3084,7 @@ function focusMainWindow(options: { stealAppFocus?: boolean } = {}): void {
     app.show();
     app.focus({ steal: true });
   }
-  mainWindow.focus();
+  targetWindow.focus();
 }
 
 // Show a native OS notification and refocus the app window when the alert is clicked.
@@ -2938,18 +3108,19 @@ function showDesktopNotification(input: {
     silent: input.silent === true,
     ...(iconPath ? { icon: iconPath } : {}),
   });
-  if (!isMainWindowForeground(mainWindow)) {
+  if (!shellWindows().some(isMainWindowForeground)) {
     incrementUnreadNotificationBadge();
   }
 
   notification.on("click", () => {
     clearUnreadNotificationBadge();
     focusMainWindow();
-    if (!mainWindow) {
+    const targetWindow = resolveShellWindow();
+    if (!targetWindow) {
       return;
     }
     if (threadId.length > 0) {
-      mainWindow.webContents.send(IPC.menuAction, `notification-open-thread:${threadId}`);
+      targetWindow.webContents.send(IPC.menuAction, `notification-open-thread:${threadId}`);
     }
   });
 
@@ -3247,10 +3418,7 @@ function isExplicitUpdateCheckReason(reason: string): boolean {
 }
 
 function emitUpdateState(): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isDestroyed()) continue;
-    window.webContents.send(IPC.updateState, updateState);
-  }
+  broadcastToShellWindows(IPC.updateState, updateState);
 }
 
 function setUpdateState(patch: Partial<DesktopUpdateState>): void {
@@ -4765,7 +4933,7 @@ function registerIpcHandlers(): void {
   const storageSnapshotPath = resolvePenkraStorageSnapshotPath(app.getPath("userData"));
 
   const requireMainRenderer = (event: Electron.IpcMainInvokeEvent): void => {
-    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+    if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
       throw new Error("Composer drafts are available only to the Penkra shell.");
     }
   };
@@ -4922,8 +5090,9 @@ function registerIpcHandlers(): void {
           message: `${appName} would like permission to ${reason.replace(/[.\s]+$/, "").toLowerCase()}.`,
           detail: "You can revoke this permission later in Penkra Settings.",
         };
-        const result = mainWindow
-          ? await dialog.showMessageBox(mainWindow, options)
+        const targetWindow = resolveShellWindow();
+        const result = targetWindow
+          ? await dialog.showMessageBox(targetWindow, options)
           : await dialog.showMessageBox(options);
         return result.response === 0;
       },
@@ -5137,8 +5306,9 @@ function registerIpcHandlers(): void {
               }. ` +
               "This downloads platform files and uses additional disk space. Penkra does not accept license terms automatically, and you can cancel while the installer is running.",
           };
-          const result = mainWindow
-            ? await dialog.showMessageBox(mainWindow, options)
+          const targetWindow = resolveShellWindow();
+          const result = targetWindow
+            ? await dialog.showMessageBox(targetWindow, options)
             : await dialog.showMessageBox(options);
           return result.response === 0;
         },
@@ -5456,7 +5626,7 @@ function registerIpcHandlers(): void {
   const requireAppInstallations = (senderId: number) => {
     const service = desktopAppRuntime?.installations;
     if (!service) throw new Error("The App installation service is not ready.");
-    const isShellRenderer = mainWindow?.webContents.id === senderId;
+    const isShellRenderer = isShellRendererId(senderId);
     if (!isShellRenderer && !desktopAppRuntime?.canManageInstallations(senderId)) {
       throw new Error("This renderer cannot manage App installations.");
     }
@@ -5644,7 +5814,7 @@ function registerIpcHandlers(): void {
   );
 
   const requireShellAppTabs = (senderId: number) => {
-    if (mainWindow?.webContents.id !== senderId) {
+    if (!isShellRendererId(senderId)) {
       throw new Error("Only the Penkra shell can manage host App tabs.");
     }
     const tabs = desktopAppRuntime?.appTabs;
@@ -5688,7 +5858,8 @@ function registerIpcHandlers(): void {
     const { tabId, rendererId, active } = parseSetAppTabActiveRequest(input);
     // React cleanup may deactivate a retired frame after an atomic App update. A stale
     // capability token is already inactive, so the host intentionally treats it as satisfied.
-    requireShellAppTabs(event.sender.id).setActive(tabId, rendererId, active);
+    requireShellAppTabs(event.sender.id).setActive(tabId, rendererId, active, event.sender.id);
+    if (active) applyActiveHostedBrowserPageBounds(tabId);
   });
   ipcMain.handle(IPC.appTabs.frameMessage, async (event, input: unknown) => {
     const tabs = requireShellAppTabs(event.sender.id);
@@ -5814,13 +5985,33 @@ function registerIpcHandlers(): void {
       };
     }
 
+    const ownerWindow = shellWindowForSender(event.sender);
+    const boundsBySurfaceId = hostedBrowserPageBoundsByTabId.get(tabId) ?? new Map();
+    if (normalizedBounds && ownerWindow) {
+      boundsBySurfaceId.set(event.sender.id, {
+        pageId,
+        bounds: normalizedBounds,
+        parentView: ownerWindow.contentView,
+      });
+      hostedBrowserPageBoundsByTabId.set(tabId, boundsBySurfaceId);
+      applyActiveHostedBrowserPageBounds(tabId);
+      return;
+    }
+
+    const removed = boundsBySurfaceId.get(event.sender.id);
+    if (removed?.pageId === pageId) boundsBySurfaceId.delete(event.sender.id);
+    if (boundsBySurfaceId.size > 0) {
+      applyActiveHostedBrowserPageBounds(tabId);
+      return;
+    }
+    hostedBrowserPageBoundsByTabId.delete(tabId);
     const didApplyHostedBounds = browserManager.setHostedPageBounds({
       threadId: tabId as ThreadId,
       tabId: pageId,
-      bounds: normalizedBounds,
-      parentView: mainWindow?.contentView ?? null,
+      bounds: null,
+      parentView: null,
     });
-    if (normalizedBounds === null && didApplyHostedBounds) {
+    if (didApplyHostedBounds) {
       browserManager.setRendererSurfaceActive(tabId as ThreadId, rendererSurfaceActive);
     }
   });
@@ -5876,8 +6067,9 @@ function registerIpcHandlers(): void {
               message: `${appName} would like permission to ${reason.replace(/[.\s]+$/, "").toLowerCase()}.`,
               detail: `${audience ? `Identity audience: ${audience}\n\n` : ""}You can revoke this permission later in Penkra Settings.`,
             };
-            const result = mainWindow
-              ? await dialog.showMessageBox(mainWindow, options)
+            const targetWindow = resolveShellWindow();
+            const result = targetWindow
+              ? await dialog.showMessageBox(targetWindow, options)
               : await dialog.showMessageBox(options);
             return result.response === 0;
           },
@@ -5912,7 +6104,7 @@ function registerIpcHandlers(): void {
         if (kind !== "file" && kind !== "directory" && kind !== "save") {
           throw new Error("File picker kind must be file, directory, or save.");
         }
-        const pickerOwner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+        const pickerOwner = resolveShellWindow();
         if (kind === "save") {
           const pickerOptions =
             pickerInput.options &&
@@ -6454,6 +6646,7 @@ function registerIpcHandlers(): void {
           tabId,
           appId: identity.appId,
           spaceId: identity.spaceId,
+          surfaceId: event.sender.id,
           method: method.slice("browser.".length),
           value,
         });
@@ -6777,7 +6970,7 @@ function registerIpcHandlers(): void {
     return input as Record<string, unknown>;
   };
   const requireOpenWithStore = (senderId: number) => {
-    if (mainWindow?.webContents.id !== senderId) {
+    if (!isShellRendererId(senderId)) {
       throw new Error("Only the Penkra shell can manage Open With preferences.");
     }
     if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
@@ -6814,7 +7007,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(IPC.appDiagnostics.list);
   ipcMain.handle(IPC.appDiagnostics.list, async (event, input: unknown) => {
-    if (mainWindow?.webContents.id !== event.sender.id) {
+    if (!isShellRendererId(event.sender.id)) {
       throw new Error("Only the Penkra shell can read App diagnostics.");
     }
     if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
@@ -6858,8 +7051,8 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.pickFolder);
-  ipcMain.handle(IPC.pickFolder, async () => {
-    const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  ipcMain.handle(IPC.pickFolder, async (event) => {
+    const owner = shellWindowForSender(event.sender) ?? resolveShellWindow();
     const result = owner
       ? await dialog.showOpenDialog(owner, {
           properties: ["openDirectory", "createDirectory"],
@@ -6872,8 +7065,8 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.pickImage);
-  ipcMain.handle(IPC.pickImage, async () => {
-    const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  ipcMain.handle(IPC.pickImage, async (event) => {
+    const owner = shellWindowForSender(event.sender) ?? resolveShellWindow();
     const options = {
       properties: ["openFile"] as Array<"openFile">,
       filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
@@ -6905,12 +7098,12 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.saveFile);
-  ipcMain.handle(IPC.saveFile, async (_event, input: unknown) => {
+  ipcMain.handle(IPC.saveFile, async (event, input: unknown) => {
     if (!isSaveFileInput(input)) {
       throw new Error("Invalid save file input.");
     }
 
-    const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+    const owner = shellWindowForSender(event.sender) ?? resolveShellWindow();
     const options = {
       defaultPath: input.defaultFilename,
       ...(input.filters ? { filters: input.filters } : {}),
@@ -6928,7 +7121,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.confirm);
-  ipcMain.handle(IPC.confirm, async (_event, input: unknown) => {
+  ipcMain.handle(IPC.confirm, async (event, input: unknown) => {
     if (
       typeof input !== "string" &&
       (!input ||
@@ -6938,7 +7131,7 @@ function registerIpcHandlers(): void {
       return false;
     }
 
-    const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+    const owner = shellWindowForSender(event.sender) ?? resolveShellWindow();
     return showDesktopConfirmDialog(input as Parameters<typeof showDesktopConfirmDialog>[0], owner);
   });
 
@@ -6953,7 +7146,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.removeHandler(IPC.setAppTheme);
   ipcMain.handle(IPC.setAppTheme, async (event, rawTheme: unknown) => {
-    if (mainWindow?.webContents.id !== event.sender.id) {
+    if (!isShellRendererId(event.sender.id)) {
       throw new Error("Only the Penkra shell can set the App Theme contract.");
     }
     if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
@@ -6963,7 +7156,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.removeHandler(IPC.setAppTypography);
   ipcMain.handle(IPC.setAppTypography, async (event, rawTypography: unknown) => {
-    if (mainWindow?.webContents.id !== event.sender.id) {
+    if (!isShellRendererId(event.sender.id)) {
       throw new Error("Only the Penkra shell can set the App Typography contract.");
     }
     if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
@@ -6973,10 +7166,13 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.setSpacesMenu);
-  ipcMain.handle(IPC.setSpacesMenu, async (_event, input: unknown) => {
+  ipcMain.handle(IPC.setSpacesMenu, async (event, input: unknown) => {
+    requireShellWindowForSender(event.sender);
     const nextState = normalizeDesktopSpacesMenuInput(input);
     if (!nextState) return;
-    spacesMenuState = nextState;
+    spacesMenuStateByShellRendererId.set(event.sender.id, nextState);
+    const senderWindow = shellWindowForSender(event.sender);
+    if (senderWindow?.isFocused() || !resolveShellWindow()) spacesMenuState = nextState;
     await bootstrapConfiguredAppsForSpaces();
     configureApplicationMenu();
   });
@@ -6984,8 +7180,8 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(IPC.contextMenu);
   ipcMain.handle(
     IPC.contextMenu,
-    async (_event, items: ContextMenuItem[], position?: { x: number; y: number }) =>
-      showAppContextMenu(items, position),
+    async (event, items: ContextMenuItem[], position?: { x: number; y: number }) =>
+      showAppContextMenu(items, position, shellWindowForSender(event.sender)),
   );
 
   ipcMain.removeHandler(IPC.openExternal);
@@ -7005,7 +7201,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(IPC.resourceOpen);
   ipcMain.handle(IPC.resourceOpen, async (event, input: unknown) => {
-    if (mainWindow?.webContents.id !== event.sender.id) {
+    if (!isShellRendererId(event.sender.id)) {
       throw new Error("Only the Penkra shell can open a host resource.");
     }
     if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -7034,7 +7230,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(IPC.resourceContextMenu);
   ipcMain.handle(IPC.resourceContextMenu, async (event, input: unknown) => {
-    if (mainWindow?.webContents.id !== event.sender.id) {
+    if (!isShellRendererId(event.sender.id)) {
       throw new Error("Only the Penkra shell can show a host resource menu.");
     }
     if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -7067,6 +7263,7 @@ function registerIpcHandlers(): void {
       spaceId: record.spaceId,
       threadId: record.threadId,
       position: { x: point.x, y: point.y },
+      ownerWindow: shellWindowForSender(event.sender),
     });
   });
 
@@ -7120,13 +7317,13 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(IPC.windowMinimize);
   ipcMain.handle(IPC.windowMinimize, async (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+    const window = BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
     window?.minimize();
   });
 
   ipcMain.removeHandler(IPC.windowToggleMaximize);
   ipcMain.handle(IPC.windowToggleMaximize, async (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+    const window = BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
     if (!window) {
       return { isMaximized: false, isFullscreen: false };
     }
@@ -7142,13 +7339,13 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(IPC.windowClose);
   ipcMain.handle(IPC.windowClose, async (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+    const window = BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
     window?.close();
   });
 
   ipcMain.removeHandler(IPC.windowGetState);
   ipcMain.handle(IPC.windowGetState, async (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+    const window = BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
     return window ? getDesktopWindowState(window) : { isMaximized: false, isFullscreen: false };
   });
 
@@ -7216,7 +7413,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(IPC.mediaRequestMicrophoneAccess);
   ipcMain.handle(IPC.mediaRequestMicrophoneAccess, async (event) => {
-    if (!mainWindow || event.sender !== mainWindow.webContents || event.sender.isDestroyed()) {
+    if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
       return false;
     }
     if (desktopPlatform.browserPermissions.microphone !== "macos-system-prompt") {
@@ -7234,7 +7431,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.removeHandler(IPC.powerSetActiveWork);
   ipcMain.handle(IPC.powerSetActiveWork, (event, input: unknown) => {
-    if (!mainWindow || event.sender !== mainWindow.webContents || event.sender.isDestroyed()) {
+    if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
       return;
     }
     if (
@@ -7311,12 +7508,23 @@ function getTitleBarOptions(): BrowserWindowConstructorOptions {
   };
 }
 
-function createWindow(): BrowserWindow {
-  const savedWindowState = readDesktopWindowState(DESKTOP_WINDOW_STATE_PATH);
+function createAdditionalWindow(): BrowserWindow {
+  return createWindow({ cloneFrom: resolveShellWindow() });
+}
+
+function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): BrowserWindow {
+  const cloneFrom = shellWindowRegistry.has(options.cloneFrom) ? options.cloneFrom : null;
+  const savedWindowState = cloneFrom ? null : readDesktopWindowState(DESKTOP_WINDOW_STATE_PATH);
   const primaryDisplay = screen.getPrimaryDisplay();
-  const restoredBounds = savedWindowState
+  const clonedBounds = cloneFrom
+    ? (() => {
+        const bounds = cloneFrom.getNormalBounds();
+        return { ...bounds, x: bounds.x + 28, y: bounds.y + 28 };
+      })()
+    : null;
+  const restoredBounds = clonedBounds
     ? resolveVisibleWindowBounds({
-        savedBounds: savedWindowState.bounds,
+        savedBounds: clonedBounds,
         displayWorkAreas: [
           primaryDisplay.workArea,
           ...screen
@@ -7327,7 +7535,20 @@ function createWindow(): BrowserWindow {
         minimumWidth: 840,
         minimumHeight: 620,
       })
-    : { width: 1100, height: 780 };
+    : savedWindowState
+      ? resolveVisibleWindowBounds({
+          savedBounds: savedWindowState.bounds,
+          displayWorkAreas: [
+            primaryDisplay.workArea,
+            ...screen
+              .getAllDisplays()
+              .filter((display) => display.id !== primaryDisplay.id)
+              .map((display) => display.workArea),
+          ],
+          minimumWidth: 840,
+          minimumHeight: 620,
+        })
+      : { width: 1100, height: 780 };
   const window = new BrowserWindow({
     ...restoredBounds,
     minWidth: 840,
@@ -7348,21 +7569,36 @@ function createWindow(): BrowserWindow {
       backgroundThrottling: true,
     },
   });
+  shellWindowRegistry.add(window);
+  mainWindow ??= window;
   const rendererOwnerId = window.webContents.id;
   // `ready-to-show` is not guaranteed by every development compositor path.
   // A completed main-frame load is an equally valid event-driven fallback.
   const showInitialWindow = createInitialWindowPresenter({
     window,
-    maximize: !savedWindowState || savedWindowState.isMaximized,
+    maximize: cloneFrom
+      ? cloneFrom.isMaximized()
+      : !savedWindowState || savedWindowState.isMaximized,
     onShown: (source) => {
       emitDesktopWindowState(window);
       writeDesktopLogHeader(`main window shown source=${source}`);
     },
   });
+  window.on("focus", () => {
+    browserManager.setWindow(window);
+    desktopAppRuntime?.appTabs.focusSurface(rendererOwnerId);
+    const visibleTabId = desktopAppRuntime?.appTabs.visibleTabIdForSurface(rendererOwnerId);
+    if (visibleTabId) applyActiveHostedBrowserPageBounds(visibleTabId);
+    const windowSpaces = spacesMenuStateByShellRendererId.get(window.webContents.id);
+    if (windowSpaces) {
+      spacesMenuState = windowSpaces;
+      configureApplicationMenu();
+    }
+  });
   browserManager.setWindow(window);
   attachDesktopZoomFactorSync(window);
   attachRendererCrashRecovery(window);
-  attachDesktopWindowZoomShortcuts(window.webContents);
+  attachDesktopWindowShortcuts(window.webContents);
 
   window.webContents.on("context-menu", (event, params) => {
     event.preventDefault();
@@ -7443,7 +7679,9 @@ function createWindow(): BrowserWindow {
       console.warn(`[desktop] Failed to persist window state: ${formatErrorMessage(error)}`);
     }
 
+    const isFinalShellWindow = shellWindows().length <= 1;
     if (
+      isFinalShellWindow &&
       shouldDeferDesktopWindowClose({
         platform: desktopPlatform.platform,
         shutdownComplete: desktopShutdownComplete,
@@ -7456,10 +7694,12 @@ function createWindow(): BrowserWindow {
   });
 
   if (isDevelopment && process.env.VITE_DEV_SERVER_URL) {
-    void window.loadURL(process.env.VITE_DEV_SERVER_URL as string);
+    void window.loadURL(
+      cloneFrom?.webContents.getURL() || (process.env.VITE_DEV_SERVER_URL as string),
+    );
     window.webContents.openDevTools({ mode: "detach" });
   } else {
-    void window.loadURL(desktopIdentity.entryUrl);
+    void window.loadURL(cloneFrom?.webContents.getURL() || desktopIdentity.entryUrl);
   }
 
   window.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
@@ -7470,10 +7710,14 @@ function createWindow(): BrowserWindow {
 
   window.on("closed", () => {
     activeWorkPowerBlocker.releaseOwner(rendererOwnerId);
+    desktopAppRuntime?.appTabs.dropSurface(rendererOwnerId);
+    dropAppBrowserSurface(rendererOwnerId);
+    spacesMenuStateByShellRendererId.delete(rendererOwnerId);
+    shellWindowRegistry.delete(window);
     if (mainWindow === window) {
-      mainWindow = null;
+      mainWindow = shellWindowRegistry.first();
     }
-    browserManager.setWindow(null);
+    browserManager.setWindow(resolveShellWindow());
   });
 
   return window;
@@ -7608,11 +7852,12 @@ function configureMediaPermissions(): void {
   for (const { targetSession, trustedRequester } of [
     {
       targetSession: session.defaultSession,
-      trustedRequester: () => mainWindow?.webContents ?? null,
+      trustedRequester: (requester: WebContents) =>
+        shellWindowRegistry.hasWebContents(requester) ? requester : null,
     },
     {
       targetSession: session.fromPartition(BROWSER_SESSION_PARTITION),
-      trustedRequester: () => null,
+      trustedRequester: (_requester: WebContents) => null,
     },
   ]) {
     if (!targetSession) continue;
@@ -7620,13 +7865,18 @@ function configureMediaPermissions(): void {
     targetSession.setPermissionCheckHandler(
       (webContents, permission, requestingOrigin, details) =>
         permission === "media" &&
-        isTrustedMediaPermissionRequest(webContents, trustedRequester(), details, requestingOrigin),
+        isTrustedMediaPermissionRequest(
+          webContents,
+          webContents ? trustedRequester(webContents) : null,
+          details,
+          requestingOrigin,
+        ),
     );
 
     targetSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
       if (
         permission !== "media" ||
-        !isTrustedMediaPermissionRequest(webContents, trustedRequester(), details)
+        !isTrustedMediaPermissionRequest(webContents, trustedRequester(webContents), details)
       ) {
         callback(false);
         return;
@@ -7661,7 +7911,7 @@ if (hasSingleInstanceLock) {
     authBaseUrl: penkraAccountServices.authBaseUrl,
     desktopFlavor,
     developmentInstance,
-    getWindow: () => mainWindow,
+    getWindow: () => resolveShellWindow(),
     ipcMain,
     registerAsDefaultProtocolClient: !desktopSmokeUserDataPath,
     inspectInitialProtocolUrlFromArgv: desktopPlatform.deepLinks.inspectInitialArgv,
@@ -7704,8 +7954,9 @@ if (!hasSingleInstanceLock) {
 
 function requestAppListing(request: { appId: string }): void {
   pendingAppListingRequest = request;
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send(IPC.appTabs.listingRequested, request);
+  const targetWindow = resolveShellWindow();
+  if (!targetWindow) return;
+  targetWindow.webContents.send(IPC.appTabs.listingRequested, request);
   focusMainWindow();
 }
 
@@ -7743,9 +7994,10 @@ async function bootstrap(): Promise<void> {
     getAccountId: getPenkraAccountId,
     eraseAppStorage: (appId, spaceId) => appStorage?.erase({ appId, spaceId }) ?? Promise.resolve(),
     requestStandardPermissions: async (request) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return false;
+      const targetWindow = resolveShellWindow();
+      if (!targetWindow) return false;
       const labels = request.permissions.map((permission) => APP_STANDARD_PERMISSIONS[permission]);
-      const result = await dialog.showMessageBox(mainWindow, {
+      const result = await dialog.showMessageBox(targetWindow, {
         type: "question",
         title: `${request.appName} permission`,
         message: `${request.appName} would like to ${labels.join(" and ").toLowerCase()}.`,
@@ -7863,20 +8115,24 @@ async function bootstrap(): Promise<void> {
       }
     },
     onTabOpened: (descriptor) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      mainWindow.webContents.send(IPC.appTabs.opened, descriptor);
+      broadcastToShellWindows(IPC.appTabs.opened, descriptor);
     },
     onTabState: (descriptor) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      mainWindow.webContents.send(IPC.appTabs.state, descriptor);
+      broadcastToShellWindows(IPC.appTabs.state, descriptor);
     },
     onFrameHostMessage: (message) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      mainWindow.webContents.send(IPC.appTabs.frameHostMessage, message);
+      if (message.delivery.kind === "event") {
+        broadcastToShellWindows(IPC.appTabs.frameHostMessage, message);
+        return;
+      }
+      const targetSurfaceId = desktopAppRuntime?.appTabs.activeSurfaceId(message.tabId) ?? null;
+      const targetWindow =
+        shellWindows().find((window) => window.webContents.id === targetSurfaceId) ??
+        resolveShellWindow();
+      targetWindow?.webContents.send(IPC.appTabs.frameHostMessage, message);
     },
     onTabClosed: (descriptor) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      mainWindow.webContents.send(IPC.appTabs.closed, descriptor);
+      broadcastToShellWindows(IPC.appTabs.closed, descriptor);
     },
     tabAuthority: {
       retireGeneration: retireAppGenerationAuthority,
@@ -7929,7 +8185,7 @@ async function bootstrap(): Promise<void> {
     userDataPath: app.getPath("userData"),
     reviewAndroidLicense: (prompt, signal) =>
       queueAndroidSdkLicenseReview({
-        parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : null,
+        parent: resolveShellWindow(),
         preloadPath: Path.join(__dirname, "simulatorLicenseReviewPreload.js"),
         prompt,
         signal,
@@ -8025,8 +8281,7 @@ async function bootstrap(): Promise<void> {
   }
   desktopAppRuntime.installations.subscribe((state) => {
     void toDesktopAppInstallationSnapshot(state).then((snapshot) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      mainWindow.webContents.send(IPC.appInstallations.state, snapshot);
+      broadcastToShellWindows(IPC.appInstallations.state, snapshot);
     });
   });
   writeDesktopLogHeader("bootstrap App runtime started");
@@ -8052,38 +8307,10 @@ async function bootstrap(): Promise<void> {
           );
         })(),
         hostedInsets: appBrowserSurfaceInsetsByTabId.get(descriptor.id) ?? null,
-        appTarget: async (targetTabId) => {
-          if (!mainWindow || mainWindow.isDestroyed()) {
-            throw new Error("The Penkra window is unavailable.");
-          }
-          const shellContents = mainWindow.webContents;
-          // Multiple tabs for the same App intentionally load the same package URL. The iframe
-          // browsing-context name is the stable host identity; matching by URL can observe a
-          // retained, inactive tab while a different same-App tab is painted.
-          const frame = shellContents.mainFrame.framesInSubtree.find(
-            (candidate) => candidate.name === `penkra-app-tab:${targetTabId}`,
-          );
-          if (!frame) throw new Error(`App frame ${targetTabId} is unavailable.`);
-          return {
-            descriptor,
-            webContents: shellContents,
-            frame,
-            captureBounds: async () => {
-              const rect = await shellContents.executeJavaScript(
-                `(() => {
-                  const element = document.querySelector('[data-app-tab-id=${JSON.stringify(targetTabId)}]');
-                  if (!(element instanceof HTMLElement)) throw new Error('App frame element is unavailable.');
-                  if (element.hidden || element.getClientRects().length === 0 || !element.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return null;
-                  const bounds = element.getBoundingClientRect();
-                  if (!Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) || bounds.width <= 0 || bounds.height <= 0) return null;
-                  return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
-                })()`,
-                false,
-              );
-              return rect as Electron.Rectangle | null;
-            },
-          };
-        },
+        // A logical App tab may be painted in several shell windows. Resolve the focused visible
+        // replica first, then any other visible replica, without changing the tab-targeted tool
+        // contract or accidentally selecting a retained hidden iframe.
+        appTarget: (targetTabId) => resolveShellAppFrameTarget(descriptor, targetTabId),
         // A public browser-session is isolated to the App tab that owns it;
         // DesktopBrowserManager retains the older `threadId` parameter name.
         browserWebContents: (appTabId) =>
@@ -8251,7 +8478,7 @@ if (hasSingleInstanceLock) {
           return;
         }
         handleDesktopAppForegrounded();
-        if (BrowserWindow.getAllWindows().length === 0) {
+        if (shellWindows().length === 0) {
           if (!isDevelopment) {
             ensureInitialBackendWindowOpen(backendHttpUrl);
             return;

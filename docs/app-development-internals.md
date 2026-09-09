@@ -73,9 +73,13 @@ migration as a second installation database or leaving competing state files beh
 ## Numbered development launchers
 
 `bun run dev:desktop:install-app` installs `Penkra Dev`, `Penkra Dev 2`, and `Penkra Dev 3` in
-`/Applications`; additional numbered slots may be installed explicitly. The instances share source
-watchers and local account/website/registry services while keeping desktop profiles, databases,
-sessions, tabs, logs, and embedded backends isolated.
+`/Applications`. These three slots are the complete standard pool and must be reused for routine
+development and QA. Install a slot beyond 3 only when a test inherently requires more than three
+simultaneous isolated desktops, such as a large multiplayer or concurrency scenario. Record why the
+standard pool is insufficient, then remove the extra launcher and
+`~/Penkra_Dev/.instances/<slot>` state immediately after the test finishes or fails. The instances
+share source watchers and local account/website/registry services while keeping desktop profiles,
+databases, sessions, tabs, logs, and embedded backends isolated.
 
 The launcher owns its fixed local-service routing. Do not rename a launcher, copy an app bundle, or
 manually construct instance environment variables. See `AGENTS.md` for the complete isolation and

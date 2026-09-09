@@ -9,7 +9,7 @@ import {
   type AppRuntimeFrameMessage,
   type AppRuntimeHostMessage,
 } from "@penkra/contracts";
-import { deriveChromeUserAgent } from "@penkra/shared/browserSession";
+import { deriveBrowserUserAgentForUrl } from "@penkra/shared/browserSession";
 import type { AppBrowserSessionState } from "@penkra/sdk";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -46,8 +46,11 @@ export function AppDockPane(props: {
   );
   const browserUserAgent = useMemo(
     () =>
-      deriveChromeUserAgent(typeof navigator === "undefined" ? "Mozilla/5.0" : navigator.userAgent),
-    [],
+      deriveBrowserUserAgentForUrl(
+        typeof navigator === "undefined" ? "Mozilla/5.0" : navigator.userAgent,
+        browserPage?.url ?? "about:blank",
+      ),
+    [browserPage?.url],
   );
 
   useEffect(() => {
@@ -366,7 +369,6 @@ function HostedBrowserWebview(props: {
       if (typeof webview.getWebContentsId !== "function") return;
       const webContentsId = webview.getWebContentsId();
       if (!Number.isInteger(webContentsId) || webContentsId <= 0) return;
-      if (attachedWebContentsId === webContentsId) return;
       attachedWebContentsId = webContentsId;
       void bridge.browserWebviewAttach({
         tabId: props.tabId,
@@ -377,9 +379,11 @@ function HostedBrowserWebview(props: {
     };
     webview.addEventListener("dom-ready", attach);
     webview.addEventListener("did-fail-load", didFailLoad);
+    window.addEventListener("focus", attach);
     return () => {
       webview.removeEventListener("dom-ready", attach);
       webview.removeEventListener("did-fail-load", didFailLoad);
+      window.removeEventListener("focus", attach);
       if (attachedWebContentsId !== null) {
         void bridge.browserWebviewDetach({
           tabId: props.tabId,

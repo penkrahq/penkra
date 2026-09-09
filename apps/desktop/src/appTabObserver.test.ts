@@ -328,11 +328,20 @@ describe("AppTabObserver", () => {
     });
     sendCommand.mockImplementation((async (method: string) => {
       if (method === "Page.getFrameTree") {
-        return { frameTree: { frame: { id: "shell", url: "http://localhost:5173" }, childFrames: [{ frame: { id: "canvas-frame", url: descriptor.documentUrl } }] } };
+        return {
+          frameTree: {
+            frame: { id: "shell", url: "http://localhost:5173" },
+            childFrames: [{ frame: { id: "canvas-frame", url: descriptor.documentUrl } }],
+          },
+        };
       }
       if (method === "Accessibility.getFullAXTree") {
         return acquired
-          ? { nodes: [{ backendDOMNodeId: 7, role: { value: "button" }, name: { value: "Save design" } }] }
+          ? {
+              nodes: [
+                { backendDOMNodeId: 7, role: { value: "button" }, name: { value: "Save design" } },
+              ],
+            }
           : { nodes: [{ role: { value: "RootWebArea" }, name: { value: "Canvas" } }] };
       }
       return {};

@@ -52,14 +52,19 @@ import {
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProviderRuntimeEventRepositoryLive } from "../../persistence/Layers/ProviderRuntimeEvents.ts";
+import { ProviderSessionRuntimeRepositoryLive } from "../../persistence/Layers/ProviderSessionRuntime.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
+import { ProviderSessionRuntimeRepository } from "../../persistence/Services/ProviderSessionRuntime.ts";
 import {
   PROVIDER_RUNTIME_INGESTION_CONSUMER,
   PROVIDER_RUNTIME_PROJECTION_RETRY_BASE_MS,
   ProviderRuntimeEventRepository,
 } from "../../persistence/Services/ProviderRuntimeEvents.ts";
-import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import {
+  OrchestrationEngineService,
+  type OrchestrationDispatchContext,
+} from "../Services/OrchestrationEngine.ts";
 import {
   ProjectionSnapshotQuery,
   type ProjectionGeneratedImageActivityRecord,
@@ -597,9 +602,13 @@ const make = Effect.gen(function* () {
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const runtimeEvents = yield* ProviderRuntimeEventRepository;
+  const providerSessionRuntimes = yield* ProviderSessionRuntimeRepository;
   const commandReceipts = yield* OrchestrationCommandReceiptRepository;
 
-  const materializeCanonicalOperation = (event: ProviderRuntimeEvent) => {
+  const materializeCanonicalOperation = (
+    event: ProviderRuntimeEvent,
+    presentationSequence: number | null,
+  ) => {
     const operation = canonicalOperationFromRuntimeEvent(event);
     if (operation === null) return Effect.succeed(false);
     return Effect.gen(function* () {
@@ -614,21 +623,28 @@ const make = Effect.gen(function* () {
             AND COALESCE(turn_id, '') = COALESCE(${operation.turnId}, '')
             AND provider_operation_id = ${operation.providerOperationId}
         `;
-      if (existing[0]?.lastSourceEventId === operation.sourceEventId) return true;
+      if (existing[0]?.lastSourceEventId === operation.sourceEventId) {
+        if (presentationSequence !== null) {
+          yield* sql`UPDATE operations SET presentation_sequence = COALESCE(
+            presentation_sequence, ${presentationSequence}
+          ) WHERE operation_id = ${existing[0].operationId}`;
+        }
+        return true;
+      }
       const operationId = existing[0]?.operationId ?? `operation:${crypto.randomUUID()}`;
 
       yield* sql`
           INSERT INTO operations (
             operation_id, provider_operation_id, thread_id, turn_id, provider,
             item_type, title, status, input_json, started_at,
-            activity_json, ended_at, last_source_event_id, updated_at
+            activity_json, ended_at, last_source_event_id, updated_at, presentation_sequence
           ) VALUES (
             ${operationId}, ${operation.providerOperationId}, ${operation.threadId},
             ${operation.turnId}, ${operation.provider}, ${operation.itemType}, ${operation.title},
             ${operation.status}, ${operation.inputJson}, ${operation.startedAt},
             ${operation.activityJson}, ${operation.endedAt},
             ${operation.sourceEventId},
-            ${operation.updatedAt}
+            ${operation.updatedAt}, ${presentationSequence}
           )
           ON CONFLICT DO UPDATE SET
             item_type = excluded.item_type,
@@ -656,13 +672,19 @@ const make = Effect.gen(function* () {
             END,
             ended_at = COALESCE(operations.ended_at, excluded.ended_at),
             last_source_event_id = excluded.last_source_event_id,
+            presentation_sequence = COALESCE(
+              excluded.presentation_sequence, operations.presentation_sequence
+            ),
             updated_at = excluded.updated_at
         `;
       return true;
     });
   };
 
-  const materializeCanonicalNotice = (event: ProviderRuntimeEvent) => {
+  const materializeCanonicalNotice = (
+    event: ProviderRuntimeEvent,
+    presentationSequence: number | null,
+  ) => {
     if (event.type !== "runtime.warning") return Effect.succeed(false);
     const activity = projectProviderRuntimeActivities(event)[0];
     if (!activity) return Effect.succeed(false);
@@ -670,15 +692,22 @@ const make = Effect.gen(function* () {
       const existing = yield* sql<{ readonly present: number }>`
           SELECT 1 AS present FROM notices WHERE notice_id = ${event.eventId}
         `;
-      if (existing.length > 0) return true;
+      if (existing.length > 0) {
+        if (presentationSequence !== null) {
+          yield* sql`UPDATE notices SET presentation_sequence = COALESCE(
+            presentation_sequence, ${presentationSequence}
+          ) WHERE notice_id = ${event.eventId}`;
+        }
+        return true;
+      }
       yield* sql`
           INSERT INTO notices (
             notice_id, thread_id, turn_id, kind, tone, summary,
-            detail_json, created_at
+            detail_json, created_at, presentation_sequence
           ) VALUES (
             ${event.eventId}, ${event.threadId}, ${event.turnId ?? null},
             ${activity.kind}, ${activity.tone}, ${activity.summary},
-            ${JSON.stringify(activity.payload)}, ${event.createdAt}
+            ${JSON.stringify(activity.payload)}, ${event.createdAt}, ${presentationSequence}
           )
         `;
       return true;
@@ -1008,14 +1037,63 @@ const make = Effect.gen(function* () {
    * Rejected receipts are deliberately not skipped: no durable effect was accepted, and the
    * engine must preserve its normal identity/invariant checks for the retry.
    */
-  const dispatchProviderCommandOnce = Effect.fnUntraced(function* (command: OrchestrationCommand) {
+  const dispatchProviderCommandOnce = Effect.fnUntraced(function* (
+    command: OrchestrationCommand,
+    expectedProviderLifecycleGeneration?: string,
+    expectedProviderSessionOwnership?: OrchestrationDispatchContext["expectedProviderSessionOwnership"],
+  ) {
     const existingReceipt = yield* commandReceipts.getByCommandId({
       commandId: command.commandId,
     });
     if (Option.isSome(existingReceipt) && existingReceipt.value.status === "accepted") {
+      if (
+        command.type === "thread.session.set" &&
+        expectedProviderLifecycleGeneration !== undefined
+      ) {
+        const stored = yield* Stream.runHead(
+          orchestrationEngine.readEventsThrough(
+            existingReceipt.value.resultSequence - 1,
+            existingReceipt.value.resultSequence,
+          ),
+        );
+        if (
+          Option.isNone(stored) ||
+          stored.value.sequence !== existingReceipt.value.resultSequence ||
+          stored.value.commandId !== command.commandId ||
+          stored.value.aggregateKind !== "thread" ||
+          stored.value.aggregateId !== command.threadId ||
+          (stored.value.type !== "thread.session-set" &&
+            stored.value.type !== "thread.provider-lifecycle-write-skipped")
+        ) {
+          return yield* Effect.die(
+            new Error(
+              "Accepted guarded provider lifecycle command has no matching durable disposition event.",
+            ),
+          );
+        }
+        return {
+          sequence: existingReceipt.value.resultSequence,
+          disposition:
+            stored.value.type === "thread.provider-lifecycle-write-skipped"
+              ? ("skipped" as const)
+              : ("applied" as const),
+        };
+      }
       return { sequence: existingReceipt.value.resultSequence };
     }
-    return yield* orchestrationEngine.dispatch(command);
+    return yield* orchestrationEngine.dispatch(
+      command,
+      expectedProviderLifecycleGeneration === undefined
+        ? expectedProviderSessionOwnership === undefined
+          ? undefined
+          : { expectedProviderSessionOwnership }
+        : {
+            expectedProviderLifecycleGeneration,
+            ...(expectedProviderSessionOwnership === undefined
+              ? {}
+              : { expectedProviderSessionOwnership }),
+          },
+    );
   });
 
   const claimNativeChildSlot = Effect.fnUntraced(function* (
@@ -1677,8 +1755,18 @@ const make = Effect.gen(function* () {
 
   const commitCanonicalRuntimeEventInCurrentTransaction = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
-      yield* materializeCanonicalOperation(event);
-      yield* materializeCanonicalNotice(event);
+      const receipt =
+        canonicalOperationFromRuntimeEvent(event) !== null || event.type === "runtime.warning"
+          ? yield* commandReceipts.getByCommandId({
+              commandId: providerCommandId(event, "activity-read-model-touch", event.threadId),
+            })
+          : Option.none();
+      const presentationSequence =
+        Option.isSome(receipt) && receipt.value.status === "accepted"
+          ? receipt.value.resultSequence
+          : null;
+      yield* materializeCanonicalOperation(event, presentationSequence);
+      yield* materializeCanonicalNotice(event, presentationSequence);
       yield* materializeConnectionFacts(event);
     });
 
@@ -1693,6 +1781,27 @@ const make = Effect.gen(function* () {
   ) =>
     Effect.gen(function* () {
       const now = event.createdAt;
+      if (
+        event.lifecycleGeneration !== undefined &&
+        (event.type === "session.started" ||
+          event.type === "session.state.changed" ||
+          event.type === "session.exited")
+      ) {
+        const runtime = yield* providerSessionRuntimes.getByThreadId({ threadId: event.threadId });
+        if (
+          Option.isSome(runtime) &&
+          runtime.value.lifecycleGeneration !== event.lifecycleGeneration
+        ) {
+          yield* Effect.logWarning("provider.runtime.stale_generation_lifecycle_ignored", {
+            threadId: event.threadId,
+            eventId: event.eventId,
+            eventType: event.type,
+            eventLifecycleGeneration: event.lifecycleGeneration,
+            currentLifecycleGeneration: runtime.value.lifecycleGeneration,
+          });
+          return;
+        }
+      }
       // Load the full (heavy) detail only when this event's handlers actually read
       // thread.messages; otherwise use the cheap
       // shell so high-frequency streaming events don't re-decode the whole
@@ -1928,9 +2037,16 @@ const make = Effect.gen(function* () {
             (!STRICT_PROVIDER_LIFECYCLE_GUARD ||
               isStartedTurnApplicable({ activeTurnId, eventTurnId }))
           : !isTerminalTurnEvent || (terminalApplicability?.applicable ?? true);
-      if (event.type === "turn.started" && eventTurnId && shouldApplyThreadLifecycle) {
-        yield* rememberOutstandingTurn(thread.id, eventTurnId);
-      }
+      let threadLifecycleDisposition: "applied" | "skipped" = "applied";
+      const expectedSessionLifecycleGeneration =
+        event.type === "session.started" ||
+        event.type === "session.state.changed" ||
+        event.type === "session.exited" ||
+        event.type === "turn.started" ||
+        event.type === "turn.completed" ||
+        event.type === "turn.aborted"
+          ? event.lifecycleGeneration
+          : undefined;
       if (isTerminalTurnEvent) {
         if (eventTurnId) {
           yield* forgetOutstandingTurn(thread.id, eventTurnId);
@@ -1941,20 +2057,6 @@ const make = Effect.gen(function* () {
             eventType: event.type,
           });
         }
-      }
-      // ProviderService permits overlapping sends on one thread. An accepted
-      // start binds exactly one queued delivery policy; a replay for a turn
-      // that is already durable-terminal must not consume another policy.
-      if (event.type === "turn.started" && eventTurnId && shouldApplyThreadLifecycle) {
-        yield* matchStartedTurnAssistantDeliveryMode(thread.id, eventTurnId);
-      }
-      // A terminal event can be the first lifecycle signal for a provider
-      // turn. Consume an already-pending request in that case, but never add a
-      // completed turn to the unmatched side for a future request to claim.
-      if (isTerminalTurnEvent && eventTurnId) {
-        yield* matchStartedTurnAssistantDeliveryMode(thread.id, eventTurnId, {
-          recordUnmatched: false,
-        });
       }
       if (
         event.type === "session.started" ||
@@ -2030,28 +2132,73 @@ const make = Effect.gen(function* () {
                 : (thread.session?.lastError ?? null);
 
         if (shouldApplyThreadLifecycle) {
-          yield* dispatchProviderCommandOnce({
-            type: "thread.session.set",
-            commandId: providerCommandId(event, "thread-session-set", thread.id),
-            threadId: thread.id,
-            ...(isTerminalTurnEvent && thread.session !== null
-              ? {
-                  expectedSessionStatus: thread.session.status,
-                  expectedSessionUpdatedAt: thread.session.updatedAt,
-                  preserveCurrentSessionOnMismatch: true,
-                }
-              : {}),
-            session: {
+          const expectedSessionOwnership =
+            event.lifecycleGeneration !== undefined &&
+            (event.type === "turn.started" ||
+              event.type === "turn.completed" ||
+              event.type === "turn.aborted")
+              ? thread.session === null
+                ? null
+                : {
+                    status: thread.session.status,
+                    updatedAt: thread.session.updatedAt,
+                    activeTurnId: thread.session.activeTurnId,
+                  }
+              : undefined;
+          const result = yield* dispatchProviderCommandOnce(
+            {
+              type: "thread.session.set",
+              commandId: providerCommandId(event, "thread-session-set", thread.id),
               threadId: thread.id,
-              status,
-              providerName: event.provider,
-              runtimeMode: thread.session?.runtimeMode ?? "full-access",
-              activeTurnId: nextActiveTurnId,
-              lastError,
-              updatedAt: now,
+              ...(isTerminalTurnEvent && thread.session !== null
+                ? {
+                    expectedSessionStatus: thread.session.status,
+                    expectedSessionUpdatedAt: thread.session.updatedAt,
+                    preserveCurrentSessionOnMismatch: true,
+                  }
+                : {}),
+              session: {
+                threadId: thread.id,
+                status,
+                providerName: event.provider,
+                runtimeMode: thread.session?.runtimeMode ?? "full-access",
+                activeTurnId: nextActiveTurnId,
+                lastError,
+                updatedAt: now,
+              },
+              createdAt: now,
             },
-            createdAt: now,
-          });
+            expectedSessionLifecycleGeneration,
+            expectedSessionOwnership,
+          );
+          if (expectedSessionLifecycleGeneration !== undefined) {
+            if (result.disposition === undefined) {
+              return yield* Effect.die(
+                new Error("Guarded provider lifecycle dispatch returned no disposition."),
+              );
+            }
+            threadLifecycleDisposition = result.disposition;
+          }
+
+          // ProviderService permits overlapping sends on one thread. An
+          // accepted start binds exactly one queued delivery policy; perform
+          // that cache mutation only after the ownership fence admits A.
+          if (
+            event.type === "turn.started" &&
+            eventTurnId &&
+            threadLifecycleDisposition === "applied"
+          ) {
+            yield* rememberOutstandingTurn(thread.id, eventTurnId);
+            yield* matchStartedTurnAssistantDeliveryMode(thread.id, eventTurnId);
+          }
+          // A terminal event can be the first lifecycle signal for a provider
+          // turn. Match only an admitted exact turn, so a skipped historical
+          // event cannot consume a successor's pending delivery policy.
+          if (isTerminalTurnEvent && eventTurnId && threadLifecycleDisposition === "applied") {
+            yield* matchStartedTurnAssistantDeliveryMode(thread.id, eventTurnId, {
+              recordUnmatched: false,
+            });
+          }
         }
       }
 
@@ -2229,26 +2376,28 @@ const make = Effect.gen(function* () {
       }
 
       if (event.type === "session.exited") {
-        yield* clearOutstandingTurns(thread.id);
         const exitedTurnId = eventTurnId ?? activeTurnId ?? undefined;
-        if (exitedTurnId) {
-          yield* finalizeBufferedAssistantMessagesForTurn({
-            event,
-            threadId: thread.id,
-            turnId: exitedTurnId,
-            createdAt: now,
-            commandTag: "assistant-complete-session-exit",
-            finalDeltaCommandTag: "assistant-delta-session-exit",
-          });
-          // Images produced before the session died are real; surface them now.
-          yield* flushPendingGeneratedImagesForTurn({
-            event,
-            thread,
-            turnId: exitedTurnId,
-            createdAt: now,
-          });
+        if (threadLifecycleDisposition === "applied") {
+          yield* clearOutstandingTurns(thread.id);
+          if (exitedTurnId) {
+            yield* finalizeBufferedAssistantMessagesForTurn({
+              event,
+              threadId: thread.id,
+              turnId: exitedTurnId,
+              createdAt: now,
+              commandTag: "assistant-complete-session-exit",
+              finalDeltaCommandTag: "assistant-delta-session-exit",
+            });
+            // Images produced before the session died are real; surface them now.
+            yield* flushPendingGeneratedImagesForTurn({
+              event,
+              thread,
+              turnId: exitedTurnId,
+              createdAt: now,
+            });
+          }
+          yield* clearTurnStateForSession(thread.id);
         }
-        yield* clearTurnStateForSession(thread.id);
       }
 
       if (event.type === "runtime.error") {
@@ -2256,11 +2405,11 @@ const make = Effect.gen(function* () {
           asString(runtimePayloadRecord(event)?.message) ?? "Provider runtime error";
         const erroredTurnId = eventTurnId ?? activeTurnId ?? undefined;
 
-        if (erroredTurnId) {
+        if (eventTurnId) {
           yield* finalizeBufferedAssistantMessagesForTurn({
             event,
             threadId: thread.id,
-            turnId: erroredTurnId,
+            turnId: eventTurnId,
             createdAt: now,
             commandTag: "assistant-complete-runtime-error",
             finalDeltaCommandTag: "assistant-delta-runtime-error",
@@ -2268,7 +2417,7 @@ const make = Effect.gen(function* () {
           yield* flushPendingGeneratedImagesForTurn({
             event,
             thread,
-            turnId: erroredTurnId,
+            turnId: eventTurnId,
             createdAt: now,
           });
         }
@@ -2278,21 +2427,45 @@ const make = Effect.gen(function* () {
           : activeTurnId === null || eventTurnId === undefined || sameId(activeTurnId, eventTurnId);
 
         if (shouldApplyRuntimeError) {
-          yield* dispatchProviderCommandOnce({
-            type: "thread.session.set",
-            commandId: providerCommandId(event, "runtime-error-session-set", thread.id),
-            threadId: thread.id,
-            session: {
+          const result = yield* dispatchProviderCommandOnce(
+            {
+              type: "thread.session.set",
+              commandId: providerCommandId(event, "runtime-error-session-set", thread.id),
               threadId: thread.id,
-              status: "error",
-              providerName: event.provider,
-              runtimeMode: thread.session?.runtimeMode ?? "full-access",
-              activeTurnId: eventTurnId ?? null,
-              lastError: runtimeErrorMessage,
-              updatedAt: now,
+              session: {
+                threadId: thread.id,
+                status: "error",
+                providerName: event.provider,
+                runtimeMode: thread.session?.runtimeMode ?? "full-access",
+                activeTurnId: eventTurnId ?? null,
+                lastError: runtimeErrorMessage,
+                updatedAt: now,
+              },
+              createdAt: now,
             },
-            createdAt: now,
-          });
+            event.lifecycleGeneration,
+          );
+          if (event.lifecycleGeneration !== undefined && result.disposition === undefined) {
+            return yield* Effect.die(
+              new Error("Guarded runtime error dispatch returned no disposition."),
+            );
+          }
+          if (result.disposition !== "skipped" && !eventTurnId && erroredTurnId) {
+            yield* finalizeBufferedAssistantMessagesForTurn({
+              event,
+              threadId: thread.id,
+              turnId: erroredTurnId,
+              createdAt: now,
+              commandTag: "assistant-complete-runtime-error",
+              finalDeltaCommandTag: "assistant-delta-runtime-error",
+            });
+            yield* flushPendingGeneratedImagesForTurn({
+              event,
+              thread,
+              turnId: erroredTurnId,
+              createdAt: now,
+            });
+          }
         }
       }
 
@@ -2324,7 +2497,6 @@ const make = Effect.gen(function* () {
         canonicalOperationFromRuntimeEvent(canonicalActivityEvent) !== null;
       const canonicalNoticeMaterialized = canonicalActivityEvent.type === "runtime.warning";
       const canonicalActivity = projectProviderRuntimeActivities(canonicalActivityEvent)[0];
-      yield* commitCanonical(canonicalActivityEvent);
       if (canonicalOperationMaterialized || canonicalNoticeMaterialized) {
         yield* dispatchProviderCommandOnce({
           type: "thread.activity-read-model.touch",
@@ -2339,6 +2511,7 @@ const make = Effect.gen(function* () {
           createdAt: canonicalActivityEvent.createdAt,
         });
       }
+      yield* commitCanonical(canonicalActivityEvent);
       yield* Effect.forEach(projectProviderRuntimeActivities(activityEvent), (activity) =>
         canonicalOperationMaterialized || canonicalNoticeMaterialized
           ? Effect.void
@@ -2988,6 +3161,7 @@ export const ProviderRuntimeIngestionLive = Layer.effect(
     Layer.mergeAll(
       ProjectionTurnRepositoryLive,
       ProviderRuntimeEventRepositoryLive,
+      ProviderSessionRuntimeRepositoryLive,
       OrchestrationCommandReceiptRepositoryLive,
     ),
   ),

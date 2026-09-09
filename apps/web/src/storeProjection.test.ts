@@ -42,6 +42,7 @@ import {
 } from "./storeTestFixtures";
 import { DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 import { resolveSidebarWorkStatus, resolveThreadStatusPill } from "./components/Sidebar.logic";
+import { deriveTimelineEntries, deriveWorkLogEntries } from "./workLog";
 
 describe("store projection", () => {
   it("orders a promoted queued message by delivery causality during full hydration", () => {
@@ -260,6 +261,97 @@ describe("store projection", () => {
       nextCursor: "older-cursor",
     });
     expect(next.threadDetailSyncById?.[threadId]).toBe("synced");
+  });
+
+  it("keeps a long paginated transcript presentation equal to live hydration", () => {
+    const threadId = ThreadId.makeUnsafe("thread-long-pagination-parity");
+    const messages = Array.from({ length: 120 }, (_, index) => ({
+      id: MessageId.makeUnsafe(`message-long-${index}`),
+      role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      text: `transcript row ${index}`,
+      attachments: [],
+      sequence: index + 1,
+      turnId: TurnId.makeUnsafe(`turn-long-${Math.floor(index / 2)}`),
+      streaming: false,
+      source: "native" as const,
+      createdAt: `2026-09-07T00:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`,
+      updatedAt: `2026-09-07T00:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.500Z`,
+    }));
+    const activities = Array.from({ length: 12 }, (_, index) =>
+      makeActivity({
+        id: `long-tool-${index}`,
+        kind: "tool.completed",
+        summary: `tool ${index}`,
+        sequence: 200 + index,
+        createdAt: `2026-09-07T01:00:${String(index).padStart(2, "0")}.000Z`,
+      }),
+    );
+    const legacyCompaction = makeActivity({
+      id: "long-legacy-compaction",
+      kind: "context-compaction",
+      summary: "Context compacted",
+      createdAt: "2026-09-07T00:59:59.000Z",
+    });
+    const allActivities = [...activities.slice(0, 8), legacyCompaction, ...activities.slice(8)];
+    const liveMessages = messages.slice(90);
+    const liveActivities = allActivities.slice(8);
+    const olderPage = {
+      threadId,
+      snapshotSequence: 400,
+      conversationTurnCount: 60,
+      messages: messages.slice(0, 90),
+      activities: allActivities.slice(0, 8),
+      pendingInteractions: [],
+      hasOlder: true,
+      nextCursor: "older-page-2",
+    } satisfies OrchestrationGetThreadTurnsPageResult;
+    const timelineIds = (state: AppState): string[] => {
+      const thread = getThreadFromState(state, threadId)!;
+      return deriveTimelineEntries(
+        thread.messages,
+        deriveWorkLogEntries(thread.activities, undefined),
+      ).map((entry) => entry.id);
+    };
+
+    const liveHydrated = syncServerReadModel(
+      makeState(makeThread({ id: threadId })),
+      makeReadModel(
+        makeReadModelThread({
+          id: threadId,
+          messages,
+          activities: allActivities,
+        }),
+      ),
+    );
+    const paginatedAfterLive = syncServerThreadTurnsPage(
+      makeState(
+        makeThread({
+          id: threadId,
+          messages: liveMessages,
+          activities: liveActivities,
+        }),
+      ),
+      olderPage,
+    );
+
+    const liveTimelineIds = timelineIds(liveHydrated);
+    const paginatedTimelineIds = timelineIds(paginatedAfterLive);
+    const withoutLegacyCompaction = (ids: readonly string[]) =>
+      ids.filter((id) => id !== "long-legacy-compaction");
+    // Sequenced rows are the authoritative causal presentation. The legacy
+    // compaction has no sequence and must remain present, but its exact slot is
+    // intentionally unresolved across a live-vs-page merge.
+    expect(withoutLegacyCompaction(paginatedTimelineIds)).toEqual(
+      withoutLegacyCompaction(liveTimelineIds),
+    );
+    expect(paginatedTimelineIds).toContain("long-legacy-compaction");
+    expect(liveTimelineIds).toContain("long-legacy-compaction");
+    expect(getThreadFromState(paginatedAfterLive, threadId)?.messages).toHaveLength(120);
+    expect(getThreadFromState(paginatedAfterLive, threadId)?.activities).toHaveLength(13);
+    expect(paginatedAfterLive.threadTurnPaginationById?.[threadId]).toEqual({
+      hasOlder: true,
+      nextCursor: "older-page-2",
+    });
   });
 
   it("preserves message mention references from read-model snapshots", () => {

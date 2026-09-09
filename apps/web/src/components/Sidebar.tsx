@@ -44,6 +44,8 @@ import { cn } from "~/lib/utils";
 import { useAppSettings } from "../appSettings";
 import type { LastThreadRoute } from "../chatRouteRestore";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { useComposerSendPreflightThreadIds } from "../composerSendPreflight";
+import { recordSidebarLifecycleDiagnostic } from "../sidebarLifecycleDiagnostics";
 import { isElectron } from "../env";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
 import { useFocusedChatContext } from "../focusedChatContext";
@@ -388,6 +390,7 @@ export default function Sidebar() {
   const openChatThreadPage = useTerminalStateStore((state) => state.openChatThreadPage);
   const openTerminalThreadPage = useTerminalStateStore((state) => state.openTerminalThreadPage);
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
+  const localSendOwnerThreadIds = useComposerSendPreflightThreadIds();
   const persistedPinnedFolderIds = usePinnedFoldersStore((store) => store.pinnedFolderIds);
   const pinProjectLocally = usePinnedFoldersStore((store) => store.pinProject);
   const unpinProject = usePinnedFoldersStore((store) => store.unpinProject);
@@ -602,9 +605,56 @@ export default function Sidebar() {
         },
         hasPendingApprovals: thread.hasPendingApprovals,
         hasPendingUserInput: thread.hasPendingUserInput,
+        isPromotedDraftPending: draftThreadsByThreadId[thread.id]?.promotedTo !== undefined,
+        hasLocalSendOwner: localSendOwnerThreadIds.has(thread.id),
       }),
-    [dismissedThreadStatusKeyByThreadId],
+    [dismissedThreadStatusKeyByThreadId, draftThreadsByThreadId, localSendOwnerThreadIds],
   );
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const summaryById = new Map(sidebarThreads.map((thread) => [thread.id, thread] as const));
+    const promotedDraftIds = Object.entries(draftThreadsByThreadId)
+      .filter(([, draft]) => draft.promotedTo !== undefined)
+      .map(([threadId]) => threadId as ThreadId);
+    const diagnosticThreadIds = new Set([...summaryById.keys(), ...promotedDraftIds]);
+
+    for (const threadId of diagnosticThreadIds) {
+      const thread = summaryById.get(threadId);
+      const status = thread ? resolveThreadStatusForSidebar(thread) : null;
+      const workStatus = resolveVisibleThreadWorkStatus({
+        status,
+        isRecording: threadId === voiceRecordingThreadId,
+        projectedWorkStatus: thread?.workStatus,
+      });
+      recordSidebarLifecycleDiagnostic({
+        threadId,
+        summaryPresent: thread !== undefined,
+        activeSidebarThreadId: visualActiveSidebarThreadId,
+        draftPromotedTo: draftThreadsByThreadId[threadId]?.promotedTo ?? null,
+        projectedWorkStatus: thread?.workStatus ?? null,
+        sessionStatus: thread?.session?.status ?? null,
+        sessionOrchestrationStatus: thread?.session?.orchestrationStatus ?? null,
+        sessionUpdatedAt: thread?.session?.updatedAt ?? null,
+        latestTurnId: thread?.latestTurn?.turnId ?? null,
+        pendingTurnStartMessageId: thread?.pendingTurnStartMessageId ?? null,
+        latestTurnState: thread?.latestTurn?.state ?? null,
+        latestTurnRequestedAt: thread?.latestTurn?.requestedAt ?? null,
+        latestTurnStartedAt: thread?.latestTurn?.startedAt ?? null,
+        latestTurnCompletedAt: thread?.latestTurn?.completedAt ?? null,
+        derivedStatusLabel: status?.label ?? null,
+        derivedWorkStatus: workStatus,
+        hasLocalSendOwner: localSendOwnerThreadIds.has(threadId),
+      });
+    }
+  }, [
+    draftThreadsByThreadId,
+    localSendOwnerThreadIds,
+    resolveThreadStatusForSidebar,
+    sidebarThreads,
+    visualActiveSidebarThreadId,
+    voiceRecordingThreadId,
+  ]);
 
   useEffect(() => {
     if (!optimisticActiveThreadId) {

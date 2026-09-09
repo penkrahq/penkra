@@ -118,7 +118,12 @@ describe("AppCommandPipeServer", () => {
         skills: vi.fn(async () => []),
       } as never,
       broker: { invoke } as never,
-      tabs: { list: () => [current, secondTab, otherThreadTab], current: () => current },
+      tabs: {
+        list: () => [current, secondTab, otherThreadTab],
+        current: () => current,
+        currentFor: (_spaceId, threadId) =>
+          threadId === "thread-1" ? current : threadId === "thread-2" ? otherThreadTab : null,
+      },
       observer: {
         snapshot,
         find: vi.fn(async () => ({ matches: [] })),
@@ -279,6 +284,19 @@ describe("AppCommandPipeServer", () => {
       result: { kind: "image" },
     });
     expect(screenshot).toHaveBeenCalledWith("tab-1", undefined);
+
+    await expect(
+      send(path, {
+        id: "request-current-other-window",
+        token: "secret",
+        method: "tabs.current",
+        params: { spaceId: "personal", threadId: "thread-2" },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-current-other-window",
+      result: otherThreadTab,
+    });
 
     await expect(
       send(path, {

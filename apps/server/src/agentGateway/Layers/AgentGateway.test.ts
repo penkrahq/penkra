@@ -50,6 +50,11 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
+import {
+  AgentGatewayCreationAdmissionRepository,
+  type AgentGatewayCreationAdmission,
+} from "../../persistence/Services/AgentGatewayCreationAdmissions.ts";
+import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { AgentGateway } from "../Services/AgentGateway.ts";
 import { AgentGatewayCredentials } from "../Services/AgentGatewayCredentials.ts";
 import { AgentGatewayLive } from "./AgentGateway.ts";
@@ -237,6 +242,22 @@ function makeHarnessLayer(
   } = {},
 ) {
   const dispatched: Array<OrchestrationCommand> = [];
+  const creationAdmissions = new Map<string, AgentGatewayCreationAdmission>();
+  const creationAdmissionsLayer = Layer.succeed(AgentGatewayCreationAdmissionRepository, {
+    get: (operationId: string) =>
+      Effect.succeed(Option.fromNullishOr(creationAdmissions.get(operationId))),
+    reserve: (admission: AgentGatewayCreationAdmission) =>
+      Effect.sync(() => {
+        const existing = creationAdmissions.get(admission.operationId);
+        if (existing) return { kind: "existing" as const, admission: existing };
+        creationAdmissions.set(admission.operationId, admission);
+        return { kind: "reserved" as const, admission };
+      }),
+  });
+  const commandReceiptsLayer = Layer.succeed(OrchestrationCommandReceiptRepository, {
+    insert: () => Effect.die("unused receipt insert"),
+    getByCommandId: () => Effect.succeed(Option.none()),
+  });
 
   const credentialsLayer = Layer.succeed(AgentGatewayCredentials, {
     mcpEndpointUrl: "http://127.0.0.1:3773/mcp",
@@ -745,6 +766,8 @@ function makeHarnessLayer(
   } as unknown as (typeof ProjectionTurnRepository)["Service"]);
 
   const gatewayLayer = AgentGatewayLive.pipe(
+    Layer.provide(creationAdmissionsLayer),
+    Layer.provide(commandReceiptsLayer),
     Layer.provide(AgentGatewayToolBridgeLive),
     Layer.provide(credentialsLayer),
     Layer.provide(snapshotLayer),
@@ -2030,6 +2053,113 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
+  it.effect("warns only when observed pending delivery contradicts a starting session", () => {
+    const threadId = ThreadId.makeUnsafe("thread-orphaned-startup");
+    const pendingMessageId = MessageId.makeUnsafe("message-queued-successor");
+    const shell = makeThreadShell(threadId, {
+      session: {
+        threadId,
+        status: "starting",
+        providerName: "codex",
+        runtimeMode: "approval-required",
+        activeTurnId: null,
+        lastError: null,
+        updatedAt: NOW,
+      },
+    });
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [makeThreadShell("thread-parent"), shell],
+      {
+        threadDetails: new Map([
+          [
+            threadId,
+            {
+              ...makeThreadDetail(shell),
+              pendingTurnStartMessageId: pendingMessageId,
+              messages: [
+                {
+                  id: pendingMessageId,
+                  turnId: null,
+                  role: "user",
+                  text: "queued successor",
+                  delivery: { state: "queued", queued: true, sequence: 1 },
+                  streaming: false,
+                  source: "native",
+                  sequence: 1,
+                  createdAt: NOW,
+                  updatedAt: NOW,
+                },
+              ],
+            },
+          ],
+        ]),
+      },
+    );
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const payload = toolResultJson(
+        (yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_diagnose_thread",
+          args: { threadId },
+        })).result,
+      );
+      assert.includeMembers(
+        (payload.findings as Array<{ code: string }>).map((finding) => finding.code),
+        ["provider_starting_pending_delivery_inconsistent"],
+      );
+
+      for (const deliveryState of ["starting", "steering"] as const) {
+        harness.setThreadDetail({
+          ...makeThreadDetail(shell),
+          pendingTurnStartMessageId: pendingMessageId,
+          messages: [
+            {
+              id: pendingMessageId,
+              turnId: null,
+              role: "user",
+              text: `${deliveryState} attempt`,
+              delivery: { state: deliveryState, queued: false, sequence: 2 },
+              streaming: false,
+              source: "native",
+              sequence: 2,
+              createdAt: NOW,
+              updatedAt: NOW,
+            },
+          ],
+        });
+        const validPayload = toolResultJson(
+          (yield* harness.callTool({
+            token: "token-parent",
+            name: "penkra_diagnose_thread",
+            args: { threadId },
+          })).result,
+        );
+        assert.notInclude(
+          (validPayload.findings as Array<{ code: string }>).map((finding) => finding.code),
+          "provider_starting_pending_delivery_inconsistent",
+        );
+      }
+
+      harness.setThreadDetail({
+        ...makeThreadDetail(shell),
+        pendingTurnStartMessageId: pendingMessageId,
+        messages: [],
+      });
+      const boundedPayload = toolResultJson(
+        (yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_diagnose_thread",
+          args: { threadId },
+        })).result,
+      );
+      assert.notInclude(
+        (boundedPayload.findings as Array<{ code: string }>).map((finding) => finding.code),
+        "provider_starting_pending_delivery_inconsistent",
+      );
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
   it.effect(
     "exposes safe Connection identities and discovers explicit Free without an account",
     () => {
@@ -2173,8 +2303,8 @@ describe("AgentGateway", () => {
       assert.equal(create.type, "thread.create");
       if (create.type === "thread.create") {
         // Gateway-created threads are ordinary top-level threads, not subagents.
-        assert.strictEqual("parentThreadId" in create, false);
-        assert.strictEqual("subagentNickname" in create, false);
+        assert.isNull(create.parentThreadId);
+        assert.isNull(create.subagentNickname);
         assert.equal(create.modelSelection.provider, "opencode");
         // Project and runtime mode default from the calling thread.
         assert.equal(create.folderId, PROJECT_ID);

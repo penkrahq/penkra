@@ -16,6 +16,7 @@ import { ComposerPickerMenu, ComposerPickerMenuPopup } from "./ComposerPickerMen
 
 type QueuedComposerActionsProps = {
   queuedTurn: QueuedComposerTurn;
+  busy?: boolean;
   onSteer: (queuedTurn: QueuedComposerTurn) => void;
   onRemove: (queuedTurn: QueuedComposerTurn) => void;
   onEdit: (queuedTurn: QueuedComposerTurn) => void;
@@ -23,13 +24,14 @@ type QueuedComposerActionsProps = {
 
 function QueuedComposerActions({
   queuedTurn,
+  busy = false,
   onSteer,
   onRemove,
   onEdit,
 }: QueuedComposerActionsProps) {
   return (
-    <div className="flex shrink-0 items-center gap-0">
-      <Button variant="subtle" size="chip" onClick={() => void onSteer(queuedTurn)}>
+    <div className="flex shrink-0 items-center gap-0" aria-busy={busy || undefined}>
+      <Button variant="subtle" size="chip" disabled={busy} onClick={() => void onSteer(queuedTurn)}>
         <SteerIcon />
         <span>Steer</span>
       </Button>
@@ -37,6 +39,7 @@ function QueuedComposerActions({
         variant="ghost"
         size="icon-chip"
         label="Delete queued follow-up"
+        disabled={busy}
         onClick={() => onRemove(queuedTurn)}
       >
         <Trash2 />
@@ -48,6 +51,7 @@ function QueuedComposerActions({
               variant="ghost"
               size="icon-chip"
               aria-label="Queued follow-up actions"
+              disabled={busy}
               className="[&_svg]:mx-0"
             />
           }
@@ -55,8 +59,12 @@ function QueuedComposerActions({
           <EllipsisIcon />
         </MenuTrigger>
         <ComposerPickerMenuPopup align="end" side="top" sideOffset={6}>
-          <MenuItem onClick={() => onEdit(queuedTurn)}>Edit queued prompt</MenuItem>
-          <MenuItem onClick={() => onRemove(queuedTurn)}>Delete queued prompt</MenuItem>
+          <MenuItem disabled={busy} onClick={() => onEdit(queuedTurn)}>
+            Edit queued prompt
+          </MenuItem>
+          <MenuItem disabled={busy} onClick={() => onRemove(queuedTurn)}>
+            Delete queued prompt
+          </MenuItem>
         </ComposerPickerMenuPopup>
       </ComposerPickerMenu>
     </div>
