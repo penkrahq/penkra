@@ -154,6 +154,20 @@ function bindingLastError(binding: ProviderRuntimeBinding | undefined): string |
   return typeof lastError === "string" ? (nonEmptyTrimmed(lastError) ?? null) : null;
 }
 
+function bindingTerminalTurnId(binding: ProviderRuntimeBinding | undefined): TurnId | null {
+  const payload = binding?.runtimePayload;
+  if (typeof payload !== "object" || payload === null || !("lastTerminalTurnId" in payload)) {
+    return null;
+  }
+  const value = (payload as Record<string, unknown>).lastTerminalTurnId;
+  return typeof value === "string" ? turnIdOrNull(value) : null;
+}
+
+function providerSessionAgeMs(updatedAt: string | undefined, nowMs: number): number {
+  const observedAt = Date.parse(updatedAt ?? "");
+  return Number.isFinite(observedAt) ? Math.max(0, nowMs - observedAt) : Number.POSITIVE_INFINITY;
+}
+
 export function bindingActiveTurnId(binding: ProviderRuntimeBinding | undefined): string | null {
   if (binding === undefined) return null;
   const payload = binding.runtimePayload;
@@ -248,6 +262,24 @@ export function planProviderRuntimeReconciliation(input: {
       (binding.status === "stopped" || binding.status === "error");
 
     if (!liveSessionSettled && !missingLiveSession && !bindingSettled) continue;
+
+    // ProviderService durably records terminal ownership before publishing the
+    // event that runtime ingestion projects. Reconciliation is an inference
+    // from absence and must not race that authoritative journal entry. The
+    // ingestion retry/quarantine path owns settlement from here.
+    if (projectedTurnId !== null && bindingTerminalTurnId(binding) === projectedTurnId) {
+      continue;
+    }
+
+    // A long-running projected turn can become ready immediately before its
+    // terminal event reaches projection. Require the settled runtime
+    // observation itself to become stale before inferring interruption.
+    if (
+      liveSessionSettled &&
+      providerSessionAgeMs(liveSession?.updatedAt, input.nowMs) < staleAfterMs
+    ) {
+      continue;
+    }
 
     if (liveSession?.status === "error" || (missingLiveSession && binding?.status === "error")) {
       const errorTurnId =

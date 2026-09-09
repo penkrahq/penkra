@@ -13,7 +13,9 @@ import { createHash } from "node:crypto";
 import {
   buildAcceptLanguageHeader,
   buildChromeClientHints,
+  deriveBrowserUserAgentForUrl,
   deriveChromeUserAgent,
+  deriveVanillaChromeUserAgent,
 } from "@penkra/shared/browserSession";
 import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
 
@@ -44,6 +46,7 @@ function replaceRequestHeadersCaseInsensitive(
 
 export class BrowserSessionPolicy {
   private spoofedUserAgent: string | null = null;
+  private compatibilityUserAgent: string | null = null;
   private readonly configuredPartitions = new Set<string>();
 
   private resolveUserAgent(): string {
@@ -55,6 +58,17 @@ export class BrowserSessionPolicy {
       this.spoofedUserAgent = deriveChromeUserAgent(app.userAgentFallback);
     }
     return this.spoofedUserAgent;
+  }
+
+  private resolveCompatibilityUserAgent(): string {
+    if (this.compatibilityUserAgent === null) {
+      this.compatibilityUserAgent = deriveVanillaChromeUserAgent(app.userAgentFallback);
+    }
+    return this.compatibilityUserAgent;
+  }
+
+  userAgentForUrl(url: string): string {
+    return deriveBrowserUserAgentForUrl(this.resolveUserAgent(), url);
   }
 
   ensureConfigured(partition = BROWSER_SESSION_PARTITION): void {
@@ -75,10 +89,19 @@ export class BrowserSessionPolicy {
       );
       const acceptLanguage = buildAcceptLanguageHeader(app.getPreferredSystemLanguages());
       partitionSession.webRequest.onBeforeSendHeaders((details, callback) => {
+        const incomingUserAgent = Object.entries(details.requestHeaders).find(
+          ([name]) => name.toLowerCase() === "user-agent",
+        )?.[1];
+        const requestUserAgent =
+          incomingUserAgent === this.resolveCompatibilityUserAgent()
+            ? this.resolveCompatibilityUserAgent()
+            : this.userAgentForUrl(details.url);
         const requestHeaders = replaceRequestHeadersCaseInsensitive(details.requestHeaders, {
-          "User-Agent": userAgent,
+          "User-Agent": requestUserAgent,
           ...(acceptLanguage ? { "Accept-Language": acceptLanguage } : {}),
-          ...(clientHints ?? {}),
+          ...(buildChromeClientHints(requestUserAgent, resolveDesktopPlatformAdapter().platform) ??
+            clientHints ??
+            {}),
         });
         callback({ requestHeaders });
       });
@@ -89,8 +112,8 @@ export class BrowserSessionPolicy {
     }
   }
 
-  applyUserAgent(webContents: Pick<WebContents, "setUserAgent">): string {
-    const userAgent = this.resolveUserAgent();
+  applyUserAgent(webContents: Pick<WebContents, "setUserAgent">, url = "about:blank"): string {
+    const userAgent = this.userAgentForUrl(url);
     webContents.setUserAgent(userAgent);
     return userAgent;
   }

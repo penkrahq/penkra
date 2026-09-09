@@ -709,14 +709,14 @@ export class DesktopBrowserManager {
     // the generic runtime configurator leaves the initial OAuth request and navigator identity
     // on Electron's default user agent.
     if (chromiumWebContents) {
-      this.sessionPolicy.applyUserAgent(chromiumWebContents);
+      this.sessionPolicy.applyUserAgent(chromiumWebContents, input.url);
     }
     // Electron passes its already-created auxiliary WebContents through `options`. BrowserView's
     // compatibility constructor adopts it; WebContentsView currently cannot, and constructing a
     // second WebContents here terminates the main process. Keep this deprecated wrapper isolated
     // to auxiliary browsing contexts until Electron provides equivalent adoption on its successor.
     const view = this.options.createBrowserView?.(viewOptions) ?? new BrowserView(viewOptions);
-    const userAgent = this.sessionPolicy.applyUserAgent(view.webContents);
+    const userAgent = this.sessionPolicy.applyUserAgent(view.webContents, input.url);
     try {
       if (!view.webContents.debugger.isAttached()) {
         view.webContents.debugger.attach("1.3");
@@ -841,7 +841,7 @@ export class DesktopBrowserManager {
   private configureOAuthPopupRuntime(runtime: OAuthPopupRuntime): void {
     const { window: popup } = runtime;
     const { webContents } = popup;
-    this.sessionPolicy.applyUserAgent(webContents);
+    this.sessionPolicy.applyUserAgent(webContents, webContents.getURL());
     const closeOnInput = (event: Electron.Event, input: Electron.Input) => {
       if (input.type !== "keyDown") {
         return;
@@ -2130,7 +2130,23 @@ export class DesktopBrowserManager {
 
     // Belt-and-suspenders alongside the session-level UA: also covers an adopted renderer
     // <webview> for any navigation after it attaches.
-    this.sessionPolicy.applyUserAgent(webContents);
+    this.sessionPolicy.applyUserAgent(webContents, webContents.getURL());
+    const applyNavigationUserAgent = (
+      _event: Electron.Event,
+      url: string,
+      isInPlace: boolean,
+      isMainFrame: boolean,
+    ) => {
+      if (!isInPlace && isMainFrame) {
+        this.sessionPolicy.applyUserAgent(webContents, url);
+      }
+    };
+    webContents.on("will-navigate", applyNavigationUserAgent);
+    webContents.on("will-redirect", applyNavigationUserAgent);
+    runtime.listenerDisposers.push(() => {
+      webContents.removeListener("will-navigate", applyNavigationUserAgent);
+      webContents.removeListener("will-redirect", applyNavigationUserAgent);
+    });
     this.configureWindowOpenHandling(webContents, runtime, runtime.listenerDisposers);
 
     // The native page owns keyboard focus while browsing, so the renderer never sees the
@@ -2324,6 +2340,8 @@ export class DesktopBrowserManager {
     syncThreadLastError(state);
     this.markThreadStateChanged(threadId);
     this.emitState(threadId);
+
+    this.sessionPolicy.applyUserAgent(webContents, nextUrl);
 
     let committedDuringLoad = false;
     let failedMainFrameDuringLoad = false;

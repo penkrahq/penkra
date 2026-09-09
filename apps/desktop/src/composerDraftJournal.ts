@@ -95,6 +95,7 @@ export class ComposerDraftJournal {
   readonly #voicesPath: string;
   readonly #snapshotPath: string;
   readonly #voiceIndexPath: string;
+  #snapshotMutation = Promise.resolve();
   #voiceMutation = Promise.resolve();
 
   constructor(userDataPath: string) {
@@ -120,12 +121,20 @@ export class ComposerDraftJournal {
     if (Buffer.byteLength(value, "utf8") > MAX_SNAPSHOT_BYTES) {
       throw new Error("Composer draft snapshot is too large.");
     }
-    await writeFileAtomically(this.#snapshotPath, value);
+    const mutation = this.#snapshotMutation.then(() =>
+      writeFileAtomically(this.#snapshotPath, value),
+    );
+    this.#snapshotMutation = mutation.catch(() => undefined);
+    await mutation;
   }
 
   async removeSnapshot(): Promise<void> {
-    await FS.promises.rm(this.#snapshotPath, { force: true });
-    await syncDirectory(this.#rootPath);
+    const mutation = this.#snapshotMutation.then(async () => {
+      await FS.promises.rm(this.#snapshotPath, { force: true });
+      await syncDirectory(this.#rootPath);
+    });
+    this.#snapshotMutation = mutation.catch(() => undefined);
+    await mutation;
   }
 
   async writeAsset(input: {

@@ -213,15 +213,6 @@ function deriveActivityWorkLogEntry(activity: OrchestrationThreadActivity): Deri
   return entry;
 }
 
-function isActivityOrderStable(activities: ReadonlyArray<OrchestrationThreadActivity>): boolean {
-  for (let index = 1; index < activities.length; index += 1) {
-    if (compareActivitiesByOrder(activities[index - 1]!, activities[index]!) > 0) {
-      return false;
-    }
-  }
-  return true;
-}
-
 // Thread activity arrays are immutable store values and most call sites need the
 // same order; cache it so chat startup does not sort the same array repeatedly.
 export function orderedActivities(
@@ -232,11 +223,51 @@ export function orderedActivities(
     return cached;
   }
 
-  const ordered = isActivityOrderStable(activities)
-    ? activities
-    : activities.toSorted(compareActivitiesByOrder);
-  orderedActivitiesCache.set(activities, ordered);
-  return ordered;
+  let allSequenced = true;
+  let sequencedOrderStable = true;
+  let previousSequence: number | undefined;
+  for (const activity of activities) {
+    if (activity.sequence === undefined) {
+      allSequenced = false;
+      break;
+    }
+    if (previousSequence !== undefined && previousSequence > activity.sequence) {
+      sequencedOrderStable = false;
+    }
+    previousSequence = activity.sequence;
+  }
+  if (allSequenced) {
+    const result = sequencedOrderStable
+      ? activities
+      : activities.toSorted(compareActivitiesByOrder);
+    orderedActivitiesCache.set(activities, result);
+    return result;
+  }
+
+  // A missing legacy sequence carries no defensible relationship to sequenced
+  // rows. Preserve the known/unknown source slots and sort each subsequence by
+  // its own evidence: durable sequence for known rows and the legacy comparator
+  // for unknown rows. Timestamps must never invert two causally sequenced rows.
+  const sequenced = activities
+    .filter((activity) => activity.sequence !== undefined)
+    .toSorted(compareActivitiesByOrder);
+  const unsequenced = activities
+    .filter((activity) => activity.sequence === undefined)
+    .toSorted(compareActivitiesByOrder);
+  let sequencedIndex = 0;
+  let unsequencedIndex = 0;
+  let changed = false;
+  const ordered = activities.map((activity) => {
+    const replacement =
+      activity.sequence === undefined
+        ? unsequenced[unsequencedIndex++]!
+        : sequenced[sequencedIndex++]!;
+    if (replacement !== activity) changed = true;
+    return replacement;
+  });
+  const result = changed ? ordered : activities;
+  orderedActivitiesCache.set(activities, result);
+  return result;
 }
 
 // Routed subagent work (Claude's agent fan-out) belongs to the composer subagent
@@ -1971,19 +2002,17 @@ function compareActivityLifecycleRank(kind: string): number {
   return 1;
 }
 
+function timelineEntrySequence(entry: TimelineEntry): number | undefined {
+  return entry.kind === "message"
+    ? entry.message.delivery?.queued === true && entry.message.delivery.state !== "queued"
+      ? entry.message.delivery.sequence
+      : entry.message.sequence
+    : entry.entry.sequence;
+}
+
 function compareTimelineEntries(left: TimelineEntry, right: TimelineEntry): number {
-  const leftSequence =
-    left.kind === "message"
-      ? left.message.delivery?.queued === true && left.message.delivery.state !== "queued"
-        ? left.message.delivery.sequence
-        : left.message.sequence
-      : left.entry.sequence;
-  const rightSequence =
-    right.kind === "message"
-      ? right.message.delivery?.queued === true && right.message.delivery.state !== "queued"
-        ? right.message.delivery.sequence
-        : right.message.sequence
-      : right.entry.sequence;
+  const leftSequence = timelineEntrySequence(left);
+  const rightSequence = timelineEntrySequence(right);
   if (leftSequence !== undefined && rightSequence !== undefined && leftSequence !== rightSequence) {
     return leftSequence - rightSequence;
   }
@@ -2007,16 +2036,43 @@ function compareTimelineEntries(left: TimelineEntry, right: TimelineEntry): numb
 }
 
 function areTimelineEntriesOrdered(entries: ReadonlyArray<TimelineEntry>): boolean {
-  for (let index = 1; index < entries.length; index += 1) {
-    if (compareTimelineEntries(entries[index - 1]!, entries[index]!) > 0) {
-      return false;
+  let previousSequenced: TimelineEntry | undefined;
+  let previousUnsequenced: TimelineEntry | undefined;
+  for (const entry of entries) {
+    if (timelineEntrySequence(entry) === undefined) {
+      if (previousUnsequenced && compareTimelineEntries(previousUnsequenced, entry) > 0) {
+        return false;
+      }
+      previousUnsequenced = entry;
+    } else {
+      if (previousSequenced && compareTimelineEntries(previousSequenced, entry) > 0) {
+        return false;
+      }
+      previousSequenced = entry;
     }
   }
   return true;
 }
 
 function sortedTimelineEntries(entries: TimelineEntry[]): TimelineEntry[] {
-  return areTimelineEntriesOrdered(entries) ? entries : entries.toSorted(compareTimelineEntries);
+  if (areTimelineEntriesOrdered(entries)) return entries;
+
+  // A sequence-null legacy entry has no defensible cross-order with sequenced
+  // entries. Preserve the known/unknown slots and sort within each evidence
+  // class, so timestamp fallback cannot invert the known causal subsequence.
+  const sequenced = entries
+    .filter((entry) => timelineEntrySequence(entry) !== undefined)
+    .toSorted(compareTimelineEntries);
+  const unsequenced = entries
+    .filter((entry) => timelineEntrySequence(entry) === undefined)
+    .toSorted(compareTimelineEntries);
+  let sequencedIndex = 0;
+  let unsequencedIndex = 0;
+  return entries.map((entry) =>
+    timelineEntrySequence(entry) === undefined
+      ? unsequenced[unsequencedIndex++]!
+      : sequenced[sequencedIndex++]!,
+  );
 }
 
 function mergeTimelineEntries(
@@ -2072,5 +2128,7 @@ export function deriveTimelineEntries(
     entry,
   }));
 
-  return mergeTimelineEntries(sortedTimelineEntries(messageRows), sortedTimelineEntries(workRows));
+  return sortedTimelineEntries(
+    mergeTimelineEntries(sortedTimelineEntries(messageRows), sortedTimelineEntries(workRows)),
+  );
 }

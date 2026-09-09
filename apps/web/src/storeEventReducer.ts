@@ -881,12 +881,36 @@ function applyOrchestrationEvent(
         },
       );
 
-    case "thread.message-delivery-set":
+    case "thread.message-delivery-set": {
+      const cancellation = state.pendingStartCancellationByThreadId?.[event.payload.threadId];
+      let deliveryState = state;
+      if (
+        cancellation?.messageId === event.payload.messageId &&
+        event.payload.state === "accepted"
+      ) {
+        const { [event.payload.threadId]: _consumed, ...pendingStartCancellationByThreadId } =
+          state.pendingStartCancellationByThreadId ?? {};
+        deliveryState = { ...state, pendingStartCancellationByThreadId };
+      }
       return applyThreadUpdate(
-        state,
+        deliveryState,
         event.payload.threadId,
         (thread) => {
           const isRequeued = event.payload.state === "queued" && event.payload.queued === true;
+          const failedBeforeDispatch =
+            event.payload.state === "failed" &&
+            event.payload.failurePhase === "before-provider-dispatch";
+          const targetDeliveryState = thread.messages.find(
+            (message) => message.id === event.payload.messageId,
+          )?.delivery?.state;
+          const isUnacceptedAttempt =
+            targetDeliveryState === "starting" || targetDeliveryState === "steering";
+          const ownsStartingSession =
+            failedBeforeDispatch &&
+            isUnacceptedAttempt &&
+            thread.pendingTurnStartMessageId === event.payload.messageId &&
+            thread.session?.orchestrationStatus === "starting" &&
+            thread.session.activeTurnId == null;
           const existingQueuedMessageIds = thread.queuedMessageIds ?? [];
           const queuedMessageIds = isRequeued
             ? existingQueuedMessageIds.includes(event.payload.messageId)
@@ -899,7 +923,8 @@ function applyOrchestrationEvent(
               .map((message) =>
                 message.id === event.payload.messageId &&
                 message.delivery !== undefined &&
-                event.sequence >= message.delivery.sequence
+                event.sequence >= message.delivery.sequence &&
+                (!failedBeforeDispatch || isUnacceptedAttempt)
                   ? {
                       ...message,
                       delivery: {
@@ -917,13 +942,71 @@ function applyOrchestrationEvent(
               .toSorted(compareChatMessagesForTranscript),
             ...(isRequeued && thread.pendingTurnStartMessageId === event.payload.messageId
               ? { pendingTurnStartMessageId: null }
+              : failedBeforeDispatch &&
+                  isUnacceptedAttempt &&
+                  thread.pendingTurnStartMessageId === event.payload.messageId
+                ? { pendingTurnStartMessageId: null }
+                : {}),
+            ...(failedBeforeDispatch &&
+            isUnacceptedAttempt &&
+            event.payload.turnId !== undefined &&
+            thread.latestTurn?.turnId === event.payload.turnId &&
+            thread.latestTurn.state === "running" &&
+            thread.latestTurn.startedAt === null
+              ? {
+                  latestTurn: {
+                    ...thread.latestTurn,
+                    state: "error" as const,
+                    completedAt: event.payload.updatedAt,
+                  },
+                }
+              : {}),
+            ...(event.payload.state === "accepted" &&
+            event.payload.terminalState !== undefined &&
+            event.payload.terminalCompletedAt !== undefined &&
+            event.payload.turnId !== undefined &&
+            thread.latestTurn?.turnId === event.payload.turnId &&
+            thread.latestTurn.state === "running"
+              ? {
+                  latestTurn: {
+                    ...thread.latestTurn,
+                    state: event.payload.terminalState,
+                    completedAt: event.payload.terminalCompletedAt,
+                  },
+                }
+              : {}),
+            ...(ownsStartingSession && thread.session && event.payload.failureDetail !== undefined
+              ? {
+                  error: normalizeThreadErrorMessage(event.payload.failureDetail),
+                  session: {
+                    ...thread.session,
+                    status: "error" as const,
+                    orchestrationStatus: "error" as const,
+                    activeTurnId: undefined,
+                    lastError: event.payload.failureDetail,
+                    updatedAt: event.payload.updatedAt,
+                  },
+                }
               : {}),
             queuedMessageIds,
             updatedAt: resolveEventUpdatedAt(thread, event.payload.updatedAt),
           };
         },
-        { ...options, updateSidebarSummary: false },
+        {
+          ...options,
+          updateSidebarSummary:
+            options?.updateSidebarSummary === true ||
+            (event.payload.state === "failed" &&
+              event.payload.failurePhase === "before-provider-dispatch") ||
+            (event.payload.state === "accepted" &&
+              event.payload.terminalState !== undefined &&
+              event.payload.terminalCompletedAt !== undefined),
+        },
       );
+    }
+
+    case "thread.provider-lifecycle-write-skipped":
+      return state;
 
     case "thread.session-set":
       return applyThreadUpdate(
@@ -1232,7 +1315,16 @@ function applyOrchestrationEvent(
 
     case "thread.turn-start-cancelled":
       return applyThreadUpdate(
-        state,
+        {
+          ...state,
+          pendingStartCancellationByThreadId: {
+            ...(state.pendingStartCancellationByThreadId ?? {}),
+            [event.payload.threadId]: {
+              messageId: event.payload.messageId,
+              sequence: event.sequence,
+            },
+          },
+        },
         event.payload.threadId,
         (thread) => {
           const messages = thread.messages.filter(
@@ -1253,7 +1345,9 @@ function applyOrchestrationEvent(
             ...thread,
             messages,
             queuedMessageIds,
-            pendingTurnStartMessageId: null,
+            ...(thread.pendingTurnStartMessageId === event.payload.messageId
+              ? { pendingTurnStartMessageId: null }
+              : {}),
             updatedAt:
               (thread.updatedAt ?? thread.createdAt) > event.occurredAt
                 ? thread.updatedAt

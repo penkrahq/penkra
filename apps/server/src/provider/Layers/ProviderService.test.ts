@@ -1532,10 +1532,16 @@ routing.layer("ProviderServiceLive routing", (it) => {
           const runtimePayload = payload as {
             activeTurnId: string | null;
             lastRuntimeEvent: string | null;
+            lastTerminalEvent?: string | null;
+            lastTerminalTurnId?: string | null;
+            lastTerminalState?: string | null;
             modelSelection?: unknown;
           };
           assert.equal(runtimePayload.activeTurnId, null);
           assert.equal(runtimePayload.lastRuntimeEvent, "turn.completed");
+          assert.equal(runtimePayload.lastTerminalEvent, "turn.completed");
+          assert.equal(runtimePayload.lastTerminalTurnId, String(turn.turnId));
+          assert.equal(runtimePayload.lastTerminalState, "completed");
           assert.deepEqual(runtimePayload.modelSelection, {
             provider: "opencode",
             model: "opencode/minimax-m2.5-free",

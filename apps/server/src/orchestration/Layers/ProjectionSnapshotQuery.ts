@@ -9,6 +9,7 @@ import {
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   OrchestrationGetThreadTurnsPageResult,
+  OrchestrationGetPendingStartOutcomeResult,
   OrchestrationThreadDetailSnapshot,
   ThreadPinnedMessages,
   ProjectScript,
@@ -681,6 +682,32 @@ function computeSnapshotSequence(
 
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const PendingStartOutcomeRow = Schema.Struct({
+    turnId: TurnId,
+    state: Schema.String,
+    providerTurnId: Schema.NullOr(TurnId),
+    completedAt: Schema.NullOr(IsoDateTime),
+    deliveryState: Schema.NullOr(Schema.String),
+  });
+  const getPendingStartOutcomeRows = SqlSchema.findAll({
+    Request: Schema.Struct({ threadId: ThreadId, messageId: MessageId }),
+    Result: PendingStartOutcomeRow,
+    execute: ({ threadId, messageId }) => sql`
+      SELECT
+        turns.turn_id AS "turnId",
+        turns.state,
+        turns.provider_turn_id AS "providerTurnId",
+        turns.completed_at AS "completedAt",
+        messages.delivery_state AS "deliveryState"
+      FROM projection_turns turns
+      LEFT JOIN projection_thread_messages messages
+        ON messages.thread_id = turns.thread_id
+       AND messages.message_id = turns.pending_message_id
+      WHERE turns.thread_id = ${threadId}
+        AND turns.pending_message_id = ${messageId}
+      LIMIT 2
+    `,
+  });
 
   // Thread retention soft-deletes and never purges (see ThreadDeletionReactor), so the
   // projection tables keep every row of every deleted thread forever. `getSnapshot` is the
@@ -2917,6 +2944,49 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         );
     });
 
+  const getPendingStartOutcome: ProjectionSnapshotQueryShape["getPendingStartOutcome"] = (input) =>
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const [thread, row, stateRows] = yield* Effect.all([
+            getThreadShellById(input.threadId),
+            getPendingStartOutcomeRows(input),
+            listProjectionStateRows(undefined),
+          ]);
+          const snapshotSequence = computeSnapshotSequence(stateRows);
+          const threadExists = Option.isSome(thread);
+          let outcome: (typeof OrchestrationGetPendingStartOutcomeResult.Type)["outcome"] =
+            "unknown";
+          if (!threadExists) outcome = "unknown";
+          else if (snapshotSequence < input.minimumSequence) outcome = "not-caught-up";
+          else if (row.length === 1) {
+            if (row[0]!.deliveryState === "accepted") outcome = "accepted";
+            else if (row[0]!.state === "cancelled") outcome = "cancelled";
+            else if (row[0]!.state === "error") outcome = "failed";
+            else if (row[0]!.state === "running" || row[0]!.state === "queued") outcome = "pending";
+          }
+          return {
+            threadId: input.threadId,
+            messageId: input.messageId,
+            snapshotSequence,
+            threadExists,
+            outcome,
+            ...(row.length === 1 ? { turnId: row[0]!.turnId } : {}),
+            ...(row.length === 1 && row[0]!.completedAt !== null
+              ? { completedAt: row[0]!.completedAt }
+              : {}),
+          };
+        }),
+      )
+      .pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(OrchestrationGetPendingStartOutcomeResult)),
+        Effect.mapError((error) =>
+          isPersistenceError(error)
+            ? error
+            : toPersistenceSqlError("ProjectionSnapshotQuery.getPendingStartOutcome:query")(error),
+        ),
+      );
+
   return {
     getCommandReadModel,
     getSnapshot,
@@ -2938,6 +3008,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadDetailForExportById,
     getThreadDetailSnapshotById,
     getThreadTurnsPage,
+    getPendingStartOutcome,
   } satisfies ProjectionSnapshotQueryShape;
 });
 

@@ -21,7 +21,7 @@ import {
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
-import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
+import { Deferred, Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -240,6 +240,7 @@ describe("ProviderRuntimeIngestion", () => {
   async function createHarness(options?: {
     readonly startIngestion?: boolean;
     readonly provider?: ProviderKind;
+    readonly seedSession?: boolean;
   }) {
     const providerKind = options?.provider ?? "codex";
     const model = providerKind === "claudeAgent" ? "claude-opus-5" : "gpt-5-codex";
@@ -329,23 +330,25 @@ describe("ProviderRuntimeIngestion", () => {
         createdAt,
       }),
     );
-    await Effect.runPromise(
-      engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-seed"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        session: {
+    if (options?.seedSession !== false) {
+      await Effect.runPromise(
+        engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-session-seed"),
           threadId: ThreadId.makeUnsafe("thread-1"),
-          status: "ready",
-          providerName: providerKind,
-          runtimeMode: "approval-required",
-          activeTurnId: null,
-          updatedAt: createdAt,
-          lastError: null,
-        },
-        createdAt,
-      }),
-    );
+          session: {
+            threadId: ThreadId.makeUnsafe("thread-1"),
+            status: "ready",
+            providerName: providerKind,
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            updatedAt: createdAt,
+            lastError: null,
+          },
+          createdAt,
+        }),
+      );
+    }
     provider.setSession({
       provider: providerKind,
       status: "ready",
@@ -444,6 +447,53 @@ describe("ProviderRuntimeIngestion", () => {
       `,
     );
     expect(rows).toEqual([{ count: 1, summary: "Runtime warning" }]);
+  });
+
+  it("repairs a canonical notice whose accepted touch sequence was lost before restart", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const event = {
+      type: "runtime.warning" as const,
+      eventId: asEventId("evt-canonical-notice-repair"),
+      provider: "codex" as const,
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      payload: { message: "Recover presentation order" },
+    };
+    await Effect.runPromise(harness.sql`
+      INSERT INTO notices (
+        notice_id, thread_id, turn_id, kind, tone, summary, detail_json, created_at,
+        presentation_sequence
+      ) VALUES (
+        ${event.eventId}, ${event.threadId}, NULL, 'runtime.warning', 'error',
+        'Runtime warning', '{}', ${event.createdAt}, NULL
+      )
+    `);
+    const persisted = await Effect.runPromise(harness.runtimeEventRepository.append(event));
+
+    await harness.startIngestion();
+    const deadline = Date.now() + 2_000;
+    while (
+      (await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(event.threadId))) <
+      persisted.sequence
+    ) {
+      if (Date.now() >= deadline) throw new Error("Timed out waiting for notice replay");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const rows = await Effect.runPromise(harness.sql<{
+      readonly sequence: number | null;
+      readonly resultSequence: number;
+    }>`
+      SELECT notice.presentation_sequence AS sequence,
+        receipt.result_sequence AS "resultSequence"
+      FROM notices AS notice
+      JOIN orchestration_command_receipts AS receipt
+        ON receipt.command_id = 'provider:' || notice.notice_id ||
+          ':activity-read-model-touch:' || notice.thread_id
+      WHERE notice.notice_id = ${event.eventId}
+    `);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.sequence).toBe(rows[0]?.resultSequence);
   });
 
   it("admits each live provider occurrence to the durable journal exactly once", async () => {
@@ -1662,6 +1712,785 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(thread.session?.status).toBe("ready");
     expect(thread.session?.lastError).toBeNull();
+  });
+
+  it("fences stale-generation startup without blocking current session setup", async () => {
+    const harness = await createHarness();
+    const currentAt = "2026-09-07T01:00:00.000Z";
+    await Effect.runPromise(harness.sql`
+      INSERT INTO provider_session_runtime (
+        thread_id, provider_name, adapter_key, runtime_mode, status,
+        lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+      ) VALUES (
+        'thread-1', 'codex', 'codex', 'approval-required', 'starting',
+        'generation-successor', ${currentAt}, NULL, NULL
+      )
+    `);
+
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-current-generation-session-starting"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: currentAt,
+      lifecycleGeneration: "generation-successor",
+      payload: { state: "starting" },
+    });
+    const current = await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "starting",
+    );
+    expect(current.pendingTurnStartMessageId).toBeNull();
+    expect(current.session?.updatedAt).toBe(currentAt);
+
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-stale-generation-session-starting"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: "2026-09-07T01:00:01.000Z",
+      lifecycleGeneration: "generation-cancelled-startup",
+      payload: { state: "starting" },
+    });
+    await harness.drain();
+
+    const afterStale = await waitForThread(harness.engine, () => true);
+    expect(afterStale.session).toEqual(current.session);
+
+    harness.emit({
+      type: "runtime.warning",
+      eventId: asEventId("evt-old-generation-late-tool-diagnostic"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: "2026-09-07T01:00:02.000Z",
+      lifecycleGeneration: "generation-cancelled-startup",
+      payload: { message: "Late tool diagnostic remains observable" },
+    });
+    const withLateDiagnostic = await waitForThread(harness.engine, (thread) =>
+      thread.activities.some(
+        (activity) => activity.id === "evt-old-generation-late-tool-diagnostic",
+      ),
+    );
+    expect(
+      withLateDiagnostic.activities.some(
+        (activity) => activity.id === "evt-old-generation-late-tool-diagnostic",
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts generation-bearing turn lifecycle events without requiring a session-write disposition", async () => {
+    const harness = await createHarness();
+    const startedAt = "2026-09-07T01:00:10.000Z";
+    const completedAt = "2026-09-07T01:00:11.000Z";
+    const turnId = asTurnId("turn-generation-bearing-control");
+    await Effect.runPromise(harness.sql`
+      INSERT INTO provider_session_runtime (
+        thread_id, provider_name, adapter_key, runtime_mode, status,
+        lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+      ) VALUES (
+        'thread-1', 'codex', 'codex', 'approval-required', 'ready',
+        'generation-turn-control', ${startedAt}, NULL, NULL
+      )
+    `);
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-generation-bearing-turn-started"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId,
+      createdAt: startedAt,
+      lifecycleGeneration: "generation-turn-control",
+      payload: {},
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "running" && thread.session.activeTurnId === turnId,
+    );
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-generation-bearing-turn-completed"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId,
+      createdAt: completedAt,
+      lifecycleGeneration: "generation-turn-control",
+      payload: { state: "completed" },
+    });
+    const completed = await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "ready" && thread.session.activeTurnId === null,
+    );
+    expect(completed.session?.updatedAt).toBe(completedAt);
+  });
+
+  it("reproduces a generation change after lifecycle validation but before session dispatch", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const staleAt = "2026-09-07T01:01:00.000Z";
+    const successorAt = "2026-09-07T01:01:01.000Z";
+    const staleEvent: ProviderRuntimeEvent = {
+      type: "session.state.changed",
+      eventId: asEventId("evt-generation-read-dispatch-race"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: staleAt,
+      lifecycleGeneration: "generation-before-interrupt",
+      payload: { state: "starting" },
+    };
+    await Effect.runPromise(harness.sql`
+      INSERT INTO provider_session_runtime (
+        thread_id, provider_name, adapter_key, runtime_mode, status,
+        lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+      ) VALUES (
+        'thread-1', 'codex', 'codex', 'approval-required', 'starting',
+        'generation-before-interrupt', ${staleAt}, NULL, NULL
+      )
+    `);
+    const persisted = await Effect.runPromise(harness.runtimeEventRepository.append(staleEvent));
+    const lifecycleDispatchAdmitted = await Effect.runPromise(Deferred.make<void>());
+    const releaseLifecycleDispatch = await Effect.runPromise(Deferred.make<void>());
+    const originalDispatch = harness.engine.dispatch;
+    let held = false;
+    const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+    dispatchTarget.dispatch = (command, context) => {
+      if (
+        !held &&
+        command.type === "thread.session.set" &&
+        command.commandId.includes("evt-generation-read-dispatch-race")
+      ) {
+        held = true;
+        return Deferred.succeed(lifecycleDispatchAdmitted, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseLifecycleDispatch)),
+          Effect.andThen(originalDispatch(command, context)),
+        );
+      }
+      return originalDispatch(command, context);
+    };
+
+    const successorTurnId = asTurnId("turn-generation-race-successor");
+    const ingestionStartup = harness.startIngestion();
+    try {
+      await Promise.race([
+        Effect.runPromise(Deferred.await(lifecycleDispatchAdmitted)),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Timed out waiting for the lifecycle dispatch gate.")),
+            2_000,
+          ),
+        ),
+      ]);
+      await Effect.runPromise(harness.sql`
+        UPDATE provider_session_runtime
+        SET lifecycle_generation = 'generation-successor', last_seen_at = ${successorAt}
+        WHERE thread_id = 'thread-1'
+      `);
+      await Effect.runPromise(
+        originalDispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-generation-race-successor"),
+          threadId: asThreadId("thread-1"),
+          session: {
+            threadId: asThreadId("thread-1"),
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "approval-required",
+            activeTurnId: successorTurnId,
+            lastError: null,
+            updatedAt: successorAt,
+          },
+          createdAt: successorAt,
+        }),
+      );
+    } finally {
+      dispatchTarget.dispatch = originalDispatch;
+      await Effect.runPromise(Deferred.succeed(releaseLifecycleDispatch, undefined));
+      await ingestionStartup;
+    }
+    await harness.drain();
+
+    const retained = await Effect.runPromise(
+      harness.runtimeEventRepository.readThreadEvents({
+        threadId: "thread-1",
+        throughSequenceInclusive: persisted.sequence,
+        limit: 10,
+      }),
+    );
+    expect(retained.map((entry) => entry.event.eventId)).toContain(staleEvent.eventId);
+    const thread = await waitForThread(harness.engine, () => true);
+    expect(thread.session).toMatchObject({
+      status: "running",
+      activeTurnId: successorTurnId,
+      updatedAt: successorAt,
+    });
+  });
+
+  it("applies the old generation first and then preserves the later successor write", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const firstAt = "2026-09-07T01:01:10.000Z";
+    const successorAt = "2026-09-07T01:01:11.000Z";
+    await Effect.runPromise(harness.sql`
+      INSERT INTO provider_session_runtime (
+        thread_id, provider_name, adapter_key, runtime_mode, status,
+        lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+      ) VALUES (
+        'thread-1', 'codex', 'codex', 'approval-required', 'starting',
+        'generation-first-writer', ${firstAt}, NULL, NULL
+      )
+    `);
+    await Effect.runPromise(
+      harness.runtimeEventRepository.append({
+        type: "session.state.changed",
+        eventId: asEventId("evt-generation-first-writer"),
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        createdAt: firstAt,
+        lifecycleGeneration: "generation-first-writer",
+        payload: { state: "starting" },
+      }),
+    );
+    await harness.startIngestion();
+    await harness.drain();
+    expect((await waitForThread(harness.engine, () => true)).session?.status).toBe("starting");
+
+    await Effect.runPromise(harness.sql`
+      UPDATE provider_session_runtime
+      SET lifecycle_generation = 'generation-second-writer', last_seen_at = ${successorAt}
+      WHERE thread_id = 'thread-1'
+    `);
+    const successorTurnId = asTurnId("turn-generation-second-writer");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-generation-second-writer"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: successorTurnId,
+          lastError: null,
+          updatedAt: successorAt,
+        },
+        createdAt: successorAt,
+      }),
+    );
+    expect((await waitForThread(harness.engine, () => true)).session).toMatchObject({
+      status: "running",
+      activeTurnId: successorTurnId,
+      updatedAt: successorAt,
+    });
+  });
+
+  it("durably replays a missing-runtime lifecycle write as the same null-session skip", async () => {
+    const harness = await createHarness({ startIngestion: false, seedSession: false });
+    const createdAt = "2026-09-07T01:01:20.000Z";
+    const event: ProviderRuntimeEvent = {
+      type: "session.state.changed",
+      eventId: asEventId("evt-generation-missing-runtime"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt,
+      lifecycleGeneration: "generation-missing-runtime",
+      payload: { state: "starting" },
+    };
+    await Effect.runPromise(harness.runtimeEventRepository.append(event));
+    await harness.startIngestion();
+    await harness.drain();
+    expect((await waitForThread(harness.engine, () => true)).session).toBeNull();
+
+    const command = {
+      type: "thread.session.set" as const,
+      commandId: CommandId.makeUnsafe(
+        `provider:${event.eventId}:thread-session-set:${event.threadId}`,
+      ),
+      threadId: event.threadId,
+      session: {
+        threadId: event.threadId,
+        status: "starting" as const,
+        providerName: "codex",
+        runtimeMode: "full-access" as const,
+        activeTurnId: null,
+        lastError: null,
+        updatedAt: createdAt,
+      },
+      createdAt,
+    };
+    const firstReplay = await Effect.runPromise(
+      harness.engine.dispatch(command, {
+        expectedProviderLifecycleGeneration: "generation-missing-runtime",
+      }),
+    );
+    expect(firstReplay.disposition).toBe("skipped");
+    await Effect.runPromise(harness.sql`
+      INSERT INTO provider_session_runtime (
+        thread_id, provider_name, adapter_key, runtime_mode, status,
+        lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+      ) VALUES (
+        'thread-1', 'codex', 'codex', 'full-access', 'running',
+        'generation-later-still', ${createdAt}, NULL, NULL
+      )
+    `);
+    const secondReplay = await Effect.runPromise(
+      harness.engine.dispatch(command, {
+        expectedProviderLifecycleGeneration: "generation-missing-runtime",
+      }),
+    );
+    expect(secondReplay).toEqual(firstReplay);
+    expect((await waitForThread(harness.engine, () => true)).session).toBeNull();
+
+    const events = await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0)));
+    const dispositionEvent = Array.from(events).find(
+      (entry) => entry.commandId === command.commandId,
+    );
+    expect(dispositionEvent).toMatchObject({
+      type: "thread.provider-lifecycle-write-skipped",
+      payload: {
+        expectedLifecycleGeneration: "generation-missing-runtime",
+        observedLifecycleGeneration: null,
+        mutationType: "thread.session.set",
+      },
+    });
+  });
+
+  it("replays a legacy accepted session command under the new guard without changing identity", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const legacyAt = "2026-09-07T01:01:30.000Z";
+    const successorAt = "2026-09-07T01:01:31.000Z";
+    const runtimeEvent: ProviderRuntimeEvent = {
+      type: "session.state.changed",
+      eventId: asEventId("evt-legacy-accepted"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: legacyAt,
+      lifecycleGeneration: "generation-after-legacy",
+      payload: { state: "starting" },
+    };
+    const command = {
+      type: "thread.session.set" as const,
+      commandId: CommandId.makeUnsafe("provider:evt-legacy-accepted:thread-session-set:thread-1"),
+      threadId: asThreadId("thread-1"),
+      session: {
+        threadId: asThreadId("thread-1"),
+        status: "starting" as const,
+        providerName: "codex",
+        runtimeMode: "approval-required" as const,
+        activeTurnId: null,
+        lastError: null,
+        updatedAt: legacyAt,
+      },
+      createdAt: legacyAt,
+    };
+    const legacyAccepted = await Effect.runPromise(harness.engine.dispatch(command));
+    expect(legacyAccepted).toEqual({ sequence: expect.any(Number) });
+    await Effect.runPromise(harness.runtimeEventRepository.append(runtimeEvent));
+
+    await Effect.runPromise(harness.sql`
+      INSERT INTO provider_session_runtime (
+        thread_id, provider_name, adapter_key, runtime_mode, status,
+        lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+      ) VALUES (
+        'thread-1', 'codex', 'codex', 'approval-required', 'running',
+        'generation-after-legacy', ${successorAt}, NULL, NULL
+      )
+    `);
+    const successorTurnId = asTurnId("turn-after-legacy-accepted");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-after-legacy-accepted"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: successorTurnId,
+          lastError: null,
+          updatedAt: successorAt,
+        },
+        createdAt: successorAt,
+      }),
+    );
+
+    await harness.startIngestion();
+    await harness.drain();
+    expect((await waitForThread(harness.engine, () => true)).session).toMatchObject({
+      status: "running",
+      activeTurnId: successorTurnId,
+      runtimeMode: "full-access",
+      updatedAt: successorAt,
+    });
+    const events = Array.from(
+      await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0))),
+    );
+    expect(events.filter((entry) => entry.commandId === command.commandId)).toHaveLength(1);
+    expect(events.find((entry) => entry.commandId === command.commandId)?.type).toBe(
+      "thread.session-set",
+    );
+  });
+
+  it("reproduces replayed generation-old runtime.error settling an active successor", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const errorAt = "2026-09-07T01:02:00.000Z";
+    const successorAt = "2026-09-07T01:02:01.000Z";
+    const errorEvent: ProviderRuntimeEvent = {
+      type: "runtime.error",
+      eventId: asEventId("evt-generation-old-runtime-error"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: errorAt,
+      lifecycleGeneration: "generation-before-error",
+      payload: { message: "Generation A runtime failed" },
+    };
+    await Effect.runPromise(harness.sql`
+      INSERT INTO provider_session_runtime (
+        thread_id, provider_name, adapter_key, runtime_mode, status,
+        lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+      ) VALUES (
+        'thread-1', 'codex', 'codex', 'approval-required', 'starting',
+        'generation-before-error', ${errorAt}, NULL, NULL
+      )
+    `);
+    const persisted = await Effect.runPromise(harness.runtimeEventRepository.append(errorEvent));
+
+    await Effect.runPromise(harness.sql`
+      UPDATE provider_session_runtime
+      SET lifecycle_generation = 'generation-successor', last_seen_at = ${successorAt}
+      WHERE thread_id = 'thread-1'
+    `);
+    const successorTurnId = asTurnId("turn-generation-error-successor");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-generation-error-successor"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: successorTurnId,
+          lastError: null,
+          updatedAt: successorAt,
+        },
+        createdAt: successorAt,
+      }),
+    );
+
+    await harness.startIngestion();
+    await harness.drain();
+
+    const retained = await Effect.runPromise(
+      harness.runtimeEventRepository.readThreadEvents({
+        threadId: "thread-1",
+        throughSequenceInclusive: persisted.sequence,
+        limit: 10,
+      }),
+    );
+    expect(retained.map((entry) => entry.event.eventId)).toContain(errorEvent.eventId);
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some((activity) => activity.id === errorEvent.eventId),
+    );
+    expect(thread.activities.some((activity) => activity.id === errorEvent.eventId)).toBe(true);
+    expect(thread.session).toMatchObject({
+      status: "running",
+      activeTurnId: successorTurnId,
+      lastError: null,
+      updatedAt: successorAt,
+    });
+  });
+
+  it("finalizes the captured current turn after an unbound current-generation runtime error is admitted", async () => {
+    const harness = await createHarness();
+    const now = "2026-09-07T01:02:30.000Z";
+    const turnId = asTurnId("turn-current-generation-runtime-error");
+    await Effect.runPromise(harness.sql`
+      INSERT INTO provider_session_runtime (
+        thread_id, provider_name, adapter_key, runtime_mode, status,
+        lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+      ) VALUES (
+        'thread-1', 'codex', 'codex', 'approval-required', 'running',
+        'generation-current-error', ${now}, NULL, NULL
+      )
+    `);
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-current-generation-runtime-error"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: turnId,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-current-error-buffer"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId: asItemId("item-current-error-buffer"),
+      createdAt: now,
+      lifecycleGeneration: "generation-current-error",
+      payload: { streamKind: "assistant_text", delta: "partial response survives" },
+    });
+    harness.emit({
+      type: "runtime.error",
+      eventId: asEventId("evt-current-generation-runtime-error"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: now,
+      lifecycleGeneration: "generation-current-error",
+      payload: { message: "current runtime failed" },
+    });
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "error" &&
+        entry.messages.some(
+          (message) =>
+            message.id === "assistant:item-current-error-buffer" &&
+            message.text === "partial response survives" &&
+            !message.streaming,
+        ),
+    );
+    expect(thread.session).toMatchObject({ status: "error", activeTurnId: null });
+  });
+
+  it("finalizes an explicit old error turn without mutating its active successor", async () => {
+    const harness = await createHarness();
+    const oldAt = "2026-09-07T01:02:40.000Z";
+    const successorAt = "2026-09-07T01:02:41.000Z";
+    const oldTurnId = asTurnId("turn-explicit-old-error");
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-explicit-old-error-buffer"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId: oldTurnId,
+      itemId: asItemId("item-explicit-old-error-buffer"),
+      createdAt: oldAt,
+      lifecycleGeneration: "generation-old-error",
+      payload: { streamKind: "assistant_text", delta: "old exact response" },
+    });
+    await harness.drain();
+    await Effect.runPromise(harness.sql`
+      INSERT INTO provider_session_runtime (
+        thread_id, provider_name, adapter_key, runtime_mode, status,
+        lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+      ) VALUES (
+        'thread-1', 'codex', 'codex', 'approval-required', 'running',
+        'generation-error-successor', ${successorAt}, NULL, NULL
+      )
+    `);
+    const successorTurnId = asTurnId("turn-explicit-error-successor");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-explicit-error-successor"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: successorTurnId,
+          lastError: null,
+          updatedAt: successorAt,
+        },
+        createdAt: successorAt,
+      }),
+    );
+    harness.emit({
+      type: "runtime.error",
+      eventId: asEventId("evt-explicit-old-error"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId: oldTurnId,
+      createdAt: successorAt,
+      lifecycleGeneration: "generation-old-error",
+      payload: { message: "old turn failed" },
+    });
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message) =>
+          message.id === "assistant:item-explicit-old-error-buffer" &&
+          message.text === "old exact response" &&
+          !message.streaming,
+      ),
+    );
+    expect(thread.session).toMatchObject({
+      status: "running",
+      activeTurnId: successorTurnId,
+      lastError: null,
+      updatedAt: successorAt,
+    });
+  });
+
+  it("preserves multiple old-turn buffers and the successor when a raced session exit is skipped", async () => {
+    const harness = await createHarness();
+    const oldAt = "2026-09-07T01:03:00.000Z";
+    const successorAt = "2026-09-07T01:03:01.000Z";
+    await Effect.runPromise(harness.sql`
+      INSERT INTO provider_session_runtime (
+        thread_id, provider_name, adapter_key, runtime_mode, status,
+        lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+      ) VALUES (
+        'thread-1', 'codex', 'codex', 'approval-required', 'running',
+        'generation-exiting', ${oldAt}, NULL, NULL
+      )
+    `);
+    for (const suffix of ["one", "two"] as const) {
+      harness.emit({
+        type: "content.delta",
+        eventId: asEventId(`evt-exit-buffer-${suffix}`),
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId(`turn-exit-buffer-${suffix}`),
+        itemId: asItemId(`item-exit-buffer-${suffix}`),
+        createdAt: oldAt,
+        lifecycleGeneration: "generation-exiting",
+        payload: { streamKind: "assistant_text", delta: `buffer ${suffix}` },
+      });
+    }
+    await harness.drain();
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-exit-turn-one-started"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-exit-buffer-one"),
+      createdAt: oldAt,
+      lifecycleGeneration: "generation-exiting",
+      payload: {},
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.activeTurnId === "turn-exit-buffer-one",
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-between-exiting-turns"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: oldAt,
+        },
+        createdAt: oldAt,
+      }),
+    );
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-exit-turn-two-started"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-exit-buffer-two"),
+      createdAt: oldAt,
+      lifecycleGeneration: "generation-exiting",
+      payload: {},
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.activeTurnId === "turn-exit-buffer-two",
+    );
+
+    const admitted = await Effect.runPromise(Deferred.make<void>());
+    const release = await Effect.runPromise(Deferred.make<void>());
+    const originalDispatch = harness.engine.dispatch;
+    const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+    dispatchTarget.dispatch = (command, context) =>
+      command.type === "thread.session.set" && command.commandId.includes("evt-raced-session-exit")
+        ? Deferred.succeed(admitted, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.andThen(originalDispatch(command, context)),
+          )
+        : originalDispatch(command, context);
+    harness.emit({
+      type: "session.exited",
+      eventId: asEventId("evt-raced-session-exit"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-exit-buffer-two"),
+      createdAt: oldAt,
+      lifecycleGeneration: "generation-exiting",
+      payload: { exitKind: "graceful" },
+    });
+    try {
+      await Promise.race([
+        Effect.runPromise(Deferred.await(admitted)),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Timed out waiting for exit admission gate.")), 2_000),
+        ),
+      ]);
+      await Effect.runPromise(harness.sql`
+        UPDATE provider_session_runtime
+        SET lifecycle_generation = 'generation-after-exit', last_seen_at = ${successorAt}
+        WHERE thread_id = 'thread-1'
+      `);
+      await Effect.runPromise(
+        originalDispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-successor-after-exit"),
+          threadId: asThreadId("thread-1"),
+          session: {
+            threadId: asThreadId("thread-1"),
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "approval-required",
+            activeTurnId: asTurnId("turn-successor-after-exit"),
+            lastError: null,
+            updatedAt: successorAt,
+          },
+          createdAt: successorAt,
+        }),
+      );
+    } finally {
+      dispatchTarget.dispatch = originalDispatch;
+      await Effect.runPromise(Deferred.succeed(release, undefined));
+    }
+    await harness.drain();
+
+    for (const suffix of ["one", "two"] as const) {
+      harness.emit({
+        type: "item.completed",
+        eventId: asEventId(`evt-exit-buffer-complete-${suffix}`),
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId(`turn-exit-buffer-${suffix}`),
+        itemId: asItemId(`item-exit-buffer-${suffix}`),
+        createdAt: successorAt,
+        lifecycleGeneration: "generation-exiting",
+        payload: { itemType: "assistant_message", status: "completed" },
+      });
+    }
+    const thread = await waitForThread(harness.engine, (entry) =>
+      ["one", "two"].every((suffix) =>
+        entry.messages.some(
+          (message) =>
+            message.id === `assistant:item-exit-buffer-${suffix}` &&
+            message.text === `buffer ${suffix}` &&
+            !message.streaming,
+        ),
+      ),
+    );
+    expect(thread.session).toMatchObject({
+      status: "running",
+      activeTurnId: "turn-successor-after-exit",
+      updatedAt: successorAt,
+    });
   });
 
   it("clears active turn state when a provider session reports ready", async () => {
@@ -3317,6 +4146,21 @@ describe("ProviderRuntimeIngestion", () => {
     // Lightweight invalidations preserve live delivery without retaining historical
     // tool patches outside the singular canonical operation row.
     expect(readModelInvalidations[0]?.count).toBe(4);
+    const hydratedOrder = await Effect.runPromise(harness.sql<{
+      readonly sequence: number | null;
+      readonly resultSequence: number;
+    }>`
+      SELECT activity.sequence, receipt.result_sequence AS "resultSequence"
+      FROM thread_activities_read AS activity
+      JOIN operations AS operation ON operation.operation_id = activity.activity_id
+      JOIN orchestration_command_receipts AS receipt
+        ON receipt.command_id = 'provider:' || operation.last_source_event_id ||
+          ':activity-read-model-touch:' || operation.thread_id
+      WHERE activity.thread_id = 'thread-1'
+        AND operation.provider_operation_id = 'call-operation'
+    `);
+    expect(hydratedOrder).toHaveLength(1);
+    expect(hydratedOrder[0]?.sequence).toBe(hydratedOrder[0]?.resultSequence);
   });
 
   it("uses assistant item completion detail when no assistant deltas were streamed", async () => {
@@ -5534,6 +6378,15 @@ describe("ProviderRuntimeIngestion", () => {
       turnId: asTurnId("turn-3"),
       payload: {
         message: "runtime exploded",
+        class: "provider_error",
+        detail: {
+          error: {
+            message: "runtime exploded",
+            codexErrorInfo: "usageLimitExceeded",
+            additionalDetails: "Provider-supplied diagnostic text.",
+          },
+          willRetry: false,
+        },
       },
     });
 
@@ -5542,10 +6395,31 @@ describe("ProviderRuntimeIngestion", () => {
       (entry) =>
         entry.session?.status === "error" &&
         entry.session?.activeTurnId === "turn-3" &&
-        entry.session?.lastError === "runtime exploded",
+        entry.session?.lastError === "runtime exploded" &&
+        entry.activities.some(
+          (activity: ProviderRuntimeTestActivity) => activity.id === "evt-runtime-error",
+        ),
     );
     expect(thread.session?.status).toBe("error");
     expect(thread.session?.lastError).toBe("runtime exploded");
+    const activityPayload = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-runtime-error",
+    )?.payload as Record<string, unknown> | undefined;
+    expect(activityPayload).toMatchObject({ class: "provider_error" });
+    expect(activityPayload?.detail).toBeUndefined();
+    expect(
+      thread.activities.find(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-runtime-error",
+      )?.payload,
+    ).toMatchObject({
+      class: "provider_error",
+      diagnostic: {
+        code: "usageLimitExceeded",
+        codeSource: "error.codexErrorInfo",
+        additionalDetails: "Provider-supplied diagnostic text.",
+        willRetry: false,
+      },
+    });
   });
 
   it("keeps the session running when a runtime.warning arrives during an active turn", async () => {
@@ -5590,6 +6464,11 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.status).toBe("running");
     expect(thread.session?.activeTurnId).toBe("turn-warning");
     expect(thread.session?.lastError).toBeNull();
+    expect(
+      thread.activities.find(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-warning-runtime",
+      )?.payload,
+    ).toMatchObject({ diagnostic: { willRetry: true } });
   });
 
   it("labels OpenCode retry warnings with a provider-specific summary and visible detail", async () => {
@@ -7018,5 +7897,672 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(thread.session?.status).toBe("error");
     expect(thread.session?.lastError).toBe("runtime still processed");
+  });
+
+  it.each([
+    ["cross-generation", "generation-turn-started-b"],
+    ["same-generation", "generation-turn-started-a"],
+  ] as const)(
+    "generation-bearing turn.started cannot commit over a successor installed after ingestion read (%s)",
+    async (_label, successorGeneration) => {
+      const harness = await createHarness({ startIngestion: false });
+      const generationA = "generation-turn-started-a";
+      const generationB = successorGeneration;
+      const startedAt = "2026-09-07T02:00:00.000Z";
+      const successorAt = "2026-09-07T02:00:01.000Z";
+      const event: ProviderRuntimeEvent = {
+        type: "turn.started",
+        eventId: asEventId("evt-turn-started-generation-read-dispatch-race"),
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-generation-a"),
+        createdAt: startedAt,
+        lifecycleGeneration: generationA,
+        payload: {},
+      };
+
+      await Effect.runPromise(harness.sql`
+        INSERT INTO provider_session_runtime (
+          thread_id, provider_name, adapter_key, runtime_mode, status,
+          lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+        ) VALUES (
+          'thread-1', 'codex', 'codex', 'approval-required', 'ready',
+          ${generationA}, ${startedAt}, NULL, NULL
+        )
+      `);
+      await Effect.runPromise(harness.runtimeEventRepository.append(event));
+
+      const admitted = await Effect.runPromise(Deferred.make<void>());
+      const release = await Effect.runPromise(Deferred.make<void>());
+      const originalDispatch = harness.engine.dispatch;
+      const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+      dispatchTarget.dispatch = (command, context) =>
+        command.type === "thread.session.set" && command.commandId.includes(event.eventId)
+          ? Deferred.succeed(admitted, undefined).pipe(
+              Effect.andThen(Deferred.await(release)),
+              Effect.andThen(originalDispatch(command, context)),
+            )
+          : originalDispatch(command, context);
+
+      const ingestionStartup = harness.startIngestion();
+      try {
+        await Promise.race([
+          Effect.runPromise(Deferred.await(admitted)),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error("Timed out waiting for turn.started dispatch gate.")),
+              2_000,
+            ),
+          ),
+        ]);
+
+        await Effect.runPromise(harness.sql`
+          UPDATE provider_session_runtime
+          SET lifecycle_generation = ${generationB}, last_seen_at = ${successorAt}
+          WHERE thread_id = 'thread-1'
+        `);
+        await Effect.runPromise(
+          originalDispatch({
+            type: "thread.session.set",
+            commandId: CommandId.makeUnsafe("cmd-turn-started-generation-b-successor"),
+            threadId: asThreadId("thread-1"),
+            session: {
+              threadId: asThreadId("thread-1"),
+              status: "running",
+              providerName: "codex",
+              runtimeMode: "approval-required",
+              activeTurnId: asTurnId("turn-generation-b"),
+              lastError: null,
+              updatedAt: successorAt,
+            },
+            createdAt: successorAt,
+          }),
+        );
+      } finally {
+        dispatchTarget.dispatch = originalDispatch;
+        await Effect.runPromise(Deferred.succeed(release, undefined));
+        await ingestionStartup;
+      }
+      await harness.drain();
+
+      const thread = await waitForThread(harness.engine, () => true);
+      expect(thread.session).toMatchObject({
+        status: "running",
+        activeTurnId: asTurnId("turn-generation-b"),
+        updatedAt: successorAt,
+      });
+      const events = Array.from(
+        await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0))),
+      );
+      expect(events.find((entry) => entry.commandId?.includes(event.eventId))).toMatchObject({
+        type: "thread.provider-lifecycle-write-skipped",
+        payload: {
+          expectedLifecycleGeneration: generationA,
+          observedLifecycleGeneration: generationB,
+          mutationType: "thread.session.set",
+          reason:
+            generationA === generationB
+              ? "session-ownership-mismatch"
+              : "generation-and-session-ownership-mismatch",
+          observedSessionOwnership: {
+            status: "running",
+            activeTurnId: asTurnId("turn-generation-b"),
+            updatedAt: successorAt,
+          },
+        },
+      });
+    },
+  );
+
+  it("generation-bearing turn.completed preserves a successor when its session revision changed", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const generationA = "generation-turn-completed-a";
+    const generationB = "generation-turn-completed-b";
+    const startedAt = "2026-09-07T02:01:00.000Z";
+    const completedAt = "2026-09-07T02:01:01.000Z";
+    const successorAt = "2026-09-07T02:01:02.000Z";
+    const turnA = asTurnId("turn-completed-a");
+    const event: ProviderRuntimeEvent = {
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-generation-read-dispatch-race"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId: turnA,
+      createdAt: completedAt,
+      lifecycleGeneration: generationA,
+      payload: { state: "completed" },
+    };
+
+    await Effect.runPromise(harness.sql`
+        INSERT INTO provider_session_runtime (
+          thread_id, provider_name, adapter_key, runtime_mode, status,
+          lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+        ) VALUES (
+          'thread-1', 'codex', 'codex', 'approval-required', 'running',
+          ${generationA}, ${startedAt}, NULL, NULL
+        )
+      `);
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-turn-completed-generation-a-running"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: turnA,
+          lastError: null,
+          updatedAt: startedAt,
+        },
+        createdAt: startedAt,
+      }),
+    );
+    await Effect.runPromise(harness.runtimeEventRepository.append(event));
+
+    const admitted = await Effect.runPromise(Deferred.make<void>());
+    const release = await Effect.runPromise(Deferred.make<void>());
+    const originalDispatch = harness.engine.dispatch;
+    const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+    dispatchTarget.dispatch = (command, context) =>
+      command.type === "thread.session.set" && command.commandId.includes(event.eventId)
+        ? Deferred.succeed(admitted, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.andThen(originalDispatch(command, context)),
+          )
+        : originalDispatch(command, context);
+
+    const ingestionStartup = harness.startIngestion();
+    try {
+      await Promise.race([
+        Effect.runPromise(Deferred.await(admitted)),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Timed out waiting for turn.completed dispatch gate.")),
+            2_000,
+          ),
+        ),
+      ]);
+
+      await Effect.runPromise(harness.sql`
+          UPDATE provider_session_runtime
+          SET lifecycle_generation = ${generationB}, last_seen_at = ${successorAt}
+          WHERE thread_id = 'thread-1'
+        `);
+      await Effect.runPromise(
+        originalDispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-turn-completed-generation-b-successor"),
+          threadId: asThreadId("thread-1"),
+          session: {
+            threadId: asThreadId("thread-1"),
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: asTurnId("turn-completed-b"),
+            lastError: null,
+            updatedAt: successorAt,
+          },
+          createdAt: successorAt,
+        }),
+      );
+    } finally {
+      dispatchTarget.dispatch = originalDispatch;
+      await Effect.runPromise(Deferred.succeed(release, undefined));
+      await ingestionStartup;
+    }
+    await harness.drain();
+
+    const thread = await waitForThread(harness.engine, () => true);
+    expect(thread.session).toMatchObject({
+      status: "running",
+      activeTurnId: asTurnId("turn-completed-b"),
+      runtimeMode: "full-access",
+      updatedAt: successorAt,
+    });
+    const events = Array.from(
+      await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0))),
+    );
+    expect(events.find((entry) => entry.commandId?.includes(event.eventId))).toMatchObject({
+      type: "thread.provider-lifecycle-write-skipped",
+      payload: {
+        expectedLifecycleGeneration: generationA,
+        observedLifecycleGeneration: generationB,
+        mutationType: "thread.session.set",
+        reason: "generation-and-session-ownership-mismatch",
+        expectedSessionOwnership: {
+          status: "running",
+          activeTurnId: turnA,
+          updatedAt: startedAt,
+        },
+        observedSessionOwnership: {
+          status: "running",
+          activeTurnId: asTurnId("turn-completed-b"),
+          updatedAt: successorAt,
+        },
+      },
+    });
+  });
+
+  it("fences a generation-bearing turn.aborted against a successor session", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const generationA = "generation-turn-aborted-a";
+    const generationB = "generation-turn-aborted-b";
+    const startedAt = "2026-09-07T02:02:00.000Z";
+    const abortedAt = "2026-09-07T02:02:01.000Z";
+    const successorAt = "2026-09-07T02:02:02.000Z";
+    const turnA = asTurnId("turn-aborted-a");
+    const event: ProviderRuntimeEvent = {
+      type: "turn.aborted",
+      eventId: asEventId("evt-turn-aborted-generation-read-dispatch-race"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId: turnA,
+      createdAt: abortedAt,
+      lifecycleGeneration: generationA,
+      payload: { reason: "cancelled" },
+    };
+
+    await Effect.runPromise(harness.sql`
+      INSERT INTO provider_session_runtime (
+        thread_id, provider_name, adapter_key, runtime_mode, status,
+        lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+      ) VALUES (
+        'thread-1', 'codex', 'codex', 'approval-required', 'running',
+        ${generationA}, ${startedAt}, NULL, NULL
+      )
+    `);
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-turn-aborted-generation-a-running"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: turnA,
+          lastError: null,
+          updatedAt: startedAt,
+        },
+        createdAt: startedAt,
+      }),
+    );
+    await Effect.runPromise(harness.runtimeEventRepository.append(event));
+
+    const admitted = await Effect.runPromise(Deferred.make<void>());
+    const release = await Effect.runPromise(Deferred.make<void>());
+    const originalDispatch = harness.engine.dispatch;
+    const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+    dispatchTarget.dispatch = (command, context) =>
+      command.type === "thread.session.set" && command.commandId.includes(event.eventId)
+        ? Deferred.succeed(admitted, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.andThen(originalDispatch(command, context)),
+          )
+        : originalDispatch(command, context);
+
+    const ingestionStartup = harness.startIngestion();
+    try {
+      await Promise.race([
+        Effect.runPromise(Deferred.await(admitted)),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Timed out waiting for turn.aborted dispatch gate.")),
+            2_000,
+          ),
+        ),
+      ]);
+      await Effect.runPromise(harness.sql`
+        UPDATE provider_session_runtime
+        SET lifecycle_generation = ${generationB}, last_seen_at = ${successorAt}
+        WHERE thread_id = 'thread-1'
+      `);
+      await Effect.runPromise(
+        originalDispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-turn-aborted-generation-b-successor"),
+          threadId: asThreadId("thread-1"),
+          session: {
+            threadId: asThreadId("thread-1"),
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: asTurnId("turn-aborted-b"),
+            lastError: null,
+            updatedAt: successorAt,
+          },
+          createdAt: successorAt,
+        }),
+      );
+    } finally {
+      dispatchTarget.dispatch = originalDispatch;
+      await Effect.runPromise(Deferred.succeed(release, undefined));
+      await ingestionStartup;
+    }
+    await harness.drain();
+
+    const thread = await waitForThread(harness.engine, () => true);
+    expect(thread.session).toMatchObject({
+      status: "running",
+      activeTurnId: asTurnId("turn-aborted-b"),
+      runtimeMode: "full-access",
+      updatedAt: successorAt,
+    });
+    const events = Array.from(
+      await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0))),
+    );
+    expect(events.find((entry) => entry.commandId?.includes(event.eventId))).toMatchObject({
+      type: "thread.provider-lifecycle-write-skipped",
+      payload: {
+        expectedLifecycleGeneration: generationA,
+        observedLifecycleGeneration: generationB,
+        mutationType: "thread.session.set",
+        reason: "generation-and-session-ownership-mismatch",
+        expectedSessionOwnership: {
+          status: "running",
+          activeTurnId: turnA,
+          updatedAt: startedAt,
+        },
+        observedSessionOwnership: {
+          status: "running",
+          activeTurnId: asTurnId("turn-aborted-b"),
+          updatedAt: successorAt,
+        },
+      },
+    });
+  });
+
+  it("does not let a stale generation-bearing terminal consume the successor delivery policy", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const generationA = "generation-terminal-policy-a";
+    const generationB = "generation-terminal-policy-b";
+    const startedAt = "2026-09-07T02:04:00.000Z";
+    const completedAt = "2026-09-07T02:04:01.000Z";
+    const successorAt = "2026-09-07T02:04:02.000Z";
+    const turnA = asTurnId("turn-terminal-policy-a");
+    const turnB = asTurnId("turn-terminal-policy-b");
+    const event: ProviderRuntimeEvent = {
+      type: "turn.completed",
+      eventId: asEventId("evt-terminal-policy-stale-a"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId: turnA,
+      createdAt: completedAt,
+      lifecycleGeneration: generationA,
+      payload: { state: "completed" },
+    };
+
+    await Effect.runPromise(harness.sql`
+      INSERT INTO provider_session_runtime (
+        thread_id, provider_name, adapter_key, runtime_mode, status,
+        lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+      ) VALUES (
+        'thread-1', 'codex', 'codex', 'approval-required', 'running',
+        ${generationA}, ${startedAt}, NULL, NULL
+      )
+    `);
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-terminal-policy-a-running"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: turnA,
+          lastError: null,
+          updatedAt: startedAt,
+        },
+        createdAt: startedAt,
+      }),
+    );
+    await harness.startIngestion();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.dispatch-queued",
+        commandId: CommandId.makeUnsafe("cmd-terminal-policy-b-request"),
+        threadId: asThreadId("thread-1"),
+        messageId: asMessageId("message-terminal-policy-b"),
+        assistantDeliveryMode: "buffered",
+        dispatchMode: "queue",
+        runtimeMode: "approval-required",
+        createdAt: successorAt,
+      }),
+    );
+    await harness.drain();
+
+    const admitted = await Effect.runPromise(Deferred.make<void>());
+    const release = await Effect.runPromise(Deferred.make<void>());
+    const originalDispatch = harness.engine.dispatch;
+    const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+    dispatchTarget.dispatch = (command, context) =>
+      command.type === "thread.session.set" && command.commandId.includes(event.eventId)
+        ? Deferred.succeed(admitted, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.andThen(originalDispatch(command, context)),
+          )
+        : originalDispatch(command, context);
+
+    try {
+      harness.emit(event);
+      await Promise.race([
+        Effect.runPromise(Deferred.await(admitted)),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Timed out waiting for stale terminal dispatch gate.")),
+            2_000,
+          ),
+        ),
+      ]);
+      await Effect.runPromise(harness.sql`
+        UPDATE provider_session_runtime
+        SET lifecycle_generation = ${generationB}, last_seen_at = ${successorAt}
+        WHERE thread_id = 'thread-1'
+      `);
+      await Effect.runPromise(
+        originalDispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-terminal-policy-b-running"),
+          threadId: asThreadId("thread-1"),
+          session: {
+            threadId: asThreadId("thread-1"),
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "approval-required",
+            activeTurnId: turnB,
+            lastError: null,
+            updatedAt: successorAt,
+          },
+          createdAt: successorAt,
+        }),
+      );
+    } finally {
+      dispatchTarget.dispatch = originalDispatch;
+      await Effect.runPromise(Deferred.succeed(release, undefined));
+    }
+    await harness.drain();
+
+    const events = Array.from(
+      await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0))),
+    );
+    expect(events.find((entry) => entry.commandId?.includes(event.eventId))).toMatchObject({
+      type: "thread.provider-lifecycle-write-skipped",
+      payload: {
+        reason: "generation-and-session-ownership-mismatch",
+        expectedSessionOwnership: {
+          status: "running",
+          activeTurnId: turnA,
+          updatedAt: startedAt,
+        },
+        observedSessionOwnership: {
+          status: "running",
+          activeTurnId: turnB,
+          updatedAt: successorAt,
+        },
+      },
+    });
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-terminal-policy-b-started"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId: turnB,
+      createdAt: successorAt,
+      lifecycleGeneration: generationB,
+      payload: {},
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-terminal-policy-b-delta"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId: turnB,
+      itemId: asItemId("item-terminal-policy-b"),
+      createdAt: successorAt,
+      payload: { streamKind: "assistant_text", delta: "B remains buffered" },
+    });
+    await harness.drain();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-terminal-policy-b-completed"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId: turnB,
+      itemId: asItemId("item-terminal-policy-b"),
+      createdAt: successorAt,
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+    const completedThread = await waitForThread(harness.engine, (thread) =>
+      thread.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-terminal-policy-b" &&
+          message.text === "B remains buffered" &&
+          !message.streaming,
+      ),
+    );
+    expect(
+      completedThread.messages.find(
+        (message: ProviderRuntimeTestMessage) => message.id === "assistant:item-terminal-policy-b",
+      ),
+    ).toMatchObject({
+      text: "B remains buffered",
+      streaming: false,
+    });
+  });
+
+  it("fences a generation-bearing turn.started captured with a null session", async () => {
+    const harness = await createHarness({ startIngestion: false, seedSession: false });
+    const generationA = "generation-null-session-a";
+    const generationB = "generation-null-session-b";
+    const startedAt = "2026-09-07T02:03:00.000Z";
+    const successorAt = "2026-09-07T02:03:01.000Z";
+    const event: ProviderRuntimeEvent = {
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-null-session-race"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-null-session-a"),
+      createdAt: startedAt,
+      lifecycleGeneration: generationA,
+      payload: {},
+    };
+    await Effect.runPromise(harness.sql`
+      INSERT INTO provider_session_runtime (
+        thread_id, provider_name, adapter_key, runtime_mode, status,
+        lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+      ) VALUES (
+        'thread-1', 'codex', 'codex', 'approval-required', 'starting',
+        ${generationA}, ${startedAt}, NULL, NULL
+      )
+    `);
+    await Effect.runPromise(harness.runtimeEventRepository.append(event));
+
+    const admitted = await Effect.runPromise(Deferred.make<void>());
+    const release = await Effect.runPromise(Deferred.make<void>());
+    const originalDispatch = harness.engine.dispatch;
+    const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+    dispatchTarget.dispatch = (command, context) =>
+      command.type === "thread.session.set" && command.commandId.includes(event.eventId)
+        ? Deferred.succeed(admitted, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.andThen(originalDispatch(command, context)),
+          )
+        : originalDispatch(command, context);
+
+    const ingestionStartup = harness.startIngestion();
+    try {
+      await Promise.race([
+        Effect.runPromise(Deferred.await(admitted)),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Timed out waiting for null-session dispatch gate.")),
+            2_000,
+          ),
+        ),
+      ]);
+      await Effect.runPromise(harness.sql`
+        UPDATE provider_session_runtime
+        SET lifecycle_generation = ${generationB}, last_seen_at = ${successorAt}
+        WHERE thread_id = 'thread-1'
+      `);
+      await Effect.runPromise(
+        originalDispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-null-session-generation-b-successor"),
+          threadId: asThreadId("thread-1"),
+          session: {
+            threadId: asThreadId("thread-1"),
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: asTurnId("turn-null-session-b"),
+            lastError: null,
+            updatedAt: successorAt,
+          },
+          createdAt: successorAt,
+        }),
+      );
+    } finally {
+      dispatchTarget.dispatch = originalDispatch;
+      await Effect.runPromise(Deferred.succeed(release, undefined));
+      await ingestionStartup;
+    }
+    await harness.drain();
+
+    const thread = await waitForThread(harness.engine, () => true);
+    expect(thread.session).toMatchObject({
+      status: "running",
+      activeTurnId: asTurnId("turn-null-session-b"),
+      runtimeMode: "full-access",
+      updatedAt: successorAt,
+    });
+    const events = Array.from(
+      await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0))),
+    );
+    expect(events.find((entry) => entry.commandId?.includes(event.eventId))).toMatchObject({
+      type: "thread.provider-lifecycle-write-skipped",
+      payload: {
+        expectedLifecycleGeneration: generationA,
+        observedLifecycleGeneration: generationB,
+        mutationType: "thread.session.set",
+        reason: "generation-and-session-ownership-mismatch",
+        expectedSessionOwnership: null,
+        observedSessionOwnership: {
+          status: "running",
+          activeTurnId: asTurnId("turn-null-session-b"),
+          updatedAt: successorAt,
+        },
+      },
+    });
   });
 });

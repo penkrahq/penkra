@@ -2,7 +2,12 @@
 // Purpose: Constructs the ComposerDraftStoreState actions while preserving granular thread identity.
 // Exports: Zustand state creator consumed by the public facade.
 
-import { type ModelSelection, type ProviderKind, ThreadId } from "@penkra/contracts";
+import {
+  type MessageId,
+  type ModelSelection,
+  type ProviderKind,
+  ThreadId,
+} from "@penkra/contracts";
 import { getDefaultModel, normalizeModelSlug } from "@penkra/shared/model";
 import * as Equal from "effect/Equal";
 import type { StateCreator } from "zustand";
@@ -19,6 +24,7 @@ import {
   revokeObjectPreviewUrl,
   revokePromptHistorySavedDraftPreviewUrls,
   revokeQueuedTurnPreviewUrls,
+  persistQueuedComposerImages,
   syncPersistedAttachmentsForSlot,
 } from "./composerDraftAttachments";
 import { deleteComposerAsset } from "./lib/composerAssetStore";
@@ -27,6 +33,7 @@ import {
   type ComposerFileAttachment,
   type ComposerThreadDraftState,
   type DraftThreadState,
+  type PendingStartRecovery,
   assistantSelectionDedupKey,
   buildDraftThreadState,
   buildTransferredComposerDraft,
@@ -64,8 +71,23 @@ import { DEFAULT_RUNTIME_MODE } from "./types";
 function draftReferencesComposerAsset(draft: ComposerThreadDraftState, assetKey: string): boolean {
   if (draft.files.some((file) => file.assetKey === assetKey)) return true;
   if (draft.promptHistorySavedDraft?.files.some((file) => file.assetKey === assetKey)) return true;
-  return draft.queuedTurns.some(
-    (turn) => turn.kind === "chat" && turn.files.some((file) => file.assetKey === assetKey),
+  if (
+    Object.values(draft.pendingStartRecoveriesByMessageId ?? {}).some(
+      (recovery) => recovery && "raw" in recovery,
+    )
+  ) {
+    return true;
+  }
+  return (
+    draft.queuedTurns.some(
+      (turn) => turn.kind === "chat" && turn.files.some((file) => file.assetKey === assetKey),
+    ) ||
+    Object.values(draft.pendingStartRecoveriesByMessageId ?? {}).some(
+      (recovery) =>
+        recovery &&
+        "pendingTurn" in recovery &&
+        recovery.pendingTurn.files.some((file) => file.assetKey === assetKey),
+    )
   );
 }
 
@@ -91,6 +113,9 @@ function composerFileAssetKeys(draft: ComposerThreadDraftState | undefined): str
     ...draft.files,
     ...(draft.promptHistorySavedDraft?.files ?? []),
     ...draft.queuedTurns.flatMap((turn) => (turn.kind === "chat" ? turn.files : [])),
+    ...Object.values(draft.pendingStartRecoveriesByMessageId ?? {}).flatMap((recovery) =>
+      recovery && "pendingTurn" in recovery ? recovery.pendingTurn.files : [],
+    ),
   ].flatMap((file) => (file.assetKey ? [file.assetKey] : []));
 }
 
@@ -1080,6 +1105,370 @@ export const createComposerDraftStoreState =
           },
         };
       });
+    },
+    recoverCancelledQueuedTurn: (threadId, queuedTurnSnapshot) => {
+      if (threadId.length === 0 || queuedTurnSnapshot.id.length === 0) return false;
+      let restored = false;
+      set((state) => {
+        const current = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
+        const queuedTurnIndex = current.queuedTurns.findIndex(
+          (entry) => entry.id === queuedTurnSnapshot.id,
+        );
+        const queuedTurn =
+          queuedTurnIndex >= 0 ? current.queuedTurns[queuedTurnIndex]! : queuedTurnSnapshot;
+        const {
+          serverAcceptedAt: _acceptedAt,
+          serverMessageId: _messageId,
+          dispatchAttempt: _dispatchAttempt,
+          dispatchBindingRevision: _dispatchBindingRevision,
+          ...queuedTurnContent
+        } = queuedTurn;
+        const localTurn = {
+          ...queuedTurnContent,
+          id: `${queuedTurnContent.id}:edit-recovery`,
+        };
+        const hasNewerComposerContent =
+          current.prompt.length > 0 ||
+          current.images.length > 0 ||
+          current.files.length > 0 ||
+          current.assistantSelections.length > 0 ||
+          current.terminalContexts.length > 0 ||
+          current.fileComments.length > 0 ||
+          current.pastedTexts.length > 0 ||
+          current.skills.length > 0 ||
+          current.mentions.length > 0;
+        const queuedTurns = [...current.queuedTurns];
+        if (hasNewerComposerContent) {
+          if (queuedTurnIndex >= 0) queuedTurns[queuedTurnIndex] = localTurn;
+          else queuedTurns.push(localTurn);
+          return {
+            draftsByThreadId: {
+              ...state.draftsByThreadId,
+              // This is cancellation recovery, not a retry request. Keep the
+              // recovered row editable but outside the automatic drain until
+              // the user explicitly chooses what to do with it.
+              [threadId]: { ...current, queuedTurns, queuePaused: true },
+            },
+          };
+        }
+        if (queuedTurnIndex >= 0) queuedTurns.splice(queuedTurnIndex, 1);
+        restored = true;
+        return {
+          draftsByThreadId: {
+            ...state.draftsByThreadId,
+            [threadId]: {
+              ...current,
+              prompt: localTurn.prompt,
+              images: localTurn.images,
+              files: localTurn.files,
+              assistantSelections: localTurn.assistantSelections,
+              terminalContexts: normalizeTerminalContextsForThread(
+                threadId,
+                localTurn.terminalContexts,
+              ),
+              fileComments: normalizeFileComments(localTurn.fileComments),
+              pastedTexts: normalizePastedTexts(localTurn.pastedTexts),
+              skills: localTurn.skills,
+              mentions: localTurn.mentions,
+              modelSelectionByProvider: {
+                ...current.modelSelectionByProvider,
+                [localTurn.selectedProvider]: localTurn.modelSelection,
+              },
+              activeProvider: localTurn.selectedProvider,
+              runtimeMode: localTurn.runtimeMode,
+              queuedTurns,
+            },
+          },
+        };
+      });
+      return restored;
+    },
+    capturePendingStartRecovery: (threadId, recovery: PendingStartRecovery) => {
+      if (
+        threadId.length === 0 ||
+        recovery.threadId !== threadId ||
+        recovery.messageId !== recovery.pendingTurn.id
+      ) {
+        return false;
+      }
+      let captured = false;
+      set((state) => {
+        const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
+        const current = existing.pendingStartRecoveriesByMessageId?.[recovery.messageId];
+        if (current) {
+          captured = false;
+          return state;
+        }
+        captured = true;
+        return {
+          draftsByThreadId: {
+            ...state.draftsByThreadId,
+            [threadId]: {
+              ...existing,
+              pendingStartRecoveriesByMessageId: {
+                ...(existing.pendingStartRecoveriesByMessageId ?? {}),
+                [recovery.messageId]: recovery,
+              },
+            },
+          },
+        };
+      });
+      return captured;
+    },
+    markPendingStartRecoveryAccepted: (threadId, messageId: MessageId, sequence: number) => {
+      if (threadId.length === 0 || !Number.isSafeInteger(sequence) || sequence < 0) return false;
+      let marked = false;
+      set((state) => {
+        const current = state.draftsByThreadId[threadId];
+        const recovery = current?.pendingStartRecoveriesByMessageId?.[messageId];
+        if (
+          !current ||
+          !recovery ||
+          !("pendingTurn" in recovery) ||
+          recovery.messageId !== messageId ||
+          recovery.settlement !== "unresolved"
+        ) {
+          return state;
+        }
+        marked = true;
+        return {
+          draftsByThreadId: {
+            ...state.draftsByThreadId,
+            [threadId]: {
+              ...current,
+              pendingStartRecoveriesByMessageId: {
+                ...(current.pendingStartRecoveriesByMessageId ?? {}),
+                [messageId]: {
+                  ...recovery,
+                  settlement: "accepted",
+                  receiptSequence: Math.max(recovery.receiptSequence ?? 0, sequence),
+                },
+              },
+            },
+          },
+        };
+      });
+      return marked;
+    },
+    restorePendingStartRecovery: (
+      threadId,
+      messageId: MessageId,
+      sequence: number,
+      appliedAt: string,
+    ) => {
+      if (
+        threadId.length === 0 ||
+        !Number.isSafeInteger(sequence) ||
+        sequence < 0 ||
+        appliedAt.length === 0
+      ) {
+        return false;
+      }
+      let restored = false;
+      set((state) => {
+        const current = state.draftsByThreadId[threadId];
+        const recovery = current?.pendingStartRecoveriesByMessageId?.[messageId];
+        if (
+          !current ||
+          !recovery ||
+          !("pendingTurn" in recovery) ||
+          recovery.messageId !== messageId ||
+          (recovery.settlement !== "unresolved" && recovery.settlement !== "restored")
+        ) {
+          return state;
+        }
+        if (recovery.settlement === "restored" && recovery.restorationReceipt) {
+          restored = true;
+          return state;
+        }
+        const queuedTurnIndex = current.queuedTurns.findIndex(
+          (turn) => turn.id === recovery.pendingTurn.id,
+        );
+        const {
+          serverAcceptedAt: _serverAcceptedAt,
+          serverMessageId: _serverMessageId,
+          dispatchAttempt: _dispatchAttempt,
+          dispatchBindingRevision: _dispatchBindingRevision,
+          messageId: _pendingMessageId,
+          ...turnContent
+        } = recovery.pendingTurn;
+        const recoveredRow = {
+          ...turnContent,
+          id: `${recovery.pendingTurn.id}:edit-recovery`,
+        };
+        const hasNewerComposerContent =
+          current.prompt.length > 0 ||
+          current.images.length > 0 ||
+          current.files.length > 0 ||
+          current.assistantSelections.length > 0 ||
+          current.terminalContexts.length > 0 ||
+          current.fileComments.length > 0 ||
+          current.pastedTexts.length > 0 ||
+          current.skills.length > 0 ||
+          current.mentions.length > 0;
+        const queuedTurns = [...current.queuedTurns];
+        let nextDraft: ComposerThreadDraftState;
+        if (hasNewerComposerContent) {
+          if (queuedTurnIndex >= 0) queuedTurns[queuedTurnIndex] = recoveredRow;
+          else queuedTurns.push(recoveredRow);
+          nextDraft = {
+            ...current,
+            queuedTurns,
+            queuePaused: true,
+            pendingStartRecoveriesByMessageId: {
+              ...(current.pendingStartRecoveriesByMessageId ?? {}),
+              [messageId]: {
+                ...recovery,
+                settlement: "restored",
+                restorationReceipt: {
+                  sequence,
+                  rowId: recoveredRow.id,
+                  appliedAt,
+                },
+              },
+            },
+          };
+        } else {
+          if (queuedTurnIndex >= 0) queuedTurns.splice(queuedTurnIndex, 1);
+          const restoredPersistedAttachments = persistQueuedComposerImages(recoveredRow.images);
+          nextDraft = {
+            ...current,
+            prompt: recoveredRow.prompt,
+            images: recoveredRow.images,
+            persistedAttachments: restoredPersistedAttachments,
+            files: recoveredRow.files,
+            assistantSelections: recoveredRow.assistantSelections,
+            terminalContexts: normalizeTerminalContextsForThread(
+              threadId,
+              recoveredRow.terminalContexts,
+            ),
+            fileComments: normalizeFileComments(recoveredRow.fileComments),
+            pastedTexts: normalizePastedTexts(recoveredRow.pastedTexts),
+            skills: recoveredRow.skills,
+            mentions: recoveredRow.mentions,
+            modelSelectionByProvider: {
+              ...current.modelSelectionByProvider,
+              [recoveredRow.selectedProvider]: recoveredRow.modelSelection,
+            },
+            activeProvider: recoveredRow.selectedProvider,
+            runtimeMode: recoveredRow.runtimeMode,
+            queuedTurns,
+            pendingStartRecoveriesByMessageId: {
+              ...(current.pendingStartRecoveriesByMessageId ?? {}),
+              [messageId]: {
+                ...recovery,
+                settlement: "restored",
+                restorationReceipt: {
+                  sequence,
+                  rowId: "composer",
+                  appliedAt,
+                },
+              },
+            },
+          };
+        }
+        restored = true;
+        return { draftsByThreadId: { ...state.draftsByThreadId, [threadId]: nextDraft } };
+      });
+      return restored;
+    },
+    discardPendingStartRecovery: (threadId, messageId: MessageId) => {
+      return get().markPendingStartRecoveryFailed(threadId, messageId);
+    },
+    markPendingStartRecoveryFailed: (threadId, messageId: MessageId) => {
+      if (threadId.length === 0) return false;
+      let markedFailed = false;
+      set((state) => {
+        const current = state.draftsByThreadId[threadId];
+        const recovery = current?.pendingStartRecoveriesByMessageId?.[messageId];
+        if (
+          !current ||
+          !recovery ||
+          !("pendingTurn" in recovery) ||
+          recovery.messageId !== messageId ||
+          (recovery.settlement !== "unresolved" && recovery.settlement !== "failed")
+        ) {
+          return state;
+        }
+        markedFailed = true;
+        if (recovery.settlement === "failed") return state;
+        return {
+          draftsByThreadId: {
+            ...state.draftsByThreadId,
+            [threadId]: {
+              ...current,
+              pendingStartRecoveriesByMessageId: {
+                ...(current.pendingStartRecoveriesByMessageId ?? {}),
+                [messageId]: { ...recovery, settlement: "failed" },
+              },
+            },
+          },
+        };
+      });
+      return markedFailed;
+    },
+    retainPendingStartRecoverySettlement: (threadId, recovery) => {
+      if (
+        threadId.length === 0 ||
+        recovery.threadId !== threadId ||
+        recovery.messageId !== recovery.pendingTurn.id
+      ) {
+        return false;
+      }
+      let retained = false;
+      set((state) => {
+        const current = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
+        const existing = current.pendingStartRecoveriesByMessageId?.[recovery.messageId];
+        if (existing) {
+          retained = existing === recovery;
+          return state;
+        }
+        retained = true;
+        return {
+          draftsByThreadId: {
+            ...state.draftsByThreadId,
+            [threadId]: {
+              ...current,
+              pendingStartRecoveriesByMessageId: {
+                ...(current.pendingStartRecoveriesByMessageId ?? {}),
+                [recovery.messageId]: recovery,
+              },
+            },
+          },
+        };
+      });
+      return retained;
+    },
+    clearPendingStartRecovery: (threadId, messageId: MessageId) => {
+      if (threadId.length === 0) return false;
+      let cleared = false;
+      set((state) => {
+        const current = state.draftsByThreadId[threadId];
+        const recovery = current?.pendingStartRecoveriesByMessageId?.[messageId];
+        if (
+          !current ||
+          !recovery ||
+          !("pendingTurn" in recovery) ||
+          recovery.messageId !== messageId ||
+          (recovery.settlement !== "accepted" &&
+            recovery.settlement !== "restored" &&
+            recovery.settlement !== "failed")
+        ) {
+          return state;
+        }
+        cleared = true;
+        const nextRecoveries = { ...(current.pendingStartRecoveriesByMessageId ?? {}) };
+        delete nextRecoveries[messageId];
+        const nextDraft = {
+          ...current,
+          pendingStartRecoveriesByMessageId: nextRecoveries,
+        };
+        const nextDraftsByThreadId = { ...state.draftsByThreadId };
+        if (shouldRemoveDraft(nextDraft)) delete nextDraftsByThreadId[threadId];
+        else nextDraftsByThreadId[threadId] = nextDraft;
+        return { draftsByThreadId: nextDraftsByThreadId };
+      });
+      return cleared;
     },
     markQueuedTurnServerAccepted: (threadId, queuedTurnId, acceptedAt) => {
       if (threadId.length === 0 || queuedTurnId.length === 0) {

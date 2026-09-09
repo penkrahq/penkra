@@ -3,6 +3,7 @@
 // Exports: Persist middleware transitions and persisted state type.
 
 import {
+  MessageId,
   ModelSelection,
   FolderId,
   ProviderConnectionId,
@@ -14,7 +15,6 @@ import {
   RuntimeMode,
   SpaceId,
   ThreadId,
-  MessageId,
 } from "@penkra/contracts";
 import * as Schema from "effect/Schema";
 import type { DeepMutable } from "effect/Types";
@@ -26,6 +26,7 @@ import {
   toStorageSafePersistedAttachment,
 } from "./composerDraftAttachments";
 import {
+  COMPOSER_DRAFT_STORAGE_VERSION,
   hydratePastedTextsFromPersisted,
   normalizeAssistantSelections,
   normalizeDraftThreadEntryPoint,
@@ -37,6 +38,9 @@ import {
   type ComposerDraftStoreState,
   type ComposerPromptHistorySavedDraft,
   type ComposerThreadDraftState,
+  type PendingStartRecovery,
+  type PendingStartRecoveryRecord,
+  type UnknownPendingStartRecovery,
   type QueuedComposerTurn,
 } from "./composerDraftDomain";
 import {
@@ -147,6 +151,7 @@ const PersistedQueuedComposerChatTurn = Schema.Struct({
   connectionId: Schema.NullOr(ProviderConnectionId),
   providerOptionsForDispatch: Schema.optionalKey(ProviderStartOptions),
   runtimeMode: RuntimeMode,
+  messageId: Schema.optionalKey(MessageId),
 });
 
 type PersistedQueuedComposerChatTurn = typeof PersistedQueuedComposerChatTurn.Type;
@@ -196,6 +201,13 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   skills: Schema.optionalKey(Schema.Array(ProviderSkillReference)),
   mentions: Schema.optionalKey(Schema.Array(ProviderMentionReference)),
   queuedTurns: Schema.optionalKey(Schema.Array(PersistedQueuedComposerTurn)),
+  // Recovery records are decoded manually so newer/malformed records remain
+  // durable and visible as unresolved instead of being dropped by a generic
+  // schema migration.
+  pendingStartRecoveriesByMessageId: Schema.optionalKey(Schema.Unknown),
+  // Retain the short-lived WIP spelling when reading an already-written
+  // checkpoint; it is normalized into the per-message map below.
+  pendingStartRecovery: Schema.optionalKey(Schema.Unknown),
   queuePaused: Schema.optionalKey(Schema.Boolean),
   modelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
@@ -611,6 +623,123 @@ function normalizePersistedQueuedTurns(
   return normalizedTurns.length > 0 ? normalizedTurns : undefined;
 }
 
+function unknownPendingStartRecovery(
+  threadId: ThreadId,
+  raw: unknown,
+  fallbackMessageId?: string,
+): UnknownPendingStartRecovery {
+  const candidate = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const messageId =
+    typeof candidate.messageId === "string" && candidate.messageId.length > 0
+      ? MessageId.makeUnsafe(candidate.messageId)
+      : MessageId.makeUnsafe(fallbackMessageId ?? `${threadId}:pending-start-recovery`);
+  const schemaVersion =
+    typeof candidate.schemaVersion === "number" && Number.isSafeInteger(candidate.schemaVersion)
+      ? candidate.schemaVersion
+      : 0;
+  return { schemaVersion, threadId, messageId, raw };
+}
+
+function normalizePendingStartRecovery(
+  threadId: ThreadId,
+  raw: unknown,
+  fallbackMessageId?: string,
+): PendingStartRecoveryRecord | null {
+  if (raw === undefined || raw === null) return null;
+  if (!raw || typeof raw !== "object") {
+    return unknownPendingStartRecovery(threadId, raw, fallbackMessageId);
+  }
+  const candidate = raw as Record<string, unknown>;
+  const messageId = Schema.is(MessageId)(candidate.messageId) ? candidate.messageId : undefined;
+  const pendingTurnCandidate = candidate.pendingTurn;
+  const pendingTurn =
+    pendingTurnCandidate && typeof pendingTurnCandidate === "object"
+      ? normalizePersistedQueuedTurns([pendingTurnCandidate as Record<string, unknown>])?.[0]
+      : undefined;
+  if (!pendingTurn) return unknownPendingStartRecovery(threadId, raw, fallbackMessageId);
+  const settlement = candidate.settlement;
+  const receiptSequence =
+    typeof candidate.receiptSequence === "number" &&
+    Number.isSafeInteger(candidate.receiptSequence) &&
+    candidate.receiptSequence >= 0
+      ? candidate.receiptSequence
+      : undefined;
+  const restorationReceipt =
+    candidate.restorationReceipt && typeof candidate.restorationReceipt === "object"
+      ? (candidate.restorationReceipt as Record<string, unknown>)
+      : undefined;
+  const receipt =
+    restorationReceipt &&
+    typeof restorationReceipt.sequence === "number" &&
+    Number.isSafeInteger(restorationReceipt.sequence) &&
+    restorationReceipt.sequence >= 0 &&
+    typeof restorationReceipt.rowId === "string" &&
+    restorationReceipt.rowId.length > 0 &&
+    typeof restorationReceipt.appliedAt === "string" &&
+    restorationReceipt.appliedAt.length > 0
+      ? {
+          sequence: restorationReceipt.sequence,
+          rowId: restorationReceipt.rowId,
+          appliedAt: restorationReceipt.appliedAt,
+        }
+      : undefined;
+  const validIdentity =
+    candidate.schemaVersion === 1 &&
+    Schema.is(ThreadId)(candidate.threadId) &&
+    candidate.threadId === threadId &&
+    messageId !== undefined &&
+    pendingTurn!.id === messageId;
+  const validSettlement =
+    settlement === "unresolved" ||
+    settlement === "accepted" ||
+    settlement === "failed" ||
+    (settlement === "restored" && receipt !== undefined);
+  if (validIdentity && validSettlement) {
+    const persistedImages = Array.isArray(candidate.persistedImages)
+      ? candidate.persistedImages.flatMap((entry) => {
+          const normalized = normalizePersistedAttachment(entry);
+          return normalized ? [normalized] : [];
+        })
+      : [];
+    return {
+      schemaVersion: 1,
+      threadId,
+      messageId,
+      pendingTurn: {
+        ...pendingTurn,
+        messageId,
+      } as unknown as PendingStartRecovery["pendingTurn"],
+      ...(persistedImages.length > 0 ? { persistedImages } : {}),
+      settlement,
+      ...(receiptSequence === undefined ? {} : { receiptSequence }),
+      ...(receipt === undefined ? {} : { restorationReceipt: receipt }),
+    };
+  }
+  return unknownPendingStartRecovery(threadId, raw, fallbackMessageId);
+}
+
+function normalizePendingStartRecoveryMap(
+  threadId: ThreadId,
+  rawMap: unknown,
+  legacyRaw: unknown,
+): Partial<Record<MessageId, PendingStartRecoveryRecord>> {
+  const normalized: Partial<Record<MessageId, PendingStartRecoveryRecord>> = {};
+  if (rawMap && typeof rawMap === "object" && !Array.isArray(rawMap)) {
+    for (const [messageId, raw] of Object.entries(rawMap as Record<string, unknown>)) {
+      const recovery = normalizePendingStartRecovery(threadId, raw, messageId);
+      if (recovery) {
+        const key = recovery.messageId ?? MessageId.makeUnsafe(messageId);
+        normalized[key] = recovery;
+      }
+    }
+  }
+  const legacyRecovery = normalizePendingStartRecovery(threadId, legacyRaw);
+  if (legacyRecovery && normalized[legacyRecovery.messageId] === undefined) {
+    normalized[legacyRecovery.messageId] = legacyRecovery;
+  }
+  return normalized;
+}
+
 function normalizePersistedDraftThreads(
   rawDraftThreadsByThreadId: unknown,
   rawProjectDraftThreadIdByFolderId: unknown,
@@ -818,6 +947,11 @@ function normalizePersistedDraftsByThreadId(
     }
 
     const normalizedQueuedTurns = queuedTurns ?? [];
+    const pendingStartRecoveriesByMessageId = normalizePendingStartRecoveryMap(
+      threadId as ThreadId,
+      draftCandidate.pendingStartRecoveriesByMessageId,
+      draftCandidate.pendingStartRecovery,
+    );
     const queuePaused = draftCandidate.queuePaused === true;
     const hasModelData =
       Object.keys(modelSelectionByProvider).length > 0 || activeProvider !== null;
@@ -833,6 +967,7 @@ function normalizePersistedDraftsByThreadId(
       pastedTexts.length === 0 &&
       !hasReferenceData &&
       !hasQueuedTurns &&
+      Object.keys(pendingStartRecoveriesByMessageId).length === 0 &&
       !queuePaused &&
       !hasModelData &&
       !runtimeMode
@@ -850,6 +985,9 @@ function normalizePersistedDraftsByThreadId(
       ...(skills.length > 0 ? { skills } : {}),
       ...(mentions.length > 0 ? { mentions } : {}),
       ...(hasQueuedTurns ? { queuedTurns: normalizedQueuedTurns } : {}),
+      ...(Object.keys(pendingStartRecoveriesByMessageId).length > 0
+        ? { pendingStartRecoveriesByMessageId }
+        : {}),
       ...(queuePaused ? { queuePaused: true } : {}),
       ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
@@ -861,8 +999,12 @@ function normalizePersistedDraftsByThreadId(
 
 export function migratePersistedComposerDraftStoreState(
   persistedState: unknown,
+  version?: number,
 ): PersistedComposerDraftStoreState {
   const normalized = normalizeCurrentPersistedComposerDraftStoreState(persistedState);
+  if (version === 6 || (version !== undefined && version > COMPOSER_DRAFT_STORAGE_VERSION)) {
+    return normalized;
+  }
   // v6 is an intentional clean cut for the composer/thread redesign. Keep only
   // sticky model preference; every persisted draft and draft-thread mapping is
   // discarded instead of applying compatibility transforms or field heuristics.
@@ -968,6 +1110,36 @@ export function partializeComposerDraftStoreState(
         });
       }
     }
+    const persistedPendingStartRecoveriesByMessageId: Record<string, unknown> = {};
+    for (const [messageId, pendingStartRecovery] of Object.entries(
+      draft.pendingStartRecoveriesByMessageId ?? {},
+    )) {
+      if (!pendingStartRecovery) continue;
+      if ("raw" in pendingStartRecovery) {
+        persistedPendingStartRecoveriesByMessageId[messageId] = pendingStartRecovery.raw;
+      } else {
+        const pendingTurn = serializeQueuedComposerTurn(
+          pendingStartRecovery.pendingTurn as unknown as QueuedComposerTurn,
+          true,
+        );
+        persistedPendingStartRecoveriesByMessageId[messageId] = {
+          schemaVersion: 1,
+          threadId: pendingStartRecovery.threadId,
+          messageId: pendingStartRecovery.messageId,
+          pendingTurn: { ...pendingTurn, messageId: pendingStartRecovery.messageId },
+          settlement: pendingStartRecovery.settlement,
+          ...(pendingStartRecovery.receiptSequence === undefined
+            ? {}
+            : { receiptSequence: pendingStartRecovery.receiptSequence }),
+          ...(pendingStartRecovery.restorationReceipt === undefined
+            ? {}
+            : { restorationReceipt: pendingStartRecovery.restorationReceipt }),
+          ...(pendingStartRecovery.persistedImages === undefined
+            ? {}
+            : { persistedImages: pendingStartRecovery.persistedImages }),
+        };
+      }
+    }
     const hasModelData =
       Object.keys(draft.modelSelectionByProvider).length > 0 || draft.activeProvider !== null;
     const hasQueuedTurns = persistedQueuedTurns.length > 0;
@@ -984,6 +1156,7 @@ export function partializeComposerDraftStoreState(
       draft.pastedTexts.length === 0 &&
       !hasReferenceData &&
       !hasQueuedTurns &&
+      Object.keys(persistedPendingStartRecoveriesByMessageId).length === 0 &&
       !draft.queuePaused &&
       !hasModelData &&
       draft.runtimeMode === null
@@ -1131,6 +1304,9 @@ export function partializeComposerDraftStoreState(
       ...(draft.skills.length > 0 ? { skills: [...draft.skills] } : {}),
       ...(draft.mentions.length > 0 ? { mentions: [...draft.mentions] } : {}),
       ...(hasQueuedTurns ? { queuedTurns: persistedQueuedTurns } : {}),
+      ...(Object.keys(persistedPendingStartRecoveriesByMessageId).length === 0
+        ? {}
+        : { pendingStartRecoveriesByMessageId: persistedPendingStartRecoveriesByMessageId }),
       ...(draft.queuePaused ? { queuePaused: true } : {}),
       ...(hasModelData
         ? {
@@ -1149,6 +1325,96 @@ export function partializeComposerDraftStoreState(
     stickyModelSelectionByProvider: state.stickyModelSelectionByProvider,
     stickyConnectionByProvider: state.stickyConnectionByProvider,
     stickyActiveProvider: state.stickyActiveProvider,
+  };
+}
+
+function serializeQueuedComposerTurn(
+  queuedTurn: QueuedComposerTurn & { messageId?: MessageId },
+  strict: boolean,
+): PersistedQueuedComposerChatTurn {
+  if (queuedTurn.kind !== "chat") {
+    throw new Error("Pending start recovery must contain a chat turn.");
+  }
+  if (queuedTurn.files.some((file) => !file.assetKey)) {
+    throw new Error("Pending start recovery contains a file without a durable asset reference.");
+  }
+  const images = persistQueuedComposerImages(queuedTurn.images);
+  if (images.length !== queuedTurn.images.length) {
+    if (strict) {
+      throw new Error("Pending start recovery contains an image without durable bytes.");
+    }
+    throw new Error("Queued composer image could not be persisted.");
+  }
+  return {
+    id: queuedTurn.id,
+    kind: "chat",
+    createdAt: queuedTurn.createdAt,
+    ...(queuedTurn.serverAcceptedAt ? { serverAcceptedAt: queuedTurn.serverAcceptedAt } : {}),
+    ...(queuedTurn.serverMessageId ? { serverMessageId: queuedTurn.serverMessageId } : {}),
+    ...(queuedTurn.dispatchAttempt === undefined
+      ? {}
+      : { dispatchAttempt: queuedTurn.dispatchAttempt }),
+    ...(queuedTurn.dispatchBindingRevision === undefined
+      ? {}
+      : { dispatchBindingRevision: queuedTurn.dispatchBindingRevision }),
+    previewText: queuedTurn.previewText,
+    prompt: queuedTurn.prompt,
+    images,
+    files: queuedTurn.files.map((file) => ({
+      id: file.id,
+      name: file.name,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+      assetKey: file.assetKey!,
+    })),
+    assistantSelections: queuedTurn.assistantSelections.map((selection) => ({
+      id: selection.id,
+      assistantMessageId: selection.assistantMessageId,
+      text: selection.text,
+    })),
+    terminalContexts: queuedTurn.terminalContexts.map((context) => ({
+      id: context.id,
+      threadId: context.threadId,
+      createdAt: context.createdAt,
+      terminalId: context.terminalId,
+      terminalLabel: context.terminalLabel,
+      lineStart: context.lineStart,
+      lineEnd: context.lineEnd,
+      text: context.text,
+    })),
+    ...(queuedTurn.fileComments.length > 0
+      ? {
+          fileComments: queuedTurn.fileComments.map((comment) => ({
+            id: comment.id,
+            path: comment.path,
+            startLine: comment.startLine,
+            endLine: comment.endLine,
+            text: comment.text,
+          })),
+        }
+      : {}),
+    ...(queuedTurn.pastedTexts.length > 0
+      ? {
+          pastedTexts: queuedTurn.pastedTexts.map((pasted) => ({
+            id: pasted.id,
+            createdAt: pasted.createdAt,
+            text: pasted.text,
+            ...(pasted.title ? { title: pasted.title } : {}),
+          })),
+        }
+      : {}),
+    skills: [...queuedTurn.skills],
+    mentions: [...queuedTurn.mentions],
+    selectedProvider: queuedTurn.selectedProvider,
+    selectedModel: queuedTurn.selectedModel,
+    selectedPromptEffort: queuedTurn.selectedPromptEffort,
+    modelSelection: queuedTurn.modelSelection,
+    connectionId: queuedTurn.connectionId,
+    ...(queuedTurn.providerOptionsForDispatch
+      ? { providerOptionsForDispatch: queuedTurn.providerOptionsForDispatch }
+      : {}),
+    runtimeMode: queuedTurn.runtimeMode,
+    ...(queuedTurn.messageId ? { messageId: queuedTurn.messageId } : {}),
   };
 }
 
@@ -1240,6 +1506,28 @@ function hydrateQueuedTurnsFromPersisted(
   }));
 }
 
+function hydratePendingStartRecoveries(
+  threadId: ThreadId,
+  recoveries: Partial<Record<MessageId, PendingStartRecoveryRecord>>,
+): Partial<Record<MessageId, PendingStartRecoveryRecord>> {
+  const hydrated: Partial<Record<MessageId, PendingStartRecoveryRecord>> = {};
+  for (const [messageId, recovery] of Object.entries(recoveries)) {
+    if (!recovery || "raw" in recovery) {
+      hydrated[messageId as MessageId] = recovery;
+      continue;
+    }
+    const pendingTurn = hydrateQueuedTurnsFromPersisted(threadId, [
+      recovery.pendingTurn as unknown as NonNullable<
+        Parameters<typeof hydrateQueuedTurnsFromPersisted>[1]
+      >[number],
+    ])[0];
+    hydrated[messageId as MessageId] = pendingTurn
+      ? { ...recovery, pendingTurn: { ...pendingTurn } }
+      : unknownPendingStartRecovery(threadId, recovery);
+  }
+  return hydrated;
+}
+
 function hydratePromptHistorySavedDraft(
   savedDraft: PersistedComposerPromptHistorySavedDraft | undefined,
 ): ComposerPromptHistorySavedDraft | null {
@@ -1309,6 +1597,14 @@ export function toHydratedThreadDraft(
     skills: [...(persistedDraft.skills ?? [])],
     mentions: [...(persistedDraft.mentions ?? [])],
     queuedTurns: hydrateQueuedTurnsFromPersisted(threadId, persistedDraft.queuedTurns),
+    pendingStartRecoveriesByMessageId: hydratePendingStartRecoveries(
+      threadId,
+      normalizePendingStartRecoveryMap(
+        threadId,
+        persistedDraft.pendingStartRecoveriesByMessageId,
+        persistedDraft.pendingStartRecovery,
+      ),
+    ),
     queuePaused: persistedDraft.queuePaused === true,
     modelSelectionByProvider,
     activeProvider,

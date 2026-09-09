@@ -866,6 +866,14 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           if (Option.isNone(existingMessage) || existingMessage.value.deliveryState === undefined) {
             return;
           }
+          if (
+            event.type === "thread.message-delivery-set" &&
+            event.payload.failurePhase === "before-provider-dispatch" &&
+            existingMessage.value.deliveryState !== "starting" &&
+            existingMessage.value.deliveryState !== "steering"
+          ) {
+            return;
+          }
           const state =
             event.type === "thread.message-delivery-set"
               ? event.payload.state
@@ -1083,6 +1091,55 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           return;
         }
 
+        case "thread.message-delivery-set":
+          if (
+            event.payload.state === "failed" &&
+            event.payload.failurePhase === "before-provider-dispatch" &&
+            event.payload.turnId !== undefined &&
+            event.payload.failureDetail !== undefined
+          ) {
+            yield* sql`
+              UPDATE projection_thread_sessions
+              SET status = 'error', active_turn_id = NULL,
+                  last_error = ${event.payload.failureDetail},
+                  updated_at = ${event.payload.updatedAt}
+              WHERE thread_id = ${event.payload.threadId}
+                AND status = 'starting'
+                AND active_turn_id IS NULL
+                AND EXISTS (
+                  SELECT 1 FROM restart_turn_recoveries recovery
+                  WHERE recovery.thread_id = ${event.payload.threadId}
+                    AND recovery.turn_id = ${event.payload.turnId}
+                    AND recovery.message_id = ${event.payload.messageId}
+                )
+                AND EXISTS (
+                  SELECT 1 FROM projection_turns turn_row
+                  WHERE turn_row.thread_id = ${event.payload.threadId}
+                    AND turn_row.turn_id = ${event.payload.turnId}
+                    AND turn_row.pending_message_id = ${event.payload.messageId}
+                    AND turn_row.state = 'running'
+                    AND turn_row.started_at IS NULL
+                    AND turn_row.provider_turn_id IS NULL
+                    AND turn_row.completed_at IS NULL
+                )
+            `.pipe(
+              Effect.mapError(
+                toPersistenceSqlError("ProjectionPipeline.failUndispatchedTurnSession:query"),
+              ),
+            );
+            yield* sql`
+              DELETE FROM restart_turn_recoveries
+              WHERE thread_id = ${event.payload.threadId}
+                AND turn_id = ${event.payload.turnId}
+                AND message_id = ${event.payload.messageId}
+            `.pipe(
+              Effect.mapError(
+                toPersistenceSqlError("ProjectionPipeline.clearFailedTurnRecovery:query"),
+              ),
+            );
+          }
+          return;
+
         case "thread.session-set":
           {
             yield* projectionThreadSessionRepository.upsert({
@@ -1231,6 +1288,29 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           const turns = yield* projectionTurnRepository.listByThreadId({
             threadId: event.payload.threadId,
           });
+          if (
+            event.payload.state === "failed" &&
+            event.payload.failurePhase === "before-provider-dispatch" &&
+            event.payload.turnId !== undefined
+          ) {
+            const failedTurn = turns.find(
+              (turn) =>
+                turn.turnId === event.payload.turnId &&
+                turn.pendingMessageId === event.payload.messageId &&
+                turn.state === "running" &&
+                turn.startedAt === null &&
+                turn.providerTurnId === null &&
+                turn.completedAt === null,
+            );
+            if (failedTurn) {
+              yield* projectionTurnRepository.upsertByTurnId({
+                ...failedTurn,
+                state: "error",
+                completedAt: event.payload.updatedAt,
+              });
+            }
+            return;
+          }
           if (event.payload.state === "accepted" && event.payload.providerTurnId !== undefined) {
             const acceptedTurn = turns.find(
               (turn) =>
@@ -1243,7 +1323,11 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               yield* projectionTurnRepository.upsertByTurnId({
                 ...acceptedTurn,
                 providerTurnId: event.payload.providerTurnId,
-                startedAt: acceptedTurn.startedAt ?? event.payload.updatedAt,
+                state: event.payload.terminalState ?? acceptedTurn.state,
+                // Delivery acceptance binds the provider identity, not an
+                // execution start time. Runtime start/running observations own
+                // startedAt, including when completion precedes this receipt.
+                completedAt: event.payload.terminalCompletedAt ?? acceptedTurn.completedAt,
               });
             }
             return;
@@ -1289,7 +1373,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           if (event.payload.session.status !== "running" || turnId === null) {
             const settledState = settleTurnStateFromSession(event.payload.session, "running");
             if (settledState !== null) {
-              // Close only a turn that actually started. A provider connection
+              // Close only a turn observed running or bound to an accepted
+              // provider invocation. A provider connection
               // can report ready before the authoritative `turn.started`; a
               // pending request is not an execution and must survive that
               // readiness event for the later provider turn to claim it.
@@ -1300,7 +1385,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               }))
                 .filter(
                   (row) =>
-                    row.completedAt === null && row.state === "running" && row.startedAt !== null,
+                    row.completedAt === null &&
+                    row.state === "running" &&
+                    (row.startedAt !== null || row.providerTurnId !== null),
                 )
                 .toSorted(
                   (left, right) =>
@@ -1327,7 +1414,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                     ...row,
                     state:
                       settleTurnStateFromSession(event.payload.session, row.state) ?? row.state,
-                    startedAt: row.startedAt ?? event.payload.session.updatedAt,
+                    startedAt: row.startedAt,
                     requestedAt: row.requestedAt ?? event.payload.session.updatedAt,
                     completedAt: event.payload.session.updatedAt,
                   }),
@@ -1750,6 +1837,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       phase: "hot",
       shouldApply: (event) =>
         event.type === "thread.turn-start-requested" ||
+        event.type === "thread.message-delivery-set" ||
         event.type === "thread.session-set" ||
         event.type === "thread.turn-interrupt-requested" ||
         event.type === "thread.session-stop-requested" ||

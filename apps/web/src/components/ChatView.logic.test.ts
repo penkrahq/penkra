@@ -24,6 +24,7 @@ import {
   resolveProjectScriptTerminalTarget,
   resolveRuntimeModeAfterApprovalDecision,
   resolveThreadDetailHydration,
+  shouldRenderTranscriptDuringHydration,
   sanitizeVoiceErrorMessage,
   buildExpiredTerminalContextToastCopy,
   shouldAutoDeleteTerminalThreadOnLastClose,
@@ -1252,6 +1253,23 @@ describe("resolveRuntimeModeAfterApprovalDecision", () => {
 });
 
 describe("thread detail hydration", () => {
+  it("keeps locally owned send feedback visible while a promoted shell hydrates", () => {
+    expect(
+      shouldRenderTranscriptDuringHydration({
+        hydration: "loading",
+        optimisticMessageCount: 1,
+        isWorking: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRenderTranscriptDuringHydration({
+        hydration: "loading",
+        optimisticMessageCount: 0,
+        isWorking: false,
+      }),
+    ).toBe(false);
+  });
+
   it("keeps local drafts on the empty landing even if a stale failure flag lingers", () => {
     expect(
       resolveThreadDetailHydration({

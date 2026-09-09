@@ -8,6 +8,7 @@ import {
   TurnId,
 } from "@penkra/contracts";
 import { nonEmptyTrimmed } from "@penkra/shared/text";
+import { normalizeProviderRuntimeDiagnostic } from "./providerRuntimeDiagnostic.ts";
 
 const MAX_ACTIVITY_DATA_JSON_CHARS = 16_000;
 const MAX_ACTIVITY_DATA_STRING_CHARS = 2_000;
@@ -554,6 +555,7 @@ export function projectProviderRuntimeActivities(
         return [];
       }
       const errorClass = asString(payload?.class);
+      const diagnostic = normalizeProviderRuntimeDiagnostic(event.provider, payload?.detail);
       return [
         {
           id: event.eventId,
@@ -564,6 +566,7 @@ export function projectProviderRuntimeActivities(
           payload: toActivityPayload({
             message: truncateDetail(message, 500),
             ...(errorClass ? { class: errorClass } : {}),
+            ...(diagnostic ? { diagnostic } : {}),
           }),
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -580,6 +583,7 @@ export function projectProviderRuntimeActivities(
       const detailSubtype = asString(asObject(event.payload.detail)?.subtype);
       const isBackgroundMove = detailSubtype === "background_tasks_changed";
       const message = truncateDetail(event.payload.message);
+      const diagnostic = normalizeProviderRuntimeDiagnostic(event.provider, event.payload.detail);
       return [
         {
           id: event.eventId,
@@ -601,6 +605,7 @@ export function projectProviderRuntimeActivities(
               : nativeType
                 ? { nativeEventType: nativeType }
                 : {}),
+            ...(diagnostic ? { diagnostic } : {}),
             ...activityDataField(event.payload.detail),
           }),
           turnId: toTurnId(event.turnId) ?? null,

@@ -41,6 +41,8 @@ import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
+import { AgentGatewayCreationAdmissionRepository } from "../../persistence/Services/AgentGatewayCreationAdmissions.ts";
+import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { type AgentGatewayProviderAvailability } from "../targetResolver.ts";
 import {
   extractPenkraExecRichResult,
@@ -131,6 +133,8 @@ export const makeAgentGateway = Effect.gen(function* () {
   const serverSettings = yield* ServerSettingsService;
   const connections = yield* ProviderConnectionRepository;
   const threadBindings = yield* ThreadProviderBindingRepository;
+  const creationAdmissions = yield* AgentGatewayCreationAdmissionRepository;
+  const commandReceipts = yield* OrchestrationCommandReceiptRepository;
   const projectionTurns = yield* ProjectionTurnRepository;
   const eventStore = yield* OrchestrationEventStore;
   const eventDeliveries = yield* OrchestrationEventDeliveryRepository;
@@ -254,6 +258,9 @@ export const makeAgentGateway = Effect.gen(function* () {
   // --- write tools ----------------------------------------------------------
 
   const runCreateThread = yield* makeCreateThreadHandler({
+    diagnostics,
+    admissions: creationAdmissions,
+    commandReceipts,
     loadExistingBinding: (threadId) => threadBindings.getRuntimeBinding(threadId),
     snapshotQuery,
     orchestrationEngine,

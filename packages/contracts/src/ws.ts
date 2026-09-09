@@ -7,6 +7,7 @@ import {
   OrchestrationImportThreadInput,
   OrchestrationAcknowledgeSyncInput,
   OrchestrationGetThreadTurnsPageInput,
+  OrchestrationGetPendingStartOutcomeInput,
   OrchestrationShellStreamItem,
   OrchestrationSubscribeSyncInput,
   OrchestrationSubscribeShellInput,
@@ -199,6 +200,10 @@ const WebSocketRequestBody = Schema.Union([
     OrchestrationGetThreadDetailSnapshotInput,
   ),
   tagRequestBody(ORCHESTRATION_WS_METHODS.getThreadTurnsPage, OrchestrationGetThreadTurnsPageInput),
+  tagRequestBody(
+    ORCHESTRATION_WS_METHODS.getPendingStartOutcome,
+    OrchestrationGetPendingStartOutcomeInput,
+  ),
   tagRequestBody(ORCHESTRATION_WS_METHODS.repairState, OrchestrationRepairStateInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.replayEvents, OrchestrationReplayEventsInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeSync, OrchestrationSubscribeSyncInput),

@@ -14,6 +14,7 @@ import type {
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
+  OrchestrationSession,
 } from "@penkra/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Scope, Stream } from "effect";
@@ -29,6 +30,16 @@ import type { ThreadProviderBindingRepositoryShape } from "../../persistence/Ser
 
 export interface OrchestrationDispatchContext {
   readonly attachmentPrincipal?: ManagedAttachmentPrincipal;
+  /** Server-only provider lifecycle ownership fence; excluded from command identity. */
+  readonly expectedProviderLifecycleGeneration?: string;
+  /**
+   * Server-only snapshot of the session state that made a provider lifecycle
+   * mutation applicable; excluded from command identity.
+   */
+  readonly expectedProviderSessionOwnership?: Pick<
+    OrchestrationSession,
+    "status" | "updatedAt" | "activeTurnId"
+  > | null;
   /** Server-only proof and atomic persistence payload for a verified Connection switch. */
   readonly acceptedProviderSwitch?: {
     readonly operationId: string;
@@ -123,7 +134,7 @@ export interface OrchestrationEngineShape {
   readonly dispatch: (
     command: OrchestrationCommand,
     context?: OrchestrationDispatchContext,
-  ) => Effect.Effect<{ sequence: number }, OrchestrationDispatchError, never>;
+  ) => Effect.Effect<OrchestrationDispatchResult, OrchestrationDispatchError, never>;
 
   /**
    * Repair folder-facing projection state for older installs without clearing
@@ -154,6 +165,12 @@ export interface OrchestrationEngineShape {
    * This is a hot runtime stream (new events only), not a historical replay.
    */
   readonly streamDomainEvents: Stream.Stream<OrchestrationEvent>;
+}
+
+export interface OrchestrationDispatchResult {
+  readonly sequence: number;
+  /** Present only for a server-guarded provider lifecycle dispatch. */
+  readonly disposition?: "applied" | "skipped";
 }
 
 /**

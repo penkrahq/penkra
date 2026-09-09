@@ -879,8 +879,23 @@ export function projectEvent(
         Effect.map((payload) => {
           const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
           if (!thread) return nextBase;
+          const targetDeliveryState = thread.messages.find(
+            (message) => message.id === payload.messageId,
+          )?.delivery?.state;
+          const isUnacceptedAttempt =
+            targetDeliveryState === "starting" || targetDeliveryState === "steering";
+          const ownsStartingSession =
+            payload.failurePhase === "before-provider-dispatch" &&
+            isUnacceptedAttempt &&
+            thread.pendingTurnStartMessageId === payload.messageId &&
+            thread.session?.status === "starting" &&
+            thread.session.activeTurnId === null;
           const messages = thread.messages.map((message) =>
-            message.id === payload.messageId && message.delivery !== undefined
+            message.id === payload.messageId &&
+            message.delivery !== undefined &&
+            (payload.failurePhase !== "before-provider-dispatch" ||
+              message.delivery.state === "starting" ||
+              message.delivery.state === "steering")
               ? {
                   ...message,
                   delivery: {
@@ -897,11 +912,58 @@ export function projectEvent(
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
               messages,
+              ...(payload.failurePhase === "before-provider-dispatch" &&
+              isUnacceptedAttempt &&
+              payload.turnId !== undefined &&
+              thread.latestTurn?.turnId === payload.turnId &&
+              thread.latestTurn.state === "running" &&
+              thread.latestTurn.startedAt === null
+                ? {
+                    latestTurn: {
+                      ...thread.latestTurn,
+                      state: "error" as const,
+                      completedAt: payload.updatedAt,
+                    },
+                  }
+                : {}),
+              ...(payload.state === "accepted" &&
+              payload.terminalState !== undefined &&
+              payload.terminalCompletedAt !== undefined &&
+              payload.turnId !== undefined &&
+              thread.latestTurn?.turnId === payload.turnId &&
+              thread.latestTurn.state === "running"
+                ? {
+                    latestTurn: {
+                      ...thread.latestTurn,
+                      state: payload.terminalState,
+                      completedAt: payload.terminalCompletedAt,
+                    },
+                  }
+                : {}),
+              pendingTurnStartMessageId:
+                payload.failurePhase === "before-provider-dispatch" &&
+                isUnacceptedAttempt &&
+                thread.pendingTurnStartMessageId === payload.messageId
+                  ? null
+                  : thread.pendingTurnStartMessageId,
+              ...(ownsStartingSession && payload.failureDetail !== undefined
+                ? {
+                    session: {
+                      ...thread.session,
+                      status: "error" as const,
+                      lastError: payload.failureDetail,
+                      updatedAt: payload.updatedAt,
+                    },
+                  }
+                : {}),
               updatedAt: payload.updatedAt,
             }),
           };
         }),
       );
+
+    case "thread.provider-lifecycle-write-skipped":
+      return Effect.succeed(nextBase);
 
     case "thread.session-set":
       return Effect.gen(function* () {
@@ -983,7 +1045,10 @@ export function projectEvent(
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
               messages,
-              pendingTurnStartMessageId: null,
+              pendingTurnStartMessageId:
+                thread.pendingTurnStartMessageId === payload.messageId
+                  ? null
+                  : thread.pendingTurnStartMessageId,
               updatedAt: event.occurredAt,
             }),
           };

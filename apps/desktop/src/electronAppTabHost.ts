@@ -120,7 +120,9 @@ export class ElectronAppTabHost implements AppTabHost {
   readonly #records = new Map<string, AppTabRecord>();
   #themeCss = "";
   #typographyCss = "";
-  #visibleTabId: string | null = null;
+  readonly #visibleTabIdBySurfaceId = new Map<number, string>();
+  readonly #activeSurfaceIdByTabId = new Map<string, number>();
+  #lastVisibleTabId: string | null = null;
   #nextRendererId = -1;
 
   constructor(input: {
@@ -312,14 +314,17 @@ export class ElectronAppTabHost implements AppTabHost {
   }
 
   current(): DesktopAppTabDescriptor | null {
-    return this.#visibleTabId === null
+    return this.#lastVisibleTabId === null
       ? null
-      : (this.#records.get(this.#visibleTabId)?.descriptor ?? null);
+      : (this.#records.get(this.#lastVisibleTabId)?.descriptor ?? null);
   }
 
   currentFor(spaceId: string, threadId: string): DesktopAppTabDescriptor | null {
-    const current = this.current();
-    return current?.spaceId === spaceId && current.threadId === threadId ? current : null;
+    for (const tabId of [...this.#visibleTabIdBySurfaceId.values()].reverse()) {
+      const descriptor = this.#records.get(tabId)?.descriptor;
+      if (descriptor?.spaceId === spaceId && descriptor.threadId === threadId) return descriptor;
+    }
+    return null;
   }
 
   /** Re-announces an existing tab so the trusted shell opens its dock and selects it. */
@@ -352,22 +357,79 @@ export class ElectronAppTabHost implements AppTabHost {
     return this.#require(tabId).rendererId;
   }
 
-  setActive(tabId: string, rendererId: number, active: boolean): boolean {
+  setActive(tabId: string, rendererId: number, active: boolean, surfaceId = 0): boolean {
     const record = this.#matchingRenderer(tabId, rendererId);
     if (!record) return false;
-    if (active) {
-      this.#visibleTabId = tabId;
-    } else {
-      if (this.#visibleTabId === tabId) this.#visibleTabId = null;
+    const previousTabId = this.#visibleTabIdBySurfaceId.get(surfaceId);
+    if (active && previousTabId && previousTabId !== tabId) {
+      this.#dropSurfaceContribution(previousTabId, surfaceId);
     }
-    this.#sendEvent(record, "lifecycle.visibility", { active });
+    const wasVisible = this.#isVisible(tabId);
+    if (active) {
+      this.#visibleTabIdBySurfaceId.delete(surfaceId);
+      this.#visibleTabIdBySurfaceId.set(surfaceId, tabId);
+      this.#activeSurfaceIdByTabId.set(tabId, surfaceId);
+      this.#lastVisibleTabId = tabId;
+    } else if (this.#visibleTabIdBySurfaceId.get(surfaceId) === tabId) {
+      this.#dropSurfaceContribution(tabId, surfaceId);
+      return true;
+    }
+    const isVisible = this.#isVisible(tabId);
+    if (wasVisible === isVisible) return true;
+    this.#sendEvent(record, "lifecycle.visibility", { active: isVisible });
     this.#diagnostics.publish({
-      kind: active ? "tab-activated" : "tab-deactivated",
+      kind: isVisible ? "tab-activated" : "tab-deactivated",
       appId: record.app.appId,
       spaceId: record.descriptor.spaceId,
       tabId,
     });
     return true;
+  }
+
+  dropSurface(surfaceId: number): void {
+    const tabId = this.#visibleTabIdBySurfaceId.get(surfaceId);
+    if (!tabId) return;
+    this.#dropSurfaceContribution(tabId, surfaceId);
+  }
+
+  #dropSurfaceContribution(tabId: string, surfaceId: number): void {
+    const record = this.#records.get(tabId);
+    const wasVisible = this.#isVisible(tabId);
+    this.#visibleTabIdBySurfaceId.delete(surfaceId);
+    if (this.#activeSurfaceIdByTabId.get(tabId) === surfaceId) {
+      const fallbackSurfaceId = this.#surfaceIdForTab(tabId);
+      if (fallbackSurfaceId === null) this.#activeSurfaceIdByTabId.delete(tabId);
+      else this.#activeSurfaceIdByTabId.set(tabId, fallbackSurfaceId);
+    }
+    const isVisible = this.#isVisible(tabId);
+    if (this.#lastVisibleTabId === tabId && !isVisible) {
+      this.#lastVisibleTabId = [...this.#visibleTabIdBySurfaceId.values()].at(-1) ?? null;
+    }
+    if (!record || wasVisible === isVisible) return;
+    this.#sendEvent(record, "lifecycle.visibility", { active: false });
+    this.#diagnostics.publish({
+      kind: "tab-deactivated",
+      appId: record.app.appId,
+      spaceId: record.descriptor.spaceId,
+      tabId,
+    });
+  }
+
+  focusSurface(surfaceId: number): void {
+    const tabId = this.#visibleTabIdBySurfaceId.get(surfaceId);
+    if (!tabId) return;
+    this.#visibleTabIdBySurfaceId.delete(surfaceId);
+    this.#visibleTabIdBySurfaceId.set(surfaceId, tabId);
+    this.#activeSurfaceIdByTabId.set(tabId, surfaceId);
+    this.#lastVisibleTabId = tabId;
+  }
+
+  activeSurfaceId(tabId: string): number | null {
+    return this.#activeSurfaceIdByTabId.get(tabId) ?? null;
+  }
+
+  visibleTabIdForSurface(surfaceId: number): string | null {
+    return this.#visibleTabIdBySurfaceId.get(surfaceId) ?? null;
   }
 
   async navigate(tabId: string, input: { route: string; state?: unknown }): Promise<void> {
@@ -454,7 +516,7 @@ export class ElectronAppTabHost implements AppTabHost {
       if (this.#typographyCss) {
         this.#sendEvent(record, "appearance.typography-css", this.#typographyCss);
       }
-      this.#sendEvent(record, "lifecycle.visibility", { active: this.#visibleTabId === tabId });
+      this.#sendEvent(record, "lifecycle.visibility", { active: this.#isVisible(tabId) });
       return;
     }
     record.frameReady = true;
@@ -549,7 +611,13 @@ export class ElectronAppTabHost implements AppTabHost {
   close(tabId: string, reason: OperationCancellationCode = "tab-closed"): void {
     const record = this.#records.get(tabId);
     if (!record) return;
-    if (this.#visibleTabId === tabId) this.#visibleTabId = null;
+    for (const [surfaceId, visibleTabId] of this.#visibleTabIdBySurfaceId) {
+      if (visibleTabId === tabId) this.#visibleTabIdBySurfaceId.delete(surfaceId);
+    }
+    this.#activeSurfaceIdByTabId.delete(tabId);
+    if (this.#lastVisibleTabId === tabId) {
+      this.#lastVisibleTabId = [...this.#visibleTabIdBySurfaceId.values()].at(-1) ?? null;
+    }
     this.#records.delete(tabId);
     const failures: Array<{ role: string; failure: unknown }> = [];
     this.#attemptRetirement(failures, "generation-authority", () =>
@@ -759,6 +827,19 @@ export class ElectronAppTabHost implements AppTabHost {
   #matchingRenderer(tabId: string, rendererId: number): AppTabRecord | null {
     const record = this.#records.get(tabId);
     return record?.rendererId === rendererId ? record : null;
+  }
+
+  #isVisible(tabId: string): boolean {
+    return [...this.#visibleTabIdBySurfaceId.values()].includes(tabId);
+  }
+
+  #surfaceIdForTab(tabId: string): number | null {
+    for (const [surfaceId, visibleTabId] of [
+      ...this.#visibleTabIdBySurfaceId.entries(),
+    ].reverse()) {
+      if (visibleTabId === tabId) return surfaceId;
+    }
+    return null;
   }
 
   #sendEvent(record: AppTabRecord, name: string, payload: unknown): void {

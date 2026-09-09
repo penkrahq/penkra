@@ -97,3 +97,28 @@ archive call at `08:11:15.241Z`, and successful `{archived:true}` result at `08:
 all belonged to native turn `01a075c4-798c-7c70-8884-285db42e19a1`, which started at
 `08:10:05.591Z` and completed at `08:11:17.612Z`. This was same-execution steering, not a
 later fresh-turn fallback. The separate restore completed at `08:11:50.739Z`.
+
+## Package and publication certification
+
+The exact release candidate was commit
+`3bb3b8f9039fdd74f74d5f389fc7c23f6364dda0`, with lockfile SHA-256
+`fb23154f499865312b42e49f6342cb76e3858cb4134a694fcf80fd718d32798c` and required Apps
+version `0.2.9` at digest
+`5c35556b7fece4d3694b4959f3143a47ec7236ae05dc5f0beb2e2d8778a81f52`.
+
+An isolated local arm64 package built from that exact commit passed startup smoke and a fresh-profile
+manual launch. Its About dialog reported `Penkra Version 0.12.2 (3bb3b8f9039f)`. The installed
+production App hosting this verification was not replaced or restarted.
+
+Exact-commit CI run `34021773414` passed. Release workflow run `34022572917` passed on its second
+attempt. The first macOS x64 attempt signed and notarized the App successfully, uploaded the DMG,
+and received Apple submission ID `a17a00ed-5fdd-4a8d-b18a-75c5880497e2`; its status request then
+timed out with `NSURLErrorDomain -1001`. The unchanged failed job was retried under the workflow's
+infrastructure-retry rule and passed signing, notarization, artifact verification, attestation, and
+retention. Linux x64, Windows x64, and macOS arm64 passed on the original attempt.
+
+The workflow then assembled checksums and update metadata, created immutable tag `v0.12.2`, and
+published stable release `Penkra v0.12.2` at `2026-09-06T09:11:04Z`. The tag resolves exactly to the
+certified commit above. The release contains 17 uploaded assets, including both macOS architectures,
+the Windows installer, Linux AppImage, update feeds, native-upgrade evidence, provenance records,
+and `SHA256SUMS.txt`.

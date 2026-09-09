@@ -213,7 +213,13 @@ Reference usage: opening/closing a project and the sidebar sections in `apps/web
 - `bun run dev:desktop:install-app` installs the standard Applications launchers: `Penkra Dev`, `Penkra Dev 2`, and `Penkra Dev 3`. Slot 1 deliberately keeps the established `~/Penkra_Dev` state; later slots use isolated state below `~/Penkra_Dev/.instances/<slot>`.
 - Launch numbered desktop instances from Applications. They share the local account API, website, registry, renderer build, and source watchers, while keeping login/session data, Chromium profiles, Penkra databases, tabs, Threads, logs, process identity, and embedded desktop backends separate.
 - The first numbered app starts the shared services. Closing one app stops only that desktop; shared services stop after the last numbered app closes.
-- To install another stable slot, run `bun run dev:desktop:install-app -- <slot>`, then launch `Penkra Dev <slot>` normally from Applications. The slot is a positive integer and is derived by the same resolver; three is a provisioned default, not a maximum.
+- Slots 1–3 are the complete standard QA pool. Reuse them for routine fresh-instance QA, retries,
+  provider checks, parallel agent work, and ordinary multi-window testing. Do not install a slot
+  beyond 3 merely to obtain another clean instance.
+- Install a slot beyond 3 only when the test inherently requires more than three simultaneous,
+  independently isolated desktops, such as a large multiplayer or concurrency scenario. Record why
+  slots 1–3 are insufficient, use `bun run dev:desktop:install-app -- <slot>`, and remove both the
+  extra launcher and `~/Penkra_Dev/.instances/<slot>` as soon as that test ends, including on failure.
 - Do not recreate numbered Apps by manually setting environment variables, copying `.app` bundles, renaming Electron, or choosing ad hoc ports/paths. Those bypass the canonical bundle IDs, URL schemes, profiles, locks, and lifecycle coordination.
 - Browser-only development remains separate from numbered desktop QA. When an intentionally isolated browser server is required, use `scripts/dev-runner.ts` with an explicit home and dry-run its port selection first; never present that workflow as a Penkra Dev desktop instance.
 - If the UI shows no threads, verify which numbered root and embedded backend the window owns before changing SQL. A healthy snapshot with projects/threads means the issue is client connection/hydration, not empty history.

@@ -379,6 +379,15 @@ export function resolveThreadDetailHydration(input: {
   return input.detailSyncState === "failed" ? "failed" : "loading";
 }
 
+/** Keep locally owned send feedback mounted while a promoted thread shell hydrates. */
+export function shouldRenderTranscriptDuringHydration(input: {
+  readonly hydration: ThreadDetailHydration;
+  readonly optimisticMessageCount: number;
+  readonly isWorking: boolean;
+}): boolean {
+  return input.hydration === "ready" || input.optimisticMessageCount > 0 || input.isWorking;
+}
+
 export function buildLocalDraftThread(
   threadId: ThreadId,
   draftThread: DraftThreadState,

@@ -118,6 +118,7 @@ export class AppCommandPipeServer {
   readonly #tabs: {
     list(): ReadonlyArray<DesktopAppTabDescriptor>;
     current(): DesktopAppTabDescriptor | null;
+    currentFor?(spaceId: string, threadId: string): DesktopAppTabDescriptor | null;
   };
   readonly #observer: AppTabObserverBridge;
   readonly #registry: AppRegistryClient | null;
@@ -145,6 +146,7 @@ export class AppCommandPipeServer {
     tabs: {
       list(): ReadonlyArray<DesktopAppTabDescriptor>;
       current(): DesktopAppTabDescriptor | null;
+      currentFor?(spaceId: string, threadId: string): DesktopAppTabDescriptor | null;
     };
     observer: AppTabObserverBridge;
     registry?: AppRegistryClient | null;
@@ -774,7 +776,9 @@ export class AppCommandPipeServer {
 
   #scopedCurrentTab(params: Record<string, unknown>): DesktopAppTabDescriptor | null {
     const scope = this.#scope(params);
-    const current = this.#tabs.current();
+    const current = this.#tabs.currentFor
+      ? this.#tabs.currentFor(scope.spaceId, scope.threadId)
+      : this.#tabs.current();
     return current?.spaceId === scope.spaceId && current.threadId === scope.threadId
       ? current
       : null;

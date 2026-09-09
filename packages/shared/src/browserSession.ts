@@ -183,6 +183,24 @@ export function classifyBrowserWindowOpen(intent: BrowserWindowOpenIntent): Brow
 }
 
 const ELECTRON_UA_TOKEN_PATTERN = /\sElectron\/\S+/gi;
+const PENKRA_UA_TOKEN_PATTERN = /\sPenkra(?:Dev\d+)?\/\S+/gi;
+
+// Some services reject otherwise-supported Chromium builds solely because the host product
+// token is unfamiliar. Keep these exceptions exact and reviewable instead of weakening the
+// Browser identity globally.
+export const BROWSER_USER_AGENT_COMPATIBILITY_HOSTS = ["web.whatsapp.com"] as const;
+
+export function requiresVanillaChromeUserAgent(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "https:" &&
+      BROWSER_USER_AGENT_COMPATIBILITY_HOSTS.some((host) => parsed.hostname === host)
+    );
+  } catch {
+    return false;
+  }
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -204,6 +222,21 @@ export function deriveChromeUserAgent(
     userAgent = userAgent.replace(new RegExp(`\\s${escapeRegExp(trimmed)}\\/\\S+`, "gi"), "");
   }
   return userAgent.replace(/\s{2,}/g, " ").trim();
+}
+
+export function deriveBrowserUserAgentForUrl(baseUserAgent: string, url: string): string {
+  const browserUserAgent = deriveChromeUserAgent(baseUserAgent);
+  if (!requiresVanillaChromeUserAgent(url)) {
+    return browserUserAgent;
+  }
+  return deriveVanillaChromeUserAgent(browserUserAgent);
+}
+
+export function deriveVanillaChromeUserAgent(baseUserAgent: string): string {
+  return deriveChromeUserAgent(baseUserAgent)
+    .replace(PENKRA_UA_TOKEN_PATTERN, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 export function chromeMajorVersionFromUserAgent(userAgent: string): string | null {

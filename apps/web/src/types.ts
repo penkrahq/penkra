@@ -246,6 +246,7 @@ export interface SidebarThreadSummary {
   updatedAt?: string | undefined;
   isPinned?: boolean;
   latestTurn: OrchestrationLatestTurn | null;
+  pendingTurnStartMessageId?: MessageId | null;
   lastVisitedAt?: string | undefined;
   parentThreadId?: ThreadId | null;
   subagentAgentId?: string | null;

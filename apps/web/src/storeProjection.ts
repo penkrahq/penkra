@@ -329,6 +329,7 @@ function sidebarThreadSummariesEqual(
     left.updatedAt === right.updatedAt &&
     (left.isPinned ?? false) === (right.isPinned ?? false) &&
     left.latestTurn === right.latestTurn &&
+    (left.pendingTurnStartMessageId ?? null) === (right.pendingTurnStartMessageId ?? null) &&
     left.lastVisitedAt === right.lastVisitedAt &&
     (left.parentThreadId ?? null) === (right.parentThreadId ?? null) &&
     (left.subagentAgentId ?? null) === (right.subagentAgentId ?? null) &&
@@ -363,6 +364,7 @@ function buildSidebarThreadSummary(
     updatedAt: thread.updatedAt,
     isPinned: thread.isPinned ?? false,
     latestTurn: thread.latestTurn,
+    pendingTurnStartMessageId: thread.pendingTurnStartMessageId ?? null,
     lastVisitedAt: thread.lastVisitedAt,
     parentThreadId: thread.parentThreadId ?? null,
     subagentAgentId: thread.subagentAgentId ?? null,
@@ -779,6 +781,8 @@ function removeThreadState(state: AppState, threadId: ThreadId): AppState {
     state.threadTurnPaginationById ?? {};
   const { [threadId]: _removedSummary, ...sidebarThreadSummaryById } =
     state.sidebarThreadSummaryById;
+  const { [threadId]: _removedCancellation, ...pendingStartCancellationByThreadId } =
+    state.pendingStartCancellationByThreadId ?? {};
   const nextThreadIds = (state.threadIds ?? EMPTY_THREAD_IDS).filter((id) => id !== threadId);
 
   if (
@@ -801,6 +805,7 @@ function removeThreadState(state: AppState, threadId: ThreadId): AppState {
       activityByThreadId,
       threadTurnPaginationById,
       sidebarThreadSummaryById,
+      pendingStartCancellationByThreadId,
     },
     threadId,
   );
@@ -1163,6 +1168,10 @@ export function syncServerShellSnapshot(
     threadDetailSyncById: retainThreadScopedRecord(state.threadDetailSyncById, nextThreadIds),
     threadTurnPaginationById: retainThreadScopedRecord(
       state.threadTurnPaginationById,
+      nextThreadIds,
+    ),
+    pendingStartCancellationByThreadId: retainThreadScopedRecord(
+      state.pendingStartCancellationByThreadId,
       nextThreadIds,
     ),
   };

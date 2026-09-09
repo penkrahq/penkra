@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Layer } from "effect";
 
 import { AgentGatewayLive } from "./agentGateway/Layers/AgentGateway";
+import { AgentGatewayCreationAdmissionRepositoryLive } from "./persistence/Layers/AgentGatewayCreationAdmissions";
 import { AgentGatewayCredentialsWithSecretsLive } from "./agentGateway/Layers/AgentGatewayCredentials";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
@@ -169,6 +170,7 @@ export function makeServerRuntimeServicesLayer(
   );
   const workspaceWatcherLayer = WorkspaceWatcherLive.pipe(Layer.provideMerge(runtimeServicesLayer));
   const agentGatewayLayer = AgentGatewayLive.pipe(
+    Layer.provideMerge(AgentGatewayCreationAdmissionRepositoryLive),
     Layer.provideMerge(agentGatewayCredentialsLayer),
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(ProjectionTurnRepositoryLive),

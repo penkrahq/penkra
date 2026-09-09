@@ -1375,19 +1375,29 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     const response = await this.sendRequest(context, "turn/start", turnStartParams);
-    const turnIdRaw = this.readString(this.readObject(this.readObject(response), "turn"), "id");
+    const turn = this.readObject(this.readObject(response), "turn");
+    const turnIdRaw = this.readString(turn, "id");
     if (!turnIdRaw) {
       throw new Error("turn/start response did not include a turn id.");
     }
     const turnId = TurnId.makeUnsafe(turnIdRaw);
-
-    this.updateSession(context, {
-      status: "running",
-      activeTurnId: turnId,
-      ...(context.session.resumeCursor !== undefined
-        ? { resumeCursor: context.session.resumeCursor }
-        : {}),
-    });
+    const turnStatus = this.readString(turn, "status");
+    if (turnStatus === "failed" || turnStatus === "completed" || turnStatus === "interrupted") {
+      if (!context.terminalTurnIds.has(turnId)) {
+        this.handleServerNotification(context, {
+          method: "turn/completed",
+          params: { threadId: providerThreadId, turn },
+        });
+      }
+    } else if (!context.terminalTurnIds.has(turnId)) {
+      this.updateSession(context, {
+        status: "running",
+        activeTurnId: turnId,
+        ...(context.session.resumeCursor !== undefined
+          ? { resumeCursor: context.session.resumeCursor }
+          : {}),
+      });
+    }
 
     return {
       threadId: context.session.threadId,
@@ -3011,6 +3021,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       log.warn("Ignoring turn/started for a terminal Codex turn", {
         threadId: context.session.threadId,
         turnId: rawRoute.turnId,
+      });
+      return;
+    }
+    if (
+      !isChildConversation &&
+      isTerminalTurn &&
+      (notification.method === "turn/completed" || notification.method === "turn/aborted")
+    ) {
+      log.warn("Ignoring duplicate terminal notification for a terminal Codex turn", {
+        threadId: context.session.threadId,
+        turnId: rawRoute.turnId,
+        method: notification.method,
       });
       return;
     }

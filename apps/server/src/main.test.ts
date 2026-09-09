@@ -790,6 +790,7 @@ it.layer(testLayer)("server CLI command", (it) => {
           getThreadDetailForExportById: () => Effect.die("unused"),
           getThreadDetailSnapshotById: () => Effect.die("unused"),
           getThreadTurnsPage: () => Effect.die("unused"),
+          getPendingStartOutcome: () => Effect.die("unused"),
         }),
         Effect.provideService(AnalyticsService, {
           record: recordTelemetry,

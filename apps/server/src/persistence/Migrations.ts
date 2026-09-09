@@ -164,6 +164,9 @@ import Migration0155 from "./Migrations/155_ThreadSidebarPreviewIndex.ts";
 import Migration0156 from "./Migrations/156_ActiveTurnProjectionSemantics.ts";
 import Migration0157 from "./Migrations/157_QueuedTurnLifecycle.ts";
 import Migration0158 from "./Migrations/158_LogicalTurnProviderBindings.ts";
+import Migration0159 from "./Migrations/159_AgentGatewayCreationAdmissions.ts";
+import Migration0160 from "./Migrations/160_ProjectionTurnPendingMessageLookup.ts";
+import Migration0161 from "./Migrations/161_CanonicalActivitySequence.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -327,6 +330,9 @@ export const migrationEntries = [
   [156, "ActiveTurnProjectionSemantics", Migration0156],
   [157, "QueuedTurnLifecycle", Migration0157],
   [158, "LogicalTurnProviderBindings", Migration0158],
+  [159, "AgentGatewayCreationAdmissions", Migration0159],
+  [160, "ProjectionTurnPendingMessageLookup", Migration0160],
+  [161, "CanonicalActivitySequence", Migration0161],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

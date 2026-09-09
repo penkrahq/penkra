@@ -44,6 +44,32 @@ layer("ThreadDiagnosticsQuery", (it) => {
     }),
   );
 
+  it.effect("reports canonical notices and unknown-order coverage from the UI read model", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const diagnostics = yield* ThreadDiagnosticsQuery;
+      // This control isolates activity visibility, independent of parent Thread fixtures.
+      yield* sql`PRAGMA foreign_keys = OFF`;
+      yield* sql`
+        INSERT INTO notices (notice_id, thread_id, turn_id, kind, tone, summary, detail_json, created_at, presentation_sequence)
+        VALUES
+          ('canonical-notice', 'canonical-thread', NULL, 'runtime.warning', 'error', 'known', '{}', '2026-09-07T00:00:00.000Z', 100),
+          ('unknown-notice', 'canonical-thread', NULL, 'runtime.warning', 'error', 'unknown', '{}', '2026-09-07T00:00:01.000Z', NULL),
+          ('other-notice', 'other-thread', NULL, 'runtime.warning', 'error', 'other', '{}', '2026-09-07T00:00:02.000Z', 101)
+      `;
+      yield* sql`PRAGMA foreign_keys = ON`;
+      assert.deepEqual(yield* diagnostics.getActivityCoverage("canonical-thread"), {
+        highWaterSequence: 100,
+        unsequencedCount: 1,
+      });
+      const rows = yield* diagnostics.listActivities({ threadId: "canonical-thread", limit: 10 });
+      assert.deepEqual(
+        rows.map((row) => row.activityId),
+        ["canonical-notice"],
+      );
+    }),
+  );
+
   it.effect("stores bounded structured incidents and reads only the requested thread", () =>
     Effect.gen(function* () {
       const diagnostics = yield* ThreadDiagnosticsQuery;

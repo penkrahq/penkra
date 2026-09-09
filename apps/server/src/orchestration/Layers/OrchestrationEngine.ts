@@ -78,6 +78,7 @@ import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts"
 import {
   OrchestrationEngineService,
   type OrchestrationDispatchContext,
+  type OrchestrationDispatchResult,
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
 
@@ -97,7 +98,9 @@ interface CommandEnvelope {
     ThreadProviderBindingRepositoryShape["initializeThread"]
   >[0];
   acceptedInitialProviderForkOperationId?: string;
-  result: Deferred.Deferred<{ sequence: number }, OrchestrationDispatchError>;
+  expectedProviderLifecycleGeneration?: string;
+  expectedProviderSessionOwnership?: OrchestrationDispatchContext["expectedProviderSessionOwnership"];
+  result: Deferred.Deferred<OrchestrationDispatchResult, OrchestrationDispatchError>;
   executionState: Ref.Ref<CommandExecutionState>;
   deadlineAtMs: number;
 }
@@ -112,7 +115,39 @@ type CommittedCommandResult = {
   readonly committedEvents: OrchestrationEvent[];
   readonly lastSequence: number;
   readonly nextCommandReadModel: OrchestrationReadModel;
+  readonly disposition: "applied" | "skipped";
 };
+
+type ProviderSessionOwnership = Exclude<
+  OrchestrationDispatchContext["expectedProviderSessionOwnership"],
+  undefined
+>;
+
+type ProviderSessionOwnershipRow = {
+  readonly status: string;
+  readonly activeTurnId: string | null;
+  readonly updatedAt: string;
+};
+
+const hasProviderLifecycleGuard = (
+  envelope: Pick<
+    CommandEnvelope,
+    "expectedProviderLifecycleGeneration" | "expectedProviderSessionOwnership"
+  >,
+): boolean =>
+  envelope.expectedProviderLifecycleGeneration !== undefined ||
+  envelope.expectedProviderSessionOwnership !== undefined;
+
+const providerSessionOwnershipMatches = (
+  expected: ProviderSessionOwnership,
+  observed: ProviderSessionOwnershipRow | null,
+): boolean =>
+  expected === null
+    ? observed === null
+    : observed !== null &&
+      observed.status === expected.status &&
+      observed.updatedAt === expected.updatedAt &&
+      observed.activeTurnId === (expected.activeTurnId ?? null);
 
 function commandToAggregateRef(command: OrchestrationCommand): {
   readonly aggregateKind: "space" | "folder" | "thread";
@@ -300,10 +335,40 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       }
     });
 
+  const dispositionForAcceptedReceipt = (
+    command: OrchestrationCommand,
+    sequence: number,
+    guarded: boolean,
+  ): Effect.Effect<"applied" | "skipped", OrchestrationDispatchError> =>
+    Effect.gen(function* () {
+      if (command.type !== "thread.session.set" || !guarded) {
+        return "applied" as const;
+      }
+      const stored = yield* Stream.runHead(eventStore.readFromSequence(sequence - 1, 1, sequence));
+      if (
+        Option.isSome(stored) &&
+        stored.value.sequence === sequence &&
+        stored.value.commandId === command.commandId &&
+        stored.value.aggregateKind === "thread" &&
+        stored.value.aggregateId === command.threadId
+      ) {
+        if (stored.value.type === "thread.session-set") return "applied" as const;
+        if (stored.value.type === "thread.provider-lifecycle-write-skipped") {
+          return "skipped" as const;
+        }
+      }
+      return yield* new OrchestrationCommandInternalError({
+        commandId: command.commandId,
+        commandType: command.type,
+        detail: "Accepted guarded lifecycle command has no matching durable disposition event.",
+      });
+    });
+
   const resolveStoredCommandOutcome = (
     command: OrchestrationCommand,
     principal: ManagedAttachmentPrincipal,
-  ): Effect.Effect<{ sequence: number }, OrchestrationDispatchError, never> =>
+    guarded = false,
+  ): Effect.Effect<OrchestrationDispatchResult, OrchestrationDispatchError, never> =>
     Effect.gen(function* () {
       const receiptExit = yield* Effect.exit(
         commandReceiptRepository.getByCommandId({
@@ -318,9 +383,16 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       yield* validateCommandReceiptIdentity(existingReceipt.value, fingerprint);
       if (existingReceipt.value.status === "accepted") {
         yield* validateAcceptedAttachmentRetry(command, principal);
-        return {
-          sequence: existingReceipt.value.resultSequence,
-        };
+        return guarded
+          ? {
+              sequence: existingReceipt.value.resultSequence,
+              disposition: yield* dispositionForAcceptedReceipt(
+                command,
+                existingReceipt.value.resultSequence,
+                true,
+              ),
+            }
+          : { sequence: existingReceipt.value.resultSequence };
       }
       return yield* new OrchestrationCommandPreviouslyRejectedError({
         commandId: command.commandId,
@@ -632,9 +704,19 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         }
         if (existingReceipt.value.status === "accepted") {
           yield* validateAcceptedAttachmentRetry(envelope.command, envelope.attachmentPrincipal);
-          yield* Deferred.succeed(envelope.result, {
-            sequence: existingReceipt.value.resultSequence,
-          });
+          yield* Deferred.succeed(
+            envelope.result,
+            hasProviderLifecycleGuard(envelope)
+              ? {
+                  sequence: existingReceipt.value.resultSequence,
+                  disposition: yield* dispositionForAcceptedReceipt(
+                    envelope.command,
+                    existingReceipt.value.resultSequence,
+                    true,
+                  ),
+                }
+              : { sequence: existingReceipt.value.resultSequence },
+          );
           return;
         }
         yield* Deferred.fail(
@@ -720,6 +802,78 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       > = Effect.gen(function* () {
         const committedEvents: OrchestrationEvent[] = [];
         let nextCommandReadModel = commandReadModel;
+        let disposition: "applied" | "skipped" = "applied";
+        let admittedEventBases = eventBases;
+
+        if (command.type === "thread.session.set" && hasProviderLifecycleGuard(envelope)) {
+          const expectedGeneration = envelope.expectedProviderLifecycleGeneration;
+          if (expectedGeneration === undefined) {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: "A provider session ownership fence requires a lifecycle generation.",
+            });
+          }
+
+          const generationAdmission = yield* sql<{ readonly threadId: string }>`
+            UPDATE provider_session_runtime
+            SET lifecycle_generation = lifecycle_generation
+            WHERE thread_id = ${command.threadId}
+              AND lifecycle_generation = ${expectedGeneration}
+            RETURNING thread_id AS "threadId"
+          `;
+          let observedLifecycleGeneration: string | null =
+            generationAdmission.length > 0 ? expectedGeneration : null;
+          const sessionOwnership = envelope.expectedProviderSessionOwnership;
+          let observedSessionOwnership: ProviderSessionOwnershipRow | null = null;
+          const generationMatches = generationAdmission.length > 0;
+          if (!generationMatches) {
+            const current = yield* sql<{ readonly lifecycleGeneration: string }>`
+              SELECT lifecycle_generation AS "lifecycleGeneration"
+              FROM provider_session_runtime
+              WHERE thread_id = ${command.threadId}
+            `;
+            observedLifecycleGeneration = current[0]?.lifecycleGeneration ?? null;
+          }
+          const sessionOwnershipAdmission = yield* sessionOwnership === undefined
+            ? Effect.succeed(true)
+            : Effect.gen(function* () {
+                const current = yield* sql<ProviderSessionOwnershipRow>`
+                  SELECT status, active_turn_id AS "activeTurnId", updated_at AS "updatedAt"
+                  FROM projection_thread_sessions
+                  WHERE thread_id = ${command.threadId}
+                `;
+                observedSessionOwnership = current[0] ?? null;
+                return providerSessionOwnershipMatches(sessionOwnership, observedSessionOwnership);
+              });
+          if (!generationMatches || !sessionOwnershipAdmission) {
+            const intended = eventBases[0]!;
+            const reason = !generationMatches
+              ? sessionOwnership !== undefined && !sessionOwnershipAdmission
+                ? ("generation-and-session-ownership-mismatch" as const)
+                : ("generation-mismatch" as const)
+              : ("session-ownership-mismatch" as const);
+            admittedEventBases = [
+              {
+                ...intended,
+                type: "thread.provider-lifecycle-write-skipped",
+                payload: {
+                  threadId: command.threadId,
+                  expectedLifecycleGeneration: expectedGeneration,
+                  observedLifecycleGeneration,
+                  mutationType: "thread.session.set",
+                  reason,
+                  ...(sessionOwnership === undefined
+                    ? {}
+                    : {
+                        expectedSessionOwnership: sessionOwnership,
+                        observedSessionOwnership,
+                      }),
+                },
+              },
+            ];
+            disposition = "skipped";
+          }
+        }
 
         if (
           envelope.acceptedInitialProviderForkOperationId !== undefined &&
@@ -869,7 +1023,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }
         }
 
-        for (const nextEvent of eventBases) {
+        for (const nextEvent of admittedEventBases) {
           const savedEvent = yield* eventStore.append(nextEvent);
           nextCommandReadModel = yield* projectEvent(nextCommandReadModel, savedEvent);
           if (isShellMetadataEvent(savedEvent)) {
@@ -910,6 +1064,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           committedEvents,
           lastSequence: lastSavedEvent.sequence,
           nextCommandReadModel,
+          disposition,
         } as const;
       }).pipe(
         Effect.catchCause((cause): Effect.Effect<never, OrchestrationDispatchError, never> => {
@@ -997,7 +1152,15 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       for (const event of committedCommand.committedEvents) {
         yield* publishCommittedEvent(event);
       }
-      yield* Deferred.succeed(envelope.result, { sequence: committedCommand.lastSequence });
+      yield* Deferred.succeed(
+        envelope.result,
+        hasProviderLifecycleGuard(envelope)
+          ? {
+              sequence: committedCommand.lastSequence,
+              disposition: committedCommand.disposition,
+            }
+          : { sequence: committedCommand.lastSequence },
+      );
     }).pipe(
       Effect.timeoutOption(remainingBudgetMs),
       Effect.flatMap((outcome) =>
@@ -1025,6 +1188,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             const resolvedTimeoutOutcome = yield* resolveStoredCommandOutcome(
               envelope.command,
               envelope.attachmentPrincipal,
+              hasProviderLifecycleGuard(envelope),
             ).pipe(
               Effect.match({
                 onFailure: (resolvedError) => ({ _tag: "Left" as const, left: resolvedError }),
@@ -1086,6 +1250,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           const resolvedCrashOutcome = yield* resolveStoredCommandOutcome(
             envelope.command,
             envelope.attachmentPrincipal,
+            hasProviderLifecycleGuard(envelope),
           ).pipe(
             Effect.match({
               onFailure: (resolvedError) => ({ _tag: "Left" as const, left: resolvedError }),
@@ -1268,7 +1433,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
   const dispatch: OrchestrationEngineShape["dispatch"] = (command, context) =>
     Effect.gen(function* () {
-      const result = yield* Deferred.make<{ sequence: number }, OrchestrationDispatchError>();
+      const result = yield* Deferred.make<
+        OrchestrationDispatchResult,
+        OrchestrationDispatchError
+      >();
       const executionState = yield* Ref.make<CommandExecutionState>("queued");
       const envelope: CommandEnvelope = {
         command,
@@ -1284,6 +1452,12 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               acceptedInitialProviderForkOperationId:
                 context.acceptedInitialProviderForkOperationId,
             }
+          : {}),
+        ...(context?.expectedProviderLifecycleGeneration !== undefined
+          ? { expectedProviderLifecycleGeneration: context.expectedProviderLifecycleGeneration }
+          : {}),
+        ...(context?.expectedProviderSessionOwnership !== undefined
+          ? { expectedProviderSessionOwnership: context.expectedProviderSessionOwnership }
           : {}),
         result,
         executionState,

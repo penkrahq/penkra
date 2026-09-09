@@ -23,6 +23,7 @@ export const ORCHESTRATION_WS_METHODS = {
   getShellSnapshot: "orchestration.getShellSnapshot",
   getThreadDetailSnapshot: "orchestration.getThreadDetailSnapshot",
   getThreadTurnsPage: "orchestration.getThreadTurnsPage",
+  getPendingStartOutcome: "orchestration.getPendingStartOutcome",
   dispatchCommand: "orchestration.dispatchCommand",
   importThread: "orchestration.importThread",
   repairState: "orchestration.repairState",
@@ -1327,8 +1328,13 @@ const ThreadMessageDeliverySetCommand = Schema.Struct({
   state: MessageDeliveryState,
   /** Native provider turn which accepted this logical Penkra turn. */
   providerTurnId: Schema.optional(TurnId),
+  terminalState: Schema.optional(Schema.Literals(["completed", "interrupted", "error"])),
+  terminalCompletedAt: Schema.optional(IsoDateTime),
   /** Sets durable queue provenance when runtime reconciliation re-queues a presumed direct start. */
   queued: Schema.optional(Schema.Boolean),
+  /** Server-owned proof that this logical attempt failed before provider dispatch. */
+  failurePhase: Schema.optional(Schema.Literal("before-provider-dispatch")),
+  failureDetail: Schema.optional(Schema.String),
   createdAt: IsoDateTime,
 });
 
@@ -1397,6 +1403,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.message-edit-resend-requested",
   "thread.session-stop-requested",
   "thread.session-set",
+  "thread.provider-lifecycle-write-skipped",
   "thread.activity-appended",
   "thread.activity-read-model-updated",
 ]);
@@ -1628,7 +1635,11 @@ export const ThreadMessageDeliverySetPayload = Schema.Struct({
   turnId: Schema.optional(TurnId),
   state: MessageDeliveryState,
   providerTurnId: Schema.optional(TurnId),
+  terminalState: Schema.optional(Schema.Literals(["completed", "interrupted", "error"])),
+  terminalCompletedAt: Schema.optional(IsoDateTime),
   queued: Schema.optional(Schema.Boolean),
+  failurePhase: Schema.optional(Schema.Literal("before-provider-dispatch")),
+  failureDetail: Schema.optional(Schema.String),
   updatedAt: IsoDateTime,
 });
 
@@ -1742,6 +1753,29 @@ export const ThreadSessionStopRequestedPayload = Schema.Struct({
 export const ThreadSessionSetPayload = Schema.Struct({
   threadId: ThreadId,
   session: OrchestrationSession,
+});
+
+export const ThreadProviderSessionOwnership = Schema.Struct({
+  status: OrchestrationSessionStatus,
+  updatedAt: IsoDateTime,
+  activeTurnId: Schema.NullOr(TurnId),
+});
+export type ThreadProviderSessionOwnership = typeof ThreadProviderSessionOwnership.Type;
+
+export const ThreadProviderLifecycleWriteSkippedPayload = Schema.Struct({
+  threadId: ThreadId,
+  expectedLifecycleGeneration: Schema.String,
+  observedLifecycleGeneration: Schema.NullOr(Schema.String),
+  mutationType: Schema.Literal("thread.session.set"),
+  reason: Schema.optional(
+    Schema.Literals([
+      "generation-mismatch",
+      "session-ownership-mismatch",
+      "generation-and-session-ownership-mismatch",
+    ]),
+  ),
+  expectedSessionOwnership: Schema.optional(Schema.NullOr(ThreadProviderSessionOwnership)),
+  observedSessionOwnership: Schema.optional(Schema.NullOr(ThreadProviderSessionOwnership)),
 });
 
 export const ThreadActivityAppendedPayload = Schema.Struct({
@@ -1986,6 +2020,11 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
+    type: Schema.Literal("thread.provider-lifecycle-write-skipped"),
+    payload: ThreadProviderLifecycleWriteSkippedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
   }),
@@ -2162,6 +2201,33 @@ export const OrchestrationGetThreadTurnsPageResult = Schema.Struct({
 export type OrchestrationGetThreadTurnsPageResult =
   typeof OrchestrationGetThreadTurnsPageResult.Type;
 
+export const OrchestrationGetPendingStartOutcomeInput = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  minimumSequence: NonNegativeInt,
+});
+export type OrchestrationGetPendingStartOutcomeInput =
+  typeof OrchestrationGetPendingStartOutcomeInput.Type;
+
+export const OrchestrationGetPendingStartOutcomeResult = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  snapshotSequence: NonNegativeInt,
+  threadExists: Schema.Boolean,
+  outcome: Schema.Literals([
+    "not-caught-up",
+    "pending",
+    "accepted",
+    "failed",
+    "cancelled",
+    "unknown",
+  ]),
+  turnId: Schema.optional(TurnId),
+  completedAt: Schema.optional(IsoDateTime),
+});
+export type OrchestrationGetPendingStartOutcomeResult =
+  typeof OrchestrationGetPendingStartOutcomeResult.Type;
+
 /**
  * One authoritative cold-start projection for the uniform orchestration feed.
  * The shell contains every lightweight Thread row. Running Threads additionally
@@ -2232,6 +2298,10 @@ export const OrchestrationRpcSchemas = {
   getThreadTurnsPage: {
     input: OrchestrationGetThreadTurnsPageInput,
     output: OrchestrationGetThreadTurnsPageResult,
+  },
+  getPendingStartOutcome: {
+    input: OrchestrationGetPendingStartOutcomeInput,
+    output: OrchestrationGetPendingStartOutcomeResult,
   },
   repairState: {
     input: OrchestrationRepairStateInput,

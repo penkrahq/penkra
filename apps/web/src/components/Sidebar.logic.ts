@@ -208,7 +208,10 @@ export function resolveVisibleThreadWorkStatus(input: {
   return resolveSidebarWorkStatus(input.status, input.isRecording);
 }
 
-type ThreadStatusInput = Pick<Thread, "latestTurn" | "lastVisitedAt" | "session" | "updatedAt"> & {
+type ThreadStatusInput = Pick<
+  Thread,
+  "latestTurn" | "lastVisitedAt" | "pendingTurnStartMessageId" | "session" | "updatedAt"
+> & {
   dismissedStatusKey?: string | undefined;
 };
 
@@ -394,6 +397,10 @@ export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
+  /** Local ownership bridges draft promotion until the first server lifecycle projection. */
+  isPromotedDraftPending?: boolean;
+  /** The shared composer send registry still owns work for this thread. */
+  hasLocalSendOwner?: boolean;
 }): ThreadStatusPill | null {
   const { thread } = input;
   // A dead session can't receive approval/input answers anymore — drop the
@@ -439,6 +446,20 @@ export function resolveThreadStatusPill(input: {
       colorClass: "text-orange-600 dark:text-orange-300/90",
       dotClass: "bg-orange-500 dark:bg-orange-300/90",
       pulse: false,
+      dismissible: false,
+    };
+  }
+
+  if (
+    input.isPromotedDraftPending ||
+    input.hasLocalSendOwner ||
+    (thread.pendingTurnStartMessageId != null && thread.latestTurn?.state !== "completed")
+  ) {
+    return {
+      label: "Working",
+      colorClass: "text-sky-600 dark:text-sky-300/80",
+      dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      pulse: true,
       dismissible: false,
     };
   }

@@ -186,6 +186,15 @@ export const WsOrchestrationGetThreadTurnsPageRpc = Rpc.make(
   },
 );
 
+export const WsOrchestrationGetPendingStartOutcomeRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getPendingStartOutcome,
+  {
+    payload: OrchestrationRpcSchemas.getPendingStartOutcome.input,
+    success: OrchestrationRpcSchemas.getPendingStartOutcome.output,
+    error: WsRpcError,
+  },
+);
+
 export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.replayEvents, {
   payload: OrchestrationRpcSchemas.replayEvents.input,
   success: OrchestrationRpcSchemas.replayEvents.output,
@@ -654,6 +663,7 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsOrchestrationGetShellSnapshotRpc,
   WsOrchestrationGetThreadDetailSnapshotRpc,
   WsOrchestrationGetThreadTurnsPageRpc,
+  WsOrchestrationGetPendingStartOutcomeRpc,
   WsOrchestrationRepairStateRpc,
   WsOrchestrationReplayEventsRpc,
   WsOrchestrationListProviderDeliveryBlockersRpc,

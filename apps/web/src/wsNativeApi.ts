@@ -535,6 +535,8 @@ export function createWsNativeApi(): NativeApi {
         transport.request(ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot, input),
       getThreadTurnsPage: (input) =>
         transport.request(ORCHESTRATION_WS_METHODS.getThreadTurnsPage, input),
+      getPendingStartOutcome: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.getPendingStartOutcome, input),
       acknowledgeSync: (input) =>
         transport.request<void>(ORCHESTRATION_WS_METHODS.acknowledgeSync, input),
       dispatchCommand: (command) => {

@@ -14,6 +14,7 @@ import {
   type RuntimeMode,
   type SpaceId,
   type ThreadId,
+  type MessageId,
 } from "@penkra/contracts";
 import * as Schema from "effect/Schema";
 
@@ -39,7 +40,7 @@ import {
 } from "./types";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "penkra:composer-drafts:v1";
-export const COMPOSER_DRAFT_STORAGE_VERSION = 6;
+export const COMPOSER_DRAFT_STORAGE_VERSION = 7;
 const TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX = "::terminal";
 
 export const PersistedComposerImageAttachment = Schema.Struct({
@@ -111,6 +112,34 @@ export interface QueuedComposerChatTurn {
 }
 export type QueuedComposerTurn = QueuedComposerChatTurn;
 
+export type PendingStartRecoverySettlement = "unresolved" | "accepted" | "restored" | "failed";
+
+export interface PendingStartRecoveryReceipt {
+  sequence: number;
+  rowId: string;
+  appliedAt: string;
+}
+
+export interface PendingStartRecovery {
+  schemaVersion: 1;
+  threadId: ThreadId;
+  messageId: MessageId;
+  pendingTurn: QueuedComposerChatTurn & { messageId?: MessageId };
+  persistedImages?: PersistedComposerImageAttachment[];
+  settlement: PendingStartRecoverySettlement;
+  receiptSequence?: number;
+  restorationReceipt?: PendingStartRecoveryReceipt;
+}
+
+export interface UnknownPendingStartRecovery {
+  schemaVersion: number;
+  threadId: ThreadId;
+  messageId: MessageId;
+  raw: unknown;
+}
+
+export type PendingStartRecoveryRecord = PendingStartRecovery | UnknownPendingStartRecovery;
+
 export interface ComposerThreadDraftState {
   prompt: string;
   appliedVoiceJobIds?: string[] | undefined;
@@ -130,6 +159,7 @@ export interface ComposerThreadDraftState {
   skills: ProviderSkillReference[];
   mentions: ProviderMentionReference[];
   queuedTurns: QueuedComposerTurn[];
+  pendingStartRecoveriesByMessageId?: Partial<Record<MessageId, PendingStartRecoveryRecord>>;
   queuePaused: boolean;
   modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
   activeProvider: ProviderKind | null;
@@ -252,6 +282,26 @@ export interface ComposerDraftStoreState {
   setRuntimeMode: (threadId: ThreadId, runtimeMode: RuntimeMode | null | undefined) => void;
   enqueueQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn) => void;
   insertQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn, index: number) => void;
+  recoverCancelledQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn) => boolean;
+  capturePendingStartRecovery: (threadId: ThreadId, recovery: PendingStartRecovery) => boolean;
+  markPendingStartRecoveryAccepted: (
+    threadId: ThreadId,
+    messageId: MessageId,
+    sequence: number,
+  ) => boolean;
+  restorePendingStartRecovery: (
+    threadId: ThreadId,
+    messageId: MessageId,
+    sequence: number,
+    appliedAt: string,
+  ) => boolean;
+  discardPendingStartRecovery: (threadId: ThreadId, messageId: MessageId) => boolean;
+  markPendingStartRecoveryFailed: (threadId: ThreadId, messageId: MessageId) => boolean;
+  retainPendingStartRecoverySettlement: (
+    threadId: ThreadId,
+    recovery: PendingStartRecovery,
+  ) => boolean;
+  clearPendingStartRecovery: (threadId: ThreadId, messageId: MessageId) => boolean;
   markQueuedTurnServerAccepted: (
     threadId: ThreadId,
     queuedTurnId: string,
@@ -426,6 +476,7 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
     skills: [],
     mentions: [],
     queuedTurns: [],
+    pendingStartRecoveriesByMessageId: {},
     queuePaused: false,
     modelSelectionByProvider: {},
     activeProvider: null,
@@ -719,6 +770,7 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.skills.length === 0 &&
     draft.mentions.length === 0 &&
     draft.queuedTurns.length === 0 &&
+    Object.keys(draft.pendingStartRecoveriesByMessageId ?? {}).length === 0 &&
     !draft.queuePaused &&
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
@@ -768,6 +820,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   skills: EMPTY_SKILLS,
   mentions: EMPTY_MENTIONS,
   queuedTurns: EMPTY_QUEUED_TURNS,
+  pendingStartRecoveriesByMessageId: {},
   queuePaused: false,
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
   activeProvider: null,

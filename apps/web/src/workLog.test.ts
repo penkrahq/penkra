@@ -6,10 +6,65 @@ import {
   deriveWorkLogEntries,
   isFileChangeWorkLogEntry,
   isProviderFileEditWorkLogEntry,
+  orderedActivities,
 } from "./workLog";
 import { makeActivity } from "./storeTestFixtures";
 
 describe("deriveWorkLogEntries", () => {
+  it("orders every fully sequenced permutation causally despite clock skew and an unknown legacy row", () => {
+    const first = makeActivity({
+      id: "earlier-sequence",
+      sequence: 1,
+      createdAt: "2026-09-07T00:00:03.000Z",
+      kind: "tool.completed",
+    });
+    const second = makeActivity({
+      id: "later-sequence",
+      sequence: 2,
+      createdAt: "2026-09-07T00:00:01.000Z",
+      kind: "tool.completed",
+    });
+    const legacy = makeActivity({
+      id: "unsequenced",
+      createdAt: "2026-09-07T00:00:02.000Z",
+      kind: "context-compaction",
+    });
+    const permutations = [
+      [first, second, legacy],
+      [first, legacy, second],
+      [second, first, legacy],
+      [second, legacy, first],
+      [legacy, first, second],
+      [legacy, second, first],
+    ];
+
+    for (const input of permutations) {
+      const output = orderedActivities(input);
+      expect(output.indexOf(first)).toBeLessThan(output.indexOf(second));
+      expect(output.indexOf(legacy)).toBe(input.indexOf(legacy));
+    }
+  });
+
+  it("uses sequence, not input order or same-clock ties, for canonical activity order", () => {
+    const later = makeActivity({
+      id: "later",
+      sequence: 12,
+      createdAt: "2026-09-07T00:00:00.000Z",
+      kind: "tool.started",
+    });
+    const earlier = makeActivity({
+      id: "earlier",
+      sequence: 11,
+      createdAt: "2026-09-07T00:00:00.000Z",
+      kind: "tool.completed",
+    });
+
+    expect(orderedActivities([later, earlier]).map((activity) => activity.id)).toEqual([
+      "earlier",
+      "later",
+    ]);
+  });
+
   it("keeps started tool entries so pending dynamic calls appear immediately", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -1638,6 +1693,73 @@ describe("deriveWorkLogEntries", () => {
 });
 
 describe("deriveTimelineEntries", () => {
+  it("preserves the known causal subsequence through full mixed timeline derivation", () => {
+    const first = makeActivity({
+      id: "earlier-sequence",
+      sequence: 2,
+      createdAt: "2026-09-07T00:00:04.000Z",
+      kind: "tool.completed",
+      summary: "First tool",
+    });
+    const second = makeActivity({
+      id: "later-sequence",
+      sequence: 3,
+      createdAt: "2026-09-07T00:00:01.000Z",
+      kind: "tool.completed",
+      summary: "Second tool",
+    });
+    const legacy = makeActivity({
+      id: "unsequenced-compaction",
+      createdAt: "2026-09-07T00:00:02.000Z",
+      kind: "context-compaction",
+      summary: "Context compacted",
+    });
+    const permutations = [
+      [first, second, legacy],
+      [first, legacy, second],
+      [second, first, legacy],
+      [second, legacy, first],
+      [legacy, first, second],
+      [legacy, second, first],
+    ];
+    const messages = [
+      {
+        id: MessageId.makeUnsafe("user-before-tools"),
+        role: "user" as const,
+        text: "Start",
+        createdAt: "2026-09-07T00:00:03.000Z",
+        sequence: 1,
+        streaming: false,
+      },
+      {
+        id: MessageId.makeUnsafe("assistant-after-tools"),
+        role: "assistant" as const,
+        text: "Done",
+        createdAt: "2026-09-07T00:00:00.000Z",
+        sequence: 4,
+        streaming: false,
+      },
+    ];
+
+    for (const activities of permutations) {
+      const workEntries = deriveWorkLogEntries(activities, undefined);
+      const timeline = deriveTimelineEntries(messages, workEntries);
+      const knownIds = timeline
+        .filter((entry) =>
+          entry.kind === "message"
+            ? entry.message.sequence !== undefined
+            : entry.entry.sequence !== undefined,
+        )
+        .map((entry) => entry.id);
+      expect(knownIds).toEqual([
+        "user-before-tools",
+        "earlier-sequence",
+        "later-sequence",
+        "assistant-after-tools",
+      ]);
+    }
+  });
+
   it("uses queue promotion sequence instead of admission time for transcript placement", () => {
     const queuedMessageId = MessageId.makeUnsafe("message-queued-follow-up");
     const assistantMessageId = MessageId.makeUnsafe("message-preceding-assistant");

@@ -38,7 +38,15 @@ const operationInputValidators = new WeakMap<object, ValidateFunction>();
 interface BridgeResponse {
   ok: boolean;
   result?: unknown;
-  error?: string | { code?: string; message?: string; retryable?: boolean; retryAfterMs?: number; failure?: AppRuntimeFailureDto };
+  error?:
+    | string
+    | {
+        code?: string;
+        message?: string;
+        retryable?: boolean;
+        retryAfterMs?: number;
+        failure?: AppRuntimeFailureDto;
+      };
 }
 
 interface CatalogEntry {

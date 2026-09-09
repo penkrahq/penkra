@@ -82,6 +82,7 @@ function liveSession(input: {
   readonly activeTurnId?: TurnId;
   readonly provider?: ProviderSession["provider"];
   readonly lastError?: string;
+  readonly updatedAt?: string;
 }): ProviderSession {
   return {
     provider: input.provider ?? "codex",
@@ -91,7 +92,7 @@ function liveSession(input: {
     ...(input.activeTurnId !== undefined ? { activeTurnId: input.activeTurnId } : {}),
     ...(input.lastError !== undefined ? { lastError: input.lastError } : {}),
     createdAt: "2026-07-23T19:00:00.000Z",
-    updatedAt: "2026-07-23T20:00:25.000Z",
+    updatedAt: input.updatedAt ?? "2026-07-23T20:00:00.000Z",
   };
 }
 
@@ -116,12 +117,59 @@ describe("planProviderRuntimeReconciliation", () => {
     ]);
   });
 
+  it("waits when the live Adapter only just became ready", () => {
+    expect(
+      planProviderRuntimeReconciliation({
+        threads: [threadShell()],
+        bindings: [binding(null)],
+        liveSessions: [
+          liveSession({
+            status: "ready",
+            updatedAt: "2026-07-23T20:00:25.000Z",
+          }),
+        ],
+        pumpHealth: [],
+        nowMs: NOW,
+        staleAfterMs: 10_000,
+      }),
+    ).toEqual([]);
+  });
+
+  it("does not overwrite a projected turn whose authoritative terminal event is pending", () => {
+    expect(
+      planProviderRuntimeReconciliation({
+        threads: [threadShell()],
+        bindings: [
+          {
+            ...binding(null),
+            runtimePayload: {
+              activeTurnId: null,
+              lastRuntimeEvent: "turn.completed",
+              lastRuntimeEventAt: "2026-07-23T20:00:00.000Z",
+              lastTerminalEvent: "turn.completed",
+              lastTerminalEventAt: "2026-07-23T20:00:00.000Z",
+              lastTerminalTurnId: OLD_TURN_ID,
+              lastTerminalState: "completed",
+            },
+          },
+        ],
+        liveSessions: [liveSession({ status: "ready" })],
+        pumpHealth: [],
+        nowMs: NOW,
+        staleAfterMs: 10_000,
+      }),
+    ).toEqual([]);
+  });
+
   it("uses the same stale-turn recovery for Claude sessions", () => {
     expect(
       planProviderRuntimeReconciliation({
         threads: [
           threadShell({
-            modelSelection: { provider: "claudeAgent", model: "claude-opus-4-8" },
+            modelSelection: {
+              provider: "claudeAgent",
+              model: "claude-opus-4-8",
+            },
             session: {
               ...threadShell().session!,
               providerName: "claudeAgent",
@@ -586,7 +634,11 @@ describe("planProviderRuntimeReconciliation", () => {
           threads: [thread],
           bindings: [binding()],
           liveSessions: [
-            liveSession({ status: "error", activeTurnId: OLD_TURN_ID, lastError: "   " }),
+            liveSession({
+              status: "error",
+              activeTurnId: OLD_TURN_ID,
+              lastError: "   ",
+            }),
           ],
           pumpHealth: [],
           nowMs: NOW,
@@ -598,7 +650,10 @@ describe("planProviderRuntimeReconciliation", () => {
 
     it("treats a blank projected turn id as absent instead of settling turn ''", () => {
       const thread = threadShell({
-        session: { ...threadShell().session!, activeTurnId: "" as unknown as TurnId },
+        session: {
+          ...threadShell().session!,
+          activeTurnId: "" as unknown as TurnId,
+        },
       });
       const plans = planProviderRuntimeReconciliation({
         threads: [thread],
@@ -639,7 +694,12 @@ describe("planProviderRuntimeReconciliation", () => {
       const plans = planProviderRuntimeReconciliation({
         threads: [threadShell()],
         bindings: [binding()],
-        liveSessions: [liveSession({ status: "running", activeTurnId: "" as unknown as TurnId })],
+        liveSessions: [
+          liveSession({
+            status: "running",
+            activeTurnId: "" as unknown as TurnId,
+          }),
+        ],
         pumpHealth: [],
         nowMs: NOW,
         staleAfterMs: 10_000,

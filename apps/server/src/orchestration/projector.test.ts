@@ -2,9 +2,12 @@ import {
   CommandId,
   EventId,
   FolderId,
+  MessageId,
   SpaceId,
   ThreadId,
+  TurnId,
   type OrchestrationEvent,
+  type OrchestrationReadModel,
 } from "@penkra/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
@@ -944,5 +947,220 @@ describe("orchestration projector", () => {
     ]);
     expect(finalized.threads[0]?.messages[1]?.text).toBe("Hello, world!");
     expect(finalized.threads[0]?.messages[1]?.streaming).toBe(false);
+  });
+
+  it("does not clear a successor pending start when an older startup is cancelled", async () => {
+    const now = "2026-09-07T00:00:00.000Z";
+    const cancelledMessageId = MessageId.makeUnsafe("message-cancelled");
+    const successorMessageId = MessageId.makeUnsafe("message-successor");
+    const base = await projectThreadWithRunningTurn({ createdAt: now, startedAt: now });
+    const thread = base.threads[0]!;
+    const withSuccessorPending: OrchestrationReadModel = {
+      ...base,
+      threads: [
+        {
+          ...thread,
+          session: { ...thread.session!, status: "starting" as const, activeTurnId: null },
+          pendingTurnStartMessageId: successorMessageId,
+          messages: [
+            {
+              id: cancelledMessageId,
+              role: "user" as const,
+              text: "cancel me",
+              turnId: null,
+              delivery: { state: "starting" as const, queued: false, sequence: 3 },
+              streaming: false,
+              source: "native" as const,
+              sequence: 3,
+              createdAt: now,
+              updatedAt: now,
+            },
+            {
+              id: successorMessageId,
+              role: "user" as const,
+              text: "run next",
+              turnId: null,
+              delivery: { state: "starting" as const, queued: true, sequence: 4 },
+              streaming: false,
+              source: "native" as const,
+              sequence: 4,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ],
+        },
+      ],
+    };
+
+    const projected = await Effect.runPromise(
+      projectEvent(
+        withSuccessorPending,
+        makeEvent({
+          sequence: 5,
+          type: "thread.turn-start-cancelled",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: now,
+          commandId: "cmd-cancel-old-start",
+          payload: {
+            threadId: "thread-1",
+            messageId: cancelledMessageId,
+            cancelledAt: now,
+          },
+        }),
+      ),
+    );
+
+    expect(projected.threads[0]?.pendingTurnStartMessageId).toBe(successorMessageId);
+    expect(projected.threads[0]?.messages.map((message) => message.id)).toEqual([
+      successorMessageId,
+    ]);
+  });
+
+  it("settles only an unaccepted pre-dispatch attempt and preserves an accepted message", async () => {
+    const now = "2026-09-07T01:00:00.000Z";
+    const failedAt = "2026-09-07T01:00:01.000Z";
+    const messageId = MessageId.makeUnsafe("message-pre-dispatch-failure");
+    const turnId = TurnId.makeUnsafe("turn-pre-dispatch-failure");
+    const base = await projectThreadWithRunningTurn({ createdAt: now, startedAt: now });
+    const seed = (deliveryState: "starting" | "accepted"): OrchestrationReadModel => ({
+      ...base,
+      threads: [
+        {
+          ...base.threads[0]!,
+          session: {
+            ...base.threads[0]!.session!,
+            status: "starting" as const,
+            activeTurnId: null,
+          },
+          pendingTurnStartMessageId: messageId,
+          latestTurn: {
+            turnId,
+            state: "running" as const,
+            requestedAt: now,
+            startedAt: null,
+            completedAt: null,
+            assistantMessageId: null,
+          },
+          messages: [
+            {
+              id: messageId,
+              role: "user" as const,
+              text: "start",
+              turnId: null,
+              delivery: { state: deliveryState, queued: false, sequence: 3 },
+              streaming: false,
+              source: "native" as const,
+              sequence: 3,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ],
+        },
+      ],
+    });
+    const failure = makeEvent({
+      sequence: 4,
+      type: "thread.message-delivery-set",
+      aggregateKind: "thread",
+      aggregateId: "thread-1",
+      occurredAt: failedAt,
+      commandId: "cmd-pre-dispatch-failure",
+      payload: {
+        threadId: "thread-1",
+        messageId,
+        turnId,
+        state: "failed",
+        failurePhase: "before-provider-dispatch",
+        failureDetail: "startup failed",
+        updatedAt: failedAt,
+      },
+    });
+
+    const failed = await Effect.runPromise(projectEvent(seed("starting"), failure));
+    expect(failed.threads[0]).toMatchObject({
+      pendingTurnStartMessageId: null,
+      session: { status: "error", activeTurnId: null, lastError: "startup failed" },
+      latestTurn: { turnId, state: "error", startedAt: null, completedAt: failedAt },
+      messages: [{ id: messageId, delivery: { state: "failed", sequence: 4 } }],
+    });
+
+    const accepted = await Effect.runPromise(projectEvent(seed("accepted"), failure));
+    expect(accepted.threads[0]?.messages[0]?.delivery?.state).toBe("accepted");
+
+    const terminalAt = "2026-09-07T01:00:02.000Z";
+    const terminalReconciliation = makeEvent({
+      sequence: 5,
+      type: "thread.message-delivery-set",
+      aggregateKind: "thread",
+      aggregateId: "thread-1",
+      occurredAt: terminalAt,
+      commandId: "cmd-accepted-terminal-reconcile",
+      payload: {
+        threadId: "thread-1",
+        messageId,
+        turnId,
+        state: "accepted",
+        providerTurnId: TurnId.makeUnsafe("provider-turn-failed-before-binding"),
+        terminalState: "error",
+        terminalCompletedAt: terminalAt,
+        updatedAt: terminalAt,
+      },
+    });
+    const reconciled = await Effect.runPromise(
+      projectEvent(seed("accepted"), terminalReconciliation),
+    );
+    expect(reconciled.threads[0]).toMatchObject({
+      latestTurn: { turnId, state: "error", completedAt: terminalAt },
+      messages: [{ id: messageId, delivery: { state: "accepted", sequence: 5 } }],
+    });
+
+    const successorTurnId = TurnId.makeUnsafe("turn-live-successor");
+    const successorSeedBase = seed("accepted");
+    const successorSeed: OrchestrationReadModel = {
+      ...successorSeedBase,
+      threads: [
+        {
+          ...successorSeedBase.threads[0]!,
+          latestTurn: {
+            ...successorSeedBase.threads[0]!.latestTurn!,
+            turnId: successorTurnId,
+          },
+        },
+      ],
+    };
+    const preserved = await Effect.runPromise(projectEvent(successorSeed, terminalReconciliation));
+    expect(preserved.threads[0]?.latestTurn).toMatchObject({
+      turnId: successorTurnId,
+      state: "running",
+      completedAt: null,
+    });
+  });
+  it("advances sequence for a skipped provider lifecycle write without changing thread state", async () => {
+    const model = await projectThreadWithRunningTurn({
+      createdAt: "2026-09-07T02:00:00.000Z",
+      startedAt: "2026-09-07T02:00:01.000Z",
+    });
+    const projected = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: model.snapshotSequence + 1,
+          type: "thread.provider-lifecycle-write-skipped",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: "2026-09-07T02:00:02.000Z",
+          commandId: "cmd-skipped-lifecycle",
+          payload: {
+            threadId: "thread-1",
+            expectedLifecycleGeneration: "generation-a",
+            observedLifecycleGeneration: "generation-b",
+            mutationType: "thread.session.set",
+          },
+        }),
+      ),
+    );
+    expect(projected.snapshotSequence).toBe(model.snapshotSequence + 1);
+    expect(projected.threads).toEqual(model.threads);
   });
 });

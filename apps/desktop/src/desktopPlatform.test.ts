@@ -14,6 +14,7 @@ describe("desktop platform adapters", () => {
       disabledReason: null,
     });
     expect(adapter.browserPermissions.microphone).toBe("macos-system-prompt");
+    expect(adapter.application.quitWhenAllWindowsClose).toBe(true);
   });
 
   it("keeps initial Windows distribution unsigned and manual-only", () => {

@@ -353,6 +353,179 @@ describe("store event reducer", () => {
     });
   });
 
+  it("projects an exact pre-dispatch failure immediately without touching accepted or successor state", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const messageId = MessageId.makeUnsafe("message-pre-dispatch-failure");
+    const successorId = MessageId.makeUnsafe("message-successor");
+    const turnId = TurnId.makeUnsafe("turn-pre-dispatch-failure");
+    const failedAt = "2026-09-07T01:00:01.000Z";
+    const failure = makeDomainEvent(
+      "thread.message-delivery-set",
+      {
+        threadId,
+        messageId,
+        turnId,
+        state: "failed",
+        failurePhase: "before-provider-dispatch",
+        failureDetail: "startup failed",
+        updatedAt: failedAt,
+      },
+      { sequence: 12 },
+    );
+    const makeFailureState = (state: "starting" | "accepted") => {
+      const initial = makeState(
+        makeThread({
+          session: {
+            provider: "codex",
+            status: "connecting",
+            orchestrationStatus: "starting",
+            activeTurnId: undefined,
+            createdAt: "2026-09-07T01:00:00.000Z",
+            updatedAt: "2026-09-07T01:00:00.000Z",
+          },
+          pendingTurnStartMessageId: messageId,
+          queuedMessageIds: [successorId],
+          latestTurn: {
+            turnId,
+            state: "running",
+            requestedAt: "2026-09-07T01:00:00.000Z",
+            startedAt: null,
+            completedAt: null,
+            assistantMessageId: null,
+          },
+          messages: [
+            {
+              id: messageId,
+              role: "user",
+              text: "start",
+              delivery: { state, queued: false, sequence: 11 },
+              streaming: false,
+              source: "native",
+              sequence: 11,
+              createdAt: "2026-09-07T01:00:00.000Z",
+            },
+            {
+              id: successorId,
+              role: "user",
+              text: "next",
+              delivery: { state: "queued", queued: true, sequence: 11 },
+              streaming: false,
+              source: "native",
+              sequence: 11,
+              createdAt: "2026-09-07T01:00:00.000Z",
+            },
+          ],
+        }),
+      );
+      const turnState = initial.threadTurnStateById?.[threadId];
+      if (!turnState) throw new Error("Missing seeded thread turn state");
+      return {
+        ...initial,
+        threadTurnStateById: {
+          ...initial.threadTurnStateById,
+          [threadId]: {
+            ...turnState,
+            pendingTurnStartMessageId: messageId,
+            queuedMessageIds: [successorId],
+          },
+        },
+      };
+    };
+
+    const startingState = applyOrchestrationEvents(makeFailureState("starting"), [
+      makeDomainEvent(
+        "thread.session-set",
+        {
+          threadId,
+          session: {
+            threadId,
+            status: "starting",
+            providerName: "codex",
+            runtimeMode: DEFAULT_RUNTIME_MODE,
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-09-07T01:00:00.500Z",
+          },
+        },
+        { sequence: 11 },
+      ),
+    ]);
+    expect(startingState.sidebarThreadSummaryById[threadId]?.session?.status).toBe("connecting");
+    const failedState = applyOrchestrationEvents(startingState, [failure]);
+    expect(failedState.sidebarThreadSummaryById[threadId]).toMatchObject({
+      session: { status: "error", orchestrationStatus: "error" },
+      latestTurn: { turnId, state: "error", completedAt: failedAt },
+    });
+    const failed = threadsOf(failedState)[0];
+    expect(failed).toMatchObject({
+      pendingTurnStartMessageId: null,
+      queuedMessageIds: [successorId],
+      error: "startup failed",
+      session: {
+        status: "error",
+        orchestrationStatus: "error",
+        activeTurnId: undefined,
+        lastError: "startup failed",
+      },
+      latestTurn: { turnId, state: "error", startedAt: null, completedAt: failedAt },
+      messages: [
+        { id: messageId, delivery: { state: "failed", sequence: 12 } },
+        { id: successorId, delivery: { state: "queued", sequence: 11 } },
+      ],
+    });
+
+    const accepted = threadsOf(
+      applyOrchestrationEvents(makeFailureState("accepted"), [failure]),
+    )[0];
+    expect(accepted?.messages[0]?.delivery?.state).toBe("accepted");
+    expect(accepted?.session?.status).toBe("connecting");
+    expect(accepted?.latestTurn?.state).toBe("running");
+    expect(accepted?.queuedMessageIds).toEqual([successorId]);
+
+    const terminalAt = "2026-09-07T01:00:02.000Z";
+    const terminalReconciliation = makeDomainEvent(
+      "thread.message-delivery-set",
+      {
+        threadId,
+        messageId,
+        turnId,
+        state: "accepted",
+        providerTurnId: TurnId.makeUnsafe("provider-turn-failed-before-binding"),
+        terminalState: "error",
+        terminalCompletedAt: terminalAt,
+        updatedAt: terminalAt,
+      },
+      { sequence: 13 },
+    );
+    const reconciled = threadsOf(
+      applyOrchestrationEvents(makeFailureState("accepted"), [terminalReconciliation]),
+    )[0];
+    expect(reconciled?.latestTurn).toMatchObject({
+      turnId,
+      state: "error",
+      completedAt: terminalAt,
+    });
+    expect(reconciled?.messages.find((message) => message.id === messageId)).toMatchObject({
+      delivery: { state: "accepted", sequence: 13 },
+    });
+
+    const successorTurnId = TurnId.makeUnsafe("turn-live-successor");
+    const successorState = makeFailureState("accepted");
+    const successorThread = threadsOf(successorState)[0]!;
+    successorThread.latestTurn = {
+      ...successorThread.latestTurn!,
+      turnId: successorTurnId,
+    };
+    const preserved = threadsOf(
+      applyOrchestrationEvents(successorState, [terminalReconciliation]),
+    )[0];
+    expect(preserved?.latestTurn).toMatchObject({
+      turnId: successorTurnId,
+      state: "running",
+      completedAt: null,
+    });
+  });
+
   it("places a promoted queued message after the assistant turn it waited behind", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const firstUserMessageId = MessageId.makeUnsafe("message-first-user");
@@ -500,6 +673,39 @@ describe("store event reducer", () => {
 
     expect(threadsOf(stateWithPendingStart)[0]?.pendingTurnStartMessageId).toBe(pendingMessageId);
 
+    const successorMessageId = MessageId.makeUnsafe("message-successor-start");
+    const stateWithSuccessorPending = applyOrchestrationEvents(stateWithPendingStart, [
+      makeDomainEvent("thread.message-sent", {
+        threadId,
+        messageId: successorMessageId,
+        role: "user",
+        text: "run next",
+        attachments: [],
+        turnId: null,
+        streaming: false,
+        source: "native",
+        createdAt: "2026-02-27T00:00:01.500Z",
+        updatedAt: "2026-02-27T00:00:01.500Z",
+      }),
+      makeDomainEvent("thread.turn-start-requested", {
+        threadId,
+        messageId: successorMessageId,
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+        dispatchMode: "queue",
+        createdAt: "2026-02-27T00:00:01.500Z",
+      }),
+    ]);
+    const olderCancellationAfterSuccessor = applyOrchestrationEvents(stateWithSuccessorPending, [
+      makeDomainEvent("thread.turn-start-cancelled", {
+        threadId,
+        messageId: pendingMessageId,
+        cancelledAt: "2026-02-27T00:00:02.000Z",
+      }),
+    ]);
+    expect(threadsOf(olderCancellationAfterSuccessor)[0]?.pendingTurnStartMessageId).toBe(
+      successorMessageId,
+    );
+
     const cancelled = applyOrchestrationEvents(stateWithPendingStart, [
       makeDomainEvent("thread.turn-start-cancelled", {
         threadId,
@@ -512,6 +718,141 @@ describe("store event reducer", () => {
       retainedMessageId,
     ]);
     expect(threadsOf(cancelled)[0]?.pendingTurnStartMessageId).toBeNull();
+    expect(cancelled.pendingStartCancellationByThreadId?.[threadId]).toEqual({
+      messageId: pendingMessageId,
+      sequence: expect.any(Number),
+    });
+  });
+
+  it("does not mark a normally accepted pending message as cancelled", () => {
+    const threadId = ThreadId.makeUnsafe("thread-accepted-pending-start");
+    const messageId = MessageId.makeUnsafe("message-accepted-pending-start");
+    const accepted = applyOrchestrationEvents(makeState(makeThread({ id: threadId })), [
+      makeDomainEvent("thread.message-sent", {
+        threadId,
+        messageId,
+        role: "user",
+        text: "keep accepted history",
+        attachments: [],
+        turnId: null,
+        streaming: false,
+        source: "native",
+        createdAt: "2026-02-27T00:00:00.000Z",
+        updatedAt: "2026-02-27T00:00:00.000Z",
+      }),
+      makeDomainEvent("thread.message-delivery-set", {
+        threadId,
+        messageId,
+        state: "accepted",
+        queued: false,
+        updatedAt: "2026-02-27T00:00:01.000Z",
+      }),
+    ]);
+
+    expect(threadsOf(accepted)[0]?.messages.map((message) => message.id)).toContain(messageId);
+    expect(accepted.pendingStartCancellationByThreadId?.[threadId]).toBeUndefined();
+  });
+
+  it("bounds cancellation reconciliation to one signal per retained thread", () => {
+    const threadId = ThreadId.makeUnsafe("thread-bounded-cancellation");
+    const firstMessageId = MessageId.makeUnsafe("message-first-cancellation");
+    const latestMessageId = MessageId.makeUnsafe("message-latest-cancellation");
+    const cancelled = applyOrchestrationEvents(makeState(makeThread({ id: threadId })), [
+      makeDomainEvent(
+        "thread.turn-start-cancelled",
+        { threadId, messageId: firstMessageId, cancelledAt: "2026-02-27T00:00:01.000Z" },
+        { sequence: 10 },
+      ),
+      makeDomainEvent(
+        "thread.turn-start-cancelled",
+        { threadId, messageId: latestMessageId, cancelledAt: "2026-02-27T00:00:02.000Z" },
+        { sequence: 11 },
+      ),
+    ]);
+
+    expect(cancelled.pendingStartCancellationByThreadId).toEqual({
+      [threadId]: { messageId: latestMessageId, sequence: 11 },
+    });
+
+    const boundedSnapshotWithoutThread = syncServerReadModel(cancelled, {
+      ...makeReadModel(makeReadModelThread({ id: threadId })),
+      snapshotSequence: 12,
+      threads: [],
+    });
+    expect(boundedSnapshotWithoutThread.pendingStartCancellationByThreadId).toEqual(
+      cancelled.pendingStartCancellationByThreadId,
+    );
+
+    const deleted = applyOrchestrationEvents(cancelled, [
+      makeDomainEvent(
+        "thread.deleted",
+        { threadId, deletedAt: "2026-02-27T00:00:03.000Z" },
+        { sequence: 12 },
+      ),
+    ]);
+    expect(deleted.pendingStartCancellationByThreadId).toEqual({});
+  });
+
+  it("settles cancellation ownership by exact thread and message identity", () => {
+    const firstThreadId = ThreadId.makeUnsafe("thread-shared-message-first");
+    const secondThreadId = ThreadId.makeUnsafe("thread-shared-message-second");
+    const sharedMessageId = MessageId.makeUnsafe("message-shared-across-threads");
+    const initial = applyOrchestrationEvents(makeState(makeThread({ id: firstThreadId })), [
+      makeDomainEvent("thread.created", {
+        threadId: secondThreadId,
+        folderId: FolderId.makeUnsafe("project-1"),
+        title: "Second thread",
+        modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+        sidebarSortOrder: 1,
+        workingDirectory: null,
+        isPinned: false,
+        parentThreadId: null,
+        creationSource: null,
+        sourceThreadId: null,
+        subagentAgentId: null,
+        subagentNickname: null,
+        subagentRole: null,
+        forkSourceThreadId: null,
+        createdAt: "2026-09-07T00:00:00.000Z",
+        updatedAt: "2026-09-07T00:00:00.000Z",
+      }),
+    ]);
+    const cancelled = applyOrchestrationEvents(initial, [
+      makeDomainEvent("thread.turn-start-cancelled", {
+        threadId: firstThreadId,
+        messageId: sharedMessageId,
+        cancelledAt: "2026-09-07T00:00:01.000Z",
+      }),
+      makeDomainEvent("thread.turn-start-cancelled", {
+        threadId: secondThreadId,
+        messageId: sharedMessageId,
+        cancelledAt: "2026-09-07T00:00:02.000Z",
+      }),
+    ]);
+    const firstAccepted = applyOrchestrationEvents(cancelled, [
+      makeDomainEvent("thread.message-delivery-set", {
+        threadId: firstThreadId,
+        messageId: sharedMessageId,
+        state: "accepted",
+        queued: false,
+        updatedAt: "2026-09-07T00:00:03.000Z",
+      }),
+    ]);
+    expect(firstAccepted.pendingStartCancellationByThreadId?.[firstThreadId]).toBeUndefined();
+    expect(firstAccepted.pendingStartCancellationByThreadId?.[secondThreadId]?.messageId).toBe(
+      sharedMessageId,
+    );
+    const firstDeleted = applyOrchestrationEvents(cancelled, [
+      makeDomainEvent("thread.deleted", {
+        threadId: firstThreadId,
+        deletedAt: "2026-09-07T00:00:04.000Z",
+      }),
+    ]);
+    expect(firstDeleted.pendingStartCancellationByThreadId?.[firstThreadId]).toBeUndefined();
+    expect(firstDeleted.pendingStartCancellationByThreadId?.[secondThreadId]?.messageId).toBe(
+      sharedMessageId,
+    );
   });
 
   it("updates thread error and marks the running latest turn failed from session-set events", () => {
@@ -2015,5 +2356,39 @@ describe("store event reducer", () => {
     expect(next.messageIdsByThreadId?.[threadId]).toBe(
       initialState.messageIdsByThreadId?.[threadId],
     );
+  });
+  it("treats a skipped provider lifecycle write as state-neutral", () => {
+    const initial = makeState(
+      makeThread({
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: TurnId.makeUnsafe("turn-successor"),
+          createdAt: "2026-09-07T02:00:00.000Z",
+          updatedAt: "2026-09-07T02:00:01.000Z",
+        },
+      }),
+    );
+    const next = applyOrchestrationEvents(initial, [
+      makeDomainEvent("thread.provider-lifecycle-write-skipped", {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        expectedLifecycleGeneration: "generation-a",
+        observedLifecycleGeneration: "generation-b",
+        mutationType: "thread.session.set",
+        reason: "session-ownership-mismatch",
+        expectedSessionOwnership: {
+          status: "running",
+          updatedAt: "2026-09-07T02:00:00.000Z",
+          activeTurnId: TurnId.makeUnsafe("turn-a"),
+        },
+        observedSessionOwnership: {
+          status: "running",
+          updatedAt: "2026-09-07T02:00:00.000Z",
+          activeTurnId: TurnId.makeUnsafe("turn-b"),
+        },
+      }),
+    ]);
+    expect(next).toBe(initial);
   });
 });

@@ -15,6 +15,8 @@ import type {
   OrchestrationThreadDetailSnapshot,
   OrchestrationGetThreadTurnsPageInput,
   OrchestrationGetThreadTurnsPageResult,
+  OrchestrationGetPendingStartOutcomeInput,
+  OrchestrationGetPendingStartOutcomeResult,
   OrchestrationThread,
   OrchestrationThreadShell,
   FolderId,
@@ -203,6 +205,9 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadTurnsPage: (
     input: OrchestrationGetThreadTurnsPageInput,
   ) => Effect.Effect<OrchestrationGetThreadTurnsPageResult, ProjectionRepositoryError>;
+  readonly getPendingStartOutcome: (
+    input: OrchestrationGetPendingStartOutcomeInput,
+  ) => Effect.Effect<OrchestrationGetPendingStartOutcomeResult, ProjectionRepositoryError>;
 }
 
 /**
