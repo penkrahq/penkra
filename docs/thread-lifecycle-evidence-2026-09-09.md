@@ -77,14 +77,58 @@ clipboard paste timed out, and stale ScreenCaptureKit/accessibility targets were
 window changes. These are retained as harness limitations and were not converted into product
 latency claims. The renderer's canonical state was inspected separately after the timeout.
 
+A second fresh Dev run exercised the combined release source after integrating the Base-host and
+launcher work described below. The initial prompt appeared with `Thinking` and the Stop control.
+While the turn was active, a follow-up entered the queued state; selecting Steer produced the exact
+message and its `Steering conversation` marker in the first measured post-click sample. The exact
+message was absent after navigating to a different Thread and present once after returning to its
+origin. That comparison Thread already contained an older steering marker, so marker absence by
+itself was rejected as an invalid cross-Thread assertion. After completion, the origin sidebar row
+reported `data-work-status="idle"`, had no active animation, and the transcript exposed neither
+`Thinking` nor Stop.
+
+The Codex Computer Use REPL listed the fresh `Penkra Dev` application as running, but two native
+accessibility-state reads timed out. Live desktop-renderer automation was used for the interaction
+evidence above. One navigation script contained a JavaScript parse error and another used a stale
+pre-title-generation selector; both failed before their intended observation and were corrected,
+not counted as product failures or passes.
+
+## Recovered host changes and browser identity
+
+The release audit found two completed but unmerged commits on the active Base-host branch. They add
+the current-Thread read/compose/send bridge, the App-level `agentAddressable` boundary, and Penkra
+Dev orphan-process recovery. All 33 source files were integrated into the release line. Conflicts in
+the desktop command pipe and main-process assembly were resolved by retaining both these APIs and
+the current multi-window shell registry. Focused verification passed 26 server App-runtime tests,
+20 SDK tests, and 47 desktop host/policy tests.
+
+That integration exposed a released-source inconsistency in browser user-agent policy. The 0.12.3
+tests required the Penkra product token for ordinary and lookalike hosts and removal only for the
+exact WhatsApp host, while the source removed it globally before URL-specific policy ran. The
+shared URL policy now keeps the general product token and strips it only for the exact
+`web.whatsapp.com` exception. This correction was accepted only after the focused integration test
+failed on the unchanged behavior.
+
 ## Candidate verification
 
-The final source verification passed formatting, type checking, the full Vitest workspace, and the
-production build. Lint exited zero with 520 existing warnings and no errors; the prior baseline in
-this task was 519 warnings, while changed-line inspection found no warning on the new sidebar code.
-The web suite passed 2,514 tests. The build retained existing advisory messages about Vite/Astro
-configuration, Browserslist data, chunk size, and plugin timing.
+The final combined `bun run release:verify` passed every stage in 504.4 seconds: brand identity,
+formatting across 2,634 files, lint, type checking, migration lineage across 120 release tags,
+release smoke, the full unit/integration workspace, production build, React compiler contract, and
+both browser partitions. Lint exited zero with 519 warnings and no errors. ChatView passed 120 of
+120 browser tests; the component partition passed 219 of 219 tests across 43 files. The build
+retained existing advisory messages about stale Browserslist data and large output chunks.
 
-Publication, tag identity, release assets, updater metadata, and installed-update acceptance remain
-unverified until the user approves an exact desktop version and the protected release workflow
-completes.
+The production required-App check reports `com.penkra.apps` 0.2.9 as published at package digest
+`5c35556b7fece4d3694b4959f3143a47ec7236ae05dc5f0beb2e2d8778a81f52`, exactly matching
+`required-apps.lock.json`. The approved desktop version is 0.12.4 and the candidate lockfile SHA-256
+is `ff8925c6983d8d2881e4a2657838fa4ad1e6ed52b45e87089cb53b19aa5120cf`.
+
+The first local package attempt was rejected because the active sibling Apps checkout was not at
+the locked commit. A detached worktree was created at the lock's exact source commit without
+altering the active Apps work. The next attempt correctly verified that commit but pointed at the
+repository root rather than its `apps` package and failed because no root manifest exists. The
+corrected exact-source arm64 ZIP embedded the expected Apps digest, completed Developer ID signing
+without publication notarization, regenerated its differential blockmap, and passed the isolated
+packaged-desktop startup harness. Publication, tag identity, release assets, updater metadata, and
+installed-update acceptance remain unverified until the exact source commit completes the protected
+release workflow.
