@@ -724,6 +724,33 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Working", pulse: true });
   });
 
+  it("keeps an admitted message working while an unrelated previous turn remains completed", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          latestTurn: {
+            turnId: "previous-turn" as never,
+            state: "completed" as const,
+            requestedAt: "2026-03-09T09:00:00.000Z",
+            startedAt: "2026-03-09T09:00:01.000Z",
+            completedAt: "2026-03-09T09:00:02.000Z",
+            assistantMessageId: null,
+          },
+          session: {
+            ...baseThread.session,
+            status: "ready" as const,
+            activeTurnId: undefined,
+            orchestrationStatus: "ready" as const,
+          },
+          pendingTurnStartMessageId: MessageId.makeUnsafe("new-admitted-message"),
+        },
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+      }),
+    ).toMatchObject({ label: "Working", pulse: true });
+  });
+
   it("surfaces a quarantined or errored session as attention instead of working", () => {
     expect(
       resolveThreadStatusPill({

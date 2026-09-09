@@ -1141,6 +1141,42 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     ).toBe(false);
   });
 
+  it("keeps a reopened stopped session optimistic until the new turn is projected", () => {
+    expect(
+      hasServerAcknowledgedLocalDispatch({
+        localDispatch: {
+          startedAt: "2026-04-13T00:00:00.000Z",
+          expectedUserMessageId: "message-after-stop" as never,
+          latestTurnTurnId: "previous-turn" as never,
+          latestTurnRequestedAt: "2026-04-13T00:00:00.000Z",
+          latestTurnStartedAt: "2026-04-13T00:00:01.000Z",
+          latestTurnCompletedAt: "2026-04-13T00:00:02.000Z",
+          sessionOrchestrationStatus: "stopped",
+          sessionUpdatedAt: "2026-04-13T00:00:02.000Z",
+        },
+        phase: "ready",
+        latestTurn: {
+          turnId: "previous-turn" as never,
+          state: "completed",
+          requestedAt: "2026-04-13T00:00:00.000Z",
+          startedAt: "2026-04-13T00:00:01.000Z",
+          completedAt: "2026-04-13T00:00:02.000Z",
+          assistantMessageId: null,
+        },
+        session: {
+          provider: "codex",
+          status: "ready",
+          orchestrationStatus: "ready",
+          createdAt: "2026-04-13T00:00:00.000Z",
+          updatedAt: "2026-04-13T00:00:03.000Z",
+        },
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: null,
+      }),
+    ).toBe(false);
+  });
+
   it("stays optimistic while the authoritative session is only starting", () => {
     expect(
       hasServerAcknowledgedLocalDispatch({

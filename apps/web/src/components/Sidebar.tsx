@@ -613,12 +613,23 @@ export default function Sidebar() {
   );
 
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
     const summaryById = new Map(sidebarThreads.map((thread) => [thread.id, thread] as const));
     const promotedDraftIds = Object.entries(draftThreadsByThreadId)
       .filter(([, draft]) => draft.promotedTo !== undefined)
       .map(([threadId]) => threadId as ThreadId);
-    const diagnosticThreadIds = new Set([...summaryById.keys(), ...promotedDraftIds]);
+    const diagnosticThreadIds = new Set([
+      ...(visualActiveSidebarThreadId ? [visualActiveSidebarThreadId] : []),
+      ...localSendOwnerThreadIds,
+      ...promotedDraftIds,
+      ...sidebarThreads
+        .filter(
+          (thread) =>
+            thread.pendingTurnStartMessageId != null ||
+            thread.session?.orchestrationStatus === "starting" ||
+            thread.session?.orchestrationStatus === "running",
+        )
+        .map((thread) => thread.id),
+    ]);
 
     for (const threadId of diagnosticThreadIds) {
       const thread = summaryById.get(threadId);

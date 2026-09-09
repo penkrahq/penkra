@@ -455,7 +455,7 @@ export function resolveThreadStatusPill(input: {
   if (
     (input.isPromotedDraftPending && !input.hasCanonicalThreadSummary) ||
     input.hasLocalSendOwner ||
-    (thread.pendingTurnStartMessageId != null && thread.latestTurn?.state !== "completed")
+    thread.pendingTurnStartMessageId != null
   ) {
     return {
       label: "Working",
