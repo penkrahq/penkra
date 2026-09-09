@@ -606,6 +606,7 @@ export default function Sidebar() {
         hasPendingApprovals: thread.hasPendingApprovals,
         hasPendingUserInput: thread.hasPendingUserInput,
         isPromotedDraftPending: draftThreadsByThreadId[thread.id]?.promotedTo !== undefined,
+        hasCanonicalThreadSummary: true,
         hasLocalSendOwner: localSendOwnerThreadIds.has(thread.id),
       }),
     [dismissedThreadStatusKeyByThreadId, draftThreadsByThreadId, localSendOwnerThreadIds],

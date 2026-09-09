@@ -2,9 +2,13 @@ import { MessageId, ThreadId } from "@penkra/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 import { makeQueuedChatTurn } from "./composerDraftStoreTestFixtures";
 
-const submission = (prompt: string) => ({ ...makeQueuedChatTurn(prompt), prompt });
+const submission = (prompt: string) => ({
+  ...makeQueuedChatTurn(prompt),
+  prompt,
+});
 
 import {
+  acknowledgeComposerSendPreflightEvent,
   cancelComposerSendPreflight,
   claimComposerSendPreflight,
   getComposerSendPreflight,
@@ -104,6 +108,24 @@ describe("composerSendPreflight", () => {
     expect(getComposerSendPreflight(threadId)).toBeNull();
     expect(hasComposerSendActivity(threadId)).toBe(true);
     releaseComposerSendPreflightForMessage(threadId, messageId);
+    expect(hasComposerSendActivity(threadId)).toBe(false);
+  });
+
+  it("clears admitted activity from the global message acknowledgement after the chat view is gone", () => {
+    const threadId = ThreadId.makeUnsafe("thread-preflight-global-ack");
+    const messageId = MessageId.makeUnsafe("message-preflight-global-ack");
+    const owner = claimComposerSendPreflight(threadId, submission("global acknowledgement"))!;
+    markComposerSendPreflightDispatching(owner, messageId, {
+      ...submission("global acknowledgement"),
+      messageId,
+    });
+    releaseComposerSendPreflightAfterAdmission(owner);
+
+    expect(hasComposerSendActivity(threadId)).toBe(true);
+    acknowledgeComposerSendPreflightEvent({
+      type: "thread.message-sent",
+      payload: { threadId, messageId },
+    });
     expect(hasComposerSendActivity(threadId)).toBe(false);
   });
 });

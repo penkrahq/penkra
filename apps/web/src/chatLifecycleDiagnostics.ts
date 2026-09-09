@@ -128,7 +128,7 @@ function appendSample(sample: ChatLifecycleSample): void {
 }
 
 function diagnosticsAvailable(): boolean {
-  return import.meta.env.DEV && typeof performance !== "undefined";
+  return typeof performance !== "undefined";
 }
 
 export function recordChatLifecycleDiagnostic(input: ChatLifecycleDiagnosticState): void {
@@ -190,7 +190,7 @@ declare global {
   }
 }
 
-if (import.meta.env.DEV && typeof window !== "undefined") {
+if (typeof window !== "undefined") {
   window.penkraChatLifecycle = {
     samples: getChatLifecycleDiagnosticSamples,
     reset: resetChatLifecycleDiagnostics,

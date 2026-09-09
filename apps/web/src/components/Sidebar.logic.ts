@@ -399,6 +399,8 @@ export function resolveThreadStatusPill(input: {
   hasPendingUserInput: boolean;
   /** Local ownership bridges draft promotion until the first server lifecycle projection. */
   isPromotedDraftPending?: boolean;
+  /** A shell summary exists for this thread, so promotion alone is no longer lifecycle evidence. */
+  hasCanonicalThreadSummary?: boolean;
   /** The shared composer send registry still owns work for this thread. */
   hasLocalSendOwner?: boolean;
 }): ThreadStatusPill | null {
@@ -451,7 +453,7 @@ export function resolveThreadStatusPill(input: {
   }
 
   if (
-    input.isPromotedDraftPending ||
+    (input.isPromotedDraftPending && !input.hasCanonicalThreadSummary) ||
     input.hasLocalSendOwner ||
     (thread.pendingTurnStartMessageId != null && thread.latestTurn?.state !== "completed")
   ) {

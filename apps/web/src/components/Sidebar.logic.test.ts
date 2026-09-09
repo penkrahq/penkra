@@ -680,6 +680,23 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Working", pulse: true });
   });
 
+  it("does not keep an orphaned promoted draft working after an idle shell summary arrives", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          latestTurn: null,
+          session: null,
+        },
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        isPromotedDraftPending: true,
+        hasLocalSendOwner: false,
+        hasCanonicalThreadSummary: true,
+      }),
+    ).toBeNull();
+  });
+
   it("keeps working after draft finalization while the shared send owner remains active", () => {
     expect(
       resolveThreadStatusPill({

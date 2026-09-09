@@ -733,6 +733,8 @@ function applyOrchestrationEvent(
             (event.payload.pinnedMessages === undefined ||
               deepEqualJson(event.payload.pinnedMessages, thread.pinnedMessages ?? null)) &&
             (event.payload.notes === undefined || event.payload.notes === (thread.notes ?? "")) &&
+            (event.payload.lastVisitedAt === undefined ||
+              event.payload.lastVisitedAt === thread.lastVisitedAt) &&
             nextUpdatedAt === thread.updatedAt
           ) {
             return thread;
@@ -764,6 +766,9 @@ function applyOrchestrationEvent(
                 }
               : {}),
             ...(event.payload.notes !== undefined ? { notes: event.payload.notes } : {}),
+            ...(event.payload.lastVisitedAt !== undefined
+              ? { lastVisitedAt: event.payload.lastVisitedAt }
+              : {}),
             updatedAt: nextUpdatedAt,
             ...(cwdChanged ? { session: null } : {}),
           };

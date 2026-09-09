@@ -1385,14 +1385,40 @@ describe("store event reducer", () => {
       makeDomainEvent("thread.updated", {
         threadId: ThreadId.makeUnsafe("thread-1"),
         title: "New title",
+        lastVisitedAt: "2026-02-27T00:00:45.000Z",
         updatedAt: "2026-02-27T00:01:00.000Z",
       }),
     ]);
 
     expect(threadsOf(next)[0]).toMatchObject({
       title: "New title",
+      lastVisitedAt: "2026-02-27T00:00:45.000Z",
       updatedAt: "2026-02-27T00:01:00.000Z",
     });
+  });
+
+  it("propagates a live read acknowledgement into the sidebar summary", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const initialState = syncServerReadModel(
+      makeState(makeThread({ lastVisitedAt: "2026-02-27T00:00:00.000Z" })),
+      makeReadModel(
+        makeReadModelThread({
+          lastVisitedAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:30.000Z",
+        }),
+      ),
+    );
+
+    const next = applyOrchestrationEvents(initialState, [
+      makeDomainEvent("thread.updated", {
+        threadId,
+        lastVisitedAt: "2026-02-27T00:01:00.000Z",
+        updatedAt: "2026-02-27T00:01:00.000Z",
+      }),
+    ]);
+
+    expect(next.sidebarThreadSummaryById[threadId]?.lastVisitedAt).toBe("2026-02-27T00:01:00.000Z");
+    expect(threadsOf(next)[0]?.lastVisitedAt).toBe("2026-02-27T00:01:00.000Z");
   });
 
   it("surfaces pinnedMessages and notes from a live thread.updated event", () => {

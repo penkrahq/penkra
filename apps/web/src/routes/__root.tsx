@@ -52,6 +52,7 @@ import {
   markPromotedDraftThreads,
   useComposerDraftStore,
 } from "../composerDraftStore";
+import { acknowledgeComposerSendPreflightEvent } from "../composerSendPreflight";
 import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { terminalActivityFromEvent } from "../terminalActivity";
@@ -900,7 +901,13 @@ function EventRouter() {
               deliveries[(index += 1)] as Extract<OrchestrationSyncStreamItem, { kind: "event" }>,
             );
           }
-          applyOrchestrationEvents(eventDeliveries.map((delivery) => delivery.event));
+          const events = eventDeliveries.map((delivery) => delivery.event);
+          applyOrchestrationEvents(events);
+          for (const event of events) {
+            if (event.type === "thread.message-sent") {
+              acknowledgeComposerSendPreflightEvent(event);
+            }
+          }
           const affectedThreadIds = new Set(
             eventDeliveries.flatMap((delivery) =>
               delivery.event.aggregateKind === "thread"

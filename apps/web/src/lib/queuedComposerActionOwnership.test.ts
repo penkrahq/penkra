@@ -14,6 +14,7 @@ describe("QueuedComposerActionOwnership", () => {
     expect(ownership.claim(THREAD_A, "queued-1", "steer")).toBeNull();
     expect(ownership.claim(THREAD_A, "queued-1", "delete")).toBeNull();
     expect(ownership.claim(THREAD_A, "queued-1", "edit")).toBeNull();
+    expect(ownership.inFlightActions(THREAD_A)).toEqual(new Map([["queued-1", "steer"]]));
   });
 
   it("allows actions for different queued messages independently", () => {
@@ -55,6 +56,52 @@ describe("QueuedComposerActionOwnership", () => {
 
     ownership.reconcileAccepted(THREAD_A, new Map([[messageId, 9]]));
     expect(ownership.acceptedMessageIds(THREAD_A)).toEqual(new Set([messageId]));
+  });
+
+  it("retains an accepted steer payload until a matching settlement frontier", () => {
+    const ownership = new QueuedComposerActionOwnership();
+    const queuedTurn = {
+      id: "queued-steer-payload",
+      kind: "chat" as const,
+      createdAt: "2026-09-09T12:00:00.000Z",
+      previewText: "retained steer payload",
+      prompt: "retained steer payload",
+      images: [],
+      files: [],
+      assistantSelections: [],
+      terminalContexts: [],
+      fileComments: [],
+      pastedTexts: [],
+      skills: [],
+      mentions: [],
+      selectedProvider: "codex" as const,
+      selectedModel: "gpt-5",
+      selectedPromptEffort: null,
+      modelSelection: { provider: "codex" as const, model: "gpt-5" },
+      connectionId: null,
+      runtimeMode: "full-access" as const,
+    };
+    const messageId = MessageId.makeUnsafe("message-steer-payload");
+    ownership.markAccepted(THREAD_A, messageId, 10, "steer", queuedTurn);
+
+    expect(ownership.steerTurns(THREAD_A)).toEqual([queuedTurn]);
+    ownership.reconcileAccepted(THREAD_A, new Map());
+    expect(ownership.steerTurns(THREAD_A)).toEqual([queuedTurn]);
+    ownership.reconcileAccepted(THREAD_A, new Map([[messageId, 9]]));
+    expect(ownership.steerTurns(THREAD_A)).toEqual([queuedTurn]);
+
+    ownership.reconcileAccepted(THREAD_A, new Map([[messageId, 10]]));
+    expect(ownership.steerTurns(THREAD_A)).toEqual([]);
+    expect(ownership.diagnosticSamples(THREAD_A).map((sample) => sample.event)).toEqual([
+      "accepted",
+      "settled",
+    ]);
+    expect(ownership.diagnosticSamples(THREAD_A)[0]).toMatchObject({
+      queuedTurnId: queuedTurn.id,
+      messageId,
+      action: "steer",
+      receiptSequence: 10,
+    });
   });
 
   it("settles only from a matching newer delivery or cancellation sequence", () => {
