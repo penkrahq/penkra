@@ -109,7 +109,51 @@ shared URL policy now keeps the general product token and strips it only for the
 `web.whatsapp.com` exception. This correction was accepted only after the focused integration test
 failed on the unchanged behavior.
 
-## Candidate verification
+## Reopened Thinking and sidebar handoff gap
+
+A fresh 0.12.4-source Penkra Dev replay reopened a lifecycle gap that the September 7 evidence had
+claimed closed. The first high-frequency DOM run began from a stopped provider session. Thinking
+and Stop appeared with the sidebar running, the sidebar then returned to idle, and Thinking and Stop
+later disappeared before the authoritative running projection restored all three. The probe initially
+treated that temporary Stop disappearance as completion and ended too early. Its result is retained
+as harness evidence only; the corrected probe requires an observed running turn followed by an
+authoritative completed turn.
+
+The corrected unchanged-source run reproduced a 674.5ms sidebar idle interval. The shared local send
+owner ended at renderer time 254949.7 while the admitted message id was not projected until 255393.2;
+the sidebar still returned idle because it compared that new pending message against the unrelated
+previous completed turn. Authoritative running arrived at 255616.4. A separate stopped-session trace
+showed the transcript gap: `hasServerAcknowledgedLocalDispatch` treated the provider's stopped-to-ready
+bootstrap as acknowledgement even though the latest turn remained the previous completed turn.
+
+Two controls encoded those exact states against unchanged source. Both failed: the chat predicate
+returned acknowledged for stopped-to-ready, and the sidebar returned Completed for a new pending
+message with an older completed latest turn. The correction accepts only evidence tied to the new
+dispatch—a changed latest turn, running phase, blocker, or explicit error—and treats a non-null
+`pendingTurnStartMessageId` as work without consulting the previous turn's state. The content-free
+sidebar lifecycle recorder is also enabled in packaged builds and bounded to the active or live
+threads, rather than walking every idle sidebar row.
+
+History isolates the two regressions. Commit `b1b4767b5` (`Refine working timer bootstrap handling`)
+introduced acknowledgement on a session-orchestration transition, while commit `852c8b9a9`
+(`fix: harden thread lifecycle recovery and observability`) introduced the pending-message comparison
+against `latestTurn.state`. The local-dispatch acknowledgement mechanism itself originated in
+`00b2b1e02` (`Map Codex stderr errors to warnings and track local send ack`).
+
+After correction, 187 focused chat/sidebar/diagnostic tests passed. A fresh native replay starting
+from an interrupted session observed Thinking, Stop, and sidebar running continuously from 228.9ms
+through the first assistant stream at 5361.5ms and final settlement at 10153.8ms. No intermediate
+idle or hidden state occurred. The unchanged RED artifact is
+`.penkra/qa/lifecycle-gap-20260909/result-red.json` (SHA-256
+`8b6e6f0e5153a4748496b9910c4d4e3639b1ba9d0273ce895362f3469aab936c`); the GREEN artifact is
+`.penkra/qa/lifecycle-gap-20260909/result-green.json` (SHA-256
+`628b95ebb4a9e4c0ef80e344553ec3cd2bdb68262efcc23c70b96baf636ac3d9`).
+
+The first DOM probe used epoch time against `performance.now`, producing negative relative values,
+and a prior inspection command referenced browser `location` outside `page.evaluate`. Neither result
+was used for timing or product acceptance. The corrected probe uses the renderer clock consistently.
+
+## 0.12.4 candidate verification
 
 The final combined `bun run release:verify` passed every stage in 504.4 seconds: brand identity,
 formatting across 2,634 files, lint, type checking, migration lineage across 120 release tags,

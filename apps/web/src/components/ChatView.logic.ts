@@ -627,8 +627,6 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     return true;
   }
   const latestTurn = input.latestTurn ?? null;
-  const session = input.session ?? null;
-  const nextSessionOrchestrationStatus = session?.orchestrationStatus ?? null;
   const latestTurnChanged =
     input.localDispatch.latestTurnTurnId !== (latestTurn?.turnId ?? null) ||
     input.localDispatch.latestTurnRequestedAt !== (latestTurn?.requestedAt ?? null) ||
@@ -639,22 +637,10 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     return true;
   }
 
-  if (input.localDispatch.sessionOrchestrationStatus !== nextSessionOrchestrationStatus) {
-    // Starting is still part of the optimistic-to-runtime handoff. Keep the local
-    // dispatch latched until the provider reports an actual running turn or an
-    // explicit terminal outcome.
-    if (nextSessionOrchestrationStatus === "starting") {
-      return false;
-    }
-    if (
-      input.localDispatch.sessionOrchestrationStatus === null &&
-      nextSessionOrchestrationStatus === "ready"
-    ) {
-      return false;
-    }
-    return true;
-  }
-
+  // Session bootstrap is not turn acknowledgement. In particular, reopening a
+  // stopped provider changes stopped -> ready before the new turn is projected.
+  // Keep the local owner until the new turn, blocker, or explicit error above
+  // supplies evidence for this dispatch.
   return false;
 }
 
