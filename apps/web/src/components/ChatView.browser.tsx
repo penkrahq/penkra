@@ -56,6 +56,11 @@ import {
   removeInlineTerminalContextPlaceholder,
 } from "../lib/terminalContext";
 import { isMacPlatform } from "../lib/utils";
+import {
+  getQueuedComposerActionSteerTurns,
+  resetQueuedComposerActionOwnershipForTests,
+} from "../lib/queuedComposerActionOwnership";
+import { queuedComposerTurnServerMessageId } from "../lib/queuedComposerTurnDispatch";
 import { readNativeApi } from "../nativeApi";
 import { getRouter } from "../router";
 import { useSplitViewStore } from "../splitViewStore";
@@ -2140,6 +2145,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   beforeEach(async () => {
     resetPendingStartRecoveryRegistryForTests();
+    resetQueuedComposerActionOwnershipForTests();
     await resetWsNativeApiForTest();
     resetRetainedThreadDetailSubscriptionsForTests();
     await setViewport(DEFAULT_VIEWPORT);
@@ -3409,7 +3415,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       sessionStatus: "running",
     });
     const snapshot = addThreadToSnapshot(base, OTHER_THREAD_ID);
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
 
     try {
       const editor = page.getByTestId("composer-editor");
@@ -3756,7 +3765,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         session: null,
       })),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
 
     try {
       const prompt = "wait for the delayed connection refresh";
@@ -3819,7 +3831,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         session: null,
       })),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
     const restoreNativeApi = installDeterministicSendNativeApi();
 
     try {
@@ -3893,7 +3908,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         session: null,
       })),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
 
     try {
       const prompt = "cancel this held preflight";
@@ -3935,7 +3953,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
           .map(readDispatchedCommand)
           .filter((command) => command?.type === "thread.turn.start");
         expect(starts).toHaveLength(1);
-        expect(starts[0]?.message).toMatchObject({ text: "newer prompt survives Stop" });
+        expect(starts[0]?.message).toMatchObject({
+          text: "newer prompt survives Stop",
+        });
       });
       const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]!;
       const recoveredOriginalCount =
@@ -3986,9 +4006,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
         session: null,
       })),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
     try {
-      useComposerDraftStore.setState({ stickyConnectionByProvider: { codex: TEST_CONNECTION_ID } });
+      useComposerDraftStore.setState({
+        stickyConnectionByProvider: { codex: TEST_CONNECTION_ID },
+      });
       useComposerDraftStore.getState().setPrompt(THREAD_ID, "stopped original with image");
       useComposerDraftStore.setState((state) => ({
         draftsByThreadId: {
@@ -4086,7 +4111,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         session: null,
       })),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
     try {
       const prompt = "unchanged stopped submission";
       useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
@@ -4220,7 +4248,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       })),
     };
     let mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-    const restoreNativeApi = installDeterministicSendNativeApi({ dispatchGate });
+    const restoreNativeApi = installDeterministicSendNativeApi({
+      dispatchGate,
+    });
     try {
       useComposerDraftStore.getState().setPrompt(THREAD_ID, "held receipt across remount");
       (
@@ -4308,7 +4338,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         session: null,
       })),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
     const restoreNativeApi = installDeterministicSendNativeApi({
       dispatchGate,
       pendingStartOutcome: "accepted",
@@ -4576,7 +4609,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         session: null,
       })),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
     const restoreNativeApi = installDeterministicSendNativeApi();
     const originalSetItem = Storage.prototype.setItem;
     let recoveryCheckpointSeen = false;
@@ -4668,7 +4704,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       // after clear and before the later in-memory generic restoration.
       await useComposerDraftStore.persist.clearStorage();
       localStorage.setItem(COMPOSER_DRAFT_STORAGE_KEY, clearCheckpoint!);
-      useComposerDraftStore.setState((state) => ({ ...state, draftsByThreadId: {} }));
+      useComposerDraftStore.setState((state) => ({
+        ...state,
+        draftsByThreadId: {},
+      }));
       await useComposerDraftStore.persist.rehydrate();
       const rehydratedDraft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
       expect(rehydratedDraft?.prompt).toBe(prompt);
@@ -4778,7 +4817,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const blobGate = new Promise<void>((resolve) => {
       releaseBlob = resolve;
     });
-    const imageFile = new File([ATTACHMENT_SVG], "persisted.svg", { type: "image/svg+xml" });
+    const imageFile = new File([ATTACHMENT_SVG], "persisted.svg", {
+      type: "image/svg+xml",
+    });
     let blobReadCount = 0;
     composerBlobReadHarness.override = async () => {
       blobReadCount += 1;
@@ -4794,13 +4835,22 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ...base,
         threads: base.threads.map((thread) =>
           thread.id === THREAD_ID
-            ? { ...thread, messages: [], activities: [], latestTurn: null, session: null }
+            ? {
+                ...thread,
+                messages: [],
+                activities: [],
+                latestTurn: null,
+                session: null,
+              }
             : thread,
         ),
       },
       OTHER_THREAD_ID,
     );
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
     const restoreNativeApi = installDeterministicSendNativeApi();
 
     try {
@@ -5424,7 +5474,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const blobGate = new Promise<void>((resolve) => {
       releaseBlob = resolve;
     });
-    const originalFile = new File([ATTACHMENT_SVG], "held-original.svg", { type: "image/svg+xml" });
+    const originalFile = new File([ATTACHMENT_SVG], "held-original.svg", {
+      type: "image/svg+xml",
+    });
     composerBlobReadHarness.override = async () => {
       await blobGate;
       return originalFile;
@@ -5435,7 +5487,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       targetText: "active turn",
       sessionStatus: "running",
     });
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
     const restoreNativeApi = installDeterministicSendNativeApi();
     try {
       useComposerDraftStore.getState().setPrompt(THREAD_ID, "held original follow-up");
@@ -6092,6 +6147,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
         const actionControl = await findAction();
         actionControl.click();
+        if (action === "steer") {
+          expect(getQueuedComposerActionSteerTurns(THREAD_ID).map((turn) => turn.prompt)).toContain(
+            "queued under delayed admission",
+          );
+        }
         await vi.waitFor(() =>
           expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull(),
         );
@@ -6102,6 +6162,15 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(actions.filter((type) => type === expectedCommand)).toHaveLength(1),
         );
         expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
+        if (action === "steer") {
+          // The accepted local action owns presentation while the command receipt is pending.
+          // The message and its steer marker must appear atomically instead of disappearing and
+          // then gaining the marker after the network round trip.
+          await vi.waitFor(() => {
+            expect(document.body.textContent).toContain("queued under delayed admission");
+            expect(document.body.textContent).toContain("Steering conversation");
+          });
+        }
         releaseAction();
         await vi.waitFor(() => {
           expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
@@ -6390,6 +6459,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
       expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
+      expect(document.body.textContent).toContain("queued across remount");
+      expect(document.body.textContent).toContain("Steering conversation");
       release();
       await vi.waitFor(() =>
         expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(1),
@@ -6447,8 +6518,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       edit.click();
 
-      const newerAImage = createComposerImage({ id: "newer-a", previewUrl: "blob:newer-a" });
-      const newerBImage = createComposerImage({ id: "newer-b", previewUrl: "blob:newer-b" });
+      const newerAImage = createComposerImage({
+        id: "newer-a",
+        previewUrl: "blob:newer-a",
+      });
+      const newerBImage = createComposerImage({
+        id: "newer-b",
+        previewUrl: "blob:newer-b",
+      });
       useComposerDraftStore.getState().setPrompt(THREAD_ID, "newer A prompt");
       useComposerDraftStore.getState().addImage(THREAD_ID, newerAImage);
       useComposerDraftStore.getState().setPrompt(OTHER_THREAD_ID, "newer B prompt");
@@ -6554,6 +6631,168 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("keeps a delayed Steer presentation on its originating thread across navigation", async () => {
+    const prompt = "steer belongs only to its origin thread";
+    const snapshot = addThreadToSnapshot(
+      createSnapshotForTargetUser({
+        targetMessageId: "msg-l1-steer-navigation-running" as MessageId,
+        targetText: "active task",
+        sessionStatus: "running",
+      }),
+      OTHER_THREAD_ID,
+    );
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
+    const api = readNativeApi()!;
+    const originalDispatch = api.orchestration.dispatchCommand;
+    let releaseAdmission!: () => void;
+    let releaseSteer!: () => void;
+    const admissionGate = new Promise<void>((resolve) => {
+      releaseAdmission = resolve;
+    });
+    const steerGate = new Promise<void>((resolve) => {
+      releaseSteer = resolve;
+    });
+    const actions: string[] = [];
+    const spy = vi
+      .spyOn(api.orchestration, "dispatchCommand")
+      .mockImplementation(async (command) => {
+        actions.push(command.type);
+        const result = await originalDispatch(command);
+        if (command.type === "thread.turn.start") await admissionGate;
+        if (command.type === "thread.turn.steer-queued") await steerGate;
+        return result;
+      });
+    try {
+      await waitForComposerEditor();
+      await page.getByTestId("composer-editor").fill(prompt);
+      document
+        .querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]')!
+        .requestSubmit();
+      await vi.waitFor(() => expect(actions).toContain("thread.turn.start"));
+      const steer = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+            (button) => button.textContent?.trim() === "Steer",
+          ) ?? null,
+        "Steer absent",
+      );
+      steer.click();
+      releaseAdmission();
+      await vi.waitFor(() => expect(actions).toContain("thread.turn.steer-queued"));
+
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: OTHER_THREAD_ID },
+      });
+      await waitForLayout();
+      expect(document.body.textContent).not.toContain(prompt);
+      expect(document.body.textContent).not.toContain("Steering conversation");
+
+      releaseSteer();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(document.body.textContent).not.toContain(prompt);
+      expect(document.body.textContent).not.toContain("Steering conversation");
+
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: THREAD_ID },
+      });
+      await waitForLayout();
+      expect(document.body.textContent).toContain(prompt);
+      expect(document.body.textContent).toContain("Steering conversation");
+    } finally {
+      releaseAdmission();
+      releaseSteer();
+      spy.mockRestore();
+      await mounted.cleanup();
+    }
+  });
+
+  it("rolls back an immediate Steer presentation when server admission rejects", async () => {
+    const prompt = "rejected steer remains retryable";
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-l1-steer-rejection-running" as MessageId,
+        targetText: "active task",
+        sessionStatus: "running",
+      }),
+    });
+    const api = readNativeApi()!;
+    const originalDispatch = api.orchestration.dispatchCommand;
+    let rejectSteer = true;
+    let rejectSteerRequest!: () => void;
+    const steerRejectionGate = new Promise<void>((_, reject) => {
+      rejectSteerRequest = () => reject(new Error("controlled steer admission rejection"));
+    });
+    const actions: string[] = [];
+    const spy = vi
+      .spyOn(api.orchestration, "dispatchCommand")
+      .mockImplementation(async (command) => {
+        actions.push(command.type);
+        if (command.type === "thread.turn.steer-queued" && rejectSteer) {
+          await steerRejectionGate;
+        }
+        return originalDispatch(command);
+      });
+    try {
+      await waitForComposerEditor();
+      await page.getByTestId("composer-editor").fill(prompt);
+      document
+        .querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]')!
+        .requestSubmit();
+      await vi.waitFor(() =>
+        expect(
+          useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns[0]
+            ?.serverAcceptedAt,
+        ).toBeTruthy(),
+      );
+      const acceptedQueuedTurn =
+        useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]!.queuedTurns[0]!;
+      const queuedMessageId = queuedComposerTurnServerMessageId(acceptedQueuedTurn);
+      const steer = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+            (button) => button.textContent?.trim() === "Steer",
+          ) ?? null,
+        "Steer absent",
+      );
+      steer.click();
+      await vi.waitFor(() =>
+        expect(document.querySelector(`[data-message-id="${queuedMessageId}"]`)).not.toBeNull(),
+      );
+      rejectSteerRequest();
+
+      await vi.waitFor(() => {
+        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
+        expect(document.querySelector(`[data-message-id="${queuedMessageId}"]`)).toBeNull();
+      });
+      expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(1);
+
+      rejectSteer = false;
+      const retry = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+            (button) => button.textContent?.trim() === "Steer" && !button.disabled,
+          ) ?? null,
+        "Retry Steer absent",
+      );
+      retry.click();
+      await vi.waitFor(() => {
+        expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(2);
+        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
+        expect(document.querySelector(`[data-message-id="${queuedMessageId}"]`)).not.toBeNull();
+      });
+    } finally {
+      rejectSteerRequest();
+      spy.mockRestore();
+      await mounted.cleanup();
+    }
+  });
+
   it("releases queued action ownership after admission rejection and preserves prompt and images for retry", async () => {
     const queuedImage = createComposerImage({
       id: "queued-delayed-rejection-image",
@@ -6630,7 +6869,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         const queued = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns[0];
         expect(queued?.prompt).toBe(queuedPrompt);
         expect(queued?.images).toEqual([
-          expect.objectContaining({ id: queuedImage.id, name: queuedImage.name }),
+          expect.objectContaining({
+            id: queuedImage.id,
+            name: queuedImage.name,
+          }),
         ]);
         expect(
           document.querySelector<HTMLButtonElement>('button[aria-label="Queued follow-up actions"]')
@@ -6642,7 +6884,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
         expect(draft?.prompt).toBe(queuedPrompt);
         expect(draft?.images).toEqual([
-          expect.objectContaining({ id: queuedImage.id, name: queuedImage.name }),
+          expect.objectContaining({
+            id: queuedImage.id,
+            name: queuedImage.name,
+          }),
         ]);
       });
     } finally {
@@ -6770,9 +7015,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
           // and show the same durable message once in the transcript while the
           // provider handoff continues in the background.
           expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
-          expect(document.querySelectorAll(`[data-message-id="${queuedMessageId}"]`)).toHaveLength(
-            1,
+          expect(getQueuedComposerActionSteerTurns(THREAD_ID).map((turn) => turn.prompt)).toContain(
+            "queue this follow-up",
           );
+          expect(
+            window.penkraChatLifecycle
+              ?.samples(THREAD_ID)
+              .some(
+                (sample) =>
+                  "visibleTimelineEntryIds" in sample &&
+                  sample.visibleTimelineEntryIds?.includes(queuedMessageId),
+              ),
+          ).toBe(true);
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -6804,7 +7058,15 @@ describe("ChatView timeline estimator parity (full app)", () => {
       useStore.getState().syncServerReadModel(currentSnapshot);
       await vi.waitFor(() => {
         expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
-        expect(document.querySelectorAll(`[data-message-id="${queuedMessageId}"]`)).toHaveLength(1);
+        expect(
+          window.penkraChatLifecycle
+            ?.samples(THREAD_ID)
+            .some(
+              (sample) =>
+                "visibleTimelineEntryIds" in sample &&
+                sample.visibleTimelineEntryIds?.includes(queuedMessageId),
+            ),
+        ).toBe(true);
       });
 
       const stopButton = await waitForElement(
@@ -7217,7 +7479,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
                   role: "user" as const,
                   text: queuedPrompt,
                   dispatchMode: "queue" as const,
-                  delivery: { state: "queued" as const, queued: true, sequence: 200 },
+                  delivery: {
+                    state: "queued" as const,
+                    queued: true,
+                    sequence: 200,
+                  },
                   turnId: null,
                   streaming: false,
                   source: "native" as const,
@@ -7229,7 +7495,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           : thread,
       ),
     };
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
     const api = readNativeApi()!;
     const originalDispatch = api.orchestration.dispatchCommand;
     let rejectAction!: (error: Error) => void;

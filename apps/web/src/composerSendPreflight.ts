@@ -128,6 +128,24 @@ export function releaseComposerSendPreflightForMessage(
   publish();
 }
 
+/**
+ * Settles local send chrome from the app-wide synchronization stream.
+ *
+ * ChatView also releases this ownership when its local dispatch observes the
+ * server row, but that component can unmount or reconnect after admission. The
+ * sync stream is the durable acknowledgement owner and must clear the shared
+ * registry even when no view is mounted for the thread.
+ */
+export function acknowledgeComposerSendPreflightEvent(event: {
+  readonly type: "thread.message-sent";
+  readonly payload: {
+    readonly threadId: ThreadId;
+    readonly messageId: MessageId;
+  };
+}): void {
+  releaseComposerSendPreflightForMessage(event.payload.threadId, event.payload.messageId);
+}
+
 export function markComposerSendPreflightDispatching(
   owner: ComposerSendPreflightOwner,
   messageId: MessageId,

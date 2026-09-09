@@ -137,6 +137,7 @@ import {
   claimQueuedComposerAction,
   getAcceptedQueuedComposerActionMessageIds,
   getQueuedComposerActionInFlightIds,
+  getQueuedComposerActionSteerTurns,
   getQueuedComposerActionRevision,
   subscribeQueuedComposerActions,
   markQueuedComposerActionAccepted,
@@ -3315,6 +3316,9 @@ export default function ChatView({
   const [locallyOwnedQueuedActionMessageIds, setLocallyOwnedQueuedActionMessageIds] = useState<
     ReadonlySet<MessageId>
   >(() => new Set());
+  const [localSteerTurnsByThreadId, setLocalSteerTurnsByThreadId] = useState<
+    ReadonlyMap<ThreadId, ReadonlyMap<string, QueuedComposerTurn>>
+  >(() => new Map());
   const queuedComposerActionRevision = useSyncExternalStore(
     subscribeQueuedComposerActions,
     getQueuedComposerActionRevision,
@@ -3324,9 +3328,38 @@ export default function ChatView({
     () => getQueuedComposerActionInFlightIds(threadId),
     [queuedComposerActionRevision, threadId],
   );
+  const queuedComposerActionSteerTurns = useMemo(() => {
+    const turnsById = new Map(
+      getQueuedComposerActionSteerTurns(threadId).map((turn) => [turn.id, turn] as const),
+    );
+    for (const [turnId, turn] of localSteerTurnsByThreadId.get(threadId) ?? []) {
+      turnsById.set(turnId, turn);
+    }
+    return [...turnsById.values()];
+  }, [localSteerTurnsByThreadId, queuedComposerActionRevision, threadId]);
   const acceptedQueuedActionMessageIds = useMemo(
     () => getAcceptedQueuedComposerActionMessageIds(threadId),
     [queuedComposerActionRevision, threadId],
+  );
+  const queuedComposerActionSteerMessages = useMemo<ChatMessage[]>(
+    () =>
+      queuedComposerActionSteerTurns.map((queuedTurn) => {
+        const messageId = queuedComposerTurnServerMessageId(queuedTurn);
+        const serverMessage = (serverMessages ?? []).find((message) => message.id === messageId);
+        if (serverMessage) return { ...serverMessage, dispatchMode: "steer" as const };
+        return {
+          id: messageId,
+          role: "user" as const,
+          text: queuedTurn.prompt,
+          dispatchMode: "steer" as const,
+          ...(queuedTurn.skills.length > 0 ? { skills: queuedTurn.skills } : {}),
+          ...(queuedTurn.mentions.length > 0 ? { mentions: queuedTurn.mentions } : {}),
+          createdAt: queuedTurn.createdAt,
+          streaming: false,
+          source: "native" as const,
+        };
+      }),
+    [queuedComposerActionSteerTurns, serverMessages],
   );
   const queuedActionStateByMessageId = useMemo(() => {
     if (acceptedQueuedActionMessageIds.size === 0) return localQueuedActionStateByMessageId;
@@ -3366,9 +3399,18 @@ export default function ChatView({
       action: QueuedComposerActionKind,
       operation: () => Promise<A>,
     ): Promise<A | undefined> => {
-      const claim = claimQueuedComposerAction(threadId, queuedTurn.id, action);
+      const claim = claimQueuedComposerAction(threadId, queuedTurn.id, action, queuedTurn);
       if (claim === null) return Promise.resolve(undefined);
       const messageId = queuedComposerTurnServerMessageId(queuedTurn);
+      if (action === "steer") {
+        setLocalSteerTurnsByThreadId((current) => {
+          const next = new Map(current);
+          const threadTurns = new Map(next.get(threadId) ?? []);
+          threadTurns.set(queuedTurn.id, queuedTurn);
+          next.set(threadId, threadTurns);
+          return next;
+        });
+      }
       setLocallyOwnedQueuedActionMessageIds((current) => {
         if (current.has(messageId)) return current;
         const next = new Set(current);
@@ -3377,6 +3419,18 @@ export default function ChatView({
       });
       return runImmediatelyWithRelease(operation, () => {
         claim.release();
+        if (action === "steer") {
+          setLocalSteerTurnsByThreadId((current) => {
+            const threadTurns = current.get(threadId);
+            if (!threadTurns?.has(queuedTurn.id)) return current;
+            const next = new Map(current);
+            const nextThreadTurns = new Map(threadTurns);
+            nextThreadTurns.delete(queuedTurn.id);
+            if (nextThreadTurns.size === 0) next.delete(threadId);
+            else next.set(threadId, nextThreadTurns);
+            return next;
+          });
+        }
         if (getAcceptedQueuedComposerActionMessageIds(threadId).has(messageId)) return;
         setLocallyOwnedQueuedActionMessageIds((current) => {
           if (!current.has(messageId)) return current;
@@ -3537,12 +3591,19 @@ export default function ChatView({
       pendingMessages.length === 0
         ? serverMessagesWithPreviewHandoff
         : [...serverMessagesWithPreviewHandoff, ...pendingMessages];
-    return withPending;
+    const visibleMessageIds = new Set(withPending.map((message) => message.id));
+    const pendingSteerMessages = queuedComposerActionSteerMessages.filter(
+      (message) => !visibleMessageIds.has(message.id),
+    );
+    return pendingSteerMessages.length === 0
+      ? withPending
+      : [...withPending, ...pendingSteerMessages];
   }, [
     serverMessages,
     serverQueuedMessageIds,
     attachmentPreviewHandoffByMessageId,
     optimisticUserMessages,
+    queuedComposerActionSteerMessages,
     queuedActionStateByMessageId,
   ]);
   const promptHistory = useMemo(() => {
@@ -3579,13 +3640,20 @@ export default function ChatView({
     optimisticMessageCount: optimisticUserMessages.length,
     isWorking,
   });
-  const visibleTimelineEntries = useMemo(
-    () =>
-      threadDetailHydration === "ready"
-        ? timelineEntries
-        : deriveTimelineEntries(optimisticUserMessages, []),
-    [optimisticUserMessages, threadDetailHydration, timelineEntries],
-  );
+  const visibleTimelineEntries = useMemo(() => {
+    if (threadDetailHydration === "ready") return timelineEntries;
+    const transientMessages = [...optimisticUserMessages];
+    const transientIds = new Set(transientMessages.map((message) => message.id));
+    for (const message of queuedComposerActionSteerMessages) {
+      if (!transientIds.has(message.id)) transientMessages.push(message);
+    }
+    return deriveTimelineEntries(transientMessages, []);
+  }, [
+    optimisticUserMessages,
+    queuedComposerActionSteerMessages,
+    threadDetailHydration,
+    timelineEntries,
+  ]);
   useEffect(() => {
     if (!activeThreadId) return;
     recordChatLifecycleUiDiagnostic({
@@ -6645,13 +6713,18 @@ export default function ChatView({
         if (clearOwnership === "active") {
           clearComposerInput(activeThread.id);
         } else if (clearOwnership === "old-thread") {
-          clearComposerDraftContent(activeThread.id, { preservePreviewUrls: true });
+          clearComposerDraftContent(activeThread.id, {
+            preservePreviewUrls: true,
+          });
         }
         scheduleComposerFocus();
         const queuedImagesForPersistence = await Promise.all(
           composerImagesForSend.map(async (image) => {
             try {
-              return { ...image, previewUrl: await readFileAsDataUrl(image.file) };
+              return {
+                ...image,
+                previewUrl: await readFileAsDataUrl(image.file),
+              };
             } catch {
               return image;
             }
@@ -7631,6 +7704,10 @@ export default function ChatView({
 
   const onSteerQueuedComposerTurn = useCallback(
     async (queuedTurn: QueuedComposerTurn) => {
+      // Arm before the ownership claim publishes its presentation row. The auto-follow
+      // effect is keyed by that row's timeline signal; arming after the claim can miss
+      // the only render and leave the steered message outside the virtualized window.
+      armTranscriptAutoFollow(threadId);
       await runOwnedQueuedComposerAction(queuedTurn, "steer", async () => {
         const previousQueue = queuedComposerTurnsRef.current;
         const queuedIndex = previousQueue.findIndex((entry) => entry.id === queuedTurn.id);
@@ -7672,35 +7749,18 @@ export default function ChatView({
               messageId,
               createdAt: new Date().toISOString(),
             });
-            setOptimisticUserMessages((existing) =>
-              existing.some((message) => message.id === messageId)
-                ? existing
-                : [
-                    ...existing,
-                    {
-                      id: messageId,
-                      role: "user",
-                      text: resolvedQueuedTurn.prompt,
-                      dispatchMode: "steer",
-                      ...(resolvedQueuedTurn.skills.length > 0
-                        ? { skills: resolvedQueuedTurn.skills }
-                        : {}),
-                      ...(resolvedQueuedTurn.mentions.length > 0
-                        ? { mentions: resolvedQueuedTurn.mentions }
-                        : {}),
-                      createdAt: resolvedQueuedTurn.createdAt,
-                      streaming: false,
-                      source: "native",
-                    },
-                  ],
-            );
-            armTranscriptAutoFollow(threadId, true);
             setQueuedActionStateByMessageId((current) => {
               const next = new Map(current);
               next.set(messageId, "steering");
               return next;
             });
-            markQueuedComposerActionAccepted(threadId, messageId, receipt.sequence);
+            markQueuedComposerActionAccepted(
+              threadId,
+              messageId,
+              receipt.sequence,
+              "steer",
+              resolvedQueuedTurn,
+            );
             setThreadError(threadId, null);
           } catch (error) {
             setThreadError(
@@ -7725,7 +7785,6 @@ export default function ChatView({
       serverDeliveryByMessageId,
       removeQueuedComposerTurnFromDraft,
       setQueuedActionStateByMessageId,
-      setOptimisticUserMessages,
       setThreadError,
       setComposerQueuePaused,
       threadId,

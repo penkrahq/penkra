@@ -48,12 +48,17 @@ declare global {
 const state: SidebarLifecycleDiagnosticBuffer =
   typeof window !== "undefined" && window.__penkraSidebarLifecycleDiagnosticBuffer
     ? window.__penkraSidebarLifecycleDiagnosticBuffer
-    : { nextSequence: 1, logToConsole: false, samples: [], lastSignatureByThreadId: new Map() };
+    : {
+        nextSequence: 1,
+        logToConsole: false,
+        samples: [],
+        lastSignatureByThreadId: new Map(),
+      };
 
 if (typeof window !== "undefined") window.__penkraSidebarLifecycleDiagnosticBuffer = state;
 
 function diagnosticsAvailable(): boolean {
-  return import.meta.env.DEV && typeof performance !== "undefined";
+  return typeof performance !== "undefined";
 }
 
 export function recordSidebarLifecycleDiagnostic(input: SidebarLifecycleDiagnosticState): void {
@@ -102,7 +107,7 @@ declare global {
   }
 }
 
-if (import.meta.env.DEV && typeof window !== "undefined") {
+if (typeof window !== "undefined") {
   window.penkraSidebarLifecycle = {
     samples: getSidebarLifecycleDiagnosticSamples,
     reset: resetSidebarLifecycleDiagnostics,
