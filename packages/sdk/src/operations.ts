@@ -68,6 +68,11 @@ export interface AppTabs {
   openForResult<Result = unknown>(input: { route: string; state?: unknown }): Promise<Result>;
 }
 
+export interface InstalledApps {
+  /** Open an enabled App in the invoking Thread by its installed slug. */
+  open(input: { slug: string }): Promise<AppTabHandle>;
+}
+
 export interface OperationContext {
   invocation: Omit<OperationInvocation, "input">;
   /** Host-asserted caller class. Caller identity is deliberately not exposed. */
@@ -76,6 +81,8 @@ export interface OperationContext {
   tab?: AppTabHandle;
   /** Manager for opening new tabs owned by the invoked App. */
   tabs: AppTabs;
+  /** Manager for opening another enabled App in the invoking Thread. */
+  apps: InstalledApps;
   operations: {
     invoke<Result = unknown>(request: OperationRequest): Promise<Result>;
   };

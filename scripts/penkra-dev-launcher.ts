@@ -671,6 +671,7 @@ async function supervise(bunExecutable: string): Promise<void> {
         "/sbin",
       ].join(":"),
       PENKRA_DEV_FAILURE_PATH: paths.failurePath,
+      PENKRA_LOCAL_APPS_PATH: workspace.appsRoot,
       PENKRA_DEV_READY_PATH: paths.readyPath,
       PENKRA_DEV_ROOT: join(homedir(), "Penkra_Dev"),
     };
