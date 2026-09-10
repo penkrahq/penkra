@@ -5604,14 +5604,17 @@ export default function ChatView({
       ...(pendingMessageId ? { pendingMessageId } : {}),
       createdAt: new Date().toISOString(),
     };
+    const diagnosticActiveTurnId = activeThread.session?.activeTurnId ?? null;
+    const diagnosticActiveTurnStartedAt = activeLatestTurn?.startedAt ?? null;
+    const diagnosticPendingMessageId = pendingMessageId ?? null;
     recordChatLifecycleUiDiagnostic({
       event: "interrupt-dispatched",
       threadId: activeThread.id,
-      activeTurnId: activeThread.session?.activeTurnId ?? null,
-      activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+      activeTurnId: diagnosticActiveTurnId,
+      activeTurnStartedAt: diagnosticActiveTurnStartedAt,
       isWorking,
       commandId: interruptCommand.commandId,
-      pendingMessageId: pendingMessageId ?? null,
+      pendingMessageId: diagnosticPendingMessageId,
     });
     try {
       // Receipt records interrupt intent only. Shared projection decides whether
@@ -5620,11 +5623,11 @@ export default function ChatView({
       recordChatLifecycleUiDiagnostic({
         event: "interrupt-receipt",
         threadId: activeThread.id,
-        activeTurnId: activeThread.session?.activeTurnId ?? null,
-        activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+        activeTurnId: diagnosticActiveTurnId,
+        activeTurnStartedAt: diagnosticActiveTurnStartedAt,
         isWorking,
         commandId: interruptCommand.commandId,
-        pendingMessageId: pendingMessageId ?? null,
+        pendingMessageId: diagnosticPendingMessageId,
         receiptSequence: receipt.sequence,
       });
       if (pendingMessageId) {
@@ -5639,11 +5642,11 @@ export default function ChatView({
       recordChatLifecycleUiDiagnostic({
         event: "interrupt-dispatch-failed",
         threadId: activeThread.id,
-        activeTurnId: activeThread.session?.activeTurnId ?? null,
-        activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+        activeTurnId: diagnosticActiveTurnId,
+        activeTurnStartedAt: diagnosticActiveTurnStartedAt,
         isWorking,
         commandId: interruptCommand.commandId,
-        pendingMessageId: pendingMessageId ?? null,
+        pendingMessageId: diagnosticPendingMessageId,
       });
       if (pendingMessageId) {
         pendingStartRecoveryRegistryRef.current.release(activeThread.id, pendingMessageId);
@@ -5656,7 +5659,7 @@ export default function ChatView({
     }
   }, [
     activeThread,
-    activeLatestTurn?.startedAt,
+    activeLatestTurn,
     authoritativePendingTurnStartMessageId,
     hasPendingTurnStart,
     localDispatch?.expectedUserMessageId,
