@@ -1442,6 +1442,7 @@ export const createComposerDraftStoreState =
     clearPendingStartRecovery: (threadId, messageId: MessageId) => {
       if (threadId.length === 0) return false;
       let cleared = false;
+      let clearedRecovery: PendingStartRecovery | undefined;
       set((state) => {
         const current = state.draftsByThreadId[threadId];
         const recovery = current?.pendingStartRecoveriesByMessageId?.[messageId];
@@ -1457,6 +1458,7 @@ export const createComposerDraftStoreState =
           return state;
         }
         cleared = true;
+        clearedRecovery = recovery;
         const nextRecoveries = { ...(current.pendingStartRecoveriesByMessageId ?? {}) };
         delete nextRecoveries[messageId];
         const nextDraft = {
@@ -1468,6 +1470,18 @@ export const createComposerDraftStoreState =
         else nextDraftsByThreadId[threadId] = nextDraft;
         return { draftsByThreadId: nextDraftsByThreadId };
       });
+      if (clearedRecovery) {
+        deletePersistedComposerImageBlobs(
+          clearedRecovery.persistedImages ?? [],
+          () => get().draftsByThreadId,
+        );
+        deleteUnreferencedComposerFileAssets(
+          clearedRecovery.pendingTurn.files.flatMap((file) =>
+            file.assetKey ? [file.assetKey] : [],
+          ),
+          () => get().draftsByThreadId,
+        );
+      }
       return cleared;
     },
     markQueuedTurnServerAccepted: (threadId, queuedTurnId, acceptedAt) => {
@@ -2151,11 +2165,13 @@ export const createComposerDraftStoreState =
         return;
       }
       const clearedDraft = get().draftsByThreadId[threadId];
-      deleteDraftComposerImageBlobs(clearedDraft, () => get().draftsByThreadId);
-      deleteUnreferencedComposerFileAssets(
-        composerFileAssetKeys(clearedDraft),
-        () => get().draftsByThreadId,
-      );
+      if (options?.preservePersistedAssets !== true) {
+        deleteDraftComposerImageBlobs(clearedDraft, () => get().draftsByThreadId);
+        deleteUnreferencedComposerFileAssets(
+          composerFileAssetKeys(clearedDraft),
+          () => get().draftsByThreadId,
+        );
+      }
       if (options?.preservePreviewUrls !== true) {
         revokeDraftComposerImagePreviewUrls(clearedDraft);
       }

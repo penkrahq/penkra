@@ -5604,14 +5604,17 @@ export default function ChatView({
       ...(pendingMessageId ? { pendingMessageId } : {}),
       createdAt: new Date().toISOString(),
     };
+    const diagnosticActiveTurnId = activeThread.session?.activeTurnId ?? null;
+    const diagnosticActiveTurnStartedAt = activeLatestTurn?.startedAt ?? null;
+    const diagnosticPendingMessageId = pendingMessageId ?? null;
     recordChatLifecycleUiDiagnostic({
       event: "interrupt-dispatched",
       threadId: activeThread.id,
-      activeTurnId: activeThread.session?.activeTurnId ?? null,
-      activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+      activeTurnId: diagnosticActiveTurnId,
+      activeTurnStartedAt: diagnosticActiveTurnStartedAt,
       isWorking,
       commandId: interruptCommand.commandId,
-      pendingMessageId: pendingMessageId ?? null,
+      pendingMessageId: diagnosticPendingMessageId,
     });
     try {
       // Receipt records interrupt intent only. Shared projection decides whether
@@ -5620,11 +5623,11 @@ export default function ChatView({
       recordChatLifecycleUiDiagnostic({
         event: "interrupt-receipt",
         threadId: activeThread.id,
-        activeTurnId: activeThread.session?.activeTurnId ?? null,
-        activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+        activeTurnId: diagnosticActiveTurnId,
+        activeTurnStartedAt: diagnosticActiveTurnStartedAt,
         isWorking,
         commandId: interruptCommand.commandId,
-        pendingMessageId: pendingMessageId ?? null,
+        pendingMessageId: diagnosticPendingMessageId,
         receiptSequence: receipt.sequence,
       });
       if (pendingMessageId) {
@@ -5639,11 +5642,11 @@ export default function ChatView({
       recordChatLifecycleUiDiagnostic({
         event: "interrupt-dispatch-failed",
         threadId: activeThread.id,
-        activeTurnId: activeThread.session?.activeTurnId ?? null,
-        activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+        activeTurnId: diagnosticActiveTurnId,
+        activeTurnStartedAt: diagnosticActiveTurnStartedAt,
         isWorking,
         commandId: interruptCommand.commandId,
-        pendingMessageId: pendingMessageId ?? null,
+        pendingMessageId: diagnosticPendingMessageId,
       });
       if (pendingMessageId) {
         pendingStartRecoveryRegistryRef.current.release(activeThread.id, pendingMessageId);
@@ -5656,7 +5659,7 @@ export default function ChatView({
     }
   }, [
     activeThread,
-    activeLatestTurn?.startedAt,
+    activeLatestTurn,
     authoritativePendingTurnStartMessageId,
     hasPendingTurnStart,
     localDispatch?.expectedUserMessageId,
@@ -6454,6 +6457,9 @@ export default function ChatView({
             images: composerImagesForSend,
           })
         : [];
+    const capturedPersistedAttachments =
+      useComposerDraftStore.getState().draftsByThreadId[activeThread.id]?.persistedAttachments ??
+      [];
     const capturedDraftOwnershipKey = composerDraftContentOwnershipKey(
       useComposerDraftStore.getState().draftsByThreadId[activeThread.id],
     );
@@ -6530,7 +6536,92 @@ export default function ChatView({
       ...pendingBlobAttachments.map((attachment) => attachment.id),
     ]);
     if (!sendPreflightOwner) return false;
-    const releaseSendPreflight = () => releaseComposerSendPreflight(sendPreflightOwner);
+    recordChatLifecycleUiDiagnostic({
+      event: "composer-submission-claimed",
+      threadId: activeThread.id,
+      activeTurnId: activeThread.session?.activeTurnId ?? null,
+      activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+      isWorking,
+      composerPromptLength: promptForSend.length,
+    });
+    let composerOwnershipTransferred = false;
+    const restoreTransferredComposer = () => {
+      if (!composerOwnershipTransferred) return;
+      composerOwnershipTransferred = false;
+      const restoredToComposer = useComposerDraftStore
+        .getState()
+        .recoverCancelledQueuedTurn(activeThread.id, sendPreflightOwner.capturedSubmission);
+      if (restoredToComposer && capturedPersistedAttachments.length > 0) {
+        useComposerDraftStore.setState((state) => {
+          const current = state.draftsByThreadId[activeThread.id];
+          if (!current) return state;
+          const restoredIds = new Set(
+            capturedPersistedAttachments.map((attachment) => attachment.id),
+          );
+          return {
+            draftsByThreadId: {
+              ...state.draftsByThreadId,
+              [activeThread.id]: {
+                ...current,
+                persistedAttachments: [
+                  ...current.persistedAttachments.filter(
+                    (attachment) => !restoredIds.has(attachment.id),
+                  ),
+                  ...capturedPersistedAttachments,
+                ],
+              },
+            },
+          };
+        });
+      }
+      recordChatLifecycleUiDiagnostic({
+        event: "composer-submission-restored",
+        threadId: activeThread.id,
+        activeTurnId: activeThread.session?.activeTurnId ?? null,
+        activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+        isWorking,
+        composerPromptLength: promptForSend.length,
+      });
+    };
+    const releaseSendPreflight = (options?: { restoreComposer?: boolean }) => {
+      if (options?.restoreComposer) restoreTransferredComposer();
+      releaseComposerSendPreflight(sendPreflightOwner);
+    };
+    if (queuedChatTurn === null) {
+      const ownership = resolveComposerClearOwnership(activeThread.id);
+      if (ownership === "active") {
+        promptHistoryNavigationRef.current = null;
+        applyingPromptHistoryNavigationRef.current = false;
+        expectedPromptHistoryPromptRef.current = null;
+        promptRef.current = "";
+        cancelPendingPromptPersistence();
+        clearComposerDraftContent(activeThread.id, {
+          preservePreviewUrls: true,
+          preservePersistedAssets: true,
+        });
+        composerEditorRef.current?.clear();
+        setComposerHighlightedItemId(null);
+        setComposerCursor(0);
+        setComposerTrigger(null);
+        composerOwnershipTransferred = true;
+      } else if (ownership === "old-thread") {
+        clearComposerDraftContent(activeThread.id, {
+          preservePreviewUrls: true,
+          preservePersistedAssets: true,
+        });
+        composerOwnershipTransferred = true;
+      }
+      recordChatLifecycleUiDiagnostic({
+        event: "composer-visible-cleared",
+        threadId: activeThread.id,
+        activeTurnId: activeThread.session?.activeTurnId ?? null,
+        activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+        isWorking,
+        composerPromptLength: promptForSend.length,
+        composerOwnership: ownership,
+      });
+      scheduleComposerFocus();
+    }
     const detachCapturedHydratedImagesFromNewerDraft = () => {
       if (
         composerDraftContentOwnershipKey(
@@ -6559,15 +6650,7 @@ export default function ChatView({
     };
     const stopIfSendPreflightCancelled = () => {
       if (!sendPreflightOwner.cancelled) return false;
-      if (
-        composerDraftContentOwnershipKey(
-          useComposerDraftStore.getState().draftsByThreadId[activeThread.id],
-        ) !== capturedDraftOwnershipKey
-      ) {
-        useComposerDraftStore
-          .getState()
-          .recoverCancelledQueuedTurn(activeThread.id, sendPreflightOwner.capturedSubmission);
-      }
+      restoreTransferredComposer();
       releaseSendPreflight();
       return true;
     };
@@ -6580,7 +6663,7 @@ export default function ChatView({
           hydratedPendingImages =
             await hydratePendingBlobComposerAttachments(pendingBlobAttachments);
         } catch (error) {
-          releaseSendPreflight();
+          releaseSendPreflight({ restoreComposer: true });
           setThreadError(
             activeThread.id,
             error instanceof Error ? error.message : "Failed to prepare message attachments.",
@@ -6643,7 +6726,7 @@ export default function ChatView({
           hasThreadStarted,
         });
       } catch (error) {
-        releaseSendPreflight();
+        releaseSendPreflight({ restoreComposer: true });
         setThreadError(
           activeThread.id,
           error instanceof Error ? error.message : "Failed to resolve the Connection.",
@@ -6656,7 +6739,7 @@ export default function ChatView({
     // Space's persisted default (or declared anonymous route). Once a harness
     // has started, however, the exact durable binding remains mandatory.
     if (selectedConnectionIdForSend === undefined && hasThreadStarted) {
-      releaseSendPreflight();
+      releaseSendPreflight({ restoreComposer: true });
       setThreadError(activeThread.id, "Choose a Connection before sending this message.");
       return false;
     }
@@ -6698,7 +6781,7 @@ export default function ChatView({
         handledSlashCommand =
           await lateSendHandlers.handleStandaloneSlashCommand(trimmedPromptForSend);
       } catch (error) {
-        releaseSendPreflight();
+        releaseSendPreflight({ restoreComposer: true });
         setThreadError(
           activeThread.id,
           error instanceof Error ? error.message : "Failed to run the command.",
@@ -6712,7 +6795,7 @@ export default function ChatView({
       }
     }
     if (!hasSendableContent) {
-      releaseSendPreflight();
+      releaseSendPreflight({ restoreComposer: true });
       if (expiredTerminalContextCount > 0) {
         const toastCopy = buildExpiredTerminalContextToastCopy(
           expiredTerminalContextCount,
@@ -6727,7 +6810,7 @@ export default function ChatView({
       return false;
     }
     if (!activeProject) {
-      releaseSendPreflight();
+      releaseSendPreflight({ restoreComposer: true });
       return false;
     }
     if (
@@ -6803,7 +6886,7 @@ export default function ChatView({
     // for provider admission. Queue admission above is deliberately allowed in
     // that window; only a second direct dispatch must be rejected.
     if (sendInFlightRef.current) {
-      releaseSendPreflight();
+      releaseSendPreflight({ restoreComposer: true });
       return false;
     }
     const threadIdForSend = activeThread.id;
@@ -6902,8 +6985,9 @@ export default function ChatView({
         : {}),
       runtimeMode: runtimeModeForSend,
     };
-    // Capture the exact dispatch payload before the live composer is cleared.
-    // This is the only durable owner used after a renderer/module restart; it
+    // The exact dispatch payload was captured before visible ownership moved
+    // out of the composer. Make that captured owner durable before dispatch;
+    // it is the only owner used after a renderer/module restart, and it
     // is not a retry queue and is never dispatched automatically.
     let durableRecoveryTurn: typeof ownedPendingTurn = ownedPendingTurn;
     let capturedDurableRecovery = false;
@@ -6921,8 +7005,7 @@ export default function ChatView({
       },
       { deferLookup: true },
     );
-    const currentDraft = useComposerDraftStore.getState().draftsByThreadId[threadIdForSend];
-    const persistedImages = currentDraft?.persistedAttachments.filter((attachment) =>
+    const persistedImages = capturedPersistedAttachments.filter((attachment) =>
       ownedPendingTurn.images.some((image) => image.id === attachment.id),
     );
     const persistedImagesOption =
@@ -6983,7 +7066,7 @@ export default function ChatView({
       }
       pendingTurnStartMessageRef.current = null;
       sendInFlightRef.current = false;
-      releaseSendPreflight();
+      releaseSendPreflight({ restoreComposer: true });
       resetLocalDispatch();
       setThreadError(
         threadIdForSend,
@@ -7234,6 +7317,7 @@ export default function ChatView({
           return next.length === existing.length ? existing : next;
         });
         await pendingRestoration.restore();
+        composerOwnershipTransferred = false;
         pendingStartRecoveryRegistryRef.current.release(threadIdForSend, messageIdForSend);
       }
       if (!wasCancelled && capturedDurableRecovery && !startCommandDispatched) {
@@ -7248,7 +7332,10 @@ export default function ChatView({
               0,
               new Date().toISOString(),
             );
-            if (prepared) preDispatchRecoveryPrepared = true;
+            if (prepared) {
+              preDispatchRecoveryPrepared = true;
+              composerOwnershipTransferred = false;
+            }
             return prepared;
           },
         }).catch(() => undefined);
@@ -7297,9 +7384,7 @@ export default function ChatView({
           return next.length === existing.length ? existing : next;
         });
         if (!preDispatchRecoveryPrepared) {
-          useComposerDraftStore
-            .getState()
-            .recoverCancelledQueuedTurn(threadIdForSend, sendPreflightOwner.capturedSubmission);
+          restoreTransferredComposer();
         }
       }
       if (!wasCancelled) {

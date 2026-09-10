@@ -3235,6 +3235,48 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("transfers the submitted prompt out of the visible composer when preflight begins", async () => {
+    let releaseConnections!: () => void;
+    providerConnectionsResponseGate = new Promise<void>((resolve) => {
+      releaseConnections = resolve;
+    });
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    const prompt = "preflight owns this submitted prompt";
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-preflight-ownership" as MessageId,
+        targetText: "preflight ownership target",
+        sessionStatus: "ready",
+      }),
+    });
+
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill(prompt);
+      await expect.element(editor).toHaveTextContent(prompt);
+      await userEvent.keyboard("{Enter}");
+
+      await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        "Submission did not enter preflight.",
+      );
+      expect(document.body.textContent).toContain("Thinking");
+      expect(editor.element().textContent ?? "").toBe("");
+      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe("");
+      expect(
+        wsRequests
+          .map(readDispatchedCommand)
+          .some((command) => command?.type === "thread.turn.start"),
+      ).toBe(false);
+    } finally {
+      releaseConnections();
+      providerConnectionsResponseGate = null;
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
   it("preserves a genuinely newer editor draft while the submitted send is awaiting admission", async () => {
     let releaseConnections!: () => void;
     providerConnectionsResponseGate = new Promise<void>((resolve) => {
@@ -3809,7 +3851,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           wsRequests.filter((request) => request._tag === WS_METHODS.providerGetConnections).length,
         ).toBeGreaterThan(0);
       });
-      expect(composerEditor.textContent).toContain(prompt);
+      expect(composerEditor.textContent ?? "").toBe("");
       expect(document.querySelector('button[aria-label="Send message"]')).toBeNull();
       expect(document.querySelector('button[aria-label="Stop generation"]')).toBeTruthy();
       expect(
@@ -4229,7 +4271,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
         "Unable to find retained preflight Stop button after remount.",
       );
-      expect((await waitForComposerEditor()).textContent).toContain(prompt);
+      expect((await waitForComposerEditor()).textContent ?? "").toBe("");
 
       releaseConnections();
       providerConnectionsResponseGate = null;
@@ -4461,7 +4503,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           wsRequests.filter((request) => request._tag === WS_METHODS.providerGetConnections).length,
         ).toBeGreaterThan(0),
       );
-      expect((await waitForComposerEditor()).textContent).toContain(prompt);
+      expect((await waitForComposerEditor()).textContent ?? "").toBe("");
       expect(document.querySelector('button[aria-label="Send message"]')).toBeNull();
       expect(document.querySelector('button[aria-label="Stop generation"]')).toBeTruthy();
 
@@ -4906,7 +4948,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       composerForm.requestSubmit();
 
       await vi.waitFor(() => expect(blobReadCount).toBeGreaterThan(0));
-      expect((await waitForComposerEditor()).textContent).toContain(prompt);
+      expect((await waitForComposerEditor()).textContent ?? "").toBe("");
       expect(document.querySelector('button[aria-label="Send message"]')).toBeNull();
       expect(document.querySelector('button[aria-label="Stop generation"]')).toBeTruthy();
       expect(
@@ -4922,7 +4964,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(() =>
         expect(mounted.router.state.location.pathname).toBe(`/${OTHER_THREAD_ID}`),
       );
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(prompt);
+      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe("");
       const otherThreadPrompt = "new draft on the navigated thread";
       const otherEditor = page.getByTestId("composer-editor");
       await otherEditor.fill(otherThreadPrompt);
@@ -4932,7 +4974,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
       );
       expect(
-        useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns,
+        useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns ?? [],
       ).toHaveLength(0);
       expect(document.querySelector('button[aria-label="Stop generation"]')).toBeNull();
       await mounted.router.navigate({
@@ -10213,7 +10255,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("collapses a settled leading tool run mid-turn, then folds into Worked for after the grace delay", async () => {
+  it("folds a settled tool run into its terminal assistant without a duplicate transition owner", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotWithInlineToolOverflow({ active: true }),
@@ -10234,56 +10276,37 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
+      let duplicateTransitionOwnerObserved = false;
+      const transitionObserver = new MutationObserver(() => {
+        if (document.querySelector("[data-settled-turn-collapse-transition='true']")) {
+          duplicateTransitionOwnerObserved = true;
+        }
+      });
+      transitionObserver.observe(document.body, { childList: true, subtree: true });
+
       useStore
         .getState()
         .syncServerReadModel(createSnapshotWithInlineToolOverflow({ active: false }));
 
-      // The first settled paint keeps the live layout: no "Worked for" fold yet.
-      expect(document.querySelector("[data-settled-turn-collapse-transition='true']")).toBeNull();
-      expect(document.body.textContent).toContain("Used 6 tools");
-
-      await new Promise<void>((resolve) => {
-        window.setTimeout(() => resolve(), 260);
-      });
-
-      // Once the grace delay lapses the settled turn folds into "Worked for…",
-      // but the old details stay mounted briefly inside the shared disclosure
-      // close transition so the transcript height eases down instead of snapping.
+      // Settlement has one owner: the terminal assistant row. The live work
+      // rows must not survive as a timed visual clone beside the settled row.
       await vi.waitFor(
         () => {
           expect(document.body.textContent).toContain("Worked for");
-          const transitionClone = document.querySelector(
-            "[data-settled-turn-collapse-transition='true']",
-          );
-          expect(transitionClone).not.toBeNull();
-          expect(transitionClone?.hasAttribute("inert")).toBe(true);
-          expect(transitionClone?.querySelector("[aria-hidden='true'][inert]")).not.toBeNull();
-          expect(transitionClone?.textContent).toContain("Used 6 tools");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      await new Promise<void>((resolve) => {
-        window.setTimeout(() => resolve(), 320);
-      });
-
-      // After the close motion finishes, details are only available by opening
-      // the "Worked for…" disclosure.
-      await vi.waitFor(
-        () => {
           expect(
             document.querySelector("[data-settled-turn-collapse-transition='true']"),
           ).toBeNull();
           expect(document.body.textContent).not.toContain("Tool 1");
-          const settledTrigger = Array.from(
-            document.querySelectorAll<HTMLButtonElement>("button"),
-          ).find((element) => element.textContent?.includes("Worked for"));
-          if (settledTrigger) {
-            expect(settledTrigger.getAttribute("aria-expanded")).toBe("false");
-          }
         },
         { timeout: 8_000, interval: 16 },
       );
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      transitionObserver.disconnect();
+      expect(duplicateTransitionOwnerObserved).toBe(false);
+      const settledTrigger = Array.from(
+        document.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((element) => element.textContent?.includes("Worked for"));
+      expect(settledTrigger?.getAttribute("aria-expanded")).toBe("false");
     } finally {
       await mounted.cleanup();
     }

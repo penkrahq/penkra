@@ -63,7 +63,10 @@ export type ChatLifecycleUiEvent =
   | "hydration-surface-visible"
   | "interrupt-dispatched"
   | "interrupt-receipt"
-  | "interrupt-dispatch-failed";
+  | "interrupt-dispatch-failed"
+  | "composer-submission-claimed"
+  | "composer-visible-cleared"
+  | "composer-submission-restored";
 
 export interface ChatLifecycleUiDiagnosticSample {
   readonly event: ChatLifecycleUiEvent;
@@ -79,6 +82,8 @@ export interface ChatLifecycleUiDiagnosticSample {
   readonly commandId?: string;
   readonly pendingMessageId?: string | null;
   readonly receiptSequence?: number;
+  readonly composerPromptLength?: number;
+  readonly composerOwnership?: "active" | "old-thread" | "none";
 }
 
 export type ChatLifecycleSample = ChatLifecycleDiagnosticSample | ChatLifecycleUiDiagnosticSample;

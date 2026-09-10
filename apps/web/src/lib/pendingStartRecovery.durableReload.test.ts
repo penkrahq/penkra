@@ -22,7 +22,7 @@ import { persistComposerAsset, readComposerAsset } from "./composerAssetStore";
 import { createDeferredPersistStorage } from "./storage";
 
 describe("pending recovery durable restart controls", () => {
-  it("keeps referenced file and image assets alive while recovery owns them", async () => {
+  it("transfers file and image asset ownership from the composer through recovery settlement", async () => {
     resetComposerDraftStore();
     const threadId = ThreadId.makeUnsafe("thread-recovery-assets-green");
     const messageId = MessageId.makeUnsafe("message-recovery-assets-green");
@@ -78,7 +78,6 @@ describe("pending recovery durable restart controls", () => {
     };
     const store = useComposerDraftStore.getState();
     store.addFiles(threadId, [file]);
-    expect(store.capturePendingStartRecovery(threadId, recovery)).toBe(true);
     useComposerDraftStore.setState((state) => ({
       draftsByThreadId: {
         ...state.draftsByThreadId,
@@ -89,7 +88,7 @@ describe("pending recovery durable restart controls", () => {
         },
       },
     }));
-    store.clearComposerContent(threadId);
+    store.clearComposerContent(threadId, { preservePersistedAssets: true });
     await Promise.resolve();
     await Promise.resolve();
     expect(
@@ -106,6 +105,25 @@ describe("pending recovery durable restart controls", () => {
         mimeType: image.mimeType,
       }),
     ).not.toBeNull();
+    expect(store.capturePendingStartRecovery(threadId, recovery)).toBe(true);
+    expect(store.markPendingStartRecoveryAccepted(threadId, messageId, 1)).toBe(true);
+    expect(store.clearPendingStartRecovery(threadId, messageId)).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(
+      await readComposerAsset({
+        assetKey: file.assetKey,
+        name: file.name,
+        mimeType: file.mimeType,
+      }),
+    ).toBeNull();
+    expect(
+      await readComposerAsset({
+        assetKey: imageAsset,
+        name: image.name,
+        mimeType: image.mimeType,
+      }),
+    ).toBeNull();
   });
 
   it("rehydrates per-message payloads after module restart and settles each identity once", async () => {
