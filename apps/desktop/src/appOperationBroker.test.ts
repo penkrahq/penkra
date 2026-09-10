@@ -264,6 +264,37 @@ describe("AppOperationBroker", () => {
     );
   });
 
+  it("opens another enabled App by installed slug in the invoking Thread", async () => {
+    const open = vi.fn(async () => tab("canvas-tab", { appId: "com.acme.canvas" }));
+    const runtime = broker(crossAppState, { open });
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: {
+        "issues.create": async (_input, context) => {
+          const opened = await context.apps.open({ slug: "github" });
+          return { tabId: opened.id };
+        },
+      },
+    });
+
+    await runtime.invoke({
+      app: "linear",
+      operation: "issues.create",
+      spaceId: "personal",
+      threadId: "thread-1",
+      input: {},
+    });
+    expect(open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        app: expect.objectContaining({ slug: "github" }),
+        spaceId: "personal",
+        threadId: "thread-1",
+        route: "/",
+      }),
+    );
+  });
+
   it("checks installation and Space enablement at invocation time", async () => {
     let state = enabledState();
     const runtime = broker(() => state);

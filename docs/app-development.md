@@ -897,6 +897,9 @@ invocations. Resolve the target again from each invocation so ownership and live
 Without a target, use `context.tabs.open`. Use `ForResult` variants only when an operation genuinely
 waits for a person. Cancellation includes tab close, timeout, disable, uninstall, and host shutdown.
 
+Use `context.apps.open({ slug })` when an App operation needs to open another enabled App in the
+same Space and invoking Thread. The slug must come from the installed App catalog.
+
 Inside the visual App, `tab.setRoute` records App-owned navigation without causing a second
 navigation event. Penkra uses that latest recorded route and state when it recreates the tab.
 
@@ -1075,6 +1078,7 @@ installed App's slug:
 ```json
 { "command": "penkra --help" }
 { "command": "apps list" }
+{ "command": "apps open --slug canvas" }
 { "command": "penkra open --path /absolute/path/to/file" }
 { "command": "notes documents open --id note-123" }
 { "command": "notes documents open --help" }
@@ -1092,9 +1096,10 @@ rather than infer installation from source code or a similarly named tool.
 
 Penkra core—not the public SDK—lets the trusted agent harness inspect exact retained App tabs for
 accessibility and interaction. Pixel capture is deliberately limited to the App tab currently
-visible for the caller Thread:
+visible for the caller Thread. Open an installed App through Apps, then observe its retained tab:
 
 ```json
+{ "command": "apps open --slug canvas" }
 { "command": "penkra tabs current" }
 { "command": "penkra tabs list" }
 { "command": "penkra tabs snapshot --tab-id <tab-id>" }

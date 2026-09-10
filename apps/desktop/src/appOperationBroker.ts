@@ -235,6 +235,17 @@ export class AppOperationBroker {
       caller: { kind: request.caller ? "app" : (request.callerKind ?? "host") },
       ...(tab === undefined ? {} : { tab }),
       tabs,
+      apps: {
+        open: (input) => {
+          const target = this.#resolveEnabledApp(input.slug, request.spaceId);
+          return this.#tabHost.open({
+            app: target,
+            spaceId: request.spaceId,
+            threadId: request.threadId,
+            route: "/",
+          });
+        },
+      },
       operations: {
         invoke: (crossAppRequest) =>
           this.invoke({

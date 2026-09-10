@@ -56,7 +56,7 @@ interface CdpAxNode {
 }
 
 interface CdpFrameTree {
-  frame?: { id?: string; url?: string };
+  frame?: { id?: string; url?: string; name?: string };
   childFrames?: CdpFrameTree[];
 }
 
@@ -394,17 +394,22 @@ export class AppTabObserver {
     const root = response.frameTree as CdpFrameTree | undefined;
     const expectedUrl = target.frame?.url;
     if (!root || !expectedUrl) throw new Error("The App frame is unavailable for observation.");
+    const expectedName = `penkra-app-tab:${target.descriptor.id}`;
     const stack = [root];
-    const frames: Array<{ id: string; url: string }> = [];
+    const frames: Array<{ id: string; url: string; name?: string }> = [];
     while (stack.length > 0) {
       const current = stack.pop()!;
-      if (current.frame?.url === expectedUrl && current.frame.id) {
-        return { target, frameId: current.frame.id };
-      }
       if (current.frame?.id && current.frame.url) {
-        frames.push(current.frame as { id: string; url: string });
+        frames.push(current.frame as { id: string; url: string; name?: string });
       }
       stack.push(...(current.childFrames ?? []));
+    }
+    const namedMatches = frames.filter((frame) => frame.name === expectedName);
+    if (namedMatches.length === 1) return { target, frameId: namedMatches[0]!.id };
+
+    const exactFrameMatches = frames.filter((frame) => frame.url === expectedUrl);
+    if (exactFrameMatches.length === 1) {
+      return { target, frameId: exactFrameMatches[0]!.id };
     }
     const expectedDocumentUrl = withoutHash(expectedUrl);
     const documentMatches = frames.filter(
