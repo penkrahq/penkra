@@ -125,7 +125,7 @@ import {
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
-import { DISCLOSURE_TRANSITION_MS, disclosureContentClassName } from "~/lib/disclosureMotion";
+import { disclosureContentClassName } from "~/lib/disclosureMotion";
 import { getAppTypographyScale } from "../../lib/appTypography";
 import type { SubagentToolTrace } from "./subagentToolTrace.logic";
 import {
@@ -558,7 +558,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return null;
   }, [rows]);
-  const settledTurnCollapseTransitions = useSettledTurnCollapseTransitions(rows);
   const enteringMessageRowIds = useMessageSendEnterAnimations(rows, enteringUserMessageIds);
   // Latest rows kept in a ref so the imperative scroll controller can look up a message's
   // index lazily without re-installing the controller on every transcript change.
@@ -1423,9 +1422,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const isCollapsedWorkExpanded = hasCollapsedWork
               ? (expandedCollapsedWork[row.message.id] ?? false)
               : false;
-            const settledCollapseTransition = isCollapsedWorkExpanded
-              ? undefined
-              : settledTurnCollapseTransitions[row.message.id];
             const isTailContentRow = row.id === tailContentRowId;
             const renderWorkDisplay = (
               display: typeof leadingWorkDisplay,
@@ -1620,25 +1616,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             };
             return (
               <MessageAssistant layoutMode="application" workedFor={null}>
-                {settledCollapseTransition && (
-                  <div
-                    aria-hidden="true"
-                    inert
-                    // The clone is visual-only for the entire close transition; keep it inert
-                    // even while the inner DisclosureRegion starts open for its first frame.
-                    className="pointer-events-none mb-3 select-none"
-                    data-settled-turn-collapse-transition="true"
-                  >
-                    <DisclosureRegion
-                      open={settledCollapseTransition.open}
-                      contentClassName="space-y-1.5 pb-2.5"
-                    >
-                      {chunkCollapsedTurnItems(settledCollapseTransition.items).map((chunk) =>
-                        renderCollapsedTurnChunk(chunk, "settling-turn-close"),
-                      )}
-                    </DisclosureRegion>
-                  </div>
-                )}
                 {hasCollapsedWork && (
                   <div className="mb-3">
                     <Collapsible
@@ -1861,15 +1838,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 });
 
 type TimelineMessage = Extract<MessagesTimelineRow, { kind: "message" }>["message"];
-type SettledTurnCollapseTransition = {
-  open: boolean;
-  items: readonly CollapsedTurnItem[];
-};
-type SettledTurnCollapseTimer = {
-  closeFrame: number | null;
-  cleanupTimeout: number | null;
-};
-
 // Reuse stable row references so streaming updates only force React work for
 // rows whose visible content actually changed.
 function useStableRows(rows: MessagesTimelineRow[]): MessagesTimelineRow[] {
@@ -1978,182 +1946,6 @@ function applyMessageSendEnterAnimation(params: {
     });
   }, MESSAGE_SEND_ENTER_ANIMATION_MS + MESSAGE_SEND_ENTER_CLEANUP_BUFFER_MS);
   cleanupTimeoutsRef.current.push(cleanupTimeout);
-}
-
-// Keeps newly folded turn details mounted for one shared-disclosure close
-// animation, so settled turns do not disappear in one height recalculation.
-function useSettledTurnCollapseTransitions(
-  rows: readonly MessagesTimelineRow[],
-): Readonly<Record<string, SettledTurnCollapseTransition>> {
-  const [transitions, setTransitions] = useState<Record<string, SettledTurnCollapseTransition>>({});
-  const previousAssistantMessageIdsRef = useRef<ReadonlySet<string>>(new Set());
-  const previousCollapsedSignaturesRef = useRef<ReadonlyMap<string, string>>(new Map());
-  const timersRef = useRef(new Map<string, SettledTurnCollapseTimer>());
-
-  const clearTransitionTimer = useCallback((messageId: string) => {
-    const timer = timersRef.current.get(messageId);
-    if (!timer) {
-      return;
-    }
-    if (timer.closeFrame !== null) {
-      window.cancelAnimationFrame(timer.closeFrame);
-    }
-    if (timer.cleanupTimeout !== null) {
-      window.clearTimeout(timer.cleanupTimeout);
-    }
-    timersRef.current.delete(messageId);
-  }, []);
-
-  const scheduleTransitionClose = useCallback(
-    (messageId: string) => {
-      clearTransitionTimer(messageId);
-      const closeFrame = window.requestAnimationFrame(() => {
-        const timer = timersRef.current.get(messageId);
-        if (!timer) {
-          return;
-        }
-        timersRef.current.set(messageId, { ...timer, closeFrame: null });
-        setTransitions((current) => {
-          const transition = current[messageId];
-          if (!transition || !transition.open) {
-            return current;
-          }
-          return {
-            ...current,
-            [messageId]: { ...transition, open: false },
-          };
-        });
-
-        const cleanupTimeout = window.setTimeout(() => {
-          timersRef.current.delete(messageId);
-          setTransitions((current) => {
-            if (!current[messageId]) {
-              return current;
-            }
-            const next = { ...current };
-            delete next[messageId];
-            return next;
-          });
-        }, DISCLOSURE_TRANSITION_MS);
-        timersRef.current.set(messageId, { closeFrame: null, cleanupTimeout });
-      });
-      timersRef.current.set(messageId, { closeFrame, cleanupTimeout: null });
-    },
-    [clearTransitionTimer],
-  );
-
-  useLayoutEffect(() => {
-    applySettledTurnCollapseTransitions({
-      rows,
-      previousAssistantMessageIdsRef,
-      previousCollapsedSignaturesRef,
-      clearTransitionTimer,
-      scheduleTransitionClose,
-      setTransitions,
-    });
-  }, [clearTransitionTimer, rows, scheduleTransitionClose]);
-
-  useEffect(
-    () => () => {
-      for (const messageId of Array.from(timersRef.current.keys())) {
-        clearTransitionTimer(messageId);
-      }
-    },
-    [clearTransitionTimer],
-  );
-
-  return transitions;
-}
-
-// Detects turns that just folded and drives their close animation. Kept in a module
-// helper (not compiled) so the synchronous open setState stays out of the hook while
-// its ordering against scheduleTransitionClose — which needs the open state committed
-// before it schedules the closing rAF — is preserved exactly.
-function applySettledTurnCollapseTransitions(params: {
-  rows: readonly MessagesTimelineRow[];
-  previousAssistantMessageIdsRef: RefObject<ReadonlySet<string>>;
-  previousCollapsedSignaturesRef: RefObject<ReadonlyMap<string, string>>;
-  clearTransitionTimer: (messageId: string) => void;
-  scheduleTransitionClose: (messageId: string) => void;
-  setTransitions: Dispatch<SetStateAction<Record<string, SettledTurnCollapseTransition>>>;
-}): void {
-  const {
-    rows,
-    previousAssistantMessageIdsRef,
-    previousCollapsedSignaturesRef,
-    clearTransitionTimer,
-    scheduleTransitionClose,
-    setTransitions,
-  } = params;
-  const currentAssistantMessageIds = new Set<string>();
-  const currentCollapsed = new Map<
-    string,
-    { signature: string; items: readonly CollapsedTurnItem[] }
-  >();
-
-  for (const row of rows) {
-    if (row.kind !== "message" || row.message.role !== "assistant") {
-      continue;
-    }
-    const messageId = row.message.id;
-    currentAssistantMessageIds.add(messageId);
-    if (row.collapsedTurnItems && row.collapsedTurnItems.length > 0) {
-      currentCollapsed.set(messageId, {
-        signature: collapsedTurnItemsSignature(row.collapsedTurnItems),
-        items: row.collapsedTurnItems,
-      });
-    }
-  }
-
-  const previousAssistantMessageIds = previousAssistantMessageIdsRef.current;
-  const previousCollapsedSignatures = previousCollapsedSignaturesRef.current;
-  const startedTransitions: Array<{
-    messageId: string;
-    items: readonly CollapsedTurnItem[];
-  }> = [];
-
-  for (const [messageId, collapsed] of currentCollapsed) {
-    if (previousAssistantMessageIds.has(messageId) && !previousCollapsedSignatures.has(messageId)) {
-      startedTransitions.push({ messageId, items: collapsed.items });
-    }
-  }
-
-  previousAssistantMessageIdsRef.current = currentAssistantMessageIds;
-  previousCollapsedSignaturesRef.current = new Map(
-    Array.from(currentCollapsed, ([messageId, collapsed]) => [messageId, collapsed.signature]),
-  );
-
-  setTransitions((current) => {
-    let next: Record<string, SettledTurnCollapseTransition> | null = null;
-    const ensureNext = () => {
-      next ??= { ...current };
-      return next;
-    };
-
-    for (const messageId of Object.keys(current)) {
-      if (!currentCollapsed.has(messageId)) {
-        clearTransitionTimer(messageId);
-        delete ensureNext()[messageId];
-      }
-    }
-
-    for (const transition of startedTransitions) {
-      ensureNext()[transition.messageId] = {
-        open: true,
-        items: transition.items,
-      };
-    }
-
-    return next ?? current;
-  });
-
-  for (const transition of startedTransitions) {
-    scheduleTransitionClose(transition.messageId);
-  }
-}
-
-function collapsedTurnItemsSignature(items: readonly CollapsedTurnItem[]): string {
-  return items.map((item) => `${item.kind}:${item.id}`).join("|");
 }
 
 // Keep the live clock scoped to tiny leaf components so active Claude turns do

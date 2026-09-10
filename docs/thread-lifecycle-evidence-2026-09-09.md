@@ -295,3 +295,81 @@ formatter call from `apps/web` failed to load the root Vite configuration and wa
 from the repository root. LaunchServices later returned success without starting Dev because the
 launcher workspace referenced `/tmp/penkra-apps-open-qa.MmO1VG`; direct launch exposed the missing
 manifest error. None of those results were treated as product passes or scroll failures.
+
+## Composer ownership and terminal regrouping follow-up
+
+The supplied Penkra Dev recording `Screen Recording 2026-09-09 at 8.51.20 PM.mov` has SHA-256
+`45d5980277a4dde93d0d29731ba1a3a5041147fa7a7affc0405fa02576379505`. It records two distinct
+ownership violations: the submitted prompt remains in the composer after the optimistic user row
+and Thinking UI appear, and a completed turn temporarily renders its `Worked` disclosure among the
+existing work rows before regrouping around the final assistant response.
+
+The exact Dev thread was `1b5d9633-ef27-4b80-b9d8-0eb722a76a03`. Its retained event order for
+“What have we done so far? Check” was user `thread.message-sent` at sequence 389362, start requested
+at 389363, delivery accepted at 389364, provider running at 389365, assistant/tool activity at
+389366–389390, final assistant streaming at 389393–389487, session ready at 389489, and
+`turn.completed` at 389490. Admission took 428ms. This establishes that the prolonged composer
+ownership was renderer-side and that terminal regrouping happened after native activity had already
+been projected.
+
+The Send RED control required the submitted text to leave the visible composer when preflight takes
+ownership. Unchanged source failed while Thinking was visible and before `thread.turn.start`. The
+terminal RED control observed DOM ownership across settlement; unchanged source created a second
+node marked `data-settled-turn-collapse-transition="true"`. History showed that this was deliberate:
+`useSettledTurnCollapseTransitions` retained a timed inert clone while the canonical rows changed.
+
+Send preflight now captures one submission owner and transfers the visible composer synchronously.
+Pre-dispatch failure or Stop returns that exact owner to an empty composer, or preserves newer typed
+content and uses the existing paused queued-recovery path. Post-dispatch uncertainty remains durable
+and does not restore automatically. Diagnostics record `composer-submission-claimed`,
+`composer-visible-cleared`, and `composer-submission-restored`, including prompt length and clear
+ownership. No timeout determines ownership. Settled turns now render directly under one terminal
+assistant owner; the transition clone, timer, and animation-frame handoff were removed.
+
+The final structural review found an adjacent attachment race. The immediate visible clear could
+schedule IndexedDB image and file deletion before pending-start recovery captured its durable owner.
+Composer clearing now has an explicit `preservePersistedAssets` transfer mode. Recovery settlement
+releases those assets only after the store mutation, so restored content retains them while an
+accepted or failed send deletes unreferenced assets. A direct asset-store control verifies the full
+composer-to-recovery-to-settlement lifecycle.
+
+The complete Chromium ChatView run passed 121/121 tests. Web unit validation passed 256 files and
+2,516 tests before the final asset-lifecycle addition; its focused final rerun passed 30/30 unit
+tests, and the two exact browser controls passed. Web TypeScript, the 187-test timeline/work-log
+subset, task-file formatting, and `git diff --check` passed. Final repository gates are recorded in
+the release handoff after this evidence section.
+
+The accepted rebuilt Dev replay is `.penkra/qa/composer-terminal-grouping-20260909/live-dev/`.
+`result.json` has SHA-256 `46d3ed134036e4ef18f6293090aafc9bc810f331099a6bfef6a157206dd6e07f`;
+the composed, admitted, and completed frames have SHA-256
+`2baebf1c218c47cdd201b72d3733acdb04b080d2a9b27f82769ba444d5a2e249`,
+`27ca7dc1cfdaff53d18153f0abd45dde8a5a7cb437a85982df962c7b71d283ea`, and
+`21984c99d43427456a552313dd354d54486653be4f331e2169ce42950cbf976a`. Across its painted
+animation-frame samples, `overlapFrames=0` and `duplicateOwnerObserved=false`. The sequence moves
+from composed prompt, to empty composer with Stop, to empty composer with Thinking, to one terminal
+`Worked` disclosure and the final response.
+
+Several probes were rejected as evidence. The first browser command named a nonexistent config. The
+live Dev database required an offline copy because Electron held an exclusive lock. An early live
+probe matched “Thinking” in a sidebar title, MutationObserver captured unpainted reconciliation, and
+stale animation-frame loops from prior runs wrote into a reused buffer. The accepted replay reloads
+the page to destroy prior observers, samples once per animation frame, and uses the exact visible
+working-row selector and geometry. A later focused unit command passed file paths to Turbo as task
+names and collected no tests; it was rerun through the web package's Vitest entrypoint. None of the
+invalid probes were counted as product evidence or a passing gate.
+
+Final verification on the frozen source passed 121/121 Chromium ChatView tests, 256 files and
+2,516 web unit tests, all 11 repository TypeScript tasks, and repository lint with zero errors (523
+existing warnings). The first root typecheck exposed widened `queryMode`/`order` values and an
+unmapped transaction error in the separately committed transcript-discovery implementation. Those
+release-blocking errors were corrected with literal annotations and the repository's existing
+`ProjectionRepositoryError` mapping; its focused gateway/query suite passed 65/65 before the full
+11/11 typecheck rerun passed.
+
+The first production build then exposed a separate React Compiler contract failure in `ChatView`.
+The exact dependency fix already existed as reviewed commit `8c9864c26` on the integration branch
+but was absent from `main`; its value snapshots and whole-object dependency were applied unchanged.
+The web production build then passed, including all four compiler hot-path contracts. One attempted
+rerun failed before build startup because a root-relative formatter path was supplied from
+`apps/web`; it was separated into a root formatter invocation and package-local build and was not
+counted as a build result.

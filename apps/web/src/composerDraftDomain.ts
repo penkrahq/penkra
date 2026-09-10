@@ -351,7 +351,10 @@ export interface ComposerDraftStoreState {
   copyTransferableComposerState: (sourceThreadId: ThreadId, targetThreadId: ThreadId) => void;
   clearComposerContent: (
     threadId: ThreadId,
-    options?: { readonly preservePreviewUrls?: boolean },
+    options?: {
+      readonly preservePreviewUrls?: boolean;
+      readonly preservePersistedAssets?: boolean;
+    },
   ) => void;
 }
 
