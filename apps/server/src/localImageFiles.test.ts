@@ -14,6 +14,12 @@ function makeTempDir(prefix: string): string {
   return directory;
 }
 
+function makeNonTemporaryTestDir(prefix: string): string {
+  const directory = mkdtempSync(path.join(os.homedir(), prefix));
+  tempDirs.push(directory);
+  return directory;
+}
+
 afterEach(() => {
   for (const directory of tempDirs.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
@@ -68,10 +74,10 @@ describe("resolveAllowedLocalPreviewFile", () => {
     // which sits outside both the user's `~/.codex` source home and any workspace
     // root. The allowlist must still serve them.
     //
-    // We anchor the fake homes inside the worktree (process.cwd() resolves to
-    // apps/server/ when vitest runs) so neither path falls under os.tmpdir(); that
-    // way only the overlay candidate can satisfy the allowlist.
-    const fakeRoot = path.join(process.cwd(), `.test-codex-overlay-${process.pid}-${Date.now()}`);
+    // Keep the fixture outside os.tmpdir() so only the overlay candidate can
+    // satisfy the allowlist, even when the repository itself is checked out
+    // under a temporary release-verification worktree.
+    const fakeRoot = makeNonTemporaryTestDir(".test-codex-overlay-");
     const sourceHome = path.join(fakeRoot, "source", ".codex");
     const penkraHome = path.join(fakeRoot, "penkra", "runtime");
     const overlayImageDir = path.join(
@@ -100,15 +106,11 @@ describe("resolveAllowedLocalPreviewFile", () => {
       } else {
         process.env.PENKRA_HOME = previousPenkraHome;
       }
-      rmSync(fakeRoot, { recursive: true, force: true });
     }
   });
 
   it("allows images from a connection-scoped Codex generated_images root", async () => {
-    const fakeRoot = path.join(
-      process.cwd(),
-      `.test-provider-generated-image-${process.pid}-${Date.now()}`,
-    );
+    const fakeRoot = makeNonTemporaryTestDir(".test-provider-generated-image-");
     const stateDir = path.join(fakeRoot, "userdata");
     const profileKey = "a".repeat(64);
     const imageDir = path.join(
@@ -123,24 +125,17 @@ describe("resolveAllowedLocalPreviewFile", () => {
     mkdirSync(imageDir, { recursive: true });
     writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 
-    try {
-      const result = await resolveAllowedLocalPreviewFile({
-        requestedPath: imagePath,
-        cwd: null,
-        stateDir,
-      });
+    const result = await resolveAllowedLocalPreviewFile({
+      requestedPath: imagePath,
+      cwd: null,
+      stateDir,
+    });
 
-      assert.equal(result?.path, realpathSync(imagePath));
-    } finally {
-      rmSync(fakeRoot, { recursive: true, force: true });
-    }
+    assert.equal(result?.path, realpathSync(imagePath));
   });
 
   it("rejects images elsewhere in a connection-scoped Codex profile", async () => {
-    const fakeRoot = path.join(
-      process.cwd(),
-      `.test-provider-profile-image-${process.pid}-${Date.now()}`,
-    );
+    const fakeRoot = makeNonTemporaryTestDir(".test-provider-profile-image-");
     const stateDir = path.join(fakeRoot, "userdata");
     const profileKey = "b".repeat(64);
     const profileRoot = path.join(stateDir, "provider-connections", profileKey, "codex-home");
@@ -148,17 +143,13 @@ describe("resolveAllowedLocalPreviewFile", () => {
     mkdirSync(profileRoot, { recursive: true });
     writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 
-    try {
-      const result = await resolveAllowedLocalPreviewFile({
-        requestedPath: imagePath,
-        cwd: null,
-        stateDir,
-      });
+    const result = await resolveAllowedLocalPreviewFile({
+      requestedPath: imagePath,
+      cwd: null,
+      stateDir,
+    });
 
-      assert.equal(result, null);
-    } finally {
-      rmSync(fakeRoot, { recursive: true, force: true });
-    }
+    assert.equal(result, null);
   });
 
   it("allows PDFs inside the current workspace", async () => {
