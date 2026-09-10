@@ -421,10 +421,18 @@ export class AppTabObserver {
     const targetInfos = Array.isArray(targetsResponse.targetInfos)
       ? targetsResponse.targetInfos.filter(isRecord)
       : [];
-    const exactTargets = targetInfos.filter(
+    const rootFrameId = root.frame?.id;
+    const parentedShellTargets = rootFrameId
+      ? targetInfos.filter((info) => info.parentFrameId === rootFrameId)
+      : [];
+    const shellTargets =
+      parentedShellTargets.length > 0
+        ? parentedShellTargets
+        : targetInfos.filter((info) => typeof info.parentFrameId !== "string");
+    const exactTargets = shellTargets.filter(
       (info) => info.url === expectedUrl && typeof info.targetId === "string",
     );
-    const documentTargets = targetInfos.filter(
+    const documentTargets = shellTargets.filter(
       (info) =>
         typeof info.url === "string" &&
         withoutHash(info.url) === expectedDocumentUrl &&
