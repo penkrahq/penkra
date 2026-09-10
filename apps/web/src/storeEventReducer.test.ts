@@ -33,6 +33,7 @@ import {
 } from "./storeTestFixtures";
 import { DEFAULT_RUNTIME_MODE } from "./types";
 import { createSidebarTreeThreadsSelector } from "./storeSelectors";
+import { resolveThreadStatusPill } from "./components/Sidebar.logic";
 
 describe("store event reducer", () => {
   it("registers six external creations in the sidebar without a snapshot or opened detail", () => {
@@ -965,6 +966,135 @@ describe("store event reducer", () => {
       providerTurnId,
       state: "running",
     });
+  });
+
+  it.each([
+    { label: "initial", session: null },
+    {
+      label: "reopened",
+      session: {
+        provider: "codex" as const,
+        status: "ready" as const,
+        orchestrationStatus: "ready" as const,
+        activeTurnId: undefined,
+        createdAt: "2026-02-27T00:01:00.000Z",
+        updatedAt: "2026-02-27T00:01:00.000Z",
+      },
+    },
+  ])("keeps an admitted $label turn working across ready bootstrap", ({ session }) => {
+    const threadId = ThreadId.makeUnsafe(
+      `thread-ready-bootstrap-${session ? "reopened" : "initial"}`,
+    );
+    const messageId = MessageId.makeUnsafe(
+      `message-ready-bootstrap-${session ? "reopened" : "initial"}`,
+    );
+    const previousTurnId = TurnId.makeUnsafe("turn-previous-completed");
+    const initialState = makeState(
+      makeThread({
+        id: threadId,
+        session,
+        latestTurn: {
+          turnId: previousTurnId,
+          state: "completed",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:01.000Z",
+          completedAt: "2026-02-27T00:00:02.000Z",
+          assistantMessageId: null,
+        },
+      }),
+    );
+    const admitted = applyOrchestrationEvents(initialState, [
+      makeDomainEvent(
+        "thread.turn-start-requested",
+        {
+          threadId,
+          messageId,
+          turnId: TurnId.makeUnsafe(`turn-new-${session ? "reopened" : "initial"}`),
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          dispatchMode: "queue",
+          createdAt: "2026-02-27T00:01:03.000Z",
+        },
+        { sequence: 10, occurredAt: "2026-02-27T00:01:03.000Z" },
+      ),
+    ]);
+    expect(threadsOf(admitted)[0]?.pendingTurnStartMessageId).toBe(messageId);
+
+    const ready = applyOrchestrationEvents(admitted, [
+      makeDomainEvent(
+        "thread.session-set",
+        {
+          threadId,
+          session: {
+            threadId,
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: DEFAULT_RUNTIME_MODE,
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-02-27T00:01:03.100Z",
+          },
+        },
+        { sequence: 11, occurredAt: "2026-02-27T00:01:03.100Z" },
+      ),
+    ]);
+
+    const thread = threadsOf(ready)[0];
+    expect(thread?.pendingTurnStartMessageId).toBe(messageId);
+    expect(thread?.latestTurn).toMatchObject({
+      turnId: previousTurnId,
+      state: "completed",
+    });
+    const summary = ready.sidebarThreadSummaryById[threadId];
+    expect(summary).toBeDefined();
+    expect(
+      resolveThreadStatusPill({
+        thread: summary!,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+      }),
+    ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it.each([
+    { status: "running" as const, activeTurnId: TurnId.makeUnsafe("turn-running") },
+    { status: "stopped" as const, activeTurnId: null },
+    { status: "interrupted" as const, activeTurnId: TurnId.makeUnsafe("turn-interrupted") },
+    { status: "error" as const, activeTurnId: null },
+  ])("retires an admitted marker when the session becomes $status", ({ status, activeTurnId }) => {
+    const threadId = ThreadId.makeUnsafe(`thread-retire-${status}`);
+    const messageId = MessageId.makeUnsafe(`message-retire-${status}`);
+    const initialState = makeState(
+      makeThread({
+        id: threadId,
+        pendingTurnStartMessageId: messageId,
+        session: {
+          provider: "codex",
+          status: "closed",
+          orchestrationStatus: "stopped",
+          activeTurnId: undefined,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvents(initialState, [
+      makeDomainEvent("thread.session-set", {
+        threadId,
+        session: {
+          threadId,
+          status,
+          providerName: "codex",
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          activeTurnId,
+          lastError: status === "error" ? "provider crashed" : null,
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+      }),
+    ]);
+
+    expect(threadsOf(next)[0]?.pendingTurnStartMessageId).toBeNull();
   });
 
   it.each([

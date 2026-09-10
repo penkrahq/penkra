@@ -37,6 +37,10 @@ import {
   findConnectionAuthenticationMethod,
   getProviderConnectionManifest,
 } from "../providerConnectionManifests.ts";
+import {
+  providerAgentDiscoveryStateIdentity,
+  providerModelDiscoveryStateIdentity,
+} from "../providerDiscoveryStateIdentity.ts";
 
 const decodeInputOrValidationError = <S extends Schema.Top>(input: {
   readonly operation: string;
@@ -399,7 +403,10 @@ const make = Effect.gen(function* () {
               connectionId: route.connectionId,
               installationId: installation.id,
               internalProviderId: route.internalProviderId,
-              nativeStateIdentity: `discovery:${parsed.provider}:${route.connectionId ?? "anonymous"}`,
+              nativeStateIdentity: providerModelDiscoveryStateIdentity({
+                provider: parsed.provider,
+                connectionId: route.connectionId,
+              }),
             })
             .pipe(
               Effect.mapError(discoveryInfrastructureError("ProviderDiscoveryService.listModels")),
@@ -565,7 +572,10 @@ const make = Effect.gen(function* () {
               connectionId: route.connectionId,
               installationId: installation.id,
               internalProviderId: route.internalProviderId,
-              nativeStateIdentity: `agent-discovery:${parsed.provider}:${route.connectionId ?? "anonymous"}`,
+              nativeStateIdentity: providerAgentDiscoveryStateIdentity({
+                provider: parsed.provider,
+                connectionId: route.connectionId,
+              }),
             })
             .pipe(
               Effect.mapError(discoveryInfrastructureError("ProviderDiscoveryService.listAgents")),

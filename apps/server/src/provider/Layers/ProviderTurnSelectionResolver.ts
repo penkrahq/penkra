@@ -13,6 +13,7 @@ import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import { parseOpenCodeModelSlug } from "../opencodeRuntime.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { resolveDefaultConnection } from "../defaultConnection.ts";
+import { providerModelDiscoveryStateIdentity } from "../providerDiscoveryStateIdentity.ts";
 import {
   findConnectionAuthenticationMethod,
   findManagedLoginMethod,
@@ -62,7 +63,6 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
     readonly installationId: ProviderInstallationId;
     readonly internalProviderId: string | null;
     readonly modelId: string;
-    readonly nativeStateIdentity: string;
     readonly allowRetiredInstallation?: boolean;
   }) {
     const adapter = yield* registry.getByProvider(input.harness).pipe(
@@ -81,7 +81,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         connectionId: input.connectionId,
         installationId: input.installationId,
         internalProviderId: input.internalProviderId,
-        nativeStateIdentity: input.nativeStateIdentity,
+        nativeStateIdentity: providerModelDiscoveryStateIdentity({
+          provider: input.harness,
+          connectionId: input.connectionId,
+        }),
         ...(input.allowRetiredInstallation === true ? { allowRetiredInstallation: true } : {}),
       })
       .pipe(
@@ -295,7 +298,6 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         installationId: activeInstallation.id,
         internalProviderId,
         modelId: modelSelection.model,
-        nativeStateIdentity: input.nativeStateGenerationId,
       });
 
       yield* Effect.logInfo("initial provider admission resolved exact route", {
@@ -471,7 +473,6 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
           installationId: targetInstallation.id,
           internalProviderId,
           modelId,
-          nativeStateIdentity: state.value.nativeStateGenerationId,
         });
         modelLabel = availableModel.name;
       }

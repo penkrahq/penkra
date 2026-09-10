@@ -4,11 +4,16 @@ import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import { render } from "vitest-browser-react";
+import type { DesktopAppTabsBridge } from "@penkra/contracts";
 
 import { AppDockPane } from "./AppDockPane";
 
 const originalDesktopBridge = Object.getOwnPropertyDescriptor(window, "desktopBridge");
 const originalNavigatorUserAgent = Object.getOwnPropertyDescriptor(window.navigator, "userAgent");
+const originalWebContentsId = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "getWebContentsId",
+);
 const FRAME_DOCUMENT = `data:text/html,${encodeURIComponent(`
   <!doctype html><body>Runtime v2 App<script>
     addEventListener("message", (event) => {
@@ -31,6 +36,11 @@ afterEach(() => {
   } else {
     Reflect.deleteProperty(window.navigator, "userAgent");
   }
+  if (originalWebContentsId) {
+    Object.defineProperty(HTMLElement.prototype, "getWebContentsId", originalWebContentsId);
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype, "getWebContentsId");
+  }
 });
 
 function installBridge() {
@@ -42,7 +52,9 @@ function installBridge() {
   const browserWebviewAttach = vi.fn(async () => undefined);
   const browserWebviewDidFailLoad = vi.fn(async () => undefined);
   const browserWebviewDetach = vi.fn(async () => undefined);
-  const browserHostedPageBounds = vi.fn(async () => undefined);
+  const browserHostedPageBounds = vi.fn(
+    async (_input: Parameters<DesktopAppTabsBridge["browserHostedPageBounds"]>[0]) => true,
+  );
   Object.defineProperty(window, "desktopBridge", {
     configurable: true,
     value: {
@@ -244,6 +256,16 @@ describe("AppDockPane Runtime v2 frame", () => {
         "(KHTML, like Gecko) Penkra/0.11.3 Chrome/144.0.7559.236 Electron/40.10.6 " +
         "Safari/537.36",
     });
+    const earlyGetWebContentsId = vi.fn(() => {
+      throw new Error(
+        "The WebView must be attached to the DOM and the dom-ready event emitted before this method can be called.",
+      );
+    });
+    Object.defineProperty(HTMLElement.prototype, "getWebContentsId", {
+      configurable: true,
+      value: earlyGetWebContentsId,
+      writable: true,
+    });
     const bridge = installBridge();
     await render(
       <div className="h-80 w-[640px]">
@@ -284,6 +306,7 @@ describe("AppDockPane Runtime v2 frame", () => {
       },
     });
     await vi.waitFor(() => expect(document.querySelector("webview")).not.toBeNull());
+    expect(earlyGetWebContentsId).toHaveBeenCalled();
     const webview = document.querySelector("webview") as HTMLElement & {
       getWebContentsId(): number;
     };
@@ -412,6 +435,81 @@ describe("AppDockPane Runtime v2 frame", () => {
     expect(document.querySelector("webview")).toBe(webview);
     expect(bridge.browserWebviewAttach).toHaveBeenCalledOnce();
     expect(bridge.browserWebviewDetach).not.toHaveBeenCalled();
+  });
+
+  it("reattaches the same legacy webview when the App renderer generation changes", async () => {
+    const bridge = installBridge();
+    function Harness() {
+      const [rendererId, setRendererId] = useState(-1);
+      return (
+        <>
+          <button onClick={() => setRendererId(-2)} type="button">
+            Replace Browser generation
+          </button>
+          <div className="h-80 w-[640px]">
+            <AppDockPane
+              appName="Browser"
+              documentUrl={FRAME_DOCUMENT}
+              rendererId={rendererId}
+              status="ready"
+              tabId="browser-generation-tab"
+              visible={true}
+            />
+          </div>
+        </>
+      );
+    }
+    await render(<Harness />);
+    await vi.waitFor(() => expect(bridge.frameReady).toHaveBeenCalledOnce());
+    bridge.emitHostMessage({
+      tabId: "browser-generation-tab",
+      rendererId: -1,
+      delivery: {
+        kind: "event",
+        name: "browser.state",
+        payload: {
+          activePageId: "legacy-page",
+          pages: [{ id: "legacy-page", url: "https://example.com", title: "Example" }],
+        },
+      },
+    });
+    bridge.emitHostMessage({
+      tabId: "browser-generation-tab",
+      rendererId: -1,
+      delivery: {
+        kind: "event",
+        name: "browser.surface",
+        payload: {
+          partition: "persist:legacy-generation",
+          insets: { top: 44, right: 8, bottom: 16, left: 8 },
+        },
+      },
+    });
+    await vi.waitFor(() => expect(document.querySelector("webview")).not.toBeNull());
+    const webview = document.querySelector("webview") as HTMLElement & {
+      getWebContentsId(): number;
+    };
+    webview.getWebContentsId = () => 77;
+    webview.dispatchEvent(new Event("dom-ready"));
+    await vi.waitFor(() => expect(bridge.browserWebviewAttach).toHaveBeenCalledTimes(1));
+
+    await page.getByRole("button", { name: "Replace Browser generation" }).click();
+
+    await vi.waitFor(() => expect(bridge.browserWebviewDetach).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(bridge.browserWebviewAttach).toHaveBeenCalledTimes(2));
+    expect(document.querySelector("webview")).toBe(webview);
+    expect(bridge.browserWebviewDetach).toHaveBeenCalledWith({
+      tabId: "browser-generation-tab",
+      rendererId: -1,
+      pageId: "legacy-page",
+      webContentsId: 77,
+    });
+    expect(bridge.browserWebviewAttach).toHaveBeenLastCalledWith({
+      tabId: "browser-generation-tab",
+      rendererId: -2,
+      pageId: "legacy-page",
+      webContentsId: 77,
+    });
   });
 
   it("uses the registered vanilla Chromium identity for WhatsApp Web", async () => {

@@ -70,6 +70,8 @@ interface LiveTabRuntime {
   webContents: WebContents;
   view: WebContentsView | BrowserView | null;
   ownsWebContents: boolean;
+  /** Renderer generation that most recently adopted this legacy guest. */
+  rendererId?: number;
   /** True when this is Chromium's original auxiliary browsing context. */
   hostManaged?: boolean;
   openerTabId?: string;
@@ -142,6 +144,22 @@ export interface DesktopBrowserManagerOptions {
   reportLoadFailure?: (failure: BrowserLoadFailure) => void;
   createWebContentsView?: (options: Electron.WebContentsViewConstructorOptions) => WebContentsView;
   createBrowserView?: (options: BrowserWindowConstructorOptions) => BrowserView;
+  reportLifecycle?: (event: BrowserLifecycleEvent) => void;
+}
+
+export interface BrowserLifecycleEvent {
+  kind:
+    | "session-opened"
+    | "session-closed"
+    | "runtime-created"
+    | "runtime-destroyed"
+    | "observation-resolved"
+    | "observation-unavailable";
+  sessionId: string;
+  pageId?: string;
+  webContentsId?: number;
+  owner?: "main" | "renderer";
+  reason?: string;
 }
 
 export interface BrowserLoadFailure {
@@ -355,6 +373,8 @@ export class DesktopBrowserManager {
   private readonly lastEmittedVersionByThreadId = new Map<ThreadId, number>();
   private readonly runtimes = new Map<string, LiveTabRuntime>();
   private readonly runtimeLastActiveAtByKey = new Map<string, number>();
+  private readonly pendingTabLoads = new Map<string, Promise<void>>();
+  private readonly tabLoadGenerationByKey = new Map<string, number>();
   private readonly pendingRuntimeSyncs = new Map<string, PendingRuntimeSync>();
   private readonly listeners = new Set<BrowserStateListener>();
   private readonly copyLinkListeners = new Set<BrowserCopyLinkListener>();
@@ -405,6 +425,12 @@ export class DesktopBrowserManager {
   }
 
   setWindow(window: BrowserWindow | null): void {
+    if (this.window && this.window !== window) {
+      // A native Browser page has exactly one visual owner. Detach it from the previous shell
+      // before moving the manager's window pointer; otherwise cleanup targets the new window and
+      // the old window can retain an orphaned view.
+      this.detachAttachedRuntime();
+    }
     this.window = window;
     if (window) {
       const bounds = this.activeThreadId
@@ -989,15 +1015,57 @@ export class DesktopBrowserManager {
 
   async observationWebContents(threadId: ThreadId): Promise<WebContents | null> {
     const state = this.states.get(threadId);
-    if (!state?.open || !state.activeTabId) return null;
-    await this.prepareObservationTab({ threadId, tabId: state.activeTabId });
-    return this.runtimes.get(buildRuntimeKey(threadId, state.activeTabId))?.webContents ?? null;
+    if (!state?.open || !state.activeTabId) {
+      this.reportLifecycle({
+        kind: "observation-unavailable",
+        sessionId: threadId,
+        reason: !state ? "missing-session" : !state.open ? "closed-session" : "missing-active-page",
+      });
+      return null;
+    }
+    const pageId = state.activeTabId;
+    const prepared = await this.prepareObservationTab({ threadId, tabId: pageId });
+    const currentState = this.states.get(threadId);
+    const preparedRuntime = this.runtimes.get(buildRuntimeKey(threadId, pageId));
+    if (
+      !prepared ||
+      currentState !== state ||
+      !currentState.open ||
+      currentState.activeTabId !== pageId
+    ) {
+      this.reportLifecycle({
+        kind: "observation-unavailable",
+        sessionId: threadId,
+        pageId,
+        reason: !preparedRuntime ? "renderer-page-not-attached" : "session-or-active-page-changed",
+      });
+      return null;
+    }
+    const runtime = preparedRuntime;
+    if (!runtime || runtime.webContents.isDestroyed()) {
+      this.reportLifecycle({
+        kind: "observation-unavailable",
+        sessionId: threadId,
+        pageId,
+        reason: !runtime ? "missing-runtime" : "destroyed-runtime",
+      });
+      return null;
+    }
+    this.reportLifecycle({
+      kind: "observation-resolved",
+      sessionId: threadId,
+      pageId,
+      webContentsId: runtime.webContents.id,
+      owner: runtime.ownsWebContents ? "main" : "renderer",
+    });
+    return runtime.webContents;
   }
 
   open(input: BrowserOpenInput): ThreadBrowserState {
     const state = this.ensureWorkspace(input.threadId, input.initialUrl);
     const didChange = !state.open;
     state.open = true;
+    if (didChange) this.reportLifecycle({ kind: "session-opened", sessionId: input.threadId });
     const nextInitialUrl = input.initialUrl ? normalizeUrlInput(input.initialUrl) : null;
     const activeTab = nextInitialUrl ? this.getActiveTab(state) : null;
     if (nextInitialUrl && activeTab && activeTab.url !== nextInitialUrl) {
@@ -1030,6 +1098,7 @@ export class DesktopBrowserManager {
 
   close(input: BrowserThreadInput): ThreadBrowserState {
     const detached = this.detachThread(input.threadId);
+    this.reportLifecycle({ kind: "session-closed", sessionId: input.threadId });
     const failures: unknown[] = [];
     try {
       this.disposeDetachedThread(detached);
@@ -1078,6 +1147,8 @@ export class DesktopBrowserManager {
       if (runtime.threadId !== threadId) continue;
       runtimes.push(runtime);
       this.runtimes.delete(key);
+      this.pendingTabLoads.delete(key);
+      this.tabLoadGenerationByKey.delete(key);
       this.pendingRuntimeSyncs.delete(key);
       this.runtimeLastActiveAtByKey.delete(key);
     }
@@ -1335,7 +1406,7 @@ export class DesktopBrowserManager {
 
   // Adopts the renderer-owned <webview> so the visible page and browser-use tools
   // share one WebContents instead of racing a hidden native WebContentsView.
-  attachWebview(input: BrowserAttachWebviewInput): ThreadBrowserState {
+  attachWebview(input: BrowserAttachWebviewInput & { rendererId?: number }): ThreadBrowserState {
     const state = this.ensureWorkspace(input.threadId);
     const tab = this.resolveTab(state, input.tabId);
     const webContents = electronWebContents.fromId(input.webContentsId);
@@ -1361,10 +1432,13 @@ export class DesktopBrowserManager {
         webContents,
         view: null,
         ownsWebContents: false,
+        ...(input.rendererId !== undefined ? { rendererId: input.rendererId } : {}),
         listenerDisposers: [],
       };
       this.configureRuntimeWebContents(runtime);
       this.runtimes.set(key, runtime);
+    } else if (existing && input.rendererId !== undefined) {
+      existing.rendererId = input.rendererId;
     }
 
     const bounds = this.getVisibleBoundsForThread(input.threadId);
@@ -1413,7 +1487,7 @@ export class DesktopBrowserManager {
 
   // Drops main-process ownership of a renderer-owned <webview> that React removed.
   // The webContents id guard keeps stale cleanup calls from tearing down a newly attached view.
-  detachWebview(input: BrowserDetachWebviewInput): void {
+  detachWebview(input: BrowserDetachWebviewInput & { rendererId?: number }): void {
     const state = this.states.get(input.threadId);
     const tab = state ? this.getTab(state, input.tabId) : null;
     if (!state || !tab) {
@@ -1421,7 +1495,12 @@ export class DesktopBrowserManager {
     }
 
     const runtime = this.runtimes.get(buildRuntimeKey(input.threadId, input.tabId));
-    if (!runtime || runtime.ownsWebContents || runtime.webContents.id !== input.webContentsId) {
+    if (
+      !runtime ||
+      runtime.ownsWebContents ||
+      runtime.webContents.id !== input.webContentsId ||
+      (runtime.rendererId !== undefined && input.rendererId !== runtime.rendererId)
+    ) {
       return;
     }
 
@@ -1638,9 +1717,20 @@ export class DesktopBrowserManager {
       const tab = this.resolveTab(state, input.tabId);
       this.activateTab(input.threadId, state, tab);
 
-      this.resumeThread(input.threadId);
+      const runtimeKey = buildRuntimeKey(input.threadId, tab.id);
+      // Capture only the already-attached visible guest. A capture racing a navigation waits for
+      // its moving load tail, but never creates a hidden native substitute.
+      await this.waitForPendingTabLoads(runtimeKey);
+      if (!this.isCurrentPage(input.threadId, state, tab) || state.activeTabId !== tab.id) {
+        throw new Error("The Browser session changed while preparing the requested page.");
+      }
       const wasSuspended = tab.status === SUSPENDED_TAB_STATUS;
-      const runtime = this.ensureLiveRuntime(input.threadId, tab.id);
+      const priorRuntime = this.runtimes.get(runtimeKey);
+      if (!priorRuntime || priorRuntime.webContents.isDestroyed()) {
+        throw new Error("The visible Browser page is not attached yet.");
+      }
+      const requiresRecovery = wasSuspended;
+      const runtime = priorRuntime;
       const webContents = runtime.webContents;
       const expectedUrl = normalizeUrlInput(tab.lastCommittedUrl ?? tab.url);
       const currentUrl = webContents.getURL();
@@ -1649,20 +1739,60 @@ export class DesktopBrowserManager {
         this.attachActiveTab(input.threadId, bounds);
       }
 
-      if (wasSuspended || currentUrl.length === 0 || currentUrl !== expectedUrl) {
+      if (requiresRecovery || currentUrl.length === 0 || currentUrl !== expectedUrl) {
         await this.loadTab(input.threadId, tab.id, { runtime });
       } else {
         this.queueRuntimeStateSync(input.threadId, tab.id);
       }
+      await this.waitForPendingTabLoads(runtimeKey);
+      if (
+        !this.isCurrentPage(input.threadId, state, tab) ||
+        state.activeTabId !== tab.id ||
+        this.runtimes.get(runtimeKey) !== runtime ||
+        runtime.webContents.isDestroyed()
+      ) {
+        throw new Error("The Browser session changed while preparing the requested page.");
+      }
 
-      const pngBytes = (await webContents.capturePage()).toPNG();
+      const captureGeneration = this.tabLoadGenerationByKey.get(runtimeKey);
+      const capturedUrl = webContents.getURL();
+      let navigatedDuringCapture = false;
+      const didStartNavigation = (
+        _event: Electron.Event,
+        _url: string,
+        _isInPlace: boolean,
+        isMainFrame: boolean,
+      ) => {
+        if (isMainFrame) navigatedDuringCapture = true;
+      };
+      webContents.on("did-start-navigation", didStartNavigation);
+      let capturedImage: Electron.NativeImage;
+      try {
+        capturedImage = await webContents.capturePage();
+      } finally {
+        webContents.removeListener("did-start-navigation", didStartNavigation);
+      }
+      if (
+        navigatedDuringCapture ||
+        !this.isCurrentPage(input.threadId, state, tab) ||
+        state.activeTabId !== tab.id ||
+        this.runtimes.get(runtimeKey) !== runtime ||
+        runtime.webContents.isDestroyed() ||
+        this.pendingTabLoads.has(runtimeKey) ||
+        this.tabLoadGenerationByKey.get(runtimeKey) !== captureGeneration ||
+        webContents.getURL() !== capturedUrl
+      ) {
+        throw new Error("The Browser session changed while capturing the requested page.");
+      }
+
+      const pngBytes = capturedImage.toPNG();
       this.perfCounters.captureScreenshotBytes += pngBytes.byteLength;
       if (pngBytes.byteLength === 0) {
         throw new Error("Couldn't capture a browser screenshot.");
       }
 
       return {
-        name: screenshotFileNameForUrl(tab.lastCommittedUrl ?? tab.url),
+        name: screenshotFileNameForUrl(capturedUrl || tab.lastCommittedUrl || tab.url),
         pngBytes,
       };
     } finally {
@@ -1752,21 +1882,38 @@ export class DesktopBrowserManager {
     try {
       const state = this.ensureWorkspace(input.threadId);
       const tab = this.resolveTab(state, input.tabId);
-      this.activateTab(input.threadId, state, tab);
-
-      this.resumeThread(input.threadId);
+      const runtimeKey = buildRuntimeKey(input.threadId, tab.id);
+      // Operate only on the attached visible guest, after any navigation already in flight.
+      await this.waitForPendingTabLoads(runtimeKey);
+      if (!this.isCurrentPage(input.threadId, state, tab)) {
+        throw new Error("The Browser session changed while preparing the requested page.");
+      }
       const wasSuspended = tab.status === SUSPENDED_TAB_STATUS;
-      const runtime = this.ensureLiveRuntime(input.threadId, tab.id);
+      const priorRuntime = this.runtimes.get(runtimeKey);
+      if (!priorRuntime || priorRuntime.webContents.isDestroyed()) {
+        throw new Error("The visible Browser page is not attached yet.");
+      }
+      const requiresRecovery = wasSuspended;
+      this.activateTab(input.threadId, state, tab);
+      const runtime = priorRuntime;
       const webContents = runtime.webContents;
       const bounds = this.getVisibleBoundsForThread(input.threadId);
       if (bounds) {
-        this.attachActiveTab(input.threadId, bounds);
+        this.attachRuntime(runtime, bounds);
       }
 
-      if (wasSuspended) {
+      if (requiresRecovery) {
         await this.loadTab(input.threadId, tab.id, { force: true, runtime });
       } else {
         this.queueRuntimeStateSync(input.threadId, tab.id);
+      }
+      if (
+        !this.isCurrentPage(input.threadId, state, tab) ||
+        state.activeTabId !== tab.id ||
+        this.runtimes.get(runtimeKey) !== runtime ||
+        runtime.webContents.isDestroyed()
+      ) {
+        throw new Error("The Browser session changed while preparing the requested page.");
       }
 
       if (!webContents.debugger.isAttached()) {
@@ -1786,30 +1933,51 @@ export class DesktopBrowserManager {
     }
   }
 
-  async prepareObservationTab(input: BrowserTabInput): Promise<void> {
+  async prepareObservationTab(input: BrowserTabInput): Promise<boolean> {
     const startedAt = performance.now();
     this.perfCounters.prepareObservationCalls += 1;
     try {
       const state = this.ensureWorkspace(input.threadId);
       const tab = this.resolveTab(state, input.tabId);
-      this.activateTab(input.threadId, state, tab);
-
-      this.resumeThread(input.threadId);
+      const runtimeKey = buildRuntimeKey(input.threadId, tab.id);
+      // The renderer-owned <webview> is the authoritative ordinary page. Snapshot callers may
+      // wait for a load already running on that guest, but must never manufacture a hidden native
+      // substitute when the renderer has not attached it yet.
+      await this.waitForPendingTabLoads(runtimeKey);
+      if (!this.isCurrentPage(input.threadId, state, tab) || state.activeTabId !== tab.id) {
+        return false;
+      }
       const wasSuspended = tab.status === SUSPENDED_TAB_STATUS;
-      const runtime = this.ensureLiveRuntime(input.threadId, tab.id);
+      const priorRuntime = this.runtimes.get(runtimeKey);
+      if (!priorRuntime || priorRuntime.webContents.isDestroyed()) {
+        return false;
+      }
+      const requiresRecovery = wasSuspended;
+      this.activateTab(input.threadId, state, tab);
+      const runtime = priorRuntime;
       if (this.activeBounds && this.activeBoundsThreadId === input.threadId) {
-        this.activateThread(input.threadId, this.activeBounds);
+        this.attachRuntime(runtime, this.activeBounds);
       }
 
-      if (wasSuspended) {
+      if (requiresRecovery) {
         await this.loadTab(input.threadId, tab.id, { force: true, runtime });
       } else {
         this.queueRuntimeStateSync(input.threadId, tab.id);
       }
 
+      if (
+        !this.isCurrentPage(input.threadId, state, tab) ||
+        state.activeTabId !== tab.id ||
+        this.runtimes.get(runtimeKey) !== runtime ||
+        runtime.webContents.isDestroyed()
+      ) {
+        return false;
+      }
+
       if (!runtime.webContents.debugger.isAttached()) {
         runtime.webContents.debugger.attach("1.3");
       }
+      return true;
     } finally {
       this.perfCounters.prepareObservationTotalMs += performance.now() - startedAt;
     }
@@ -1878,8 +2046,11 @@ export class DesktopBrowserManager {
         continue;
       }
       const wasSuspended = tab.status === SUSPENDED_TAB_STATUS;
+      const priorRuntime = this.runtimes.get(buildRuntimeKey(threadId, tab.id));
+      const requiresRecovery =
+        wasSuspended || !priorRuntime || priorRuntime.webContents.isDestroyed();
       const runtime = this.ensureLiveRuntime(threadId, tab.id);
-      if (wasSuspended) {
+      if (requiresRecovery) {
         void this.loadTab(threadId, tab.id, { force: true, runtime });
       } else {
         didChange = syncTabStateFromRuntime(state, tab, runtime.webContents) || didChange;
@@ -1905,11 +2076,14 @@ export class DesktopBrowserManager {
     }
 
     const wasSuspended = activeTab.status === SUSPENDED_TAB_STATUS;
+    const priorRuntime = this.runtimes.get(buildRuntimeKey(threadId, activeTab.id));
+    const requiresRecovery =
+      wasSuspended || !priorRuntime || priorRuntime.webContents.isDestroyed();
     const runtime = this.ensureLiveRuntime(threadId, activeTab.id);
     this.attachRuntime(runtime, bounds);
-    if (options.forceLoad || wasSuspended) {
+    if (options.forceLoad || requiresRecovery) {
       void this.loadTab(threadId, activeTab.id, {
-        force: options.forceLoad || wasSuspended,
+        force: true,
         runtime,
       });
     } else {
@@ -2095,14 +2269,16 @@ export class DesktopBrowserManager {
   }
 
   private createLiveRuntime(threadId: ThreadId, tabId: string): LiveTabRuntime {
-    const view = new WebContentsView({
+    const viewOptions: Electron.WebContentsViewConstructorOptions = {
       webPreferences: {
         partition: this.sessionPartition(threadId),
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
       },
-    });
+    };
+    const view =
+      this.options.createWebContentsView?.(viewOptions) ?? new WebContentsView(viewOptions);
     const runtime: LiveTabRuntime = {
       key: buildRuntimeKey(threadId, tabId),
       threadId,
@@ -2113,6 +2289,13 @@ export class DesktopBrowserManager {
       listenerDisposers: [],
     };
     this.configureRuntimeWebContents(runtime);
+    this.reportLifecycle({
+      kind: "runtime-created",
+      sessionId: threadId,
+      pageId: tabId,
+      webContentsId: runtime.webContents.id,
+      owner: "main",
+    });
     return runtime;
   }
 
@@ -2309,24 +2492,75 @@ export class DesktopBrowserManager {
     });
   }
 
-  private async loadTab(
+  private loadTab(
     threadId: ThreadId,
     tabId: string,
     options: { force?: boolean; runtime?: LiveTabRuntime } = {},
   ): Promise<void> {
-    const state = this.ensureWorkspace(threadId);
-    const tab = this.getTab(state, tabId);
-    if (!tab) {
+    const key = buildRuntimeKey(threadId, tabId);
+    const state = this.states.get(threadId);
+    const tab = state ? this.getTab(state, tabId) : null;
+    if (!tab) return Promise.resolve();
+    const requestedUrl = normalizeUrlInput(
+      options.force === true ? tab.url : (tab.lastCommittedUrl ?? tab.url),
+    );
+    const generation = (this.tabLoadGenerationByKey.get(key) ?? 0) + 1;
+    this.tabLoadGenerationByKey.set(key, generation);
+    const prior = this.pendingTabLoads.get(key);
+    // Start the first load synchronously through its initial loadURL call. Several presentation
+    // paths attach the runtime immediately afterward and may synchronize its current document;
+    // delaying this first step by a microtask would let about:blank overwrite retained state.
+    const operation = prior
+      ? prior
+          .catch(() => undefined)
+          .then(() =>
+            this.loadTabNow(
+              threadId,
+              tabId,
+              requestedUrl,
+              generation,
+              options.force === true,
+              options.runtime,
+            ),
+          )
+      : this.loadTabNow(
+          threadId,
+          tabId,
+          requestedUrl,
+          generation,
+          options.force === true,
+          options.runtime,
+        );
+    this.pendingTabLoads.set(key, operation);
+    const cleanup = () => {
+      if (this.pendingTabLoads.get(key) === operation) this.pendingTabLoads.delete(key);
+    };
+    void operation.then(cleanup, cleanup);
+    return operation;
+  }
+
+  private async loadTabNow(
+    threadId: ThreadId,
+    tabId: string,
+    nextUrl: string,
+    generation: number,
+    force: boolean,
+    requestedRuntime?: LiveTabRuntime,
+  ): Promise<void> {
+    const state = this.states.get(threadId);
+    const tab = state ? this.getTab(state, tabId) : null;
+    if (!state?.open || !tab) {
       return;
     }
 
-    const runtime = options.runtime ?? this.ensureLiveRuntime(threadId, tabId);
+    const runtime = requestedRuntime ?? this.ensureLiveRuntime(threadId, tabId);
+    const key = buildRuntimeKey(threadId, tabId);
+    if (this.tabLoadGenerationByKey.get(key) !== generation || this.runtimes.get(key) !== runtime) {
+      return;
+    }
     const webContents = runtime.webContents;
-    const nextUrl = normalizeUrlInput(
-      options.force === true ? tab.url : (tab.lastCommittedUrl ?? tab.url),
-    );
     const currentUrl = webContents.getURL();
-    const shouldLoad = options.force === true || currentUrl !== nextUrl || currentUrl.length === 0;
+    const shouldLoad = force || currentUrl !== nextUrl || currentUrl.length === 0;
 
     if (!shouldLoad) {
       this.queueRuntimeStateSync(threadId, tabId);
@@ -2363,8 +2597,14 @@ export class DesktopBrowserManager {
     webContents.on("did-fail-load", didFailDuringLoad);
     try {
       await webContents.loadURL(nextUrl);
+      if (this.runtimes.get(key) !== runtime || this.tabLoadGenerationByKey.get(key) !== generation)
+        return;
       this.queueRuntimeStateSync(threadId, tabId);
     } catch (error) {
+      // Closing, crashing, or replacing a page invalidates the load. Its late completion must not
+      // publish errors or synchronize state into a successor that reuses the logical page key.
+      if (this.runtimes.get(key) !== runtime || this.tabLoadGenerationByKey.get(key) !== generation)
+        return;
       if (isAbortedNavigationError(error)) {
         this.queueRuntimeStateSync(threadId, tabId);
         return;
@@ -2522,12 +2762,21 @@ export class DesktopBrowserManager {
 
   private destroyRuntime(threadId: ThreadId, tabId: string): void {
     const key = buildRuntimeKey(threadId, tabId);
+    this.pendingTabLoads.delete(key);
+    this.tabLoadGenerationByKey.delete(key);
     this.pendingRuntimeSyncs.delete(key);
     this.runtimeLastActiveAtByKey.delete(key);
     const runtime = this.runtimes.get(key);
     if (!runtime) {
       return;
     }
+    this.reportLifecycle({
+      kind: "runtime-destroyed",
+      sessionId: threadId,
+      pageId: tabId,
+      webContentsId: runtime.webContents.id,
+      owner: runtime.ownsWebContents ? "main" : "renderer",
+    });
 
     if (this.attachedRuntimeKey === key) {
       this.detachAttachedRuntime();
@@ -2550,6 +2799,10 @@ export class DesktopBrowserManager {
         webContents.close({ waitForBeforeUnload: false });
       }
     }
+  }
+
+  private reportLifecycle(event: BrowserLifecycleEvent): void {
+    this.options.reportLifecycle?.(event);
   }
 
   private findRendererRuntimeByWebContentsId(webContentsId: number): LiveTabRuntime | null {
@@ -2677,6 +2930,26 @@ export class DesktopBrowserManager {
     return state.tabs.find((tab) => tab.id === tabId) ?? null;
   }
 
+  private isCurrentPage(
+    threadId: ThreadId,
+    state: ThreadBrowserState,
+    tab: BrowserTabState,
+  ): boolean {
+    const current = this.states.get(threadId);
+    return current === state && current.open && current.tabs.includes(tab);
+  }
+
+  private async waitForPendingTabLoads(key: string): Promise<void> {
+    // Loads are a serialized tail. Another navigation can append while this await is suspended,
+    // so keep following the map until the tail observed after an await is still the final tail.
+    while (true) {
+      const pending = this.pendingTabLoads.get(key);
+      if (!pending) return;
+      await pending;
+      if (!this.pendingTabLoads.has(key)) return;
+    }
+  }
+
   // Resolves the most accurate URL for a tab, preferring the live page over cached state and
   // ignoring blank placeholders so the copy-link chord never yields "about:blank".
   private resolveCopyableTabUrl(
@@ -2760,9 +3033,14 @@ function syncTabStateFromRuntime(
   // listeners attach. Chromium then exposes chrome-error://chromewebdata/ as the current URL.
   // Treat that as failure evidence, never as the user's URL or a successful commit.
   const isInternalErrorDocument = currentUrl.startsWith(BROWSER_INTERNAL_ERROR_URL_PREFIX);
-  const committedUrl = isInternalErrorDocument ? "" : currentUrl;
+  // A newly created native WebContentsView reports about:blank until its retained navigation
+  // commits. That placeholder is not authoritative when the logical tab already targets a real
+  // URL; synchronizing it would erase the retained URL and make later recovery load a blank page.
+  const isTransientBlankDocument = currentUrl === ABOUT_BLANK_URL && tab.url !== ABOUT_BLANK_URL;
+  const committedUrl = isInternalErrorDocument || isTransientBlankDocument ? "" : currentUrl;
   const nextUrl = committedUrl || tab.url;
-  const nextTitle = isInternalErrorDocument ? tab.title : webContents.getTitle();
+  const nextTitle =
+    isInternalErrorDocument || isTransientBlankDocument ? tab.title : webContents.getTitle();
   const isLoading = webContents.isLoading();
   let didChange = false;
   didChange =

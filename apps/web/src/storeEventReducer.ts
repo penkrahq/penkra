@@ -1022,7 +1022,7 @@ function applyOrchestrationEvent(
           const error = normalizeThreadErrorMessage(event.payload.session.lastError);
           const latestTurn = reconcileLatestTurnFromSession(thread, event.payload.session, error);
           const pendingTurnStartMessageId =
-            event.payload.session.status === "starting"
+            event.payload.session.status === "starting" || event.payload.session.status === "ready"
               ? (thread.pendingTurnStartMessageId ?? null)
               : null;
           if (

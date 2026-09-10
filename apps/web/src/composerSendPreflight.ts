@@ -1,6 +1,11 @@
 import type { MessageId, ThreadId } from "@penkra/contracts";
 import { useSyncExternalStore } from "react";
 import type { QueuedComposerTurn } from "./composerDraftStore";
+import type { ChatMessage } from "./types";
+import {
+  recordComposerSendPreflightDiagnostic,
+  resetComposerSendPreflightDiagnostics,
+} from "./composerSendPreflightDiagnostics";
 
 export interface ComposerSendPreflightOwner {
   readonly id: string;
@@ -10,22 +15,23 @@ export interface ComposerSendPreflightOwner {
   phase: "preflight" | "dispatching";
   messageId: MessageId | null;
   pendingTurn: (QueuedComposerTurn & { messageId: MessageId }) | null;
+  admissionReceiptSequence: number | null;
+  optimisticMessage: ChatMessage | null;
   readonly claimedImageIds: ReadonlySet<string>;
   activeRunStopRequested: boolean;
 }
 
 const owners = new Map<ThreadId, ComposerSendPreflightOwner[]>();
-const admittedMessageIdsByThread = new Map<ThreadId, Set<MessageId>>();
 const listeners = new Set<() => void>();
 const EMPTY_ACTIVE_THREAD_IDS: ReadonlySet<ThreadId> = new Set();
 let activeThreadIdsSnapshot = EMPTY_ACTIVE_THREAD_IDS;
+let appliedSyncSequence = 0;
 
 function publish(): void {
   activeThreadIdsSnapshot = new Set([
     ...[...owners.entries()]
       .filter(([, threadOwners]) => threadOwners.some((owner) => !owner.cancelled))
       .map(([threadId]) => threadId),
-    ...admittedMessageIdsByThread.keys(),
   ]);
   for (const listener of listeners) listener();
 }
@@ -34,6 +40,7 @@ export function claimComposerSendPreflight(
   threadId: ThreadId,
   capturedSubmission: QueuedComposerTurn,
   claimedImageIds: readonly string[] = capturedSubmission.images.map((image) => image.id),
+  claimedMessageId: MessageId | null = null,
 ): ComposerSendPreflightOwner | null {
   const threadOwners = owners.get(threadId) ?? [];
   if (threadOwners.some((owner) => owner.phase === "preflight" && !owner.cancelled)) return null;
@@ -43,14 +50,71 @@ export function claimComposerSendPreflight(
     capturedSubmission,
     cancelled: false,
     phase: "preflight" as const,
-    messageId: null,
+    messageId: claimedMessageId,
     pendingTurn: null,
+    admissionReceiptSequence: null,
+    optimisticMessage: null,
     claimedImageIds: new Set(claimedImageIds),
     activeRunStopRequested: false,
   };
   owners.set(threadId, [...threadOwners, owner]);
+  recordComposerSendPreflightDiagnostic({
+    event: "claim",
+    threadId: String(threadId),
+    ownerId: owner.id,
+    messageId: owner.messageId === null ? null : String(owner.messageId),
+    receiptSequence: null,
+    appliedSequence: appliedSyncSequence,
+  });
   publish();
   return owner;
+}
+
+export function setComposerSendPreflightProjection(
+  owner: ComposerSendPreflightOwner,
+  optimisticMessage: ChatMessage,
+): void {
+  if (
+    !owners
+      .get(owner.threadId)
+      ?.some((candidate) => candidate.id === owner.id && !candidate.cancelled)
+  )
+    return;
+  owner.optimisticMessage = optimisticMessage;
+  recordComposerSendPreflightDiagnostic({
+    event: "projection-published",
+    threadId: String(owner.threadId),
+    ownerId: owner.id,
+    messageId: String(optimisticMessage.id),
+    receiptSequence: owner.admissionReceiptSequence,
+    appliedSequence: appliedSyncSequence,
+  });
+  publish();
+}
+
+export function getComposerSendPreflightProjection(threadId: ThreadId | null): ChatMessage | null {
+  if (threadId === null) return null;
+  const threadOwners = owners.get(threadId) ?? [];
+  const owner =
+    threadOwners.find(
+      (candidate) =>
+        candidate.phase === "preflight" &&
+        !candidate.cancelled &&
+        candidate.optimisticMessage !== null,
+    ) ??
+    threadOwners.find((candidate) => !candidate.cancelled && candidate.optimisticMessage !== null);
+  return owner?.optimisticMessage ?? null;
+}
+
+export function useComposerSendPreflightProjection(threadId: ThreadId | null): ChatMessage | null {
+  return useSyncExternalStore(
+    (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    () => getComposerSendPreflightProjection(threadId),
+    () => null,
+  );
 }
 
 export function getComposerSendPreflight(threadId: ThreadId): ComposerSendPreflightOwner | null {
@@ -89,76 +153,117 @@ export function releaseComposerSendPreflight(owner: ComposerSendPreflightOwner):
   const next = threadOwners.filter((candidate) => candidate.id !== owner.id);
   if (next.length === 0) owners.delete(owner.threadId);
   else owners.set(owner.threadId, next);
-  if (owner.messageId) {
-    const admitted = admittedMessageIdsByThread.get(owner.threadId);
-    admitted?.delete(owner.messageId);
-    if (admitted?.size === 0) admittedMessageIdsByThread.delete(owner.threadId);
-  }
+  recordComposerSendPreflightDiagnostic({
+    event: "released",
+    threadId: String(owner.threadId),
+    ownerId: owner.id,
+    messageId: owner.messageId === null ? null : String(owner.messageId),
+    receiptSequence: null,
+    appliedSequence: appliedSyncSequence,
+  });
   publish();
 }
 
-export function releaseComposerSendPreflightAfterAdmission(
+/** An authoritative recovery outcome supersedes an in-flight command receipt. */
+export function settleComposerSendPreflightRecovery(
+  threadId: ThreadId,
+  messageId: MessageId,
+  recoverySequence?: number,
+): void {
+  const threadOwners = owners.get(threadId) ?? [];
+  const settledOwners = threadOwners.filter((owner) => owner.messageId === messageId);
+  const next = threadOwners.filter((owner) => owner.messageId !== messageId);
+  if (settledOwners.length === 0) return;
+  if (next.length === 0) owners.delete(threadId);
+  else owners.set(threadId, next);
+  recordComposerSendPreflightDiagnostic({
+    event: "recovery-settled",
+    threadId: String(threadId),
+    ownerId: settledOwners[0]!.id,
+    messageId: String(messageId),
+    receiptSequence: recoverySequence ?? null,
+    appliedSequence: appliedSyncSequence,
+  });
+  publish();
+}
+
+export function markComposerSendPreflightAdmission(
   owner: ComposerSendPreflightOwner,
+  receiptSequence: number,
 ): void {
   const threadOwners = owners.get(owner.threadId);
   if (!threadOwners?.some((candidate) => candidate.id === owner.id)) return;
-  const next = threadOwners.filter((candidate) => candidate.id !== owner.id);
-  if (next.length === 0) owners.delete(owner.threadId);
-  else owners.set(owner.threadId, next);
+  owner.admissionReceiptSequence = receiptSequence;
+  if (owner.messageId !== null) {
+    recordComposerSendPreflightDiagnostic({
+      event: "admission-retained",
+      threadId: String(owner.threadId),
+      ownerId: owner.id,
+      messageId: String(owner.messageId),
+      receiptSequence,
+      appliedSequence: appliedSyncSequence,
+    });
+  }
+  settleComposerSendPreflightsThroughAppliedSequence(appliedSyncSequence);
   publish();
 }
 
-export function releaseComposerSendPreflightForMessage(
-  threadId: ThreadId,
-  messageId: MessageId,
-): void {
-  const threadOwners = owners.get(threadId);
-  const next = (threadOwners ?? []).filter(
-    (owner) => owner.phase !== "dispatching" || owner.messageId !== messageId,
-  );
-  const admitted = admittedMessageIdsByThread.get(threadId);
-  const removedAdmitted = admitted?.delete(messageId) ?? false;
-  const removedOwner = next.length !== (threadOwners?.length ?? 0);
-  if (!removedOwner && !removedAdmitted) return;
-  if (removedOwner) {
+function settleComposerSendPreflightsThroughAppliedSequence(sequence: number): void {
+  let changed = false;
+  for (const [threadId, threadOwners] of owners) {
+    const settledOwners = threadOwners.filter(
+      (owner) =>
+        owner.admissionReceiptSequence !== null && owner.admissionReceiptSequence <= sequence,
+    );
+    if (settledOwners.length === 0) continue;
+    const settledOwnerIds = new Set(settledOwners.map((owner) => owner.id));
+    const next = threadOwners.filter((owner) => !settledOwnerIds.has(owner.id));
     if (next.length === 0) owners.delete(threadId);
     else owners.set(threadId, next);
+    for (const owner of settledOwners) {
+      recordComposerSendPreflightDiagnostic({
+        event: "applied-frontier-settled",
+        threadId: String(threadId),
+        ownerId: owner.id,
+        messageId: owner.messageId === null ? null : String(owner.messageId),
+        receiptSequence: owner.admissionReceiptSequence,
+        appliedSequence: sequence,
+      });
+    }
+    changed = true;
   }
-  if (admitted?.size === 0) admittedMessageIdsByThread.delete(threadId);
-  publish();
+  if (changed) publish();
 }
 
-/**
- * Settles local send chrome from the app-wide synchronization stream.
- *
- * ChatView also releases this ownership when its local dispatch observes the
- * server row, but that component can unmount or reconnect after admission. The
- * sync stream is the durable acknowledgement owner and must clear the shared
- * registry even when no view is mounted for the thread.
- */
-export function acknowledgeComposerSendPreflightEvent(event: {
-  readonly type: "thread.message-sent";
-  readonly payload: {
-    readonly threadId: ThreadId;
-    readonly messageId: MessageId;
-  };
-}): void {
-  releaseComposerSendPreflightForMessage(event.payload.threadId, event.payload.messageId);
+export function advanceComposerSendPreflightAppliedSequence(sequence: number): void {
+  appliedSyncSequence = Math.max(appliedSyncSequence, sequence);
+  settleComposerSendPreflightsThroughAppliedSequence(appliedSyncSequence);
 }
 
 export function markComposerSendPreflightDispatching(
   owner: ComposerSendPreflightOwner,
   messageId: MessageId,
   pendingTurn: QueuedComposerTurn & { messageId: MessageId },
-): void {
-  if (!owners.get(owner.threadId)?.some((candidate) => candidate.id === owner.id)) return;
+): boolean {
+  if (
+    !owners
+      .get(owner.threadId)
+      ?.some((candidate) => candidate.id === owner.id && !candidate.cancelled)
+  )
+    return false;
   owner.phase = "dispatching";
   owner.messageId = messageId;
   owner.pendingTurn = pendingTurn;
-  const admitted = admittedMessageIdsByThread.get(owner.threadId) ?? new Set<MessageId>();
-  admitted.add(messageId);
-  admittedMessageIdsByThread.set(owner.threadId, admitted);
+  recordComposerSendPreflightDiagnostic({
+    event: "dispatching",
+    threadId: String(owner.threadId),
+    ownerId: owner.id,
+    messageId: String(messageId),
+    receiptSequence: null,
+    appliedSequence: appliedSyncSequence,
+  });
   publish();
+  return true;
 }
 
 export function updateComposerSendPreflightImages(
@@ -224,6 +329,7 @@ export function hasComposerSendActivity(threadId: ThreadId): boolean {
 
 export function resetComposerSendPreflightsForTests(): void {
   owners.clear();
-  admittedMessageIdsByThread.clear();
+  appliedSyncSequence = 0;
+  resetComposerSendPreflightDiagnostics();
   publish();
 }

@@ -129,7 +129,7 @@ penkra/
 
 ### Design system
 
-Penkra's visual design is authored in [Pencil](https://pencil.app) (`penkra.pen`). Pencil is the source of truth for component hierarchy, states, and visual composition. React components in the codebase reproduce that design while retaining production routing, state management, accessibility, and desktop behavior.
+Penkra's visible interaction design is authored and reviewed in Canvas. Approved Canvas designs are the source of truth for visual composition, states, and interactions; the codebase and Storybook remain the source of truth for component ownership and implementation structure. React components reproduce the approved design while retaining production routing, state management, accessibility, and desktop behavior.
 
 ### Component library
 

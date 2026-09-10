@@ -25,7 +25,7 @@ function makeContents() {
   const listeners = new Map<string, () => void>();
   const listenerSets = new Map<string, Set<() => void>>();
   const debuggerListeners = new Map<string, (...args: unknown[]) => void>();
-  const sendCommand = vi.fn(async (method: string) => {
+  const sendCommand = vi.fn(async (method: string): Promise<unknown> => {
     if (method === "Accessibility.getFullAXTree") {
       return {
         nodes: [
@@ -58,6 +58,9 @@ function makeContents() {
       sendCommand,
       on: (event: string, listener: (...args: unknown[]) => void) =>
         debuggerListeners.set(event, listener),
+      removeListener: (event: string, listener: (...args: unknown[]) => void) => {
+        if (debuggerListeners.get(event) === listener) debuggerListeners.delete(event);
+      },
     },
     isDestroyed: () => false,
     getURL: () => "penkra-app://com.acme.canvas/app.html",
@@ -98,6 +101,7 @@ function makeContents() {
     sendCommand,
     emitDebugger: (method: string, params: Record<string, unknown>, sessionId?: string) =>
       debuggerListeners.get("message")?.({}, method, params, sessionId),
+    emitDebuggerDetach: () => debuggerListeners.get("detach")?.({}, "target closed"),
   };
 }
 
@@ -127,6 +131,27 @@ describe("resolveAppTabObservationTarget", () => {
       webContents: hostedContents,
     });
     expect(browserWebContents).toHaveBeenCalledExactlyOnceWith("tab-1");
+  });
+
+  it("never misreports a missing Browser session as an App iframe protocol failure", async () => {
+    const appTarget = vi.fn(() => ({
+      descriptor: { ...descriptor, appId: "com.penkra.browser", slug: "browser" },
+      webContents: makeContents().contents,
+    }));
+
+    await expect(
+      resolveAppTabObservationTarget({
+        descriptor: { ...descriptor, appId: "com.penkra.browser", slug: "browser" },
+        browserAppId: "com.penkra.browser",
+        appTarget,
+        browserWebContents: async () => null,
+      }),
+    ).rejects.toMatchObject({
+      code: "BROWSER_SESSION_NOT_OPEN",
+      retryable: true,
+      message: expect.stringContaining("App frame is still present"),
+    });
+    expect(appTarget).not.toHaveBeenCalled();
   });
 
   it("never substitutes a Browser page for an ordinary App", async () => {
@@ -266,6 +291,34 @@ describe("AppTabObserver", () => {
       app: "canvas",
       snapshot: '- button "Save" [ref=e1]\n- textbox "Password" value="[redacted]" [ref=e2]',
     });
+  });
+
+  it("serializes concurrent snapshots for one tab so reference generations cannot interleave", async () => {
+    const { contents, sendCommand } = makeContents();
+    let activeTrees = 0;
+    let maximumConcurrentTrees = 0;
+    sendCommand.mockImplementation(async (method: string) => {
+      if (method !== "Accessibility.getFullAXTree") return {};
+      activeTrees += 1;
+      maximumConcurrentTrees = Math.max(maximumConcurrentTrees, activeTrees);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeTrees -= 1;
+      return {
+        nodes: [{ backendDOMNodeId: 7, role: { value: "button" }, name: { value: "Save" } }],
+      };
+    });
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents }),
+    });
+
+    const [first, second] = await Promise.all([
+      observer.snapshot("tab-1"),
+      observer.snapshot("tab-1"),
+    ]);
+
+    expect(maximumConcurrentTrees).toBe(1);
+    expect(first).toMatchObject({ snapshot: '- button "Save" [ref=e1]' });
+    expect(second).toMatchObject({ snapshot: '- button "Save" [ref=e1]' });
   });
 
   it("observes the exact iframe instead of the surrounding Penkra shell", async () => {

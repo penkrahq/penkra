@@ -301,12 +301,14 @@ import {
   isComposerImageOwnedBySendPreflight,
   markComposerSendPreflightDispatching,
   markComposerSendPreflightActiveRunStopRequested,
+  setComposerSendPreflightProjection,
+  settleComposerSendPreflightRecovery,
   updateComposerSendPreflightResolvedAdmission,
   updateComposerSendPreflightImages,
   releaseComposerSendPreflight,
-  releaseComposerSendPreflightAfterAdmission,
-  releaseComposerSendPreflightForMessage,
+  markComposerSendPreflightAdmission,
   useHasComposerSendPreflight,
+  useComposerSendPreflightProjection,
 } from "../composerSendPreflight";
 import { useComposerFocusRequestStore } from "../composerFocusRequestStore";
 import { useWorkflowRunUiStore, useWorkflowRunUiThreadState } from "../workflowRunUiStore";
@@ -455,8 +457,6 @@ import {
   type RateLimitStatus,
 } from "./chat/RateLimitBanner";
 import {
-  ACTIVE_TURN_LAYOUT_SETTLE_DELAY_MS,
-  shouldStartActiveTurnLayoutGrace,
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
   DISMISSED_PROVIDER_HEALTH_BANNERS_KEY,
@@ -1208,6 +1208,16 @@ export default function ChatView({
       if (durableRecovery && "raw" in durableRecovery) {
         throw new Error("Pending start recovery is unsupported and remains unresolved.");
       }
+      // The authoritative cancellation owns recovery now. Retire both transient
+      // projections before restoring the draft, so no awaited durable write can
+      // leave the same captured submission visible in two places.
+      const retiredOptimisticMessages = optimisticUserMessagesRef.current.filter(
+        (message) => message.id === messageId,
+      );
+      settleComposerSendPreflightRecovery(threadId, messageId, cancellationSequence);
+      setOptimisticUserMessages((existing) =>
+        existing.filter((message) => message.id !== messageId),
+      );
       if (
         durableRecovery &&
         "pendingTurn" in durableRecovery &&
@@ -1233,6 +1243,8 @@ export default function ChatView({
             ? existing
             : existing.filter((message) => message.id !== messageId);
         });
+        for (const message of retiredOptimisticMessages)
+          revokeUnownedUserMessagePreviewUrls(message);
         acknowledgePendingStartCancellation(threadId, messageId);
         return;
       }
@@ -1276,6 +1288,7 @@ export default function ChatView({
           ? existing
           : existing.filter((message) => message.id !== messageId);
       });
+      for (const message of retiredOptimisticMessages) revokeUnownedUserMessagePreviewUrls(message);
       acknowledgePendingStartCancellation(threadId, messageId);
     },
     [
@@ -3004,6 +3017,7 @@ export default function ChatView({
   );
   const isSendBusy = localDispatch !== null && !serverAcknowledgedLocalDispatch;
   const hasSendPreflight = useHasComposerSendPreflight(activeThreadId ?? null);
+  const preflightOptimisticUserMessage = useComposerSendPreflightProjection(activeThreadId ?? null);
   const hasLiveTurn = phase === "running";
   const authoritativePendingTurnStartMessageId = useMemo(() => {
     if (activeThread?.pendingTurnStartMessageId) {
@@ -3050,9 +3064,6 @@ export default function ChatView({
     }
   }, [hasPendingTurnStart, isSendBusy, phase]);
   const activeTurnLayoutLive = isWorking || !latestTurnSettled;
-  const [keepSettledActiveTurnLayout, setKeepSettledActiveTurnLayout] = useState(false);
-  const previousActiveTurnLayoutLiveRef = useRef(activeTurnLayoutLive);
-  const previousActiveTurnLayoutKeyRef = useRef<string | null>(null);
   const activeWorkStartedAt = hasLiveTurnTail
     ? (activeLatestTurn?.startedAt ?? null)
     : hasLiveTurn
@@ -3085,6 +3096,8 @@ export default function ChatView({
       latestTurnStartedAt: activeLatestTurn?.startedAt ?? null,
       latestTurnCompletedAt: activeLatestTurn?.completedAt ?? null,
       pendingTurnStartMessageId: authoritativePendingTurnStartMessageId ?? null,
+      projectedPendingTurnStartMessageId: activeThread?.pendingTurnStartMessageId ?? null,
+      hasSendPreflight,
       phase,
       hasLiveTurnTail,
       latestTurnSettledByProvider,
@@ -3126,6 +3139,7 @@ export default function ChatView({
     activeWorkStartedAt,
     authoritativePendingTurnStartMessageId,
     draftThread?.promotedTo,
+    hasSendPreflight,
     hasLiveTurn,
     hasLiveTurnTail,
     hasPendingTurnStart,
@@ -3151,9 +3165,7 @@ export default function ChatView({
     threadDetailHydration,
     threadDetailSyncState,
   ]);
-  const activeTurnLayoutKey =
-    activeThreadId === null ? null : `${activeThreadId}:${activeLatestTurn?.turnId ?? "idle"}`;
-  const activeTurnInProgress = activeTurnLayoutLive || keepSettledActiveTurnLayout;
+  const activeTurnInProgress = activeTurnLayoutLive;
   const isComposerApprovalState = activePendingApproval !== null;
   const isComposerEditorDisabled = isLocalConnecting || isComposerApprovalState;
   const canCollapsePastedTextToDraft = shouldEnableComposerPastedTextCollapse({
@@ -3166,38 +3178,6 @@ export default function ChatView({
     requestId: string | null;
     questionId: string | null;
   } | null>(null);
-  useLayoutEffect(() => {
-    if (previousActiveTurnLayoutKeyRef.current !== activeTurnLayoutKey) {
-      previousActiveTurnLayoutKeyRef.current = activeTurnLayoutKey;
-      previousActiveTurnLayoutLiveRef.current = activeTurnLayoutLive;
-      setKeepSettledActiveTurnLayout(false);
-      return;
-    }
-
-    const shouldStartGrace = shouldStartActiveTurnLayoutGrace({
-      previousTurnLayoutLive: previousActiveTurnLayoutLiveRef.current,
-      currentTurnLayoutLive: activeTurnLayoutLive,
-      latestTurnStartedAt: activeLatestTurn?.startedAt ?? null,
-    });
-    previousActiveTurnLayoutLiveRef.current = activeTurnLayoutLive;
-
-    if (activeTurnLayoutLive) {
-      setKeepSettledActiveTurnLayout(false);
-      return;
-    }
-
-    if (!shouldStartGrace) {
-      return;
-    }
-
-    setKeepSettledActiveTurnLayout(true);
-    const timeoutId = window.setTimeout(() => {
-      setKeepSettledActiveTurnLayout(false);
-    }, ACTIVE_TURN_LAYOUT_SETTLE_DELAY_MS);
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [activeLatestTurn?.startedAt, activeTurnLayoutKey, activeTurnLayoutLive]);
 
   useEffect(() => {
     const nextCustomAnswer = activePendingProgress?.customAnswer;
@@ -3576,17 +3556,27 @@ export default function ChatView({
 
     // Optimistic messages exist only briefly after a send; skip the full-transcript
     // id Set on the common (streaming-flush) path where there is nothing to reconcile.
+    const serverIds =
+      optimisticUserMessages.length > 0 || preflightOptimisticUserMessage
+        ? new Set(
+            (serverMessages ?? [])
+              .filter((message) => !queuedActionStateByMessageId.has(message.id))
+              .map((message) => message.id),
+          )
+        : null;
     let pendingMessages = optimisticUserMessages;
     if (optimisticUserMessages.length > 0) {
       // Reconcile against every durable server message before placement
       // filtering. A queue-owned message is intentionally absent from the
       // transcript array, but it must still retire its optimistic twin.
-      const serverIds = new Set(
-        (serverMessages ?? [])
-          .filter((message) => !queuedActionStateByMessageId.has(message.id))
-          .map((message) => message.id),
-      );
-      pendingMessages = optimisticUserMessages.filter((message) => !serverIds.has(message.id));
+      pendingMessages = optimisticUserMessages.filter((message) => !serverIds?.has(message.id));
+    }
+    if (
+      preflightOptimisticUserMessage &&
+      !serverIds?.has(preflightOptimisticUserMessage.id) &&
+      !pendingMessages.some((message) => message.id === preflightOptimisticUserMessage.id)
+    ) {
+      pendingMessages = [...pendingMessages, preflightOptimisticUserMessage];
     }
     const withPending =
       pendingMessages.length === 0
@@ -3606,6 +3596,7 @@ export default function ChatView({
     optimisticUserMessages,
     queuedComposerActionSteerMessages,
     queuedActionStateByMessageId,
+    preflightOptimisticUserMessage,
   ]);
   const promptHistory = useMemo(() => {
     const activeMessages = (activeThread?.messages ?? EMPTY_MESSAGES).filter(
@@ -3614,7 +3605,7 @@ export default function ChatView({
     );
     // Optimistic messages exist only briefly after a send; skip the full-transcript
     // id Set on the common (streaming-flush) path where there is nothing to reconcile.
-    if (optimisticUserMessages.length === 0) {
+    if (optimisticUserMessages.length === 0 && !preflightOptimisticUserMessage) {
       return derivePromptHistoryFromMessages(activeMessages);
     }
     const activeMessageIds = new Set(
@@ -3625,10 +3616,21 @@ export default function ChatView({
     const pendingOptimisticMessages = optimisticUserMessages.filter(
       (message) => !activeMessageIds.has(message.id),
     );
-    return derivePromptHistoryFromMessages([...activeMessages, ...pendingOptimisticMessages]);
+    const messagesWithPreflight = preflightOptimisticUserMessage
+      ? [...pendingOptimisticMessages, preflightOptimisticUserMessage]
+      : pendingOptimisticMessages;
+    const seenMessageIds = new Set<string>();
+    return derivePromptHistoryFromMessages(
+      [...activeMessages, ...messagesWithPreflight].filter((message) => {
+        if (seenMessageIds.has(message.id)) return false;
+        seenMessageIds.add(message.id);
+        return true;
+      }),
+    );
   }, [
     activeThread?.messages,
     optimisticUserMessages,
+    preflightOptimisticUserMessage,
     queuedActionStateByMessageId,
     serverQueuedMessageIds,
   ]);
@@ -3638,19 +3640,25 @@ export default function ChatView({
   );
   const shouldRenderTranscriptSurface = shouldRenderTranscriptDuringHydration({
     hydration: threadDetailHydration,
-    optimisticMessageCount: optimisticUserMessages.length,
+    optimisticMessageCount:
+      optimisticUserMessages.length + (preflightOptimisticUserMessage ? 1 : 0),
     isWorking,
   });
   const visibleTimelineEntries = useMemo(() => {
     if (threadDetailHydration === "ready") return timelineEntries;
     const transientMessages = [...optimisticUserMessages];
     const transientIds = new Set(transientMessages.map((message) => message.id));
+    if (preflightOptimisticUserMessage && !transientIds.has(preflightOptimisticUserMessage.id)) {
+      transientMessages.push(preflightOptimisticUserMessage);
+      transientIds.add(preflightOptimisticUserMessage.id);
+    }
     for (const message of queuedComposerActionSteerMessages) {
       if (!transientIds.has(message.id)) transientMessages.push(message);
     }
     return deriveTimelineEntries(transientMessages, []);
   }, [
     optimisticUserMessages,
+    preflightOptimisticUserMessage,
     queuedComposerActionSteerMessages,
     threadDetailHydration,
     timelineEntries,
@@ -3677,10 +3685,6 @@ export default function ChatView({
     threadDetailHydration,
     visibleTimelineEntries,
   ]);
-  const enteringUserMessageIds = useMemo<ReadonlySet<MessageId>>(
-    () => new Set(optimisticUserMessages.map((message) => message.id)),
-    [optimisticUserMessages],
-  );
   // --- Pinned messages & notes (per-thread, server-synced through sidepanel commands) ---
   const pinnedMessages = activeThread?.pinnedMessages ?? EMPTY_PINNED_MESSAGES;
   const pinnedMessageIds = useMemo(
@@ -5423,12 +5427,6 @@ export default function ChatView({
     if (!serverAcknowledgedLocalDispatch) {
       return;
     }
-    if (localDispatch?.expectedUserMessageId) {
-      releaseComposerSendPreflightForMessage(
-        activeThreadId ?? threadId,
-        localDispatch.expectedUserMessageId,
-      );
-    }
     resetLocalDispatch();
   }, [
     activeThreadId,
@@ -6376,6 +6374,14 @@ export default function ChatView({
       return false;
     }
     const followsDispatchingSend = getComposerDispatchedSendOwner(activeThread.id) !== null;
+    const shouldQueueCapturedSend =
+      (queuedTurn === undefined || queuedTurn === null) &&
+      dispatchMode === "queue" &&
+      (phase === "connecting" ||
+        phase === "running" ||
+        isSendBusy ||
+        hasPendingTurnStart ||
+        followsDispatchingSend);
     if (activePendingProgress) {
       const activeQuestion = activePendingProgress.activeQuestion;
       const liveComposerSnapshot = composerEditorRef.current?.readSnapshot() ?? null;
@@ -6463,6 +6469,56 @@ export default function ChatView({
     const capturedDraftOwnershipKey = composerDraftContentOwnershipKey(
       useComposerDraftStore.getState().draftsByThreadId[activeThread.id],
     );
+    const initialSendState = deriveComposerSendState({
+      prompt: promptForSend,
+      imageCount: composerImagesForSend.length + pendingBlobAttachments.length,
+      fileCount: composerFilesForSend.length,
+      assistantSelectionCount: composerAssistantSelectionsForSend.length,
+      fileCommentCount: composerFileCommentsForSend.length,
+      terminalContexts: composerTerminalContextsForSend,
+      pastedTexts: composerPastedTextsForSend,
+    });
+    const initialHasNoStructuredComposerContext =
+      composerImagesForSend.length === 0 &&
+      pendingBlobAttachments.length === 0 &&
+      composerFilesForSend.length === 0 &&
+      composerAssistantSelectionsForSend.length === 0 &&
+      composerFileCommentsForSend.length === 0 &&
+      initialSendState.sendableTerminalContexts.length === 0 &&
+      initialSendState.sendablePastedTexts.length === 0 &&
+      selectedComposerMentionsForSend.length === 0;
+    let standaloneSlashCommandChecked = false;
+    if (initialHasNoStructuredComposerContext) {
+      standaloneSlashCommandChecked = true;
+      if (initialSendState.trimmedPrompt.startsWith("/")) {
+        try {
+          const handledSlashCommand = await lateSendHandlers.handleStandaloneSlashCommand(
+            initialSendState.trimmedPrompt,
+          );
+          if (handledSlashCommand) return true;
+        } catch (error) {
+          setThreadError(
+            activeThread.id,
+            error instanceof Error ? error.message : "Failed to run the command.",
+          );
+          return false;
+        }
+      }
+    }
+    if (!initialSendState.hasSendableContent) {
+      if (initialSendState.expiredTerminalContextCount > 0) {
+        const toastCopy = buildExpiredTerminalContextToastCopy(
+          initialSendState.expiredTerminalContextCount,
+          "empty",
+        );
+        toastManager.add({
+          type: "warning",
+          title: toastCopy.title,
+          description: toastCopy.description,
+        });
+      }
+      return false;
+    }
     const pendingPromptMatchesCapturedContent = (expectedThreadId: ThreadId) => {
       const pending = pendingPromptPersistenceRef.current;
       return (
@@ -6531,10 +6587,17 @@ export default function ChatView({
       ...(providerOptionsForDispatch ? { providerOptionsForDispatch } : {}),
       runtimeMode: queuedChatTurn?.runtimeMode ?? runtimeMode,
     };
-    const sendPreflightOwner = claimComposerSendPreflight(activeThread.id, capturedRecoveryTurn, [
-      ...composerImagesForSend.map((image) => image.id),
-      ...pendingBlobAttachments.map((attachment) => attachment.id),
-    ]);
+    const messageIdForSend = newMessageId();
+    const messageCreatedAt = new Date().toISOString();
+    const sendPreflightOwner = claimComposerSendPreflight(
+      activeThread.id,
+      capturedRecoveryTurn,
+      [
+        ...composerImagesForSend.map((image) => image.id),
+        ...pendingBlobAttachments.map((attachment) => attachment.id),
+      ],
+      messageIdForSend,
+    );
     if (!sendPreflightOwner) return false;
     recordChatLifecycleUiDiagnostic({
       event: "composer-submission-claimed",
@@ -6654,6 +6717,71 @@ export default function ChatView({
       releaseSendPreflight();
       return true;
     };
+    const preflightMessageText = appendPastedTextsToPrompt(
+      appendFileCommentsToPrompt(
+        appendTerminalContextsToPrompt(
+          appendAssistantSelectionsToPrompt(promptForSend, composerAssistantSelectionsForSend),
+          initialSendState.sendableTerminalContexts,
+        ),
+        composerFileCommentsForSend,
+      ),
+      initialSendState.sendablePastedTexts,
+    );
+    const preflightOutgoingText = formatOutgoingComposerPrompt({
+      provider: selectedProviderForSend,
+      model: selectedModelForSend,
+      effort: selectedPromptEffortForSend,
+      text:
+        preflightMessageText ||
+        (composerImagesForSend.length + pendingBlobAttachments.length > 0
+          ? IMAGE_ONLY_BOOTSTRAP_PROMPT
+          : ""),
+    });
+    const preflightSkills = filterPromptSkillReferences(
+      preflightOutgoingText,
+      selectedComposerSkillsForSend,
+      selectedProviderForSend,
+    );
+    const preflightMentions = filterPromptProviderMentionReferences(
+      preflightOutgoingText,
+      selectedComposerMentionsForSend,
+    );
+    const buildOptimisticAttachments = (images: readonly ComposerImageAttachment[]) => [
+      ...composerAssistantSelectionsForSend,
+      ...images.map((image) => ({
+        type: "image" as const,
+        id: image.id,
+        name: image.name,
+        mimeType: image.mimeType,
+        sizeBytes: image.sizeBytes,
+        previewUrl: image.previewUrl,
+      })),
+      ...composerFilesForSend.map((file) => ({
+        type: "file" as const,
+        id: file.id,
+        name: file.name,
+        mimeType: file.mimeType,
+        sizeBytes: file.sizeBytes,
+      })),
+    ];
+    const setPreflightProjection = (images: readonly ComposerImageAttachment[]) => {
+      if (shouldQueueCapturedSend) return;
+      const attachments = buildOptimisticAttachments(images);
+      armTranscriptAutoFollow(activeThread.id);
+      setComposerSendPreflightProjection(sendPreflightOwner, {
+        id: messageIdForSend,
+        role: "user",
+        text: preflightOutgoingText,
+        dispatchMode,
+        ...(attachments.length > 0 ? { attachments } : {}),
+        ...(preflightSkills.length > 0 ? { skills: preflightSkills } : {}),
+        ...(preflightMentions.length > 0 ? { mentions: preflightMentions } : {}),
+        createdAt: messageCreatedAt,
+        streaming: false,
+        source: "native",
+      });
+    };
+    setPreflightProjection(composerImagesForSend);
     // Legacy blob-backed images can exist without a hydrated live image right
     // after reload. Hydrate them before a live send so they are not dropped.
     if (queuedChatTurn === null) {
@@ -6673,6 +6801,7 @@ export default function ChatView({
         if (hydratedPendingImages.length > 0) {
           composerImagesForSend = [...composerImagesForSend, ...hydratedPendingImages];
           updateComposerSendPreflightImages(sendPreflightOwner, composerImagesForSend);
+          setPreflightProjection(composerImagesForSend);
           detachCapturedHydratedImagesFromNewerDraft();
         }
         if (stopIfSendPreflightCancelled()) return false;
@@ -6775,7 +6904,7 @@ export default function ChatView({
       // Provider mentions are structured turn metadata.
       selectedComposerMentionsForSend.length === 0;
     const hasPromptOnlySendableContent = hasNoStructuredComposerContext;
-    if (hasPromptOnlySendableContent) {
+    if (hasPromptOnlySendableContent && !standaloneSlashCommandChecked) {
       let handledSlashCommand: boolean;
       try {
         handledSlashCommand =
@@ -6813,15 +6942,7 @@ export default function ChatView({
       releaseSendPreflight({ restoreComposer: true });
       return false;
     }
-    if (
-      (phase === "connecting" ||
-        phase === "running" ||
-        isSendBusy ||
-        hasPendingTurnStart ||
-        followsDispatchingSend) &&
-      dispatchMode === "queue" &&
-      queuedChatTurn === null
-    ) {
+    if (shouldQueueCapturedSend) {
       return runImmediatelyWithRelease(async () => {
         const clearOwnership = resolveComposerClearOwnership(activeThread.id);
         if (clearOwnership === "active") {
@@ -6921,7 +7042,6 @@ export default function ChatView({
     const targetFolderIdForSend = activeProject.id;
     const targetProjectDefaultModelSelectionForSend = activeProject.defaultModelSelection ?? null;
     let nextRuntimeModeForSend = runtimeModeForSend;
-    const messageIdForSend = newMessageId();
     const isFollowUpToActiveTurn =
       phase === "connecting" || phase === "running" || isSendBusy || hasPendingTurnStart;
 
@@ -6951,7 +7071,6 @@ export default function ChatView({
       ),
       composerPastedTextsSnapshot,
     );
-    const messageCreatedAt = new Date().toISOString();
     const ownedPendingTurn: QueuedComposerChatTurn & { messageId: MessageId } = {
       id: messageIdForSend,
       kind: "chat",
@@ -7074,10 +7193,31 @@ export default function ChatView({
       );
       return false;
     }
+    const abortCancelledCapturedSend = async () => {
+      await reconcileCancelledPendingStart(messageIdForSend);
+      composerOwnershipTransferred = false;
+      pendingTurnStartMessageRef.current = null;
+      sendInFlightRef.current = false;
+      releaseSendPreflight();
+      resetLocalDispatch();
+      return false;
+    };
+    // Stop can cancel while the durable capture above is awaited. Retire that
+    // exact captured owner before it can become dispatching; otherwise the
+    // continuation would still publish a turn-start command after Stop.
+    if (sendPreflightOwner.cancelled) return abortCancelledCapturedSend();
     if (!isFollowUpToActiveTurn) {
       pendingTurnStartMessageRef.current = durableRecoveryTurn;
     }
-    markComposerSendPreflightDispatching(sendPreflightOwner, messageIdForSend, durableRecoveryTurn);
+    if (
+      !markComposerSendPreflightDispatching(
+        sendPreflightOwner,
+        messageIdForSend,
+        durableRecoveryTurn,
+      )
+    ) {
+      return abortCancelledCapturedSend();
+    }
     const throwIfPendingTurnStartCancelled = () => {
       if (cancelPendingTurnStartMessageIdsRef.current.has(messageIdForSend)) {
         throw new PendingTurnStartCancelled();
@@ -7106,24 +7246,7 @@ export default function ChatView({
       files: composerFilesSnapshot,
       assistantSelections: composerAssistantSelectionsSnapshot,
     });
-    const optimisticAttachments = [
-      ...composerAssistantSelectionsSnapshot,
-      ...composerImagesSnapshot.map((image) => ({
-        type: "image" as const,
-        id: image.id,
-        name: image.name,
-        mimeType: image.mimeType,
-        sizeBytes: image.sizeBytes,
-        previewUrl: image.previewUrl,
-      })),
-      ...composerFilesSnapshot.map((file) => ({
-        type: "file" as const,
-        id: file.id,
-        name: file.name,
-        mimeType: file.mimeType,
-        sizeBytes: file.sizeBytes,
-      })),
-    ];
+    const optimisticAttachments = buildOptimisticAttachments(composerImagesSnapshot);
     setOptimisticUserMessages((existing) => [
       ...existing,
       {
@@ -7279,6 +7402,7 @@ export default function ChatView({
         });
       });
       turnStartSucceeded = true;
+      markComposerSendPreflightAdmission(sendPreflightOwner, startReceipt.sequence);
       pendingStartRecoveryRegistryRef.current.setFrontier(
         threadIdForSend,
         messageIdForSend,
@@ -7395,9 +7519,7 @@ export default function ChatView({
       }
     });
     sendInFlightRef.current = false;
-    if (turnStartSucceeded) {
-      releaseComposerSendPreflightAfterAdmission(sendPreflightOwner);
-    } else {
+    if (!turnStartSucceeded) {
       releaseSendPreflight();
       resetLocalDispatch();
     }
@@ -9459,7 +9581,6 @@ export default function ChatView({
                         pinnedMessageIds={pinnedMessageIds}
                         canPinMessage={CAN_PIN_ANY_MESSAGE}
                         onTogglePinMessage={handleTogglePinMessageGuarded}
-                        enteringUserMessageIds={enteringUserMessageIds}
                         crossTaskOrigin={crossTaskOrigin}
                         timelineEntries={visibleTimelineEntries}
                         onOpenThread={onNavigateToThread}

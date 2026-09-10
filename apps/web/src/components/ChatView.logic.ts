@@ -644,20 +644,6 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   return false;
 }
 
-export const ACTIVE_TURN_LAYOUT_SETTLE_DELAY_MS = 180;
-
-export function shouldStartActiveTurnLayoutGrace(options: {
-  previousTurnLayoutLive: boolean;
-  currentTurnLayoutLive: boolean;
-  latestTurnStartedAt: string | null;
-}): boolean {
-  return (
-    options.previousTurnLayoutLive &&
-    !options.currentTurnLayoutLive &&
-    options.latestTurnStartedAt !== null
-  );
-}
-
 export function deriveComposerSendState(options: {
   prompt: string;
   imageCount: number;
