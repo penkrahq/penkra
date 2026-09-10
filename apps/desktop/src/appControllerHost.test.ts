@@ -121,6 +121,7 @@ function operationContext(tab?: AppTabHandle): OperationContext {
       open: vi.fn(async () => tabHandle("opened-tab")),
       openForResult: vi.fn(async () => ({ confirmed: true })) as never,
     },
+    apps: { open: vi.fn(async () => tabHandle("canvas-tab")) },
     operations: { invoke: vi.fn() },
     signal: new AbortController().signal,
   };
@@ -253,6 +254,9 @@ describe("AppControllerHost", () => {
       new AbortController().signal,
     );
     expect(opened).toEqual({ id: "opened-tab" });
+    await expect(
+      call("context.apps.open", { slug: "canvas" }, new AbortController().signal),
+    ).resolves.toEqual({ id: "canvas-tab" });
     await expect(
       call(
         "context.tab.navigate-for-result",

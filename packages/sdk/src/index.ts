@@ -49,6 +49,7 @@ export {
   type AppOperationRichResult,
   type AppTabHandle,
   type AppTabs,
+  type InstalledApps,
   type OperationAddress,
   type OperationCancellationCode,
   type OperationContext,

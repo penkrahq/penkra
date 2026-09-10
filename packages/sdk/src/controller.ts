@@ -77,6 +77,7 @@ export type {
   AppOperationRichResult,
   AppTabHandle,
   AppTabs,
+  InstalledApps,
   OperationAddress,
   OperationCancellationCode,
   OperationContext,

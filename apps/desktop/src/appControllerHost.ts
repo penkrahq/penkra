@@ -198,6 +198,11 @@ async function handleContextCall(
     }
     case "context.tabs.open-for-result":
       return context.tabs.openForResult(parseNavigation(record));
+    case "context.apps.open": {
+      const tab = await context.apps.open({ slug: requireNonEmptyString(record.slug, "slug") });
+      openedTabs.set(tab.id, tab);
+      return { id: tab.id };
+    }
     case "context.tab.navigate": {
       await resolveTab(context, openedTabs, record).navigate(parseNavigation(record));
       return null;
