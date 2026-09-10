@@ -28,6 +28,7 @@ let connectionLifecycle: "active" | "terminated" = "active";
 let modelAvailable = true;
 let hasRuntimeBinding = true;
 let installationLifecycle: "active" | "retired" = "active";
+let resolvedNativeStateIdentities: string[] = [];
 
 const dependencies = Layer.mergeAll(
   ServerSettingsService.layerTest(),
@@ -55,8 +56,9 @@ const dependencies = Layer.mergeAll(
   }),
   Layer.succeed(ProviderLaunchResolver, {
     resolve: () => Effect.die("not used"),
-    resolveProfile: (input) =>
-      Effect.succeed({
+    resolveProfile: (input) => {
+      resolvedNativeStateIdentities.push(input.nativeStateIdentity);
+      return Effect.succeed({
         binaryPath: "/managed/provider",
         isolationKey: `selection:${input.connectionId ?? "anonymous"}`,
         profileRoot: "/managed/profile",
@@ -64,7 +66,8 @@ const dependencies = Layer.mergeAll(
         connectionId: input.connectionId,
         installationId: input.installationId,
         childEnvironment: (environment: NodeJS.ProcessEnv) => environment,
-      }),
+      });
+    },
   }),
   Layer.succeed(ProjectionSnapshotQuery, {
     getThreadShellById: () =>
@@ -289,6 +292,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
 
   it.effect("resolves explicit and default anonymous first bindings", () =>
     Effect.gen(function* () {
+      resolvedNativeStateIdentities = [];
       const resolver = yield* ProviderTurnSelectionResolver;
       const generationId = ProviderNativeStateGenerationId.makeUnsafe("initial-generation");
       const initial = yield* resolver.resolveInitial({
@@ -311,12 +315,18 @@ layer("ProviderTurnSelectionResolver", (it) => {
         createdAt: timestamp,
       });
       assert.strictEqual(omitted.selection.connectionId, null);
+      assert.deepEqual(resolvedNativeStateIdentities, [
+        "discovery:opencode:anonymous",
+        "discovery:opencode:anonymous",
+      ]);
+      assert.notStrictEqual(resolvedNativeStateIdentities[0], generationId);
     }),
   );
 
   it.effect("requires an explicit anonymous selection and exact revision", () =>
     Effect.gen(function* () {
       connectionLifecycle = "active";
+      resolvedNativeStateIdentities = [];
       const resolver = yield* ProviderTurnSelectionResolver;
 
       const current = yield* resolver.resolveExisting({ threadId });
@@ -353,6 +363,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
       assert.strictEqual(anonymous.connectionId, null);
       assert.strictEqual(anonymous.internalProviderId, "opencode");
       assert.strictEqual(anonymous.modelId, "opencode/big-pickle");
+      assert.deepEqual(resolvedNativeStateIdentities, ["discovery:opencode:anonymous"]);
 
       connectionLifecycle = "terminated";
       const disconnected = yield* Effect.exit(resolver.resolveExisting({ threadId }));

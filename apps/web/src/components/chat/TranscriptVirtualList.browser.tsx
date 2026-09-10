@@ -204,17 +204,21 @@ function HeterogeneousRemeasureListHarness() {
 }
 
 function LongChatFirstMeasureHarness() {
+  const [giantRowSettled, setGiantRowSettled] = useState(false);
+  const giantRowSettlementScheduledRef = useRef(false);
   const measuredHeights = new Map<number, number>([
     [27, 309],
     [28, 140],
     [29, 286],
     [30, 97],
-    [31, 6_894],
     [32, 302],
   ]);
   const rows = Array.from({ length: 40 }, (_, index) => ({
     id: `first-measure-row-${index}`,
-    height: measuredHeights.get(index) ?? 90,
+    // Keep the giant row at its estimate until the first backward wheel. This
+    // makes the row's real measurement part of the reader-owned compensation
+    // path instead of the initial tail-placement path.
+    height: index === 31 && giantRowSettled ? 6_894 : (measuredHeights.get(index) ?? 90),
   }));
   return (
     <TranscriptVirtualList
@@ -230,6 +234,11 @@ function LongChatFirstMeasureHarness() {
       paddingEnd={16}
       data-testid="first-measure-virtual-scroll"
       style={{ height: 300, overflowY: "auto" }}
+      onWheel={() => {
+        if (giantRowSettlementScheduledRef.current) return;
+        giantRowSettlementScheduledRef.current = true;
+        requestAnimationFrame(() => setGiantRowSettled(true));
+      }}
     />
   );
 }
@@ -558,6 +567,79 @@ function RecordedCoreOscillationHarness() {
   );
 }
 
+function SemanticAppendAndImperativeEndHarness() {
+  const [revision, setRevision] = useState(0);
+  const listRef = useRef<TranscriptVirtualListRef | null>(null);
+  const rows = Array.from({ length: revision === 0 ? 24 : 25 }, (_, index) => ({
+    id: `semantic-row-${index}`,
+    // Keep the pre-append tail measurable, then append a row whose real size
+    // differs from the estimate. The parent follows the new semantic tail in
+    // an effect, matching the send path's imperative end command.
+    height: index === 24 ? 176 : index % 5 === 0 ? 112 : 48,
+  }));
+  useEffect(() => {
+    if (revision === 0) return;
+    listRef.current?.scrollToEnd();
+  }, [revision]);
+  return (
+    <div>
+      <button type="button" onClick={() => setRevision(1)}>
+        Append semantic row and follow
+      </button>
+      <TranscriptVirtualList
+        ref={listRef}
+        data={rows}
+        anchorRevision={`semantic:${revision}`}
+        estimatedItemSize={64}
+        keyExtractor={(row) => row.id}
+        renderItem={(row) => (
+          <div data-row-id={row.id} style={{ height: row.height }}>
+            {row.id}
+          </div>
+        )}
+        paddingEnd={16}
+        data-testid="semantic-imperative-virtual-scroll"
+        style={{ width: 400, height: 300, overflowY: "auto", paddingBottom: 16 }}
+      />
+    </div>
+  );
+}
+
+function StableTailRemountHarness() {
+  const [mountKey, setMountKey] = useState(0);
+  const rows = Array.from({ length: 24 }, (_, index) => ({
+    id: `stable-remount-row-${index}`,
+    height: 48,
+  }));
+  return (
+    <div>
+      <button
+        type="button"
+        data-testid="remount-stable-tail"
+        onClick={() => setMountKey((key) => key + 1)}
+      >
+        Remount stable tail
+      </button>
+      <TranscriptVirtualList
+        key={mountKey}
+        viewportMemoryKey="stable-remount"
+        data={rows}
+        anchorRevision={`stable-remount:${mountKey}`}
+        estimatedItemSize={48}
+        keyExtractor={(row) => row.id}
+        renderItem={(row) => (
+          <div data-row-id={row.id} style={{ height: row.height }}>
+            {row.id}
+          </div>
+        )}
+        paddingEnd={16}
+        data-testid="stable-remount-virtual-scroll"
+        style={{ width: 400, height: 300, overflowY: "auto" }}
+      />
+    </div>
+  );
+}
+
 async function settleLayout(): Promise<void> {
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -574,6 +656,24 @@ async function sampleAnimationFrameOffsets(
     const row = scrollElement.querySelector<HTMLElement>(`[data-row-id="${rowId}"]`);
     if (row) {
       offsets.push(row.getBoundingClientRect().top - scrollElement.getBoundingClientRect().top);
+    }
+  }
+  return offsets;
+}
+
+async function sampleAnimationFrameTailBottomOffsets(
+  scrollElement: HTMLElement,
+  rowId: string,
+  frameCount: number,
+): Promise<number[]> {
+  const offsets: number[] = [];
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const row = scrollElement.querySelector<HTMLElement>(`[data-row-id="${rowId}"]`);
+    if (row) {
+      offsets.push(
+        row.getBoundingClientRect().bottom - scrollElement.getBoundingClientRect().bottom,
+      );
     }
   }
   return offsets;
@@ -623,6 +723,47 @@ describe("TranscriptVirtualList", () => {
       expect(scrollElement).not.toHaveAttribute("aria-busy");
       expect(scrollElement).toHaveAttribute("data-initial-placement", "resolved");
       expect(scrollElement.firstElementChild).toHaveStyle({
+        visibility: "visible",
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("reveals a remounted stable tail by its first animation frame", async () => {
+    enableChatScrollDiagnostics();
+    const screen = await render(<StableTailRemountHarness />);
+    try {
+      const scrollElement = screen.container.querySelector<HTMLElement>(
+        '[data-testid="stable-remount-virtual-scroll"]',
+      )!;
+      await vi.waitFor(() => {
+        expect(scrollElement).toHaveAttribute("data-initial-placement", "resolved");
+      });
+
+      const remountButton = screen.container.querySelector<HTMLButtonElement>(
+        '[data-testid="remount-stable-tail"]',
+      );
+      expect(remountButton).not.toBeNull();
+      remountButton!.click();
+      const firstFrame = await new Promise<{
+        placement: string | null;
+        visibility: string | null;
+      }>((resolve) => {
+        requestAnimationFrame(() => {
+          const remountedScrollElement = screen.container.querySelector<HTMLElement>(
+            '[data-testid="stable-remount-virtual-scroll"]',
+          );
+          const virtualContent = remountedScrollElement?.firstElementChild as HTMLElement | null;
+          resolve({
+            placement: remountedScrollElement?.getAttribute("data-initial-placement") ?? null,
+            visibility: virtualContent ? getComputedStyle(virtualContent).visibility : null,
+          });
+        });
+      });
+
+      expect(firstFrame).toEqual({
+        placement: "resolved",
         visibility: "visible",
       });
     } finally {
@@ -1131,6 +1272,62 @@ describe("TranscriptVirtualList", () => {
           ).toBeLessThanOrEqual(16);
         },
         { timeout: 4_000, interval: 16 },
+      );
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("uses the measured tail target for an imperative follow after a semantic append", async () => {
+    enableChatScrollDiagnostics();
+    const screen = await render(<SemanticAppendAndImperativeEndHarness />);
+    try {
+      const scrollElement = screen.container.querySelector<HTMLElement>(
+        '[data-testid="semantic-imperative-virtual-scroll"]',
+      )!;
+      await vi.waitFor(() => {
+        expect(scrollElement).toHaveAttribute("data-initial-placement", "resolved");
+        expect(scrollElement.textContent).toContain("semantic-row-23");
+      });
+      resetChatScrollDiagnostics();
+
+      await screen.getByText("Append semantic row and follow").click();
+      await vi.waitFor(() => {
+        expect(scrollElement.textContent).toContain("semantic-row-24");
+        expect(
+          getChatScrollDiagnosticSamples().some(
+            (sample) => sample.event === "initial-end-follow:started",
+          ),
+        ).toBe(true);
+      });
+
+      const tailBottomOffsets = await sampleAnimationFrameTailBottomOffsets(
+        scrollElement,
+        "semantic-row-24",
+        8,
+      );
+      expect(tailBottomOffsets.length).toBe(8);
+      expect(Math.max(...tailBottomOffsets) - Math.min(...tailBottomOffsets)).toBeLessThanOrEqual(
+        1,
+      );
+      expect(tailBottomOffsets.at(-1)).toBeCloseTo(-16, 0);
+
+      const writes = getChatScrollDiagnosticSamples().filter(
+        (sample) =>
+          sample.event === "imperative-scroll-to-end:after" ||
+          sample.event === "initial-end-follow:correction",
+      );
+      expect(writes.some((sample) => sample.event === "imperative-scroll-to-end:after")).toBe(true);
+      const imperativeWrite = writes.find(
+        (sample) => sample.event === "imperative-scroll-to-end:after",
+      );
+      const correctionWrite = writes.find(
+        (sample) => sample.event === "initial-end-follow:correction",
+      );
+      expect(correctionWrite).toBeDefined();
+      expect(Number(imperativeWrite?.detail.requestedTop)).toBeCloseTo(
+        Number(correctionWrite?.detail.requestedTop),
+        0,
       );
     } finally {
       await screen.unmount();

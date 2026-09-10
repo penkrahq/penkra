@@ -5,6 +5,7 @@ import {
   deriveActiveBackgroundTasksState,
   deriveActiveTaskListState,
   deriveActiveWorkStartedAt,
+  formatClockDuration,
   formatElapsed,
   hasActivePendingTurnStart,
   hasLiveLatestTurn,
@@ -15,6 +16,18 @@ import {
   PROVIDER_OPTIONS,
 } from "./session-logic";
 import { makeActivity } from "./storeTestFixtures";
+
+describe("formatClockDuration", () => {
+  it("keeps seconds visible after the first hour", () => {
+    expect(formatClockDuration(3_625_000)).toBe("1h 25s");
+    expect(formatClockDuration(3_723_000)).toBe("1h 2m 3s");
+  });
+
+  it("continues to omit empty units", () => {
+    expect(formatClockDuration(3_600_000)).toBe("1h");
+    expect(formatClockDuration(3_660_000)).toBe("1h 1m");
+  });
+});
 
 describe("formatElapsed", () => {
   const start = "2026-01-01T00:00:00.000Z";

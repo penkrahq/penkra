@@ -54,7 +54,6 @@ interface ChatTranscriptPaneProps {
   pinnedMessageIds?: ReadonlySet<MessageId>;
   canPinMessage?: (messageId: MessageId) => boolean;
   onTogglePinMessage?: (messageId: MessageId) => void;
-  enteringUserMessageIds?: ComponentProps<typeof MessagesTimeline>["enteringUserMessageIds"];
   crossTaskOrigin?: ComponentProps<typeof MessagesTimeline>["crossTaskOrigin"];
   markdownCwd: string | undefined;
   onExpandTimelineImage: (preview: ExpandedImagePreview) => void;
@@ -102,7 +101,6 @@ function ChatTranscriptPaneImpl({
   pinnedMessageIds,
   canPinMessage,
   onTogglePinMessage,
-  enteringUserMessageIds,
   crossTaskOrigin,
   markdownCwd,
   onExpandTimelineImage,
@@ -253,7 +251,6 @@ function ChatTranscriptPaneImpl({
             {...(pinnedMessageIds ? { pinnedMessageIds } : {})}
             {...(canPinMessage ? { canPinMessage } : {})}
             {...(onTogglePinMessage ? { onTogglePinMessage } : {})}
-            {...(enteringUserMessageIds ? { enteringUserMessageIds } : {})}
             {...(crossTaskOrigin ? { crossTaskOrigin } : {})}
             timelineEntries={timelineEntries}
             onOpenThread={onOpenThread}

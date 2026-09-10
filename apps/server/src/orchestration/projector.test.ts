@@ -260,6 +260,38 @@ describe("orchestration projector", () => {
       lastError: null,
       updatedAt: turnRequestedAt,
     });
+
+    const ready = await Effect.runPromise(
+      projectEvent(
+        next,
+        makeSessionSetEvent({
+          sequence: 3,
+          commandId: "cmd-ready",
+          occurredAt: "2026-02-23T08:00:06.000Z",
+          status: "ready",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: "2026-02-23T08:00:06.000Z",
+        }),
+      ),
+    );
+    expect(ready.threads[0]?.pendingTurnStartMessageId).toBe("message-1");
+
+    const stopped = await Effect.runPromise(
+      projectEvent(
+        ready,
+        makeSessionSetEvent({
+          sequence: 4,
+          commandId: "cmd-stopped",
+          occurredAt: "2026-02-23T08:00:07.000Z",
+          status: "stopped",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: "2026-02-23T08:00:07.000Z",
+        }),
+      ),
+    );
+    expect(stopped.threads[0]?.pendingTurnStartMessageId).toBeNull();
   });
 
   it("lets empty threads adopt the requested first-turn provider", async () => {

@@ -21,11 +21,9 @@ import {
   useState,
   type CSSProperties,
   type ComponentProps,
-  type Dispatch,
   type KeyboardEvent,
   type RefObject,
   type ReactNode,
-  type SetStateAction,
 } from "react";
 import {
   deriveTimelineEntries,
@@ -244,8 +242,6 @@ interface MessagesTimelineProps {
   canPinMessage?: (messageId: MessageId) => boolean;
   /** Toggle a message's pinned state from the assistant footer. */
   onTogglePinMessage?: (messageId: MessageId) => void;
-  /** User messages inserted locally by send actions, eligible for the subtle enter affordance. */
-  enteringUserMessageIds?: ReadonlySet<MessageId>;
   /** Provenance for a conversation created from another Penkra task. */
   crossTaskOrigin?: CrossTaskOrigin | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
@@ -295,7 +291,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   pinnedMessageIds,
   canPinMessage,
   onTogglePinMessage,
-  enteringUserMessageIds: enteringUserMessageIdsProp,
   crossTaskOrigin: crossTaskOriginProp,
   timelineEntries,
   nowIso,
@@ -329,7 +324,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 }: MessagesTimelineProps) {
   // Assignment-pattern parameters make React Compiler silently skip the whole
   // timeline, so resolve optional defaults in the body.
-  const enteringUserMessageIds = enteringUserMessageIdsProp ?? EMPTY_MESSAGE_ID_SET;
   const crossTaskOrigin = crossTaskOriginProp ?? null;
   const registerFindSurface = useOptionalFind()?.register;
   const transcriptFindSurfaceId = useId();
@@ -420,6 +414,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [timelineEntries, isWorking, activeTurnInProgress, activeTurnId, activeTurnStartedAt],
   );
   const rows = useStableRows(rawRows);
+  // Record the committed work-state inputs separately from the working predicate.
+  // Keep this lightweight: streamed text replaces row objects without changing
+  // the lifecycle state, so ownership details stay out of the default render
+  // path.
+  const previousLayoutSignatureRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!viewportMemoryKey) return;
+    const signature = [
+      viewportMemoryKey,
+      activeTurnId ?? "",
+      activeTurnStartedAt ?? "",
+      activeTurnInProgress ? "in-progress" : "settled",
+      isWorking ? "working" : "idle",
+    ].join("|");
+    if (previousLayoutSignatureRef.current === signature) return;
+    previousLayoutSignatureRef.current = signature;
+    recordChatLifecycleUiDiagnostic({
+      event: "timeline-layout-committed",
+      threadId: viewportMemoryKey,
+      activeTurnId: activeTurnId ?? null,
+      activeTurnStartedAt,
+      isWorking,
+      activeTurnInProgress,
+    });
+  }, [viewportMemoryKey, activeTurnId, activeTurnStartedAt, isWorking, activeTurnInProgress]);
   const thinkingRowDerivedVisible = rows.some((row) => row.kind === "working");
   const workingTimerDerivedVisible = rows.some((row) => row.kind === "working-header");
   const previousLifecycleRowsRef = useRef<{
@@ -558,7 +577,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return null;
   }, [rows]);
-  const enteringMessageRowIds = useMessageSendEnterAnimations(rows, enteringUserMessageIds);
   // Latest rows kept in a ref so the imperative scroll controller can look up a message's
   // index lazily without re-installing the controller on every transcript change.
   const rowsRef = useRef(rows);
@@ -971,7 +989,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           row.kind === "message" && row.message.id === highlightedMessageId
             ? "rounded-xl bg-[var(--color-background-elevated-secondary)]"
             : null,
-          enteringMessageRowIds.has(row.id) ? "chat-message-send-enter" : null,
         )}
         data-timeline-row-kind={row.kind}
         data-find-row-id={row.id}
@@ -1861,91 +1878,6 @@ function reconcileStableTimelineRows(
   const nextState = computeStableMessagesTimelineRows(rows, previousStateRef.current);
   previousStateRef.current = nextState;
   return nextState.result;
-}
-
-// Animates only user rows that ChatView identifies as local optimistic sends;
-// transcript hydration can add rows too, but should not replay send motion.
-function useMessageSendEnterAnimations(
-  rows: readonly MessagesTimelineRow[],
-  enteringUserMessageIds: ReadonlySet<MessageId>,
-): ReadonlySet<string> {
-  const [enteringRowIds, setEnteringRowIds] = useState<ReadonlySet<string>>(() => new Set());
-  const previousRowIdsRef = useRef<ReadonlySet<string> | null>(null);
-  const cleanupTimeoutsRef = useRef<number[]>([]);
-
-  useLayoutEffect(() => {
-    applyMessageSendEnterAnimation({
-      rows,
-      enteringUserMessageIds,
-      previousRowIdsRef,
-      cleanupTimeoutsRef,
-      setEnteringRowIds,
-    });
-  }, [enteringUserMessageIds, rows]);
-
-  useEffect(
-    () => () => {
-      for (const timeoutId of cleanupTimeoutsRef.current) {
-        window.clearTimeout(timeoutId);
-      }
-      cleanupTimeoutsRef.current = [];
-    },
-    [],
-  );
-
-  return enteringRowIds;
-}
-
-// The fresh-row detection compares against the previous layout pass and stamps the
-// entering class before paint, so the send motion cannot flash. Running it from a
-// module helper (which the compiler doesn't scan) keeps that synchronous setState
-// out of the compiled hook without deferring it to a rAF/timeout that would paint a
-// frame before the class lands.
-function applyMessageSendEnterAnimation(params: {
-  rows: readonly MessagesTimelineRow[];
-  enteringUserMessageIds: ReadonlySet<MessageId>;
-  previousRowIdsRef: RefObject<ReadonlySet<string> | null>;
-  cleanupTimeoutsRef: RefObject<number[]>;
-  setEnteringRowIds: Dispatch<SetStateAction<ReadonlySet<string>>>;
-}): void {
-  const { rows, enteringUserMessageIds, previousRowIdsRef, cleanupTimeoutsRef, setEnteringRowIds } =
-    params;
-  const currentRowIds = new Set(rows.map((row) => row.id));
-  const previousRowIds = previousRowIdsRef.current;
-  previousRowIdsRef.current = currentRowIds;
-
-  const freshUserRowIds = rows
-    .filter(
-      (row) =>
-        row.kind === "message" &&
-        row.message.role === "user" &&
-        enteringUserMessageIds.has(row.message.id) &&
-        (previousRowIds === null || !previousRowIds.has(row.id)),
-    )
-    .map((row) => row.id);
-  if (freshUserRowIds.length === 0) {
-    return;
-  }
-
-  setEnteringRowIds((current) => {
-    const next = new Set(current);
-    for (const rowId of freshUserRowIds) {
-      next.add(rowId);
-    }
-    return next;
-  });
-
-  const cleanupTimeout = window.setTimeout(() => {
-    cleanupTimeoutsRef.current = cleanupTimeoutsRef.current.filter((id) => id !== cleanupTimeout);
-    setEnteringRowIds((current) => {
-      const next = new Set(current);
-      for (const rowId of freshUserRowIds) {
-        next.delete(rowId);
-      }
-      return next.size === current.size ? current : next;
-    });
-  }, MESSAGE_SEND_ENTER_ANIMATION_MS + MESSAGE_SEND_ENTER_CLEANUP_BUFFER_MS);
-  cleanupTimeoutsRef.current.push(cleanupTimeout);
 }
 
 // Keep the live clock scoped to tiny leaf components so active Claude turns do

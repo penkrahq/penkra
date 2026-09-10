@@ -7,6 +7,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   SpaceId,
   ThreadId,
+  TurnId,
   type OrchestrationEvent,
   type OrchestrationGetThreadTurnsPageResult,
   type OrchestrationReadModel,
@@ -662,6 +663,78 @@ describe("EventRouter uniform orchestration sync", () => {
         { text: "other message" },
       ]);
       expect(subscribeSyncRequestCount).toBe(1);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("reconciles authoritative tool activity when a previously synced thread is reopened", async () => {
+    activePageThreadIds = [THREAD_ID];
+    const mounted = await mountApp();
+
+    try {
+      await vi.waitFor(() => {
+        expect(useStore.getState().threadDetailSyncById?.[THREAD_ID]).toBe("synced");
+        expect(acknowledgementObservations).toHaveLength(1);
+      });
+
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: OTHER_THREAD_ID },
+      });
+      await vi.waitFor(() => {
+        expect(getThreadTurnsPageRequests).toEqual([OTHER_THREAD_ID]);
+      });
+
+      const rootThread = getFixtureThread(THREAD_ID);
+      const missedTurnId = TurnId.makeUnsafe("turn-missed-while-inactive");
+      const missedMessage = {
+        id: MessageId.makeUnsafe("message-missed-while-inactive"),
+        role: "assistant",
+        text: "Assistant update while inactive",
+        turnId: missedTurnId,
+        streaming: false,
+        source: "native",
+        createdAt: "2026-03-04T12:00:02.000Z",
+        updatedAt: "2026-03-04T12:00:02.000Z",
+      } as const;
+      const missedActivity = makeActivity({
+        id: "activity-missed-while-inactive",
+        turnId: missedTurnId,
+        createdAt: "2026-03-04T12:00:03.000Z",
+        kind: "tool.completed",
+        summary: "Missed tool while inactive",
+        payload: { itemType: "command_execution", detail: "completed while away" },
+      });
+      fixture.snapshot = {
+        ...fixture.snapshot,
+        snapshotSequence: 2,
+        threads: fixture.snapshot.threads.map((thread) =>
+          thread.id === THREAD_ID
+            ? {
+                ...rootThread,
+                messages: [...rootThread.messages, missedMessage],
+                activities: [...rootThread.activities, missedActivity],
+              }
+            : thread,
+        ),
+      };
+
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: THREAD_ID },
+      });
+
+      await vi.waitFor(() => {
+        expect(getThreadTurnsPageRequests).toEqual([OTHER_THREAD_ID, THREAD_ID]);
+        expect(
+          getThreadFromState(useStore.getState(), THREAD_ID)?.activities.some(
+            (activity) => activity.id === "activity-missed-while-inactive",
+          ),
+        ).toBe(true);
+        expect(document.body.textContent).toContain("Assistant update while inactive");
+        expect(document.body.textContent).toContain("completed while away");
+      });
     } finally {
       await mounted.cleanup();
     }

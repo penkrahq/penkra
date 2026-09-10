@@ -26,3 +26,11 @@ use Space membership for document authorization.
 A Canvas realtime channel is `document:<uuid>`. Joining it requires current owner/editor access.
 The server publishes incremental updates and an aggregate human-presence count. Agents mutate the
 same update log but do not appear as presence cursors.
+
+## Project collection projections
+
+Apps can add `projectionFields` to project-list queries as a comma-separated list of up to 16
+top-level projection keys. Each project summary then includes a `projection` object containing only
+those keys that exist. This is intended for small collection-card facts such as a document kind; it
+does not return the full projection or apply nested paths. Field names are limited to 64 ASCII
+letters, digits, underscores, and hyphens and must begin with a letter.

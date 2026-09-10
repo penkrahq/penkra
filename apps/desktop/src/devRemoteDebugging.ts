@@ -2,6 +2,8 @@
 // Purpose: Validates the opt-in Chromium debugging endpoint used for live Penkra Dev QA.
 // Layer: Desktop development infrastructure
 
+import { resolvePenkraDevInstance } from "@penkra/shared/desktopIdentity";
+
 export function resolveDevRemoteDebuggingPort(
   environment: Readonly<Record<string, string | undefined>>,
 ): string | null {
@@ -10,5 +12,12 @@ export function resolveDevRemoteDebuggingPort(
   if (!/^\d+$/u.test(value) || Number(value) < 1 || Number(value) > 65_535) {
     throw new Error("PENKRA_DEV_REMOTE_DEBUGGING_PORT must be an integer from 1 through 65535.");
   }
-  return value;
+  const instance = resolvePenkraDevInstance(environment.PENKRA_DEV_INSTANCE_NUMBER);
+  const port = Number(value) + instance - 1;
+  if (port > 65_535) {
+    throw new Error(
+      "PENKRA_DEV_REMOTE_DEBUGGING_PORT plus PENKRA_DEV_INSTANCE_NUMBER exceeds port 65535.",
+    );
+  }
+  return String(port);
 }
