@@ -60,6 +60,7 @@ const END_THRESHOLD_PX = 80;
 const START_PAGINATION_THRESHOLD_PX = 320;
 const OVERSCAN_ROWS = 6;
 const INITIAL_END_CORRECTION_DELAY_MS = 16;
+const GEOMETRY_EPSILON_PX = 0.5;
 
 function alignFromViewPosition(viewPosition: number | undefined): "start" | "center" | "end" {
   if (viewPosition === undefined) return "center";
@@ -114,11 +115,20 @@ function TranscriptVirtualListInner<TItem>(
   const scrollOwnerRef = useRef<"tail" | "reader">(
     initialViewportSnapshotRef.current?.isAtEnd === false ? "reader" : "tail",
   );
+  const readerAnchorIndexRef = useRef<number | null>(
+    (() => {
+      const anchorKey = initialViewportSnapshotRef.current?.anchorKey;
+      if (anchorKey === undefined) return null;
+      const index = data.findIndex((item) => keyExtractor(item) === anchorKey);
+      return index >= 0 ? index : null;
+    })(),
+  );
   const shouldEndAnchor = hasSemanticAppend && wasAtEndRef.current;
   const previousFirstKey = previousDataKeysRef.current.at(0);
   const hasLeadingPrepend =
     previousFirstKey !== undefined &&
     data.findIndex((item) => keyExtractor(item) === previousFirstKey) > 0;
+  const virtualizerAnchorTo = hasLeadingPrepend ? "end" : "start";
   const initialEndFollowEligibleRef = useRef(initialViewportSnapshotRef.current?.isAtEnd !== false);
   const initialEndFollowRef = useRef(false);
   const initialEndTimerRef = useRef<number | null>(null);
@@ -171,11 +181,14 @@ function TranscriptVirtualListInner<TItem>(
       const viewportHeight = scrollElementRef.current?.clientHeight ?? 0;
       return Math.max(0, data.length * estimatedItemSize + paddingEnd - viewportHeight);
     },
-    // End anchoring preserves the existing keyed row when history is prepended
-    // and follows real transcript growth while the reader is at the tail.
-    // Synthetic tool/status rows are not transcript growth, so start anchoring
-    // keeps those layout changes from pulling the viewport to the end.
-    anchorTo: hasLeadingPrepend || shouldEndAnchor ? "end" : "start",
+    // TanStack end anchoring and Penkra's causal-tail alignment cannot both own
+    // an append. When a 90px estimate becomes a 37px working/status row, Core
+    // first applies the -53px estimate correction and the causal-tail owner
+    // then restores the real tail, exposing an up/down frame. Keep Core's end
+    // anchor only for history prepends, where it preserves the existing keyed
+    // reader row. Causal-tail alignment exclusively owns all tail appends and
+    // measurements.
+    anchorTo: virtualizerAnchorTo,
     followOnAppend: false,
     scrollEndThreshold: END_THRESHOLD_PX,
     overscan: OVERSCAN_ROWS,
@@ -240,7 +253,8 @@ function TranscriptVirtualListInner<TItem>(
       const previousMeasuredSize = measuredSizeByKeyRef.current.get(measuredKey);
       const size = measureVirtualElement(element, entry, instance);
       const measuredSizeChanged =
-        previousMeasuredSize === undefined || Math.abs(previousMeasuredSize - size) > 0.5;
+        previousMeasuredSize === undefined ||
+        Math.abs(previousMeasuredSize - size) > GEOMETRY_EPSILON_PX;
       measuredSizeByKeyRef.current.set(measuredKey, size);
       if (initialAnchorRestoreActiveRef.current) {
         initialAnchorRestoreStableTicksRef.current = 0;
@@ -312,7 +326,7 @@ function TranscriptVirtualListInner<TItem>(
               });
               if (
                 instance.scrollOffset !== null &&
-                Math.abs(instance.scrollOffset - scrollElement.scrollTop) > 0.5
+                Math.abs(instance.scrollOffset - scrollElement.scrollTop) > GEOMETRY_EPSILON_PX
               ) {
                 scrollElement.dispatchEvent(new Event("scroll"));
               }
@@ -356,8 +370,10 @@ function TranscriptVirtualListInner<TItem>(
   // writer preserves the old top anchor while another preserves the tail,
   // producing the recorded up/down oscillation. This callback is an instance
   // policy (not a hook option), so assign it synchronously on every render.
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
-    scrollOwnerRef.current === "reader" && item.end <= (instance.scrollOffset ?? 0) + 0.5;
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item) =>
+    scrollOwnerRef.current === "reader" &&
+    readerAnchorIndexRef.current !== null &&
+    item.index < readerAnchorIndexRef.current;
   const diagnosticTimeoutsRef = useRef<number[]>([]);
   const isAtRenderedTail = useCallback(
     (threshold = END_THRESHOLD_PX) => {
@@ -459,7 +475,9 @@ function TranscriptVirtualListInner<TItem>(
     const isAtEnd = scrollOwnerRef.current === "tail";
     const virtualItems = virtualizer.getVirtualItems();
     const anchor =
-      virtualItems.find((item) => item.end > element.scrollTop + 0.5) ?? virtualItems.at(0) ?? null;
+      virtualItems.find((item) => item.end > element.scrollTop + GEOMETRY_EPSILON_PX) ??
+      virtualItems.at(0) ??
+      null;
     if (!anchor) return;
     const anchorElement = element.querySelector<HTMLElement>(`[data-index="${anchor.index}"]`);
     const anchorOffset = anchorElement
@@ -550,7 +568,7 @@ function TranscriptVirtualListInner<TItem>(
           if (
             options?.animated !== true &&
             virtualizer.scrollOffset !== null &&
-            Math.abs(virtualizer.scrollOffset - element.scrollTop) > 0.5
+            Math.abs(virtualizer.scrollOffset - element.scrollTop) > GEOMETRY_EPSILON_PX
           ) {
             element.dispatchEvent(new Event("scroll"));
           }
@@ -566,6 +584,7 @@ function TranscriptVirtualListInner<TItem>(
         // scroll, even if its smooth motion is interrupted.
         scrollOwnerRef.current = "reader";
         wasAtEndRef.current = false;
+        readerAnchorIndexRef.current = options.index;
         virtualizer.scrollToIndex(options.index, {
           align: alignFromViewPosition(options.viewPosition),
           behavior: options.animated ? "smooth" : "auto",
@@ -650,7 +669,7 @@ function TranscriptVirtualListInner<TItem>(
         });
         if (
           virtualizer.scrollOffset !== null &&
-          Math.abs(virtualizer.scrollOffset - element.scrollTop) > 0.5
+          Math.abs(virtualizer.scrollOffset - element.scrollTop) > GEOMETRY_EPSILON_PX
         ) {
           // When another owner already placed the DOM at this exact offset,
           // Chromium emits no native scroll event for the same-value write.
@@ -776,15 +795,15 @@ function TranscriptVirtualListInner<TItem>(
         });
         if (
           virtualizer.scrollOffset !== null &&
-          Math.abs(virtualizer.scrollOffset - element.scrollTop) > 0.5
+          Math.abs(virtualizer.scrollOffset - element.scrollTop) > GEOMETRY_EPSILON_PX
         ) {
           element.dispatchEvent(new Event("scroll"));
         }
         const previousTargetOffset = initialAnchorRestoreLastTargetOffsetRef.current;
         const settled =
-          Math.abs(element.scrollTop - targetOffset) <= 0.5 &&
+          Math.abs(element.scrollTop - targetOffset) <= GEOMETRY_EPSILON_PX &&
           previousTargetOffset !== null &&
-          Math.abs(previousTargetOffset - targetOffset) <= 0.5;
+          Math.abs(previousTargetOffset - targetOffset) <= GEOMETRY_EPSILON_PX;
         initialAnchorRestoreLastTargetOffsetRef.current = targetOffset;
         initialAnchorRestoreStableTicksRef.current = settled
           ? initialAnchorRestoreStableTicksRef.current + 1
@@ -840,6 +859,7 @@ function TranscriptVirtualListInner<TItem>(
       hasSemanticAppend,
       hasLeadingPrepend,
       shouldEndAnchor,
+      virtualizerAnchorTo,
       wasAtEnd: wasAtEndRef.current,
       memoryKey: viewportMemoryKey ?? null,
       previousDataCount: previousKeys.length,
@@ -859,6 +879,7 @@ function TranscriptVirtualListInner<TItem>(
     keyExtractor,
     recordDiagnostic,
     shouldEndAnchor,
+    virtualizerAnchorTo,
     viewportMemoryKey,
   ]);
 
@@ -914,7 +935,9 @@ function TranscriptVirtualListInner<TItem>(
       remainingFrames -= 1;
       const rendered = virtualizer.getVirtualItems();
       const anchor =
-        rendered.find((item) => item.end > element.scrollTop + 0.5) ?? rendered.at(0) ?? null;
+        rendered.find((item) => item.end > element.scrollTop + GEOMETRY_EPSILON_PX) ??
+        rendered.at(0) ??
+        null;
       const next = {
         scrollTop: element.scrollTop,
         scrollHeight: element.scrollHeight,
@@ -923,9 +946,9 @@ function TranscriptVirtualListInner<TItem>(
       };
       if (
         !previous ||
-        Math.abs(previous.scrollTop - next.scrollTop) > 0.5 ||
-        Math.abs(previous.scrollHeight - next.scrollHeight) > 0.5 ||
-        Math.abs(previous.clientHeight - next.clientHeight) > 0.5 ||
+        Math.abs(previous.scrollTop - next.scrollTop) > GEOMETRY_EPSILON_PX ||
+        Math.abs(previous.scrollHeight - next.scrollHeight) > GEOMETRY_EPSILON_PX ||
+        Math.abs(previous.clientHeight - next.clientHeight) > GEOMETRY_EPSILON_PX ||
         previous.anchorKey !== next.anchorKey
       ) {
         const attribution = readChatScrollWriteAttribution(element);
@@ -962,6 +985,37 @@ function TranscriptVirtualListInner<TItem>(
       const distanceFromEnd = element.scrollHeight - element.clientHeight - element.scrollTop;
       if (distanceFromEnd <= END_THRESHOLD_PX) {
         scrollOwnerRef.current = "tail";
+        readerAnchorIndexRef.current = null;
+      } else if (scrollOwnerRef.current === "reader") {
+        const viewportRect = element.getBoundingClientRect();
+        const visibleAnchor = Array.from(
+          element.querySelectorAll<HTMLElement>("[data-index]"),
+        ).find((row) => {
+          const rect = row.getBoundingClientRect();
+          return (
+            rect.bottom > viewportRect.top + GEOMETRY_EPSILON_PX &&
+            rect.top < viewportRect.bottom - GEOMETRY_EPSILON_PX
+          );
+        });
+        const index = Number(visibleAnchor?.dataset.index);
+        const estimatedAnchorIndex = virtualizer.getVirtualItemForOffset(element.scrollTop)?.index;
+        const visibleKey = visibleAnchor?.dataset.rowKey;
+        const previousMeasuredSize = visibleKey
+          ? measuredSizeByKeyRef.current.get(visibleKey)
+          : undefined;
+        const hasUncommittedResize =
+          visibleAnchor !== undefined &&
+          previousMeasuredSize !== undefined &&
+          Math.abs(visibleAnchor.getBoundingClientRect().height - previousMeasuredSize) >
+            GEOMETRY_EPSILON_PX;
+        readerAnchorIndexRef.current =
+          Number.isInteger(index) && !hasUncommittedResize ? index : (estimatedAnchorIndex ?? null);
+        recordDiagnostic("reader-anchor-captured", {
+          domAnchorIndex: Number.isInteger(index) ? index : null,
+          estimatedAnchorIndex: estimatedAnchorIndex ?? null,
+          chosenAnchorIndex: readerAnchorIndexRef.current,
+          hasUncommittedResize,
+        });
       }
       // ResizeObserver and virtualizer corrections also emit scroll events.
       // They are not reader intent and may temporarily move geometry away from
@@ -973,13 +1027,14 @@ function TranscriptVirtualListInner<TItem>(
         distanceFromEnd,
         isTrusted: event.nativeEvent.isTrusted,
         lastWriter: readChatScrollWriteAttribution(element)?.owner ?? "unattributed",
+        readerAnchorIndex: readerAnchorIndexRef.current,
       });
       if (element.scrollTop <= START_PAGINATION_THRESHOLD_PX) {
         onNearStart?.();
       }
       onScroll?.(event);
     },
-    [onNearStart, onScroll, recordDiagnostic],
+    [onNearStart, onScroll, recordDiagnostic, virtualizer],
   );
 
   useLayoutEffect(() => {

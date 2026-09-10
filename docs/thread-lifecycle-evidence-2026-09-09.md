@@ -241,3 +241,57 @@ looked for the wrong timeline-row kind. None of those outputs were used for the 
 Post-fix validation passed 139 provider lifecycle/reactor tests, all 120 ChatView browser tests,
 11 of 11 TypeScript tasks, formatting across 2,634 files, and lint with zero errors (519 existing
 warnings). The rebuilt native controls above supply the behavioral acceptance evidence.
+
+### Corrected tail-status insertion investigation
+
+The atomic Send placement above was necessary but did not close the full regression. A subsequent
+36.098-second Penkra Dev recording reproduced a different reversal when the optimistic user row was
+already placed and native working/status rows entered the transcript. A current-commit replay on
+`155bbb14d` used the retained 13-message, 46-activity Thread with heterogeneous measured row heights.
+When the real 37px working header replaced its 90px estimate, TanStack's end anchor applied a
+`-53px` correction and Penkra's causal-tail correction then applied `+90px`. Both writes reached
+separate animation frames. The RED trace is
+`.penkra/qa/send-jump-stop-followup-20260909/exact-thread-replay/result.json`; its captured geometry
+is sufficient evidence for this boundary even though an isolated synthetic list did not reproduce
+the painted reversal.
+
+History identifies the incompatible ownership combination. Commit `eb0717ddd` enabled TanStack end
+anchoring for semantic appends on 2026-08-27. Commit `f01a006ff` added Penkra's measured causal-tail
+owner on 2026-09-04 and disabled the normal above-viewport adjustment while following, but
+TanStack's special end-anchor adjustment bypassed that policy. Tail appends therefore had two
+geometry owners. TanStack end anchoring is now limited to leading history prepends; Penkra alone
+owns append and streaming-tail alignment.
+
+The full-app matrix exposed a second boundary before acceptance. A detached reader inside a newly
+mounted 1,285px streaming row could be mistaken for being below that row because the virtual
+estimate still placed its end above `scrollTop`; measuring it then adjusted by `+1,195px` and
+clamped to the live end. Conversely, an offscreen Markdown row changing from 48px to 304px must
+still adjust the viewport to preserve the visible keyed row. Reader anchoring now records the first
+visible semantic row, rejects a DOM rectangle whose size differs from its last committed
+measurement, and falls back to the virtual offset lookup during a stale rendered range. Packaged
+diagnostics record the DOM candidate, estimated candidate, chosen index, and whether an uncommitted
+resize caused the fallback.
+
+The final replay was performed only after reinstalling Penkra Dev 1 from this checkout. The earlier
+launcher still targeted a separate desktop checkout at commit `5adc95ce4` and held a deleted
+temporary Apps path; its apparently green replay is withdrawn as changed-source evidence. The
+correct launcher uses durable paths for this desktop, backend, website, and Apps checkout. In the
+true changed-source replay, 106 screencast frames and 219 animation-frame samples showed `+113.5px`
+for the optimistic user row and `+37px` for the measured working header, with no negative
+virtualizer adjustment or reversal. Removing 75px of temporary work UI caused the browser to clamp
+by 58.5px to the shorter document end while retaining the visible bottom. The final result is
+`.penkra/qa/send-jump-stop-followup-20260909/exact-thread-replay-final/result.json` (SHA-256
+`1d1a1b1147d7f5f5932d469b5971067c86e6002e13c0c18f3001f967669772d0`); the pixel contact sheet is
+`.penkra/qa/send-jump-stop-followup-20260909/exact-thread-replay-final/contact.png` (SHA-256
+`ee8d4bcad9dc4acfdf4161f31159e9e6914b533d8efe5372ce011536b33a8308`). The full-app ownership
+contract fails when the previous semantic-append end owner is restored
+(`.penkra/qa/send-jump-stop-followup-20260909/full-chat-owner-contract-red.log`, SHA-256
+`dab28537d0e596601525c0abab0be4cd5333ca379bd4e6aebb6fbf40cf809e66`). Focused verification passed
+17 virtual-list browser controls and 120 full ChatView browser controls.
+
+The investigation retained its harness failures. The first final replay reached CDP before Dev was
+ready. The Python contact-sheet script lacked Pillow and was replaced with FFmpeg. An initial
+formatter call from `apps/web` failed to load the root Vite configuration and was rerun successfully
+from the repository root. LaunchServices later returned success without starting Dev because the
+launcher workspace referenced `/tmp/penkra-apps-open-qa.MmO1VG`; direct launch exposed the missing
+manifest error. None of those results were treated as product passes or scroll failures.

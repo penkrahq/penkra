@@ -2911,6 +2911,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       scrollContainer.scrollTop = scrollContainer.scrollHeight;
       scrollContainer.dispatchEvent(new Event("scroll"));
       scrollToCalls.length = 0;
+      resetChatScrollDiagnostics();
       const liveAssistantMessage = {
         ...createAssistantMessage({
           id: MessageId.makeUnsafe("msg-assistant-auto-follow-live"),
@@ -2927,10 +2928,28 @@ describe("ChatView timeline estimator parity (full app)", () => {
         messages: [...thread.messages, liveAssistantMessage],
         updatedAt: isoAt(1_206),
       }));
-      await vi.waitFor(() => expect(scrollToCalls.length).toBeGreaterThan(0), {
-        timeout: 4_000,
-        interval: 16,
-      });
+      await vi.waitFor(
+        () => expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeLessThanOrEqual(16),
+        {
+          timeout: 4_000,
+          interval: 16,
+        },
+      );
+      expect(
+        getChatScrollDiagnosticSamples().some(
+          (sample) =>
+            sample.event === "initial-end-follow:started" &&
+            sample.detail?.source === "transcript-revision",
+        ),
+      ).toBe(true);
+      expect(
+        getChatScrollDiagnosticSamples().some(
+          (sample) =>
+            sample.event === "data-committed" &&
+            sample.detail.hasSemanticAppend === true &&
+            sample.detail.virtualizerAnchorTo === "start",
+        ),
+      ).toBe(true);
 
       // A real upward gesture transfers ownership to the reader immediately,
       // even while the preceding auto-follow scroll is still inside its
@@ -2964,7 +2983,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         updatedAt: isoAt(1_207),
       }));
       await waitForLayout();
-      expect(scrollToCalls).toHaveLength(0);
+      expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(0);
       expect(
         getChatScrollDiagnosticSamples().filter(
           (sample) => sample.event === "imperative-scroll-to-end:before",
@@ -2991,10 +3010,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
         updatedAt: isoAt(1_208),
       }));
-      await vi.waitFor(() => expect(scrollToCalls.length).toBeGreaterThan(0), {
-        timeout: 4_000,
-        interval: 16,
-      });
+      await vi.waitFor(
+        () => expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeLessThanOrEqual(16),
+        {
+          timeout: 4_000,
+          interval: 16,
+        },
+      );
       expect(
         getChatScrollDiagnosticSamples().filter(
           (sample) => sample.event === "imperative-scroll-to-end:before",
