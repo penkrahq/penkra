@@ -72,9 +72,7 @@ layer("162_TranscriptMessageSearch", (it) => {
         FROM projection_thread_messages_search
         WHERE projection_thread_messages_search MATCH '"thread grouping"'
       `;
-      assert.isTrue(
-        plan.some(({ detail }) => detail.includes("VIRTUAL TABLE INDEX")),
-      );
+      assert.isTrue(plan.some(({ detail }) => detail.includes("VIRTUAL TABLE INDEX")));
     }),
   );
 
