@@ -173,23 +173,21 @@ an independently ordered provider channel and must read standalone.
 
 ## UI Conventions
 
-### Human approval gate for Pencil work
+### Human approval gate for Canvas work
 
-- When a task involves Pencil or other design work that will inform implementation, complete and present the design work first. Do not begin or continue the corresponding code implementation until the human has explicitly reviewed the design and approved it as final.
-- Iterate only in the design source while design review is pending. An initial request to build the feature, silence, or approval of an earlier concept does not count as approval of the current design.
+- When a task involves Canvas or other design work that will inform implementation, complete and present the design work first. Do not begin or continue the corresponding code implementation until the human has explicitly reviewed the design and approved it as final.
+- Iterate only in the named Canvas document or other explicitly named design source while design review is pending. An initial request to build the feature, silence, or approval of an earlier concept does not count as approval of the current design.
 - After explicit design approval in the current conversation, implementation may proceed from the approved design.
 
-### Pencil-to-code component structure
+### Canvas-to-code component structure
 
-Treat the active Penkra `.pen` file as the authority for the component catalog and its grouping.
+Treat the explicitly identified and approved Penkra Canvas design as the authority for visible composition, states, and interactions. Treat the codebase and Storybook as the authority for implementation ownership and reusable-component structure; do not derive source-tree organization from incidental Canvas node grouping.
 
-- Mirror each user-visible Pencil component group directly under `apps/web/src/components/`. For example, direct reusable children of Pencil's `Left Rail` group belong directly under `apps/web/src/components/left-rail/`; do not invent an intermediate category that does not exist in Pencil.
-- Mirror a Pencil component's slash-separated name as a kebab-case folder and named React component. Keep Pencil and code names recognizable in both directions.
+- Reuse the existing user-visible component groups under `apps/web/src/components/` and keep Canvas and code names recognizable in both directions when the design defines a reusable component.
 - Keep composed feature screens separate from reusable component definitions. A screen may compose components from several groups without changing those components' ownership.
-- Cross-cutting implementation primitives in `components/ui` may remain framework-oriented when they are not user-visible Pencil components. A user-visible component may be placed outside its Pencil group only when the design itself identifies it as shared across groups; document that exception beside the component.
-- Before translating a component, verify its actual Pencil parent rather than inferring ownership from where an instance appears.
-- When an orphaned or misplaced Pencil component is discovered, correct the Pencil hierarchy and audit the rest of the component catalog for the same inconsistency before adding more code.
-- Every structural design-to-code pass must compare the direct reusable children of each Pencil component group with the corresponding code directories. Report and resolve missing, extra, orphaned, or mismatched entries instead of silently creating a new organization.
+- Cross-cutting implementation primitives in `components/ui` may remain framework-oriented when they are not user-visible Canvas components. A user-visible component may be placed outside its current product region only when the approved design identifies it as shared across regions; document that exception beside the component.
+- Before translating a component, verify its intended Canvas region and its existing code owner rather than inferring ownership from where one instance appears.
+- When the approved Canvas design and the implementation catalog disagree, surface and resolve the mismatch instead of silently reorganizing either source.
 
 ### Open/close (toggle) animations — single source
 

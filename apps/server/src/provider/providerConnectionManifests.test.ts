@@ -7,14 +7,16 @@ import {
 } from "./providerConnectionManifests";
 
 describe("provider Connection manifests", () => {
-  it("keeps Codex credentials Connection-scoped and thread state generation-scoped", () => {
+  it("keeps Codex credentials and its rebuildable rollout index Connection-scoped", () => {
     const environment = getProviderConnectionManifest("codex")?.buildStateEnvironment({
       profileRoot: "/connections/account-a",
       nativeStateRoot: "/native/thread-generation",
     });
 
     expect(environment?.overrides.CODEX_HOME).toBe("/connections/account-a/codex-home");
-    expect(environment?.overrides.CODEX_SQLITE_HOME).toBe("/native/thread-generation/sqlite-home");
+    expect(environment?.overrides.CODEX_SQLITE_HOME).toBe(
+      "/connections/account-a/codex-sqlite-home",
+    );
   });
 
   it("keeps OpenCode Zen and Go credential routing exact while allowing anonymous free Zen", () => {

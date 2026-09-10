@@ -33,17 +33,11 @@ function MessageEnterTimeline() {
   const [entries, setEntries] = useState<TimelineEntries>(() => [
     userEntry("initial-user-message", "Already here."),
   ]);
-  const [enteringUserMessageIds, setEnteringUserMessageIds] = useState<ReadonlySet<MessageId>>(
-    () => new Set(),
-  );
-
   return (
     <div>
       <button
         type="button"
         onClick={() => {
-          const messageId = MessageId.makeUnsafe("fresh-user-message");
-          setEnteringUserMessageIds(new Set([messageId]));
           setEntries((current) => [...current, userEntry("fresh-user-message", "Just sent.")]);
         }}
       >
@@ -52,10 +46,9 @@ function MessageEnterTimeline() {
       <div style={{ height: 420 }}>
         <MessagesTimeline
           hasMessages={entries.length > 0}
-          isWorking={false}
-          activeTurnInProgress={false}
+          isWorking={entries.length > 1}
+          activeTurnInProgress={entries.length > 1}
           activeTurnStartedAt={null}
-          enteringUserMessageIds={enteringUserMessageIds}
           timelineEntries={entries}
           nowIso="2026-03-17T19:12:30.000Z"
           expandedWorkGroups={{}}
@@ -105,43 +98,39 @@ function HydratingTimeline() {
   );
 }
 
-describe("MessagesTimeline message enter animation", () => {
+describe("MessagesTimeline message visibility", () => {
   afterEach(() => {
     document.body.innerHTML = "";
   });
 
-  it("animates only newly sent user messages", async () => {
+  it("renders newly sent user messages immediately while work is visible", async () => {
     const screen = await render(<MessageEnterTimeline />);
+    let frame: number | undefined;
 
     try {
       const initialRow = document.querySelector<HTMLElement>(
         '[data-message-id="initial-user-message"]',
       );
       expect(initialRow).not.toBeNull();
-      expect(initialRow?.classList.contains("chat-message-send-enter")).toBe(false);
+      expect(getComputedStyle(initialRow!).opacity).toBe("1");
 
-      document.querySelector<HTMLButtonElement>("button")?.click();
-
-      await expect
-        .poll(() =>
-          document
-            .querySelector<HTMLElement>('[data-message-id="fresh-user-message"]')
-            ?.classList.contains("chat-message-send-enter"),
-        )
-        .toBe(true);
-
-      await new Promise<void>((resolve) => {
-        window.setTimeout(() => resolve(), 320);
+      const firstWorkingFrame = new Promise<string | null>((resolve) => {
+        const observe = () => {
+          if (document.querySelector('[data-timeline-row-kind="working"]')) {
+            const row = document.querySelector<HTMLElement>(
+              '[data-message-id="fresh-user-message"]',
+            );
+            resolve(row ? getComputedStyle(row).opacity : null);
+            return;
+          }
+          frame = requestAnimationFrame(observe);
+        };
+        frame = requestAnimationFrame(observe);
       });
-
-      await expect
-        .poll(() =>
-          document
-            .querySelector<HTMLElement>('[data-message-id="fresh-user-message"]')
-            ?.classList.contains("chat-message-send-enter"),
-        )
-        .toBe(false);
+      document.querySelector<HTMLButtonElement>("button")?.click();
+      expect(await firstWorkingFrame).toBe("1");
     } finally {
+      if (frame !== undefined) cancelAnimationFrame(frame);
       await screen.unmount();
     }
   });
@@ -159,11 +148,11 @@ describe("MessagesTimeline message enter animation", () => {
             null,
         )
         .toBe(true);
-      expect(
-        document
-          .querySelector<HTMLElement>('[data-message-id="hydrated-user-message"]')
-          ?.classList.contains("chat-message-send-enter"),
-      ).toBe(false);
+      const hydratedRow = document.querySelector<HTMLElement>(
+        '[data-message-id="hydrated-user-message"]',
+      );
+      expect(hydratedRow).not.toBeNull();
+      expect(getComputedStyle(hydratedRow!).opacity).toBe("1");
     } finally {
       await screen.unmount();
     }

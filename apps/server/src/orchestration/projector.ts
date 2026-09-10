@@ -990,7 +990,7 @@ export function projectEvent(
           threads: updateThread(nextBase.threads, payload.threadId, {
             session,
             pendingTurnStartMessageId:
-              session.status === "starting"
+              session.status === "starting" || session.status === "ready"
                 ? (thread.pendingTurnStartMessageId ??
                   thread.messages.findLast(
                     (message) => message.role === "user" && message.delivery?.state === "starting",

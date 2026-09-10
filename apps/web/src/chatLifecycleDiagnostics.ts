@@ -2,6 +2,8 @@
 // Purpose: Captures the exact renderer inputs behind transcript working chrome.
 // Layer: Web chat diagnostics
 
+import type { OrchestrationEvent } from "@penkra/contracts";
+
 export interface ChatLifecycleDiagnosticState {
   readonly threadId: string;
   readonly isServerThread: boolean;
@@ -25,7 +27,10 @@ export interface ChatLifecycleDiagnosticState {
   readonly latestTurnState: string | null;
   readonly latestTurnStartedAt: string | null;
   readonly latestTurnCompletedAt: string | null;
+  // Resolved working owner, including message-delivery fallback.
   readonly pendingTurnStartMessageId: string | null;
+  readonly projectedPendingTurnStartMessageId?: string | null;
+  readonly hasSendPreflight?: boolean;
   readonly phase: string;
   readonly hasLiveTurnTail: boolean;
   readonly latestTurnSettledByProvider: boolean;
@@ -55,6 +60,7 @@ export interface ChatLifecycleDiagnosticSample extends ChatLifecycleDiagnosticSt
 }
 
 export type ChatLifecycleUiEvent =
+  | "timeline-layout-committed"
   | "thinking-row-derived-visible"
   | "thinking-row-derived-hidden"
   | "working-timer-derived-visible"
@@ -77,6 +83,7 @@ export interface ChatLifecycleUiDiagnosticSample {
   readonly activeTurnId: string | null;
   readonly activeTurnStartedAt: string | null;
   readonly isWorking: boolean;
+  readonly activeTurnInProgress?: boolean;
   readonly threadDetailHydration?: string;
   readonly visibleTimelineEntryIds?: readonly string[];
   readonly commandId?: string;
@@ -86,7 +93,23 @@ export interface ChatLifecycleUiDiagnosticSample {
   readonly composerOwnership?: "active" | "old-thread" | "none";
 }
 
-export type ChatLifecycleSample = ChatLifecycleDiagnosticSample | ChatLifecycleUiDiagnosticSample;
+export interface ChatLifecycleSyncDiagnosticSample {
+  readonly event: "sync-lifecycle-received" | "sync-lifecycle-applied";
+  readonly sequence: number;
+  readonly recordedAt: string;
+  readonly performanceNow: number;
+  readonly threadId: string;
+  readonly orchestrationSequence: number;
+  readonly orchestrationEventType: string;
+  readonly occurredAt: string;
+  readonly ingestedAt: string | null;
+  readonly commandId: string | null;
+}
+
+export type ChatLifecycleSample =
+  | ChatLifecycleDiagnosticSample
+  | ChatLifecycleUiDiagnosticSample
+  | ChatLifecycleSyncDiagnosticSample;
 
 const MAX_SAMPLES = 1_000;
 interface ChatLifecycleDiagnosticBuffer {
@@ -171,6 +194,33 @@ export function recordChatLifecycleUiDiagnostic(
   };
   state.nextSequence += 1;
   appendSample(sample);
+}
+
+/** Trace lifecycle delivery without retaining payloads or logging each text delta. */
+export function recordChatLifecycleSyncDiagnostic(
+  event: OrchestrationEvent,
+  stage: "received" | "applied",
+): void {
+  if (!diagnosticsAvailable() || event.aggregateKind !== "thread") return;
+  if (
+    event.type !== "thread.turn-interrupt-requested" &&
+    event.type !== "thread.turn-start-requested" &&
+    event.type !== "thread.session-set" &&
+    !(event.type === "thread.activity-appended" && event.payload.activity.kind === "turn.completed")
+  )
+    return;
+  appendSample({
+    event: stage === "received" ? "sync-lifecycle-received" : "sync-lifecycle-applied",
+    sequence: state.nextSequence++,
+    recordedAt: new Date().toISOString(),
+    performanceNow: performance.now(),
+    threadId: String(event.aggregateId),
+    orchestrationSequence: event.sequence,
+    orchestrationEventType: event.type,
+    occurredAt: event.occurredAt,
+    ingestedAt: event.metadata.ingestedAt ?? null,
+    commandId: event.commandId === null ? null : String(event.commandId),
+  });
 }
 
 export function getChatLifecycleDiagnosticSamples(

@@ -252,7 +252,10 @@ it.effect("keeps the real OS home for a Connection-scoped Codex keyring", () =>
       Path.dirname(environment.CODEX_HOME ?? ""),
       providerCredentialProfileRoot((yield* ServerConfig).stateDir, codexProfileRef),
     );
-    assert.match(environment.CODEX_SQLITE_HOME ?? "", /provider-native-state/);
+    assert.strictEqual(
+      Path.dirname(environment.CODEX_SQLITE_HOME ?? ""),
+      providerCredentialProfileRoot((yield* ServerConfig).stateDir, codexProfileRef),
+    );
   }).pipe(
     Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(codexDependencies))),
     Effect.provide(codexDependencies),

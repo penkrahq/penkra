@@ -88,6 +88,13 @@ interface PendingJavaScriptDialog {
   target: AppTabObservationTarget;
 }
 
+interface AppTabSnapshotOptions {
+  target?: string;
+  depth?: number;
+  boxes?: boolean;
+  outputPath?: string;
+}
+
 export interface AppTabObservationTarget {
   descriptor: DesktopAppTabDescriptor;
   webContents: WebContents;
@@ -139,9 +146,10 @@ export async function resolveAppTabObservationTarget(input: {
   hostedWebContents?: (appTabId: string) => WebContents | null;
 }): Promise<AppTabObservationTarget> {
   const hostedSurface = input.hostedWebContents?.(input.descriptor.id) ?? null;
+  const expectsHostedPage =
+    input.allowHostedPage === true || input.descriptor.appId === input.browserAppId;
   const hostedPage =
-    !hostedSurface &&
-    (input.allowHostedPage === true || input.descriptor.appId === input.browserAppId)
+    !hostedSurface && expectsHostedPage
       ? await input.browserWebContents(input.descriptor.id)
       : null;
   if (hostedSurface || hostedPage) {
@@ -159,13 +167,25 @@ export async function resolveAppTabObservationTarget(input: {
     }
     return hostedTarget;
   }
+  if (input.descriptor.appId === input.browserAppId) {
+    throw Object.assign(
+      new Error(
+        "The Browser page session is not open for this App tab. The App frame is still present, but it is not the requested web page.",
+      ),
+      { code: "BROWSER_SESSION_NOT_OPEN", retryable: true },
+    );
+  }
   return input.appTarget(input.descriptor.id);
 }
 
 export class AppTabObserver {
   readonly #resolver: AppTabObserverResolver;
   readonly #states = new Map<string, TabSnapshotState>();
-  readonly #protocolSessions = new Map<string, string>();
+  readonly #snapshotTails = new Map<string, Promise<void>>();
+  readonly #protocolSessions = new Map<
+    string,
+    { contentsId: number; targetId: string; sessionId: string }
+  >();
   readonly #dialogTargets = new Map<string, { tabId: string; target: AppTabObservationTarget }>();
   readonly #dialogTabsByContents = new Map<number, Set<string>>();
   readonly #dialogListeners = new Set<number>();
@@ -209,15 +229,22 @@ export class AppTabObserver {
     }
   }
 
-  async snapshot(
-    tabId: string,
-    options: {
-      target?: string;
-      depth?: number;
-      boxes?: boolean;
-      outputPath?: string;
-    } = {},
-  ): Promise<unknown> {
+  async snapshot(tabId: string, options: AppTabSnapshotOptions = {}): Promise<unknown> {
+    const prior = this.#snapshotTails.get(tabId) ?? Promise.resolve();
+    const operation = prior.catch(() => undefined).then(() => this.#snapshotNow(tabId, options));
+    const tail = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.#snapshotTails.set(tabId, tail);
+    try {
+      return await operation;
+    } finally {
+      if (this.#snapshotTails.get(tabId) === tail) this.#snapshotTails.delete(tabId);
+    }
+  }
+
+  async #snapshotNow(tabId: string, options: AppTabSnapshotOptions): Promise<unknown> {
     const startedAt = performance.now();
     this.#perfCounters.snapshotCalls += 1;
     let restoreSemanticVisibility: (() => Promise<void>) | undefined;
@@ -441,8 +468,9 @@ export class AppTabObserver {
     const matches = exactTargets.length > 0 ? exactTargets : documentTargets;
     if (matches.length === 1) {
       const targetId = matches[0]!.targetId as string;
-      let sessionId = this.#protocolSessions.get(targetId);
-      if (!sessionId) {
+      const protocolSessionKey = `${target.webContents.id}:${targetId}`;
+      let session = this.#protocolSessions.get(protocolSessionKey);
+      if (!session) {
         const attached = asRecord(
           await this.#cdp(target.webContents, "Target.attachToTarget", {
             targetId,
@@ -452,10 +480,14 @@ export class AppTabObserver {
         if (typeof attached.sessionId !== "string") {
           throw new Error("Chrome did not return an App frame observation session.");
         }
-        sessionId = attached.sessionId;
-        this.#protocolSessions.set(targetId, sessionId);
+        session = {
+          contentsId: target.webContents.id,
+          targetId,
+          sessionId: attached.sessionId,
+        };
+        this.#protocolSessions.set(protocolSessionKey, session);
       }
-      return { target: { ...target, cdpSessionId: sessionId } };
+      return { target: { ...target, cdpSessionId: session.sessionId } };
     }
     throw new Error("The App frame is not present in the browser protocol frame tree.");
   }
@@ -869,7 +901,21 @@ export class AppTabObserver {
     if (url) this.#dialogTargets.set(dialogUrlKey(contents.id, url), { tabId, target });
     if (!this.#dialogListeners.has(contents.id)) {
       this.#dialogListeners.add(contents.id);
+      const debuggerDetached = () => {
+        // DevTools or Chromium can detach the root debugger without emitting one child-target
+        // event per flattened session. Every cached child session is invalid after that boundary.
+        this.#forgetProtocolSessions(contents.id);
+      };
+      contents.debugger.on("detach", debuggerDetached);
       contents.debugger.on("message", (_event, method, params, sessionId) => {
+        if (method === "Target.detachedFromTarget" && isRecord(params)) {
+          const detachedSessionId =
+            typeof params.sessionId === "string" ? params.sessionId : sessionId;
+          const detachedTargetId =
+            typeof params.targetId === "string" ? params.targetId : undefined;
+          this.#forgetProtocolSessions(contents.id, detachedTargetId, detachedSessionId);
+          return;
+        }
         if (method !== "Page.javascriptDialogOpening" || !isRecord(params)) return;
         const url = typeof params.url === "string" ? params.url : "";
         const owner =
@@ -890,8 +936,16 @@ export class AppTabObserver {
         });
       });
       contents.once("destroyed", () => {
+        contents.debugger.removeListener("detach", debuggerDetached);
         this.#dialogListeners.delete(contents.id);
         this.#dialogTabsByContents.delete(contents.id);
+        this.#forgetProtocolSessions(contents.id);
+        for (const [key, owner] of this.#dialogTargets) {
+          if (owner.target.webContents.id === contents.id) this.#dialogTargets.delete(key);
+        }
+        for (const [ownerTabId, dialog] of this.#pendingDialogs) {
+          if (dialog.target.webContents.id === contents.id) this.#pendingDialogs.delete(ownerTabId);
+        }
       });
     }
     await this.#cdp(contents, "Page.enable", undefined, target.cdpSessionId);
@@ -1059,12 +1113,27 @@ export class AppTabObserver {
         ? await contents.debugger.sendCommand(method, params)
         : await contents.debugger.sendCommand(method, params, sessionId);
     } catch (error) {
+      if (sessionId !== undefined) {
+        this.#forgetProtocolSessions(contents.id, undefined, sessionId);
+      }
       if (error instanceof Error && /node|object|context|target|document/i.test(error.message)) {
         throw observerError("STALE_REFERENCE", error.message);
       }
       throw error;
     } finally {
       this.#perfCounters.cdpTotalMs += performance.now() - startedAt;
+    }
+  }
+
+  #forgetProtocolSessions(contentsId: number, targetId?: string, sessionId?: string): void {
+    for (const [key, session] of this.#protocolSessions) {
+      if (
+        session.contentsId === contentsId &&
+        (targetId === undefined || session.targetId === targetId) &&
+        (sessionId === undefined || session.sessionId === sessionId)
+      ) {
+        this.#protocolSessions.delete(key);
+      }
     }
   }
 

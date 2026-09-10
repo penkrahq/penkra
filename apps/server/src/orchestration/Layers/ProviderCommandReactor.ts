@@ -2929,7 +2929,6 @@ const make = Effect.gen(function* () {
         decision: event.payload.decision,
       })
       .pipe(
-        Effect.asVoid,
         Effect.catchCause((cause) => {
           const unknownPendingRequest = isUnknownPendingApprovalRequestError(cause);
           return appendInteractionResponseFailure(event, {
@@ -2941,8 +2940,9 @@ const make = Effect.gen(function* () {
             ...(unknownPendingRequest
               ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
               : {}),
-          }).pipe(Effect.asVoid);
+          });
         }),
+        Effect.asVoid,
       );
   });
 
@@ -2966,7 +2966,6 @@ const make = Effect.gen(function* () {
         answers: event.payload.answers,
       })
       .pipe(
-        Effect.asVoid,
         Effect.catchCause((cause) => {
           const unknownPendingRequest = isUnknownPendingUserInputRequestError(cause);
           return appendInteractionResponseFailure(event, {
@@ -2978,8 +2977,9 @@ const make = Effect.gen(function* () {
             ...(unknownPendingRequest
               ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
               : {}),
-          }).pipe(Effect.asVoid);
+          });
         }),
+        Effect.asVoid,
       );
   });
 

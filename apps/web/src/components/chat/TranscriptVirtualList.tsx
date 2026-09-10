@@ -69,6 +69,23 @@ function alignFromViewPosition(viewPosition: number | undefined): "start" | "cen
   return "center";
 }
 
+function readMeasuredTailTarget(
+  scrollElement: HTMLDivElement,
+  tailKey: string | null,
+  paddingEnd: number,
+): { targetTop: number } | null {
+  if (tailKey === null) return null;
+  const tailElement = Array.from(
+    scrollElement.querySelectorAll<HTMLElement>("[data-row-key]"),
+  ).find((candidate) => candidate.getAttribute("data-row-key") === tailKey);
+  if (!tailElement) return null;
+  const viewportRect = scrollElement.getBoundingClientRect();
+  const tailRect = tailElement.getBoundingClientRect();
+  return {
+    targetTop: scrollElement.scrollTop + tailRect.bottom - (viewportRect.bottom - paddingEnd),
+  };
+}
+
 function TranscriptVirtualListInner<TItem>(
   {
     data,
@@ -139,6 +156,7 @@ function TranscriptVirtualListInner<TItem>(
   const endFollowAnchorRevisionRef = useRef<string | null>(null);
   const endFollowHadDataRef = useRef(false);
   const scheduleInitialEndCorrectionRef = useRef<((source: string) => void) | null>(null);
+  const resolveMeasuredInitialPlacementRef = useRef<((source: string) => void) | null>(null);
   const initialAnchorRestoreActiveRef = useRef(
     initialViewportSnapshotRef.current?.isAtEnd === false,
   );
@@ -271,6 +289,19 @@ function TranscriptVirtualListInner<TItem>(
           initialEndFollowOwnedKeysRef.current.has(measuredKey) &&
           (!initialPlacementResolvedRef.current || measuredSizeChanged)
         ) {
+          if (
+            !initialPlacementResolvedRef.current &&
+            entry === undefined &&
+            measuredKey === initialEndFollowTailKeyRef.current
+          ) {
+            // Let the virtualizer finish its synchronous range/position update
+            // before reading the tail rectangle. A commit-ref measurement can
+            // otherwise observe the old absolute-row placement and produce a
+            // clamped negative target.
+            window.queueMicrotask(() => {
+              resolveMeasuredInitialPlacementRef.current?.("tail-measured");
+            });
+          }
           if (initialPlacementResolvedRef.current) {
             // ResizeObserver delivery runs before paint. Once the true tail has
             // been revealed, preserve it in this same delivery so a late
@@ -290,20 +321,18 @@ function TranscriptVirtualListInner<TItem>(
               // rectangle rather than scrollHeight, which may still include
               // estimates for unmeasured rows and can overshoot the causal
               // tail in either direction.
-              const ownedTailKey = initialEndFollowTailKeyRef.current;
-              const tailElement = Array.from(
-                scrollElement.querySelectorAll<HTMLElement>("[data-row-key]"),
-              ).find((candidate) => candidate.getAttribute("data-row-key") === ownedTailKey);
-              if (!tailElement) {
+              const tailTarget = readMeasuredTailTarget(
+                scrollElement,
+                initialEndFollowTailKeyRef.current,
+                paddingEnd,
+              );
+              if (!tailTarget) {
                 scheduleInitialEndCorrectionRef.current?.("measured-tail-unmounted");
                 return;
               }
-              const viewportRect = scrollElement.getBoundingClientRect();
-              const tailRect = tailElement.getBoundingClientRect();
-              const targetBottom = viewportRect.bottom - paddingEnd;
               const beforeTop = scrollElement.scrollTop;
-              const requestedTop = beforeTop + tailRect.bottom - targetBottom;
-              scrollElement.scrollTop += tailRect.bottom - targetBottom;
+              const requestedTop = tailTarget.targetTop;
+              scrollElement.scrollTop = requestedTop;
               markChatScrollWrite(scrollElement, {
                 owner: "list:measured-tail-alignment",
                 requestedTop,
@@ -453,6 +482,70 @@ function TranscriptVirtualListInner<TItem>(
     },
     [recordDiagnostic],
   );
+  const resolveMeasuredInitialPlacement = useCallback(
+    (source: string) => {
+      if (initialPlacementResolvedRef.current || !initialEndFollowRef.current) return;
+      const element = scrollElementRef.current;
+      const tailKey = initialEndFollowTailKeyRef.current;
+      if (!element || tailKey === null || !measuredSizeByKeyRef.current.has(tailKey)) return;
+      const renderedItems = virtualizer.getVirtualItems();
+      if (renderedItems.some((item) => !measuredSizeByKeyRef.current.has(String(item.key)))) {
+        return;
+      }
+      const tailTarget = readMeasuredTailTarget(element, tailKey, paddingEnd);
+      if (!tailTarget) return;
+      const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+      if (
+        tailTarget.targetTop < -GEOMETRY_EPSILON_PX ||
+        tailTarget.targetTop > maxScrollTop + GEOMETRY_EPSILON_PX
+      ) {
+        return;
+      }
+
+      const beforeTop = element.scrollTop;
+      element.scrollTop = tailTarget.targetTop;
+      markChatScrollWrite(element, {
+        owner: "list:initial-measured-tail",
+        requestedTop: tailTarget.targetTop,
+        beforeTop,
+        afterTop: element.scrollTop,
+      });
+      if (
+        virtualizer.scrollOffset !== null &&
+        Math.abs(virtualizer.scrollOffset - element.scrollTop) > GEOMETRY_EPSILON_PX
+      ) {
+        element.dispatchEvent(new Event("scroll"));
+      }
+
+      const isTailVisible = isAtRenderedTail(Math.max(1, paddingEnd));
+      recordDiagnostic("initial-end-follow:measured-tail", {
+        source,
+        isTailVisible,
+        requestedTop: tailTarget.targetTop,
+      });
+      if (!isTailVisible) return;
+
+      if (initialEndTimerRef.current !== null) {
+        window.clearTimeout(initialEndTimerRef.current);
+        initialEndTimerRef.current = null;
+      }
+      recordDiagnostic("initial-end-follow:tail-visible", {
+        frames: initialEndFrameCountRef.current,
+        source,
+      });
+      resolveInitialPlacement("initial-end-follow-tail-visible");
+      scheduleDiagnosticCheckpoints("initial-end-follow-tail-visible");
+    },
+    [
+      isAtRenderedTail,
+      paddingEnd,
+      recordDiagnostic,
+      resolveInitialPlacement,
+      scheduleDiagnosticCheckpoints,
+      virtualizer,
+    ],
+  );
+  resolveMeasuredInitialPlacementRef.current = resolveMeasuredInitialPlacement;
   const captureViewport = useCallback(() => {
     if (!viewportMemoryKey) return;
     // React Strict Mode probes layout-effect cleanup before the initial
@@ -547,16 +640,22 @@ function TranscriptVirtualListInner<TItem>(
           memoryKey: viewportMemoryKey ?? null,
         });
         const element = scrollElementRef.current;
+        let beforeTop: number | null = null;
+        let requestedTop: number | null = null;
+        let afterTop: number | null = null;
         if (element) {
           // TanStack's scrollToEnd owns a target-reconciliation loop that can
           // outlive an upward wheel/touch gesture and snap the reader back for
           // up to five seconds. DOM scrolling has the ownership semantics a
           // chat needs: native input cancels smooth motion, and an auto write
           // has no latent target to replay after detachment.
-          const beforeTop = element.scrollTop;
-          const requestedTop = element.scrollHeight;
+          beforeTop = element.scrollTop;
+          const currentTailKey = data.length > 0 ? keyExtractor(data[data.length - 1]!) : null;
+          const tailTarget = readMeasuredTailTarget(element, currentTailKey, paddingEnd);
+          const targetTop = tailTarget?.targetTop ?? element.scrollHeight;
+          requestedTop = targetTop;
           element.scrollTo({
-            top: element.scrollHeight,
+            top: targetTop,
             behavior: options?.animated ? "smooth" : "auto",
           });
           markChatScrollWrite(element, {
@@ -565,6 +664,7 @@ function TranscriptVirtualListInner<TItem>(
             beforeTop,
             afterTop: element.scrollTop,
           });
+          afterTop = element.scrollTop;
           if (
             options?.animated !== true &&
             virtualizer.scrollOffset !== null &&
@@ -575,6 +675,9 @@ function TranscriptVirtualListInner<TItem>(
         }
         recordDiagnostic("imperative-scroll-to-end:after", {
           animated: options?.animated ?? false,
+          requestedTop,
+          beforeTop,
+          afterTop,
         });
         scheduleDiagnosticCheckpoints("imperative-scroll-to-end");
       },
@@ -598,7 +701,15 @@ function TranscriptVirtualListInner<TItem>(
         isAtEnd: scrollOwnerRef.current === "tail",
       }),
     }),
-    [recordDiagnostic, scheduleDiagnosticCheckpoints, viewportMemoryKey, virtualizer],
+    [
+      data,
+      keyExtractor,
+      paddingEnd,
+      recordDiagnostic,
+      scheduleDiagnosticCheckpoints,
+      viewportMemoryKey,
+      virtualizer,
+    ],
   );
 
   const didInitialScrollRef = useRef(false);
@@ -641,19 +752,18 @@ function TranscriptVirtualListInner<TItem>(
 
         initialEndFrameCountRef.current += 1;
         const beforeTop = element.scrollTop;
-        const ownedTailKey = initialEndFollowTailKeyRef.current;
-        const tailElement = Array.from(
-          element.querySelectorAll<HTMLElement>("[data-row-key]"),
-        ).find((candidate) => candidate.getAttribute("data-row-key") === ownedTailKey);
+        const tailTarget = readMeasuredTailTarget(
+          element,
+          initialEndFollowTailKeyRef.current,
+          paddingEnd,
+        );
         let requestedTop = element.scrollHeight;
-        if (tailElement) {
+        if (tailTarget) {
           // Use the same causal-tail target as ResizeObserver corrections.
           // `scrollHeight` also contains virtual padding and provisional
           // estimates; alternating between those two targets made the live
           // tail move by one row gap on successive paints.
-          const viewportRect = element.getBoundingClientRect();
-          const tailRect = tailElement.getBoundingClientRect();
-          requestedTop = beforeTop + tailRect.bottom - (viewportRect.bottom - paddingEnd);
+          requestedTop = tailTarget.targetTop;
           element.scrollTop = requestedTop;
         } else {
           // The first estimated range may not contain the tail yet. Move to
@@ -693,6 +803,7 @@ function TranscriptVirtualListInner<TItem>(
           isTailVisible,
           renderedTailIndex,
           distanceFromEnd,
+          requestedTop,
         });
 
         if (isTailVisible) {
