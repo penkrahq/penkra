@@ -410,6 +410,71 @@ describe("AppTabObserver", () => {
     });
   });
 
+  it("selects the out-of-process App frame owned by the resolved shell window", async () => {
+    const { contents, sendCommand } = makeContents();
+    const frame = {
+      url: descriptor.documentUrl,
+      executeJavaScript: vi.fn(async () => "Canvas document"),
+    };
+    sendCommand.mockImplementation((async (
+      method: string,
+      _params?: unknown,
+      sessionId?: string,
+    ) => {
+      if (method === "Page.getFrameTree") {
+        return {
+          frameTree: { frame: { id: "selected-shell", url: "http://localhost:5173" } },
+        };
+      }
+      if (method === "Target.getTargets") {
+        return {
+          targetInfos: [
+            {
+              targetId: "wrong-window-frame",
+              parentFrameId: "other-shell",
+              type: "iframe",
+              url: descriptor.documentUrl,
+            },
+            {
+              targetId: "selected-window-frame",
+              parentFrameId: "selected-shell",
+              type: "iframe",
+              url: descriptor.documentUrl,
+            },
+          ],
+        };
+      }
+      if (method === "Target.attachToTarget") {
+        expect(_params).toEqual({ targetId: "selected-window-frame", flatten: true });
+        return { sessionId: "selected-window-session" };
+      }
+      if (method === "Accessibility.getFullAXTree") {
+        expect(sessionId).toBe("selected-window-session");
+        return {
+          nodes: [
+            {
+              backendDOMNodeId: 7,
+              role: { value: "button" },
+              name: { value: "Save design" },
+            },
+          ],
+        };
+      }
+      return {};
+    }) as never);
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents, frame: frame as never }),
+    });
+
+    await expect(observer.snapshot("tab-1")).resolves.toMatchObject({
+      snapshot: '- button "Save design" [ref=e1]',
+    });
+    expect(sendCommand).toHaveBeenCalledWith("Target.attachToTarget", {
+      targetId: "selected-window-frame",
+      flatten: true,
+    });
+  });
+
   it("writes a complete snapshot to the requested artifact path", async () => {
     const directory = await mkdtemp(join(tmpdir(), "penkra-tab-snapshot-"));
     try {
