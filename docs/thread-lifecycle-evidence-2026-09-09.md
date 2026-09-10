@@ -373,3 +373,343 @@ The web production build then passed, including all four compiler hot-path contr
 rerun failed before build startup because a root-relative formatter path was supplied from
 `apps/web`; it was separated into a root formatter invocation and package-local build and was not
 counted as a build result.
+
+## Reopened 22:18 send, sidebar, and completion evidence
+
+The earlier completion statement exceeded the replay's coverage. Its `overlapFrames=0`
+measured composer text against a working row, but did not assert that the new user message was
+already present, that an older completed answer stayed collapsed, or that the sidebar indicator
+matched Thinking. Its terminal probe checked for a removed transition-marker attribute, so a
+separate retained live-layout state could still pass. Those numbers remain evidence only for
+the predicates actually sampled; they do not establish a complete lifecycle fix.
+
+The next user recording is retained as attachment
+`att_v2_adebbd673cb6458fb1db73ed218802e4.qt` (26.363333 seconds, 1920×1200).
+The investigation directory `.penkra/scratch/lifecycle-2218/` retains the original attachment
+SHA-256, 437 native decoded frames with original presentation timestamps and frame hashes,
+renderer/sidebar diagnostic exports, initial failing controls, and harness errors. The initial
+resampled contact sheets are visual overviews only; `frame-index.json` is the timestamp authority.
+
+In the original frames, the previous response is collapsed at 12.226667 seconds. At 12.743333,
+the composer has cleared and Thinking is present, but the new user row is not yet present. The
+**previous** answer's narration and tool summary reopen. The later user row becomes the new
+response boundary, allowing that previous answer to collapse again. This explains the large
+send-time jump. `ChatView` published preflight ownership before connection/durable preparation,
+but created its optimistic message only after those awaits. The timeline's live-tail fallback
+therefore temporarily identified the previous terminal assistant as the current live answer.
+
+The sidebar indicator is absent at 15.146667 seconds and present again at 15.930 seconds,
+while Thinking remains. Retained sidebar diagnostics for thread
+`1b5d9633-ef27-4b80-b9d8-0eb722a76a03` explain the boundary: at
+04:18:43.644Z a pending message owned Working; at 04:18:45.444Z a ready session cleared that
+marker while the latest turn was still the old completed one; at 04:18:46.123Z the new native
+running turn restored Working. The client event reducer and in-memory server projector both
+used “starting, otherwise null” for the pending marker. Their readiness behavior disagreed with
+the SQL projection's documented invariant that bootstrap readiness is not turn acceptance.
+Two deterministic initial/reopened controls failed before changing that rule. The isolated
+corrected web suite passed 55 tests and server projector suite passed 16. Explicit cancellation
+and pre-dispatch delivery failure still clear the exact owning marker; running/terminal session
+states retain their retirement behavior.
+
+Completion had another independent timer: `ChatView` retained
+`keepSettledActiveTurnLayout` for 180 ms after work ended. This came from commit `886ecb2e3`
+(“Delay active turn layout settle after session idle”); removing the separate timeline clone did
+not remove it. The stronger full ChatView Chromium test samples every animation frame across
+settlement and requires the collapsed terminal owner as soon as Stop is absent. Unchanged source
+failed with nine samples retaining the inline tool summary without Worked. Removing the grace
+state, layout effect, timer, and obsolete helper made this exact control pass. Adding a
+`timeline-layout-committed` diagnostic then exposed the committed layout working predicate separately
+from derived working status; its instrumented rerun passed. The initial full row signature was
+removed after review found unnecessary per-stream serialization. Detailed row/group ownership
+and geometry are captured only by the explicit QA recorder, while normal lifecycle logs stay
+lightweight. These are commit-state diagnostics, not a claim
+that a browser painted every intermediate DOM mutation.
+
+The rendering investigation checked the primary React contracts:
+[useSyncExternalStore](https://react.dev/reference/react/useSyncExternalStore) describes external
+store subscription updates and consistent snapshots;
+[useLayoutEffect](https://react.dev/reference/react/useLayoutEffect) distinguishes committed DOM
+and pre-paint layout effects. This is why the regression assertions inspect animation-frame state
+and the acceptance evidence also includes native recording, rather than treating MutationObserver
+callbacks or a final settled screenshot as sufficient visual proof.
+
+Errors are retained in `investigation-errors.txt`. In particular, an initial new layout diagnostic
+referenced undefined `threadId` and triggered the live Dev error boundary through HMR. It was
+corrected to the existing `viewportMemoryKey`; native state showed recovery, and the instrumented
+browser control was rerun. Computer Use first timed out by display name, then found two installed
+Electron paths sharing the Dev bundle identifier. The full canonical executable path worked.
+After a backend watcher restart, DevTools was the front window; a missing Create Thread action
+in that window was not classified as a product failure. The inspected native test thread was
+created separately so the user's existing composer draft remained untouched.
+
+An independent native replay then reproduced the send boundary in task-owned Dev thread
+`0a16ec38-8823-413e-8042-1262e3a97bab`, with a previous completed tool turn and scrollable prose.
+The ordinary follow-up asked which App was open and requested a two-sentence summary. Computer Use
+issued the input; an observational Electron screencast and animation-frame sampler retained
+567 images and 3,307 samples with no capture errors (`native-send-red/`). Two samples showed an
+empty composer and Thinking before the submitted user row; image `00033.jpg` visibly shows the
+previous answer's narration and tool summary reopened. This replay used main's preflight runtime
+before the isolated atomic projection change; the readiness and terminal fixes were already present.
+
+That replay exposed a second sidebar handoff failure. The local send owner disappeared at
+04:53:46.679Z, but the server pending marker did not reach the sidebar until 04:53:46.811Z.
+Four animation-frame samples showed Thinking/Stop with sidebar idle, and screencast image
+`00057.jpg` visibly confirms Thinking without the sidebar indicator. The later session-ready
+transition at 04:53:47.998Z retained the pending marker correctly. Thus the readiness fix addresses
+its demonstrated boundary but does not by itself establish end-to-end spinner continuity.
+Command admission and consumer projection are separate acknowledgements; acceptance remains open.
+
+The additional admission handoff uses the existing synchronization frontier instead of guessing
+from individual event names. `OrchestrationEngine` appends every admitted event in its transaction,
+stores the final event sequence in the command receipt, and returns that sequence. `EventRouter`
+advances the local frontier only after applying its snapshot/event batch to the UI stores. The
+send registry retains the same full dispatching owner until the applied frontier covers the exact send
+receipt, including the inverse arrival order and a reconnect snapshot. A `message-sent` row alone
+no longer releases it. The receipt is registered immediately on command success; unrelated query
+invalidation is not part of visual admission. The frontier RED and focused GREEN logs under
+`sidebar-evidence/` are fresh isolated replays, not recovered original logs. Isolated typecheck
+dependency errors are not a passing gate.
+
+A further hook-level remount control failed on the intermediate receipt-only implementation:
+the sidebar activity registry remained active, but the remounted hook reported
+`hasPreflight: false` and `dispatchedMessageId: null`. The expected exact message target was
+`message-remount-admitted`. This is retained in `sidebar-evidence/remount-hook-red.log`.
+The isolated ChatView browser attempt did not execute because dependencies were unavailable;
+it supplies no native or DOM Stop-button evidence. This separates the reproduced ownership
+loss from the still-required integrated and native acceptance.
+The correction stores the admission receipt sequence on that existing owner instead of replacing
+it with a separate activity-only map. The focused 13-test run passed, including remount lookup
+of the exact Stop target (`sidebar-evidence/remount-hook-green.log`).
+
+The first combined ChatView browser run passed 115 tests and failed six cancellation-recovery
+controls (`integrated-chatview-browser.log`). The added preflight projection survived draft
+restoration. Authoritative cancellation now retires that transient projection before durable
+restoration awaits; the targeted rerun passed all 14 selected cases, including the six failures
+(`recovery-projection-rerun.log`). These results do not stand in for a final combined run.
+
+`window.penkraComposerSendLifecycle.samples(threadId)` exposes bounded, structured claim, dispatch,
+admission, release, and applied-frontier records with owner/message identifiers, receipt/applied
+sequences, UTC time and the renderer performance clock. It records no prompt or attachment body.
+The buffer survives instrumentation hot reloads. Normal chat layout diagnostics remain lightweight;
+the explicit QA recorder additionally captures row identity, disclosure ownership, geometry,
+composer contents, native renderer images and per-frame status. Receipt/frontier controls cover
+both arrival orders. A separate integration review control caught a new projection draft defect:
+an earlier dispatch masked a newly captured follow-up; the retained RED returned “first” where
+“follow-up” was required. Projection now follows the registry's existing current-preparation
+priority, while retaining the original dispatch as the Stop target.
+
+The first fresh native acceptance attempt is retained as `native-final-tool/`, not as a pass.
+After native Quit and launch through `/Applications/Penkra Dev.app`, Dev 1 PID 83503 served the
+exact QA thread. Its ordinary App-inspection/checklist request produced a 17-second tool turn.
+The capture retained 730 renderer images and 6,726 animation-frame samples with no capture or
+renderer errors. DOM predicates counted no composer overlap, absent user row, or Thinking without
+sidebar indicator. Actual image `00096.jpg` nevertheless shows Thinking and the sidebar indicator
+before the submitted text becomes visible. DOM presence did not establish painted visibility.
+
+A short native greeting reproduced that visual gap again with computed style recorded:
+`native-scroll-red/trace.json` records the fresh row at opacity `0` in the first active sample and
+again 48.7 ms later. Its animation name is `chat-message-send-enter`; the row reaches opacity `1`
+later. The isolated browser control also failed with expected opacity `1`, actual `0`.
+Commit `0e38b1bee` introduced the entrance animation; the path applied `from { opacity: 0 }` for
+180 ms and retained a separate JavaScript cleanup buffer. Removing the local-send entrance layer
+eliminates this visual delay instead of postponing Thinking. The initial two focused visibility
+controls passed on main (`entrance-evidence/main-green.log`); native acceptance remains separate.
+
+The same short replay exposed a distinct scroll reversal with unchanged geometry. The imperative
+end call wrote `1182` at renderer time `60878.6`; the measured initial-end correction wrote
+`1165.5` at `60927.4`. Container height remained `2057` and viewport height `875`. The two targets
+were applied again around command admission. The first path uses the full scroll extent; the
+second aligns the measured final row. These numbers are observations, not correction constants.
+The retained trace attributes each writer and captures the per-frame reversal. This is separate
+from the older completed answer reopening before the new message existed.
+
+Native capture also exposed a Dev instrumentation collision: both numbered instances inherited
+the same opt-in debugging port. Dev 2 owned port 9555 while Dev 1 logged `Address already in use`;
+Computer Use and the CDP page consequently identified different Threads. No replay was accepted
+against that mismatch. The debugger port resolver now derives a distinct endpoint from the
+configured base and canonical Dev instance number, with range validation. Main's four focused
+controls passed and live listeners were verified at 9555 for Dev 1 and 9556 for Dev 2. This changes
+only opted-in development debugging, not packaged production behavior.
+
+The combined ChatView run after fixture corrections passed all 121 cases
+(`final-chatview-browser-after-fixtures.log`). The two last failures were in the fixtures:
+New Deck computed its receipt after a gate using an already advanced snapshot; the accepted-outcome
+wait accepted initialized `null` because it asserted only `toBeDefined()`. The corrected controls
+capture an actual numeric receipt and apply its canonical snapshot before advancing the frontier.
+No product change was made for those two failures. The first-working-frame opacity controls passed
+2/2, the scroll file passed 18/18, and the production web build passed in 47.07 seconds.
+
+The imperative, initial-placement, and measured-resize paths now share the rendered-tail geometry
+reader. Native replay `native-after-scroll-short/` retained 327 images and 2,795 RAF samples. Both
+send/admission writers requested `1302.5`; the earlier 16.5-pixel reversal was absent from that
+boundary. Image `00022.jpg` shows the submitted greeting, Thinking, cleared composer and sidebar
+spinner together. The trace counted no composer overlap, absent submitted row, opacity delay, or
+Thinking/sidebar mismatch for this turn. These are specific observed predicates, not a full-product
+acceptance claim.
+
+`native-after-scroll-tools-remount/` retained 1,059 images and 6,301 RAF samples. Native actions
+switched to the original user thread and back while the QA response was active; its existing draft
+` al` remained intact. Returning exposed a blank transcript while initial placement was hidden:
+RAF 2899 and 2900 are hidden; RAF 2901 is visible 167.2 ms after the first returned-route sample.
+Image `00544.jpg` confirms the blank paint. The later response was unrelated to the requested
+software checklist, so this replay is not clean acceptance. Its origin requires authoritative
+provider correlation; renderer identity alone does not prove native provider provenance.
+The interrupt command `802bfb9c-7bbe-4e10-8dd0-2734c7d00a52` was dispatched at
+06:10:23.102Z, received receipt 391318 at 06:10:23.160Z, and Stop/Thinking disappeared in the
+RAF sample at 06:10:23.9589Z. This measures dispatch-to-receipt and dispatch-to-settled UI,
+not the physical-click-to-provider-interruption interval. The capture also retains three Canvas
+performance warnings during navigation: one 153 ms long task and two successful font fetches.
+No causal attribution to the lifecycle regression is established by those warnings.
+
+A further native Quit, verified process exit, and Applications launch produced fresh Dev 1 PID 12917. The launch observation timed out, but the new listener and exact route verified startup;
+the launch was not repeated. `native-fresh-restart-short/` retained 309 images and 5,624 RAF
+samples for `Hi.`. Images 00046–00048 show visible submitted text, Thinking, empty composer and
+sidebar spinner. All four observed send predicates remained clean, and both scroll writers used
+`2571.5` before response growth. No renderer/capture errors were retained. Computer Use's screenshot
+call returned ScreenCaptureKit -3812 after Return; read-only inspection confirmed the single send,
+so Return was not repeated. This automation observation failure is separate from product execution.
+
+Selective synchronization diagnostics now record lifecycle-event receipt and application with
+orchestration sequence, occurred/ingested timestamps, command identity and renderer clock. They
+exclude text deltas and payload bodies. This fills the previously unobserved receipt-to-store gap;
+it does not retrospectively establish that interval in older traces. Native launcher correlation
+for the interrupted review records provider interrupt request at 06:10:23.350Z and acknowledgement
+at 06:10:23.387Z. Dev read APIs retain terminal activity 391333 at 23.387Z; React's settled layout
+sample is at 23.881Z. Capture instrumentation was active, so these are instrumented-run timings,
+not an uninstrumented latency benchmark.
+
+The targeted web typecheck for diagnostics failed on two lifecycle-owned integration omissions
+(the removed animation prop still forwarded through ChatTranscriptPane, and a guarded array access
+in the owner registry) plus a concurrent Browser mock tuple typing error. The two owned omissions
+were corrected; the original log remains `sync-diagnostics-typecheck.log`. They must not be labeled
+pre-existing or unrelated to this task.
+
+The held durable-write Stop control reproduced a cancelled preflight continuing into dispatch.
+The captured message identity is now assigned at owner claim; cancellation settlement uses that
+identity, and the dispatch transition rejects cancelled owners. The corrected same-boundary control
+asserts zero original start commands, exactly one recovery, and preservation of a newer prompt and
+image. Its focused browser case and fourteen registry cases passed. The separate shell-only
+remount candidate did not reproduce a disappearing prompt and received no speculative fix.
+
+Initial transcript placement now resolves from measured tail and rendered-row readiness when the
+active initial end-follow owner can place the visible tail within actual scroll bounds. It does
+not depend on a timer or the presence of a viewport-memory key. The first-RAF remount control
+reproduced hidden/pending before the correction and visible/resolved afterward. The giant-row
+control initially failed only its old deferred-event expectation while all four painted-anchor
+assertions passed: the row was measured earlier and compensated through measured-tail alignment.
+The fixture now introduces the real giant height on the first backward wheel, retaining meaningful
+reader-owned deferred compensation coverage. The complete component file passed 19/19; both the
+original failure and corrected run remain in `native-after-scroll-tools-remount/`.
+
+A fresh native Dev 1 restart produced PID 92524 after verified exit of PID 56120. The Applications
+launcher observation timed out, but the new process, listener and native window confirmed launch.
+A startup renderer replacement invalidated the first recorder before any message was sent;
+`native-final-short/` is explicitly pre-send evidence with zero RAF samples, not acceptance.
+The replacement recorder `native-final-short-v2/` retained 416 images and 4,552 RAF samples for
+`Hello.` through the completed reply. Its analyzed predicates count zero composer overlap, missing
+submitted row while Thinking, and Thinking without the sidebar indicator.
+
+`native-final-tools-remount/` retained 783 images and 5,791 RAF samples for an ordinary request to
+check the open App and write a five-area software reliability review guide. Native navigation
+switched to the original user thread, observed its unchanged ` al` draft, and returned while the
+reply was streaming. The agent completed the requested software guide. A settled native screenshot
+was inspected before capture ended. Detailed first-paint and remount frame review is retained
+separately; these capture counts alone are not proof of every lifecycle invariant.
+
+`native-final-stop/` uses a lighter recorder without per-frame transcript geometry/text reads.
+After a real App tool call and incoming handbook text, a native Stop click produced DOM click
+time 06:53:35.5281Z and interrupt dispatch at 35.529Z, command
+`434960c4-29af-4cae-b302-23d774e827af`. The launcher records native provider interrupt request
+at 35.580Z and acknowledgement at 35.587Z. The browser received command receipt 392933 at
+35.662Z, the interrupt sync event at 35.676Z, and terminal activity 392937 at 35.685Z. The reducer
+batch applied those events at 35.714Z; settled React layout committed at 35.783Z. The first RAF
+with Stop, Thinking and sidebar activity all absent is 35.8061Z, 278 ms after the DOM click.
+The settled native image was inspected. All 702 images and 3,629 RAF samples are retained with
+zero capture or renderer errors. This single instrumented replay does not reproduce a multi-second
+Stop delay and is not an uninstrumented latency guarantee. It establishes the individual stages
+that were missing from the earlier trace; no timeout or batching constant was changed to obtain it.
+
+Independent final-frame review inspected short-send frame `00039.jpg`, completed frame `00415.jpg`,
+and tool-send frame `00041.jpg`, return frame `00504.jpg`, and completed frame `00782.jpg`. Both
+full traces contain zero counted composer overlap, absent submitted row while Thinking, or
+Thinking/sidebar mismatch. Observed row styles were opaque and row IDs were unique. These DOM
+checks do not imply every virtual row is inside the viewport. The tools recording retains three
+performance warnings during App restoration (154 ms long task and two font-fetch durations),
+with no causal attribution established. Twenty successive scroll-writer pairs used the same
+measured target and geometry: redundant writes remain observable, but the earlier disagreement
+was not present. The original thread was restored at the end with its ` al` draft unchanged.
+
+Final combined tests passed 122/122 ChatView browser cases and 143/143 registry, ChatView logic and
+store-reducer cases. Workspace lint passed with 531 warnings and zero errors, and production web
+build passed in 41.57 seconds. Global checks are not green: format checking identifies the
+untouched concurrent performance report; desktop typechecking identifies Browser-owned mock
+return typing and optional rendererId assignment errors. The Browser owner received those exact
+failures for correction. Lifecycle-owned formatting is clean, including the initially omitted
+message-entry browser fixture. These failures remain explicit in `final-current-*` logs.
+
+The Browser owner subsequently corrected both desktop types and reported 53/53 focused tests plus
+desktop typecheck passing. The Performance owner formatted its own report without changing content.
+The independent workspace format rerun passed. The next full typecheck reached 10/11 packages and
+exposed two Effect union-inference errors in the otherwise unchanged ProviderCommandReactor, at
+its approval and user-input failure handlers. The retained failure is
+`final-current-typecheck-owner-corrections.log`. The mechanical correction normalizes the result
+to void after the catch handler rather than applying the generic void combinator to a union of
+Effect objects inside the handler; the error handling and dispatched operations are unchanged.
+
+After the mechanical reactor correction, its focused suite passed 129/129 and the full workspace
+typecheck passed all 11 tasks. Evidence is retained in `provider-reactor-typecheck/`. These are
+reruns of the failed gate; the earlier failing results remain preserved. No lifecycle runtime
+behavior changed after the final native recordings; subsequent changes were formatting and the
+mechanical reactor/Browser type corrections described above. No commit, version change or release
+was performed during this verification pass.
+
+## Inactive-thread transcript reconciliation
+
+The reported Base App case was checked against Penkra's retained projection. Its newest durable
+page contains assistant messages, reasoning activities, and completed tool activities with one
+provider turn identity and increasing orchestration sequences. `getThreadTurnsPage` selects both
+messages and activities across the active conversation range, so persistence and the page query
+did not account for the missing rows.
+
+The web route treated `threadDetailSyncById[threadId] === "synced"` as valid for the rest of the
+renderer session. A controlled browser replay hydrated a Thread, navigated away, advanced its
+authoritative page without a live delivery, and navigated back. Before correction, returning made
+no page request and the durable tool activity remained absent. This is the captured RED boundary;
+the older background-stream test only established that delivered background events reached the
+store and did not exercise recovery from a missed publication.
+
+Threads now reconcile their newest authoritative turn page whenever a previously seen Thread
+becomes visible again. First visibility still reuses an included synchronization page, and a
+previously unhydrated first visit still requests its page. The merge remains identity-based and
+sequence-sorted, so live rows arriving during reconciliation are retained. Content-free pagination
+diagnostics record the prior sync state, shell/page sequence, message/activity counts, and failure
+type at request, apply, and failure boundaries. No timer, delay, activity-count threshold, or
+provider-specific rule controls this recovery.
+
+The strengthened browser regression asserts the route-away/return request, recovered activity in
+normalized state, and both the assistant update and tool detail in the rendered transcript. The
+EventRouter browser file passes 8/8 and the web TypeScript check passes. Workspace lint reports 532
+warnings and zero errors; the warning total is recorded rather than treated as a clean lint gate.
+
+Native acceptance was attempted against the exact current-source Dev executables rather than inferred
+from the browser control. Dev 1 completed a disposable four-command turn and route-away/return actions,
+but the turn completed before the route change, so it did not exercise missed activity while inactive.
+Expanding its recovered work disclosure then failed with ScreenCaptureKit `-3811`; separately, Dev 1's
+debug endpoint identified a different retained renderer than its accessibility window. That run is not
+accepted as visual proof.
+
+Dev 2's accessibility URL and distinct port `9556` did correlate to the same renderer. A disposable
+multi-command prompt was admitted once, but provider work was rejected with “The selected anonymous
+route cannot authorize this model.” No tool activity was produced, so Dev 2 also does not establish the
+native absence case. These are retained acceptance/instrumentation blockers, not product-pass evidence.
+They do not invalidate the deterministic RED/GREEN browser boundary or the Base durable-projection
+finding, but native acceptance remains open until an authenticated, correctly correlated Dev route can
+run long enough for activity to arrive while the Thread is inactive.
+
+A final authenticated Dev 1 attempt navigated to the existing disposable QA Thread, but Computer Use
+could not populate its composer: `set_value` and the focus-plus-`type_text` path returned without changing
+the accessibility value, after an earlier `elementHasNoFrame` result. No message was dispatched, so the
+action was not repeated through an unverified fallback. The exact EventRouter browser file was then rerun
+from the package's declared `test:browser` script and passed 8/8 in 48.37 seconds. An initial root-level
+`bun run test:browser` invocation failed because that script belongs to `apps/web`; it is a harness-command
+error and is not counted as a product test result.

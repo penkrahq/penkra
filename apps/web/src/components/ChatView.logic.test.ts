@@ -32,7 +32,6 @@ import {
   shouldEnableComposerPastedTextCollapse,
   shouldHandlePromptHistoryNavigationKey,
   shouldRenderProviderHealthBanner,
-  shouldStartActiveTurnLayoutGrace,
   shouldRenderTerminalWorkspace,
 } from "./ChatView.logic";
 
@@ -987,48 +986,6 @@ describe("shouldRenderProviderHealthBanner", () => {
         terminalWorkspaceTerminalTabActive: false,
       }),
     ).toBe(true);
-  });
-});
-
-describe("shouldStartActiveTurnLayoutGrace", () => {
-  it("starts the grace window when a live turn just became settled", () => {
-    expect(
-      shouldStartActiveTurnLayoutGrace({
-        previousTurnLayoutLive: true,
-        currentTurnLayoutLive: false,
-        latestTurnStartedAt: "2026-04-13T00:00:00.000Z",
-      }),
-    ).toBe(true);
-  });
-
-  it("does not start the grace window for already-idle threads", () => {
-    expect(
-      shouldStartActiveTurnLayoutGrace({
-        previousTurnLayoutLive: false,
-        currentTurnLayoutLive: false,
-        latestTurnStartedAt: "2026-04-13T00:00:00.000Z",
-      }),
-    ).toBe(false);
-  });
-
-  it("does not start the grace window while work is still live", () => {
-    expect(
-      shouldStartActiveTurnLayoutGrace({
-        previousTurnLayoutLive: true,
-        currentTurnLayoutLive: true,
-        latestTurnStartedAt: "2026-04-13T00:00:00.000Z",
-      }),
-    ).toBe(false);
-  });
-
-  it("does not start the grace window when the turn never started", () => {
-    expect(
-      shouldStartActiveTurnLayoutGrace({
-        previousTurnLayoutLive: true,
-        currentTurnLayoutLive: false,
-        latestTurnStartedAt: null,
-      }),
-    ).toBe(false);
   });
 });
 

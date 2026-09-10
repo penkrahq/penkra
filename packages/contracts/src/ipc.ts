@@ -715,7 +715,7 @@ export interface DesktopAppTabsBridge {
     pageId: string;
     bounds: BrowserPanelBounds | null;
     rendererSurfaceActive: boolean;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   navigate: (input: { tabId: string; route: string; state?: unknown }) => Promise<void>;
   close: (input: { tabId: string }) => Promise<void>;
   onListingRequested: (listener: (input: { appId: string }) => void) => () => void;

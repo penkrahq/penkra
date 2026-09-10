@@ -52,7 +52,9 @@ import {
   markPromotedDraftThreads,
   useComposerDraftStore,
 } from "../composerDraftStore";
-import { acknowledgeComposerSendPreflightEvent } from "../composerSendPreflight";
+import { advanceComposerSendPreflightAppliedSequence } from "../composerSendPreflight";
+import { recordChatLifecycleSyncDiagnostic } from "../chatLifecycleDiagnostics";
+import { recordChatPaginationDiagnostic } from "../chatScrollDiagnostics";
 import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { terminalActivityFromEvent } from "../terminalActivity";
@@ -798,6 +800,8 @@ function EventRouter() {
   const serverThreadIds = useMemo(() => new Set(serverThreadIdList ?? []), [serverThreadIdList]);
   const pathnameRef = useRef(pathname);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
+  const previouslyVisibleThreadIdsRef = useRef<ReadonlySet<ThreadId>>(new Set());
+  const seenThreadIdsRef = useRef<Set<ThreadId>>(new Set());
 
   useEffect(() => {
     pathnameRef.current = pathname;
@@ -903,11 +907,7 @@ function EventRouter() {
           }
           const events = eventDeliveries.map((delivery) => delivery.event);
           applyOrchestrationEvents(events);
-          for (const event of events) {
-            if (event.type === "thread.message-sent") {
-              acknowledgeComposerSendPreflightEvent(event);
-            }
-          }
+          for (const event of events) recordChatLifecycleSyncDiagnostic(event, "applied");
           const affectedThreadIds = new Set(
             eventDeliveries.flatMap((delivery) =>
               delivery.event.aggregateKind === "thread"
@@ -931,11 +931,15 @@ function EventRouter() {
         return;
       }
 
-      if (latestApplied) acknowledgeAppliedSyncSequence(latestApplied);
+      if (latestApplied) {
+        advanceComposerSendPreflightAppliedSequence(latestApplied.appliedSequence);
+        acknowledgeAppliedSyncSequence(latestApplied);
+      }
     };
 
     const unsubSyncEvent = api.orchestration.onSyncEvent((item) => {
       if (disposed || syncApplicationFailed) return;
+      if (item.kind === "event") recordChatLifecycleSyncDiagnostic(item.event, "received");
       pendingSyncDeliveries.push(item);
       if (syncDeliveryFlushTimer !== null) return;
       // Provider deltas commonly arrive in separate socket tasks. Publish their
@@ -1103,6 +1107,8 @@ function EventRouter() {
     const api = readNativeApi();
     if (!api) return;
     let cancelled = false;
+    const previouslyVisibleThreadIds = previouslyVisibleThreadIdsRef.current;
+    previouslyVisibleThreadIdsRef.current = new Set(visibleThreadIds);
     for (const threadId of visibleThreadIds) {
       // The route becomes visible before the uniform sync snapshot necessarily
       // creates its shell row. A page that wins that race is intentionally
@@ -1111,18 +1117,48 @@ function EventRouter() {
       // update retries this effect instead of dropping detail permanently.
       if (!serverThreadIds.has(threadId)) continue;
       const state = useStore.getState();
-      if (state.threadDetailSyncById?.[threadId] === "synced") continue;
+      const wasSeen = seenThreadIdsRef.current.has(threadId);
+      seenThreadIdsRef.current.add(threadId);
+      const isReopened = wasSeen && !previouslyVisibleThreadIds.has(threadId);
+      if (!isReopened && state.threadDetailSyncById?.[threadId] === "synced") continue;
+      recordChatPaginationDiagnostic({
+        event: "visible-reconcile-requested",
+        threadId,
+        dataCount: state.activityIdsByThreadId?.[threadId]?.length ?? 0,
+        detail: {
+          previousSyncState: state.threadDetailSyncById?.[threadId] ?? null,
+          isReopened,
+          shellSnapshotSequence: state.shellSnapshotSequence ?? null,
+        },
+      });
       void api.orchestration
         .getThreadTurnsPage({ threadId })
         .then((page) => {
           if (cancelled) return;
           syncServerThreadTurnsPage(page);
+          recordChatPaginationDiagnostic({
+            event: "visible-reconcile-applied",
+            threadId,
+            dataCount: page.activities.length,
+            detail: {
+              messageCount: page.messages.length,
+              snapshotSequence: page.snapshotSequence,
+            },
+          });
           const thread = getThreadFromState(useStore.getState(), threadId);
           if (thread) reconcilePromotedDraftFromThreadDetail(thread);
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (!cancelled) {
             useStore.getState().markThreadDetailSyncFailed(threadId);
+            recordChatPaginationDiagnostic({
+              event: "visible-reconcile-failed",
+              threadId,
+              dataCount: 0,
+              detail: {
+                errorName: error instanceof Error ? error.name : typeof error,
+              },
+            });
           }
         });
     }

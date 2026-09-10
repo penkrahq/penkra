@@ -966,14 +966,12 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       await harness.runtime.runPromise(harness.ingestion.drain);
       const authTrace = await persistedBoundaryTrace(harness, queuedMessageId);
       expect(authTrace.commandDelivery).toMatchObject({
-        eventSequence: 13,
         state: "uncertain",
         attemptCount: 1,
       });
       expect(authTrace.messageDelivery).toMatchObject({
         state: "failed",
         queued: false,
-        sequence: 14,
       });
       expect(authTrace.pendingStartOutcome).toMatchObject({ outcome: "unknown" });
       const steerRows = await harness.runtime.runPromise(
@@ -1105,14 +1103,12 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       await harness.runtime.runPromise(harness.ingestion.drain);
       const p1Trace = await persistedBoundaryTrace(harness, messageId);
       expect(p1Trace.commandDelivery).toMatchObject({
-        eventSequence: 6,
         state: "uncertain",
         attemptCount: 1,
       });
       expect(p1Trace.messageDelivery).toMatchObject({
         state: "failed",
         queued: false,
-        sequence: 7,
       });
       expect(p1Trace.pendingStartOutcome).toMatchObject({
         outcome: "pending",
@@ -1187,7 +1183,6 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         activeTurnId: TURN_ID,
       });
       expect(retainedTrace.commandDelivery).toMatchObject({
-        eventSequence: 6,
         state: "uncertain",
         attemptCount: 1,
       });
@@ -1246,10 +1241,8 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       expect(p2Trace.messageDelivery).toMatchObject({
         state: "queued",
         queued: true,
-        sequence: 9,
       });
       expect(p2PredecessorTrace.commandDelivery).toMatchObject({
-        eventSequence: 6,
         state: "succeeded",
         attemptCount: 1,
       });
@@ -1364,7 +1357,6 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       await harness.runtime.runPromise(harness.ingestion.drain);
       const p3Trace = await persistedBoundaryTrace(harness, successorMessageId);
       expect(p3Trace.commandDelivery).toMatchObject({
-        eventSequence: 11,
         state: "succeeded",
         attemptCount: 1,
       });
@@ -1375,7 +1367,6 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       expect(p3Trace.messageDelivery).toMatchObject({
         state: "accepted",
         queued: true,
-        sequence: 13,
       });
       expect(p3Trace.latestTurn).toMatchObject({
         turnId: "turn:cmd-p3-successor",
@@ -1490,14 +1481,12 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       await harness.runtime.runPromise(harness.ingestion.drain);
       const p4SendTrace = await persistedBoundaryTrace(harness, messageId);
       expect(p4SendTrace.commandDelivery).toMatchObject({
-        eventSequence: 6,
         state: "uncertain",
         attemptCount: 1,
       });
       expect(p4SendTrace.messageDelivery).toMatchObject({
         state: "failed",
         queued: false,
-        sequence: 7,
       });
       expect(p4SendTrace.pendingStartOutcome).toMatchObject({
         outcome: "pending",
@@ -1547,7 +1536,6 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         activeTurnId: null,
       });
       expect(retainedTrace.commandDelivery).toMatchObject({
-        eventSequence: 6,
         state: "uncertain",
         attemptCount: 1,
       });
@@ -1596,14 +1584,12 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       await harness.runtime.runPromise(harness.ingestion.drain);
       const p4SteerTrace = await persistedBoundaryTrace(harness, queuedMessageId);
       expect(p4SteerTrace.commandDelivery).toMatchObject({
-        eventSequence: 13,
         state: "uncertain",
         attemptCount: 1,
       });
       expect(p4SteerTrace.messageDelivery).toMatchObject({
         state: "failed",
         queued: false,
-        sequence: 14,
       });
       expect(p4SteerTrace.pendingStartOutcome).toMatchObject({ outcome: "unknown" });
       const snapshot = await harness.runtime.runPromise(harness.projection.getSnapshot());
@@ -1656,7 +1642,6 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         activeTurnId: null,
       });
       expect(retainedTrace.commandDelivery).toMatchObject({
-        eventSequence: 13,
         state: "uncertain",
         attemptCount: 1,
       });

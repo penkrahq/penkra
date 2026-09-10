@@ -1224,6 +1224,9 @@ const browserManager = new DesktopBrowserManager({
     return handleDesktopWindowZoomShortcut(event, input);
   },
   getWindowZoomFactor: () => resolveShellWindow()?.webContents.getZoomFactor() ?? 1,
+  reportLifecycle: (event) => {
+    console.info(`[browser-lifecycle] ${JSON.stringify(event)}`);
+  },
 });
 let appCommandPipeServer: AppCommandPipeServer | null = null;
 const appBrowserTrackedRendererIds = new Set<number>();
@@ -1274,16 +1277,16 @@ function dropAppBrowserSurface(surfaceId: number): void {
   }
 }
 
-function applyActiveHostedBrowserPageBounds(tabId: string): void {
+function applyActiveHostedBrowserPageBounds(tabId: string): boolean {
   const boundsBySurfaceId = hostedBrowserPageBoundsByTabId.get(tabId);
   const preferredSurfaceId = desktopAppRuntime?.appTabs.activeSurfaceId(tabId) ?? null;
   const selected =
     (preferredSurfaceId === null ? undefined : boundsBySurfaceId?.get(preferredSurfaceId)) ??
     boundsBySurfaceId?.values().next().value;
-  if (!selected) return;
+  if (!selected) return false;
   const targetWindow = shellWindows().find((window) => window.contentView === selected.parentView);
   if (targetWindow) browserManager.setWindow(targetWindow);
-  browserManager.setHostedPageBounds({
+  return browserManager.setHostedPageBounds({
     threadId: tabId as ThreadId,
     tabId: selected.pageId,
     bounds: selected.bounds,
@@ -6000,7 +6003,30 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle(IPC.appTabs.frameReady, async (event, input: unknown) => {
     const { tabId, rendererId } = parseAppTabRendererRequest(input);
-    requireShellAppTabs(event.sender.id).markFrameReady(tabId, rendererId);
+    const tabs = requireShellAppTabs(event.sender.id);
+    tabs.markFrameReady(tabId, rendererId);
+
+    // An App operation can create its Browser session before the App-tab record or frame exists.
+    // The manager's live subscription cannot address that tab yet, so the initial state event is
+    // intentionally dropped. Frame readiness is the durable synchronization boundary: replay the
+    // current model (and stateful surface declaration) so the shell can mount and size the native
+    // page without waiting for an unrelated later navigation to repair presentation.
+    const browserSessionId = tabId as ThreadId;
+    if (browserManager.hasSession(browserSessionId)) {
+      tabs.sendFrameEvent(
+        tabId,
+        "browser.state",
+        toAppBrowserState(browserManager.getState({ threadId: browserSessionId })),
+      );
+      const insets = appBrowserSurfaceInsetsByTabId.get(tabId);
+      if (insets) {
+        const identity = tabs.frameIdentity(tabId, rendererId);
+        tabs.sendFrameEvent(tabId, "browser.surface", {
+          insets,
+          partition: createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
+        });
+      }
+    }
   });
   ipcMain.handle(IPC.appTabs.browserWebviewAttach, async (event, input: unknown) => {
     const tabs = requireShellAppTabs(event.sender.id);
@@ -6025,6 +6051,7 @@ function registerIpcHandlers(): void {
       threadId: tabId as ThreadId,
       tabId: pageId,
       webContentsId,
+      rendererId,
     });
   });
   ipcMain.handle(IPC.appTabs.browserWebviewDidFailLoad, async (event, input: unknown) => {
@@ -6066,16 +6093,22 @@ function registerIpcHandlers(): void {
       typeof webContentsId !== "number"
     )
       return;
-    tabs.frameIdentity(tabId, rendererId);
+    if (!tabs.has(tabId)) return;
+    // Cleanup is intentionally generation-tolerant. A React unmount from the renderer generation
+    // being replaced may arrive after ElectronAppTabHost has installed its successor. The exact
+    // Browser page + WebContents + adopted renderer-generation guards in detachWebview prevent the
+    // stale request from touching that successor; rejecting all stale cleanup here instead can
+    // leave the manager pointing at a destroyed guest when cleanup precedes the successor attach.
     browserManager.detachWebview({
       threadId: tabId as ThreadId,
       tabId: pageId,
       webContentsId,
+      rendererId,
     });
   });
   ipcMain.handle(IPC.appTabs.browserHostedPageBounds, async (event, input: unknown) => {
     const tabs = requireShellAppTabs(event.sender.id);
-    if (!input || typeof input !== "object" || Array.isArray(input)) return;
+    if (!input || typeof input !== "object" || Array.isArray(input)) return false;
     const { tabId, rendererId, pageId, bounds, rendererSurfaceActive } = input as Record<
       string,
       unknown
@@ -6086,13 +6119,13 @@ function registerIpcHandlers(): void {
       typeof pageId !== "string" ||
       typeof rendererSurfaceActive !== "boolean"
     ) {
-      return;
+      return false;
     }
     tabs.frameIdentity(tabId, rendererId);
 
     let normalizedBounds: BrowserPanelBounds | null = null;
     if (bounds !== null) {
-      if (!bounds || typeof bounds !== "object" || Array.isArray(bounds)) return;
+      if (!bounds || typeof bounds !== "object" || Array.isArray(bounds)) return false;
       const record = bounds as Record<string, unknown>;
       if (
         ![record.x, record.y, record.width, record.height].every(
@@ -6101,7 +6134,7 @@ function registerIpcHandlers(): void {
         (record.width as number) <= 0 ||
         (record.height as number) <= 0
       ) {
-        return;
+        return false;
       }
       normalizedBounds = {
         x: Math.max(0, Math.floor(record.x as number)),
@@ -6120,15 +6153,13 @@ function registerIpcHandlers(): void {
         parentView: ownerWindow.contentView,
       });
       hostedBrowserPageBoundsByTabId.set(tabId, boundsBySurfaceId);
-      applyActiveHostedBrowserPageBounds(tabId);
-      return;
+      return applyActiveHostedBrowserPageBounds(tabId);
     }
 
     const removed = boundsBySurfaceId.get(event.sender.id);
     if (removed?.pageId === pageId) boundsBySurfaceId.delete(event.sender.id);
     if (boundsBySurfaceId.size > 0) {
-      applyActiveHostedBrowserPageBounds(tabId);
-      return;
+      return applyActiveHostedBrowserPageBounds(tabId);
     }
     hostedBrowserPageBoundsByTabId.delete(tabId);
     const didApplyHostedBounds = browserManager.setHostedPageBounds({
@@ -6140,6 +6171,7 @@ function registerIpcHandlers(): void {
     if (didApplyHostedBounds) {
       browserManager.setRendererSurfaceActive(tabId as ThreadId, rendererSurfaceActive);
     }
+    return didApplyHostedBounds;
   });
   ipcMain.handle(IPC.appTabs.frameCall, async (event, input: unknown) => {
     const tabs = requireShellAppTabs(event.sender.id);

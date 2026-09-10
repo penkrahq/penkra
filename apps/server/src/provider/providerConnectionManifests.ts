@@ -103,7 +103,7 @@ const MANIFESTS = new Map<ProviderKind, ProviderConnectionManifest>([
       // Codex's keyring backend needs the real OS-home Keychain. CODEX_HOME
       // still namespaces the provider-owned credential entry per Connection.
       preserveOsHome: process.platform === "darwin",
-      buildStateEnvironment: ({ profileRoot, nativeStateRoot }) => ({
+      buildStateEnvironment: ({ profileRoot }) => ({
         isolation: {
           homePath: `${profileRoot}/home`,
           xdgConfigHome: `${profileRoot}/xdg-config`,
@@ -112,10 +112,11 @@ const MANIFESTS = new Map<ProviderKind, ProviderConnectionManifest>([
           xdgStateHome: `${profileRoot}/xdg-state`,
         },
         overrides: {
-          // Authentication remains in a Connection-scoped native profile while
-          // conversation metadata uses the separately versioned native state.
+          // Authentication and Codex's rebuildable rollout index remain
+          // Connection-scoped. Exact rollout JSONL state is adopted separately
+          // into the thread's immutable native-state generation.
           CODEX_HOME: `${profileRoot}/codex-home`,
-          CODEX_SQLITE_HOME: `${nativeStateRoot}/sqlite-home`,
+          CODEX_SQLITE_HOME: `${profileRoot}/codex-sqlite-home`,
         },
       }),
       // Codex credentials are provider-managed inside a Connection-scoped

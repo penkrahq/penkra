@@ -282,6 +282,8 @@ function HostedBrowserNativePage(props: {
     const surface = surfaceRef.current;
     if (!bridge || !surface) return;
     let scheduledFrame: number | null = null;
+    let stopped = false;
+    let rejectedAttempts = 0;
 
     const publish = () => {
       scheduledFrame = null;
@@ -290,13 +292,27 @@ function HostedBrowserNativePage(props: {
         rect && rect.width > 0 && rect.height > 0
           ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
           : null;
-      void bridge.browserHostedPageBounds({
-        tabId: props.tabId,
-        rendererId: props.rendererId,
-        pageId: props.pageId,
-        bounds,
-        rendererSurfaceActive: props.rendererSurfaceActive,
-      });
+      void bridge
+        .browserHostedPageBounds({
+          tabId: props.tabId,
+          rendererId: props.rendererId,
+          pageId: props.pageId,
+          bounds,
+          rendererSurfaceActive: props.rendererSurfaceActive,
+        })
+        .then((applied) => {
+          if (stopped || bounds === null || applied !== false) {
+            rejectedAttempts = 0;
+            return;
+          }
+          // Frame readiness, Browser-session creation, and the first React measurement cross
+          // independent IPC/event queues. Retry only when desktop explicitly rejects that exact
+          // page handoff; a successful acknowledgement or a legacy undefined response stops it.
+          if (rejectedAttempts >= 7) return;
+          rejectedAttempts += 1;
+          schedule();
+        })
+        .catch(() => undefined);
     };
     const schedule = () => {
       if (scheduledFrame !== null) return;
@@ -309,6 +325,7 @@ function HostedBrowserNativePage(props: {
     window.addEventListener("scroll", schedule, true);
     schedule();
     return () => {
+      stopped = true;
       if (scheduledFrame !== null) window.cancelAnimationFrame(scheduledFrame);
       resizeObserver.disconnect();
       window.removeEventListener("resize", schedule);
@@ -367,7 +384,15 @@ function HostedBrowserWebview(props: {
     };
     const attach = () => {
       if (typeof webview.getWebContentsId !== "function") return;
-      const webContentsId = webview.getWebContentsId();
+      let webContentsId: number;
+      try {
+        // Electron exposes the method before the guest is ready, but throws until the element is
+        // attached and has emitted dom-ready. The initial effect must wait for that event; a later
+        // renderer-generation effect can immediately adopt an already-ready retained guest.
+        webContentsId = webview.getWebContentsId();
+      } catch {
+        return;
+      }
       if (!Number.isInteger(webContentsId) || webContentsId <= 0) return;
       attachedWebContentsId = webContentsId;
       void bridge.browserWebviewAttach({
@@ -380,6 +405,10 @@ function HostedBrowserWebview(props: {
     webview.addEventListener("dom-ready", attach);
     webview.addEventListener("did-fail-load", didFailLoad);
     window.addEventListener("focus", attach);
+    // A renderer-generation change intentionally preserves this keyed webview. Its dom-ready
+    // event has already fired, so the successor effect must adopt the existing guest immediately
+    // after the retired effect queues its generation-tolerant detach.
+    attach();
     return () => {
       webview.removeEventListener("dom-ready", attach);
       webview.removeEventListener("did-fail-load", didFailLoad);

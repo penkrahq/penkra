@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 
 import { ThreadId } from "@penkra/contracts";
-import { nativeImage } from "electron";
+import { nativeImage, webContents as electronWebContents } from "electron";
 import type {
   BrowserView,
   BrowserWindow,
@@ -1008,6 +1008,136 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       width: 0,
       height: 0,
     });
+  });
+
+  it("observes the attached renderer webview without creating a hidden substitute", async () => {
+    const createWebContentsView = vi.fn(() => {
+      throw new Error("ordinary Browser observation must not create a native page");
+    });
+    const lifecycle = vi.fn();
+    const manager = new DesktopBrowserManager({
+      createWebContentsView,
+      reportLifecycle: lifecycle,
+    });
+    const opened = manager.open({
+      threadId: THREAD_ID,
+      initialUrl: "https://console.example/retained",
+    });
+    const pageId = opened.activeTabId;
+    if (!pageId) throw new Error("Expected a Browser page.");
+
+    expect(opened.tabs[0]?.presentation).toBe("renderer");
+    await expect(manager.observationWebContents(THREAD_ID)).resolves.toBeNull();
+    expect(createWebContentsView).not.toHaveBeenCalled();
+    expect(lifecycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "observation-unavailable",
+        pageId,
+        reason: "renderer-page-not-attached",
+      }),
+    );
+
+    const visibleGuest = new FakeWebContents();
+    visibleGuest.currentUrl = "https://console.example/retained";
+    Object.defineProperty(visibleGuest, "id", { value: 40 });
+    vi.mocked(electronWebContents.fromId).mockReturnValue(visibleGuest as unknown as WebContents);
+    manager.attachWebview({
+      threadId: THREAD_ID,
+      tabId: pageId,
+      webContentsId: visibleGuest.id,
+      rendererId: 1,
+    });
+
+    await expect(manager.observationWebContents(THREAD_ID)).resolves.toBe(visibleGuest);
+    expect(createWebContentsView).not.toHaveBeenCalled();
+    expect(lifecycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "observation-resolved",
+        pageId,
+        webContentsId: 40,
+        owner: "renderer",
+      }),
+    );
+  });
+
+  it("keeps the renderer guest authoritative across replacement and generation races", () => {
+    const manager = new DesktopBrowserManager();
+    const opened = manager.open({ threadId: THREAD_ID, initialUrl: "https://example.com" });
+    const pageId = opened.activeTabId;
+    if (!pageId) throw new Error("Expected a Browser page.");
+    const retired = new FakeWebContents();
+    Object.defineProperty(retired, "id", { value: 41 });
+    const replacement = new FakeWebContents();
+    Object.defineProperty(replacement, "id", { value: 42 });
+    vi.mocked(electronWebContents.fromId)
+      .mockReturnValueOnce(retired as unknown as WebContents)
+      .mockReturnValueOnce(replacement as unknown as WebContents);
+
+    manager.attachWebview({
+      threadId: THREAD_ID,
+      tabId: pageId,
+      webContentsId: retired.id,
+      rendererId: 1,
+    });
+    manager.attachWebview({
+      threadId: THREAD_ID,
+      tabId: pageId,
+      webContentsId: replacement.id,
+      rendererId: 2,
+    });
+    manager.detachWebview({
+      threadId: THREAD_ID,
+      tabId: pageId,
+      webContentsId: retired.id,
+      rendererId: 1,
+    });
+
+    expect(
+      (
+        manager as unknown as {
+          runtimes: Map<string, { webContents: WebContents }>;
+        }
+      ).runtimes.get(`${THREAD_ID}:${pageId}`)?.webContents.id,
+    ).toBe(42);
+    expect(manager.getState({ threadId: THREAD_ID }).tabs[0]?.status).toBe("live");
+  });
+
+  it("ignores a retired renderer generation detaching the same retained guest", () => {
+    const manager = new DesktopBrowserManager();
+    const opened = manager.open({ threadId: THREAD_ID, initialUrl: "https://example.com" });
+    const pageId = opened.activeTabId;
+    if (!pageId) throw new Error("Expected a Browser page.");
+    const guest = new FakeWebContents();
+    Object.defineProperty(guest, "id", { value: 77 });
+    vi.mocked(electronWebContents.fromId).mockReturnValue(guest as unknown as WebContents);
+
+    manager.attachWebview({
+      threadId: THREAD_ID,
+      tabId: pageId,
+      webContentsId: guest.id,
+      rendererId: 1,
+    });
+    manager.attachWebview({
+      threadId: THREAD_ID,
+      tabId: pageId,
+      webContentsId: guest.id,
+      rendererId: 2,
+    });
+    manager.detachWebview({
+      threadId: THREAD_ID,
+      tabId: pageId,
+      webContentsId: guest.id,
+      rendererId: 1,
+    });
+    expect(manager.getState({ threadId: THREAD_ID }).tabs[0]?.status).toBe("live");
+
+    manager.detachWebview({
+      threadId: THREAD_ID,
+      tabId: pageId,
+      webContentsId: guest.id,
+      rendererId: 2,
+    });
+    expect(manager.getState({ threadId: THREAD_ID }).tabs[0]?.status).toBe("suspended");
   });
 
   it("tracks renderer surface activity without accepting renderer geometry", () => {

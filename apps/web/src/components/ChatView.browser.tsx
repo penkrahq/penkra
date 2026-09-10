@@ -36,6 +36,7 @@ import {
 } from "../composerDraftStore";
 import { COMPOSER_DRAFT_STORAGE_VERSION } from "../composerDraftDomain";
 import {
+  advanceComposerSendPreflightAppliedSequence,
   getComposerSendPreflight,
   resetComposerSendPreflightsForTests,
 } from "../composerSendPreflight";
@@ -2144,6 +2145,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   beforeEach(async () => {
+    resetComposerSendPreflightsForTests();
     resetPendingStartRecoveryRegistryForTests();
     resetQueuedComposerActionOwnershipForTests();
     await resetWsNativeApiForTest();
@@ -3242,16 +3244,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
     const restoreNativeApi = installDeterministicSendNativeApi();
     const prompt = "preflight owns this submitted prompt";
+    const settledSnapshot = createSnapshotWithSettledCompletedInlinePlan();
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-preflight-ownership" as MessageId,
-        targetText: "preflight ownership target",
-        sessionStatus: "ready",
-      }),
+      snapshot: settledSnapshot,
     });
 
     try {
+      await vi.waitFor(() => expect(document.body.textContent).toContain("Worked for"));
       const editor = page.getByTestId("composer-editor");
       await editor.fill(prompt);
       await expect.element(editor).toHaveTextContent(prompt);
@@ -3262,7 +3262,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "Submission did not enter preflight.",
       );
       expect(document.body.textContent).toContain("Thinking");
+      expect(document.body.textContent).toContain("Worked for");
+      expect(document.body.textContent).not.toContain("Inspecting ChatView boundaries");
       expect(editor.element().textContent ?? "").toBe("");
+      expect(
+        Array.from(document.querySelectorAll<HTMLElement>('[data-message-role="user"]')).filter(
+          (row) => row.textContent?.includes(prompt),
+        ),
+      ).toHaveLength(1);
       expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe("");
       expect(
         wsRequests
@@ -3405,6 +3412,74 @@ describe("ChatView timeline estimator parity (full app)", () => {
         );
         expect(editor.element().textContent ?? "").toBe(newerPrompt);
       });
+    } finally {
+      releaseDurable();
+      desktopDraftWriteHarness.gate = null;
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+  it("RED: Stop during durable capture must prevent the later turn start", async () => {
+    let releaseDurable = () => {};
+    let durableReleased = false;
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    const originalPrompt = "stop before durable capture completes";
+    const newerPrompt = "newer draft survives durable-capture Stop";
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-stop-during-durable-capture" as MessageId,
+        targetText: "stop during durable capture target",
+        sessionStatus: "ready",
+      }),
+    });
+
+    try {
+      desktopDraftWriteHarness.awaitCalls = 0;
+      desktopDraftWriteHarness.gate = new Promise<void>((resolve) => {
+        releaseDurable = () => {
+          if (!durableReleased) {
+            durableReleased = true;
+            resolve();
+          }
+        };
+      });
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill(originalPrompt);
+      await userEvent.keyboard("{Enter}");
+      const stopButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        "Durable-capture submission did not enter preflight.",
+      );
+      await vi.waitFor(() => expect(desktopDraftWriteHarness.awaitCalls).toBe(1));
+
+      const newerImage = createComposerImage({
+        id: "newer-durable-stop-image",
+        previewUrl: "blob:newer-durable-stop-image",
+        name: "newer-durable-stop.png",
+      });
+      await editor.fill(newerPrompt);
+      useComposerDraftStore.getState().addImages(THREAD_ID, [newerImage]);
+      expect(editor.element().textContent ?? "").toBe(newerPrompt);
+
+      stopButton.click();
+      releaseDurable();
+      desktopDraftWriteHarness.gate = null;
+
+      await vi.waitFor(() => expect(getComposerSendPreflight(THREAD_ID)).toBeNull());
+      expect(
+        wsRequests
+          .map(readDispatchedCommand)
+          .filter((command) => command?.type === "thread.turn.start"),
+      ).toHaveLength(0);
+      const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]!;
+      expect(draft.prompt).toBe(newerPrompt);
+      expect(draft.images).toMatchObject([{ id: newerImage.id }]);
+      const recoveredOriginalCount =
+        Number(draft.prompt === originalPrompt) +
+        draft.queuedTurns.filter((turn) => turn.prompt === originalPrompt).length;
+      expect(recoveredOriginalCount).toBe(1);
     } finally {
       releaseDurable();
       desktopDraftWriteHarness.gate = null;
@@ -4004,7 +4079,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect((await waitForComposerEditor()).textContent).toContain("newer prompt survives Stop");
       expect(document.body.textContent).not.toContain("Thinking");
 
-      composerForm.requestSubmit();
+      const successorComposerForm = await waitForElement(
+        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
+        "Unable to find the remounted composer form.",
+      );
+      expect(successorComposerForm.isConnected).toBe(true);
+      successorComposerForm.requestSubmit();
       await waitForElement(
         () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
         "Visible Send did not claim a successor preparation.",
@@ -4289,7 +4369,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("retains shared Stop feedback across remount until the held dispatch receipt settles", async () => {
+  it("retains shared Stop feedback across remount through admission until projection applies", async () => {
     let releaseConnections!: () => void;
     let releaseDispatch!: () => void;
     providerConnectionsResponseGate = new Promise<void>((resolve) => {
@@ -4370,7 +4450,44 @@ describe("ChatView timeline estimator parity (full app)", () => {
           .filter((command) => command?.type === "thread.turn.start"),
       ).toHaveLength(1);
       releaseDispatch();
+      const admittedOwner = await vi.waitFor(() => {
+        const owner = getComposerSendPreflight(THREAD_ID);
+        expect(owner?.admissionReceiptSequence).toBe(fixture.snapshot.snapshotSequence + 1);
+        return owner!;
+      });
+      await mounted.cleanup();
+      mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+      await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        "Unable to find admitted Stop target after remount before projection.",
+      );
+      expect(getComposerSendPreflight(THREAD_ID)?.messageId).toBe(admittedOwner.messageId);
+      expect(document.body.textContent).toContain("held receipt across remount");
+      useStore.getState().syncServerReadModel({
+        ...snapshot,
+        snapshotSequence: admittedOwner.admissionReceiptSequence!,
+        threads: snapshot.threads.map((thread) => ({
+          ...thread,
+          pendingTurnStartMessageId: admittedOwner.messageId,
+          messages: [
+            {
+              ...createUserMessage({
+                id: admittedOwner.messageId!,
+                text: "held receipt across remount",
+                offsetSeconds: 0,
+              }),
+              delivery: {
+                state: "starting" as const,
+                queued: false,
+                sequence: admittedOwner.admissionReceiptSequence!,
+              },
+            },
+          ],
+        })),
+      });
+      advanceComposerSendPreflightAppliedSequence(admittedOwner.admissionReceiptSequence!);
       await vi.waitFor(() => expect(getComposerSendPreflight(THREAD_ID)).toBeNull());
+      expect(document.querySelector('button[aria-label="Stop generation"]')).toBeTruthy();
     } finally {
       releaseConnections();
       releaseDispatch();
@@ -4443,10 +4560,45 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ).toHaveLength(1),
       );
       releaseDispatch();
-      await vi.waitFor(() => expect(getComposerSendPreflight(THREAD_ID)).toBeNull());
+      const admittedOwner = await vi.waitFor(() => {
+        const owner = getComposerSendPreflight(THREAD_ID);
+        expect(typeof owner?.admissionReceiptSequence).toBe("number");
+        expect(owner!.admissionReceiptSequence!).toBeGreaterThan(snapshot.snapshotSequence);
+        return owner!;
+      });
+      const admissionReceiptSequence = admittedOwner.admissionReceiptSequence!;
       const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
       expect(draft?.prompt).toBe("newer accepted-veto draft");
       expect(draft?.queuedTurns.some((turn) => turn.prompt === originalPrompt)).toBe(false);
+      const acceptedSnapshot: OrchestrationReadModel = {
+        ...snapshot,
+        snapshotSequence: admissionReceiptSequence,
+        threads: snapshot.threads.map((thread) =>
+          thread.id === THREAD_ID
+            ? {
+                ...thread,
+                pendingTurnStartMessageId: admittedOwner.messageId,
+                messages: [
+                  {
+                    ...createUserMessage({
+                      id: admittedOwner.messageId!,
+                      text: originalPrompt,
+                      offsetSeconds: 0,
+                    }),
+                    delivery: {
+                      state: "starting" as const,
+                      queued: false,
+                      sequence: admissionReceiptSequence,
+                    },
+                  },
+                ],
+              }
+            : thread,
+        ),
+      };
+      useStore.getState().syncServerReadModel(acceptedSnapshot);
+      advanceComposerSendPreflightAppliedSequence(admissionReceiptSequence);
+      await vi.waitFor(() => expect(getComposerSendPreflight(THREAD_ID)).toBeNull());
     } finally {
       releaseConnections();
       releaseDispatch();
@@ -9828,6 +9980,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     let newThreadId: ThreadId | null = null;
     let createCount = 0;
     let turnStartCount = 0;
+    const startReceiptSequences: number[] = [];
     const startCommands: Array<Record<string, unknown>> = [];
 
     const settleTurn = (
@@ -9891,6 +10044,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
               if (!command || typeof command !== "object") {
                 return { sequence: fixture.snapshot.snapshotSequence + 1 };
               }
+              let commandReceiptSequence = fixture.snapshot.snapshotSequence + 1;
               const record = command as Record<string, unknown>;
               wsRequests.push({
                 _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
@@ -9905,6 +10059,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
                   snapshot: addThreadToSnapshot(fixture.snapshot, newThreadId),
                 };
                 useStore.getState().syncServerReadModel(fixture.snapshot);
+                commandReceiptSequence = fixture.snapshot.snapshotSequence + 1;
               }
               if (record.type === "thread.turn.start") {
                 turnStartCount += 1;
@@ -9926,9 +10081,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
                 });
                 fixture = { ...fixture, snapshot: runningSnapshot };
                 useStore.getState().syncServerReadModel(runningSnapshot);
+                commandReceiptSequence = runningSnapshot.snapshotSequence;
+                startReceiptSequences[turnNumber - 1] = commandReceiptSequence;
                 await (turnNumber === 1 ? firstStartGate : secondStartGate);
               }
-              return { sequence: fixture.snapshot.snapshotSequence + 1 };
+              return { sequence: commandReceiptSequence };
             },
           },
         },
@@ -9989,6 +10146,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const firstSettledSnapshot = settleTurn(fixture.snapshot, newThreadId, 1);
       fixture = { ...fixture, snapshot: firstSettledSnapshot };
       useStore.getState().syncServerReadModel(firstSettledSnapshot);
+      advanceComposerSendPreflightAppliedSequence(startReceiptSequences[0]!);
       await vi.waitFor(() => {
         expect(document.body.textContent).toContain("first New Deck response");
         expect(document.querySelector('button[aria-label="Stop generation"]')).toBeNull();
@@ -10018,6 +10176,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const secondSettledSnapshot = settleTurn(fixture.snapshot, createdThreadId, 2);
       fixture = { ...fixture, snapshot: secondSettledSnapshot };
       useStore.getState().syncServerReadModel(secondSettledSnapshot);
+      advanceComposerSendPreflightAppliedSequence(startReceiptSequences[1]!);
       await vi.waitFor(() => {
         expect(document.body.textContent).toContain("second New Deck response");
         expect(secondEditor.element().textContent ?? "").toBe("");
@@ -10260,6 +10419,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotWithInlineToolOverflow({ active: true }),
     });
+    let paintFrame: number | null = null;
+    let transitionObserver: MutationObserver | null = null;
 
     try {
       // The tools already gave way to the assistant's narration block, so even
@@ -10276,8 +10437,20 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
+      const settledPaints: Array<{ inlineSummary: boolean; worked: boolean }> = [];
+      const sampleSettledPaint = () => {
+        if (!document.querySelector('button[aria-label="Stop generation"]')) {
+          const text = document.body.textContent ?? "";
+          settledPaints.push({
+            inlineSummary: text.includes("Used 6 tools"),
+            worked: text.includes("Worked for"),
+          });
+        }
+        paintFrame = window.requestAnimationFrame(sampleSettledPaint);
+      };
+      paintFrame = window.requestAnimationFrame(sampleSettledPaint);
       let duplicateTransitionOwnerObserved = false;
-      const transitionObserver = new MutationObserver(() => {
+      transitionObserver = new MutationObserver(() => {
         if (document.querySelector("[data-settled-turn-collapse-transition='true']")) {
           duplicateTransitionOwnerObserved = true;
         }
@@ -10302,12 +10475,23 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
       transitionObserver.disconnect();
+      transitionObserver = null;
+      if (paintFrame !== null) {
+        window.cancelAnimationFrame(paintFrame);
+        paintFrame = null;
+      }
+      expect(settledPaints.length).toBeGreaterThan(0);
+      expect(settledPaints.filter((paint) => paint.inlineSummary || !paint.worked)).toEqual([]);
       expect(duplicateTransitionOwnerObserved).toBe(false);
       const settledTrigger = Array.from(
         document.querySelectorAll<HTMLButtonElement>("button"),
       ).find((element) => element.textContent?.includes("Worked for"));
       expect(settledTrigger?.getAttribute("aria-expanded")).toBe("false");
     } finally {
+      transitionObserver?.disconnect();
+      if (paintFrame !== null) {
+        window.cancelAnimationFrame(paintFrame);
+      }
       await mounted.cleanup();
     }
   });
