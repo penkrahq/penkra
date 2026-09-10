@@ -7,7 +7,7 @@ import serverManual from "./instructions/SERVER.md?raw";
  * revised as one instruction set even though its two documents travel through
  * different provider channels.
  */
-export const PENKRA_INSTRUCTION_SET_VERSION = "2026-08-27";
+export const PENKRA_INSTRUCTION_SET_VERSION = "2026-09-09";
 
 /** Stable document identities used by delivery tests without freezing prose. */
 export const PENKRA_HOST_POLICY_MARKER = "# Penkra";

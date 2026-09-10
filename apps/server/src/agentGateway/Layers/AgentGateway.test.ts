@@ -409,6 +409,92 @@ function makeHarnessLayer(
           nextCursor: null,
         };
       }),
+    searchThreadMessages: (input: {
+      threadIds: ReadonlyArray<ThreadIdType>;
+      queries: ReadonlyArray<string>;
+      queryMode: "any" | "all";
+      roles?: ReadonlyArray<string>;
+      turnId?: string;
+      createdAfter?: string;
+      createdBefore?: string;
+      order: "recent" | "oldest";
+      anchor?: { createdAt: string; threadId: string; messageId: string };
+      limit: number;
+    }) =>
+      Effect.sync(() => {
+        const direction = input.order === "recent" ? -1 : 1;
+        const messages = input.threadIds
+          .flatMap((threadId) => {
+            const thread =
+              threadDetailsById.get(threadId as string) ??
+              Option.getOrUndefined(
+                Option.map(
+                  Option.fromNullishOr(threadsById.get(threadId as string)),
+                  makeThreadDetail,
+                ),
+              );
+            return (thread?.messages ?? []).map((message) => ({
+              threadId,
+              messageId: message.id,
+              turnId: message.turnId ?? null,
+              role: message.role,
+              text: message.text,
+              createdAt: message.createdAt,
+            }));
+          })
+          .filter((message) => {
+            const text = message.text.toLocaleLowerCase();
+            const queryMatches = input.queries.map((query) => text.includes(query));
+            return input.queryMode === "all" ? queryMatches.every(Boolean) : queryMatches.some(Boolean);
+          })
+          .filter((message) => !input.roles || input.roles.includes(message.role))
+          .filter((message) => !input.turnId || message.turnId === input.turnId)
+          .filter((message) => !input.createdAfter || message.createdAt >= input.createdAfter)
+          .filter((message) => !input.createdBefore || message.createdAt < input.createdBefore)
+          .toSorted(
+            (left, right) =>
+              direction * left.createdAt.localeCompare(right.createdAt) ||
+              direction * String(left.threadId).localeCompare(String(right.threadId)) ||
+              direction * String(left.messageId).localeCompare(String(right.messageId)),
+          )
+          .filter((message) => {
+            if (!input.anchor) return true;
+            const comparison =
+              message.createdAt.localeCompare(input.anchor.createdAt) ||
+              String(message.threadId).localeCompare(input.anchor.threadId) ||
+              String(message.messageId).localeCompare(input.anchor.messageId);
+            return input.order === "recent" ? comparison < 0 : comparison > 0;
+          });
+        return {
+          messages: messages.slice(0, input.limit),
+          hasMore: messages.length > input.limit,
+          path: "indexed" as const,
+        };
+      }),
+    getThreadMessageContext: (input: { threadId: ThreadIdType; messageId: string }) =>
+      Effect.sync(() => {
+        const thread =
+          threadDetailsById.get(input.threadId as string) ??
+          Option.getOrUndefined(
+            Option.map(
+              Option.fromNullishOr(threadsById.get(input.threadId as string)),
+              makeThreadDetail,
+            ),
+          );
+        if (!thread?.messages.some((message) => message.id === input.messageId)) {
+          return Option.none();
+        }
+        return Option.some({
+          threadId: input.threadId,
+          snapshotSequence: 1,
+          conversationTurnCount: thread.messages.filter((message) => message.role === "user").length,
+          messages: thread.messages,
+          activities: thread.activities,
+          pendingInteractions: thread.pendingInteractions,
+          hasOlder: false,
+          nextCursor: null,
+        });
+      }),
   } as unknown as (typeof ProjectionSnapshotQuery)["Service"]);
 
   const diagnosticsLayer = Layer.succeed(ThreadDiagnosticsQuery, {
@@ -1731,6 +1817,8 @@ describe("AgentGateway", () => {
         messageId: string;
       }>;
       assert.lengthOf(firstItems, 1);
+      assert.equal(first.query, "architecture");
+      assert.deepEqual(first.queries, ["architecture"]);
       assert.equal(firstItems[0]?.threadId, "thread-search-new");
       assert.equal(firstItems[0]?.messageId, "message-search-new");
       const cursor = (first.pageInfo as { nextCursor: string | null }).nextCursor;
@@ -1752,6 +1840,128 @@ describe("AgentGateway", () => {
       assert.isNull((second.pageInfo as { nextCursor: string | null }).nextCursor);
     }).pipe(Effect.provide(gatewayLayer));
   });
+
+  it.effect(
+    "searches multiple literals with deterministic filters and returns every occurrence",
+    () => {
+      const shell = makeThreadShell("thread-search-filtered", { title: "Filtered result" });
+      const detail: OrchestrationThread = {
+        ...makeThreadDetail(shell),
+        messages: [
+          {
+            id: MessageId.makeUnsafe("message-search-filtered"),
+            role: "user",
+            text: "Grouping grouping belongs in one panel.",
+            turnId: TurnId.makeUnsafe("turn-search-filtered"),
+            streaming: false,
+            source: "native",
+            createdAt: "2026-09-02T12:00:00.000Z",
+            updatedAt: "2026-09-02T12:00:00.000Z",
+          },
+          {
+            id: MessageId.makeUnsafe("message-search-wrong-role"),
+            role: "assistant",
+            text: "Grouping in one panel.",
+            turnId: TurnId.makeUnsafe("turn-search-filtered"),
+            streaming: false,
+            source: "native",
+            createdAt: "2026-09-02T12:00:01.000Z",
+            updatedAt: "2026-09-02T12:00:01.000Z",
+          },
+        ],
+      };
+      const { gatewayLayer, makeHarness } = makeHarnessLayer(
+        [makeThreadShell("thread-parent"), shell],
+        { threadDetails: new Map([[shell.id, detail]]) },
+      );
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const payload = toolResultJson(
+          (yield* harness.callTool({
+            token: "token-parent",
+            name: "penkra_read_thread",
+            args: {
+              threadId: shell.id,
+              queries: ["grouping", "one panel"],
+              queryMode: "all",
+              roles: ["user"],
+              createdAfter: "2026-09-02T00:00:00.000Z",
+              createdBefore: "2026-09-03T00:00:00.000Z",
+            },
+          })).result,
+        );
+        const items = payload.items as Array<{
+          messageId: string;
+          matches: Array<{ queryIndex: number; start: number; end: number }>;
+        }>;
+        assert.lengthOf(items, 1);
+        assert.equal(items[0]?.messageId, "message-search-filtered");
+        assert.deepEqual(
+          items[0]?.matches.map((match) => match.queryIndex),
+          [0, 0, 1],
+        );
+        assert.deepEqual(payload.queries, ["grouping", "one panel"]);
+        assert.equal(payload.queryMode, "all");
+        assert.equal(payload.order, "recent");
+      }).pipe(Effect.provide(gatewayLayer));
+    },
+  );
+
+  it.effect(
+    "reads and deduplicates context around several exact message anchors",
+    () => {
+      const shell = makeThreadShell("thread-context", { title: "Context" });
+      const detail: OrchestrationThread = {
+        ...makeThreadDetail(shell),
+        messages: [
+          {
+            id: MessageId.makeUnsafe("message-context-user"),
+            role: "user",
+            text: "Discuss grouping",
+            turnId: TurnId.makeUnsafe("turn-context"),
+            streaming: false,
+            source: "native",
+            createdAt: "2026-09-02T12:00:00.000Z",
+            updatedAt: "2026-09-02T12:00:00.000Z",
+          },
+          {
+            id: MessageId.makeUnsafe("message-context-assistant"),
+            role: "assistant",
+            text: "Use a panel",
+            turnId: TurnId.makeUnsafe("turn-context"),
+            streaming: false,
+            source: "native",
+            createdAt: "2026-09-02T12:00:01.000Z",
+            updatedAt: "2026-09-02T12:00:01.000Z",
+          },
+        ],
+      };
+      const { gatewayLayer, makeHarness } = makeHarnessLayer(
+        [makeThreadShell("thread-parent"), shell],
+        { threadDetails: new Map([[shell.id, detail]]) },
+      );
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const payload = toolResultJson(
+          (yield* harness.callTool({
+            token: "token-parent",
+            name: "penkra_read_thread",
+            args: {
+              threadId: shell.id,
+              aroundMessageIds: ["message-context-user", "message-context-assistant"],
+              beforeTurns: 1,
+              afterTurns: 1,
+            },
+          })).result,
+        );
+        assert.deepEqual(payload.anchorMessageIds, [
+          "message-context-user",
+          "message-context-assistant",
+        ]);
+        assert.equal((payload.items as Array<{ type: string }>).length, 2);
+      }).pipe(Effect.provide(gatewayLayer));
+    },
+  );
 
   it.effect(
     "filters thread discovery by provider, status, title, source, and update window",

@@ -191,10 +191,14 @@ steer natively or interrupt according to provider capability. To retract one exa
 running request, use `penkra threads interrupt --thread-id <id> --turn-id <turn-id>`.
 
 Read ordinary conversational history with `penkra threads read`: it returns messages and selected
-conversational activity as typed transcript items. Runtime telemetry and projection plumbing are
-not ordinary Thread operations. Developer sessions with the explicit diagnostics capability can
-use `penkra diagnostics threads --help` when a Thread is actually malfunctioning; otherwise do not
-turn routine conversation reading into a forensic workflow.
+conversational activity as typed transcript items. For discovery, pass one literal `query` or a
+`queries` array in one operation; scope it with exact Thread, folder, Space, role, turn, or timestamp
+filters rather than issuing speculative variants one at a time. Search results are recent-first by
+default. After identifying a likely message, pass its exact ID as `aroundMessageId`, with bounded
+`beforeTurns` and `afterTurns`, to read chronological surrounding context. Runtime telemetry and
+projection plumbing are not ordinary Thread operations. Developer sessions with the explicit
+diagnostics capability can use `penkra diagnostics threads --help` when a Thread is actually
+malfunctioning; otherwise do not turn routine conversation reading into a forensic workflow.
 
 Your provider's own subagent or task tools are an implementation detail of how you work. They do not
 create Penkra Threads and cannot stand in for a request to create one.

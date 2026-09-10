@@ -655,6 +655,7 @@ describe("migration backups", () => {
           [159, "AgentGatewayCreationAdmissions"],
           [160, "ProjectionTurnPendingMessageLookup"],
           [161, "CanonicalActivitySequence"],
+          [162, "TranscriptMessageSearch"],
         ]);
       }),
     );

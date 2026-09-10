@@ -1,5 +1,6 @@
 import {
   PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
+  MessageId,
   SpaceId,
   ThreadId,
   TurnId,
@@ -75,9 +76,15 @@ interface ThreadReadCursor {
 }
 
 interface ThreadSearchCursor {
-  readonly version: 1;
+  readonly version: 2;
   readonly mode: "search";
-  readonly query: string;
+  readonly queries: ReadonlyArray<string>;
+  readonly queryMode: "any" | "all";
+  readonly roles: ReadonlyArray<string>;
+  readonly turnId: string | null;
+  readonly createdAfter: string | null;
+  readonly createdBefore: string | null;
+  readonly order: "recent" | "oldest";
   readonly threadId: string | null;
   readonly folderId: string | null;
   readonly spaceId: string;
@@ -136,9 +143,15 @@ function decodeThreadSearchCursor(
       !decoded ||
       typeof decoded !== "object" ||
       Array.isArray(decoded) ||
-      cursor.version !== 1 ||
+      cursor.version !== 2 ||
       cursor.mode !== "search" ||
-      cursor.query !== expected.query ||
+      JSON.stringify(cursor.queries) !== JSON.stringify(expected.queries) ||
+      cursor.queryMode !== expected.queryMode ||
+      JSON.stringify(cursor.roles) !== JSON.stringify(expected.roles) ||
+      cursor.turnId !== expected.turnId ||
+      cursor.createdAfter !== expected.createdAfter ||
+      cursor.createdBefore !== expected.createdBefore ||
+      cursor.order !== expected.order ||
       cursor.threadId !== expected.threadId ||
       cursor.folderId !== expected.folderId ||
       cursor.spaceId !== expected.spaceId ||
@@ -155,19 +168,20 @@ function decodeThreadSearchCursor(
   }
 }
 
-const isAfterSearchAnchor = (
-  candidate: {
-    readonly createdAt: string;
-    readonly threadId: string;
-    readonly messageId: string;
-  },
-  anchor: ThreadSearchCursor["anchor"],
-) =>
-  candidate.createdAt < anchor.createdAt ||
-  (candidate.createdAt === anchor.createdAt && candidate.threadId < anchor.threadId) ||
-  (candidate.createdAt === anchor.createdAt &&
-    candidate.threadId === anchor.threadId &&
-    candidate.messageId < anchor.messageId);
+const findLiteralRanges = (text: string, queries: ReadonlyArray<string>) => {
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return queries.flatMap((query, queryIndex) => {
+    const ranges: Array<{ readonly queryIndex: number; readonly start: number; readonly end: number }> =
+      [];
+    const pattern = new RegExp(`(?=(${escapeRegExp(query)}))`, "giu");
+    for (const match of text.matchAll(pattern)) {
+      const matchedText = match[1];
+      if (matchedText === undefined) continue;
+      ranges.push({ queryIndex, start: match.index, end: match.index + matchedText.length });
+    }
+    return ranges;
+  });
+};
 
 const AGENT_TRANSCRIPT_INCLUDES: ReadonlyArray<AgentTranscriptInclude> = [
   "messages",
@@ -691,7 +705,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_read_thread",
       description:
-        "Read durable Penkra transcript items or poll one exact dispatched turn. With threadId alone, start at the tail, inspect before.messages, then search relevant terms instead of blindly paging a long Thread. With threadId and turnId, the turn state and its output items are returned together; queued position indicates how far it is from execution. With query and no threadId, search the caller's current Space. Always follow pageInfo.nextCursor when present.",
+        "Read durable Penkra transcript items, search indexed message text, inspect exact context anchors, or poll one dispatched turn. Use queries for several literal substrings in one operation and deterministic scope, role, turn, date, and order filters. Use aroundMessageId(s) to read bounded surrounding turns after identifying likely hits. With threadId alone, reads begin at the tail. Always follow search and transcript pageInfo.nextCursor when present.",
       inputSchema: {
         type: "object",
         properties: {
@@ -703,7 +717,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           turnId: {
             type: "string",
             description:
-              "Exact turn handle returned by threads create/send. Requires threadId and cannot be combined with query.",
+              "Exact turn handle returned by threads create/send, or an exact search filter. Requires threadId.",
           },
           spaceId: {
             type: "string",
@@ -719,8 +733,66 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           },
           query: {
             type: "string",
+            maxLength: 500,
             description:
               "Case-insensitive text to find. Without threadId, searches non-archived Threads in the selected Space.",
+          },
+          queries: {
+            type: "array",
+            minItems: 1,
+            maxItems: 10,
+            items: { type: "string" },
+            description:
+              "One to ten case-insensitive literal substrings to find in one indexed operation. Cannot be combined with query.",
+          },
+          queryMode: {
+            type: "string",
+            enum: ["any", "all"],
+            description: 'For queries, require "any" literal or "all" literals in one message.',
+          },
+          roles: {
+            type: "array",
+            minItems: 1,
+            maxItems: 3,
+            items: { type: "string", enum: ["user", "assistant", "system"] },
+            description: "Search only messages with one of these exact roles.",
+          },
+          createdAfter: {
+            type: "string",
+            description: "Message timestamp lower bound (inclusive).",
+          },
+          createdBefore: {
+            type: "string",
+            description: "Message timestamp upper bound (exclusive).",
+          },
+          order: {
+            type: "string",
+            enum: ["recent", "oldest"],
+            description: 'Search ordering; defaults to "recent".',
+          },
+          aroundMessageId: {
+            type: "string",
+            description:
+              "Read bounded transcript context around this exact message instead of searching or reading the tail.",
+          },
+          aroundMessageIds: {
+            type: "array",
+            minItems: 1,
+            maxItems: 5,
+            items: { type: "string" },
+            description: "Read context around up to five exact messages in one Thread operation.",
+          },
+          beforeTurns: {
+            type: "integer",
+            minimum: 0,
+            maximum: 10,
+            description: "Conversation turns before each context anchor (default 2, max 10).",
+          },
+          afterTurns: {
+            type: "integer",
+            minimum: 0,
+            maximum: 10,
+            description: "Conversation turns after each context anchor (default 2, max 10).",
           },
           include: {
             type: "string",
@@ -746,7 +818,79 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const folderId = readStringArg(args, "folderId");
         const requestedSpaceId = readStringArg(args, "spaceId");
         const cursorValue = readStringArg(args, "cursor");
-        const query = readStringArg(args, "query")?.toLocaleLowerCase();
+        const singleQuery = readStringArg(args, "query");
+        const multipleQueries = readStringArrayArg(args, "queries");
+        if (singleQuery && multipleQueries) {
+          throw new ToolInputError('Arguments "query" and "queries" cannot be combined.');
+        }
+        if (multipleQueries && multipleQueries.length === 0) {
+          throw new ToolInputError('Argument "queries" must not be empty.');
+        }
+        const queries = [
+          ...new Set(
+            (multipleQueries ?? (singleQuery ? [singleQuery] : [])).map((value) =>
+              value.toLocaleLowerCase(),
+            ),
+          ),
+        ];
+        if (queries.length > 10) {
+          throw new ToolInputError('Argument "queries" accepts at most 10 values.');
+        }
+        if (queries.some((value) => value.length > 500)) {
+          throw new ToolInputError("Transcript search queries must not exceed 500 characters.");
+        }
+        const queryModeValue = readStringArg(args, "queryMode") ?? "any";
+        if (queryModeValue !== "any" && queryModeValue !== "all") {
+          throw new ToolInputError('Argument "queryMode" must be "any" or "all".');
+        }
+        const queryMode = queryModeValue;
+        const roleValues = [...new Set(readStringArrayArg(args, "roles") ?? [])].toSorted();
+        if (
+          roleValues.some(
+            (role) => role !== "user" && role !== "assistant" && role !== "system",
+          )
+        ) {
+          throw new ToolInputError('Argument "roles" accepts only user, assistant, or system.');
+        }
+        const createdAfter = readIsoTimestampArg(args, "createdAfter");
+        const createdBefore = readIsoTimestampArg(args, "createdBefore");
+        if (createdAfter && createdBefore && createdAfter >= createdBefore) {
+          throw new ToolInputError(
+            'Argument "createdAfter" must be earlier than "createdBefore".',
+          );
+        }
+        const orderValue = readStringArg(args, "order") ?? "recent";
+        if (orderValue !== "recent" && orderValue !== "oldest") {
+          throw new ToolInputError('Argument "order" must be "recent" or "oldest".');
+        }
+        const order = orderValue;
+        const singleAroundMessageId = readStringArg(args, "aroundMessageId");
+        const multipleAroundMessageIds = readStringArrayArg(args, "aroundMessageIds");
+        if (singleAroundMessageId && multipleAroundMessageIds) {
+          throw new ToolInputError(
+            'Arguments "aroundMessageId" and "aroundMessageIds" cannot be combined.',
+          );
+        }
+        if (multipleAroundMessageIds && multipleAroundMessageIds.length === 0) {
+          throw new ToolInputError('Argument "aroundMessageIds" must not be empty.');
+        }
+        const aroundMessageIds = [
+          ...new Set(
+            multipleAroundMessageIds ?? (singleAroundMessageId ? [singleAroundMessageId] : []),
+          ),
+        ];
+        if (aroundMessageIds.length > 5) {
+          throw new ToolInputError('Argument "aroundMessageIds" accepts at most 5 values.');
+        }
+        const readTurnRadius = (name: "beforeTurns" | "afterTurns") => {
+          const value = readNumberArg(args, name) ?? 2;
+          if (!Number.isInteger(value) || value < 0 || value > 10) {
+            throw new ToolInputError(`Argument "${name}" must be an integer from 0 through 10.`);
+          }
+          return value;
+        };
+        const beforeTurns = readTurnRadius("beforeTurns");
+        const afterTurns = readTurnRadius("afterTurns");
         const include = readTranscriptIncludes(readStringArg(args, "include"));
         const limit = Math.max(
           1,
@@ -755,14 +899,38 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             READ_THREAD_MAX_ITEM_LIMIT,
           ),
         );
-        if (!threadId && !query) {
-          throw new ToolInputError('Argument "threadId" is required unless "query" is provided.');
+        const isSearch = queries.length > 0;
+        const isContextRead = aroundMessageIds.length > 0;
+        if (
+          !isSearch &&
+          ["queryMode", "roles", "createdAfter", "createdBefore", "order"].some((name) =>
+            Object.hasOwn(args, name),
+          )
+        ) {
+          throw new ToolInputError("Search filters require query or queries.");
+        }
+        if (
+          !isContextRead &&
+          ["beforeTurns", "afterTurns"].some((name) => Object.hasOwn(args, name))
+        ) {
+          throw new ToolInputError("Context turn bounds require aroundMessageId or aroundMessageIds.");
+        }
+        if (!threadId && !isSearch) {
+          throw new ToolInputError(
+            'Argument "threadId" is required unless a search query is provided.',
+          );
         }
         if (turnId && !threadId) {
           throw new ToolInputError('Argument "turnId" requires "threadId".');
         }
-        if (turnId && query) {
-          throw new ToolInputError('Arguments "turnId" and "query" cannot be combined.');
+        if (turnId && isContextRead) {
+          throw new ToolInputError('Argument "turnId" cannot be combined with a context anchor.');
+        }
+        if (isSearch && isContextRead) {
+          throw new ToolInputError("Search queries and context anchors cannot be combined.");
+        }
+        if (isContextRead && cursorValue) {
+          throw new ToolInputError('Argument "cursor" cannot be combined with a context anchor.');
         }
         const caller = yield* requireThreadShell(context.callerThreadId);
         const callerSpaceId = yield* requireThreadSpaceId(snapshotQuery, caller);
@@ -797,8 +965,65 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             throw new ToolInputError(`Thread "${threadId}" is not in folder "${folderId}".`);
           }
         }
-        if (query !== undefined) {
-          if (!query.trim()) throw new ToolInputError('Argument "query" must not be blank.');
+        if (isContextRead) {
+          if (!shell || !threadId) {
+            throw new ToolInputError('Argument "threadId" is required with a context anchor.');
+          }
+          const windows = yield* Effect.forEach(
+            aroundMessageIds,
+            (messageId) =>
+              snapshotQuery
+                .getThreadMessageContext({
+                  threadId: shell.id,
+                  messageId: MessageId.makeUnsafe(messageId),
+                  beforeTurns,
+                  afterTurns,
+                })
+                .pipe(
+                  Effect.mapError((error) => new ToolInputError(errorText(error))),
+                  Effect.flatMap(
+                    Option.match({
+                      onNone: () =>
+                        Effect.fail(
+                          new ToolInputError(
+                            `Message "${messageId}" was not found in Thread "${threadId}".`,
+                          ),
+                        ),
+                      onSome: (window) => Effect.succeed({ messageId, window }),
+                    }),
+                  ),
+                ),
+            { concurrency: 4 },
+          );
+          const messages = [
+            ...new Map(
+              windows.flatMap(({ window }) => window.messages).map((message) => [message.id, message]),
+            ).values(),
+          ];
+          const activities = [
+            ...new Map(
+              windows
+                .flatMap(({ window }) => window.activities)
+                .map((activity) => [activity.id, activity]),
+            ).values(),
+          ];
+          const packed = packAgentTranscriptPage({
+            messages,
+            activities,
+            include,
+            limit: READ_THREAD_MAX_ITEM_LIMIT,
+          });
+          return mcpToolResultJson({
+            threadId: shell.id,
+            title: shell.title,
+            anchorMessageIds: windows.map(({ messageId }) => messageId),
+            beforeTurns,
+            afterTurns,
+            items: packed.items,
+            complete: packed.exhaustedPage,
+          });
+        }
+        if (isSearch) {
           const snapshot = yield* snapshotQuery.getShellSnapshot();
           const folderById = new Map(snapshot.folders.map((folder) => [folder.id, folder]));
           const candidates = (shell ? [shell] : snapshot.threads)
@@ -808,79 +1033,65 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             .filter((candidate) => (folderId ? candidate.folderId === folderId : true))
             .filter((candidate) => (shell ? true : (candidate.archivedAt ?? null) === null));
           const searchScope = {
-            query,
+            queries,
+            queryMode,
+            roles: roleValues,
+            turnId: turnId ?? null,
+            createdAfter: createdAfter ?? null,
+            createdBefore: createdBefore ?? null,
+            order,
             threadId: threadId ?? null,
             folderId: folderId ?? null,
             spaceId: requestedScopeSpaceId as string,
           };
           const searchCursor = decodeThreadSearchCursor(cursorValue, searchScope);
-          const matches: Array<{
-            readonly type: "message";
-            readonly threadId: string;
-            readonly threadTitle: string;
-            readonly messageId: string;
-            readonly turnId: string | null;
-            readonly role: string;
-            readonly text: string;
-            readonly textRange: {
-              readonly start: number;
-              readonly end: number;
-              readonly total: number;
-            };
-            readonly matches: ReadonlyArray<{
-              readonly start: number;
-              readonly end: number;
-            }>;
-            readonly createdAt: string;
-          }> = [];
-          yield* Effect.forEach(
-            candidates,
-            (candidate) =>
-              Effect.gen(function* () {
-                let before: string | undefined;
-                do {
-                  const page = yield* snapshotQuery.getThreadTurnsPage({
-                    threadId: candidate.id,
-                    ...(before ? { before } : {}),
-                  });
-                  for (const message of page.messages) {
-                    const haystack = message.text.toLocaleLowerCase();
-                    const matchStart = haystack.indexOf(query);
-                    if (matchStart < 0) continue;
-                    const start = Math.max(0, matchStart - 600);
-                    const end = Math.min(message.text.length, matchStart + query.length + 600);
-                    matches.push({
-                      type: "message",
-                      threadId: candidate.id,
-                      threadTitle: candidate.title,
-                      messageId: message.id,
-                      turnId: message.turnId ?? null,
-                      role: message.role,
-                      text: message.text.slice(start, end),
-                      textRange: { start, end, total: message.text.length },
-                      matches: [{ start: matchStart, end: matchStart + query.length }],
-                      createdAt: message.createdAt,
-                    });
-                  }
-                  if (!page.hasOlder || !page.nextCursor) break;
-                  before = page.nextCursor;
-                } while (true);
-              }),
-            { concurrency: 4, discard: true },
+          const candidateById = new Map(
+            candidates.map((candidate) => [candidate.id as string, candidate]),
           );
-          const ordered = matches
-            .toSorted(
-              (left, right) =>
-                right.createdAt.localeCompare(left.createdAt) ||
-                right.threadId.localeCompare(left.threadId) ||
-                right.messageId.localeCompare(left.messageId),
-            )
-            .filter((match) =>
-              searchCursor ? isAfterSearchAnchor(match, searchCursor.anchor) : true,
-            );
-          const selected: typeof ordered = [];
+          const result = yield* snapshotQuery
+            .searchThreadMessages({
+              threadIds: candidates.map((candidate) => candidate.id),
+              queries,
+              queryMode,
+              ...(roleValues.length > 0 ? { roles: roleValues } : {}),
+              ...(turnId ? { turnId: TurnId.makeUnsafe(turnId) } : {}),
+              ...(createdAfter ? { createdAfter } : {}),
+              ...(createdBefore ? { createdBefore } : {}),
+              order,
+              ...(searchCursor ? { anchor: searchCursor.anchor } : {}),
+              limit,
+            })
+            .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
+          const matches = result.messages.flatMap((message) => {
+            const ranges = findLiteralRanges(message.text, queries);
+            const matchingQueryCount = new Set(ranges.map((range) => range.queryIndex)).size;
+            if (
+              ranges.length === 0 ||
+              (queryMode === "all" && matchingQueryCount !== queries.length)
+            ) {
+              return [];
+            }
+            const first = ranges[0]!;
+            const start = Math.max(0, first.start - 600);
+            const end = Math.min(message.text.length, first.end + 600);
+            return [
+              {
+                type: "message" as const,
+                threadId: message.threadId,
+                threadTitle: candidateById.get(message.threadId)?.title ?? "",
+                messageId: message.messageId,
+                turnId: message.turnId,
+                role: message.role,
+                text: message.text.slice(start, end),
+                textRange: { start, end, total: message.text.length },
+                matches: ranges,
+                createdAt: message.createdAt,
+              },
+            ];
+          });
+          const selected: typeof matches = [];
           let remainingBudget = 20_000;
-          for (const match of ordered) {
+          for (const match of matches) {
             if (selected.length >= limit) break;
             if (match.text.length > remainingBudget && selected.length > 0) break;
             selected.push(match);
@@ -888,9 +1099,9 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           }
           const last = selected.at(-1);
           const nextCursor =
-            last && ordered.length > selected.length
+            last && (result.hasMore || matches.length > selected.length)
               ? encodeThreadSearchCursor({
-                  version: 1,
+                  version: 2,
                   mode: "search",
                   ...searchScope,
                   anchor: {
@@ -908,7 +1119,11 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
                   spaceId: requestedScopeSpaceId,
                   folderId: folderId ?? null,
                 },
-            query,
+            queries,
+            ...(singleQuery ? { query: queries[0] } : {}),
+            queryMode,
+            order,
+            searchPath: result.path,
             items: selected,
             pageInfo: { nextCursor },
           });

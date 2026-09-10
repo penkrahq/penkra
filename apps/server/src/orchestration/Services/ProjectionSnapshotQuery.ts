@@ -30,6 +30,49 @@ import type { Effect, Option } from "effect";
 
 import type { ProjectionRepositoryError } from "../../persistence/Errors.ts";
 
+export type ProjectionTranscriptSearchOrder = "recent" | "oldest";
+
+export interface ProjectionTranscriptSearchAnchor {
+  readonly createdAt: string;
+  readonly threadId: string;
+  readonly messageId: string;
+}
+
+export interface ProjectionTranscriptSearchInput {
+  readonly threadIds: ReadonlyArray<ThreadId>;
+  readonly queries: ReadonlyArray<string>;
+  readonly queryMode: "any" | "all";
+  readonly roles?: ReadonlyArray<string>;
+  readonly turnId?: TurnId;
+  readonly createdAfter?: string;
+  readonly createdBefore?: string;
+  readonly order: ProjectionTranscriptSearchOrder;
+  readonly anchor?: ProjectionTranscriptSearchAnchor;
+  readonly limit: number;
+}
+
+export interface ProjectionTranscriptSearchMessage {
+  readonly threadId: ThreadId;
+  readonly messageId: MessageId;
+  readonly turnId: TurnId | null;
+  readonly role: string;
+  readonly text: string;
+  readonly createdAt: string;
+}
+
+export interface ProjectionTranscriptSearchResult {
+  readonly messages: ReadonlyArray<ProjectionTranscriptSearchMessage>;
+  readonly hasMore: boolean;
+  readonly path: "indexed" | "short-query-fallback";
+}
+
+export interface ProjectionThreadMessageContextInput {
+  readonly threadId: ThreadId;
+  readonly messageId: MessageId;
+  readonly beforeTurns: number;
+  readonly afterTurns: number;
+}
+
 export interface ProjectionSnapshotCounts {
   readonly folderCount: number;
   readonly threadCount: number;
@@ -115,6 +158,16 @@ export interface ProjectionSnapshotQueryShape {
   readonly countThreadMessages?: (
     threadId: ThreadId,
   ) => Effect.Effect<number, ProjectionRepositoryError>;
+
+  /** Indexed, deterministic literal search over projected message text. */
+  readonly searchThreadMessages: (
+    input: ProjectionTranscriptSearchInput,
+  ) => Effect.Effect<ProjectionTranscriptSearchResult, ProjectionRepositoryError>;
+
+  /** Read complete transcript rows surrounding the turn that owns one message. */
+  readonly getThreadMessageContext: (
+    input: ProjectionThreadMessageContextInput,
+  ) => Effect.Effect<Option.Option<OrchestrationGetThreadTurnsPageResult>, ProjectionRepositoryError>;
 
   /**
    * Read the latest orchestration shell snapshot.
