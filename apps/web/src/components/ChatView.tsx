@@ -5604,10 +5604,29 @@ export default function ChatView({
       ...(pendingMessageId ? { pendingMessageId } : {}),
       createdAt: new Date().toISOString(),
     };
+    recordChatLifecycleUiDiagnostic({
+      event: "interrupt-dispatched",
+      threadId: activeThread.id,
+      activeTurnId: activeThread.session?.activeTurnId ?? null,
+      activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+      isWorking,
+      commandId: interruptCommand.commandId,
+      pendingMessageId: pendingMessageId ?? null,
+    });
     try {
       // Receipt records interrupt intent only. Shared projection decides whether
       // the pending message was cancelled before acceptance or reached history.
       const receipt = await api.orchestration.dispatchCommand(interruptCommand);
+      recordChatLifecycleUiDiagnostic({
+        event: "interrupt-receipt",
+        threadId: activeThread.id,
+        activeTurnId: activeThread.session?.activeTurnId ?? null,
+        activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+        isWorking,
+        commandId: interruptCommand.commandId,
+        pendingMessageId: pendingMessageId ?? null,
+        receiptSequence: receipt.sequence,
+      });
       if (pendingMessageId) {
         pendingStartRecoveryRegistryRef.current.setFrontier(
           activeThread.id,
@@ -5617,6 +5636,15 @@ export default function ChatView({
         void revalidatePendingStartOutcome(pendingMessageId, receipt.sequence);
       }
     } catch (error) {
+      recordChatLifecycleUiDiagnostic({
+        event: "interrupt-dispatch-failed",
+        threadId: activeThread.id,
+        activeTurnId: activeThread.session?.activeTurnId ?? null,
+        activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+        isWorking,
+        commandId: interruptCommand.commandId,
+        pendingMessageId: pendingMessageId ?? null,
+      });
       if (pendingMessageId) {
         pendingStartRecoveryRegistryRef.current.release(activeThread.id, pendingMessageId);
         cancelPendingTurnStartMessageIdsRef.current.delete(pendingMessageId);
@@ -5628,11 +5656,13 @@ export default function ChatView({
     }
   }, [
     activeThread,
+    activeLatestTurn?.startedAt,
     authoritativePendingTurnStartMessageId,
     hasPendingTurnStart,
     localDispatch?.expectedUserMessageId,
     recoverCancelledQueuedTurn,
     isSendBusy,
+    isWorking,
     phase,
     revalidatePendingStartOutcome,
     scheduleComposerFocus,
@@ -7030,7 +7060,11 @@ export default function ChatView({
     ]);
     // Mark the transcript as anchored before the optimistic row lands so the
     // re-snap effect on row count change pulls us to the new tail.
-    armTranscriptAutoFollow(threadIdForSend, true);
+    // A native smooth scroll traverses a virtualized transcript while row
+    // measurements are still changing. That produces large discontinuous
+    // jumps and competes with the list's causal-tail correction. A send is a
+    // discrete navigation to the newly admitted tail, so place it atomically.
+    armTranscriptAutoFollow(threadIdForSend);
 
     setThreadError(threadIdForSend, null);
     if (expiredTerminalContextCount > 0) {

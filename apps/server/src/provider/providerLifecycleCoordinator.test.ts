@@ -207,4 +207,27 @@ describe("makeProviderLifecycleCoordinator", () => {
       }),
     );
   });
+
+  it("does not hold an urgent control-plane operation behind a busy lifecycle mutation", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const coordinator = makeProviderLifecycleCoordinator();
+        const release = yield* Deferred.make<void>();
+        const entered = yield* Deferred.make<void>();
+        const holder = yield* coordinator
+          .run(threadId, () =>
+            Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))),
+          )
+          .pipe(Effect.forkChild);
+
+        yield* Deferred.await(entered);
+        const startedAt = Date.now();
+        yield* coordinator.runCurrentUrgent(threadId, () => Effect.void);
+        expect(Date.now() - startedAt).toBeLessThan(500);
+
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(holder);
+      }),
+    );
+  });
 });

@@ -60,7 +60,10 @@ export type ChatLifecycleUiEvent =
   | "working-timer-derived-visible"
   | "working-timer-derived-hidden"
   | "transcript-surface-visible"
-  | "hydration-surface-visible";
+  | "hydration-surface-visible"
+  | "interrupt-dispatched"
+  | "interrupt-receipt"
+  | "interrupt-dispatch-failed";
 
 export interface ChatLifecycleUiDiagnosticSample {
   readonly event: ChatLifecycleUiEvent;
@@ -73,6 +76,9 @@ export interface ChatLifecycleUiDiagnosticSample {
   readonly isWorking: boolean;
   readonly threadDetailHydration?: string;
   readonly visibleTimelineEntryIds?: readonly string[];
+  readonly commandId?: string;
+  readonly pendingMessageId?: string | null;
+  readonly receiptSequence?: number;
 }
 
 export type ChatLifecycleSample = ChatLifecycleDiagnosticSample | ChatLifecycleUiDiagnosticSample;
