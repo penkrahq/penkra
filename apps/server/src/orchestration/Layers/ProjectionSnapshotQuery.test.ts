@@ -2289,4 +2289,112 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.isFalse(page.hasOlder);
       }),
   );
+
+  it.effect("searches indexed transcript literals and reads exact anchored turn context", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = asThreadId("thread-transcript-search");
+      yield* sql`DELETE FROM projection_thread_messages`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id, thread_id, turn_id, role, text, is_streaming,
+          sequence, created_at, updated_at
+        ) VALUES
+          ('search-user-1', ${threadId}, 'search-turn-1', 'user',
+            'Thread grouping grouping discussion', 0, 1,
+            '2026-09-01T00:00:01.000Z', '2026-09-01T00:00:01.000Z'),
+          ('search-assistant-1', ${threadId}, 'search-turn-1', 'assistant',
+            'First response', 0, 2,
+            '2026-09-01T00:00:02.000Z', '2026-09-01T00:00:02.000Z'),
+          ('search-user-2', ${threadId}, 'search-turn-2', 'user',
+            'Put related work in one panel', 0, 3,
+            '2026-09-02T00:00:01.000Z', '2026-09-02T00:00:01.000Z'),
+          ('search-assistant-2', ${threadId}, 'search-turn-2', 'assistant',
+            'Grouping and one panel are both here', 0, 4,
+            '2026-09-02T00:00:02.000Z', '2026-09-02T00:00:02.000Z'),
+          ('search-user-3', ${threadId}, 'search-turn-3', 'user',
+            'Third turn with Élan', 0, 5,
+            '2026-09-03T00:00:01.000Z', '2026-09-03T00:00:01.000Z'),
+          ('search-user-4', ${threadId}, 'search-turn-4', 'user',
+            'Outside the context window', 0, 6,
+            '2026-09-04T00:00:01.000Z', '2026-09-04T00:00:01.000Z')
+      `;
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id, thread_id, turn_id, tone, kind, summary, payload_json,
+          sequence, created_at
+        ) VALUES (
+          'search-activity-2', ${threadId}, 'search-turn-2', 'info', 'tool.completed',
+          'Panel tool', '{}', 4, '2026-09-02T00:00:02.500Z'
+        )
+      `;
+
+      const indexed = yield* snapshotQuery.searchThreadMessages({
+        threadIds: [threadId],
+        queries: ["grouping", "one panel"],
+        queryMode: "all",
+        roles: ["assistant"],
+        createdAfter: "2026-09-02T00:00:00.000Z",
+        createdBefore: "2026-09-03T00:00:00.000Z",
+        order: "recent",
+        limit: 20,
+      });
+      assert.equal(indexed.path, "indexed");
+      assert.deepEqual(
+        indexed.messages.map((message) => message.messageId),
+        [asMessageId("search-assistant-2")],
+      );
+
+      const fallback = yield* snapshotQuery.searchThreadMessages({
+        threadIds: [threadId],
+        queries: ["x"],
+        queryMode: "any",
+        order: "oldest",
+        limit: 20,
+      });
+      assert.equal(fallback.path, "short-query-fallback");
+      assert.deepEqual(
+        fallback.messages.map((message) => message.messageId),
+        [asMessageId("search-user-4")],
+      );
+
+      const unicodeFallback = yield* snapshotQuery.searchThreadMessages({
+        threadIds: [threadId],
+        queries: ["é"],
+        queryMode: "any",
+        order: "oldest",
+        limit: 20,
+      });
+      assert.deepEqual(
+        unicodeFallback.messages.map((message) => message.messageId),
+        [asMessageId("search-user-3")],
+      );
+
+      const context = yield* snapshotQuery.getThreadMessageContext({
+        threadId,
+        messageId: asMessageId("search-assistant-2"),
+        beforeTurns: 1,
+        afterTurns: 1,
+      });
+      assert.isTrue(Option.isSome(context));
+      if (Option.isSome(context)) {
+        assert.deepEqual(
+          context.value.messages.map((message) => message.id),
+          [
+            asMessageId("search-user-1"),
+            asMessageId("search-assistant-1"),
+            asMessageId("search-user-2"),
+            asMessageId("search-assistant-2"),
+            asMessageId("search-user-3"),
+          ],
+        );
+        assert.deepEqual(
+          context.value.activities.map((activity) => activity.id),
+          ["search-activity-2"],
+        );
+      }
+    }),
+  );
 });
