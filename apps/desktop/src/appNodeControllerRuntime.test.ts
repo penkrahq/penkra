@@ -169,6 +169,41 @@ describe("AppNodeControllerRuntime", () => {
     );
   });
 
+  it("opens an installed App through the invocation context", async () => {
+    const test = fixture();
+    test.runtime.api.operations.handle("apps.open", async (_input, context) => {
+      const opened = await context.apps.open({ slug: "canvas" });
+      return { tabId: opened.id };
+    });
+    const request = controllerRequest();
+    request.input.handler = "apps.open";
+    request.input.invocation.operation = "apps.open";
+    test.host(request);
+    await vi.waitFor(() =>
+      expect(test.sent).toContainEqual(
+        expect.objectContaining({
+          type: "context-call",
+          id: "context-1",
+          method: "context.apps.open",
+          input: { slug: "canvas" },
+        }),
+      ),
+    );
+    test.host({
+      type: "context-result",
+      parentId: "request-1",
+      id: "context-1",
+      result: { id: "canvas-tab" },
+    });
+    await vi.waitFor(() =>
+      expect(test.sent).toContainEqual({
+        type: "result",
+        id: "request-1",
+        result: { tabId: "canvas-tab" },
+      }),
+    );
+  });
+
   it("exposes only the supported controller contract", async () => {
     const test = fixture();
     expectTypeOf(test.runtime.api).toEqualTypeOf<PenkraControllerRuntimeApi>();

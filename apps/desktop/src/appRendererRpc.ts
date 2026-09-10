@@ -23,6 +23,7 @@ export const APP_RENDERER_CONTEXT_METHODS = [
   "context.tab.navigate-for-result",
   "context.tabs.open",
   "context.tabs.open-for-result",
+  "context.apps.open",
   "context.operations.invoke",
 ] as const;
 

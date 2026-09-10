@@ -227,6 +227,14 @@ export class AppNodeControllerRuntime {
         openForResult: (input) =>
           this.#contextCall(parentId, request, "context.tabs.open-for-result", input) as never,
       },
+      apps: {
+        open: async (input) => {
+          const result = requireRecord(
+            await this.#contextCall(parentId, request, "context.apps.open", input),
+          );
+          return this.#tabHandle(parentId, request, requireString(result.id, "id"), true);
+        },
+      },
       operations: {
         invoke: (input) =>
           this.#contextCall(parentId, request, "context.operations.invoke", input) as never,

@@ -357,6 +357,59 @@ describe("AppTabObserver", () => {
     expect(contents.executeJavaScript).toHaveBeenCalledTimes(2);
   });
 
+  it("uses the App tab iframe name when multiple tabs share one document URL", async () => {
+    const { contents, sendCommand } = makeContents();
+    const frame = {
+      url: `${descriptor.documentUrl}#penkra-tab=tab-1`,
+      executeJavaScript: vi.fn(async () => "Canvas document"),
+    };
+    sendCommand.mockImplementation((async (method: string, params?: unknown) => {
+      if (method === "Page.getFrameTree") {
+        return {
+          frameTree: {
+            frame: { id: "shell", url: "http://localhost:5173" },
+            childFrames: [
+              {
+                frame: {
+                  id: "other-canvas-frame",
+                  name: "penkra-app-tab:tab-2",
+                  url: descriptor.documentUrl,
+                },
+              },
+              {
+                frame: {
+                  id: "requested-canvas-frame",
+                  name: "penkra-app-tab:tab-1",
+                  url: descriptor.documentUrl,
+                },
+              },
+            ],
+          },
+        };
+      }
+      if (method === "Accessibility.getFullAXTree") {
+        expect(params).toEqual({ frameId: "requested-canvas-frame" });
+        return {
+          nodes: [
+            {
+              backendDOMNodeId: 7,
+              role: { value: "button" },
+              name: { value: "Save design" },
+            },
+          ],
+        };
+      }
+      return {};
+    }) as never);
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents, frame: frame as never }),
+    });
+
+    await expect(observer.snapshot("tab-1")).resolves.toMatchObject({
+      snapshot: '- button "Save design" [ref=e1]',
+    });
+  });
+
   it("writes a complete snapshot to the requested artifact path", async () => {
     const directory = await mkdtemp(join(tmpdir(), "penkra-tab-snapshot-"));
     try {
