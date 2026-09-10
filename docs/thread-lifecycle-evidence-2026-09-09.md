@@ -176,3 +176,68 @@ without publication notarization, regenerated its differential blockmap, and pas
 packaged-desktop startup harness. Publication, tag identity, release assets, updater metadata, and
 installed-update acceptance remain unverified until the exact source commit completes the protected
 release workflow.
+
+## Send tail jump and Stop latency follow-up
+
+The supplied 42.665-second recording was sampled at 20 fps across 19.00–20.10 seconds. Its transcript
+scrollbar moved from y=659–782 to y=931–1054 in one frame, then corrected upward through y=908,
+891, and 886 before stabilizing. The contact sheet is
+`.penkra/qa/send-jump-stop-20260909/video-19-20/contact.png` (SHA-256
+`9bf031fcaef94446ec7560ef9915e0c78cf2d6717fa2dbcdd18f9135109f475f`).
+
+Two unchanged-source live controls isolated the writers. With explicit reader ownership, Send used
+native smooth scrolling for about 1.4 seconds across the virtualized transcript, moved over 34
+sampled frames, and included one 1,972.5px frame jump. With stale tail ownership, the imperative
+scroll and list correction competed: the first correction moved 4,123px and a later correction
+reversed 4.5px. The first artifact is
+`.penkra/qa/send-jump-stop-20260909/scroll-reader-detached-red.json` (SHA-256
+`0ac36a0066f3b146ed859beb37ada6a314ba8eb42b8ec6007eddb6152b8ffef9`); the second is
+`.penkra/qa/send-jump-stop-20260909/scroll-detached-red.json` (SHA-256
+`d4e7def57e4773954deb4d7a64cd63e0a753c39b0c9f9da50fda148724dce464`). Commit
+`0e38b1bee` introduced smooth Send following on 2026-06-28. Commit `f01a006ff` removed other
+scroll-owner races on 2026-09-04 but retained this call and its browser assertion.
+
+The browser control was changed first to require an atomic Send placement and failed against the
+unchanged implementation (SHA-256
+`42cf0c609396395bec3967f18ccafd3679f8d74648ec8db38a24308d0ecf3e3f`). Send now arms the
+same causal-tail ownership without browser smooth behavior. The rebuilt native replay made one
+intentional tail placement, with no multi-frame motion or reversal
+(`.penkra/qa/send-jump-stop-20260909/scroll-green.json`, SHA-256
+`3756361f0ef8fc79022cb99b6673fa9e5bd7fdb8c793eeb0d18a865f15114bb4`).
+
+Stop has two distinct latency boundaries. In an active Codex tool sequence, the unchanged build
+accepted the orchestration command in 3ms, requested provider interrupt 8ms later, received provider
+acknowledgement 6ms after that, and cleared the UI in 440ms. A separate pre-acceptance run reproduced
+a startup race: Stop was accepted, no provider turn interrupt existed yet, and session startup
+continued through thread resume before its stopped preflight unwound. That log is
+`.penkra/qa/send-jump-stop-20260909/stop-preaccept-red.log` (SHA-256
+`2d4484a590304ded370a799b45ae6a8e07016c06009ea77843193d54ce97b936`).
+
+The structural delay was in `runCurrentUrgent`: since commit `35ccf57b9`, an interrupt could wait
+five seconds behind the per-thread provider lifecycle lock before using its already generation-checked
+bypass. A deterministic contention control timed out at 5,003ms on unchanged source (SHA-256
+`9da8258472cfec2c238f51d241d0222b7cff7463e4ec7338e6b95dcd0d515bf1`). The wait is now one
+100ms scheduling window; generation validation and the bypass remain unchanged. Renderer lifecycle
+diagnostics now record interrupt dispatch, durable receipt sequence, and dispatch failure, while
+server/provider logs retain command receipt, admission, provider request, acknowledgement, and
+terminal projection.
+
+The rebuilt active-tool replay recorded renderer interrupt receipt 75ms after dispatch, provider
+request and acknowledgement 7ms apart, and UI settlement 389ms after the click
+(`.penkra/qa/send-jump-stop-20260909/stop-green.json`, SHA-256
+`9d825d61843abd0d6e6bfe97eab958c38f7266718ef98f689cb99081bd00a8fe`). A stop issued 119ms
+after Send during draft promotion settled in 1.062s without reopening
+(`.penkra/qa/send-jump-stop-20260909/stop-preaccept-green.json`, SHA-256
+`6a1d5e7836cac186671694908885be30aed6f0276261e3d2b01dc3f95de4ac9e`). This path includes
+thread creation, hydration, durable interrupt admission, and authoritative pending-start recovery;
+the trace keeps those intervals separate.
+
+The initial browser RED command was launched from the repository root with the web Vite config and
+failed before collection because the router generator resolved the wrong `src/routes`. It was rerun
+from `apps/web`; that harness error is not product evidence. Pillow was unavailable during the first
+pixel-analysis attempt, one shell probe overwrote zsh's reserved `path` array, and an early Stop probe
+looked for the wrong timeline-row kind. None of those outputs were used for the conclusions above.
+
+Post-fix validation passed 139 provider lifecycle/reactor tests, all 120 ChatView browser tests,
+11 of 11 TypeScript tasks, formatting across 2,634 files, and lint with zero errors (519 existing
+warnings). The rebuilt native controls above supply the behavioral acceptance evidence.

@@ -48,7 +48,10 @@ export interface ProviderLifecycleCoordinator {
 }
 
 /** How long an urgent control-plane operation waits for the per-thread lock. */
-const URGENT_LOCK_WAIT = Duration.seconds(5);
+// A stop is direct user control. Give an uncontended lifecycle mutation one
+// short scheduling window to finish, then use the existing generation-checked
+// bypass instead of making the user wait seconds behind provider startup.
+const URGENT_LOCK_WAIT = Duration.millis(100);
 const URGENT_LOCK_POLL = Duration.millis(25);
 
 /** Serializes provider lifecycle mutations per thread and gives each mutation a unique epoch. */

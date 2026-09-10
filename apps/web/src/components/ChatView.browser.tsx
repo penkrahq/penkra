@@ -2341,7 +2341,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("shows Thinking and smoothly re-sticks while an optimistic send awaits provider start", async () => {
+  it("shows Thinking and atomically re-sticks while an optimistic send awaits provider start", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -2402,7 +2402,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(document.body.textContent).toContain(prompt);
           expect(document.body.textContent).toContain("Thinking");
           expect(document.activeElement).toBe(await waitForComposerEditor());
-          expect(scrollToCalls.some((call) => call.behavior === "smooth")).toBe(true);
+          expect(scrollToCalls.some((call) => call.behavior === "smooth")).toBe(false);
+          expect(scrollToCalls.some((call) => call.behavior === "auto")).toBe(true);
           const layout = await mounted.measureLayout();
           expect(layout.scrollHeightPx).toBeGreaterThan(layout.scrollClientHeightPx);
           expect(layout.distanceFromBottomPx).toBeLessThanOrEqual(AUTO_SCROLL_BOTTOM_THRESHOLD_PX);
