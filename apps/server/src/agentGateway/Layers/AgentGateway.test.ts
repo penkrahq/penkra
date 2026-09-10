@@ -445,7 +445,9 @@ function makeHarnessLayer(
           .filter((message) => {
             const text = message.text.toLocaleLowerCase();
             const queryMatches = input.queries.map((query) => text.includes(query));
-            return input.queryMode === "all" ? queryMatches.every(Boolean) : queryMatches.some(Boolean);
+            return input.queryMode === "all"
+              ? queryMatches.every(Boolean)
+              : queryMatches.some(Boolean);
           })
           .filter((message) => !input.roles || input.roles.includes(message.role))
           .filter((message) => !input.turnId || message.turnId === input.turnId)
@@ -487,7 +489,8 @@ function makeHarnessLayer(
         return Option.some({
           threadId: input.threadId,
           snapshotSequence: 1,
-          conversationTurnCount: thread.messages.filter((message) => message.role === "user").length,
+          conversationTurnCount: thread.messages.filter((message) => message.role === "user")
+            .length,
           messages: thread.messages,
           activities: thread.activities,
           pendingInteractions: thread.pendingInteractions,
@@ -1907,61 +1910,58 @@ describe("AgentGateway", () => {
     },
   );
 
-  it.effect(
-    "reads and deduplicates context around several exact message anchors",
-    () => {
-      const shell = makeThreadShell("thread-context", { title: "Context" });
-      const detail: OrchestrationThread = {
-        ...makeThreadDetail(shell),
-        messages: [
-          {
-            id: MessageId.makeUnsafe("message-context-user"),
-            role: "user",
-            text: "Discuss grouping",
-            turnId: TurnId.makeUnsafe("turn-context"),
-            streaming: false,
-            source: "native",
-            createdAt: "2026-09-02T12:00:00.000Z",
-            updatedAt: "2026-09-02T12:00:00.000Z",
+  it.effect("reads and deduplicates context around several exact message anchors", () => {
+    const shell = makeThreadShell("thread-context", { title: "Context" });
+    const detail: OrchestrationThread = {
+      ...makeThreadDetail(shell),
+      messages: [
+        {
+          id: MessageId.makeUnsafe("message-context-user"),
+          role: "user",
+          text: "Discuss grouping",
+          turnId: TurnId.makeUnsafe("turn-context"),
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-02T12:00:00.000Z",
+          updatedAt: "2026-09-02T12:00:00.000Z",
+        },
+        {
+          id: MessageId.makeUnsafe("message-context-assistant"),
+          role: "assistant",
+          text: "Use a panel",
+          turnId: TurnId.makeUnsafe("turn-context"),
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-02T12:00:01.000Z",
+          updatedAt: "2026-09-02T12:00:01.000Z",
+        },
+      ],
+    };
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [makeThreadShell("thread-parent"), shell],
+      { threadDetails: new Map([[shell.id, detail]]) },
+    );
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const payload = toolResultJson(
+        (yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_read_thread",
+          args: {
+            threadId: shell.id,
+            aroundMessageIds: ["message-context-user", "message-context-assistant"],
+            beforeTurns: 1,
+            afterTurns: 1,
           },
-          {
-            id: MessageId.makeUnsafe("message-context-assistant"),
-            role: "assistant",
-            text: "Use a panel",
-            turnId: TurnId.makeUnsafe("turn-context"),
-            streaming: false,
-            source: "native",
-            createdAt: "2026-09-02T12:00:01.000Z",
-            updatedAt: "2026-09-02T12:00:01.000Z",
-          },
-        ],
-      };
-      const { gatewayLayer, makeHarness } = makeHarnessLayer(
-        [makeThreadShell("thread-parent"), shell],
-        { threadDetails: new Map([[shell.id, detail]]) },
+        })).result,
       );
-      return Effect.gen(function* () {
-        const harness = yield* makeHarness;
-        const payload = toolResultJson(
-          (yield* harness.callTool({
-            token: "token-parent",
-            name: "penkra_read_thread",
-            args: {
-              threadId: shell.id,
-              aroundMessageIds: ["message-context-user", "message-context-assistant"],
-              beforeTurns: 1,
-              afterTurns: 1,
-            },
-          })).result,
-        );
-        assert.deepEqual(payload.anchorMessageIds, [
-          "message-context-user",
-          "message-context-assistant",
-        ]);
-        assert.equal((payload.items as Array<{ type: string }>).length, 2);
-      }).pipe(Effect.provide(gatewayLayer));
-    },
-  );
+      assert.deepEqual(payload.anchorMessageIds, [
+        "message-context-user",
+        "message-context-assistant",
+      ]);
+      assert.equal((payload.items as Array<{ type: string }>).length, 2);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
 
   it.effect(
     "filters thread discovery by provider, status, title, source, and update window",

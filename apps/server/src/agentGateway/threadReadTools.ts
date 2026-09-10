@@ -171,8 +171,11 @@ function decodeThreadSearchCursor(
 const findLiteralRanges = (text: string, queries: ReadonlyArray<string>) => {
   const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return queries.flatMap((query, queryIndex) => {
-    const ranges: Array<{ readonly queryIndex: number; readonly start: number; readonly end: number }> =
-      [];
+    const ranges: Array<{
+      readonly queryIndex: number;
+      readonly start: number;
+      readonly end: number;
+    }> = [];
     const pattern = new RegExp(`(?=(${escapeRegExp(query)}))`, "giu");
     for (const match of text.matchAll(pattern)) {
       const matchedText = match[1];
@@ -846,18 +849,14 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const queryMode: "any" | "all" = queryModeValue;
         const roleValues = [...new Set(readStringArrayArg(args, "roles") ?? [])].toSorted();
         if (
-          roleValues.some(
-            (role) => role !== "user" && role !== "assistant" && role !== "system",
-          )
+          roleValues.some((role) => role !== "user" && role !== "assistant" && role !== "system")
         ) {
           throw new ToolInputError('Argument "roles" accepts only user, assistant, or system.');
         }
         const createdAfter = readIsoTimestampArg(args, "createdAfter");
         const createdBefore = readIsoTimestampArg(args, "createdBefore");
         if (createdAfter && createdBefore && createdAfter >= createdBefore) {
-          throw new ToolInputError(
-            'Argument "createdAfter" must be earlier than "createdBefore".',
-          );
+          throw new ToolInputError('Argument "createdAfter" must be earlier than "createdBefore".');
         }
         const orderValue = readStringArg(args, "order") ?? "recent";
         if (orderValue !== "recent" && orderValue !== "oldest") {
@@ -913,7 +912,9 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           !isContextRead &&
           ["beforeTurns", "afterTurns"].some((name) => Object.hasOwn(args, name))
         ) {
-          throw new ToolInputError("Context turn bounds require aroundMessageId or aroundMessageIds.");
+          throw new ToolInputError(
+            "Context turn bounds require aroundMessageId or aroundMessageIds.",
+          );
         }
         if (!threadId && !isSearch) {
           throw new ToolInputError(
@@ -997,7 +998,9 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           );
           const messages = [
             ...new Map(
-              windows.flatMap(({ window }) => window.messages).map((message) => [message.id, message]),
+              windows
+                .flatMap(({ window }) => window.messages)
+                .map((message) => [message.id, message]),
             ).values(),
           ];
           const activities = [

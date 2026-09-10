@@ -167,7 +167,10 @@ export interface ProjectionSnapshotQueryShape {
   /** Read complete transcript rows surrounding the turn that owns one message. */
   readonly getThreadMessageContext: (
     input: ProjectionThreadMessageContextInput,
-  ) => Effect.Effect<Option.Option<OrchestrationGetThreadTurnsPageResult>, ProjectionRepositoryError>;
+  ) => Effect.Effect<
+    Option.Option<OrchestrationGetThreadTurnsPageResult>,
+    ProjectionRepositoryError
+  >;
 
   /**
    * Read the latest orchestration shell snapshot.

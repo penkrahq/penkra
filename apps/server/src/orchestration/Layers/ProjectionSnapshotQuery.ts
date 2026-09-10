@@ -1993,8 +1993,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   });
 
   const getSnapshot: ProjectionSnapshotQueryShape["getSnapshot"] = () =>
-    sql.withTransaction(
-      Effect.gen(function* () {
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
           const [
             spaceRows,
             projectRows,
@@ -3028,9 +3029,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       }
 
       const useIndex = input.queries.every((query) => Array.from(query).length >= 3);
-      const baseConditions: string[] = [
-        "messages.thread_id IN (SELECT value FROM json_each(?))",
-      ];
+      const baseConditions: string[] = ["messages.thread_id IN (SELECT value FROM json_each(?))"];
       const baseParameters: unknown[] = [JSON.stringify(input.threadIds)];
 
       if (useIndex) {
@@ -3062,9 +3061,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ? `JOIN projection_thread_messages_search
              ON projection_thread_messages_search.rowid = messages.rowid`
         : "";
-      const batchSize = useIndex
-        ? Math.max(50, Math.min(250, Math.floor(input.limit) * 2))
-        : 250;
+      const batchSize = useIndex ? Math.max(50, Math.min(250, Math.floor(input.limit) * 2)) : 250;
       const normalizedQueries = input.queries.map((query) => query.toLocaleLowerCase());
       const matchesLiteralQuery = (text: string) => {
         const normalizedText = text.toLocaleLowerCase();
@@ -3100,8 +3097,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           );
         }
         parameters.push(batchSize);
-        const rows = yield* sql.unsafe<ProjectionThreadMessageDbRow>(
-          `SELECT DISTINCT
+        const rows = yield* sql
+          .unsafe<ProjectionThreadMessageDbRow>(
+            `SELECT DISTINCT
              messages.message_id AS "messageId",
              messages.thread_id AS "threadId",
              messages.turn_id AS "turnId",
@@ -3128,12 +3126,13 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
              messages.thread_id ${direction},
              messages.message_id ${direction}
            LIMIT ?`,
-          parameters,
-        ).pipe(
-          Effect.mapError(
-            toPersistenceSqlError("ProjectionSnapshotQuery.searchThreadMessages:query"),
-          ),
-        );
+            parameters,
+          )
+          .pipe(
+            Effect.mapError(
+              toPersistenceSqlError("ProjectionSnapshotQuery.searchThreadMessages:query"),
+            ),
+          );
         const decodedRows = yield* Schema.decodeUnknownEffect(
           Schema.Array(ProjectionThreadMessageDbRowSchema),
         )(rows).pipe(
@@ -3212,81 +3211,82 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     sql
       .withTransaction(
         Effect.gen(function* () {
-        const [anchorOption, boundaries, stateRows] = yield* Effect.all([
-          getThreadMessagePosition({ threadId: input.threadId, messageId: input.messageId }),
-          listAllThreadConversationBoundaries({ threadId: input.threadId }),
-          listProjectionStateRows(undefined),
-        ]).pipe(
-          Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "ProjectionSnapshotQuery.getThreadMessageContext:query",
-              "ProjectionSnapshotQuery.getThreadMessageContext:decodeRows",
-            ),
-          ),
-        );
-        if (Option.isNone(anchorOption)) return Option.none();
-
-        const anchor = anchorOption.value;
-        let ownerIndex = -1;
-        for (let index = 0; index < boundaries.length; index += 1) {
-          if (compareTranscriptPosition(boundaries[index]!, anchor) > 0) break;
-          ownerIndex = index;
-        }
-        const startIndex = Math.max(0, ownerIndex - input.beforeTurns);
-        const upperIndex = Math.max(0, ownerIndex + input.afterTurns + 1);
-        const lowerBoundary = startIndex > 0 ? boundaries[startIndex] : undefined;
-        const upperBoundary = boundaries[upperIndex];
-        const range = {
-          threadId: input.threadId,
-          lowerSequence: lowerBoundary?.presentationSequence ?? null,
-          lowerCreatedAt: lowerBoundary?.createdAt ?? null,
-          lowerMessageId: lowerBoundary?.messageId ?? null,
-          upperSequence: upperBoundary?.presentationSequence ?? null,
-          upperCreatedAt: upperBoundary?.createdAt ?? null,
-          upperMessageId: upperBoundary?.messageId ?? null,
-        } as const;
-        const [messageRows, activityRows] = yield* Effect.all([
-          listThreadMessageRowsByConversationRange(range),
-          listThreadActivityRowsByConversationRange(range),
-        ]).pipe(
-          Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "ProjectionSnapshotQuery.getThreadMessageContext:listRows:query",
-              "ProjectionSnapshotQuery.getThreadMessageContext:listRows:decodeRows",
-            ),
-          ),
-        );
-        const result: OrchestrationGetThreadTurnsPageResult = {
-          threadId: input.threadId,
-          snapshotSequence: computeSnapshotSequence(stateRows),
-          conversationTurnCount: Math.max(
-            0,
-            Math.min(boundaries.length, upperIndex) - startIndex,
-          ),
-          messages: messageRows.map(orchestrationMessageFromProjectionRow),
-          activities: activityRows.map(toProjectedActivity),
-          pendingInteractions: [],
-          hasOlder: false,
-          nextCursor: null,
-        };
-        return Option.some(
-          yield* decodeThreadTurnsPage(result).pipe(
+          const [anchorOption, boundaries, stateRows] = yield* Effect.all([
+            getThreadMessagePosition({ threadId: input.threadId, messageId: input.messageId }),
+            listAllThreadConversationBoundaries({ threadId: input.threadId }),
+            listProjectionStateRows(undefined),
+          ]).pipe(
             Effect.mapError(
-              toPersistenceDecodeError(
-                "ProjectionSnapshotQuery.getThreadMessageContext:decodeResult",
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getThreadMessageContext:query",
+                "ProjectionSnapshotQuery.getThreadMessageContext:decodeRows",
               ),
             ),
-          ),
-        );
-      }),
-    ).pipe(
-      Effect.mapError((error) => {
-        if (isPersistenceError(error)) return error;
-        return toPersistenceSqlError(
-          "ProjectionSnapshotQuery.getThreadMessageContext:transaction",
-        )(error);
-      }),
-    );
+          );
+          if (Option.isNone(anchorOption)) return Option.none();
+
+          const anchor = anchorOption.value;
+          let ownerIndex = -1;
+          for (let index = 0; index < boundaries.length; index += 1) {
+            if (compareTranscriptPosition(boundaries[index]!, anchor) > 0) break;
+            ownerIndex = index;
+          }
+          const startIndex = Math.max(0, ownerIndex - input.beforeTurns);
+          const upperIndex = Math.max(0, ownerIndex + input.afterTurns + 1);
+          const lowerBoundary = startIndex > 0 ? boundaries[startIndex] : undefined;
+          const upperBoundary = boundaries[upperIndex];
+          const range = {
+            threadId: input.threadId,
+            lowerSequence: lowerBoundary?.presentationSequence ?? null,
+            lowerCreatedAt: lowerBoundary?.createdAt ?? null,
+            lowerMessageId: lowerBoundary?.messageId ?? null,
+            upperSequence: upperBoundary?.presentationSequence ?? null,
+            upperCreatedAt: upperBoundary?.createdAt ?? null,
+            upperMessageId: upperBoundary?.messageId ?? null,
+          } as const;
+          const [messageRows, activityRows] = yield* Effect.all([
+            listThreadMessageRowsByConversationRange(range),
+            listThreadActivityRowsByConversationRange(range),
+          ]).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getThreadMessageContext:listRows:query",
+                "ProjectionSnapshotQuery.getThreadMessageContext:listRows:decodeRows",
+              ),
+            ),
+          );
+          const result: OrchestrationGetThreadTurnsPageResult = {
+            threadId: input.threadId,
+            snapshotSequence: computeSnapshotSequence(stateRows),
+            conversationTurnCount: Math.max(
+              0,
+              Math.min(boundaries.length, upperIndex) - startIndex,
+            ),
+            messages: messageRows.map(orchestrationMessageFromProjectionRow),
+            activities: activityRows.map(toProjectedActivity),
+            pendingInteractions: [],
+            hasOlder: false,
+            nextCursor: null,
+          };
+          return Option.some(
+            yield* decodeThreadTurnsPage(result).pipe(
+              Effect.mapError(
+                toPersistenceDecodeError(
+                  "ProjectionSnapshotQuery.getThreadMessageContext:decodeResult",
+                ),
+              ),
+            ),
+          );
+        }),
+      )
+      .pipe(
+        Effect.mapError((error) => {
+          if (isPersistenceError(error)) return error;
+          return toPersistenceSqlError(
+            "ProjectionSnapshotQuery.getThreadMessageContext:transaction",
+          )(error);
+        }),
+      );
 
   const getPendingStartOutcome: ProjectionSnapshotQueryShape["getPendingStartOutcome"] = (input) =>
     sql
