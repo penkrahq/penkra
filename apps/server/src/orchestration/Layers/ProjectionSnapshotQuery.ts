@@ -1993,9 +1993,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   });
 
   const getSnapshot: ProjectionSnapshotQueryShape["getSnapshot"] = () =>
-    sql
-      .withTransaction(
-        Effect.gen(function* () {
+    sql.withTransaction(
+      Effect.gen(function* () {
           const [
             spaceRows,
             projectRows,
@@ -3210,8 +3209,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const getThreadMessageContext: ProjectionSnapshotQueryShape["getThreadMessageContext"] = (
     input: ProjectionThreadMessageContextInput,
   ) =>
-    sql.withTransaction(
-      Effect.gen(function* () {
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
         const [anchorOption, boundaries, stateRows] = yield* Effect.all([
           getThreadMessagePosition({ threadId: input.threadId, messageId: input.messageId }),
           listAllThreadConversationBoundaries({ threadId: input.threadId }),
@@ -3278,6 +3278,13 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ),
           ),
         );
+      }),
+    ).pipe(
+      Effect.mapError((error) => {
+        if (isPersistenceError(error)) return error;
+        return toPersistenceSqlError(
+          "ProjectionSnapshotQuery.getThreadMessageContext:transaction",
+        )(error);
       }),
     );
 

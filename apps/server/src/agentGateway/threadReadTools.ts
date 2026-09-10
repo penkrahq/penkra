@@ -843,7 +843,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         if (queryModeValue !== "any" && queryModeValue !== "all") {
           throw new ToolInputError('Argument "queryMode" must be "any" or "all".');
         }
-        const queryMode = queryModeValue;
+        const queryMode: "any" | "all" = queryModeValue;
         const roleValues = [...new Set(readStringArrayArg(args, "roles") ?? [])].toSorted();
         if (
           roleValues.some(
@@ -863,7 +863,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         if (orderValue !== "recent" && orderValue !== "oldest") {
           throw new ToolInputError('Argument "order" must be "recent" or "oldest".');
         }
-        const order = orderValue;
+        const order: "recent" | "oldest" = orderValue;
         const singleAroundMessageId = readStringArg(args, "aroundMessageId");
         const multipleAroundMessageIds = readStringArrayArg(args, "aroundMessageIds");
         if (singleAroundMessageId && multipleAroundMessageIds) {
