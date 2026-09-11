@@ -208,6 +208,7 @@ import {
   derivePhase,
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
+  deriveVisibleWorkLogSequenceFloor,
   deriveWorkLogEntries,
   hasActivePendingTurnStart,
   hasLiveTurnTailWork,
@@ -2635,10 +2636,17 @@ export default function ChatView({
     }
     return turnIds;
   }, [activeLatestTurnId, activeThread?.messages]);
+  const workLogVisibleSequenceFloor = useMemo(
+    () => deriveVisibleWorkLogSequenceFloor(activeThread?.messages ?? EMPTY_MESSAGES),
+    [activeThread?.messages],
+  );
   const rawWorkLogEntries = useMemo(
     () =>
       deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined, {
         visibleTurnIds: workLogVisibleTurnIds,
+        ...(workLogVisibleSequenceFloor === undefined
+          ? {}
+          : { visibleSequenceFloor: workLogVisibleSequenceFloor }),
         activeTurnId: activeSessionTurnId,
         activeTurnStartedAt: activeSessionTurnStartedAt,
         latestTurnState: activeLatestTurn?.state ?? null,
@@ -2649,6 +2657,7 @@ export default function ChatView({
       activeSessionTurnId,
       activeSessionTurnStartedAt,
       threadActivities,
+      workLogVisibleSequenceFloor,
       workLogVisibleTurnIds,
     ],
   );
@@ -2761,6 +2770,13 @@ export default function ChatView({
     }
     return turnIds;
   }, [stripParentThread, workLogVisibleTurnIds]);
+  const stripVisibleSequenceFloor = useMemo(
+    () =>
+      stripParentThread
+        ? deriveVisibleWorkLogSequenceFloor(stripParentThread.messages)
+        : workLogVisibleSequenceFloor,
+    [stripParentThread, workLogVisibleSequenceFloor],
+  );
   const stripLiveTurnId = stripParentThread
     ? isLatestTurnSettled(stripParentThread.latestTurn, stripParentThread.session ?? null)
       ? null
@@ -2775,6 +2791,9 @@ export default function ChatView({
     () =>
       deriveWorkLogEntries(stripSourceActivities, stripSourceLatestTurnId ?? undefined, {
         visibleTurnIds: stripVisibleTurnIds,
+        ...(stripVisibleSequenceFloor === undefined
+          ? {}
+          : { visibleSequenceFloor: stripVisibleSequenceFloor }),
         includeRoutedSubagentActivities: true,
         activeTurnId: stripSourceActiveTurnId,
         activeTurnStartedAt: stripSourceActiveTurnStartedAt,
@@ -2787,6 +2806,7 @@ export default function ChatView({
       stripSourceActiveTurnStartedAt,
       stripSourceLatestTurn,
       stripSourceLatestTurnId,
+      stripVisibleSequenceFloor,
       stripVisibleTurnIds,
     ],
   );
@@ -3675,6 +3695,8 @@ export default function ChatView({
       isWorking,
       threadDetailHydration,
       visibleTimelineEntryIds: visibleTimelineEntries.map((entry) => entry.id),
+      visibleWorkEntryIds: agentActivityTimelineState.timelineWorkEntries.map((entry) => entry.id),
+      visibleWorkLogSequenceFloor: workLogVisibleSequenceFloor ?? null,
     });
   }, [
     activeThread?.session?.activeTurnId,
@@ -3684,6 +3706,8 @@ export default function ChatView({
     shouldRenderTranscriptSurface,
     threadDetailHydration,
     visibleTimelineEntries,
+    agentActivityTimelineState.timelineWorkEntries,
+    workLogVisibleSequenceFloor,
   ]);
   // --- Pinned messages & notes (per-thread, server-synced through sidepanel commands) ---
   const pinnedMessages = activeThread?.pinnedMessages ?? EMPTY_PINNED_MESSAGES;
