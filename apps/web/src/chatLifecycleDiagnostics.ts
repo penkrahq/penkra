@@ -86,6 +86,8 @@ export interface ChatLifecycleUiDiagnosticSample {
   readonly activeTurnInProgress?: boolean;
   readonly threadDetailHydration?: string;
   readonly visibleTimelineEntryIds?: readonly string[];
+  readonly visibleWorkEntryIds?: readonly string[];
+  readonly visibleWorkLogSequenceFloor?: number | null;
   readonly commandId?: string;
   readonly pendingMessageId?: string | null;
   readonly receiptSequence?: number;
