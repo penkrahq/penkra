@@ -915,6 +915,7 @@ export default function ChatView({
   const composerMentions = composerDraft.mentions;
   const queuedComposerTurns = composerDraft.queuedTurns;
   const composerPendingStartRecoveries = composerDraft.pendingStartRecoveriesByMessageId ?? {};
+  const pendingMessageEdit = composerDraft.pendingMessageEdit;
   const queuePaused = composerDraft.queuePaused;
   const composerSendState = useMemo(
     () =>
@@ -7861,6 +7862,11 @@ export default function ChatView({
           runtimeMode,
           createdAt: messageCreatedAt,
         });
+        useComposerDraftStore.getState().setPendingMessageEdit(activeThread.id, {
+          messageId,
+          text,
+          priorDeliverySequence: originalMessage.delivery?.sequence ?? -1,
+        });
         return true;
       })()
         .catch((err: unknown) => {
@@ -7900,6 +7906,16 @@ export default function ChatView({
   const onEditUserMessageFromTranscript = useCallback(
     (messageId: MessageId, text: string) => onEditUserMessageRef.current(messageId, text),
     [],
+  );
+  const onClearPendingEditedUserMessage = useCallback(
+    (messageId: MessageId) => {
+      const pending =
+        useComposerDraftStore.getState().draftsByThreadId[threadId]?.pendingMessageEdit;
+      if (pending?.messageId === messageId) {
+        useComposerDraftStore.getState().setPendingMessageEdit(threadId, null);
+      }
+    },
+    [threadId],
   );
 
   const onSendRef = useRef(onSend);
@@ -9610,6 +9626,8 @@ export default function ChatView({
                         onOpenThread={onNavigateToThread}
                         subagentToolTraceByThreadId={subagentToolTraceByThreadId}
                         onEditUserMessage={onEditUserMessageFromTranscript}
+                        pendingEditedUserMessage={pendingMessageEdit}
+                        onClearPendingEditedUserMessage={onClearPendingEditedUserMessage}
                         onExpandTimelineImage={onExpandTimelineImage}
                         onIsAtEndChange={onIsAtEndChange}
                         markdownCwd={threadWorkspaceCwd ?? undefined}

@@ -315,12 +315,7 @@ export function deriveWorkLogEntries(
   const ordered = orderedActivities(activities);
   const entries = ordered
     .filter((activity) =>
-      shouldKeepActivityForWorkLog(
-        activity,
-        latestTurnId,
-        visibleTurnIds,
-        visibleSequenceFloor,
-      ),
+      shouldKeepActivityForWorkLog(activity, latestTurnId, visibleTurnIds, visibleSequenceFloor),
     )
     .filter(
       (activity) =>
@@ -416,9 +411,7 @@ function shouldKeepActivityForWorkLog(
 }
 
 export function deriveVisibleWorkLogSequenceFloor(
-  messages: ReadonlyArray<
-    Pick<ChatMessage, "role" | "sequence" | "delivery">
-  >,
+  messages: ReadonlyArray<Pick<ChatMessage, "role" | "sequence" | "delivery">>,
 ): number | undefined {
   const firstVisibleUserMessage = messages.find((message) => message.role === "user");
   if (!firstVisibleUserMessage) return undefined;

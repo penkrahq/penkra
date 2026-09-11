@@ -40,6 +40,8 @@ export const ProjectionThreadMessage = Schema.Struct({
   deliveryState: Schema.optional(MessageDeliveryState),
   deliveryQueued: Schema.optional(Schema.Boolean),
   deliverySequence: Schema.optional(NonNegativeInt),
+  deliveryFailurePhase: Schema.optional(Schema.Literal("before-provider-dispatch")),
+  deliveryFailureDetail: Schema.optional(Schema.String),
   isStreaming: Schema.Boolean,
   source: OrchestrationMessageSource,
   /** Server-owned orchestration event sequence for causal ordering. */

@@ -253,6 +253,12 @@ interface MessagesTimelineProps {
   /** Recent child-thread tool calls rendered under subagent rows, keyed by child thread id. */
   subagentToolTraceByThreadId?: ReadonlyMap<string, SubagentToolTrace>;
   onEditUserMessage?: (messageId: MessageId, text: string) => boolean | Promise<boolean>;
+  pendingEditedUserMessage?: {
+    readonly messageId: MessageId;
+    readonly text: string;
+    readonly priorDeliverySequence: number;
+  } | null;
+  onClearPendingEditedUserMessage?: (messageId: MessageId) => void;
   activeTurnId?: TurnId | null;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onIsAtEndChange?: (isAtEnd: boolean) => void;
@@ -300,6 +306,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenThread,
   subagentToolTraceByThreadId,
   onEditUserMessage,
+  pendingEditedUserMessage,
+  onClearPendingEditedUserMessage,
   activeTurnId,
   onImageExpand,
   onIsAtEndChange,
@@ -393,9 +401,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [expandedUserMessagesById, setExpandedUserMessagesById] = useState<Record<string, boolean>>(
     {},
   );
-  const [editingUserMessageId, setEditingUserMessageId] = useState<MessageId | null>(null);
+  const [editingUserMessageId, setEditingUserMessageId] = useState<MessageId | null>(
+    pendingEditedUserMessage?.messageId ?? null,
+  );
   const [submittingEditedUserMessageId, setSubmittingEditedUserMessageId] =
     useState<MessageId | null>(null);
+  const [admittedEditedUserMessage, setAdmittedEditedUserMessage] = useState<{
+    readonly messageId: MessageId;
+    readonly priorDeliverySequence: number;
+  } | null>(null);
   // Transient highlight applied to a message jumped-to from the pinned-message checklist.
   const [highlightedMessageId, setHighlightedMessageId] = useState<MessageId | null>(null);
   const fallbackListRef = useRef<TranscriptVirtualListRef | null>(null);
@@ -944,8 +958,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [onIsAtEndChange, onMessagesScroll, resolvedListRef],
   );
   const cancelUserMessageEdit = useCallback(() => {
+    if (editingUserMessageId) onClearPendingEditedUserMessage?.(editingUserMessageId);
     setEditingUserMessageId(null);
-  }, []);
+    setAdmittedEditedUserMessage(null);
+  }, [editingUserMessageId, onClearPendingEditedUserMessage]);
   const startUserMessageEdit = useCallback((messageId: MessageId) => {
     setEditingUserMessageId(messageId);
   }, []);
@@ -958,21 +974,47 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       if (!nextText) {
         return Promise.resolve();
       }
+      const messageRow = rows.find((row) => row.kind === "message" && row.message.id === messageId);
+      const priorDeliverySequence =
+        messageRow?.kind === "message" ? (messageRow.message.delivery?.sequence ?? -1) : -1;
       setSubmittingEditedUserMessageId(messageId);
       // Promise chain instead of async/try-finally: React Compiler does not yet
       // support try/finally, and it would skip optimizing this whole component.
       return Promise.resolve(onEditUserMessage(messageId, nextText))
-        .then((saved) => {
-          if (saved) {
-            cancelUserMessageEdit();
+        .then((admitted) => {
+          if (admitted) {
+            setAdmittedEditedUserMessage({ messageId, priorDeliverySequence });
+          } else {
+            setAdmittedEditedUserMessage(null);
           }
         })
         .finally(() => {
           setSubmittingEditedUserMessageId(null);
         });
     },
-    [cancelUserMessageEdit, onEditUserMessage],
+    [onEditUserMessage, rows],
   );
+
+  useEffect(() => {
+    if (pendingEditedUserMessage) setEditingUserMessageId(pendingEditedUserMessage.messageId);
+  }, [pendingEditedUserMessage]);
+
+  useEffect(() => {
+    const admitted = pendingEditedUserMessage ?? admittedEditedUserMessage;
+    if (!admitted) return;
+    const replacement = rows.find(
+      (row) => row.kind === "message" && row.message.id === admitted.messageId,
+    );
+    if (
+      replacement?.kind !== "message" ||
+      (replacement.message.delivery?.sequence ?? -1) <= admitted.priorDeliverySequence
+    ) {
+      return;
+    }
+    setEditingUserMessageId(null);
+    setAdmittedEditedUserMessage(null);
+    onClearPendingEditedUserMessage?.(admitted.messageId);
+  }, [admittedEditedUserMessage, onClearPendingEditedUserMessage, pendingEditedUserMessage, rows]);
 
   const renderRowContent = (row: MessagesTimelineRow) => {
     const content = (
@@ -1249,7 +1291,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     {isEditingThisMessage ? (
                       <UserMessageEditForm
                         key={row.message.id}
-                        initialValue={displayedUserMessage.copyText}
+                        initialValue={
+                          pendingEditedUserMessage?.messageId === row.message.id
+                            ? pendingEditedUserMessage.text
+                            : displayedUserMessage.copyText
+                        }
                         disabled={isSubmittingThisEdit}
                         chatTypographyStyle={userMessageTypographyStyle}
                         onCancel={cancelUserMessageEdit}

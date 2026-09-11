@@ -158,6 +158,10 @@ export const MessageDelivery = Schema.Struct({
   queued: Schema.Boolean,
   /** Causal event sequence of the latest delivery transition. */
   sequence: NonNegativeInt,
+  /** Durable proof that this attempt failed before any provider turn dispatch. */
+  failurePhase: Schema.optional(Schema.Literal("before-provider-dispatch")),
+  /** Exact retained startup failure for diagnostics and recovery. */
+  failureDetail: Schema.optional(Schema.String),
 });
 export type MessageDelivery = typeof MessageDelivery.Type;
 
