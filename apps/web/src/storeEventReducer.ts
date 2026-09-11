@@ -3,6 +3,7 @@
 // Exports: Normal and hot-path event batch reducers.
 
 import {
+  type MessageDelivery,
   type OrchestrationEvent,
   type OrchestrationPendingInteraction,
   type ThreadId,
@@ -13,6 +14,7 @@ import {
   setPinnedMessageDone,
   setPinnedMessageLabel,
 } from "@penkra/shared/pinnedMessages";
+import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
 import { isSessionRunningTurn, latestTurnMatchesTurnId } from "./session-logic";
 import {
@@ -42,6 +44,11 @@ import {
 } from "./storeProjection";
 import type { AppState } from "./storeState";
 import type { ChatMessage, Thread } from "./types";
+
+function withoutDeliveryFailureEvidence(delivery: MessageDelivery): MessageDelivery {
+  const { failurePhase: _failurePhase, failureDetail: _failureDetail, ...current } = delivery;
+  return current;
+}
 
 type ThreadMessageSentEvent = Extract<OrchestrationEvent, { type: "thread.message-sent" }>;
 type ThreadActivityAppendedEvent = Extract<
@@ -908,8 +915,24 @@ function applyOrchestrationEvent(
           const targetDeliveryState = thread.messages.find(
             (message) => message.id === event.payload.messageId,
           )?.delivery?.state;
+          const nativeSteer = providerSupportsNativeTurnSteering(
+            thread.session?.provider ?? thread.modelSelection.provider,
+          );
           const isUnacceptedAttempt =
             targetDeliveryState === "starting" || targetDeliveryState === "steering";
+          const acceptsSteerOwner =
+            event.payload.state === "accepted" &&
+            nativeSteer &&
+            targetDeliveryState === "steering" &&
+            thread.pendingTurnStartMessageId === event.payload.messageId;
+          // A native steer rides an existing provider turn; it never owns a
+          // new-turn admission. Retire stale ownership from an older projection.
+          const clearsPendingTurnStart =
+            acceptsSteerOwner ||
+            (isRequeued && thread.pendingTurnStartMessageId === event.payload.messageId) ||
+            (failedBeforeDispatch &&
+              isUnacceptedAttempt &&
+              thread.pendingTurnStartMessageId === event.payload.messageId);
           const ownsStartingSession =
             failedBeforeDispatch &&
             isUnacceptedAttempt &&
@@ -933,25 +956,25 @@ function applyOrchestrationEvent(
                   ? {
                       ...message,
                       delivery: {
-                        ...message.delivery,
+                        ...withoutDeliveryFailureEvidence(message.delivery),
                         state: event.payload.state,
                         ...(event.payload.queued !== undefined
                           ? { queued: event.payload.queued }
                           : {}),
                         sequence: event.sequence,
+                        ...(event.payload.failurePhase !== undefined
+                          ? { failurePhase: event.payload.failurePhase }
+                          : {}),
+                        ...(event.payload.failureDetail !== undefined
+                          ? { failureDetail: event.payload.failureDetail }
+                          : {}),
                       },
                       completedAt: event.payload.updatedAt,
                     }
                   : message,
               )
               .toSorted(compareChatMessagesForTranscript),
-            ...(isRequeued && thread.pendingTurnStartMessageId === event.payload.messageId
-              ? { pendingTurnStartMessageId: null }
-              : failedBeforeDispatch &&
-                  isUnacceptedAttempt &&
-                  thread.pendingTurnStartMessageId === event.payload.messageId
-                ? { pendingTurnStartMessageId: null }
-                : {}),
+            ...(clearsPendingTurnStart ? { pendingTurnStartMessageId: null } : {}),
             ...(failedBeforeDispatch &&
             isUnacceptedAttempt &&
             event.payload.turnId !== undefined &&
@@ -1148,6 +1171,9 @@ function applyOrchestrationEvent(
           const runtimeMode = event.payload.runtimeMode;
           const deliveryState: NonNullable<ChatMessage["delivery"]>["state"] =
             event.payload.dispatchMode === "steer" ? "steering" : "starting";
+          const nativeSteer =
+            event.payload.dispatchMode === "steer" &&
+            providerSupportsNativeTurnSteering(thread.session?.provider ?? modelSelection.provider);
           const existingQueuedMessageIds = thread.queuedMessageIds ?? [];
           const queuedMessageIds = existingQueuedMessageIds.filter(
             (messageId) => messageId !== event.payload.messageId,
@@ -1179,7 +1205,7 @@ function applyOrchestrationEvent(
                   ? {
                       ...message,
                       delivery: {
-                        ...message.delivery,
+                        ...withoutDeliveryFailureEvidence(message.delivery),
                         state: deliveryState,
                         sequence: event.sequence,
                       },
@@ -1187,7 +1213,14 @@ function applyOrchestrationEvent(
                   : message,
               )
               .toSorted(compareChatMessagesForTranscript),
-            pendingTurnStartMessageId: event.payload.messageId,
+            // `pendingTurnStartMessageId` bridges admission to provider start.
+            // A native steer already has a running provider turn; a provider
+            // without live steering promotes the intent as replacement work.
+            ...(nativeSteer
+              ? thread.pendingTurnStartMessageId === undefined
+                ? {}
+                : { pendingTurnStartMessageId: thread.pendingTurnStartMessageId }
+              : { pendingTurnStartMessageId: event.payload.messageId }),
             queuedMessageIds,
             updatedAt:
               (thread.updatedAt ?? thread.createdAt) > event.payload.createdAt

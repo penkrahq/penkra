@@ -111,6 +111,19 @@ const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 
 describe("provider attempt classification", () => {
+  it("treats an explicit provider response rejection as rejected", () => {
+    const error = new ProviderAdapterRequestError({
+      provider: "codex",
+      method: "thread/rollback",
+      detail: "thread/rollback failed: paginated threads do not support thread/rollback",
+      requestOutcome: "rejected",
+    });
+
+    const outcome = classifyProviderAttemptOutcome(Exit.fail(error));
+
+    expect(outcome._tag).toBe("rejected");
+  });
+
   it("keeps process lifecycle failures uncertain", () => {
     const outcome = classifyProviderAttemptOutcome(
       Exit.fail(
@@ -184,8 +197,10 @@ describe("ProviderCommandReactor", () => {
     readonly forkThreadResult?: ProviderForkThreadResult | null;
     readonly startReactor?: boolean;
     readonly startRuntimeIngestion?: boolean;
+    readonly startSession?: ProviderServiceShape["startSession"];
     readonly interruptTurn?: ProviderServiceShape["interruptTurn"];
     readonly stopSession?: ProviderServiceShape["stopSession"];
+    readonly stopRuntimeSession?: NonNullable<ProviderServiceShape["stopRuntimeSession"]>;
     readonly commandEventTimeout?: Duration.Duration;
     readonly queuedTurnRecoveryInterval?: Duration.Duration;
     readonly nativeStateLocatorJson?: string;
@@ -202,7 +217,7 @@ describe("ProviderCommandReactor", () => {
       provider: "codex",
       model: "gpt-5-codex",
     };
-    const startSession = vi.fn<ProviderServiceShape["startSession"]>((_, input) => {
+    const defaultStartSession: ProviderServiceShape["startSession"] = (_, input) => {
       const sessionIndex = nextSessionIndex++;
       const sessionModelSelection =
         typeof input === "object" && input !== null && "modelSelection" in input
@@ -239,7 +254,10 @@ describe("ProviderCommandReactor", () => {
       };
       runtimeSessions.push(session);
       return Effect.succeed(session);
-    });
+    };
+    const startSession = vi.fn<ProviderServiceShape["startSession"]>(
+      input?.startSession ?? defaultStartSession,
+    );
     const sendTurn = vi.fn<ProviderServiceShape["sendTurn"]>((_: unknown) =>
       Effect.succeed({
         threadId: ThreadId.makeUnsafe("thread-1"),
@@ -336,21 +354,24 @@ describe("ProviderCommandReactor", () => {
         }
       });
     const stopSession = vi.fn(input?.stopSession ?? defaultStopSession);
+    const defaultStopRuntimeSession: NonNullable<ProviderServiceShape["stopRuntimeSession"]> = (
+      input,
+    ) =>
+      Effect.sync(() => {
+        const threadId =
+          typeof input === "object" && input !== null && "threadId" in input
+            ? (input as { threadId?: ThreadId }).threadId
+            : undefined;
+        if (!threadId) {
+          return;
+        }
+        const index = runtimeSessions.findIndex((session) => session.threadId === threadId);
+        if (index >= 0) {
+          runtimeSessions.splice(index, 1);
+        }
+      });
     const stopRuntimeSession = vi.fn<NonNullable<ProviderServiceShape["stopRuntimeSession"]>>(
-      (input) =>
-        Effect.sync(() => {
-          const threadId =
-            typeof input === "object" && input !== null && "threadId" in input
-              ? (input as { threadId?: ThreadId }).threadId
-              : undefined;
-          if (!threadId) {
-            return;
-          }
-          const index = runtimeSessions.findIndex((session) => session.threadId === threadId);
-          if (index >= 0) {
-            runtimeSessions.splice(index, 1);
-          }
-        }),
+      input?.stopRuntimeSession ?? defaultStopRuntimeSession,
     );
     const clearSessionResumeCursor = vi.fn((input: unknown) =>
       Effect.sync(() => {
@@ -1285,9 +1306,10 @@ describe("ProviderCommandReactor", () => {
     await harness.startReactor();
 
     expect(harness.interruptTurn).not.toHaveBeenCalled();
-    expect(harness.stopSession).toHaveBeenCalledWith({
+    expect(harness.stopRuntimeSession).toHaveBeenCalledWith({
       threadId: ThreadId.makeUnsafe("thread-1"),
     });
+    expect(harness.stopSession).not.toHaveBeenCalled();
     const delivery = await Effect.runPromise(
       harness.deliveryRepository.getDelivery({
         consumerName: "provider-command-reactor.v1",
@@ -1616,7 +1638,8 @@ describe("ProviderCommandReactor", () => {
     expect(harness.interruptTurn.mock.calls.length).toBe(1);
     expect(harness.rollbackConversation.mock.calls.length).toBe(0);
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    expect(harness.stopSession).toHaveBeenCalledWith({ threadId });
+    expect(harness.stopRuntimeSession).toHaveBeenCalledWith({ threadId });
+    expect(harness.stopSession).not.toHaveBeenCalled();
     expect(
       Option.isNone(
         await Effect.runPromise(
@@ -1632,7 +1655,7 @@ describe("ProviderCommandReactor", () => {
   it("REL-01B gate: keeps quarantine when provider fencing cannot be proven", async () => {
     const harness = await createHarness({
       startReactor: false,
-      stopSession: ({ threadId }) =>
+      stopRuntimeSession: ({ threadId }) =>
         Effect.fail(
           new ProviderAdapterProcessError({
             provider: "codex",
@@ -1692,7 +1715,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.stopSession.mock.calls.length > 0);
+    await waitFor(() => harness.stopRuntimeSession.mock.calls.length > 0);
     expect(harness.sendTurn).not.toHaveBeenCalled();
     expect(
       Option.isSome(
@@ -2261,6 +2284,7 @@ describe("ProviderCommandReactor", () => {
     expect(harness.rollbackConversation.mock.calls[0]?.[0]).toEqual({
       threadId: ThreadId.makeUnsafe("thread-1"),
       numTurns: 1,
+      beforeTurnId: asTurnId("turn-rollback-2"),
     });
   });
 
@@ -2309,6 +2333,7 @@ describe("ProviderCommandReactor", () => {
     expect(harness.rollbackConversation.mock.calls[0]?.[0]).toEqual({
       threadId: ThreadId.makeUnsafe("thread-1"),
       numTurns: 1,
+      beforeTurnId: asTurnId("turn-rollback-active"),
     });
   });
 
@@ -2820,6 +2845,88 @@ describe("ProviderCommandReactor", () => {
         }),
       );
       return Option.isSome(delivery) && delivery.value.state === "uncertain";
+    });
+  });
+
+  it("resends an attempt proven to have failed before provider dispatch without native rollback", async () => {
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const messageId = asMessageId("user-message-before-dispatch-edit");
+    const harness = await createHarness({
+      startSession: () =>
+        Effect.fail(
+          new ProviderAdapterProcessError({
+            provider: "codex",
+            threadId,
+            detail: "Operation not permitted (os error 1)",
+          }),
+        ),
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        connectionId: TEST_CONNECTION_ID,
+        bindingRevision: 0,
+        commandId: CommandId.makeUnsafe("cmd-before-dispatch-edit-source"),
+        threadId,
+        message: {
+          messageId,
+          role: "user",
+          text: "Why is the API down?",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(
+      async () =>
+        (await readHarnessThread(harness))?.messages.find((message) => message.id === messageId)
+          ?.delivery?.state === "failed",
+    );
+    const failedMessage = (await readHarnessThread(harness))?.messages.find(
+      (message) => message.id === messageId,
+    );
+    expect(failedMessage?.delivery).toMatchObject({
+      state: "failed",
+      failurePhase: "before-provider-dispatch",
+    });
+
+    harness.startSession.mockImplementation(() =>
+      Effect.succeed({
+        provider: "codex",
+        status: "ready",
+        runtimeMode: "approval-required",
+        threadId,
+        resumeCursor: { opaque: "resume-after-workspace-access" },
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    harness.rollbackConversation.mockClear();
+    harness.sendTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.edit-and-resend",
+        connectionId: TEST_CONNECTION_ID,
+        bindingRevision: 0,
+        commandId: CommandId.makeUnsafe("cmd-before-dispatch-edit-resend"),
+        threadId,
+        messageId,
+        text: "Why is the API still down?",
+        runtimeMode: "approval-required",
+        createdAt: new Date().toISOString(),
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.rollbackConversation).not.toHaveBeenCalled();
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId,
+      input: "Why is the API still down?",
     });
   });
 

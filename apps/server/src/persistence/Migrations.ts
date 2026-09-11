@@ -168,6 +168,7 @@ import Migration0159 from "./Migrations/159_AgentGatewayCreationAdmissions.ts";
 import Migration0160 from "./Migrations/160_ProjectionTurnPendingMessageLookup.ts";
 import Migration0161 from "./Migrations/161_CanonicalActivitySequence.ts";
 import Migration0162 from "./Migrations/162_TranscriptMessageSearch.ts";
+import Migration0163 from "./Migrations/163_MessageDeliveryFailureEvidence.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -335,6 +336,7 @@ export const migrationEntries = [
   [160, "ProjectionTurnPendingMessageLookup", Migration0160],
   [161, "CanonicalActivitySequence", Migration0161],
   [162, "TranscriptMessageSearch", Migration0162],
+  [163, "MessageDeliveryFailureEvidence", Migration0163],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

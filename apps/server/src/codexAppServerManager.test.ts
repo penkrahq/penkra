@@ -13,7 +13,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { ApprovalRequestId, MessageId, ThreadId } from "@penkra/contracts";
+import { ApprovalRequestId, MessageId, ThreadId, TurnId } from "@penkra/contracts";
 
 import { buildCodexProcessEnv } from "./codexProcessEnv";
 import {
@@ -23,6 +23,7 @@ import {
   CODEX_DEVELOPER_INSTRUCTIONS,
   __codexCliVersionGateTesting,
   CodexAppServerManager,
+  CodexJsonRpcResponseError,
   classifyCodexStderrLine,
   inspectCodexThreadActivity,
   normalizeCodexModelSlug,
@@ -33,6 +34,8 @@ import {
 } from "./codexAppServerManager";
 import {
   assertCodexWorkingDirectoryExists,
+  CodexWorkingDirectoryAccessError,
+  formatInaccessibleCodexWorkingDirectoryError,
   formatMissingCodexWorkingDirectoryError,
 } from "./codexWorkingDirectory";
 import { CodexJsonlFramer, CodexJsonlWriter } from "./codexAppServerTransport";
@@ -40,6 +43,7 @@ import { ensureIsolatedScratchWorkspace } from "./scratchWorkspaces";
 import { acquireAgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
 
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
+const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 const fullAccessTurnOverrides = {
   approvalPolicy: "never",
   sandboxPolicy: { type: "dangerFullAccess" },
@@ -1679,6 +1683,61 @@ describe("startSession", () => {
     }
   });
 
+  it.each(["EPERM", "EACCES"] as const)(
+    "reports an inaccessible project working directory before provider dispatch (%s)",
+    (code) => {
+      const cwd = mkdtempSync(path.join(os.tmpdir(), "penkra-inaccessible-cwd-"));
+      try {
+        const failure = Object.assign(new Error(`${code}: operation not permitted`), { code });
+        expect(() =>
+          assertCodexWorkingDirectoryExists(cwd, () => {
+            throw failure;
+          }),
+        ).toThrow(formatInaccessibleCodexWorkingDirectoryError(cwd));
+        try {
+          assertCodexWorkingDirectoryExists(cwd, () => {
+            throw failure;
+          });
+        } catch (error) {
+          expect(error).toBeInstanceOf(CodexWorkingDirectoryAccessError);
+          expect(error).toMatchObject({
+            cwd,
+            osErrorCode: code,
+            phase: "workspace-read-preflight",
+          });
+        }
+      } finally {
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each(["EPERM", "EACCES"] as const)(
+    "reports stat denial as an inaccessible project working directory (%s)",
+    (code) => {
+      const cwd = path.join(os.tmpdir(), `penkra-stat-denied-${code.toLowerCase()}`);
+      const failure = Object.assign(new Error(`${code}: operation not permitted`), { code });
+
+      expect(() =>
+        assertCodexWorkingDirectoryExists(cwd, undefined, () => {
+          throw failure;
+        }),
+      ).toThrow(formatInaccessibleCodexWorkingDirectoryError(cwd));
+      try {
+        assertCodexWorkingDirectoryExists(cwd, undefined, () => {
+          throw failure;
+        });
+      } catch (error) {
+        expect(error).toBeInstanceOf(CodexWorkingDirectoryAccessError);
+        expect(error).toMatchObject({
+          cwd,
+          osErrorCode: code,
+          phase: "workspace-read-preflight",
+        });
+      }
+    },
+  );
+
   it("resumes Codex execution state without returning transcript history", async () => {
     const request = vi.fn().mockResolvedValue({ thread: { id: "provider-thread" } });
 
@@ -1868,7 +1927,13 @@ describe("sendTurn", () => {
       },
     });
 
-    await expect(request).rejects.toThrow("turn/start failed: usage limit reached");
+    await expect(request).rejects.toMatchObject({
+      name: "CodexJsonRpcResponseError",
+      message: "turn/start failed: usage limit reached",
+      method: "turn/start",
+      code: -32000,
+      requestOutcome: "rejected",
+    } satisfies Partial<CodexJsonRpcResponseError>);
     expect(context.pending.size).toBe(0);
   });
 
@@ -2871,7 +2936,7 @@ describe("provider thread control", () => {
     });
   });
 
-  it("rolls back turns via thread/rollback and resets session running state", async () => {
+  it("reverts a paginated thread before the exact turn and resets session running state", async () => {
     const { manager, context, sendRequest, updateSession } = createThreadControlHarness();
     sendRequest.mockResolvedValue({
       thread: {
@@ -2880,11 +2945,11 @@ describe("provider thread control", () => {
       },
     });
 
-    const result = await manager.rollbackThread(asThreadId("thread_1"), 2);
+    const result = await manager.revertThread(asThreadId("thread_1"), asTurnId("turn_replaced"));
 
-    expect(sendRequest).toHaveBeenCalledWith(context, "thread/rollback", {
+    expect(sendRequest).toHaveBeenCalledWith(context, "thread/revert", {
       threadId: "thread_1",
-      numTurns: 2,
+      beforeTurnId: "turn_replaced",
     });
     expect(updateSession).toHaveBeenCalledWith(context, {
       status: "ready",

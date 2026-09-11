@@ -18,6 +18,7 @@ export {
 } from "./pendingInteractionDerivation";
 export {
   deriveTimelineEntries,
+  deriveVisibleWorkLogSequenceFloor,
   deriveWorkLogEntries,
   isFileChangeWorkLogEntry,
   isProviderFileEditWorkLogEntry,

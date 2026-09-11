@@ -4588,6 +4588,25 @@ it.layer(
       });
       yield* eventStore.append({
         type: "thread.message-delivery-set",
+        eventId: EventId.makeUnsafe("evt-delivery-pre-dispatch-failed"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-02-27T11:02:00.250Z",
+        commandId: CommandId.makeUnsafe("cmd-delivery-pre-dispatch-failed"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-delivery-pre-dispatch-failed"),
+        metadata: {},
+        payload: {
+          threadId,
+          messageId,
+          state: "failed",
+          failurePhase: "before-provider-dispatch",
+          failureDetail: "EPERM: operation not permitted",
+          updatedAt: "2026-02-27T11:02:00.250Z",
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.message-delivery-set",
         eventId: EventId.makeUnsafe("evt-delivery-requeued"),
         aggregateKind: "thread",
         aggregateId: threadId,
@@ -4628,15 +4647,118 @@ it.layer(
         readonly state: string | null;
         readonly queued: number | null;
         readonly sequence: number | null;
+        readonly failurePhase: string | null;
+        readonly failureDetail: string | null;
       }>`
         SELECT delivery_state AS state, delivery_queued AS queued,
-          delivery_sequence AS sequence
+          delivery_sequence AS sequence,
+          delivery_failure_phase AS "failurePhase",
+          delivery_failure_detail AS "failureDetail"
         FROM projection_thread_messages
         WHERE thread_id = ${threadId} AND message_id = ${messageId}
       `;
       assert.equal(rows[0]?.state, "accepted");
       assert.equal(rows[0]?.queued, 1);
       assert.ok((rows[0]?.sequence ?? 0) > 0);
+      assert.equal(rows[0]?.failurePhase, null);
+      assert.equal(rows[0]?.failureDetail, null);
+    }),
+  );
+
+  it.effect("moves an edited user message to its durable replay boundary", () =>
+    Effect.gen(function* () {
+      const eventStore = yield* OrchestrationEventStore;
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.makeUnsafe("thread-edit-replay-time");
+      const messageId = MessageId.makeUnsafe("message-edit-replay-time");
+      const originalAt = "2026-09-11T10:28:50.952Z";
+      const replayAt = "2026-09-11T17:21:54.125Z";
+
+      yield* eventStore.append({
+        type: "thread.message-sent",
+        eventId: EventId.makeUnsafe("evt-edit-replay-original"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: originalAt,
+        commandId: CommandId.makeUnsafe("cmd-edit-replay-original"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-edit-replay-original"),
+        metadata: {},
+        payload: {
+          threadId,
+          messageId,
+          role: "user",
+          text: "original text",
+          turnId: TurnId.makeUnsafe("turn-edit-replay-original"),
+          streaming: false,
+          source: "native",
+          createdAt: originalAt,
+          updatedAt: originalAt,
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.conversation-rolled-back",
+        eventId: EventId.makeUnsafe("evt-edit-replay-rollback"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: replayAt,
+        commandId: CommandId.makeUnsafe("cmd-edit-replay-rollback"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-edit-replay-rollback"),
+        metadata: {},
+        payload: {
+          threadId,
+          messageId,
+          numTurns: 1,
+          removedTurnIds: [TurnId.makeUnsafe("turn-edit-replay-original")],
+          skipAttachmentPrune: true,
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.message-sent",
+        eventId: EventId.makeUnsafe("evt-edit-replay-replacement"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: replayAt,
+        commandId: CommandId.makeUnsafe("cmd-edit-replay-replacement"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-edit-replay-replacement"),
+        metadata: {},
+        payload: {
+          threadId,
+          messageId,
+          role: "user",
+          text: "edited text",
+          turnId: TurnId.makeUnsafe("turn-edit-replay-replacement"),
+          streaming: false,
+          source: "native",
+          createdAt: replayAt,
+          updatedAt: replayAt,
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+
+      const rows = yield* sql<{
+        readonly text: string;
+        readonly turnId: string | null;
+        readonly createdAt: string;
+        readonly updatedAt: string;
+      }>`
+        SELECT text, turn_id AS "turnId", created_at AS "createdAt", updated_at AS "updatedAt"
+        FROM projection_thread_messages
+        WHERE thread_id = ${threadId} AND message_id = ${messageId}
+      `;
+
+      assert.deepEqual(rows, [
+        {
+          text: "edited text",
+          turnId: "turn-edit-replay-replacement",
+          createdAt: replayAt,
+          updatedAt: replayAt,
+        },
+      ]);
     }),
   );
 

@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { opendirSync, statSync, type Dir } from "node:fs";
 
 /**
  * Missing project CWDs often surface as spawn ENOENT (Node/Effect access the
@@ -9,17 +9,51 @@ export function formatMissingCodexWorkingDirectoryError(cwd: string): string {
   return `Project working directory no longer exists: ${cwd}. Relocate or reconnect the project in Penkra.`;
 }
 
-export function assertCodexWorkingDirectoryExists(cwd: string): void {
+export function formatInaccessibleCodexWorkingDirectoryError(cwd: string): string {
+  return `Penkra cannot access the project working directory: ${cwd}. Choose that folder again in Penkra to restore access.`;
+}
+
+export class CodexWorkingDirectoryAccessError extends Error {
+  readonly phase = "workspace-read-preflight" as const;
+
+  constructor(
+    readonly cwd: string,
+    readonly osErrorCode: "EACCES" | "EPERM",
+    cause: unknown,
+  ) {
+    super(formatInaccessibleCodexWorkingDirectoryError(cwd), { cause });
+    this.name = "CodexWorkingDirectoryAccessError";
+  }
+}
+
+export function assertCodexWorkingDirectoryExists(
+  cwd: string,
+  openDirectory: (path: string) => Dir = opendirSync,
+  readStats: typeof statSync = statSync,
+): void {
   try {
-    const stats = statSync(cwd);
+    const stats = readStats(cwd);
     if (!stats.isDirectory()) {
       throw new Error(
         `Project working directory is not a directory: ${cwd}. Relocate or reconnect the project in Penkra.`,
       );
     }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
       throw new Error(formatMissingCodexWorkingDirectoryError(cwd));
+    }
+    if (code === "EPERM" || code === "EACCES") {
+      throw new CodexWorkingDirectoryAccessError(cwd, code, error);
+    }
+    throw error;
+  }
+  try {
+    openDirectory(cwd).closeSync();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EPERM" || code === "EACCES") {
+      throw new CodexWorkingDirectoryAccessError(cwd, code, error);
     }
     throw error;
   }
