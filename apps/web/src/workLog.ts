@@ -302,6 +302,7 @@ export function deriveWorkLogEntries(
   latestTurnId: TurnId | undefined,
   options: {
     visibleTurnIds?: ReadonlySet<TurnId | string>;
+    visibleSequenceFloor?: number;
     activeTurnId?: TurnId | null;
     activeTurnStartedAt?: string | null;
     latestTurnState?: OrchestrationLatestTurnState | null;
@@ -310,9 +311,17 @@ export function deriveWorkLogEntries(
   } = {},
 ): WorkLogEntry[] {
   const visibleTurnIds = options.visibleTurnIds;
+  const visibleSequenceFloor = options.visibleSequenceFloor;
   const ordered = orderedActivities(activities);
   const entries = ordered
-    .filter((activity) => shouldKeepActivityForWorkLog(activity, latestTurnId, visibleTurnIds))
+    .filter((activity) =>
+      shouldKeepActivityForWorkLog(
+        activity,
+        latestTurnId,
+        visibleTurnIds,
+        visibleSequenceFloor,
+      ),
+    )
     .filter(
       (activity) =>
         options.includeRoutedSubagentActivities === true ||
@@ -363,6 +372,7 @@ function shouldKeepActivityForWorkLog(
   activity: OrchestrationThreadActivity,
   latestTurnId: TurnId | undefined,
   visibleTurnIds: ReadonlySet<TurnId | string> | undefined,
+  visibleSequenceFloor: number | undefined,
 ): boolean {
   // Connection and model changes are committed immediately before the user
   // message that uses them. They are intentionally thread-scoped (turnId is
@@ -372,25 +382,50 @@ function shouldKeepActivityForWorkLog(
     return true;
   }
 
-  // Thread-level compaction progress has no provider turn id but should stay visible.
+  // The hydrated transcript is a causal sequence window. A provider turn can
+  // legitimately contain tools and compaction without ever emitting assistant
+  // prose, so message turn ids are not a complete visibility index. Apply the
+  // durable boundary after the explicit selection transcript rows above:
+  // connection and model selections are intentionally recorded immediately
+  // before the user message whose dispatch they configure.
+  if (visibleSequenceFloor !== undefined && activity.sequence !== undefined) {
+    return activity.sequence >= visibleSequenceFloor;
+  }
+
+  // Thread-level compaction progress has no provider turn id but should stay visible
+  // when an imported or older retained row has no durable sequence to compare.
   if (activity.kind === "context-compaction" && activity.turnId === null) {
     return true;
   }
 
   // Created-automation milestones are thread-scoped and carry no provider turn id;
-  // keep them so the transcript card survives once the thread has turn-stamped messages.
+  // keep unsequenced imported/older rows so their transcript card survives once the
+  // thread has turn-stamped messages.
   if (activity.kind === "automation.created") {
     return true;
   }
 
   // An empty set means the transcript has no turn-stamped assistant messages
-  // (e.g. providers that never supply turn ids); fall back to the legacy
-  // latest-turn filter instead of hiding the whole work log.
+  // (e.g. imported or older retained rows without provider turn ids); use the
+  // latest known turn instead of hiding the whole work log.
   if (visibleTurnIds && visibleTurnIds.size > 0) {
     return activity.turnId !== null && visibleTurnIds.has(activity.turnId);
   }
 
   return latestTurnId ? activity.turnId === latestTurnId : true;
+}
+
+export function deriveVisibleWorkLogSequenceFloor(
+  messages: ReadonlyArray<
+    Pick<ChatMessage, "role" | "sequence" | "delivery">
+  >,
+): number | undefined {
+  const firstVisibleUserMessage = messages.find((message) => message.role === "user");
+  if (!firstVisibleUserMessage) return undefined;
+  return firstVisibleUserMessage.delivery?.queued === true &&
+    firstVisibleUserMessage.delivery.state !== "queued"
+    ? firstVisibleUserMessage.delivery.sequence
+    : firstVisibleUserMessage.sequence;
 }
 
 function isQuietTurnLifecycleActivity(activity: OrchestrationThreadActivity): boolean {
