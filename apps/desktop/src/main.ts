@@ -43,6 +43,9 @@ import type {
 import * as Effect from "effect/Effect";
 import type {
   BrowserPanelBounds,
+  DesktopAppTabClosed,
+  DesktopAppTabDescriptor,
+  DesktopAppTabOpened,
   DesktopSpacesMenuInput,
   DesktopTheme,
   DesktopUpdateActionResult,
@@ -475,6 +478,8 @@ type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 let mainWindow: BrowserWindow | null = null;
 const shellWindowRegistry = new ShellWindowRegistry();
 let pendingAppListingRequest: { appId: string } | null = null;
+const MAX_PENDING_APP_TAB_EVENTS = 128;
+const pendingAppTabOpened = new Map<string, DesktopAppTabOpened>();
 let desktopAppRuntime: DesktopAppRuntime | null = null;
 
 function shellWindows(): BrowserWindow[] {
@@ -501,6 +506,41 @@ function requireShellWindowForSender(sender: WebContents): BrowserWindow {
 
 function broadcastToShellWindows(channel: string, ...args: unknown[]): void {
   shellWindowRegistry.broadcast(channel, ...args);
+}
+
+function announceAppTabOpened(descriptor: DesktopAppTabOpened): void {
+  const readyWindows = shellWindows().filter(
+    (window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
+  );
+  if (readyWindows.length === 0) {
+    pendingAppTabOpened.set(descriptor.id, descriptor);
+    if (pendingAppTabOpened.size > MAX_PENDING_APP_TAB_EVENTS) {
+      const oldestTabId = pendingAppTabOpened.keys().next().value;
+      if (oldestTabId !== undefined) pendingAppTabOpened.delete(oldestTabId);
+    }
+    return;
+  }
+  for (const window of readyWindows) window.webContents.send(IPC.appTabs.opened, descriptor);
+}
+
+function flushPendingAppTabs(window: BrowserWindow): void {
+  if (window.isDestroyed() || pendingAppTabOpened.size === 0) return;
+  for (const descriptor of pendingAppTabOpened.values()) {
+    window.webContents.send(IPC.appTabs.opened, descriptor);
+  }
+  pendingAppTabOpened.clear();
+}
+
+function announceAppTabState(descriptor: DesktopAppTabDescriptor): void {
+  const pending = pendingAppTabOpened.get(descriptor.id);
+  if (pending)
+    pendingAppTabOpened.set(descriptor.id, { ...descriptor, selection: pending.selection });
+  broadcastToShellWindows(IPC.appTabs.state, descriptor);
+}
+
+function announceAppTabClosed(descriptor: DesktopAppTabClosed): void {
+  pendingAppTabOpened.delete(descriptor.id);
+  broadcastToShellWindows(IPC.appTabs.closed, descriptor);
 }
 
 function orderedShellWindows(): BrowserWindow[] {
@@ -7781,6 +7821,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   window.webContents.on("did-finish-load", () => {
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
+    flushPendingAppTabs(window);
     showInitialWindow("did-finish-load");
     if (desktopSmokeUserDataPath) {
       void window.webContents
@@ -8245,10 +8286,10 @@ async function bootstrap(): Promise<void> {
       }
     },
     onTabOpened: (descriptor) => {
-      broadcastToShellWindows(IPC.appTabs.opened, descriptor);
+      announceAppTabOpened(descriptor);
     },
     onTabState: (descriptor) => {
-      broadcastToShellWindows(IPC.appTabs.state, descriptor);
+      announceAppTabState(descriptor);
     },
     onFrameHostMessage: (message) => {
       if (message.delivery.kind === "event") {
@@ -8262,7 +8303,7 @@ async function bootstrap(): Promise<void> {
       targetWindow?.webContents.send(IPC.appTabs.frameHostMessage, message);
     },
     onTabClosed: (descriptor) => {
-      broadcastToShellWindows(IPC.appTabs.closed, descriptor);
+      announceAppTabClosed(descriptor);
     },
     tabAuthority: {
       retireGeneration: retireAppGenerationAuthority,
