@@ -1011,6 +1011,35 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     sessionUpdatedAt: null,
   };
 
+  it.each(["failed", "starting", "steering", "queued", "accepted"] as const)(
+    "uses explicit %s delivery for the exact first-send message",
+    (state) => {
+      const input = {
+        localDispatch: firstTurnLocalDispatch,
+        phase: "disconnected" as const,
+        latestTurn: null,
+        session: null,
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: null,
+        messages: [
+          {
+            id: firstTurnLocalDispatch.expectedUserMessageId!,
+            role: "user" as const,
+            delivery: { state, queued: false, sequence: 10 },
+          },
+        ],
+      };
+      expect(hasServerAcknowledgedLocalDispatch(input)).toBe(state === "failed");
+      expect(
+        hasServerAcknowledgedLocalDispatch({
+          ...input,
+          messages: [{ ...input.messages[0]!, id: "unrelated-message" as never }],
+        }),
+      ).toBe(false);
+    },
+  );
+
   it("stays pending until the server-side thread/session snapshot changes", () => {
     expect(
       hasServerAcknowledgedLocalDispatch({

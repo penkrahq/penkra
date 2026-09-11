@@ -110,12 +110,6 @@ function openCodeRuntimePoolTestLayer(state: {
   const processUrls = new Map<number, string>();
   return Layer.merge(
     makeOpenCodeRuntimeLive({
-      netService: {
-        canListenOnHost: () => Effect.succeed(true),
-        isPortAvailableOnLoopback: () => Effect.succeed(true),
-        reserveLoopbackPort: () => Effect.succeed(59_000),
-        findAvailablePort: () => Effect.succeed(59_000),
-      },
       teardownProcessTree: async ({ rootPid }) => {
         const url = processUrls.get(rootPid);
         if (url) state.killUrls.push(url);
@@ -207,6 +201,33 @@ describe("buildOpenCodeServerProcessEnv", () => {
 });
 
 describe("OpenCodeRuntime startup diagnostics", () => {
+  it("lets the provider bind an ephemeral port instead of probing and releasing one", async () => {
+    const error = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* OpenCodeRuntime;
+          return yield* runtime
+            .startOpenCodeServerProcess({
+              binaryPath: "/custom/bin/opencode",
+              timeoutMs: 5,
+            })
+            .pipe(Effect.flip);
+        }),
+      ).pipe(
+        Effect.provide(
+          makeOpenCodeRuntimeLive({
+            teardownProcessTree: async () => ({ escalated: false, signalErrors: [] }),
+          }).pipe(
+            Layer.provide(mockOpenCodeServerSpawnerLayer({ stdout: "booting\n", stderr: "" })),
+          ),
+        ),
+      ),
+    );
+    expect(error.detail).toContain(
+      "command: /custom/bin/opencode serve --hostname 127.0.0.1 --port 0",
+    );
+  });
+
   it("includes command and partial process output when server startup times out", async () => {
     const error = await Effect.runPromise(
       Effect.scoped(
@@ -304,12 +325,6 @@ describe("OpenCodeRuntime local server pool", () => {
     });
     let teardownCalls = 0;
     const layer = makeOpenCodeRuntimeLive({
-      netService: {
-        canListenOnHost: () => Effect.succeed(true),
-        isPortAvailableOnLoopback: () => Effect.succeed(true),
-        reserveLoopbackPort: () => Effect.succeed(59_000),
-        findAvailablePort: () => Effect.succeed(59_000),
-      },
       teardownProcessTree: async ({ rootPid }) => {
         teardownCalls += 1;
         expect(rootPid).toBe(1);

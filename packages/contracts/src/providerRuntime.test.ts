@@ -6,6 +6,26 @@ import { ProviderRuntimeEvent, type ProviderRuntimeEventType } from "./providerR
 const decodeRuntimeEvent = Schema.decodeUnknownSync(ProviderRuntimeEvent);
 
 describe("ProviderRuntimeEvent", () => {
+  it.each(["codex", "claudeAgent", "opencode"])(
+    "preserves provider-authored lifecycle whitespace for %s",
+    (provider) => {
+      for (const detail of ["\n\n", "  indented text\n", ""]) {
+        const event = {
+          type: "item.completed",
+          eventId: "event-whitespace",
+          provider,
+          createdAt: "2026-09-11T21:02:56.398Z",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "item-1",
+          payload: { itemType: "assistant_message", status: "completed", detail },
+        };
+        const parsed = decodeRuntimeEvent(event);
+        expect(Schema.encodeSync(ProviderRuntimeEvent)(parsed)).toEqual(event);
+      }
+    },
+  );
+
   it("includes turn.steered in the exported event type", () => {
     const eventType: ProviderRuntimeEventType = "turn.steered";
     expect(eventType).toBe("turn.steered");

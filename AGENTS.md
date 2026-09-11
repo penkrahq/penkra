@@ -39,7 +39,7 @@ boundary.
 
 - Before committing changes or declaring a task complete, start a fresh Penkra Dev instance and perform manual QA in the desktop app for the affected user flows. Automated tests, builds, browser-only checks, or inspecting an already-running instance do not replace this requirement.
 - Record what was manually exercised and its result in the final handoff. If Penkra Dev cannot be started or a relevant flow cannot be exercised, report the task as not fully validated instead of silently treating it as complete.
-- Do not run `bun fmt`, `bun lint`, or `bun typecheck` unless the user explicitly asks for them in the current conversation.
+- Run `bun fmt`, `bun lint`, and `bun typecheck` as part of final verification without requesting separate permission.
 - All of `bun fmt`, `bun lint`, and `bun typecheck` must pass before considering tasks completed.
 - Treat `bun fmt`, `bun lint`, and `bun typecheck` as heavyweight workspace checks: bundle them into one final verification pass per task whenever possible, and avoid rerunning the full set repeatedly during iteration.
 - If a user asks for a small follow-up right after a recent full verification pass, prefer no rerun or the smallest reasonable re-check unless the user explicitly asks for full validation again.
