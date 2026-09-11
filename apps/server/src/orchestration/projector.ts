@@ -12,6 +12,7 @@ import {
   setPinnedMessageDone,
   setPinnedMessageLabel,
 } from "@penkra/shared/pinnedMessages";
+import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import { Effect, Schema } from "effect";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
@@ -740,13 +741,23 @@ export function projectEvent(
                 }
               : message,
           );
+          const nativeSteer =
+            payload.dispatchMode === "steer" &&
+            providerSupportsNativeTurnSteering(
+              thread.session?.providerName ?? projectedModelSelection.provider,
+            );
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
               ...modelSelectionPatch,
               ...(turnStartSession !== null ? { session: turnStartSession } : {}),
               messages,
-              pendingTurnStartMessageId: payload.messageId,
+              pendingTurnStartMessageId:
+                // A native steer rides an existing provider turn. Providers
+                // without live steering start replacement work after interrupt.
+                nativeSteer
+                  ? thread.pendingTurnStartMessageId
+                  : payload.messageId,
               runtimeMode: payload.runtimeMode,
               updatedAt: payload.createdAt,
             }),
@@ -882,8 +893,23 @@ export function projectEvent(
           const targetDeliveryState = thread.messages.find(
             (message) => message.id === payload.messageId,
           )?.delivery?.state;
+          const nativeSteer = providerSupportsNativeTurnSteering(
+            thread.session?.providerName ?? thread.modelSelection.provider,
+          );
           const isUnacceptedAttempt =
             targetDeliveryState === "starting" || targetDeliveryState === "steering";
+          const acceptsSteerOwner =
+            payload.state === "accepted" &&
+            nativeSteer &&
+            targetDeliveryState === "steering" &&
+            thread.pendingTurnStartMessageId === payload.messageId;
+          // Replays can begin from a read model written by an older projector;
+          // acceptance retires any steer that was incorrectly made the owner.
+          const clearsPendingTurnStart =
+            acceptsSteerOwner ||
+            (payload.failurePhase === "before-provider-dispatch" &&
+              isUnacceptedAttempt &&
+              thread.pendingTurnStartMessageId === payload.messageId);
           const ownsStartingSession =
             payload.failurePhase === "before-provider-dispatch" &&
             isUnacceptedAttempt &&
@@ -941,9 +967,7 @@ export function projectEvent(
                   }
                 : {}),
               pendingTurnStartMessageId:
-                payload.failurePhase === "before-provider-dispatch" &&
-                isUnacceptedAttempt &&
-                thread.pendingTurnStartMessageId === payload.messageId
+                clearsPendingTurnStart
                   ? null
                   : thread.pendingTurnStartMessageId,
               ...(ownsStartingSession && payload.failureDetail !== undefined
