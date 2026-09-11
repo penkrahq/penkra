@@ -527,10 +527,17 @@ insets around that surface, and pass `null` while it is hidden. Report stable st
 continuously measured width and height: Penkra lays the page out against those edges so ordinary
 panel resizing stays inside the browser's synchronous CSS layout pass.
 
-Use `browser.upload({ pageId, selector, paths })` when a hosted page exposes a file input. Every
-path is relative to the calling App's scoped storage; the host resolves and validates each file,
-then assigns those files to the matching input inside that App's browser session. The call accepts
-one to twenty paths and never exposes an absolute filesystem path to the App.
+Hosted-browser observation and interaction use the same accessibility model as Penkra's trusted
+agent tab controls. Call `browser.snapshot` or `browser.find` to obtain an `e…` reference, then use
+that reference with `browser.click`, `hover`, `type`, `select`, or `upload`. References belong to the
+latest observed document and become invalid after navigation, reload, replacement, or close.
+`browser.press`, `scroll`, and `wait` cover keyboard, viewport, and text-presence interactions. The
+host checks that every operation targets the active page in this App's own browser session.
+
+Use `browser.upload({ pageId, ref, paths })` when a referenced hosted-page control accepts files.
+Every path is relative to the calling App's scoped storage; the host resolves and validates each
+file, then assigns those files to that exact control. The call accepts one to twenty paths and never
+exposes an absolute filesystem path to the App.
 
 Open With applies to declared URL, file-extension, and directory handlers. For a validated local
 path, Penkra resolves an explicitly requested App, a saved compatible preference, or one unique
@@ -885,9 +892,12 @@ operations.handle("documents.read", async ({ id }, context) => {
 ```
 
 Most handlers return the declared JSON output directly. When an operation also needs to return
-model-visible text or images, return the MCP-compatible rich shape exported as
-`AppOperationRichResult`: `content` contains text/image blocks and `structuredContent` contains the
-ordinary declared output. The trusted broker validates the media blocks and validates
+model-visible text, images, or a temporary file resource, return the MCP-compatible rich shape
+exported as `AppOperationRichResult`: `content` contains text, image, or resource blocks and
+`structuredContent` contains the ordinary declared output. A resource uses a
+`penkra-app-resource://` URI plus base64 bytes, an optional filename, and an optional MIME type. It
+is scoped to that operation result; durable files belong in App storage. The trusted broker
+validates the content blocks and validates
 `structuredContent` against the manifest output schema before anything reaches the caller.
 
 When an invocation includes `tabId`, `context.tab` addresses exactly that validated App tab. Use

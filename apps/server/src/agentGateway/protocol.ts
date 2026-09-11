@@ -54,6 +54,15 @@ export interface McpToolCallResult {
   readonly content: ReadonlyArray<
     | { readonly type: "text"; readonly text: string }
     | { readonly type: "image"; readonly data: string; readonly mimeType: string }
+    | {
+        readonly type: "resource";
+        readonly resource: {
+          readonly uri: string;
+          readonly name?: string;
+          readonly mimeType?: string;
+          readonly blob: string;
+        };
+      }
   >;
   readonly structuredContent?: unknown;
   readonly isError?: boolean;
@@ -109,7 +118,14 @@ export function extractPenkraExecRichResult(value: unknown): {
     const item = block as Record<string, unknown>;
     return (
       (item.type === "text" && typeof item.text === "string") ||
-      (item.type === "image" && typeof item.data === "string" && typeof item.mimeType === "string")
+      (item.type === "image" &&
+        typeof item.data === "string" &&
+        typeof item.mimeType === "string") ||
+      (item.type === "resource" &&
+        item.resource !== null &&
+        typeof item.resource === "object" &&
+        typeof (item.resource as Record<string, unknown>).uri === "string" &&
+        typeof (item.resource as Record<string, unknown>).blob === "string")
     );
   });
   if (content.length !== rich.content.length || content.length === 0) return null;

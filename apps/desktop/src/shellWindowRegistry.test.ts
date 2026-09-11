@@ -41,6 +41,18 @@ describe("ShellWindowRegistry", () => {
     expect(registry.resolve(popup)).toBe(first);
   });
 
+  it("resolves the exact shell renderer that owns an App surface", () => {
+    const registry = new ShellWindowRegistry();
+    const first = windowStub(11);
+    const appSurface = windowStub(22);
+    registry.add(first);
+    registry.add(appSurface);
+
+    expect(registry.windowForWebContentsId(22)).toBe(appSurface);
+    expect(registry.windowForWebContentsId(999)).toBeNull();
+    expect(registry.windowForWebContentsId(null)).toBeNull();
+  });
+
   it("broadcasts shared state to every live shell renderer", () => {
     const registry = new ShellWindowRegistry();
     const first = windowStub(1);

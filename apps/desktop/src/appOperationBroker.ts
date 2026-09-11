@@ -50,7 +50,16 @@ export interface InvokeAppOperationRequest<Input = unknown> extends OperationReq
 
 type RichOperationContent =
   | { readonly type: "text"; readonly text: string }
-  | { readonly type: "image"; readonly data: string; readonly mimeType: string };
+  | { readonly type: "image"; readonly data: string; readonly mimeType: string }
+  | {
+      readonly type: "resource";
+      readonly resource: {
+        readonly uri: string;
+        readonly name?: string;
+        readonly mimeType?: string;
+        readonly blob: string;
+      };
+    };
 
 interface RichOperationResult {
   readonly content: ReadonlyArray<RichOperationContent>;
@@ -88,6 +97,11 @@ export interface OpenAppTabRequest {
 export interface AppTabHost {
   open(input: OpenAppTabRequest): Promise<AppTabHandle>;
   openForResult<Result = unknown>(input: OpenAppTabRequest): Promise<Result>;
+  presentExisting?(input: {
+    appId: string;
+    spaceId: string;
+    threadId: string;
+  }): AppTabHandle | null;
 }
 
 export interface AppOperationBrokerOptions {
@@ -239,6 +253,12 @@ export class AppOperationBroker {
         open: async (input) => {
           const target = this.#resolveEnabledApp(input.slug, request.spaceId);
           await this.#ensureController(target.appId, request.spaceId);
+          const existing = this.#tabHost.presentExisting?.({
+            appId: target.appId,
+            spaceId: request.spaceId,
+            threadId: request.threadId,
+          });
+          if (existing) return existing;
           return this.#tabHost.open({
             app: target,
             spaceId: request.spaceId,
@@ -367,7 +387,30 @@ function assertRichOperationContent(content: ReadonlyArray<RichOperationContent>
       }
       continue;
     }
-    throw new Error("Rich App operation content supports text and image blocks.");
+    if (block.type === "resource") {
+      const resource = block.resource;
+      if (
+        !resource ||
+        typeof resource.uri !== "string" ||
+        !resource.uri.startsWith("penkra-app-resource://")
+      ) {
+        throw new Error("Resource content requires a Penkra App resource URI.");
+      }
+      if (resource.name !== undefined && typeof resource.name !== "string")
+        throw new Error("Resource name must be a string.");
+      if (resource.mimeType !== undefined && typeof resource.mimeType !== "string")
+        throw new Error("Resource MIME type must be a string.");
+      if (
+        typeof resource.blob !== "string" ||
+        resource.blob.length === 0 ||
+        resource.blob.length % 4 !== 0 ||
+        !/^[A-Za-z0-9+/]*={0,2}$/u.test(resource.blob)
+      ) {
+        throw new Error("Resource content requires canonical base64 data.");
+      }
+      continue;
+    }
+    throw new Error("Rich App operation content supports text, image, and resource blocks.");
   }
 }
 

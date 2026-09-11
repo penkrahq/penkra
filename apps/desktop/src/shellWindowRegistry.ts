@@ -27,6 +27,11 @@ export class ShellWindowRegistry {
     return this.list().find((window) => window.webContents === contents) ?? null;
   }
 
+  windowForWebContentsId(contentsId: number | null | undefined): BrowserWindow | null {
+    if (contentsId == null) return null;
+    return this.list().find((window) => window.webContents.id === contentsId) ?? null;
+  }
+
   list(): BrowserWindow[] {
     const live: BrowserWindow[] = [];
     for (const window of this.#windows) {
