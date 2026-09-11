@@ -1097,6 +1097,166 @@ describe("store event reducer", () => {
     expect(threadsOf(next)[0]?.pendingTurnStartMessageId).toBeNull();
   });
 
+  it.each(["codex", "claudeAgent"] as const)(
+    "does not leave a promoted %s steer working after its running provider turn completes",
+    (provider) => {
+      const threadId = ThreadId.makeUnsafe("thread-promoted-steer-completed");
+      const messageId = MessageId.makeUnsafe("composer-queue:promoted-steer");
+      const providerTurnId = TurnId.makeUnsafe("provider-turn-running");
+      const initialState = makeState(
+        makeThread({
+          id: threadId,
+          modelSelection: { provider, model: "provider-model" },
+          session: {
+            provider,
+            status: "running",
+            orchestrationStatus: "running",
+            activeTurnId: providerTurnId,
+            createdAt: "2026-09-11T09:09:01.000Z",
+            updatedAt: "2026-09-11T09:09:01.000Z",
+          },
+          latestTurn: {
+            turnId: providerTurnId,
+            state: "running",
+            requestedAt: "2026-09-11T09:09:00.000Z",
+            startedAt: "2026-09-11T09:09:01.000Z",
+            completedAt: null,
+            assistantMessageId: null,
+          },
+        }),
+      );
+
+      const next = applyOrchestrationEvents(initialState, [
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "user",
+          text: "promote me",
+          attachments: [],
+          dispatchMode: "queue",
+          dispatchOrigin: "user",
+          delivery: { state: "queued", queued: true },
+          turnId: TurnId.makeUnsafe(`turn:${messageId}`),
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-11T09:09:34.640Z",
+          updatedAt: "2026-09-11T09:09:34.640Z",
+        },
+        { sequence: 3 },
+      ),
+      makeDomainEvent(
+        "thread.turn-queued",
+        {
+          threadId,
+          turnId: TurnId.makeUnsafe(`turn:${messageId}`),
+          messageId,
+          restartRecovery: false,
+          dispatchMode: "queue",
+          dispatchOrigin: "user",
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          createdAt: "2026-09-11T09:09:34.640Z",
+        },
+        { sequence: 4 },
+      ),
+      makeDomainEvent(
+        "thread.turn-steer-queued-requested",
+        {
+          threadId,
+          messageId,
+          createdAt: "2026-09-11T09:09:36.168Z",
+        },
+        { sequence: 5 },
+      ),
+      makeDomainEvent(
+        "thread.turn-start-requested",
+        {
+          threadId,
+          turnId: TurnId.makeUnsafe("turn-promoted-steer"),
+          messageId,
+          restartRecovery: false,
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          dispatchMode: "steer",
+          dispatchOrigin: "user",
+          createdAt: "2026-09-11T09:09:36.168Z",
+        },
+        { sequence: 6 },
+      ),
+      makeDomainEvent(
+        "thread.message-delivery-set",
+        {
+          threadId,
+          messageId,
+          turnId: TurnId.makeUnsafe("turn-promoted-steer"),
+          state: "accepted",
+          providerTurnId,
+          updatedAt: "2026-09-11T09:09:38.620Z",
+        },
+        { sequence: 7 },
+      ),
+      makeDomainEvent(
+        "thread.session-set",
+        {
+          threadId,
+          session: {
+            threadId,
+            status: "ready",
+            providerName: provider,
+            runtimeMode: DEFAULT_RUNTIME_MODE,
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-09-11T09:10:20.236Z",
+          },
+        },
+        { sequence: 8, occurredAt: "2026-09-11T09:10:20.236Z" },
+      ),
+      ]);
+
+      const thread = threadsOf(next)[0];
+      expect(thread?.pendingTurnStartMessageId).toBeNull();
+      expect(thread?.latestTurn?.state).toBe("completed");
+      expect(
+        resolveThreadStatusPill({
+          thread: next.sidebarThreadSummaryById[threadId]!,
+          hasPendingApprovals: false,
+          hasPendingUserInput: false,
+        }),
+      ).toMatchObject({ label: "Completed", pulse: false });
+    },
+  );
+
+  it("keeps an OpenCode replacement steer pending until its new provider turn starts", () => {
+    const threadId = ThreadId.makeUnsafe("thread-opencode-replacement-steer");
+    const messageId = MessageId.makeUnsafe("message-opencode-replacement-steer");
+    const initialState = makeState(
+      makeThread({
+        id: threadId,
+        modelSelection: { provider: "opencode", model: "openai/gpt-5" },
+        session: {
+          provider: "opencode",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: TurnId.makeUnsafe("provider-turn-before-interrupt"),
+          createdAt: "2026-09-11T10:00:00.000Z",
+          updatedAt: "2026-09-11T10:00:00.000Z",
+        },
+      }),
+    );
+    const admitted = applyOrchestrationEvents(initialState, [
+      makeDomainEvent("thread.turn-start-requested", {
+        threadId,
+        turnId: TurnId.makeUnsafe("turn-opencode-replacement-steer"),
+        messageId,
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+        dispatchMode: "steer",
+        createdAt: "2026-09-11T10:00:02.000Z",
+      }),
+    ]);
+
+    expect(threadsOf(admitted)[0]?.pendingTurnStartMessageId).toBe(messageId);
+  });
+
   it.each([
     { status: "ready", expectedState: "completed" },
     { status: "interrupted", expectedState: "interrupted" },
