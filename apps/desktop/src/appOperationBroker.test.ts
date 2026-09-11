@@ -266,7 +266,17 @@ describe("AppOperationBroker", () => {
 
   it("opens another enabled App by installed slug in the invoking Thread", async () => {
     const open = vi.fn(async () => tab("canvas-tab", { appId: "com.acme.canvas" }));
-    const runtime = broker(crossAppState, { open });
+    const ensureController = vi.fn(async () => undefined);
+    const runtime = new AppOperationBroker({
+      installationState: crossAppState,
+      mintInvocationId: () => "invocation-1",
+      resolveIdentity: async () => ({ subject: "sub_test", space: "space_test" }),
+      ensureController,
+      tabs: {
+        open,
+        openForResult: vi.fn(async () => ({ completed: true })) as never,
+      },
+    });
     runtime.registerController({
       appId: "com.acme.linear",
       spaceId: "personal",
@@ -293,6 +303,7 @@ describe("AppOperationBroker", () => {
         route: "/",
       }),
     );
+    expect(ensureController).toHaveBeenCalledWith("com.acme.github", "personal");
   });
 
   it("checks installation and Space enablement at invocation time", async () => {
