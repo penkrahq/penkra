@@ -236,8 +236,9 @@ export class AppOperationBroker {
       ...(tab === undefined ? {} : { tab }),
       tabs,
       apps: {
-        open: (input) => {
+        open: async (input) => {
           const target = this.#resolveEnabledApp(input.slug, request.spaceId);
+          await this.#ensureController(target.appId, request.spaceId);
           return this.#tabHost.open({
             app: target,
             spaceId: request.spaceId,

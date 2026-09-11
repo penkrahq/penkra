@@ -1,9 +1,25 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type { DesktopBridge } from "@penkra/contracts";
+import type {
+  DesktopAppTabClosed,
+  DesktopAppTabDescriptor,
+  DesktopAppTabOpened,
+  DesktopBridge,
+} from "@penkra/contracts";
+import { createBufferedPreloadEvent } from "./bufferedPreloadEvent";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 
 const IPC = DESKTOP_IPC_CHANNELS;
+
+const appTabOpened = createBufferedPreloadEvent<DesktopAppTabOpened>();
+const appTabState = createBufferedPreloadEvent<DesktopAppTabDescriptor>();
+const appTabClosed = createBufferedPreloadEvent<DesktopAppTabClosed>();
+
+ipcRenderer.on(IPC.appTabs.opened, (_event, tab: DesktopAppTabOpened) => appTabOpened.publish(tab));
+ipcRenderer.on(IPC.appTabs.state, (_event, tab: DesktopAppTabDescriptor) =>
+  appTabState.publish(tab),
+);
+ipcRenderer.on(IPC.appTabs.closed, (_event, tab: DesktopAppTabClosed) => appTabClosed.publish(tab));
 
 function getDesktopWsUrl(): string | null {
   try {
@@ -220,22 +236,13 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       return () => ipcRenderer.removeListener(IPC.appTabs.listingRequested, wrapped);
     },
     onOpened: (listener) => {
-      const wrapped = (_event: Electron.IpcRendererEvent, tab: Parameters<typeof listener>[0]) =>
-        listener(tab);
-      ipcRenderer.on(IPC.appTabs.opened, wrapped);
-      return () => ipcRenderer.removeListener(IPC.appTabs.opened, wrapped);
+      return appTabOpened.subscribe(listener);
     },
     onState: (listener) => {
-      const wrapped = (_event: Electron.IpcRendererEvent, tab: Parameters<typeof listener>[0]) =>
-        listener(tab);
-      ipcRenderer.on(IPC.appTabs.state, wrapped);
-      return () => ipcRenderer.removeListener(IPC.appTabs.state, wrapped);
+      return appTabState.subscribe(listener);
     },
     onClosed: (listener) => {
-      const wrapped = (_event: Electron.IpcRendererEvent, tab: Parameters<typeof listener>[0]) =>
-        listener(tab);
-      ipcRenderer.on(IPC.appTabs.closed, wrapped);
-      return () => ipcRenderer.removeListener(IPC.appTabs.closed, wrapped);
+      return appTabClosed.subscribe(listener);
     },
     onFrameHostMessage: (listener) => {
       const wrapped = (
