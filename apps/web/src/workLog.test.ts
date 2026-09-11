@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   deriveTimelineEntries,
+  deriveVisibleWorkLogSequenceFloor,
   deriveWorkLogEntries,
   isFileChangeWorkLogEntry,
   isProviderFileEditWorkLogEntry,
@@ -11,6 +12,20 @@ import {
 import { makeActivity } from "./storeTestFixtures";
 
 describe("deriveWorkLogEntries", () => {
+  it("derives the causal work boundary from the first visible user message", () => {
+    expect(
+      deriveVisibleWorkLogSequenceFloor([
+        {
+          role: "user",
+          sequence: 10,
+          delivery: { state: "accepted", queued: true, sequence: 14 },
+        },
+        { role: "assistant", sequence: 15 },
+        { role: "user", sequence: 20 },
+      ]),
+    ).toBe(14);
+  });
+
   it("orders every fully sequenced permutation causally despite clock skew and an unknown legacy row", () => {
     const first = makeActivity({
       id: "earlier-sequence",
@@ -228,10 +243,76 @@ describe("deriveWorkLogEntries", () => {
     ]);
   });
 
+  it("keeps sequenced work inside the visible transcript even when a tool-only turn has no message", () => {
+    const syntheticUserTurnId = TurnId.makeUnsafe("turn:user-message");
+    const toolOnlyTurnId = TurnId.makeUnsafe("turn:provider-tool-only");
+    const nextUserTurnId = TurnId.makeUnsafe("turn:next-user-message");
+    const messages = [
+      {
+        id: MessageId.makeUnsafe("message-user-before-tools"),
+        role: "user" as const,
+        text: "Revise the game screens",
+        createdAt: "2026-09-11T09:49:59.592Z",
+        sequence: 100,
+        turnId: syntheticUserTurnId,
+        streaming: false,
+      },
+      {
+        id: MessageId.makeUnsafe("message-user-after-interrupt"),
+        role: "user" as const,
+        text: "We'll use G1",
+        createdAt: "2026-09-11T10:10:56.705Z",
+        sequence: 200,
+        turnId: nextUserTurnId,
+        streaming: false,
+      },
+    ];
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "before-visible-window",
+        sequence: 99,
+        turnId: TurnId.makeUnsafe("turn:older"),
+        summary: "Older hidden tool",
+        kind: "tool.completed",
+      }),
+      makeActivity({
+        id: "tool-only-work",
+        sequence: 101,
+        turnId: toolOnlyTurnId,
+        summary: "Canvas edit",
+        kind: "tool.completed",
+      }),
+      makeActivity({
+        id: "tool-only-compaction",
+        sequence: 102,
+        turnId: toolOnlyTurnId,
+        summary: "Context compacted automatically",
+        kind: "context-compaction",
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, nextUserTurnId, {
+      visibleTurnIds: new Set([syntheticUserTurnId, nextUserTurnId]),
+      visibleSequenceFloor: deriveVisibleWorkLogSequenceFloor(messages),
+    });
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "tool-only-work",
+      "tool-only-compaction",
+    ]);
+    expect(deriveTimelineEntries(messages, entries).map((entry) => entry.id)).toEqual([
+      "message-user-before-tools",
+      "tool-only-work",
+      "tool-only-compaction",
+      "message-user-after-interrupt",
+    ]);
+  });
+
   it("keeps thread-scoped Connection and model changes beside visible turns", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "connection-changed",
+        sequence: 98,
         turnId: null,
         summary: "Connection changed to Work",
         kind: "connection-changed",
@@ -239,6 +320,7 @@ describe("deriveWorkLogEntries", () => {
       }),
       makeActivity({
         id: "model-changed",
+        sequence: 99,
         turnId: null,
         summary: "Model changed to Claude Sonnet 5",
         kind: "model-changed",
@@ -246,12 +328,14 @@ describe("deriveWorkLogEntries", () => {
       }),
       makeActivity({
         id: "visible-turn",
+        sequence: 101,
         turnId: "turn-2",
         summary: "Visible tool",
         kind: "tool.completed",
       }),
       makeActivity({
         id: "hidden-turn",
+        sequence: 97,
         turnId: "turn-1",
         summary: "Hidden tool",
         kind: "tool.completed",
@@ -260,6 +344,7 @@ describe("deriveWorkLogEntries", () => {
 
     const entries = deriveWorkLogEntries(activities, TurnId.makeUnsafe("turn-2"), {
       visibleTurnIds: new Set([TurnId.makeUnsafe("turn-2")]),
+      visibleSequenceFloor: 100,
     });
 
     expect(entries.map((entry) => entry.id)).toEqual([
@@ -269,7 +354,40 @@ describe("deriveWorkLogEntries", () => {
     ]);
   });
 
-  it("falls back to the latest-turn filter when visible turn ids are empty", () => {
+  it("applies the visible sequence window to sequenced thread-scoped milestones", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "old-compaction",
+        sequence: 98,
+        turnId: null,
+        summary: "Old context compaction",
+        kind: "context-compaction",
+      }),
+      makeActivity({
+        id: "old-automation",
+        sequence: 99,
+        turnId: null,
+        summary: "Old automation created",
+        kind: "automation.created",
+      }),
+      makeActivity({
+        id: "visible-compaction",
+        sequence: 101,
+        turnId: null,
+        summary: "Visible context compaction",
+        kind: "context-compaction",
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined, {
+      visibleTurnIds: new Set(),
+      visibleSequenceFloor: 100,
+    });
+
+    expect(entries.map((entry) => entry.id)).toEqual(["visible-compaction"]);
+  });
+
+  it("uses the latest-turn filter for unsequenced rows when visible turn ids are empty", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({ id: "turn-1", turnId: "turn-1", summary: "First tool", kind: "tool.started" }),
       makeActivity({
