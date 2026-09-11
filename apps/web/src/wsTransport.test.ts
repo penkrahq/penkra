@@ -877,6 +877,43 @@ describe("WsTransport", () => {
     expect(transportInternals.reconnectPromise).toBeNull();
   });
 
+  it("shares one reconnect when cancelling multiple streams synchronously re-enters", async () => {
+    const { internals } = makeBareTransport();
+    const replacementClient = { id: "replacement" };
+    const openReconnectSession = vi.fn().mockResolvedValue(replacementClient);
+    const oldRuntime = {
+      runPromise: vi.fn().mockResolvedValue(undefined),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    };
+    const transportInternals = internals as unknown as {
+      reconnect: () => Promise<typeof replacementClient>;
+    };
+    Object.assign(internals, {
+      runtime: oldRuntime,
+      clientScope: Effect.runSync(Scope.make()),
+      state: "open",
+      stateListeners: new Set(),
+      reconnectPromise: null,
+      openReconnectSession,
+    });
+    const reentrantReconnects: Array<Promise<typeof replacementClient>> = [];
+    for (const key of ["server.config", "orchestration.sync"]) {
+      internals.streamCleanups.set(key, () => {
+        internals.streamCleanups.delete(key);
+        reentrantReconnects.push(transportInternals.reconnect());
+      });
+    }
+
+    const reconnect = transportInternals.reconnect();
+    await expect(reconnect).resolves.toBe(replacementClient);
+    await Promise.all(reentrantReconnects);
+
+    expect(reentrantReconnects).toHaveLength(2);
+    expect(reentrantReconnects.every((pending) => pending === reconnect)).toBe(true);
+    expect(openReconnectSession).toHaveBeenCalledTimes(1);
+    expect(oldRuntime.dispose).toHaveBeenCalledTimes(1);
+  });
+
   it("moves a hung initial connection into the reconnect path", async () => {
     vi.useFakeTimers();
     try {

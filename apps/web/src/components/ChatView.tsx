@@ -72,6 +72,7 @@ import {
 import { resolveThreadBindingRevisionAtAdmission as resolveBindingRevisionAtAdmission } from "~/lib/threadBindingAdmission";
 import {
   pruneUnavailableComposerConnectionSelections,
+  resolveAnonymousModelDiscoveryRoute,
   resolveComposerConnectionAtAdmission,
 } from "~/lib/providerConnectionCapabilities";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
@@ -2375,15 +2376,11 @@ export default function ChatView({
       }
       if (connectionId === undefined) continue;
       if (connectionId === null) {
-        const modelProviderId =
-          provider === "opencode"
-            ? (composerModelHintByProvider[provider]?.split("/", 1)[0] ?? null)
-            : null;
-        const route = snapshot.anonymousRoutes.find(
-          (candidate) =>
-            candidate.harness === provider &&
-            (modelProviderId === null || candidate.internalProviderId === modelProviderId),
-        );
+        const route = resolveAnonymousModelDiscoveryRoute({
+          snapshot,
+          provider,
+          modelHint: composerModelHintByProvider[provider],
+        });
         if (route !== undefined) {
           result[provider] = {
             connectionId: null,
@@ -3022,6 +3019,7 @@ export default function ChatView({
         phase,
         latestTurn: activeLatestTurn,
         session: activeThread?.session ?? null,
+        messages: activeThread?.messages ?? EMPTY_MESSAGES,
         hasPendingApproval: activePendingApproval !== null,
         hasPendingUserInput: activePendingUserInput !== null,
         threadError: activeThread?.error,
@@ -3032,6 +3030,7 @@ export default function ChatView({
       activePendingUserInput,
       activeThread?.error,
       activeThread?.session,
+      activeThread?.messages,
       localDispatch,
       phase,
     ],
