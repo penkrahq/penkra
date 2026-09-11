@@ -611,6 +611,7 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   phase: SessionPhase;
   latestTurn: Thread["latestTurn"] | null;
   session: Thread["session"] | null;
+  messages?: ReadonlyArray<Pick<ChatMessage, "id" | "role" | "delivery">>;
   hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
   threadError: string | null | undefined;
@@ -623,6 +624,20 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     input.hasPendingApproval ||
     input.hasPendingUserInput ||
     Boolean(input.threadError)
+  ) {
+    return true;
+  }
+  // A first-send startup failure can settle the exact message before a provider
+  // session or latest turn exists. Mere message arrival is not acknowledgement:
+  // queued/starting/steering work must keep its admission indicator.
+  if (
+    input.localDispatch.expectedUserMessageId !== null &&
+    input.messages?.some(
+      (message) =>
+        message.id === input.localDispatch?.expectedUserMessageId &&
+        message.role === "user" &&
+        message.delivery?.state === "failed",
+    )
   ) {
     return true;
   }

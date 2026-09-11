@@ -34,6 +34,19 @@ export function modelInternalProviderId(provider: ProviderKind, model: string): 
   return provider === "opencode" ? (model.split("/", 1)[0] ?? null) : null;
 }
 
+export function resolveAnonymousModelDiscoveryRoute(input: {
+  snapshot: ProviderConnectionsSnapshot;
+  provider: ProviderKind;
+  modelHint: string | null;
+}): ProviderConnectionsSnapshot["anonymousRoutes"][number] | undefined {
+  const routes = input.snapshot.anonymousRoutes.filter((route) => route.harness === input.provider);
+  const hintedProviderId =
+    input.modelHint === null ? null : modelInternalProviderId(input.provider, input.modelHint);
+  // A retained model from another Connection must not hide this Connection's
+  // catalog. This fallback selects discovery only; send authorization stays exact.
+  return routes.find((route) => route.internalProviderId === hintedProviderId) ?? routes[0];
+}
+
 export function isManagedHarnessConfigured(input: {
   snapshot: ProviderConnectionsSnapshot;
   provider: ProviderKind;
