@@ -359,6 +359,187 @@ describe("orchestration projector", () => {
     });
   });
 
+  it.each(["codex", "claudeAgent"] as const)(
+    "does not retain a promoted %s steer as a pending turn start after the running turn settles",
+    async (provider) => {
+      const threadId = "thread-1";
+      const messageId = "composer-queue:promoted-steer";
+      const providerTurnId = "provider-turn-running";
+      const createdAt = "2026-09-11T09:09:34.640Z";
+      let state = await projectThreadWithRunningTurn({
+        createdAt: "2026-09-11T09:09:00.000Z",
+        startedAt: "2026-09-11T09:09:01.000Z",
+      });
+      state = {
+        ...state,
+        threads: state.threads.map((thread) => ({
+          ...thread,
+          modelSelection: { provider, model: "provider-model" },
+          session: thread.session === null ? null : { ...thread.session, providerName: provider },
+        })),
+      };
+
+      const events: OrchestrationEvent[] = [
+      makeEvent({
+        sequence: 3,
+        type: "thread.message-sent",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: createdAt,
+        commandId: messageId,
+        payload: {
+          threadId,
+          messageId,
+          role: "user",
+          text: "promote me",
+          attachments: [],
+          dispatchMode: "queue",
+          dispatchOrigin: "user",
+          delivery: { state: "queued", queued: true },
+          turnId: `turn:${messageId}`,
+          streaming: false,
+          source: "native",
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 4,
+        type: "thread.turn-queued",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: createdAt,
+        commandId: messageId,
+        payload: {
+          threadId,
+          turnId: `turn:${messageId}`,
+          messageId,
+          restartRecovery: false,
+          dispatchMode: "queue",
+          dispatchOrigin: "user",
+          runtimeMode: "full-access",
+          createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 5,
+        type: "thread.turn-steer-queued-requested",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-09-11T09:09:36.168Z",
+        commandId: "cmd-promote-steer",
+        payload: {
+          threadId,
+          messageId,
+          createdAt: "2026-09-11T09:09:36.168Z",
+        },
+      }),
+      makeEvent({
+        sequence: 6,
+        type: "thread.turn-start-requested",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-09-11T09:09:36.168Z",
+        commandId: "cmd-promote-steer",
+        payload: {
+          threadId,
+          turnId: "turn-promoted-steer",
+          messageId,
+          restartRecovery: false,
+          runtimeMode: "full-access",
+          dispatchMode: "steer",
+          dispatchOrigin: "user",
+          createdAt: "2026-09-11T09:09:36.168Z",
+        },
+      }),
+      makeEvent({
+        sequence: 7,
+        type: "thread.message-delivery-set",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-09-11T09:09:38.620Z",
+        commandId: "cmd-steer-accepted",
+        payload: {
+          threadId,
+          messageId,
+          turnId: "turn-promoted-steer",
+          state: "accepted",
+          providerTurnId,
+          updatedAt: "2026-09-11T09:09:38.620Z",
+        },
+      }),
+      makeEvent({
+        sequence: 8,
+        type: "thread.session-set",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-09-11T09:10:20.236Z",
+        commandId: "cmd-ready",
+        payload: {
+          threadId,
+          session: {
+            threadId,
+            status: "ready",
+            providerName: provider,
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-09-11T09:10:20.236Z",
+          },
+        },
+      }),
+      ];
+
+      for (const event of events) {
+        state = await Effect.runPromise(projectEvent(state, event));
+      }
+
+      expect(state.threads[0]?.pendingTurnStartMessageId).toBeNull();
+    },
+  );
+
+  it("retains an OpenCode replacement steer until its new provider turn starts", async () => {
+    const messageId = MessageId.makeUnsafe("message-opencode-replacement-steer");
+    let state = await projectThreadWithRunningTurn({
+      createdAt: "2026-09-11T10:00:00.000Z",
+      startedAt: "2026-09-11T10:00:01.000Z",
+    });
+    state = {
+      ...state,
+      threads: state.threads.map((thread) => ({
+        ...thread,
+        modelSelection: { provider: "opencode", model: "openai/gpt-5" },
+        session:
+          thread.session === null
+            ? null
+            : { ...thread.session, providerName: "opencode" as const },
+      })),
+    };
+
+    state = await Effect.runPromise(
+      projectEvent(
+        state,
+        makeEvent({
+          sequence: 3,
+          type: "thread.turn-start-requested",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: "2026-09-11T10:00:02.000Z",
+          commandId: "cmd-opencode-replacement-steer",
+          payload: {
+            threadId: "thread-1",
+            turnId: "turn-opencode-replacement-steer",
+            messageId,
+            runtimeMode: "full-access",
+            dispatchMode: "steer",
+            createdAt: "2026-09-11T10:00:02.000Z",
+          },
+        }),
+      ),
+    );
+    expect(state.threads[0]?.pendingTurnStartMessageId).toBe(messageId);
+  });
+
   it("fails when event payload cannot be decoded by runtime schema", async () => {
     const now = new Date().toISOString();
     const model = createEmptyReadModel(now);
