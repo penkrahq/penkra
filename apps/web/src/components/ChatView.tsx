@@ -208,6 +208,7 @@ import {
   derivePhase,
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
+  deriveVisibleWorkLogSequenceFloor,
   deriveWorkLogEntries,
   hasActivePendingTurnStart,
   hasLiveTurnTailWork,
@@ -914,6 +915,7 @@ export default function ChatView({
   const composerMentions = composerDraft.mentions;
   const queuedComposerTurns = composerDraft.queuedTurns;
   const composerPendingStartRecoveries = composerDraft.pendingStartRecoveriesByMessageId ?? {};
+  const pendingMessageEdit = composerDraft.pendingMessageEdit;
   const queuePaused = composerDraft.queuePaused;
   const composerSendState = useMemo(
     () =>
@@ -2635,10 +2637,17 @@ export default function ChatView({
     }
     return turnIds;
   }, [activeLatestTurnId, activeThread?.messages]);
+  const workLogVisibleSequenceFloor = useMemo(
+    () => deriveVisibleWorkLogSequenceFloor(activeThread?.messages ?? EMPTY_MESSAGES),
+    [activeThread?.messages],
+  );
   const rawWorkLogEntries = useMemo(
     () =>
       deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined, {
         visibleTurnIds: workLogVisibleTurnIds,
+        ...(workLogVisibleSequenceFloor === undefined
+          ? {}
+          : { visibleSequenceFloor: workLogVisibleSequenceFloor }),
         activeTurnId: activeSessionTurnId,
         activeTurnStartedAt: activeSessionTurnStartedAt,
         latestTurnState: activeLatestTurn?.state ?? null,
@@ -2649,6 +2658,7 @@ export default function ChatView({
       activeSessionTurnId,
       activeSessionTurnStartedAt,
       threadActivities,
+      workLogVisibleSequenceFloor,
       workLogVisibleTurnIds,
     ],
   );
@@ -2761,6 +2771,13 @@ export default function ChatView({
     }
     return turnIds;
   }, [stripParentThread, workLogVisibleTurnIds]);
+  const stripVisibleSequenceFloor = useMemo(
+    () =>
+      stripParentThread
+        ? deriveVisibleWorkLogSequenceFloor(stripParentThread.messages)
+        : workLogVisibleSequenceFloor,
+    [stripParentThread, workLogVisibleSequenceFloor],
+  );
   const stripLiveTurnId = stripParentThread
     ? isLatestTurnSettled(stripParentThread.latestTurn, stripParentThread.session ?? null)
       ? null
@@ -2775,6 +2792,9 @@ export default function ChatView({
     () =>
       deriveWorkLogEntries(stripSourceActivities, stripSourceLatestTurnId ?? undefined, {
         visibleTurnIds: stripVisibleTurnIds,
+        ...(stripVisibleSequenceFloor === undefined
+          ? {}
+          : { visibleSequenceFloor: stripVisibleSequenceFloor }),
         includeRoutedSubagentActivities: true,
         activeTurnId: stripSourceActiveTurnId,
         activeTurnStartedAt: stripSourceActiveTurnStartedAt,
@@ -2787,6 +2807,7 @@ export default function ChatView({
       stripSourceActiveTurnStartedAt,
       stripSourceLatestTurn,
       stripSourceLatestTurnId,
+      stripVisibleSequenceFloor,
       stripVisibleTurnIds,
     ],
   );
@@ -3675,6 +3696,8 @@ export default function ChatView({
       isWorking,
       threadDetailHydration,
       visibleTimelineEntryIds: visibleTimelineEntries.map((entry) => entry.id),
+      visibleWorkEntryIds: agentActivityTimelineState.timelineWorkEntries.map((entry) => entry.id),
+      visibleWorkLogSequenceFloor: workLogVisibleSequenceFloor ?? null,
     });
   }, [
     activeThread?.session?.activeTurnId,
@@ -3684,6 +3707,8 @@ export default function ChatView({
     shouldRenderTranscriptSurface,
     threadDetailHydration,
     visibleTimelineEntries,
+    agentActivityTimelineState.timelineWorkEntries,
+    workLogVisibleSequenceFloor,
   ]);
   // --- Pinned messages & notes (per-thread, server-synced through sidepanel commands) ---
   const pinnedMessages = activeThread?.pinnedMessages ?? EMPTY_PINNED_MESSAGES;
@@ -7837,6 +7862,11 @@ export default function ChatView({
           runtimeMode,
           createdAt: messageCreatedAt,
         });
+        useComposerDraftStore.getState().setPendingMessageEdit(activeThread.id, {
+          messageId,
+          text,
+          priorDeliverySequence: originalMessage.delivery?.sequence ?? -1,
+        });
         return true;
       })()
         .catch((err: unknown) => {
@@ -7876,6 +7906,16 @@ export default function ChatView({
   const onEditUserMessageFromTranscript = useCallback(
     (messageId: MessageId, text: string) => onEditUserMessageRef.current(messageId, text),
     [],
+  );
+  const onClearPendingEditedUserMessage = useCallback(
+    (messageId: MessageId) => {
+      const pending =
+        useComposerDraftStore.getState().draftsByThreadId[threadId]?.pendingMessageEdit;
+      if (pending?.messageId === messageId) {
+        useComposerDraftStore.getState().setPendingMessageEdit(threadId, null);
+      }
+    },
+    [threadId],
   );
 
   const onSendRef = useRef(onSend);
@@ -9586,6 +9626,8 @@ export default function ChatView({
                         onOpenThread={onNavigateToThread}
                         subagentToolTraceByThreadId={subagentToolTraceByThreadId}
                         onEditUserMessage={onEditUserMessageFromTranscript}
+                        pendingEditedUserMessage={pendingMessageEdit}
+                        onClearPendingEditedUserMessage={onClearPendingEditedUserMessage}
                         onExpandTimelineImage={onExpandTimelineImage}
                         onIsAtEndChange={onIsAtEndChange}
                         markdownCwd={threadWorkspaceCwd ?? undefined}

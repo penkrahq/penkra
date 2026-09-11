@@ -22,6 +22,7 @@ import { Effect, Fiber, FileSystem, Layer, Option, Stream } from "effect";
 
 import {
   CodexAppServerManager,
+  CodexJsonRpcResponseError,
   type CodexAppServerStartSessionInput,
   type CodexAppServerSendTurnInput,
 } from "../../codexAppServerManager.ts";
@@ -79,7 +80,7 @@ class FakeCodexManager extends CodexAppServerManager {
     turns: [],
   }));
 
-  public rollbackThreadImpl = vi.fn(async (_threadId: ThreadId, _numTurns: number) => ({
+  public revertThreadImpl = vi.fn(async (_threadId: ThreadId, _beforeTurnId: TurnId) => ({
     threadId: asThreadId("thread-1"),
     turns: [],
   }));
@@ -146,8 +147,8 @@ class FakeCodexManager extends CodexAppServerManager {
     return this.readThreadImpl(threadId);
   }
 
-  override rollbackThread(threadId: ThreadId, numTurns: number) {
-    return this.rollbackThreadImpl(threadId, numTurns);
+  override revertThread(threadId: ThreadId, beforeTurnId: TurnId) {
+    return this.revertThreadImpl(threadId, beforeTurnId);
   }
 
   override forkThread(input: Parameters<CodexAppServerManager["forkThread"]>[0]) {
@@ -736,6 +737,46 @@ const lifecycleLayer = it.layer(
 );
 
 lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
+  it.effect("rejects a count-only Codex rewind before calling a deprecated provider method", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      lifecycleManager.revertThreadImpl.mockClear();
+
+      const result = yield* adapter
+        .rollbackThread(asThreadId("thread-count-only-rewind"), 1)
+        .pipe(Effect.result);
+
+      assert.equal(result._tag, "Failure");
+      if (result._tag !== "Failure") return;
+      assert.equal(result.failure._tag, "ProviderAdapterValidationError");
+      assert.equal(lifecycleManager.revertThreadImpl.mock.calls.length, 0);
+    }),
+  );
+
+  it.effect("preserves an explicit JSON-RPC rejection through the adapter boundary", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      lifecycleManager.revertThreadImpl.mockRejectedValueOnce(
+        new CodexJsonRpcResponseError(
+          "thread/rollback",
+          -32602,
+          "paginated threads do not support thread/rollback",
+        ),
+      );
+
+      const result = yield* adapter
+        .rollbackThread(asThreadId("thread-paginated"), 1, asTurnId("turn-paginated-tail"))
+        .pipe(Effect.result);
+
+      assert.equal(result._tag, "Failure");
+      if (result._tag !== "Failure") return;
+      assert.equal(result.failure._tag, "ProviderAdapterRequestError");
+      if (result.failure._tag !== "ProviderAdapterRequestError") return;
+      assert.equal(result.failure.requestOutcome, "rejected");
+      assert.match(result.failure.detail, /paginated threads do not support thread\/rollback/);
+    }),
+  );
+
   it.effect("maps Codex 0.144 reasoning summaries from canonical item arrays", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;

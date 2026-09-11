@@ -1,4 +1,9 @@
-import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@penkra/contracts";
+import type {
+  MessageDelivery,
+  OrchestrationEvent,
+  OrchestrationReadModel,
+  ThreadId,
+} from "@penkra/contracts";
 import {
   ORCHESTRATION_THREAD_HYDRATION_LIMITS,
   OrchestrationMessage,
@@ -12,6 +17,7 @@ import {
   setPinnedMessageDone,
   setPinnedMessageLabel,
 } from "@penkra/shared/pinnedMessages";
+import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import { Effect, Schema } from "effect";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
@@ -42,6 +48,11 @@ import {
   ThreadTurnStartRequestedPayload,
   ThreadTurnStartCancelledPayload,
 } from "./Schemas.ts";
+
+function withoutDeliveryFailureEvidence(delivery: MessageDelivery): MessageDelivery {
+  const { failurePhase: _failurePhase, failureDetail: _failureDetail, ...current } = delivery;
+  return current;
+}
 import { resolveStableMessageTurnId } from "./messageTurnId.ts";
 import { settleTurnStateFromSession } from "./turnLifecycle.ts";
 import { deriveTurnStartModelSelection, deriveTurnStartSession } from "./turnStartSession.ts";
@@ -730,7 +741,7 @@ export function projectEvent(
               ? {
                   ...message,
                   delivery: {
-                    ...message.delivery,
+                    ...withoutDeliveryFailureEvidence(message.delivery),
                     state:
                       payload.dispatchMode === "steer"
                         ? ("steering" as const)
@@ -740,13 +751,21 @@ export function projectEvent(
                 }
               : message,
           );
+          const nativeSteer =
+            payload.dispatchMode === "steer" &&
+            providerSupportsNativeTurnSteering(
+              thread.session?.providerName ?? projectedModelSelection.provider,
+            );
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
               ...modelSelectionPatch,
               ...(turnStartSession !== null ? { session: turnStartSession } : {}),
               messages,
-              pendingTurnStartMessageId: payload.messageId,
+              pendingTurnStartMessageId:
+                // A native steer rides an existing provider turn. Providers
+                // without live steering start replacement work after interrupt.
+                nativeSteer ? thread.pendingTurnStartMessageId : payload.messageId,
               runtimeMode: payload.runtimeMode,
               updatedAt: payload.createdAt,
             }),
@@ -829,6 +848,13 @@ export function projectEvent(
                 : entry.text,
             streaming: message.streaming,
             source: message.source,
+            // Reusing a user message id is the edit-and-resend contract: the
+            // replacement is dispatched at a new causal boundary. Preserve
+            // assistant stream creation times across deltas, but move the
+            // edited user message to the replay boundary so live/snapshot
+            // projections agree with projection_thread_messages and elapsed
+            // work is not measured from the superseded send.
+            createdAt: message.role === "user" ? message.createdAt : entry.createdAt,
             updatedAt: message.updatedAt,
             turnId: resolveStableMessageTurnId({
               existingTurnId: entry.turnId,
@@ -882,8 +908,23 @@ export function projectEvent(
           const targetDeliveryState = thread.messages.find(
             (message) => message.id === payload.messageId,
           )?.delivery?.state;
+          const nativeSteer = providerSupportsNativeTurnSteering(
+            thread.session?.providerName ?? thread.modelSelection.provider,
+          );
           const isUnacceptedAttempt =
             targetDeliveryState === "starting" || targetDeliveryState === "steering";
+          const acceptsSteerOwner =
+            payload.state === "accepted" &&
+            nativeSteer &&
+            targetDeliveryState === "steering" &&
+            thread.pendingTurnStartMessageId === payload.messageId;
+          // Replays can begin from a read model written by an older projector;
+          // acceptance retires any steer that was incorrectly made the owner.
+          const clearsPendingTurnStart =
+            acceptsSteerOwner ||
+            (payload.failurePhase === "before-provider-dispatch" &&
+              isUnacceptedAttempt &&
+              thread.pendingTurnStartMessageId === payload.messageId);
           const ownsStartingSession =
             payload.failurePhase === "before-provider-dispatch" &&
             isUnacceptedAttempt &&
@@ -899,10 +940,16 @@ export function projectEvent(
               ? {
                   ...message,
                   delivery: {
-                    ...message.delivery,
+                    ...withoutDeliveryFailureEvidence(message.delivery),
                     state: payload.state,
                     ...(payload.queued !== undefined ? { queued: payload.queued } : {}),
                     sequence: event.sequence,
+                    ...(payload.failurePhase !== undefined
+                      ? { failurePhase: payload.failurePhase }
+                      : {}),
+                    ...(payload.failureDetail !== undefined
+                      ? { failureDetail: payload.failureDetail }
+                      : {}),
                   },
                   updatedAt: payload.updatedAt,
                 }
@@ -940,12 +987,9 @@ export function projectEvent(
                     },
                   }
                 : {}),
-              pendingTurnStartMessageId:
-                payload.failurePhase === "before-provider-dispatch" &&
-                isUnacceptedAttempt &&
-                thread.pendingTurnStartMessageId === payload.messageId
-                  ? null
-                  : thread.pendingTurnStartMessageId,
+              pendingTurnStartMessageId: clearsPendingTurnStart
+                ? null
+                : thread.pendingTurnStartMessageId,
               ...(ownsStartingSession && payload.failureDetail !== undefined
                 ? {
                     session: {

@@ -179,6 +179,7 @@ export function summarizeProviderRuntimeQuarantineCause(cause: string): {
 const ProviderRollbackConversationInput = Schema.Struct({
   threadId: ThreadId,
   numTurns: NonNegativeInt,
+  beforeTurnId: Schema.optional(TurnId),
 });
 
 const ClearSessionResumeCursorInput = Schema.Struct({
@@ -2497,7 +2498,11 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                   operation: "ProviderService.rollbackConversation",
                   allowRecovery: true,
                 });
-            yield* active.adapter.rollbackThread(input.threadId, input.numTurns);
+            yield* active.adapter.rollbackThread(
+              input.threadId,
+              input.numTurns,
+              input.beforeTurnId,
+            );
             yield* analytics.record("provider.conversation.rolled_back", {
               provider: routed.adapter.provider,
               turns: input.numTurns,

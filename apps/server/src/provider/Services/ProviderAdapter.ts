@@ -268,11 +268,13 @@ export interface ProviderAdapterShape<TError> {
   readonly readThread: (threadId: ThreadId) => Effect.Effect<ProviderThreadSnapshot, TError>;
 
   /**
-   * Roll back a provider thread by N turns.
+   * Rewind a provider thread by N turns. Providers with exact-turn rewind
+   * semantics use `beforeTurnId` as the first turn excluded from history.
    */
   readonly rollbackThread: (
     threadId: ThreadId,
     numTurns: number,
+    beforeTurnId?: TurnId,
   ) => Effect.Effect<ProviderThreadSnapshot, TError>;
 
   /**

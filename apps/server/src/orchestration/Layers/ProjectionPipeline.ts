@@ -849,8 +849,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ? (existingMessage.value.sequence ?? event.sequence)
               : event.sequence,
             createdAt:
-              (Option.isSome(existingMessage) ? existingMessage.value.createdAt : null) ??
-              event.payload.createdAt,
+              event.payload.role === "user"
+                ? event.payload.createdAt
+                : ((Option.isSome(existingMessage) ? existingMessage.value.createdAt : null) ??
+                  event.payload.createdAt),
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -888,6 +890,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ? { deliveryQueued: event.payload.queued }
               : {}),
             deliverySequence: event.sequence,
+            deliveryFailurePhase:
+              event.type === "thread.message-delivery-set" ? event.payload.failurePhase : undefined,
+            deliveryFailureDetail:
+              event.type === "thread.message-delivery-set"
+                ? event.payload.failureDetail
+                : undefined,
             updatedAt:
               event.type === "thread.message-delivery-set"
                 ? event.payload.updatedAt

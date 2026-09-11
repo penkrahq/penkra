@@ -166,6 +166,12 @@ export function classifyProviderAttemptOutcome(
   if (Option.isNone(failure)) return { _tag: "uncertain", detail };
 
   const tag = (failure.value as { readonly _tag?: string })._tag;
+  if (
+    tag === "ProviderAdapterRequestError" &&
+    (failure.value as ProviderAdapterRequestError).requestOutcome === "rejected"
+  ) {
+    return { _tag: "rejected", detail };
+  }
   switch (tag) {
     case "ProviderAdapterValidationError":
     case "ProviderAdapterSessionNotFoundError":
@@ -812,6 +818,7 @@ const make = Effect.gen(function* () {
   const rollbackProviderConversationForEdit = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly numTurns: number;
+    readonly beforeTurnId: TurnId;
   }) {
     const projectedThread = yield* resolveThread(input.threadId);
     const provider = projectedThread
@@ -829,6 +836,7 @@ const make = Effect.gen(function* () {
         .rollbackConversation({
           threadId: input.threadId,
           numTurns: input.numTurns,
+          beforeTurnId: input.beforeTurnId,
         })
         .pipe(
           Effect.catch((error) =>
@@ -3018,6 +3026,7 @@ const make = Effect.gen(function* () {
       yield* rollbackProviderConversationForEdit({
         threadId: event.payload.threadId,
         numTurns: event.payload.numTurns,
+        beforeTurnId: removedTurnIds[0]!,
       });
     }
     yield* orchestrationEngine.dispatch({
@@ -3075,6 +3084,9 @@ const make = Effect.gen(function* () {
         new Error(`Cannot edit missing user message '${payload.messageId}'.`),
       );
     }
+    const failedBeforeProviderDispatch =
+      originalMessage.delivery?.state === "failed" &&
+      originalMessage.delivery.failurePhase === "before-provider-dispatch";
     const editTarget =
       payload.removedTurnIds !== undefined && payload.rollbackTurnCount !== undefined
         ? {
@@ -3103,10 +3115,22 @@ const make = Effect.gen(function* () {
         ),
       );
     }
-    if (options?.skipProviderRollback !== true && editTarget.rollbackTurnCount > 0) {
+    if (
+      options?.skipProviderRollback !== true &&
+      !failedBeforeProviderDispatch &&
+      editTarget.rollbackTurnCount > 0
+    ) {
       yield* rollbackProviderConversationForEdit({
         threadId: payload.threadId,
         numTurns: editTarget.rollbackTurnCount,
+        beforeTurnId: TurnId.makeUnsafe(editTarget.removedTurnIds[0]!),
+      });
+    }
+    if (failedBeforeProviderDispatch && editTarget.rollbackTurnCount > 0) {
+      yield* Effect.logInfo("message edit skipped provider rollback for undispatched attempt", {
+        threadId: payload.threadId,
+        messageId: payload.messageId,
+        deliverySequence: originalMessage.delivery?.sequence,
       });
     }
     yield* orchestrationEngine.dispatch({
@@ -3740,10 +3764,22 @@ const make = Effect.gen(function* () {
 
       const providerThread = yield* resolveProviderSessionThread(threadId);
       const providerThreadId = providerThread?.id ?? threadId;
+      const stopRuntimeSession = providerService.stopRuntimeSession;
+      if (!stopRuntimeSession) {
+        yield* Effect.logWarning(
+          "provider delivery recovery lacks a binding-preserving runtime stop",
+          {
+            threadId,
+            providerThreadId,
+          },
+        );
+        quarantinedThreads.add(threadId);
+        return null;
+      }
       const stopped = yield* runBoundedProviderCall({
         label: "The provider recovery stop",
         timeout: PROVIDER_COMMAND_STOP_TIMEOUT,
-        call: providerService.stopSession({ threadId: providerThreadId }),
+        call: stopRuntimeSession({ threadId: providerThreadId }),
       });
       if (stopped._tag !== "ok") {
         yield* Effect.logWarning("provider delivery recovery could not prove runtime stop", {
