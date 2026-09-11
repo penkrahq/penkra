@@ -34,6 +34,7 @@ import {
   type ComposerThreadDraftState,
   type DraftThreadState,
   type PendingStartRecovery,
+  type PendingMessageEdit,
   assistantSelectionDedupKey,
   buildDraftThreadState,
   buildTransferredComposerDraft,
@@ -1483,6 +1484,24 @@ export const createComposerDraftStoreState =
         );
       }
       return cleared;
+    },
+    setPendingMessageEdit: (threadId, edit: PendingMessageEdit | null) => {
+      if (threadId.length === 0) return;
+      set((state) => {
+        const current = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
+        if (
+          current.pendingMessageEdit?.messageId === edit?.messageId &&
+          current.pendingMessageEdit?.text === edit?.text &&
+          current.pendingMessageEdit?.priorDeliverySequence === edit?.priorDeliverySequence
+        ) {
+          return state;
+        }
+        const nextDraft = { ...current, pendingMessageEdit: edit };
+        const draftsByThreadId = { ...state.draftsByThreadId };
+        if (shouldRemoveDraft(nextDraft)) delete draftsByThreadId[threadId];
+        else draftsByThreadId[threadId] = nextDraft;
+        return { draftsByThreadId };
+      });
     },
     markQueuedTurnServerAccepted: (threadId, queuedTurnId, acceptedAt) => {
       if (threadId.length === 0 || queuedTurnId.length === 0) {

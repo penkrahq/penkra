@@ -46,6 +46,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           delivery_state,
           delivery_queued,
           delivery_sequence,
+          delivery_failure_phase,
+          delivery_failure_detail,
           is_streaming,
           applied_len,
           source,
@@ -67,6 +69,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           ${row.deliveryState ?? null},
           ${row.deliveryQueued === undefined ? null : row.deliveryQueued ? 1 : 0},
           ${row.deliverySequence ?? null},
+          ${row.deliveryFailurePhase ?? null},
+          ${row.deliveryFailureDetail ?? null},
           ${row.isStreaming ? 1 : 0},
           ${Buffer.byteLength(row.text, "utf8")},
           ${row.source},
@@ -123,6 +127,20 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
               THEN excluded.delivery_sequence
             ELSE projection_thread_messages.delivery_sequence
           END,
+          delivery_failure_phase = CASE
+            WHEN excluded.delivery_sequence IS NOT NULL
+              AND (projection_thread_messages.delivery_sequence IS NULL
+                OR excluded.delivery_sequence >= projection_thread_messages.delivery_sequence)
+              THEN excluded.delivery_failure_phase
+            ELSE projection_thread_messages.delivery_failure_phase
+          END,
+          delivery_failure_detail = CASE
+            WHEN excluded.delivery_sequence IS NOT NULL
+              AND (projection_thread_messages.delivery_sequence IS NULL
+                OR excluded.delivery_sequence >= projection_thread_messages.delivery_sequence)
+              THEN excluded.delivery_failure_detail
+            ELSE projection_thread_messages.delivery_failure_detail
+          END,
           is_streaming = excluded.is_streaming,
           applied_len = length(CAST(excluded.text AS BLOB)),
           source = excluded.source,
@@ -152,6 +170,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           delivery_state AS "deliveryState",
           delivery_queued AS "deliveryQueued",
           delivery_sequence AS "deliverySequence",
+          delivery_failure_phase AS "deliveryFailurePhase",
+          delivery_failure_detail AS "deliveryFailureDetail",
           is_streaming AS "isStreaming",
           source,
           sequence,
@@ -205,6 +225,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           delivery_state AS "deliveryState",
           delivery_queued AS "deliveryQueued",
           delivery_sequence AS "deliverySequence",
+          delivery_failure_phase AS "deliveryFailurePhase",
+          delivery_failure_detail AS "deliveryFailureDetail",
           is_streaming AS "isStreaming",
           source,
           sequence,

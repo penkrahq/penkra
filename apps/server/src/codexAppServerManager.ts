@@ -50,7 +50,10 @@ import type { AgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
 import type { AgentGatewayNativeToolSurface } from "./agentGateway/Services/AgentGatewayToolBridge.ts";
 import { isNonFatalCodexErrorMessage } from "./codexErrorClassification.ts";
 import { buildCodexProcessEnv } from "./codexProcessEnv.ts";
-import { assertCodexWorkingDirectoryExists } from "./codexWorkingDirectory.ts";
+import {
+  assertCodexWorkingDirectoryExists,
+  CodexWorkingDirectoryAccessError,
+} from "./codexWorkingDirectory.ts";
 import { executableIdentity, resolveExecutable } from "./executableLookup.ts";
 import {
   teardownChildProcessTree,
@@ -231,6 +234,19 @@ interface JsonRpcResponse {
 interface JsonRpcNotification {
   method: string;
   params?: unknown;
+}
+
+export class CodexJsonRpcResponseError extends Error {
+  readonly requestOutcome = "rejected" as const;
+
+  constructor(
+    readonly method: string,
+    readonly code: number | undefined,
+    message: string,
+  ) {
+    super(`${method} failed: ${message}`);
+    this.name = "CodexJsonRpcResponseError";
+  }
 }
 
 function shouldRetrySkillsListWithCwdFallback(error: unknown): boolean {
@@ -1900,7 +1916,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
-  async rollbackThread(threadId: ThreadId, numTurns: number): Promise<CodexThreadSnapshot> {
+  async revertThread(threadId: ThreadId, beforeTurnId: TurnId): Promise<CodexThreadSnapshot> {
     const context = this.requireSession(threadId);
     const providerThreadId = readResumeThreadId({
       threadId: context.session.threadId,
@@ -1910,19 +1926,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!providerThreadId) {
       throw new Error("Session is missing a provider resume thread id.");
     }
-    if (!Number.isInteger(numTurns) || numTurns < 1) {
-      throw new Error("numTurns must be an integer >= 1.");
-    }
-
-    const response = await this.sendRequest(context, "thread/rollback", {
+    const response = await this.sendRequest(context, "thread/revert", {
       threadId: providerThreadId,
-      numTurns,
+      beforeTurnId,
     });
     this.updateSession(context, {
       status: "ready",
       activeTurnId: undefined,
     });
-    return this.parseThreadSnapshot("thread/rollback", response);
+    return this.parseThreadSnapshot("thread/revert", response);
   }
 
   async compactThread(threadId: ThreadId): Promise<void> {
@@ -3424,7 +3436,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context.pending.delete(key);
 
     if (response.error?.message) {
-      pending.reject(new Error(`${pending.method} failed: ${String(response.error.message)}`));
+      pending.reject(
+        new CodexJsonRpcResponseError(
+          pending.method,
+          response.error.code,
+          String(response.error.message),
+        ),
+      );
       return;
     }
 
@@ -4241,7 +4259,19 @@ async function assertSupportedCodexCliVersion(input: {
   // Prefer an explicit cwd check before spawning. A missing working directory
   // produces ENOENT that is otherwise misreported as a missing Codex binary. This
   // is per-call state, so it must run even when the version verdict is cached.
-  assertCodexWorkingDirectoryExists(input.cwd);
+  try {
+    assertCodexWorkingDirectoryExists(input.cwd);
+  } catch (error) {
+    if (error instanceof CodexWorkingDirectoryAccessError) {
+      log.error("Codex workspace access preflight failed", {
+        cwd: error.cwd,
+        phase: error.phase,
+        osErrorCode: error.osErrorCode,
+        failurePhase: "before-provider-dispatch",
+      });
+    }
+    throw error;
+  }
 
   const key = codexCliVersionGateKey(input.binaryPath, input.homePath);
   const now = Date.now();

@@ -140,6 +140,12 @@ export interface UnknownPendingStartRecovery {
 
 export type PendingStartRecoveryRecord = PendingStartRecovery | UnknownPendingStartRecovery;
 
+export interface PendingMessageEdit {
+  messageId: MessageId;
+  text: string;
+  priorDeliverySequence: number;
+}
+
 export interface ComposerThreadDraftState {
   prompt: string;
   appliedVoiceJobIds?: string[] | undefined;
@@ -160,6 +166,7 @@ export interface ComposerThreadDraftState {
   mentions: ProviderMentionReference[];
   queuedTurns: QueuedComposerTurn[];
   pendingStartRecoveriesByMessageId?: Partial<Record<MessageId, PendingStartRecoveryRecord>>;
+  pendingMessageEdit: PendingMessageEdit | null;
   queuePaused: boolean;
   modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
   activeProvider: ProviderKind | null;
@@ -302,6 +309,7 @@ export interface ComposerDraftStoreState {
     recovery: PendingStartRecovery,
   ) => boolean;
   clearPendingStartRecovery: (threadId: ThreadId, messageId: MessageId) => boolean;
+  setPendingMessageEdit: (threadId: ThreadId, edit: PendingMessageEdit | null) => void;
   markQueuedTurnServerAccepted: (
     threadId: ThreadId,
     queuedTurnId: string,
@@ -480,6 +488,7 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
     mentions: [],
     queuedTurns: [],
     pendingStartRecoveriesByMessageId: {},
+    pendingMessageEdit: null,
     queuePaused: false,
     modelSelectionByProvider: {},
     activeProvider: null,
@@ -774,6 +783,7 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.mentions.length === 0 &&
     draft.queuedTurns.length === 0 &&
     Object.keys(draft.pendingStartRecoveriesByMessageId ?? {}).length === 0 &&
+    draft.pendingMessageEdit === null &&
     !draft.queuePaused &&
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
@@ -824,6 +834,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   mentions: EMPTY_MENTIONS,
   queuedTurns: EMPTY_QUEUED_TURNS,
   pendingStartRecoveriesByMessageId: {},
+  pendingMessageEdit: null,
   queuePaused: false,
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
   activeProvider: null,

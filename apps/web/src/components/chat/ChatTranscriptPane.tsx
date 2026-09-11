@@ -72,6 +72,10 @@ interface ChatTranscriptPaneProps {
   onOpenAgentActivity?: ComponentProps<typeof MessagesTimeline>["onOpenAgentActivity"];
   onOpenThread: (threadId: ThreadId) => void;
   onEditUserMessage?: (messageId: MessageId, text: string) => boolean | Promise<boolean>;
+  pendingEditedUserMessage?: ComponentProps<typeof MessagesTimeline>["pendingEditedUserMessage"];
+  onClearPendingEditedUserMessage?: ComponentProps<
+    typeof MessagesTimeline
+  >["onClearPendingEditedUserMessage"];
   onScrollToBottom: () => void;
   onToggleWorkGroup?: (groupId: string) => void;
   resolvedTheme: "light" | "dark";
@@ -119,6 +123,8 @@ function ChatTranscriptPaneImpl({
   onOpenAgentActivity,
   onOpenThread,
   onEditUserMessage,
+  pendingEditedUserMessage,
+  onClearPendingEditedUserMessage,
   onScrollToBottom,
   onToggleWorkGroup,
   resolvedTheme,
@@ -256,6 +262,8 @@ function ChatTranscriptPaneImpl({
             onOpenThread={onOpenThread}
             {...(subagentToolTraceByThreadId ? { subagentToolTraceByThreadId } : {})}
             {...(onEditUserMessage ? { onEditUserMessage } : {})}
+            {...(pendingEditedUserMessage !== undefined ? { pendingEditedUserMessage } : {})}
+            {...(onClearPendingEditedUserMessage ? { onClearPendingEditedUserMessage } : {})}
             onImageExpand={onExpandTimelineImage}
             onIsAtEndChange={onIsAtEndChange}
             onMessagesScroll={onMessagesScroll}
