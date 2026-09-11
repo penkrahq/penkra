@@ -686,7 +686,9 @@ async function requestAppThreadOperation(
       });
     }
   }
-  const targetWindow = resolveShellWindow();
+  const targetSurfaceId = runtime.appTabs.activeSurfaceId(identity.tabId);
+  const targetWindow =
+    shellWindowRegistry.windowForWebContentsId(targetSurfaceId) ?? resolveShellWindow();
   if (!targetWindow) throw new Error("The Penkra shell is unavailable.");
   const base = {
     id: Crypto.randomUUID(),
@@ -1236,6 +1238,7 @@ let restoreStdIoCapture: (() => void) | null = null;
 let unreadBackgroundNotificationCount = 0;
 let browserPerfInterval: ReturnType<typeof setInterval> | null = null;
 let appTabObserver: AppTabObserver | null = null;
+let appHostedBrowserObserver: AppTabObserver | null = null;
 const browserManager = new DesktopBrowserManager({
   beforeInputEvent: (event, input) => {
     if (
@@ -1269,7 +1272,6 @@ const browserManager = new DesktopBrowserManager({
   },
 });
 let appCommandPipeServer: AppCommandPipeServer | null = null;
-const appBrowserTrackedRendererIds = new Set<number>();
 const appBrowserOwnerByTabId = new Map<string, { appId: string; spaceId: string }>();
 const appBrowserSurfaceInsetsByTabId = new AppBrowserSurfaceInsetStore();
 const appBrowserSurfaceIdsByTabId = new Map<string, Set<number>>();
@@ -1599,6 +1601,23 @@ async function invokeRuntimeV2BrowserCall(input: {
   await browserManager.prepareExtensions(browserSessionId);
   configureAppBrowserDownloads(input.tabId, input.appId, input.spaceId);
   const state = () => toAppBrowserState(browserManager.getState({ threadId: browserSessionId }));
+  const hostedOperation = () => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Browser operation input is required.");
+    }
+    const record = value as Record<string, unknown>;
+    if (typeof record.pageId !== "string" || !record.pageId) {
+      throw new Error("Browser operation pageId is required.");
+    }
+    const current = state();
+    if (current.activePageId !== record.pageId) {
+      throw Object.assign(new Error("Browser operations require the visible active page."), {
+        code: "BROWSER_PAGE_NOT_ACTIVE",
+      });
+    }
+    if (!appHostedBrowserObserver) throw new Error("Hosted browser observation is not ready.");
+    return { record, observer: appHostedBrowserObserver };
+  };
   const pageId = () => {
     if (typeof value !== "string" || !value) throw new Error("Browser page ID is required.");
     return value;
@@ -1718,31 +1737,58 @@ async function invokeRuntimeV2BrowserCall(input: {
       });
       return;
     }
-    case "find": {
-      if (!value || typeof value !== "object" || Array.isArray(value)) {
-        throw new Error("Browser find input is required.");
-      }
-      const record = value as Record<string, unknown>;
-      if (typeof record.pageId !== "string" || typeof record.text !== "string") {
-        throw new Error("Browser find requires pageId and text.");
-      }
-      const action = record.action;
-      if (action !== undefined && !["search", "next", "previous"].includes(String(action))) {
-        throw new Error("Browser find action is invalid.");
-      }
-      return browserManager.findInPage({
-        threadId: browserSessionId,
-        tabId: record.pageId,
-        text: record.text,
-        action: (action ?? "search") as "search" | "next" | "previous",
+    case "snapshot": {
+      const { record, observer } = hostedOperation();
+      return observer.snapshot(input.tabId, {
+        ...(typeof record.target === "string" ? { target: record.target } : {}),
+        ...(typeof record.depth === "number" ? { depth: record.depth } : {}),
+        ...(typeof record.boxes === "boolean" ? { boxes: record.boxes } : {}),
       });
     }
-    case "stopFind":
-      browserManager.stopFindInPage({
-        threadId: browserSessionId,
-        tabId: pageId(),
-      });
-      return;
+    case "find": {
+      const { record, observer } = hostedOperation();
+      if (typeof record.query !== "string") throw new Error("Browser find query is required.");
+      return observer.find(input.tabId, record.query);
+    }
+    case "click":
+    case "hover": {
+      const { record, observer } = hostedOperation();
+      if (typeof record.ref !== "string")
+        throw new Error(`Browser ${input.method} ref is required.`);
+      return observer[input.method](input.tabId, record.ref, record.observe === true);
+    }
+    case "type": {
+      const { record, observer } = hostedOperation();
+      if (typeof record.ref !== "string" || typeof record.text !== "string")
+        throw new Error("Browser type requires ref and text.");
+      return observer.type(input.tabId, record.ref, record.text, record.observe === true);
+    }
+    case "press": {
+      const { record, observer } = hostedOperation();
+      if (typeof record.key !== "string") throw new Error("Browser press key is required.");
+      return observer.press(input.tabId, record.key, record.observe === true);
+    }
+    case "select": {
+      const { record, observer } = hostedOperation();
+      if (typeof record.ref !== "string" || typeof record.value !== "string")
+        throw new Error("Browser select requires ref and value.");
+      return observer.select(input.tabId, record.ref, record.value, record.observe === true);
+    }
+    case "scroll": {
+      const { record, observer } = hostedOperation();
+      if (typeof record.deltaX !== "number" || typeof record.deltaY !== "number")
+        throw new Error("Browser scroll requires deltaX and deltaY.");
+      return observer.scroll(input.tabId, record.deltaX, record.deltaY, record.observe === true);
+    }
+    case "wait": {
+      const { record, observer } = hostedOperation();
+      if (typeof record.text !== "string") throw new Error("Browser wait text is required.");
+      return observer.wait(
+        input.tabId,
+        record.text,
+        typeof record.timeoutMs === "number" ? record.timeoutMs : 5_000,
+      );
+    }
     case "capture": {
       const result = await browserManager.captureScreenshot({
         threadId: browserSessionId,
@@ -1786,8 +1832,17 @@ async function invokeRuntimeV2BrowserCall(input: {
       }
       return result.result?.value ?? null;
     }
-    case "upload":
-      return uploadAppBrowserFiles(input);
+    case "upload": {
+      const { record, observer } = hostedOperation();
+      if (
+        typeof record.ref !== "string" ||
+        !Array.isArray(record.paths) ||
+        record.paths.some((path) => typeof path !== "string")
+      ) {
+        throw new Error("Browser upload requires ref and App-storage paths.");
+      }
+      return observer.upload(input.tabId, record.ref, record.paths as string[]);
+    }
     default:
       throw new Error(`Unsupported browser method: ${input.method}.`);
   }
@@ -5545,15 +5600,10 @@ function registerIpcHandlers(): void {
     if (typeof method !== "string") throw new Error("Browser call method is required.");
     if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
     const browserSessionId = identity.tabId as ThreadId;
-    if (!appBrowserTrackedRendererIds.has(event.sender.id)) {
-      appBrowserTrackedRendererIds.add(event.sender.id);
-      event.sender.once("destroyed", () => {
-        appBrowserTrackedRendererIds.delete(event.sender.id);
-        if (browserManager.hasSession(browserSessionId)) {
-          browserManager.close({ threadId: browserSessionId });
-        }
-      });
-    }
+    // The hosted session belongs to the logical App tab. App renderer generations are
+    // replaced during sideloads and shell reloads, so destroying one generation must
+    // not close the browser that its successor still owns. retireAppTabAuthority closes
+    // the session when the logical tab itself is closed.
     browserManager.setSessionPartition(
       browserSessionId,
       createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
@@ -6825,8 +6875,15 @@ function registerIpcHandlers(): void {
       case "browser.closePage":
       case "browser.selectPage":
       case "browser.openExtensionAction":
+      case "browser.snapshot":
       case "browser.find":
-      case "browser.stopFind":
+      case "browser.click":
+      case "browser.hover":
+      case "browser.type":
+      case "browser.press":
+      case "browser.select":
+      case "browser.scroll":
+      case "browser.wait":
       case "browser.capture":
       case "browser.evaluate": {
         const permission = queryAppPermission(
@@ -7140,11 +7197,8 @@ function registerIpcHandlers(): void {
       case "apps.open": {
         requireAppsFrame();
         const request = parseOpenAppFromAppsRequest(value);
-        return runtime.appTabs.openInstalled({
+        return runtime.appTabs.openInstalledFromRenderer(rendererId, {
           appId: request.appId,
-          spaceId: identity.spaceId,
-          threadId: identity.threadId,
-          route: "/",
         });
       }
       default:
@@ -8519,6 +8573,29 @@ async function bootstrap(): Promise<void> {
         browserWebContents: (appTabId) =>
           browserManager.observationWebContents(appTabId as ThreadId),
       });
+    },
+    validateUploadPaths: async (descriptor, paths) => {
+      if (!appStorage) throw new Error("App storage is unavailable.");
+      return Promise.all(
+        paths.map((path) =>
+          appStorage!.resolveFile({ appId: descriptor.appId, spaceId: descriptor.spaceId }, path),
+        ),
+      );
+    },
+  });
+  appHostedBrowserObserver = new AppTabObserver({
+    resolve: async (tabId) => {
+      const descriptor = desktopAppRuntime!.appTabs
+        .list()
+        .find((candidate) => candidate.id === tabId);
+      if (!descriptor) throw new Error(`App tab ${tabId} is unavailable.`);
+      const webContents = await browserManager.observationWebContents(tabId as ThreadId);
+      if (!webContents) {
+        throw Object.assign(new Error("The App's hosted browser page is not available."), {
+          code: "BROWSER_SESSION_NOT_OPEN",
+        });
+      }
+      return { descriptor, webContents };
     },
     validateUploadPaths: async (descriptor, paths) => {
       if (!appStorage) throw new Error("App storage is unavailable.");
