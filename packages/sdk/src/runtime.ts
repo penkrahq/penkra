@@ -141,11 +141,6 @@ export interface AppBrowserDownloadEvent {
   error?: string;
 }
 
-export interface AppBrowserFindResult {
-  activeMatchOrdinal: number;
-  matches: number;
-}
-
 /** Stable App-local edges for a host-owned surface that fills the remaining viewport. */
 export interface AppHostedSurfaceInsets {
   top: number;
@@ -411,19 +406,33 @@ export interface PenkraTabRuntimeApi {
     closePage(pageId: string): Promise<AppBrowserSessionState>;
     selectPage(pageId: string): Promise<AppBrowserSessionState>;
     openExtensionAction(input: { extensionId: string; pageId: string }): Promise<void>;
-    find(input: {
+    snapshot(input: {
       pageId: string;
-      text: string;
-      action?: "search" | "next" | "previous";
-    }): Promise<AppBrowserFindResult>;
-    stopFind(pageId: string): Promise<void>;
+      target?: string;
+      depth?: number;
+      boxes?: boolean;
+    }): Promise<unknown>;
+    find(input: { pageId: string; query: string }): Promise<unknown>;
+    click(input: { pageId: string; ref: string; observe?: boolean }): Promise<unknown>;
+    hover(input: { pageId: string; ref: string; observe?: boolean }): Promise<unknown>;
+    type(input: { pageId: string; ref: string; text: string; observe?: boolean }): Promise<unknown>;
+    press(input: { pageId: string; key: string; observe?: boolean }): Promise<unknown>;
+    select(input: {
+      pageId: string;
+      ref: string;
+      value: string;
+      observe?: boolean;
+    }): Promise<unknown>;
+    scroll(input: {
+      pageId: string;
+      deltaX: number;
+      deltaY: number;
+      observe?: boolean;
+    }): Promise<unknown>;
+    wait(input: { pageId: string; text: string; timeoutMs?: number }): Promise<unknown>;
     capture(pageId: string): Promise<{ dataUrl: string }>;
     evaluate(input: { pageId: string; expression: string }): Promise<unknown>;
-    upload(input: {
-      pageId: string;
-      selector: string;
-      paths: ReadonlyArray<string>;
-    }): Promise<{ uploaded: number }>;
+    upload(input: { pageId: string; ref: string; paths: ReadonlyArray<string> }): Promise<unknown>;
   };
   /** Visual-tab only. The App owns simulator chrome; Penkra owns native lifecycle. */
   simulator: {
@@ -653,8 +662,15 @@ export const browser: PenkraTabRuntimeApi["browser"] = {
   closePage: (pageId) => runtime().browser.closePage(pageId),
   selectPage: (pageId) => runtime().browser.selectPage(pageId),
   openExtensionAction: (input) => runtime().browser.openExtensionAction(input),
+  snapshot: (input) => runtime().browser.snapshot(input),
   find: (input) => runtime().browser.find(input),
-  stopFind: (pageId) => runtime().browser.stopFind(pageId),
+  click: (input) => runtime().browser.click(input),
+  hover: (input) => runtime().browser.hover(input),
+  type: (input) => runtime().browser.type(input),
+  press: (input) => runtime().browser.press(input),
+  select: (input) => runtime().browser.select(input),
+  scroll: (input) => runtime().browser.scroll(input),
+  wait: (input) => runtime().browser.wait(input),
   capture: (pageId) => runtime().browser.capture(pageId),
   evaluate: (input) => runtime().browser.evaluate(input),
   upload: (input) => runtime().browser.upload(input),

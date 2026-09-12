@@ -651,6 +651,11 @@ describe("ElectronAppTabHost", () => {
       route: "/",
       status: "loading",
     });
+    const reopened = await host.openInstalledFromRenderer(renderer.rendererId, {
+      appId: target.appId,
+    });
+    expect(reopened.id).toBe(descriptor.id);
+    expect(host.list().filter((tab) => tab.appId === target.appId)).toHaveLength(1);
     await expect(host.openInstalledFromRenderer(999, { appId: target.appId })).rejects.toThrow(
       "originating App tab is unavailable",
     );
