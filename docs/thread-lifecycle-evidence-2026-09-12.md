@@ -39,28 +39,21 @@ failures retain their existing classification. The reactor preserves submitted a
 failure activity and does not manufacture a successful provider response. The complete provider
 service and command-reactor suites pass 205 tests.
 
-## Expired-question recovery
+## Expired-question retirement
 
-The composer distinguishes expired questions from actionable requests. “Review follow-up” puts
-the original question and available answer into the composer for review. It does not send a turn
-or respond to the dead request. Existing draft text is preserved. Missing answers are visibly
-marked for the user to supply. New request generations do not inherit old recovery content.
+Expired questions are removed from the actionable request set while the failed response and its
+submitted answers remain in durable activity evidence. The composer stays available without a
+dedicated recovery card or an action that rewrites the user's draft into a synthetic follow-up.
+New request generations do not inherit old failure evidence.
 
-Thirty pending-input and recovery unit tests pass. A real-browser test verifies retained draft
-text, the question–answer content, and zero turn-start or question-response commands after review.
-The browser run also rechecked the six delayed-admission media cases and the frame-sampled
-message-order control: eight tests passed.
+The pending-input and recovery unit matrix verifies lifecycle-generation isolation and retained
+failure evidence. A real-browser test verifies that the ordinary composer remains unchanged and
+that expired evidence adds no recovery control or turn/question-response command.
 
-Native QA used isolated Dev2, renderer port 5734, with its own backend and state root. A real
-Claude Sonnet question in Thread `0bb85d7c-5435-4d73-8a0b-21ec4b77431b` was pending at
-05:24:07.159Z. Only Dev2 was quit, through its UI. After reopening the rebuilt instance, the old
-options were gone, “Question expired” was visible, and the composer was available. Reviewing the
-follow-up left backend sequence 8162 unchanged and pending interactions empty. A subsequent
-explicit user turn received a completed workshop schedule.
-
-An automation error during that QA typed a newline as Enter and submitted the question line
-before the answer. The state was inspected before continuing; the complete answer was then
-submitted explicitly. This is not evidence of an automatic-send defect in the recovery button.
+The initial native QA correctly proved that the expired request options disappeared and the
+composer became available after restart. It also exposed a dedicated “Question expired” recovery
+card that had not gone through product approval; that surface and its draft-rewriting action were
+subsequently removed while the lifecycle correction and diagnostic evidence were retained.
 
 Production main/backend 53985/54036 and Dev1 main/backend 77230/77233 remained unchanged during
 this native QA. Inspecting an already-closed Dev2 through the computer-use handle launched an
