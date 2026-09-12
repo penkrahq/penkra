@@ -6,8 +6,83 @@ import {
 } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
-import { derivePendingApprovals, derivePendingUserInputs } from "./pendingInteractionDerivation";
+import {
+  deriveExpiredUserInputs,
+  derivePendingApprovals,
+  derivePendingUserInputs,
+} from "./pendingInteractionDerivation";
 import { makeActivity } from "./storeTestFixtures";
+
+describe("expired question recovery", () => {
+  const request = makeActivity({
+    id: "question",
+    kind: "user-input.requested",
+    createdAt: "2026-09-12T00:00:00.000Z",
+    payload: {
+      requestId: "request",
+      lifecycleGeneration: "old",
+      questions: [
+        {
+          id: "format",
+          header: "Format",
+          question: "Which format?",
+          options: [{ label: "Guide", description: "A guide" }],
+        },
+      ],
+    },
+  });
+  const failed = makeActivity({
+    id: "failed",
+    kind: "provider.user-input.respond.failed",
+    createdAt: "2026-09-12T00:01:00.000Z",
+    payload: {
+      requestId: "request",
+      lifecycleGeneration: "old",
+      settlementStatus: "retryable",
+      answers: { format: "Guide" },
+    },
+  });
+  const expired = makeActivity({
+    id: "expired",
+    kind: "provider.user-input.respond.failed",
+    createdAt: "2026-09-12T00:02:00.000Z",
+    payload: { requestId: "request", failureCode: "PENDING_INTERACTION_NOT_FOUND" },
+  });
+  it("retains the submitted answer when restart expires a request without a generation field", () => {
+    expect(deriveExpiredUserInputs([request, failed, expired])).toMatchObject([
+      { requestId: "request", lifecycleGeneration: "old", answers: { format: "Guide" } },
+    ]);
+    expect(derivePendingUserInputs([request, failed, expired])).toEqual([]);
+  });
+  it("does not offer follow-up recovery for a retryable delivery failure", () => {
+    expect(deriveExpiredUserInputs([request, failed])).toEqual([]);
+    expect(derivePendingUserInputs([request, failed])).toHaveLength(1);
+  });
+  it("does not attach a stale-generation failure to a replacement question", () => {
+    const replacement = {
+      ...request,
+      payload: { ...(request.payload as object), lifecycleGeneration: "new" },
+    };
+    const oldFailure = {
+      ...expired,
+      payload: { ...(expired.payload as object), lifecycleGeneration: "old" },
+    };
+    expect(deriveExpiredUserInputs([replacement, oldFailure])).toEqual([]);
+  });
+  it("retires old recovery content when a newer generation reuses the request id", () => {
+    const replacement = {
+      ...request,
+      createdAt: "2026-09-12T00:03:00.000Z",
+      payload: { ...(request.payload as object), lifecycleGeneration: "new" },
+    };
+    const lateOldFailure = {
+      ...expired,
+      createdAt: "2026-09-12T00:04:00.000Z",
+      payload: { ...(request.payload as object), failureCode: "PENDING_INTERACTION_NOT_FOUND" },
+    };
+    expect(deriveExpiredUserInputs([request, expired, replacement, lateOldFailure])).toEqual([]);
+  });
+});
 
 function makePendingInteraction(
   interactionKind: OrchestrationPendingInteraction["interactionKind"],

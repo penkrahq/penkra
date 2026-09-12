@@ -32,6 +32,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { mergeCodexQuotaFacts } from "../../providerUsage/codexQuotaBuckets.ts";
 import { makeDrainableWorker, startDrainableWorkerProducers } from "@penkra/shared/DrainableWorker";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
+import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 import {
   buildSubagentIdentityDirectory,
   collectSubagentProviderThreadIds,
@@ -80,6 +81,7 @@ import {
   readableReasoningDetail,
   runtimePayloadRecord,
   runtimeTurnState,
+  toActivityPayload,
 } from "../providerRuntimeActivityProjection.ts";
 
 // FILE: ProviderRuntimeIngestion.ts
@@ -2512,6 +2514,62 @@ const make = Effect.gen(function* () {
         });
       }
       yield* commitCanonical(canonicalActivityEvent);
+      // Startup settles projected requests before consuming the runtime journal.
+      // A request first projected by that replay must not outlive its owner.
+      // Keep the original event in the journal and its question in the expiry activity.
+      // Never project an obsolete request over a successor that reused its ID.
+      if (
+        (event.type === "user-input.requested" || event.type === "request.opened") &&
+        event.requestId !== undefined
+      ) {
+        const owner = yield* providerSessionRuntimes.getByThreadId({ threadId: event.threadId });
+        const generationChanged =
+          event.lifecycleGeneration !== undefined &&
+          Option.isSome(owner) &&
+          owner.value.lifecycleGeneration !== event.lifecycleGeneration;
+        const sessionRetired =
+          parentThread.session?.activeTurnId == null &&
+          (parentThread.session?.status === "interrupted" ||
+            parentThread.session?.status === "stopped" ||
+            parentThread.session?.status === "error") &&
+          (Option.isNone(owner) ||
+            owner.value.status === "stopped" ||
+            owner.value.status === "error");
+        if (generationChanged || sessionRetired) {
+          const expiredAt =
+            parentThread.session && parentThread.session.updatedAt > event.createdAt
+              ? parentThread.session.updatedAt
+              : event.createdAt;
+          const isQuestion = event.type === "user-input.requested";
+          yield* dispatchProviderCommandOnce({
+            type: "thread.activity.append",
+            commandId: providerCommandId(event, "expire-retired-request", thread.id),
+            threadId: thread.id,
+            activity: {
+              id: EventId.makeUnsafe(`${event.eventId}:expired`),
+              kind: isQuestion
+                ? "provider.user-input.respond.failed"
+                : "provider.approval.respond.failed",
+              tone: "info",
+              summary: isQuestion ? "Question expired" : "Approval expired",
+              payload: toActivityPayload({
+                requestId: event.requestId,
+                ...(event.lifecycleGeneration === undefined
+                  ? {}
+                  : { lifecycleGeneration: event.lifecycleGeneration }),
+                failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
+                detail: "This request expired because its provider session is no longer available.",
+                ...(isQuestion ? { questions: event.payload.questions } : {}),
+              }),
+              turnId: event.turnId ?? null,
+              createdAt: expiredAt,
+            },
+            createdAt: expiredAt,
+          });
+          return;
+        }
+      }
+
       yield* Effect.forEach(projectProviderRuntimeActivities(activityEvent), (activity) =>
         canonicalOperationMaterialized || canonicalNoticeMaterialized
           ? Effect.void

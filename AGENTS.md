@@ -35,6 +35,37 @@ boundary.
 - See `docs/README.md` for the documentation map. Never use internal desktop flavor as shorthand for
   registry environment; report the configured account-service target directly.
 
+## Bug Investigation and Reproduction
+
+- Start every reported bug with a concrete reproduction strategy. Explain the trigger, the
+  observable failure, the evidence to capture, and how the same scenario will be checked before
+  and after a fix. Force intermittent failures with controlled timing, delayed acknowledgements,
+  reconnects, restarts, or other relevant conditions instead of testing only the settled state.
+- Do not implement a behavioral fix until a failing reproduction demonstrates the defect.
+  Diagnostic logging, observability, and reproduction harnesses may be added first. If the
+  original occurrence cannot yet be explained, distinguish a reproduced matching mechanism from
+  proof of its historical cause; do not call an unreproduced symptom fixed.
+- Ground the investigation in the actual app, build, process, numbered instance, window, Thread,
+  provider, and connection. Inspect relevant code, dependencies, commits, prior fixes, and
+  release/deployment status before selecting a root fix. Preserve existing invariants and identify
+  regression risks explicitly.
+- Establish the scope and a relevant case matrix: providers, environments, windows/instances,
+  fresh versus restored state, lifecycle phases, concurrency, and failure/recovery paths.
+  Exercise both the failing case and adjacent unaffected cases. Explain exclusions rather than
+  silently assuming one provider or environment represents all others.
+- Add enough correlated observability to reconstruct intermittent failures: instance/window,
+  Thread/message/turn/command identifiers, monotonic timing, event sequence, lifecycle transitions,
+  and acknowledgement/failure outcomes. For visual bugs, capture intermediate frames and row
+  geometry/order, not only screenshots or assertions after settlement. Keep capture bounded and
+  local by default, exclude credentials, and measure instrumentation overhead.
+- Discuss architecture or product forks before implementing a consequential design choice.
+  Research primary sources when behavior is delicate, unfamiliar, or dependency-sensitive,
+  especially Thread lifecycle and provider integration. Ask the user focused questions when
+  their observations or preferences can resolve uncertainty; continue independent investigation.
+- Verify the same failing reproduction passes after the fix, then run the relevant regression
+  matrix and required desktop QA. Record what was reproduced, what changed, and what remains
+  unproven. A passing test that never failed on the original behavior is not reproduction evidence.
+
 ## Task Completion Requirements
 
 - Before committing changes or declaring a task complete, start a fresh Penkra Dev instance and perform manual QA in the desktop app for the affected user flows. Automated tests, builds, browser-only checks, or inspecting an already-running instance do not replace this requirement.
