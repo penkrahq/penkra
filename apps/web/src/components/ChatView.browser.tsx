@@ -2285,7 +2285,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("reviews an expired answer as a follow-up without sending or replacing the draft", async () => {
+  it("does not add a recovery product surface for expired question evidence", async () => {
     const source = createSnapshotForTargetUser({
       targetMessageId: MessageId.makeUnsafe("expired-question-user"),
       targetText: "Help me choose a format",
@@ -2342,12 +2342,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       const editor = await waitForComposerEditor();
       await userEvent.type(editor, "Keep the existing examples.");
-      await page.getByRole("button", { name: "Review follow-up" }).click();
-      await vi.waitFor(() => {
-        expect(editor.textContent).toContain("Keep the existing examples.");
-        expect(editor.textContent).toContain("In response to your earlier question: Which format?");
-        expect(editor.textContent).toContain("My answer: Guide");
-      });
+      expect(editor.textContent).toBe("Keep the existing examples.");
+      expect(document.body.textContent).not.toContain(
+        "Its provider session is no longer available. You can review the question and your answer as a new message.",
+      );
+      expect(page.getByRole("button", { name: "Review follow-up" }).query()).toBeNull();
       expect(
         wsRequests
           .map(readDispatchedCommand)
@@ -2357,11 +2356,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
               command?.type === "thread.user-input.respond",
           ),
       ).toEqual([]);
-      expect(
-        [...document.querySelectorAll("button")].some(
-          (button) => button.textContent === "Review follow-up",
-        ),
-      ).toBe(false);
     } finally {
       await mounted.cleanup();
     }
