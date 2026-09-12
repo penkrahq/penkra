@@ -2285,6 +2285,88 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("reviews an expired answer as a follow-up without sending or replacing the draft", async () => {
+    const source = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("expired-question-user"),
+      targetText: "Help me choose a format",
+      sessionStatus: "interrupted",
+    });
+    const requestedAt = new Date(BASE_TIME_MS + 300_000).toISOString();
+    const expiredAt = new Date(BASE_TIME_MS + 301_000).toISOString();
+    const snapshot = {
+      ...source,
+      snapshotSequence: 3,
+      threads: source.threads.map((thread) => ({
+        ...thread,
+        activities: [
+          {
+            id: EventId.makeUnsafe("question-to-recover"),
+            kind: "user-input.requested",
+            summary: "Question",
+            tone: "info" as const,
+            turnId: null,
+            sequence: 2,
+            createdAt: requestedAt,
+            payload: {
+              requestId: "expired-question",
+              lifecycleGeneration: "retired",
+              questions: [
+                {
+                  id: "format",
+                  header: "Format",
+                  question: "Which format?",
+                  options: [{ label: "Guide", description: "A guide" }],
+                },
+              ],
+            },
+          },
+          {
+            id: EventId.makeUnsafe("question-expired"),
+            kind: "provider.user-input.respond.failed",
+            summary: "Question expired",
+            tone: "info" as const,
+            turnId: null,
+            sequence: 3,
+            createdAt: expiredAt,
+            payload: {
+              requestId: "expired-question",
+              lifecycleGeneration: "retired",
+              failureCode: "PENDING_INTERACTION_NOT_FOUND",
+              answers: { format: "Guide" },
+            },
+          },
+        ],
+      })),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      const editor = await waitForComposerEditor();
+      await userEvent.type(editor, "Keep the existing examples.");
+      await page.getByRole("button", { name: "Review follow-up" }).click();
+      await vi.waitFor(() => {
+        expect(editor.textContent).toContain("Keep the existing examples.");
+        expect(editor.textContent).toContain("In response to your earlier question: Which format?");
+        expect(editor.textContent).toContain("My answer: Guide");
+      });
+      expect(
+        wsRequests
+          .map(readDispatchedCommand)
+          .filter(
+            (command) =>
+              command?.type === "thread.turn.start" ||
+              command?.type === "thread.user-input.respond",
+          ),
+      ).toEqual([]);
+      expect(
+        [...document.querySelectorAll("button")].some(
+          (button) => button.textContent === "Review follow-up",
+        ),
+      ).toBe(false);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps the composer visible while a long assistant response forces a viewport relayout", async () => {
     const mounted = await mountChatView({
       viewport: TEXT_VIEWPORT_MATRIX[0],
@@ -2340,6 +2422,56 @@ describe("ChatView timeline estimator parity (full app)", () => {
     } finally {
       attachmentResponseDelayMs = 0;
       await mounted.cleanup();
+    }
+  });
+
+  it("keeps a newly submitted bubble below the previous user message on every sampled frame", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    const previousId = "msg-user-order-before-cool" as MessageId;
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-order-history" as MessageId,
+      targetText: "Earlier question",
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...snapshot,
+        threads: snapshot.threads.map((thread) => ({
+          ...thread,
+          messages: thread.messages.map((message, index) =>
+            index === thread.messages.length - 2
+              ? { ...message, id: previousId, text: "What was the reason?" }
+              : message,
+          ),
+        })),
+      },
+    });
+    const samples: Array<{ previousTop: number; newTop: number }> = [];
+    let sampling = true;
+    const sample = () => {
+      if (!sampling) return;
+      const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-row-key]"));
+      const previous = rows.find((row) => row.dataset.rowKey === previousId);
+      const submitted = rows.find((row) => row.textContent?.includes("Cool ordering probe"));
+      if (previous && submitted) {
+        samples.push({
+          previousTop: previous.getBoundingClientRect().top,
+          newTop: submitted.getBoundingClientRect().top,
+        });
+      }
+      requestAnimationFrame(sample);
+    };
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "Cool ordering probe");
+      const sendButton = await waitForSendButton();
+      requestAnimationFrame(sample);
+      sendButton.click();
+      await vi.waitFor(() => expect(samples.length).toBeGreaterThan(20), { timeout: 8_000 });
+      expect(samples.filter((value) => value.newTop < value.previousTop)).toEqual([]);
+    } finally {
+      sampling = false;
+      await mounted.cleanup();
+      restoreNativeApi();
     }
   });
 
@@ -6848,6 +6980,120 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it.each([
+    { provider: "codex", model: "gpt-5" },
+    { provider: "claudeAgent", model: "claude-opus-4-6" },
+    { provider: "opencode", model: "opencode/deepseek-v4-flash-free" },
+  ] as const)(
+    "steers a queued follow-up restored from the server without a local draft ($provider)",
+    async (modelSelection) => {
+      const messageId = "msg-restored-server-steer" as MessageId;
+      const prompt = "Restore the subtle glow around the selected piece";
+      const base = createSnapshotForTargetUser({
+        targetMessageId: "msg-restored-steer-running" as MessageId,
+        targetText: "Continue implementing the game",
+        sessionStatus: "running",
+      });
+      const snapshot = {
+        ...base,
+        threads: base.threads.map((thread) =>
+          thread.id !== THREAD_ID
+            ? thread
+            : {
+                ...thread,
+                modelSelection,
+                session: thread.session
+                  ? { ...thread.session, providerName: modelSelection.provider }
+                  : null,
+                queuedMessageIds: [messageId],
+                messages: [
+                  ...thread.messages,
+                  {
+                    id: messageId,
+                    role: "user" as const,
+                    text: prompt,
+                    dispatchMode: "queue" as const,
+                    delivery: { state: "queued" as const, queued: true, sequence: 200 },
+                    turnId: null,
+                    streaming: false,
+                    source: "native" as const,
+                    createdAt: new Date(BASE_TIME_MS + 200_000).toISOString(),
+                    updatedAt: new Date(BASE_TIME_MS + 200_000).toISOString(),
+                  },
+                ],
+              },
+        ),
+      };
+      const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+      const api = readNativeApi()!;
+      const spy = vi.spyOn(api.orchestration, "dispatchCommand");
+      try {
+        await waitForComposerEditor();
+        expect(
+          useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns ?? [],
+        ).toEqual([]);
+        const steer = await waitForElement(
+          () =>
+            Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+              (button) => button.textContent?.trim() === "Steer",
+            ) ?? null,
+          "Restored server follow-up has no Steer button",
+        );
+        steer.click();
+        await vi.waitFor(() => {
+          const commands = spy.mock.calls.map(([command]) => command);
+          expect(commands.filter((command) => command.type === "thread.turn.steer-queued")).toEqual(
+            [expect.objectContaining({ threadId: THREAD_ID, messageId })],
+          );
+          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
+          expect(document.body.textContent).toContain("Steering conversation");
+          expect(document.body.textContent).toContain(prompt);
+        });
+        // Admission updates delivery before the later message metadata update.
+        // The same visible row must retain its steering marker across that handoff.
+        const markerStages = [document.body.textContent?.includes("Steering conversation")];
+        useStore.getState().applyOrchestrationEvents([
+          makeDomainEvent(
+            "thread.turn-steer-queued-requested",
+            {
+              threadId: THREAD_ID,
+              messageId,
+              createdAt: new Date(BASE_TIME_MS + 201_000).toISOString(),
+            },
+            { sequence: 201 },
+          ),
+        ]);
+        await waitForLayout();
+        expect(document.body.textContent).toContain(prompt);
+        markerStages.push(document.body.textContent?.includes("Steering conversation"));
+        useStore.getState().applyOrchestrationEvents([
+          makeDomainEvent(
+            "thread.message-sent",
+            {
+              threadId: THREAD_ID,
+              messageId,
+              role: "user",
+              text: prompt,
+              dispatchMode: "steer",
+              turnId: null,
+              streaming: false,
+              source: "native",
+              createdAt: new Date(BASE_TIME_MS + 200_000).toISOString(),
+              updatedAt: new Date(BASE_TIME_MS + 202_000).toISOString(),
+            },
+            { sequence: 202 },
+          ),
+        ]);
+        await waitForLayout();
+        markerStages.push(document.body.textContent?.includes("Steering conversation"));
+        expect(markerStages).toEqual([true, true, true]);
+      } finally {
+        spy.mockRestore();
+        await mounted.cleanup();
+      }
+    },
+  );
+
   it("keeps a delayed Steer presentation on its originating thread across navigation", async () => {
     const prompt = "steer belongs only to its origin thread";
     const snapshot = addThreadToSnapshot(
@@ -7009,6 +7255,113 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await mounted.cleanup();
     }
   });
+
+  it.each(
+    (
+      [
+        { provider: "codex", model: "gpt-5" },
+        { provider: "claudeAgent", model: "claude-opus-4-6" },
+        { provider: "opencode", model: "opencode/deepseek-v4-flash-free" },
+      ] as const
+    ).flatMap((selection) => [
+      { ...selection, prompt: "" },
+      { ...selection, prompt: "Please inspect this screenshot" },
+    ]),
+  )(
+    "keeps media visible after clicking Steer during delayed admission ($provider, $prompt)",
+    async ({ prompt, ...modelSelection }) => {
+      const snapshot = createSnapshotForTargetUser({
+        targetMessageId: "msg-media-steer-running" as MessageId,
+        targetText: "Continue the game",
+        sessionStatus: "running",
+      });
+      const mounted = await mountChatView({
+        viewport: DEFAULT_VIEWPORT,
+        snapshot: {
+          ...snapshot,
+          threads: snapshot.threads.map((thread) => ({
+            ...thread,
+            modelSelection,
+            session: thread.session
+              ? { ...thread.session, providerName: modelSelection.provider }
+              : null,
+          })),
+        },
+      });
+      const api = readNativeApi()!;
+      const originalDispatch = api.orchestration.dispatchCommand;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const spy = vi
+        .spyOn(api.orchestration, "dispatchCommand")
+        .mockImplementation(async (command) => {
+          if (command.type === "thread.turn.start") await gate;
+          return originalDispatch(command);
+        });
+      const image = createComposerImage({
+        id: "steer-image",
+        previewUrl: "blob:steer-image",
+        name: "steer-image.png",
+      });
+      try {
+        useComposerDraftStore.getState().enqueueQueuedTurn(THREAD_ID, {
+          id: "media-steer-delayed",
+          kind: "chat",
+          createdAt: new Date().toISOString(),
+          previewText: prompt || "Image: steer-image.png",
+          prompt,
+          images: [image],
+          files: [],
+          assistantSelections: [],
+          terminalContexts: [],
+          fileComments: [],
+          pastedTexts: [],
+          skills: [],
+          mentions: [],
+          selectedProvider: modelSelection.provider,
+          selectedModel: modelSelection.model,
+          selectedPromptEffort: null,
+          modelSelection,
+          connectionId: TEST_CONNECTION_ID,
+          runtimeMode: "full-access",
+        });
+        await vi.waitFor(() =>
+          expect(spy.mock.calls.some(([command]) => command.type === "thread.turn.start")).toBe(
+            true,
+          ),
+        );
+        const steer = await waitForElement(
+          () =>
+            Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+              (button) => button.textContent?.trim() === "Steer",
+            ) ?? null,
+          "Steer absent",
+        );
+        steer.click();
+        await vi.waitFor(() =>
+          expect(document.body.textContent).toContain("Steering conversation"),
+        );
+        await waitForLayout();
+        const transcript = document.querySelector('[data-chat-scroll-container="true"]')!;
+        expect(
+          transcript.querySelector('button[aria-label="Preview steer-image.png"]'),
+        ).not.toBeNull();
+        const queueSteer = Array.from(
+          document.querySelectorAll<HTMLButtonElement>(
+            '[data-testid="queued-follow-up-row"] button',
+          ),
+        ).find((button) => button.textContent?.trim() === "Steer");
+        expect(queueSteer === undefined || queueSteer.disabled).toBe(true);
+      } finally {
+        release();
+        await waitForLayout();
+        spy.mockRestore();
+        await mounted.cleanup();
+      }
+    },
+  );
 
   it("releases queued action ownership after admission rejection and preserves prompt and images for retry", async () => {
     const queuedImage = createComposerImage({

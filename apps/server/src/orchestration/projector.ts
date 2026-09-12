@@ -783,6 +783,7 @@ export function projectEvent(
             message.id === event.payload.messageId && message.delivery !== undefined
               ? {
                   ...message,
+                  dispatchMode: "steer",
                   delivery: { ...message.delivery, state: "steering", sequence: event.sequence },
                 }
               : message,
