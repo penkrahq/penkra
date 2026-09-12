@@ -5,18 +5,6 @@
 
 import type { ProviderUserInputAnswers, UserInputQuestion } from "@penkra/contracts";
 
-export function buildUserInputFollowUp(
-  questions: ReadonlyArray<UserInputQuestion>,
-  answers: ProviderUserInputAnswers,
-): string {
-  return questions
-    .map((question) => {
-      const answer = answers[question.id];
-      return `In response to your earlier question: ${question.question}\nMy answer: ${Array.isArray(answer) ? answer.join(", ") : (answer ?? "[Add your answer]")}`;
-    })
-    .join("\n\n");
-}
-
 export interface PendingUserInputDraftAnswer {
   selectedOptionLabels?: string[];
   customAnswer?: string;
