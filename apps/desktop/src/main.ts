@@ -240,7 +240,7 @@ import { configurePenkraAccountAuth } from "./accountAuth";
 import { AppRegistryClient } from "./appRegistryClient";
 import { assertRegistryReleaseAllowed, parseRegistryTrustKeys } from "./appRegistryTrust";
 import { createDesktopPrivilegedSchemes } from "./desktopProtocolSchemes";
-import { isBrokenPipeError } from "./desktopProcessErrors";
+import { isBrokenPipeError, recordDesktopFatalError } from "./desktopProcessErrors";
 import {
   createDesktopStaticProtocolResolver,
   resolveDesktopAppRoot,
@@ -8742,6 +8742,10 @@ app.on("window-all-closed", () => {
   if (desktopPlatform.application.quitWhenAllWindowsClose) {
     app.quit();
   }
+});
+
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  recordDesktopFatalError(error, origin, writeDesktopLogHeader);
 });
 
 if (desktopPlatform.processLifecycle.registerPosixShutdownSignals) {

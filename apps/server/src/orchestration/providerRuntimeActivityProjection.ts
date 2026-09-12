@@ -90,7 +90,7 @@ function jsonSafeValue(value: unknown, ancestors: Set<object>): unknown {
   }
 }
 
-function toActivityPayload(payload: unknown): ActivityPayload {
+export function toActivityPayload(payload: unknown): ActivityPayload {
   return (jsonSafeValue(payload, new Set<object>()) ?? null) as ActivityPayload;
 }
 

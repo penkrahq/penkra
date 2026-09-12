@@ -120,6 +120,7 @@ import { resolveSubagentPresentationForThread } from "../lib/subagentPresentatio
 import { readActiveSpaceId, useSpacesUiStore } from "../spacesUiStore";
 import { registerDesktopThreadLiveHandlers } from "../desktopThreadApiBroker";
 import {
+  buildOptimisticComposerAttachments,
   buildComposerFileAttachmentsFromFiles,
   buildComposerImageAttachmentsFromFiles,
   stageUploadComposerAttachments,
@@ -219,6 +220,8 @@ import {
 } from "../session-logic";
 import {
   buildPendingUserInputAnswers,
+  buildUserInputFollowUp,
+  resolvePendingUserInputAnswer,
   derivePendingUserInputProgress,
   hasCompletePendingUserInputAnswers,
   omitNullPendingUserInputAnswers,
@@ -226,6 +229,7 @@ import {
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
+import { deriveExpiredUserInputs } from "../pendingInteractionDerivation";
 import { selectRightDockState, useRightDockStore } from "../rightDockStore";
 import { useStore } from "../store";
 import { getThreadFromState } from "../threadDerivation";
@@ -2878,6 +2882,41 @@ export default function ChatView({
     [activeThread?.pendingInteractions, threadActivities],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
+  const [reviewedExpiredInputKeys, setReviewedExpiredInputKeys] = useState<string[]>([]);
+  const expiredUserInput = useMemo(
+    () =>
+      deriveExpiredUserInputs(threadActivities).findLast(
+        (input) =>
+          input.expiredAt >= (activeThread?.latestUserMessageAt ?? "") &&
+          !reviewedExpiredInputKeys.includes(
+            `${activeThreadId}:${pendingRequestInstanceKey(input.requestId, input.lifecycleGeneration)}`,
+          ),
+      ),
+    [threadActivities, activeThread?.latestUserMessageAt, activeThreadId, reviewedExpiredInputKeys],
+  );
+  const reviewExpiredUserInput = () => {
+    if (!expiredUserInput) return;
+    const key = pendingRequestInstanceKey(
+      expiredUserInput.requestId,
+      expiredUserInput.lifecycleGeneration,
+    );
+    const draft = pendingUserInputAnswersByRequestIdRef.current[key] ?? {};
+    const draftAnswers = Object.fromEntries(
+      expiredUserInput.questions.flatMap((question) => {
+        const answer = resolvePendingUserInputAnswer(question, draft[question.id]);
+        return answer === null ? [] : [[question.id, answer]];
+      }),
+    );
+    const followUp = buildUserInputFollowUp(expiredUserInput.questions, {
+      ...expiredUserInput.answers,
+      ...draftAnswers,
+    });
+    const nextPrompt = promptRef.current.trim() ? `${promptRef.current}\n\n${followUp}` : followUp;
+    promptRef.current = nextPrompt;
+    setPrompt(nextPrompt);
+    setComposerCursor(nextPrompt.length);
+    setReviewedExpiredInputKeys((keys) => [...keys, `${activeThreadId}:${key}`]);
+  };
   const activePendingUserInputKey = activePendingUserInput
     ? pendingRequestInstanceKey(
         activePendingUserInput.requestId,
@@ -3352,6 +3391,7 @@ export default function ChatView({
           id: messageId,
           role: "user" as const,
           text: queuedTurn.prompt,
+          attachments: buildOptimisticComposerAttachments(queuedTurn),
           dispatchMode: "steer" as const,
           ...(queuedTurn.skills.length > 0 ? { skills: queuedTurn.skills } : {}),
           ...(queuedTurn.mentions.length > 0 ? { mentions: queuedTurn.mentions } : {}),
@@ -6770,24 +6810,12 @@ export default function ChatView({
       preflightOutgoingText,
       selectedComposerMentionsForSend,
     );
-    const buildOptimisticAttachments = (images: readonly ComposerImageAttachment[]) => [
-      ...composerAssistantSelectionsForSend,
-      ...images.map((image) => ({
-        type: "image" as const,
-        id: image.id,
-        name: image.name,
-        mimeType: image.mimeType,
-        sizeBytes: image.sizeBytes,
-        previewUrl: image.previewUrl,
-      })),
-      ...composerFilesForSend.map((file) => ({
-        type: "file" as const,
-        id: file.id,
-        name: file.name,
-        mimeType: file.mimeType,
-        sizeBytes: file.sizeBytes,
-      })),
-    ];
+    const buildOptimisticAttachments = (images: readonly ComposerImageAttachment[]) =>
+      buildOptimisticComposerAttachments({
+        images,
+        files: composerFilesForSend,
+        assistantSelections: composerAssistantSelectionsForSend,
+      });
     const setPreflightProjection = (images: readonly ComposerImageAttachment[]) => {
       if (shouldQueueCapturedSend) return;
       const attachments = buildOptimisticAttachments(images);
@@ -8040,10 +8068,6 @@ export default function ChatView({
       await runOwnedQueuedComposerAction(queuedTurn, "steer", async () => {
         const previousQueue = queuedComposerTurnsRef.current;
         const queuedIndex = previousQueue.findIndex((entry) => entry.id === queuedTurn.id);
-        if (queuedIndex < 0) {
-          return;
-        }
-        setComposerQueuePaused(threadId, false);
         let resolvedQueuedTurn = queuedTurn;
         const pendingDispatch = getQueuedComposerTurnDispatchInFlight(threadId, queuedTurn.id);
         if (pendingDispatch) {
@@ -8065,6 +8089,10 @@ export default function ChatView({
           resolvedQueuedTurn.serverAcceptedAt !== undefined ||
           delivery !== undefined ||
           (activeThread?.queuedMessageIds ?? []).includes(messageId);
+        // Restored server queue rows have no local draft. Only an unsent local
+        // turn needs a draft index for removal and rollback below.
+        if (!isServerAccepted && queuedIndex < 0) return;
+        setComposerQueuePaused(threadId, false);
         if (isServerAccepted) {
           const api = readNativeApi();
           if (!api) {
@@ -9266,6 +9294,25 @@ export default function ChatView({
                     onPrevious={onPreviousActivePendingUserInputQuestion}
                     onCancel={onCancelActivePendingUserInput}
                   />
+                </div>
+              ) : expiredUserInput ? (
+                <div className="pb-2">
+                  <div className={cn(COMPOSER_INPUT_SURFACE_CLASS_NAME, "px-3.5 py-3")}>
+                    <p className="text-sm font-medium">Question expired</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Its provider session is no longer available. You can review the question and
+                      your answer as a new message.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={reviewExpiredUserInput}
+                    >
+                      Review follow-up
+                    </Button>
+                  </div>
                 </div>
               ) : null}
             </div>

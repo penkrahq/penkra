@@ -51,6 +51,7 @@ import * as Semaphore from "effect/Semaphore";
 import { nonEmptyTrimmed } from "@penkra/shared/text";
 
 import { ProviderValidationError } from "../Errors.ts";
+import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import type { ProviderManagedLaunchContext } from "../Services/ProviderAdapter.ts";
 import { ProviderService, type ProviderServiceShape } from "../Services/ProviderService.ts";
@@ -210,10 +211,12 @@ function toValidationError(
   operation: string,
   issue: string,
   cause?: unknown,
+  code?: typeof PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
 ): ProviderValidationError {
   return new ProviderValidationError({
     operation,
     issue,
+    ...(code === undefined ? {} : { code }),
     ...(cause !== undefined ? { cause } : {}),
   });
 }
@@ -1296,6 +1299,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       readonly threadId: ThreadId;
       readonly operation: string;
       readonly allowRecovery: boolean;
+      readonly missingBindingFailureCode?: typeof PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE;
     }) =>
       Effect.gen(function* () {
         const binding = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
@@ -1313,6 +1317,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           return yield* toValidationError(
             input.operation,
             `Cannot route thread '${input.threadId}' because no persisted provider binding exists.`,
+            undefined,
+            input.missingBindingFailureCode,
           );
         }
         const adapter = yield* registry.getByProvider(binding.provider);
@@ -2112,11 +2118,14 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             threadId: input.threadId,
             operation,
             allowRecovery: false,
+            missingBindingFailureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
           });
           if (!routed.isActive) {
             return yield* toValidationError(
               operation,
               `Cannot respond to request '${input.requestId}' because the provider runtime is not active.`,
+              undefined,
+              PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
             );
           }
           const routedGeneration = routed.lifecycleGeneration ?? currentGeneration;
@@ -2137,6 +2146,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             return yield* toValidationError(
               operation,
               `Cannot respond to stale request '${input.requestId}' from provider generation '${input.lifecycleGeneration}'.`,
+              undefined,
+              PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
             );
           }
           if (response.kind === "approval") {

@@ -18,6 +18,7 @@ import {
   type ProviderStartOptions,
   type ProviderSkillReference,
   type ProviderTurnStartResult,
+  type ProviderUserInputAnswers,
   type OrchestrationSession,
   type OrchestrationFolderShell,
   type OrchestrationThread,
@@ -64,6 +65,7 @@ import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 
 import {
   ProviderAdapterRequestError,
+  ProviderValidationError,
   ProviderAdapterValidationError,
   ProviderServiceError,
 } from "../../provider/Errors.ts";
@@ -323,18 +325,10 @@ function availableThreadMentionContextChars(messageText: string): number {
   );
 }
 
-function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
+function isUnknownPendingInteractionError(cause: Cause.Cause<ProviderServiceError>): boolean {
   const error = Cause.squash(cause);
   return (
-    Schema.is(ProviderAdapterRequestError)(error) &&
-    error.code === PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE
-  );
-}
-
-function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
-  const error = Cause.squash(cause);
-  return (
-    Schema.is(ProviderAdapterRequestError)(error) &&
+    (Schema.is(ProviderAdapterRequestError)(error) || Schema.is(ProviderValidationError)(error)) &&
     error.code === PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE
   );
 }
@@ -555,6 +549,7 @@ const make = Effect.gen(function* () {
     readonly responseCommandId?: CommandId;
     readonly settlementStatus?: "retryable" | "uncertain";
     readonly failureCode?: typeof PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE;
+    readonly answers?: ProviderUserInputAnswers;
   }) =>
     orchestrationEngine.dispatch({
       type: "thread.activity.append",
@@ -572,6 +567,7 @@ const make = Effect.gen(function* () {
           ...(input.responseCommandId ? { responseCommandId: input.responseCommandId } : {}),
           ...(input.settlementStatus ? { settlementStatus: input.settlementStatus } : {}),
           ...(input.failureCode ? { failureCode: input.failureCode } : {}),
+          ...(input.answers === undefined ? {} : { answers: input.answers }),
         },
         turnId: input.turnId,
         createdAt: input.createdAt,
@@ -2870,6 +2866,9 @@ const make = Effect.gen(function* () {
           createdAt: event.payload.createdAt,
           requestId: event.payload.requestId,
           responseCommandId: event.commandId,
+          ...(event.type === "thread.user-input-response-requested"
+            ? { answers: event.payload.answers }
+            : {}),
           settlementStatus: input.settlementStatus,
           ...(input.failureCode ? { failureCode: input.failureCode } : {}),
           ...(event.payload.lifecycleGeneration === undefined
@@ -2938,7 +2937,7 @@ const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.catchCause((cause) => {
-          const unknownPendingRequest = isUnknownPendingApprovalRequestError(cause);
+          const unknownPendingRequest = isUnknownPendingInteractionError(cause);
           return appendInteractionResponseFailure(event, {
             interactionKind: "approval",
             detail: unknownPendingRequest
@@ -2975,7 +2974,7 @@ const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.catchCause((cause) => {
-          const unknownPendingRequest = isUnknownPendingUserInputRequestError(cause);
+          const unknownPendingRequest = isUnknownPendingInteractionError(cause);
           return appendInteractionResponseFailure(event, {
             interactionKind: "userInput",
             detail: unknownPendingRequest
