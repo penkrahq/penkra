@@ -26,6 +26,87 @@ export interface PendingUserInput {
   questions: ReadonlyArray<UserInputQuestion>;
 }
 
+export interface ExpiredUserInput extends PendingUserInput {
+  expiredAt: string;
+  answers: Record<string, string | string[]>;
+}
+
+// Keep recovery content separate from the actionable request set. A failed
+// response is never presented as a provider-confirmed answer.
+export function deriveExpiredUserInputs(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ExpiredUserInput[] {
+  const requested = new Map<string, PendingUserInput>();
+  const expired = new Map<string, ExpiredUserInput>();
+  const answers = new Map<string, Record<string, string | string[]>>();
+  for (const activity of orderedActivities(activities)) {
+    const payload = activityPayload(activity);
+    if (typeof payload?.requestId !== "string") continue;
+    const requestId = ApprovalRequestId.makeUnsafe(payload.requestId);
+    const lifecycleGeneration = activityLifecycleGeneration(payload);
+    const key =
+      lifecycleGeneration === undefined && activity.kind !== "user-input.requested"
+        ? ([...requested.entries()].findLast(([, prompt]) => prompt.requestId === requestId)?.[0] ??
+          pendingRequestInstanceKey(requestId, lifecycleGeneration))
+        : pendingRequestInstanceKey(requestId, lifecycleGeneration);
+    const questions = parseUserInputQuestions(payload);
+    if (activity.kind === "user-input.requested" && questions) {
+      for (const [previousKey, previous] of requested) {
+        if (previous.requestId === requestId && previousKey !== key) {
+          requested.delete(previousKey);
+          expired.delete(previousKey);
+        }
+      }
+      requested.set(key, {
+        requestId,
+        ...(lifecycleGeneration === undefined ? {} : { lifecycleGeneration }),
+        questions,
+        createdAt: activity.createdAt,
+      });
+      expired.delete(key);
+    }
+    if (activity.kind === "provider.user-input.respond.failed") {
+      if (payload.answers && typeof payload.answers === "object") {
+        answers.set(
+          key,
+          Object.fromEntries(
+            Object.entries(payload.answers).filter(
+              (entry): entry is [string, string | string[]] =>
+                typeof entry[1] === "string" ||
+                (Array.isArray(entry[1]) && entry[1].every((value) => typeof value === "string")),
+            ),
+          ),
+        );
+      }
+      if (!isPendingInteractionNotFoundFailure(payload)) continue;
+      if (
+        [...requested.entries()].some(
+          ([currentKey, current]) => current.requestId === requestId && currentKey !== key,
+        )
+      )
+        continue;
+      const original =
+        requested.get(key) ??
+        (questions
+          ? {
+              requestId,
+              ...(lifecycleGeneration === undefined ? {} : { lifecycleGeneration }),
+              questions,
+              createdAt: activity.createdAt,
+            }
+          : undefined);
+      if (original)
+        expired.set(key, {
+          ...original,
+          expiredAt: activity.createdAt,
+          answers: answers.get(key) ?? {},
+        });
+    }
+    if (activity.kind === "user-input.resolved") expired.delete(key);
+  }
+  return [...expired.values()];
+}
+
 type PendingInteractionKind = OrchestrationPendingInteraction["interactionKind"];
 
 interface PendingInteractionReplay<T extends { requestId: ApprovalRequestId }> {

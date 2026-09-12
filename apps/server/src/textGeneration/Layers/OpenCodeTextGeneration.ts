@@ -202,11 +202,10 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       readonly operation: TextGenerationOperation;
       readonly isolationKey: string;
       readonly processEnv?: NodeJS.ProcessEnv;
+      readonly dedicated?: boolean;
     }) =>
       sharedServerMutex.withPermit(
         Effect.gen(function* () {
-          yield* cancelIdleCloseFiber();
-
           const startServer = Effect.fn("startOpenCodeTextGenerationServer")(function* () {
             const serverScope = yield* Scope.make();
             const startedExit = yield* Effect.exit(
@@ -241,6 +240,18 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
             };
           });
 
+          // Managed title state is request-owned. Shut its process down before
+          // returning so the outer owner can safely remove that state.
+          if (input.dedicated) {
+            const dedicated = yield* startServer();
+            return {
+              server: dedicated.server,
+              shared: false,
+              serverScope: dedicated.serverScope,
+            } satisfies AcquiredOpenCodeTextGenerationServer;
+          }
+
+          yield* cancelIdleCloseFiber();
           const existingServer = sharedServerState.server;
           if (existingServer !== null) {
             const sameConfigScope =
@@ -462,6 +473,7 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
                 cwd: input.cwd,
                 operation: input.operation,
                 isolationKey,
+                dedicated: input.managedLaunch !== undefined,
                 ...(processEnv ? { processEnv } : {}),
               }),
               (acquired) => runAgainstServer(acquired.server),

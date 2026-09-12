@@ -4553,6 +4553,56 @@ it.layer(
     }),
   );
 
+  it.effect("persists the steering marker at queued steer admission before provider metadata", () =>
+    Effect.gen(function* () {
+      const eventStore = yield* OrchestrationEventStore;
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.makeUnsafe("thread-restored-steer-marker");
+      const messageId = MessageId.makeUnsafe("message-restored-steer-marker");
+      const createdAt = "2026-02-27T11:01:00.000Z";
+      const base = {
+        aggregateKind: "thread" as const,
+        aggregateId: threadId,
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe("cmd-restored-steer-marker"),
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+      };
+      yield* eventStore.append({
+        ...base,
+        type: "thread.message-sent",
+        eventId: EventId.makeUnsafe("evt-restored-steer-message"),
+        payload: {
+          threadId,
+          messageId,
+          role: "user",
+          text: "restore the glow",
+          dispatchMode: "queue",
+          delivery: { state: "queued", queued: true },
+          turnId: null,
+          streaming: false,
+          source: "native",
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+      yield* eventStore.append({
+        ...base,
+        type: "thread.turn-steer-queued-requested",
+        eventId: EventId.makeUnsafe("evt-restored-steer-admitted"),
+        payload: { threadId, messageId, createdAt },
+      });
+      yield* projectionPipeline.bootstrap;
+      const rows = yield* sql<{ readonly dispatchMode: string | null }>`
+        SELECT dispatch_mode AS "dispatchMode"
+        FROM projection_thread_messages WHERE message_id = ${messageId}
+      `;
+      assert.deepEqual(rows, [{ dispatchMode: "steer" }]);
+    }),
+  );
+
   it.effect("sequence-fences the durable message delivery lifecycle", () =>
     Effect.gen(function* () {
       const eventStore = yield* OrchestrationEventStore;
