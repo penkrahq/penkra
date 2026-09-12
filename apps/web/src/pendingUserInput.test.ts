@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildPendingUserInputAnswers,
+  buildUserInputFollowUp,
   countAnsweredPendingUserInputQuestions,
   derivePendingUserInputProgress,
   findFirstUnansweredPendingUserInputQuestionIndex,
@@ -10,6 +11,20 @@ import {
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
 } from "./pendingUserInput";
+
+it("prepares each question and answer for review without inventing an unanswered choice", () => {
+  expect(
+    buildUserInputFollowUp(
+      [
+        { id: "format", header: "Format", question: "Which format?", options: [] },
+        { id: "audience", header: "Audience", question: "Who is it for?", options: [] },
+      ],
+      { format: ["Guide", "Checklist"] },
+    ),
+  ).toBe(
+    "In response to your earlier question: Which format?\nMy answer: Guide, Checklist\n\nIn response to your earlier question: Who is it for?\nMy answer: [Add your answer]",
+  );
+});
 
 describe("resolvePendingUserInputAnswer", () => {
   it("prefers a custom answer over a selected option", () => {

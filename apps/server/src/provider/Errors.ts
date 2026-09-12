@@ -95,6 +95,7 @@ export class ProviderValidationError extends Schema.TaggedErrorClass<ProviderVal
   {
     operation: Schema.String,
     issue: Schema.String,
+    code: Schema.optional(Schema.Literal(PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE)),
     cause: Schema.optional(Schema.Defect),
   },
 ) {

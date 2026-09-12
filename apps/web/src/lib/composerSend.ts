@@ -37,6 +37,31 @@ const ATTACHMENT_CANCEL_BODY_MAX_BYTES = 512;
 
 export { cloneComposerImageAttachment };
 
+export function buildOptimisticComposerAttachments(input: {
+  images: readonly ComposerImageAttachment[];
+  files: readonly ComposerFileAttachment[];
+  assistantSelections: readonly ComposerAssistantSelectionAttachment[];
+}) {
+  return [
+    ...input.assistantSelections,
+    ...input.images.map((image) => ({
+      type: "image" as const,
+      id: image.id,
+      name: image.name,
+      mimeType: image.mimeType,
+      sizeBytes: image.sizeBytes,
+      previewUrl: image.previewUrl,
+    })),
+    ...input.files.map((file) => ({
+      type: "file" as const,
+      id: file.id,
+      name: file.name,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+    })),
+  ];
+}
+
 export const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024),
 )}MB`;
