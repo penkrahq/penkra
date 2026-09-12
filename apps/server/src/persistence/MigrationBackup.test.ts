@@ -13,6 +13,7 @@ import { MIGRATION_RECOVERY_MAX_RESUME_ATTEMPTS } from "@penkra/shared/migration
 
 import {
   FAILED_MIGRATION_BUNDLE_RETENTION,
+  InsufficientMigrationBackupSpaceError,
   MIGRATION_BACKUP_RETENTION,
   MigrationRecoveryRequiredError,
   TRACKER_REPAIR_SNAPSHOT_RETENTION,
@@ -137,6 +138,53 @@ describe("migration backups", () => {
     expect(sizing.walBytes).toBeGreaterThan(sizing.mainFileBytes);
     expect(sizing.logicalBytes).toBeGreaterThan(sizing.mainFileBytes);
     expect(sizing.requiredBytes).toBe(sizing.logicalBytes * 2);
+  });
+
+  it("continues a canonical forward migration when its safety backup cannot fit", async () => {
+    const dbPath = await makeDbPath();
+    await runWithDatabase(dbPath, runMigrations({ toMigrationInclusive: 162 }));
+    await runWithDatabase(
+      dbPath,
+      runWithPreMigrationBackup(dbPath, runMigrations(), {
+        availableBytesForDirectory: async () => 0,
+      }),
+    );
+
+    const database = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      expect(
+        database.prepare("SELECT name FROM effect_sql_migrations WHERE migration_id = 163").get(),
+      ).toMatchObject({ name: "MessageDeliveryFailureEvidence" });
+    } finally {
+      database.close();
+    }
+    expect(await backupPaths(dbPath)).toEqual([]);
+  });
+
+  it("still fails closed when a lineage-repair backup cannot fit", async () => {
+    const dbPath = await makeDbPath();
+    await runWithDatabase(
+      dbPath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations({ toMigrationInclusive: 17 });
+        yield* sql`
+          UPDATE effect_sql_migrations
+          SET name = 'ImportedMigration17'
+          WHERE migration_id = 17
+        `;
+      }),
+    );
+
+    await expect(
+      runWithDatabase(
+        dbPath,
+        runWithPreMigrationBackup(dbPath, runMigrations(), {
+          availableBytesForDirectory: async () => 0,
+        }),
+      ),
+    ).rejects.toBeInstanceOf(InsufficientMigrationBackupSpaceError);
+    expect(await backupPaths(dbPath)).toEqual([]);
   });
 
   it("fails closed without mutating marked files, then restores only when explicitly requested", async () => {
@@ -729,6 +777,7 @@ describe("migration backups", () => {
           yield* createMigrationBackup(dbPath, {
             sourceVersion: `v${version}`,
             targetVersion: version + 1,
+            kind: "canonical-forward",
           });
         }
       }),
@@ -781,6 +830,7 @@ describe("migration backups", () => {
           yield* createMigrationBackup(dbPath, {
             sourceVersion: `v${version}`,
             targetVersion: version + 1,
+            kind: "canonical-forward",
           });
         }
       }),
