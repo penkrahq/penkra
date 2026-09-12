@@ -109,6 +109,35 @@ exit, the desktop log recorded a browser `ERR_CONNECTION_REFUSED` at 08:38:32.71
 `webContents.goBack` deprecation warning at 08:38:34.715Z. No fatal exception stack was retained.
 This sequence does not establish that the earlier destroyed-debugger mechanism caused this exit.
 
+The later Cmd-R report has stronger matching evidence. A disposable Electron 40.10.6 fixture used
+the real `DesktopBrowserManager`, a native `BrowserWindow` with an embedded webview, and the normal
+View/Reload menu role. The baseline bundle differed only by removal of the new destruction guard.
+A computer-use Cmd-R destroyed the guest, entered the renderer-destroyed close callback, raised the
+nested `Object has been destroyed` / `Browser close failed` exception, and exited 7. The guarded
+bundle survived four computer-use Cmd-R reloads in the same process, attached five successive
+guests, completed all four cleanups without a fatal error, and then exited 0 on an ordinary fixture
+close. An additional full Dev2 check loaded `https://example.com` inside the Browser App, invoked
+Cmd-R, and restored both the Thread and Browser page while retaining the same main/backend PIDs.
+Production and Dev1 retained their existing PIDs and were not reloaded. This establishes the Cmd-R
+mechanism; it does not retroactively identify every historical Production exit.
+
+## Restored tool-only work between messages
+
+The Production Claude Thread `9c337767-587e-4166-88d2-86fa9e777b40` supplied a read-only snapshot
+with 62 messages and 1,168 activities. Between user message
+`8a54ab84-645f-4601-b71c-56a6ed266e1e` at sequence 2,991,489 and steering message
+`composer-queue:93e0f6e8-3525-450a-90ec-02bb0329b42f` at sequence 2,991,523 were four tool
+operations from provider turn `0b93f1c7-591b-4f11-81fb-0399e9bb07c1`. That turn had no assistant
+message.
+
+Running the actual v0.12.6 `workLog` module with the ChatView visible-turn selection omitted all
+four operations after restart. Running the current module against the same snapshot retained all
+four, and the derived timeline placed their work group between the two user messages. The correction
+uses the visible transcript sequence floor so tool-only turns remain eligible even when they have no
+assistant message and are no longer the current provider turn. The snapshot, old/new module
+comparison, and pure timeline replay are retained in the investigation scratch root. No Production
+state was changed.
+
 ## Other observed evidence
 
 The reported transient movement of “Cool” is not reproduced. Persisted ordering and a replay of
