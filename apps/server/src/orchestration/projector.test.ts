@@ -492,6 +492,11 @@ describe("orchestration projector", () => {
 
       for (const event of events) {
         state = await Effect.runPromise(projectEvent(state, event));
+        if (event.type === "thread.turn-steer-queued-requested") {
+          expect(
+            state.threads[0]?.messages.find((message) => message.id === messageId)?.dispatchMode,
+          ).toBe("steer");
+        }
       }
 
       expect(state.threads[0]?.pendingTurnStartMessageId).toBeNull();

@@ -1106,6 +1106,7 @@ function applyOrchestrationEvent(
             event.sequence >= message.delivery.sequence
               ? {
                   ...message,
+                  dispatchMode: "steer",
                   delivery: { ...message.delivery, state: "steering", sequence: event.sequence },
                 }
               : message,

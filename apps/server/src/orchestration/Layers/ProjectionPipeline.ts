@@ -885,6 +885,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                 : "starting";
           yield* projectionThreadMessageRepository.upsert({
             ...existingMessage.value,
+            ...(event.type === "thread.turn-steer-queued-requested"
+              ? { dispatchMode: "steer" as const }
+              : {}),
             deliveryState: state,
             ...(event.type === "thread.message-delivery-set" && event.payload.queued !== undefined
               ? { deliveryQueued: event.payload.queued }

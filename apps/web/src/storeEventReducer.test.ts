@@ -264,6 +264,7 @@ describe("store event reducer", () => {
       ),
     ]);
     expect(threadsOf(steering)[0]?.messages[0]?.delivery?.state).toBe("steering");
+    expect(threadsOf(steering)[0]?.messages[0]?.dispatchMode).toBe("steer");
 
     const accepted = applyOrchestrationEvents(steering, [
       makeDomainEvent(
