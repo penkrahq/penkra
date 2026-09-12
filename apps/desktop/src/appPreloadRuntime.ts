@@ -252,16 +252,19 @@ export class AppPreloadRuntime {
           >,
         openExtensionAction: (input) =>
           this.#transport.browserCall("openExtensionAction", input) as Promise<void>,
-        find: (input) =>
-          this.#transport.browserCall("find", input) as Promise<
-            import("@penkra/sdk").AppBrowserFindResult
-          >,
-        stopFind: (pageId) => this.#transport.browserCall("stopFind", pageId) as Promise<void>,
+        snapshot: (input) => this.#transport.browserCall("snapshot", input),
+        find: (input) => this.#transport.browserCall("find", input),
+        click: (input) => this.#transport.browserCall("click", input),
+        hover: (input) => this.#transport.browserCall("hover", input),
+        type: (input) => this.#transport.browserCall("type", input),
+        press: (input) => this.#transport.browserCall("press", input),
+        select: (input) => this.#transport.browserCall("select", input),
+        scroll: (input) => this.#transport.browserCall("scroll", input),
+        wait: (input) => this.#transport.browserCall("wait", input),
         capture: (pageId) =>
           this.#transport.browserCall("capture", pageId) as Promise<{ dataUrl: string }>,
         evaluate: (input) => this.#transport.browserCall("evaluate", input),
-        upload: (input) =>
-          this.#transport.browserCall("upload", input) as Promise<{ uploaded: number }>,
+        upload: (input) => this.#transport.browserCall("upload", input),
       },
       simulator: {
         getEnvironment: () =>

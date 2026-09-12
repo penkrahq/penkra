@@ -181,16 +181,31 @@ describe("AppPreloadRuntime", () => {
       url: "https://penkra.com",
     });
     expect(state.open).toBe(true);
+    await test.runtime.api.browser.snapshot({ pageId: "page-1", depth: 4 });
+    await test.runtime.api.browser.find({ pageId: "page-1", query: "Continue" });
+    await test.runtime.api.browser.click({ pageId: "page-1", ref: "e7" });
+    await test.runtime.api.browser.type({ pageId: "page-1", ref: "e8", text: "Hello" });
+    expect(test.browserCall).toHaveBeenCalledWith("snapshot", { pageId: "page-1", depth: 4 });
+    expect(test.browserCall).toHaveBeenCalledWith("find", {
+      pageId: "page-1",
+      query: "Continue",
+    });
+    expect(test.browserCall).toHaveBeenCalledWith("click", { pageId: "page-1", ref: "e7" });
+    expect(test.browserCall).toHaveBeenCalledWith("type", {
+      pageId: "page-1",
+      ref: "e8",
+      text: "Hello",
+    });
     await expect(
       test.runtime.api.browser.upload({
         pageId: "page-1",
-        selector: "input[type=file]",
+        ref: "e9",
         paths: ["attachments/proposal.pdf"],
       }),
     ).resolves.toEqual(expect.objectContaining({ open: true }));
     expect(test.browserCall).toHaveBeenCalledWith("upload", {
       pageId: "page-1",
-      selector: "input[type=file]",
+      ref: "e9",
       paths: ["attachments/proposal.pdf"],
     });
     test.browserState(state);

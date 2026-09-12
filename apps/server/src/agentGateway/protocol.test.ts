@@ -121,4 +121,29 @@ describe("agent gateway MCP protocol", () => {
       },
     );
   });
+
+  it("preserves embedded App resources", () => {
+    const result = extractPenkraExecRichResult({
+      app: "sales",
+      operation: "whatsapp.attachment.download",
+      result: {
+        content: [
+          {
+            type: "resource",
+            resource: {
+              uri: "penkra-app-resource://whatsapp/a/file.pdf",
+              mimeType: "application/pdf",
+              blob: "aGVsbG8=",
+            },
+          },
+        ],
+        structuredContent: { attachmentId: "a" },
+      },
+    });
+    assert.isNotNull(result);
+    assert.equal(result.content[0]?.type, "resource");
+    if (result.content[0]?.type === "resource") {
+      assert.equal(result.content[0].resource.uri, "penkra-app-resource://whatsapp/a/file.pdf");
+    }
+  });
 });

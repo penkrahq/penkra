@@ -98,3 +98,8 @@ The Browser page is host-owned while the App owns its surrounding chrome. Call
 `browser.setSurfaceLayout({ top, right, bottom, left })` with App-local edge insets, or `null` when
 the page surface is hidden. Insets describe structural layout and should remain unchanged during a
 plain panel resize; do not stream measured width and height through the runtime bridge.
+
+An App with `browser-session` can observe and interact with its own hosted page through
+`browser.snapshot`, `find`, `click`, `hover`, `type`, `press`, `select`, `scroll`, `wait`, and
+`upload`. Snapshot and find issue short-lived `e…` references; ref-based calls must use a reference
+from the latest observed document. Navigation, reload, replacement, and close invalidate it.

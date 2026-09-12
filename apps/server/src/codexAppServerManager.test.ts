@@ -117,10 +117,20 @@ describe("Codex Penkra harness policy", () => {
   });
 
   it("dispatches Codex dynamic-tool calls through the authenticated native surface", async () => {
+    const resourceRoot = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-tool-resource-"));
     const invoke = vi.fn().mockResolvedValue({
       content: [
         { type: "text", text: '{"ok":true}' },
         { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+        {
+          type: "resource",
+          resource: {
+            uri: "penkra-app-resource://whatsapp/attachment-1/fees.pdf",
+            name: "fees.pdf",
+            mimeType: "application/pdf",
+            blob: "cGRmLWJ5dGVz",
+          },
+        },
       ],
     });
     const manager = new CodexAppServerManager(undefined, {
@@ -142,6 +152,7 @@ describe("Codex Penkra harness policy", () => {
         status: "running",
         threadId: asThreadId("thread-native-tool"),
         runtimeMode: "full-access",
+        cwd: resourceRoot,
         resumeCursor: { threadId: "provider-thread-native" },
         createdAt: "2026-08-10T00:00:00.000Z",
         updatedAt: "2026-08-10T00:00:00.000Z",
@@ -152,6 +163,7 @@ describe("Codex Penkra harness policy", () => {
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
+      temporaryResourcePaths: new Map(),
       stopping: false,
     };
     vi.spyOn(
@@ -184,13 +196,29 @@ describe("Codex Penkra harness policy", () => {
       name: "penkra_exec_command",
       arguments: { command: "apps list" },
     });
+    const response = writeMessage.mock.calls[0]?.[1] as {
+      result: { contentItems: Array<{ type: string; text?: string; imageUrl?: string }> };
+    };
+    expect(response.result.contentItems.slice(0, 2)).toEqual([
+      { type: "inputText", text: '{"ok":true}' },
+      { type: "inputImage", imageUrl: "data:image/png;base64,aW1hZ2U=" },
+    ]);
+    const resourceItem = response.result.contentItems[2];
+    expect(resourceItem?.type).toBe("inputText");
+    const resourcePath = resourceItem?.text?.match(/ to (.+)\. This temporary file/)?.[1];
+    expect(resourcePath).toBeTruthy();
+    expect(readFileSync(resourcePath!, "utf8")).toBe("pdf-bytes");
+    await (
+      manager as unknown as {
+        clearTemporaryResources: (context: unknown, turnId: TurnId) => Promise<void>;
+      }
+    ).clearTemporaryResources(context, asTurnId("turn-native"));
+    expect(() => readFileSync(resourcePath!, "utf8")).toThrow();
+    rmSync(resourceRoot, { recursive: true, force: true });
     expect(writeMessage).toHaveBeenCalledWith(context, {
       id: 71,
       result: {
-        contentItems: [
-          { type: "inputText", text: '{"ok":true}' },
-          { type: "inputImage", imageUrl: "data:image/png;base64,aW1hZ2U=" },
-        ],
+        contentItems: response.result.contentItems,
         success: true,
       },
     });
