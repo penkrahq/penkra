@@ -64,9 +64,10 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * Raised instead of starting a backup that cannot possibly fit. Failing here is
- * deliberate: migrating without a restorable snapshot risks the user's data,
- * and half-writing one risks their disk.
+ * Raised instead of starting a backup that cannot possibly fit. Canonical
+ * forward migrations may handle this by continuing transactionally without a
+ * snapshot; lineage repair must preserve the fail-closed result because replay
+ * without a restorable source risks the user's data.
  */
 export class InsufficientMigrationBackupSpaceError extends Error {
   readonly _tag = "InsufficientMigrationBackupSpaceError";
@@ -157,15 +158,11 @@ export const estimateMigrationBackupRequiredBytes = (dbPath: string) =>
 async function assertBackupSpaceAvailable(
   requiredBytes: number | null,
   backupDirectory: string,
+  availableBytesForDirectory: (directory: string) => Promise<number | null>,
 ): Promise<void> {
   if (requiredBytes === null) return;
-  let availableBytes: number;
-  try {
-    const filesystem = await fs.statfs(backupDirectory);
-    availableBytes = Number(filesystem.bavail) * Number(filesystem.bsize);
-  } catch {
-    return;
-  }
+  const availableBytes = await availableBytesForDirectory(backupDirectory);
+  if (availableBytes === null) return;
   if (!Number.isFinite(requiredBytes) || !Number.isFinite(availableBytes)) return;
   if (availableBytes < requiredBytes) {
     throw new InsufficientMigrationBackupSpaceError(requiredBytes, availableBytes, backupDirectory);
@@ -175,6 +172,34 @@ async function assertBackupSpaceAvailable(
 type MigrationBackupPlan = {
   readonly sourceVersion: string;
   readonly targetVersion: number;
+  readonly kind: "canonical-forward" | "lineage-repair";
+};
+
+const lineageRepairPlan = (sourceVersion: string): MigrationBackupPlan => ({
+  sourceVersion,
+  targetVersion: latestMigrationId,
+  kind: "lineage-repair",
+});
+
+const canonicalForwardPlan = (sourceVersion: string): MigrationBackupPlan => ({
+  sourceVersion,
+  targetVersion: latestMigrationId,
+  kind: "canonical-forward",
+});
+
+export type MigrationBackupEnvironment = {
+  readonly availableBytesForDirectory: (directory: string) => Promise<number | null>;
+};
+
+const defaultMigrationBackupEnvironment: MigrationBackupEnvironment = {
+  availableBytesForDirectory: async (directory) => {
+    try {
+      const filesystem = await fs.statfs(directory);
+      return Number(filesystem.bavail) * Number(filesystem.bsize);
+    } catch {
+      return null;
+    }
+  },
 };
 
 export type MigrationBackupResult = MigrationBackupPlan & {
@@ -198,7 +223,7 @@ export const inspectMigrationBackupPlan = Effect.gen(function* () {
 
   const hasTracker = tables.some((table) => table.name === "effect_sql_migrations");
   if (!hasTracker) {
-    return { sourceVersion: "untracked", targetVersion: latestMigrationId };
+    return lineageRepairPlan("untracked");
   }
 
   const recordedResult = yield* sql<{
@@ -211,14 +236,12 @@ export const inspectMigrationBackupPlan = Effect.gen(function* () {
     Effect.catch(() => Effect.succeed({ status: "malformed" as const })),
   );
   if (recordedResult.status === "malformed") {
-    return { sourceVersion: "malformed-tracker", targetVersion: latestMigrationId };
+    return lineageRepairPlan("malformed-tracker");
   }
   const recorded = recordedResult.rows;
   const userTables = tables.filter((table) => table.name !== "effect_sql_migrations");
   if (recorded.length === 0) {
-    return userTables.length === 0
-      ? null
-      : { sourceVersion: "untracked", targetVersion: latestMigrationId };
+    return userTables.length === 0 ? null : lineageRepairPlan("untracked");
   }
 
   const recordedNames = new Map(recorded.map((row) => [row.migration_id, row.name] as const));
@@ -231,7 +254,7 @@ export const inspectMigrationBackupPlan = Effect.gen(function* () {
     recordedNames.has(32) &&
     recordedNames.get(32) !== "ReconcileImportedSchemaLineage"
   ) {
-    return { sourceVersion: `v${highWaterMark}-legacy32`, targetVersion: latestMigrationId };
+    return lineageRepairPlan(`v${highWaterMark}-legacy32`);
   }
 
   // Same predicate the reconciler classifies trackers with. Sharing it is what
@@ -243,14 +266,11 @@ export const inspectMigrationBackupPlan = Effect.gen(function* () {
     if (firstDivergedId <= LAST_SHARED_LINEAGE_MIGRATION_ID) {
       return null;
     }
-    return {
-      sourceVersion: `imported-v${highWaterMark}-from${firstDivergedId}`,
-      targetVersion: latestMigrationId,
-    };
+    return lineageRepairPlan(`imported-v${highWaterMark}-from${firstDivergedId}`);
   }
 
   if (highWaterMark < latestMigrationId) {
-    return { sourceVersion: `v${highWaterMark}`, targetVersion: latestMigrationId };
+    return canonicalForwardPlan(`v${highWaterMark}`);
   }
   return null;
 });
@@ -679,7 +699,11 @@ export const pruneMigrationBackups = (dbPath: string, retention = MIGRATION_BACK
     ]);
   });
 
-export const createMigrationBackup = (dbPath: string, plan: MigrationBackupPlan) =>
+export const createMigrationBackup = (
+  dbPath: string,
+  plan: MigrationBackupPlan,
+  environment: MigrationBackupEnvironment = defaultMigrationBackupEnvironment,
+) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const backupDirectory = migrationBackupDirectory(dbPath);
@@ -692,7 +716,13 @@ export const createMigrationBackup = (dbPath: string, plan: MigrationBackupPlan)
       removeRegularFiles(backupDirectory, isMigrationBackupPartial(basename)),
     );
     const requiredBytes = yield* estimateMigrationBackupRequiredBytes(dbPath);
-    yield* attemptPromise(() => assertBackupSpaceAvailable(requiredBytes, backupDirectory));
+    yield* attemptPromise(() =>
+      assertBackupSpaceAvailable(
+        requiredBytes,
+        backupDirectory,
+        environment.availableBytesForDirectory,
+      ),
+    );
     const uniqueSuffix = `${compactTimestamp(new Date())}-${randomUUID()}`;
     const finalName = `${basename}.pre-migration-${safeVersionLabel(plan.sourceVersion)}-to-v${plan.targetVersion}-${uniqueSuffix}.sqlite`;
     const backupPath = path.join(backupDirectory, finalName);
@@ -759,10 +789,38 @@ const removeRecoveryMarker = (dbPath: string) =>
 export const runWithPreMigrationBackup = <A, E, R>(
   dbPath: string,
   migration: Effect.Effect<A, E, R>,
+  environment: MigrationBackupEnvironment = defaultMigrationBackupEnvironment,
 ) =>
   Effect.gen(function* () {
     const plan = yield* inspectMigrationBackupPlan;
-    const backup = plan ? yield* createMigrationBackup(dbPath, plan) : null;
+    // The ordinary migrator owns one SQLite transaction, so a failed or
+    // interrupted canonical forward migration rolls back safely. Imported,
+    // legacy, untracked, and malformed trackers can require destructive schema
+    // replay; those paths still require a verified snapshot and fail closed.
+    const backup = plan
+      ? yield* createMigrationBackup(dbPath, plan, environment).pipe(
+          Effect.catchIf(
+            (cause): cause is InsufficientMigrationBackupSpaceError =>
+              plan.kind === "canonical-forward" &&
+              cause instanceof InsufficientMigrationBackupSpaceError,
+            (cause) =>
+              Effect.logWarning(
+                "Continuing canonical forward migration without a pre-migration backup",
+              ).pipe(
+                Effect.annotateLogs({
+                  databasePath: dbPath,
+                  sourceVersion: plan.sourceVersion,
+                  targetVersion: plan.targetVersion,
+                  backupDirectory: cause.directory,
+                  requiredBytes: cause.requiredBytes,
+                  availableBytes: cause.availableBytes,
+                  backupOutcome: "skipped-insufficient-space",
+                }),
+                Effect.as(null),
+              ),
+          ),
+        )
+      : null;
     if (backup) {
       // This write-ahead marker must be durable before migrations can mutate
       // the live database. A later startup will fail closed until an operator
