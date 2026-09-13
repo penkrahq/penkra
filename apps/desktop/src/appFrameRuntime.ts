@@ -88,6 +88,10 @@ class AppFramePortTransport implements AppPreloadTransport {
     return this.#call("identity.getToken", input);
   }
 
+  getAccountProfile(): Promise<import("@penkra/sdk").AppAccountProfile> {
+    return this.#call("account.profile");
+  }
+
   accountDataRequest(
     input: Parameters<PenkraTabRuntimeApi["account"]["request"]>[0],
   ): ReturnType<PenkraTabRuntimeApi["account"]["request"]> {

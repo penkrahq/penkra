@@ -79,6 +79,7 @@ import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness"
 import { queryAppPermission } from "./appPermissionQuery";
 import { prepareAppBrowserDownload } from "./appBrowserDownload";
 import { requestAppIdentityToken } from "./appIdentityToken";
+import { requestAppAccountProfile } from "./appAccountProfile";
 import { parseAppHostedSurfaceInsets } from "./appHostedSurfaceLayout";
 import { openLocalAppResource } from "./appLocalResourceOpener";
 import { buildAppResourceContextMenu } from "./appResourceContextMenu";
@@ -118,7 +119,7 @@ import {
 } from "./bundleSwapDetection";
 import { waitForBackendStartupReady } from "./backendStartupReadiness";
 import { showDesktopConfirmDialog } from "./confirmDialog";
-import { normalizeDesktopSpacesMenuInput } from "./spacesMenu";
+import { normalizeDesktopSpacesMenuInput, shouldPromoteDesktopSpacesMenuState } from "./spacesMenu";
 import {
   makeUpdateInstallPreparationCoordinator,
   type UpdateInstallPreparationAttempt,
@@ -228,6 +229,7 @@ import { BROWSER_SESSION_PARTITION, DesktopBrowserManager } from "./browserManag
 import { createScopedBrowserSessionPartition } from "./browserSessionPolicy";
 import { applyUnmanagedWebviewWindowOpenPolicy } from "./webviewWindowOpenPolicy";
 import { createContextMenuSelection } from "./contextMenuSelection";
+import { normalizeAppContextMenuItems, type NormalizedAppContextMenuItem } from "./appContextMenu";
 import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPipeServer";
 import { AppTabObserver, resolveAppTabObservationTarget } from "./appTabObserver";
 import { BROWSER_APP_ID, isRequiredApp } from "./appDistributionPolicy";
@@ -1290,16 +1292,45 @@ const hostedBrowserPageBoundsByTabId = new Map<
 const configuredAppBrowserDownloadPartitions = new Set<string>();
 let configuredUpdaterCacheDirName: string | null = null;
 
+function publishAppBrowserSurface(tabId: string): void {
+  const runtime = desktopAppRuntime;
+  if (!runtime?.appTabs.has(tabId)) return;
+  const rendererId = runtime.appTabs.rendererId(tabId);
+  const insets = appBrowserSurfaceInsetsByTabId.get(tabId);
+  const owner = appBrowserOwnerByTabId.get(tabId);
+  const activeSurfaceId = runtime.appTabs.activeSurfaceId(tabId);
+  for (const window of shellWindows()) {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) continue;
+    window.webContents.send(IPC.appTabs.frameHostMessage, {
+      tabId,
+      rendererId,
+      delivery: {
+        kind: "event",
+        name: "browser.surface",
+        payload:
+          insets && owner
+            ? {
+                insets,
+                partition: createScopedBrowserSessionPartition(owner.appId, owner.spaceId),
+                owned: window.webContents.id === activeSurfaceId,
+              }
+            : null,
+      },
+    });
+  }
+}
+
 function dropAppBrowserSurface(surfaceId: number): void {
   for (const [tabId, surfaceIds] of appBrowserSurfaceIdsByTabId) {
     surfaceIds.delete(surfaceId);
-    if (surfaceIds.size > 0) continue;
+    if (surfaceIds.size > 0) {
+      publishAppBrowserSurface(tabId);
+      continue;
+    }
     appBrowserSurfaceIdsByTabId.delete(tabId);
     appBrowserSurfaceInsetsByTabId.delete(tabId);
     browserManager.setRendererSurfaceActive(tabId as ThreadId, false);
-    if (desktopAppRuntime?.appTabs.has(tabId)) {
-      desktopAppRuntime.appTabs.sendFrameEvent(tabId, "browser.surface", null);
-    }
+    publishAppBrowserSurface(tabId);
   }
   for (const [tabId, boundsBySurfaceId] of hostedBrowserPageBoundsByTabId) {
     const removed = boundsBySurfaceId.get(surfaceId);
@@ -1417,14 +1448,7 @@ async function showAppContextMenu(
   position?: { x: number; y: number },
   ownerWindow: BrowserWindow | null = resolveShellWindow(),
 ): Promise<string | null> {
-  const normalizedItems = items
-    .filter((item) => typeof item.id === "string" && typeof item.label === "string")
-    .map((item) => ({
-      id: item.id,
-      label: item.label,
-      separatorBefore: item.separatorBefore === true,
-      destructive: item.destructive === true,
-    }));
+  const normalizedItems = normalizeAppContextMenuItems(items);
   if (normalizedItems.length === 0) return null;
   const popupPosition =
     position &&
@@ -1437,30 +1461,41 @@ async function showAppContextMenu(
   const window = ownerWindow;
   if (!window) return null;
   const selection = createContextMenuSelection<string>();
-  const template: MenuItemConstructorOptions[] = [];
-  let hasInsertedDestructiveSeparator = false;
-  for (const item of normalizedItems) {
-    const shouldInsertSeparator =
-      item.separatorBefore ||
-      (item.destructive && !hasInsertedDestructiveSeparator && template.length > 0);
-    if (shouldInsertSeparator && template.length > 0) template.push({ type: "separator" });
-    if (item.destructive) hasInsertedDestructiveSeparator = true;
-    const itemOption: MenuItemConstructorOptions = {
-      label: item.label,
-      click: () => selection.select(item.id),
-    };
-    if (item.destructive) {
-      const destructiveIcon = getDestructiveMenuIcon();
-      if (destructiveIcon) itemOption.icon = destructiveIcon;
-    }
-    template.push(itemOption);
-  }
+  const template = appContextMenuTemplate(normalizedItems, selection.select);
   Menu.buildFromTemplate(template).popup({
     window,
     ...popupPosition,
     callback: selection.dismiss,
   });
   return selection.result;
+}
+
+function appContextMenuTemplate(
+  items: readonly NormalizedAppContextMenuItem[],
+  select: (id: string) => void,
+): MenuItemConstructorOptions[] {
+  return items.map((item): MenuItemConstructorOptions => {
+    if (item.type === "separator") return { type: "separator" };
+    if (item.type === "submenu") {
+      return {
+        label: item.label,
+        enabled: item.enabled,
+        submenu: appContextMenuTemplate(item.items, select),
+      };
+    }
+    const option: MenuItemConstructorOptions = {
+      label: item.label,
+      enabled: item.enabled,
+      ...(item.checked === undefined ? {} : { type: "checkbox", checked: item.checked }),
+      ...(item.accelerator === undefined ? {} : { accelerator: item.accelerator }),
+      click: () => select(item.id),
+    };
+    if (item.destructive) {
+      const destructiveIcon = getDestructiveMenuIcon();
+      if (destructiveIcon) option.icon = destructiveIcon;
+    }
+    return option;
+  });
 }
 
 async function runtimeV2FilePath(
@@ -1643,22 +1678,20 @@ async function invokeRuntimeV2BrowserCall(input: {
         surfaceIds.delete(input.surfaceId);
         if (surfaceIds.size > 0) {
           appBrowserSurfaceIdsByTabId.set(input.tabId, surfaceIds);
+          publishAppBrowserSurface(input.tabId);
           return;
         }
         appBrowserSurfaceIdsByTabId.delete(input.tabId);
         appBrowserSurfaceInsetsByTabId.delete(input.tabId);
         browserManager.setRendererSurfaceActive(browserSessionId, false);
-        desktopAppRuntime?.appTabs.sendFrameEvent(input.tabId, "browser.surface", null);
+        publishAppBrowserSurface(input.tabId);
         return;
       }
       surfaceIds.add(input.surfaceId);
       appBrowserSurfaceIdsByTabId.set(input.tabId, surfaceIds);
       appBrowserSurfaceInsetsByTabId.set(input.tabId, insets);
       browserManager.setRendererSurfaceActive(browserSessionId, true);
-      desktopAppRuntime?.appTabs.sendFrameEvent(input.tabId, "browser.surface", {
-        insets,
-        partition: createScopedBrowserSessionPartition(input.appId, input.spaceId),
-      });
+      publishAppBrowserSurface(input.tabId);
       return;
     }
     case "navigate": {
@@ -5367,6 +5400,25 @@ function registerIpcHandlers(): void {
       cookie: getPenkraAccountCookie(),
     });
   });
+  ipcMain.removeHandler(IPC.appRuntime.accountProfileGet);
+  ipcMain.handle(IPC.appRuntime.accountProfileGet, async (event) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const permission = queryAppPermission(
+      runtime.installations.snapshot(),
+      identity,
+      "account-profile",
+    );
+    if (!permission.declared || permission.state !== "granted") {
+      throw Object.assign(
+        new Error("account-profile is not granted for this App in the current Space."),
+        { code: "PERMISSION_DENIED" },
+      );
+    }
+    return requestAppAccountProfile({
+      apiUrl: penkraAccountServices.apiUrl,
+      cookie: getPenkraAccountCookie(),
+    });
+  });
   ipcMain.removeHandler(IPC.appRuntime.accountDataRequest);
   ipcMain.handle(IPC.appRuntime.accountDataRequest, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
@@ -6120,6 +6172,7 @@ function registerIpcHandlers(): void {
     // capability token is already inactive, so the host intentionally treats it as satisfied.
     requireShellAppTabs(event.sender.id).setActive(tabId, rendererId, active, event.sender.id);
     if (active) applyActiveHostedBrowserPageBounds(tabId);
+    publishAppBrowserSurface(tabId);
   });
   ipcMain.handle(IPC.appTabs.frameMessage, async (event, input: unknown) => {
     const tabs = requireShellAppTabs(event.sender.id);
@@ -6151,11 +6204,7 @@ function registerIpcHandlers(): void {
       );
       const insets = appBrowserSurfaceInsetsByTabId.get(tabId);
       if (insets) {
-        const identity = tabs.frameIdentity(tabId, rendererId);
-        tabs.sendFrameEvent(tabId, "browser.surface", {
-          insets,
-          partition: createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
-        });
+        publishAppBrowserSurface(tabId);
       }
     }
   });
@@ -6174,6 +6223,7 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid hosted Browser webview identity.");
     }
     const identity = tabs.frameIdentity(tabId, rendererId);
+    if (tabs.activeSurfaceId(tabId) !== event.sender.id) return;
     browserManager.setSessionPartition(
       tabId as ThreadId,
       createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
@@ -6204,6 +6254,7 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid hosted Browser webview load failure details.");
     }
     tabs.frameIdentity(tabId, rendererId);
+    if (tabs.activeSurfaceId(tabId) !== event.sender.id) return;
     browserManager.reportRendererWebviewLoadFailure({
       threadId: tabId as ThreadId,
       tabId: pageId,
@@ -6374,6 +6425,23 @@ function registerIpcHandlers(): void {
           appId: identity.appId,
           spaceId: identity.spaceId,
           audience,
+          cookie: getPenkraAccountCookie(),
+        });
+      }
+      case "account.profile": {
+        const permission = queryAppPermission(
+          runtime.installations.snapshot(),
+          identity,
+          "account-profile",
+        );
+        if (!permission.declared || permission.state !== "granted") {
+          throw Object.assign(
+            new Error("account-profile is not granted for this App in the current Space."),
+            { code: "PERMISSION_DENIED" },
+          );
+        }
+        return requestAppAccountProfile({
+          apiUrl: penkraAccountServices.apiUrl,
           cookie: getPenkraAccountCookie(),
         });
       }
@@ -7469,7 +7537,15 @@ function registerIpcHandlers(): void {
     if (!nextState) return;
     spacesMenuStateByShellRendererId.set(event.sender.id, nextState);
     const senderWindow = shellWindowForSender(event.sender);
-    if (senderWindow?.isFocused() || !resolveShellWindow()) spacesMenuState = nextState;
+    if (
+      shouldPromoteDesktopSpacesMenuState({
+        senderFocused: senderWindow?.isFocused() ?? false,
+        shellWindowExists: resolveShellWindow() !== null,
+        currentSpaceCount: spacesMenuState.spaces.length,
+      })
+    ) {
+      spacesMenuState = nextState;
+    }
     await bootstrapConfiguredAppsForSpaces();
     configureApplicationMenu();
   });
@@ -7885,7 +7961,10 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     browserManager.setWindow(window);
     desktopAppRuntime?.appTabs.focusSurface(rendererOwnerId);
     const visibleTabId = desktopAppRuntime?.appTabs.visibleTabIdForSurface(rendererOwnerId);
-    if (visibleTabId) applyActiveHostedBrowserPageBounds(visibleTabId);
+    if (visibleTabId) {
+      applyActiveHostedBrowserPageBounds(visibleTabId);
+      publishAppBrowserSurface(visibleTabId);
+    }
     const windowSpaces = spacesMenuStateByShellRendererId.get(window.webContents.id);
     if (windowSpaces) {
       spacesMenuState = windowSpaces;
@@ -8331,6 +8410,22 @@ async function bootstrap(): Promise<void> {
           appId,
           cookie: getPenkraAccountCookie(),
           request: input as import("./appAccountData").AppAccountDataRequest,
+        });
+      }
+      if (method === "account.profile") {
+        const permission = queryAppPermission(
+          runtime.installations.snapshot(),
+          identity,
+          "account-profile",
+        );
+        if (!permission.declared || permission.state !== "granted") {
+          throw Object.assign(new Error("account-profile is not granted for this App."), {
+            code: "PERMISSION_DENIED",
+          });
+        }
+        return requestAppAccountProfile({
+          apiUrl: penkraAccountServices.apiUrl,
+          cookie: getPenkraAccountCookie(),
         });
       }
       if (method === "identity.getToken") {

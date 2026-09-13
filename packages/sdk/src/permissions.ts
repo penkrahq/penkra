@@ -22,6 +22,11 @@ export const PENKRA_PERMISSIONS = {
     summary: "Use the signed-in Penkra Account with this App's own backend data namespace.",
     risk: "standard",
   },
+  "account-profile": {
+    name: "account-profile",
+    summary: "Read the signed-in user's Account name, verified email, and profile picture.",
+    risk: "standard",
+  },
   "account-identity": {
     name: "account-identity",
     summary: "Receive a short-lived identity token for one declared backend audience.",
