@@ -359,6 +359,54 @@ describe("App developer packaging", () => {
     ).rejects.toThrow("does not match its input schema");
   });
 
+  it("rejects a file handler whose delivery does not match its operation schema", async () => {
+    const root = await fixture();
+    const manifestPath = join(root, "penkra-app.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.entrypoints.controller = "operations.js";
+    manifest.operations = [
+      {
+        key: "resources.open",
+        summary: "Open a local resource.",
+        input: {
+          type: "object",
+          properties: { path: { type: "string", minLength: 1 } },
+          required: ["path"],
+          additionalProperties: false,
+        },
+        output: { type: "object", additionalProperties: true },
+        examples: [{ name: "Open a path", input: { path: "/example/document.md" } }],
+        handler: "resources.open",
+      },
+    ];
+    manifest.contributions = {
+      handlers: [
+        {
+          intent: "open-file",
+          operation: "resources.open",
+          extensions: [".md"],
+        },
+      ],
+    };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    await expect(
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "bad-handler.penkra"),
+      }),
+    ).rejects.toThrow("delivers a scoped handle, but operation resources.open rejects that input");
+
+    manifest.contributions.handlers[0].input = "path";
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    await expect(
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "path-handler.penkra"),
+      }),
+    ).resolves.toMatchObject({ slug: "canvas" });
+  });
+
   it("rejects symlinks and output paths inside the package root", async () => {
     const root = await fixture();
     await expect(
