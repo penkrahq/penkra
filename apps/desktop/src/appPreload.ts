@@ -24,6 +24,7 @@ const runtime = new AppPreloadRuntime({
   requestPermission: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.permissionRequest, name),
   getIdentity: () => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.identityGet),
   getIdentityToken: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.identityGetToken, input),
+  getAccountProfile: () => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.accountProfileGet),
   accountDataRequest: (input) =>
     ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.accountDataRequest, input),
   accountDataSubscribe: (channel, listener, options) =>

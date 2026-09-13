@@ -75,6 +75,7 @@ import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness"
 import { queryAppPermission } from "./appPermissionQuery";
 import { prepareAppBrowserDownload } from "./appBrowserDownload";
 import { requestAppIdentityToken } from "./appIdentityToken";
+import { requestAppAccountProfile } from "./appAccountProfile";
 import { parseAppHostedSurfaceInsets } from "./appHostedSurfaceLayout";
 import { openLocalAppResource } from "./appLocalResourceOpener";
 import { buildAppResourceContextMenu } from "./appResourceContextMenu";
@@ -224,6 +225,7 @@ import { BROWSER_SESSION_PARTITION, DesktopBrowserManager } from "./browserManag
 import { createScopedBrowserSessionPartition } from "./browserSessionPolicy";
 import { applyUnmanagedWebviewWindowOpenPolicy } from "./webviewWindowOpenPolicy";
 import { createContextMenuSelection } from "./contextMenuSelection";
+import { normalizeAppContextMenuItems, type NormalizedAppContextMenuItem } from "./appContextMenu";
 import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPipeServer";
 import { AppTabObserver, resolveAppTabObservationTarget } from "./appTabObserver";
 import { BROWSER_APP_ID, isRequiredApp } from "./appDistributionPolicy";
@@ -1374,14 +1376,7 @@ async function showAppContextMenu(
   position?: { x: number; y: number },
   ownerWindow: BrowserWindow | null = resolveShellWindow(),
 ): Promise<string | null> {
-  const normalizedItems = items
-    .filter((item) => typeof item.id === "string" && typeof item.label === "string")
-    .map((item) => ({
-      id: item.id,
-      label: item.label,
-      separatorBefore: item.separatorBefore === true,
-      destructive: item.destructive === true,
-    }));
+  const normalizedItems = normalizeAppContextMenuItems(items);
   if (normalizedItems.length === 0) return null;
   const popupPosition =
     position &&
@@ -1394,30 +1389,41 @@ async function showAppContextMenu(
   const window = ownerWindow;
   if (!window) return null;
   const selection = createContextMenuSelection<string>();
-  const template: MenuItemConstructorOptions[] = [];
-  let hasInsertedDestructiveSeparator = false;
-  for (const item of normalizedItems) {
-    const shouldInsertSeparator =
-      item.separatorBefore ||
-      (item.destructive && !hasInsertedDestructiveSeparator && template.length > 0);
-    if (shouldInsertSeparator && template.length > 0) template.push({ type: "separator" });
-    if (item.destructive) hasInsertedDestructiveSeparator = true;
-    const itemOption: MenuItemConstructorOptions = {
-      label: item.label,
-      click: () => selection.select(item.id),
-    };
-    if (item.destructive) {
-      const destructiveIcon = getDestructiveMenuIcon();
-      if (destructiveIcon) itemOption.icon = destructiveIcon;
-    }
-    template.push(itemOption);
-  }
+  const template = appContextMenuTemplate(normalizedItems, selection.select);
   Menu.buildFromTemplate(template).popup({
     window,
     ...popupPosition,
     callback: selection.dismiss,
   });
   return selection.result;
+}
+
+function appContextMenuTemplate(
+  items: readonly NormalizedAppContextMenuItem[],
+  select: (id: string) => void,
+): MenuItemConstructorOptions[] {
+  return items.map((item): MenuItemConstructorOptions => {
+    if (item.type === "separator") return { type: "separator" };
+    if (item.type === "submenu") {
+      return {
+        label: item.label,
+        enabled: item.enabled,
+        submenu: appContextMenuTemplate(item.items, select),
+      };
+    }
+    const option: MenuItemConstructorOptions = {
+      label: item.label,
+      enabled: item.enabled,
+      ...(item.checked === undefined ? {} : { type: "checkbox", checked: item.checked }),
+      ...(item.accelerator === undefined ? {} : { accelerator: item.accelerator }),
+      click: () => select(item.id),
+    };
+    if (item.destructive) {
+      const destructiveIcon = getDestructiveMenuIcon();
+      if (destructiveIcon) option.icon = destructiveIcon;
+    }
+    return option;
+  });
 }
 
 async function runtimeV2FilePath(
@@ -5231,6 +5237,25 @@ function registerIpcHandlers(): void {
       cookie: getPenkraAccountCookie(),
     });
   });
+  ipcMain.removeHandler(IPC.appRuntime.accountProfileGet);
+  ipcMain.handle(IPC.appRuntime.accountProfileGet, async (event) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const permission = queryAppPermission(
+      runtime.installations.snapshot(),
+      identity,
+      "account-profile",
+    );
+    if (!permission.declared || permission.state !== "granted") {
+      throw Object.assign(
+        new Error("account-profile is not granted for this App in the current Space."),
+        { code: "PERMISSION_DENIED" },
+      );
+    }
+    return requestAppAccountProfile({
+      apiUrl: penkraAccountServices.apiUrl,
+      cookie: getPenkraAccountCookie(),
+    });
+  });
   ipcMain.removeHandler(IPC.appRuntime.accountDataRequest);
   ipcMain.handle(IPC.appRuntime.accountDataRequest, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
@@ -6243,6 +6268,23 @@ function registerIpcHandlers(): void {
           appId: identity.appId,
           spaceId: identity.spaceId,
           audience,
+          cookie: getPenkraAccountCookie(),
+        });
+      }
+      case "account.profile": {
+        const permission = queryAppPermission(
+          runtime.installations.snapshot(),
+          identity,
+          "account-profile",
+        );
+        if (!permission.declared || permission.state !== "granted") {
+          throw Object.assign(
+            new Error("account-profile is not granted for this App in the current Space."),
+            { code: "PERMISSION_DENIED" },
+          );
+        }
+        return requestAppAccountProfile({
+          apiUrl: penkraAccountServices.apiUrl,
           cookie: getPenkraAccountCookie(),
         });
       }
@@ -8195,6 +8237,22 @@ async function bootstrap(): Promise<void> {
           appId,
           cookie: getPenkraAccountCookie(),
           request: input as import("./appAccountData").AppAccountDataRequest,
+        });
+      }
+      if (method === "account.profile") {
+        const permission = queryAppPermission(
+          runtime.installations.snapshot(),
+          identity,
+          "account-profile",
+        );
+        if (!permission.declared || permission.state !== "granted") {
+          throw Object.assign(new Error("account-profile is not granted for this App."), {
+            code: "PERMISSION_DENIED",
+          });
+        }
+        return requestAppAccountProfile({
+          apiUrl: penkraAccountServices.apiUrl,
+          cookie: getPenkraAccountCookie(),
         });
       }
       if (method === "identity.getToken") {

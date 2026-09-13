@@ -60,7 +60,8 @@ operations.handle("documents.read", async ({ id }, context) => {
 
 Use `contextMenu.show(...)` from a direct pointer interaction when an App needs a platform-native
 right-click menu. Penkra returns the selected item ID or `null`; Apps never receive Electron menu
-objects.
+objects. Menu items may be actions, explicit separators, or recursively nested submenus. Action
+IDs must be unique across the complete menu because the host returns the selected leaf action ID.
 
 In a visual tab, files and directories use `files.pick("file" | "directory" | "save")` and opaque
 App×Space-scoped handle IDs.

@@ -147,7 +147,7 @@ describe("framework-neutral App runtime exports", () => {
         get: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })),
         getToken: vi.fn(),
       },
-      account: { request: vi.fn(), subscribe: vi.fn() },
+      account: { profile: vi.fn(), request: vi.fn(), subscribe: vi.fn() },
       settings: {
         get: vi.fn(async () => "value"),
         set: vi.fn(async () => undefined),
@@ -226,6 +226,7 @@ describe("framework-neutral App runtime exports", () => {
         getToken: vi.fn(),
       },
       account: {
+        profile: vi.fn(async () => ({ name: null, email: "user@example.com", emailVerified: true, avatarUrl: null })),
         request: vi.fn(async () => ({ status: 200, headers: {}, body: new Uint8Array() })),
         subscribe: vi.fn(async () => vi.fn()),
       },

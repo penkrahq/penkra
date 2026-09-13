@@ -394,6 +394,7 @@ This is the complete catalog:
 | `browser-session`   | High     | Visual tab                | Create and control isolated hosted web pages owned by this App and Space                                 | None                      |
 | `simulator-session` | High     | Visual tab                | Create, save, display, and control hosted Apple or Android simulated devices owned by this App and Space | None                      |
 | `account-data`      | Standard | Visual tab and controller | Use the signed-in Account session only inside this App's Penkra-hosted backend namespace                 | None                      |
+| `account-profile`   | Standard | Visual tab and controller | Read the signed-in user's current name, email, verification state, and avatar URL                        | None                      |
 | `account-identity`  | High     | Visual tab and controller | Receive a five-minute signed identity token for exactly one external backend audience                    | Lowercase DNS `audience`  |
 | `thread-compose`    | High     | Visual tab                | Read current Thread state and compose visible content in the App tab's current Thread                    | None                      |
 | `thread-send`       | High     | Visual tab                | Submit one exact App-owned composition in the App tab's current Thread                                   | `thread-compose`          |
@@ -559,6 +560,17 @@ data is automatically owned by the Space, visible to every Space member, or shar
 App. Those are backend policy decisions.
 
 Use `account-data` when the service is implemented inside Penkra's per-App Account-data namespace.
+
+### `account-profile`
+
+`account-profile` exposes the signed-in user's current public account presentation through
+`account.profile()`. The result contains `name`, `email`, `emailVerified`, and `avatarUrl`. It does
+not grant directory access or reveal another account's profile; collaborator details must come
+from an App resource the caller is already authorized to read.
+
+Declare this permission when the App needs the current user's account presentation rather than an
+opaque installation-local identity. Use `account-data` for App-owned collaboration records and
+sharing grants.
 Use `account-identity` when the App must authenticate to an independently hosted backend. Do not use
 `account-identity` merely to discover whether someone is signed in; it reveals verified identity to
 the declared backend and is intentionally high risk.
