@@ -1205,10 +1205,25 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                   toPersistenceSqlError("ProjectionPipeline.upsertRestartTurnRecovery:query"),
                 ),
               );
-            } else if (
-              event.payload.session.status === "ready" ||
-              event.payload.session.status === "error"
-            ) {
+            } else if (event.payload.session.status === "ready") {
+              yield* sql`
+                DELETE FROM restart_turn_recoveries AS recovery
+                WHERE recovery.thread_id = ${event.payload.threadId}
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM projection_turns AS turn_row
+                    WHERE turn_row.thread_id = recovery.thread_id
+                      AND turn_row.turn_id = recovery.turn_id
+                      AND turn_row.state = 'running'
+                      AND turn_row.started_at IS NULL
+                      AND turn_row.provider_turn_id IS NULL
+                  )
+              `.pipe(
+                Effect.mapError(
+                  toPersistenceSqlError("ProjectionPipeline.deleteRestartTurnRecovery:query"),
+                ),
+              );
+            } else if (event.payload.session.status === "error") {
               yield* sql`
                 DELETE FROM restart_turn_recoveries
                 WHERE thread_id = ${event.payload.threadId}

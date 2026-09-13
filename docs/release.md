@@ -95,11 +95,14 @@ create the matching tag manually: the workflow creates it only after every nativ
    the exact commit. Commit CI covers static contracts, the complete unit and integration suites,
    deterministic browser partitions, the desktop build, and the React compiler hot-path contract.
    Native installer construction is intentionally reserved for the one release-candidate run.
-2. In a signed-in Production Penkra task, ask the agent to run the registered command
-   `penkra app status --app-id com.penkra.apps`. This is a Penkra host command available to agents;
-   it is not a command provided by the client-workspace `penkra` shell executable. Confirm its
-   result reports the lockfile's version and package digest as public on the production registry
-   target. Stop if the target, version, or digest differs.
+2. Compare `required-apps.lock.json` with the previous stable release. When that lock changed, use a
+   dedicated signed-in Production Penkra release task and ask the agent to run the registered
+   command `penkra app status --app-id com.penkra.apps`. This is a Penkra host command available to
+   agents; it is not a command provided by the client-workspace `penkra` shell executable. Confirm
+   its result reports the lockfile's version and package digest as public on the production
+   registry target. Stop if the target, version, or digest differs. When the lock is unchanged,
+   record that comparison and skip the Production task; an unrelated desktop release does not need
+   to repeat the registry check.
 3. Update every product package to the intended version and commit the exact release source locally.
 4. Complete the repository's required fresh Penkra Dev manual QA for the affected user flows, then
    build and launch an isolated local production package for final macOS QA. The local artifact is

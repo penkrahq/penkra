@@ -65,4 +65,22 @@ describe("ShellWindowRegistry", () => {
     expect(first.webContents.send).toHaveBeenCalledWith("state", { version: 3 });
     expect(second.webContents.send).toHaveBeenCalledWith("state", { version: 3 });
   });
+
+  it("broadcasts a renderer action to every other shell window", () => {
+    const registry = new ShellWindowRegistry();
+    const origin = windowStub(1);
+    const second = windowStub(2);
+    const third = windowStub(3);
+    registry.add(origin);
+    registry.add(second);
+    registry.add(third);
+
+    expect(
+      registry.broadcastExcept(origin.webContents.id, "composer-edit", { recoveryId: "one" }),
+    ).toBe(2);
+
+    expect(origin.webContents.send).not.toHaveBeenCalled();
+    expect(second.webContents.send).toHaveBeenCalledWith("composer-edit", { recoveryId: "one" });
+    expect(third.webContents.send).toHaveBeenCalledWith("composer-edit", { recoveryId: "one" });
+  });
 });

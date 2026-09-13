@@ -10,6 +10,8 @@ export interface StateStorage<R = unknown> {
 export interface DeferredPersistStorage<S> extends PersistStorage<S> {
   /** Serialize the latest captured state and write it through synchronously. */
   flush: () => void;
+  /** Drop a captured write when a newer authoritative owner will checkpoint shared storage. */
+  discardPending: () => void;
 }
 
 export function createMemoryStorage(): StateStorage {
@@ -135,6 +137,10 @@ export function createDeferredPersistStorage<State, Persisted = State>(options: 
     flush: () => {
       debouncedWrite.cancel();
       writePending();
+    },
+    discardPending: () => {
+      pending = null;
+      debouncedWrite.cancel();
     },
   };
 }

@@ -46,6 +46,7 @@ import type {
   DesktopAppTabClosed,
   DesktopAppTabDescriptor,
   DesktopAppTabOpened,
+  DesktopComposerEditRecovery,
   DesktopSpacesMenuInput,
   DesktopTheme,
   DesktopUpdateActionResult,
@@ -5150,6 +5151,46 @@ function registerIpcHandlers(): void {
   ipcMain.removeListener(IPC.threadApiResponse, acceptThreadApiResponse);
   ipcMain.on(IPC.threadApiResponse, acceptThreadApiResponse);
   for (const channel of Object.values(IPC.composerDrafts)) ipcMain.removeHandler(channel);
+  ipcMain.removeAllListeners(IPC.composerDrafts.publishEditRecovery);
+  ipcMain.on(IPC.composerDrafts.publishEditRecovery, (event, input: unknown) => {
+    if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) return;
+    if (!input || typeof input !== "object") return;
+    const recovery = input as Record<string, unknown>;
+    if (
+      typeof recovery.recoveryId !== "string" ||
+      recovery.recoveryId.length === 0 ||
+      recovery.recoveryId.length > 128 ||
+      typeof recovery.threadId !== "string" ||
+      recovery.threadId.length === 0 ||
+      recovery.threadId.length > 512 ||
+      typeof recovery.queuedTurnId !== "string" ||
+      recovery.queuedTurnId.length === 0 ||
+      recovery.queuedTurnId.length > 512 ||
+      typeof recovery.queuedTurnJson !== "string" ||
+      Buffer.byteLength(recovery.queuedTurnJson, "utf8") > 32 * 1024 * 1024
+    ) {
+      return;
+    }
+    const validatedRecovery: DesktopComposerEditRecovery = {
+      recoveryId: recovery.recoveryId,
+      threadId: recovery.threadId as ThreadId,
+      queuedTurnId: recovery.queuedTurnId,
+      queuedTurnJson: recovery.queuedTurnJson,
+    };
+    const recipientCount = shellWindowRegistry.broadcastExcept(
+      event.sender.id,
+      IPC.composerDrafts.editRecovery,
+      validatedRecovery,
+    );
+    console.info("[composer-edit-recovery] Relayed recovery between shell windows.", {
+      recoveryId: recovery.recoveryId,
+      threadId: recovery.threadId,
+      queuedTurnId: recovery.queuedTurnId,
+      senderWebContentsId: event.sender.id,
+      recipientCount,
+      monotonicMs: performance.now(),
+    });
+  });
   ipcMain.handle(IPC.composerDrafts.readSnapshot, async (event) => {
     requireMainRenderer(event);
     return composerDraftJournal.readSnapshot();

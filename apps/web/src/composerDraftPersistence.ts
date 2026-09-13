@@ -296,6 +296,12 @@ const EMPTY_PERSISTED_DRAFT_STORE_STATE = Object.freeze<PersistedComposerDraftSt
   stickyActiveProvider: null,
 });
 
+function normalizePersistedFiles(value: unknown): Array<PersistedComposerFileAttachment> {
+  return Array.isArray(value)
+    ? value.filter(Schema.is(PersistedComposerFileAttachment)).map((file) => ({ ...file }))
+    : [];
+}
+
 function normalizePersistedPromptHistorySavedDraft(
   value: unknown,
 ): DeepMutable<PersistedComposerPromptHistorySavedDraft> | null {
@@ -316,6 +322,7 @@ function normalizePersistedPromptHistorySavedDraft(
         return normalized ? [normalized] : [];
       })
     : [];
+  const files = normalizePersistedFiles(candidate.files);
   const assistantSelections = Array.isArray(candidate.assistantSelections)
     ? candidate.assistantSelections.flatMap((entry) => {
         const normalized = normalizePersistedAssistantSelection(entry);
@@ -349,6 +356,7 @@ function normalizePersistedPromptHistorySavedDraft(
   return {
     prompt,
     attachments,
+    ...(files.length > 0 ? { files } : {}),
     ...(assistantSelections.length > 0 ? { assistantSelections } : {}),
     ...(terminalContexts.length > 0 ? { terminalContexts } : {}),
     ...(fileComments.length > 0 ? { fileComments } : {}),
@@ -568,6 +576,7 @@ function normalizePersistedQueuedTurns(
             return normalized ? [normalized] : [];
           })
         : [];
+      const files = normalizePersistedFiles(candidate.files);
       const terminalContexts = Array.isArray(candidate.terminalContexts)
         ? candidate.terminalContexts.flatMap((context) => {
             const normalized = normalizePersistedQueuedTerminalContextDraft(context);
@@ -609,6 +618,7 @@ function normalizePersistedQueuedTurns(
         previewText,
         prompt,
         images,
+        ...(files.length > 0 ? { files } : {}),
         ...(assistantSelections.length > 0 ? { assistantSelections } : {}),
         terminalContexts,
         ...(fileComments.length > 0 ? { fileComments } : {}),
@@ -867,6 +877,7 @@ function normalizePersistedDraftsByThreadId(
           return normalized ? [normalized] : [];
         })
       : [];
+    const files = normalizePersistedFiles(draftCandidate.files);
     const terminalContexts = Array.isArray(draftCandidate.terminalContexts)
       ? draftCandidate.terminalContexts.flatMap((entry) => {
           const normalized = normalizePersistedTerminalContextDraft(entry);
@@ -973,6 +984,7 @@ function normalizePersistedDraftsByThreadId(
       promptCandidate.length === 0 &&
       promptHistorySavedDraft === null &&
       attachments.length === 0 &&
+      files.length === 0 &&
       terminalContexts.length === 0 &&
       assistantSelections.length === 0 &&
       fileComments.length === 0 &&
@@ -991,6 +1003,7 @@ function normalizePersistedDraftsByThreadId(
       prompt,
       ...(promptHistorySavedDraft !== null ? { promptHistorySavedDraft } : {}),
       attachments,
+      ...(files.length > 0 ? { files } : {}),
       ...(assistantSelections.length > 0 ? { assistantSelections } : {}),
       ...(terminalContexts.length > 0 ? { terminalContexts } : {}),
       ...(fileComments.length > 0 ? { fileComments } : {}),
@@ -1432,6 +1445,25 @@ function serializeQueuedComposerTurn(
     runtimeMode: queuedTurn.runtimeMode,
     ...(queuedTurn.messageId ? { messageId: queuedTurn.messageId } : {}),
   };
+}
+
+export function serializeQueuedComposerTurnForWindowSync(queuedTurn: QueuedComposerTurn): string {
+  return JSON.stringify(serializeQueuedComposerTurn(queuedTurn, true));
+}
+
+export function hydrateQueuedComposerTurnFromWindowSync(
+  threadId: ThreadId,
+  value: string,
+): QueuedComposerTurn | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  const normalized = normalizePersistedQueuedTurns([parsed])?.[0];
+  if (!normalized) return null;
+  return hydrateQueuedTurnsFromPersisted(threadId, [normalized])[0] ?? null;
 }
 
 export function normalizeCurrentPersistedComposerDraftStoreState(

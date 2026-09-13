@@ -782,6 +782,39 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           },
         ]);
 
+        // Reproduce two restarts in quick succession. Restart admission reopens
+        // the same logical turn, provider startup briefly reports ready, and a
+        // new provider-native turn id arrives only afterward. The recovery
+        // journal must keep the canonical Penkra turn id throughout that gap.
+        yield* setSession("first-restart-interrupted", "stopped", null);
+        yield* appendAndProject({
+          ...base(`${sequence++}-restart-admitted`),
+          type: "thread.turn-start-requested",
+          payload: {
+            threadId,
+            turnId: TurnId.makeUnsafe("turn:cmd-restart-recovery-1-admitted"),
+            messageId: MessageId.makeUnsafe("restart-recovery-message"),
+            recoveryOfTurnId: TurnId.makeUnsafe("turn:cmd-restart-recovery-1-admitted"),
+            restartRecovery: true,
+            connectionId: null,
+            bindingRevision: 0,
+            assistantDeliveryMode: "buffered",
+            dispatchMode: "queue",
+            dispatchOrigin: "automation",
+            runtimeMode: "full-access",
+            createdAt: now,
+          },
+        });
+        yield* setSession("provider-startup-ready", "ready", null);
+        yield* setSession("recovered-running", "running", "provider-recovery-turn-2");
+        assert.deepStrictEqual(yield* rows(), [
+          {
+            threadId: "thread-restart-recovery",
+            turnId: "turn:cmd-restart-recovery-1-admitted",
+            messageId: "restart-recovery-message",
+          },
+        ]);
+
         yield* setSession("shutdown", "stopped", null);
         assert.equal((yield* rows()).length, 1);
 
