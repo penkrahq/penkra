@@ -22,6 +22,7 @@ import {
   PENKRA_APP_PACKAGE_MAX_EXPANDED_BYTES,
   PENKRA_APP_PACKAGE_MAX_FILES,
 } from "./appPackageLimits";
+import { assertAppHandlerContracts } from "./appHandlerContract";
 
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_PATH_BYTES = 1_024;
@@ -227,6 +228,7 @@ function parseManifest(bytes: Buffer): PenkraAppManifest {
   }
   assertPublishableAppManifest(manifest);
   assertOperationExamplesMatchSchemas(manifest);
+  assertAppHandlerContracts(manifest);
   if (!valid(manifest.version)) throw new Error("App manifest version must be valid SemVer.");
   if (!validRange(manifest.compatibility.penkra)) {
     throw new Error("App manifest compatibility.penkra must be a valid SemVer range.");
