@@ -4,18 +4,26 @@ import { requestAppAccountProfile } from "./appAccountProfile";
 
 describe("requestAppAccountProfile", () => {
   it("returns the authenticated account profile from the account service", async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify({
-      name: "Emmanuel",
-      email: "emmanuel@example.com",
-      emailVerified: true,
-      avatarUrl: "https://example.com/avatar.png",
-    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            name: "Emmanuel",
+            email: "emmanuel@example.com",
+            emailVerified: true,
+            avatarUrl: "https://example.com/avatar.png",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
 
-    await expect(requestAppAccountProfile({
-      apiUrl: "https://account.example.com",
-      cookie: "session=value",
-      fetch: fetch as typeof globalThis.fetch,
-    })).resolves.toEqual({
+    await expect(
+      requestAppAccountProfile({
+        apiUrl: "https://account.example.com",
+        cookie: "session=value",
+        fetch: fetch as typeof globalThis.fetch,
+      }),
+    ).resolves.toEqual({
       name: "Emmanuel",
       email: "emmanuel@example.com",
       emailVerified: true,
@@ -28,12 +36,16 @@ describe("requestAppAccountProfile", () => {
   });
 
   it("rejects missing authentication and malformed service responses", async () => {
-    await expect(requestAppAccountProfile({ apiUrl: "https://account.example.com", cookie: "" }))
-      .rejects.toMatchObject({ code: "ACCOUNT_REQUIRED" });
-    await expect(requestAppAccountProfile({
-      apiUrl: "https://account.example.com",
-      cookie: "session=value",
-      fetch: (async () => new Response(JSON.stringify({ email: 42 }), { status: 200 })) as typeof globalThis.fetch,
-    })).rejects.toThrow("invalid Account profile response");
+    await expect(
+      requestAppAccountProfile({ apiUrl: "https://account.example.com", cookie: "" }),
+    ).rejects.toMatchObject({ code: "ACCOUNT_REQUIRED" });
+    await expect(
+      requestAppAccountProfile({
+        apiUrl: "https://account.example.com",
+        cookie: "session=value",
+        fetch: (async () =>
+          new Response(JSON.stringify({ email: 42 }), { status: 200 })) as typeof globalThis.fetch,
+      }),
+    ).rejects.toThrow("invalid Account profile response");
   });
 });

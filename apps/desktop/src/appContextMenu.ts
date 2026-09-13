@@ -23,17 +23,12 @@ export type NormalizedAppContextMenuItem =
 const MAX_DEPTH = 8;
 const MAX_ITEMS = 500;
 
-export function normalizeAppContextMenuItems(
-  input: unknown,
-): NormalizedAppContextMenuItem[] {
+export function normalizeAppContextMenuItems(input: unknown): NormalizedAppContextMenuItem[] {
   if (!Array.isArray(input)) throw new Error("Context menu items must be an array.");
   const ids = new Set<string>();
   let itemCount = 0;
 
-  const normalize = (
-    items: readonly unknown[],
-    depth: number,
-  ): NormalizedAppContextMenuItem[] => {
+  const normalize = (items: readonly unknown[], depth: number): NormalizedAppContextMenuItem[] => {
     if (depth > MAX_DEPTH) throw new Error("Context menu nesting is too deep.");
     const output: NormalizedAppContextMenuItem[] = [];
     for (const candidate of items) {

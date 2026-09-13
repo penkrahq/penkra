@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  normalizeDesktopSpacesMenuInput,
-  shouldPromoteDesktopSpacesMenuState,
-} from "./spacesMenu";
+import { normalizeDesktopSpacesMenuInput, shouldPromoteDesktopSpacesMenuState } from "./spacesMenu";
 
 describe("normalizeDesktopSpacesMenuInput", () => {
   it("preserves ordered Spaces and the active marker", () => {
