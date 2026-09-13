@@ -57,4 +57,14 @@ export class ShellWindowRegistry {
       window.webContents.send(channel, ...args);
     }
   }
+
+  broadcastExcept(senderId: number, channel: string, ...args: unknown[]): number {
+    let recipientCount = 0;
+    for (const window of this.list()) {
+      if (window.webContents.id === senderId) continue;
+      window.webContents.send(channel, ...args);
+      recipientCount += 1;
+    }
+    return recipientCount;
+  }
 }
