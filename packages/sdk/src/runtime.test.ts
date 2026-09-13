@@ -233,7 +233,12 @@ describe("framework-neutral App runtime exports", () => {
         getToken: vi.fn(),
       },
       account: {
-        profile: vi.fn(async () => ({ name: null, email: "user@example.com", emailVerified: true, avatarUrl: null })),
+        profile: vi.fn(async () => ({
+          name: null,
+          email: "user@example.com",
+          emailVerified: true,
+          avatarUrl: null,
+        })),
         request: vi.fn(async () => ({ status: 200, headers: {}, body: new Uint8Array() })),
         subscribe: vi.fn(async () => vi.fn()),
       },

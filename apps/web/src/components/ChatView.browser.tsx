@@ -7296,9 +7296,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       steer.click();
       await vi.waitFor(() => expect(actions).toContain("thread.turn.steer-queued"));
-      await vi.waitFor(() =>
-        expect(document.body.textContent).toContain("Steering conversation"),
-      );
+      await vi.waitFor(() => expect(document.body.textContent).toContain("Steering conversation"));
       record("local-forced-overlay", queuedMessageId);
 
       // Requested delivery arrives before dispatchCommand resolves. The server row
@@ -7343,13 +7341,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
             : message,
         ),
       }));
-      await vi.waitFor(() =>
-        expect(document.body.textContent).toContain("Steering conversation"),
-      );
+      await vi.waitFor(() => expect(document.body.textContent).toContain("Steering conversation"));
       record("message-sent", queuedMessageId);
 
       releaseSteerReceipt();
-      await vi.waitFor(() => expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(1));
+      await vi.waitFor(() =>
+        expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(1),
+      );
 
       // This is deliberately the expected continuity assertion. It is RED on
       // the current implementation when requested delivery wins same-id row
@@ -7363,7 +7361,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
           dispatchMode: "queue",
           steeringLabel: true,
         }),
-        expect.objectContaining({ phase: "message-sent", dispatchMode: "steer", steeringLabel: true }),
+        expect.objectContaining({
+          phase: "message-sent",
+          dispatchMode: "steer",
+          steeringLabel: true,
+        }),
       ]);
     } finally {
       releaseSteerReceipt();

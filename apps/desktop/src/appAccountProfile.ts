@@ -20,7 +20,11 @@ export async function requestAppAccountProfile(input: {
   if (!response.ok) {
     const error = isRecord(body) ? body : {};
     throw Object.assign(
-      new Error(typeof error.message === "string" ? error.message : "Penkra could not read the Account profile."),
+      new Error(
+        typeof error.message === "string"
+          ? error.message
+          : "Penkra could not read the Account profile.",
+      ),
       typeof error.code === "string" ? { code: error.code } : {},
     );
   }
