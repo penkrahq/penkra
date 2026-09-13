@@ -348,18 +348,6 @@ function interactionFailureSettlementStatus(
   });
 }
 
-function isStaleCodexResumeError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("thread/resume") &&
-    (normalized.includes("no rollout found") ||
-      normalized.includes("thread not found") ||
-      normalized.includes("missing thread") ||
-      normalized.includes("unknown thread"))
-  );
-}
-
 function isStaleClaudeResumeError(error: unknown): boolean {
   if (Schema.is(ProviderAdapterRequestError)(error)) {
     return (
@@ -368,17 +356,6 @@ function isStaleClaudeResumeError(error: unknown): boolean {
     );
   }
   return String(error).toLowerCase().includes("no conversation found with session id");
-}
-
-function isRollbackStillInProgressError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("rollback") &&
-    (normalized.includes("turn is in progress") ||
-      normalized.includes("turn in progress") ||
-      normalized.includes("active turn"))
-  );
 }
 
 export interface ProviderCommandReactorLiveOptions {
@@ -788,76 +765,16 @@ const make = Effect.gen(function* () {
       // thread while the first is still running.
     });
 
-  const clearStaleProviderResumeState = Effect.fnUntraced(function* (input: {
-    readonly threadId: ThreadId;
-    readonly cause: ProviderServiceError;
-    readonly preserveActiveRuntime?: boolean;
-  }) {
-    if (providerService.clearSessionResumeCursor) {
-      yield* providerService
-        .clearSessionResumeCursor({
-          threadId: input.threadId,
-          ...(input.preserveActiveRuntime === true ? { preserveActiveRuntime: true } : {}),
-        })
-        .pipe(Effect.catch(() => Effect.void));
-    } else if (input.preserveActiveRuntime !== true) {
-      yield* providerService
-        .stopSession({ threadId: input.threadId })
-        .pipe(Effect.catch(() => Effect.void));
-    }
-    yield* Effect.logWarning("provider command reactor cleared stale provider resume state", {
-      threadId: input.threadId,
-      cause: input.cause.message,
-    });
-  });
-
   const rollbackProviderConversationForEdit = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly numTurns: number;
     readonly beforeTurnId: TurnId;
   }) {
-    const projectedThread = yield* resolveThread(input.threadId);
-    const provider = projectedThread
-      ? Schema.is(ProviderKind)(projectedThread.session?.providerName)
-        ? projectedThread.session?.providerName
-        : projectedThread.modelSelection.provider
-      : undefined;
-    const rebuildsContext =
-      provider !== undefined &&
-      (yield* providerService.getCapabilities(provider)).conversationRollback === "unsupported";
-    let attempt = 0;
-    while (true) {
-      let rollbackError: ProviderServiceError | null = null;
-      yield* providerService
-        .rollbackConversation({
-          threadId: input.threadId,
-          numTurns: input.numTurns,
-          beforeTurnId: input.beforeTurnId,
-        })
-        .pipe(
-          Effect.catch((error) =>
-            Effect.sync(() => {
-              rollbackError = error;
-            }),
-          ),
-        );
-      if (rollbackError === null) {
-        return;
-      }
-      if (isStaleCodexResumeError(rollbackError)) {
-        yield* clearStaleProviderResumeState({
-          threadId: input.threadId,
-          cause: rollbackError,
-        });
-        return;
-      }
-      if (isRollbackStillInProgressError(rollbackError) && attempt < 30) {
-        attempt += 1;
-        yield* Effect.sleep(100);
-        continue;
-      }
-      return yield* Effect.fail(rollbackError);
-    }
+    yield* providerService.rollbackConversation({
+      threadId: input.threadId,
+      numTurns: input.numTurns,
+      beforeTurnId: input.beforeTurnId,
+    });
   });
 
   const resolveManagedTurnRuntime = Effect.fnUntraced(function* (input: {
