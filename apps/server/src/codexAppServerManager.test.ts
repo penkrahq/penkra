@@ -1922,7 +1922,7 @@ describe("startSession", () => {
 });
 
 describe("sendTurn", () => {
-  it("maps a protocol JSON-RPC turn/start error using only its message", async () => {
+  it("preserves structured protocol JSON-RPC error evidence", async () => {
     const manager = new CodexAppServerManager();
     const context = {
       nextRequestId: 1,
@@ -1960,6 +1960,13 @@ describe("sendTurn", () => {
       message: "turn/start failed: usage limit reached",
       method: "turn/start",
       code: -32000,
+      data: {
+        error: {
+          message: "usage limit reached",
+          codexErrorInfo: "usageLimitExceeded",
+          additionalDetails: "Provider-supplied diagnostic text.",
+        },
+      },
       requestOutcome: "rejected",
     } satisfies Partial<CodexJsonRpcResponseError>);
     expect(context.pending.size).toBe(0);

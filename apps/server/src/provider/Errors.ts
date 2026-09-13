@@ -61,7 +61,9 @@ export class ProviderAdapterRequestError extends Schema.TaggedErrorClass<Provide
     detail: Schema.String,
     /** The provider returned a protocol response proving it rejected the request. */
     requestOutcome: Schema.optional(Schema.Literal("rejected")),
-    code: Schema.optional(Schema.Literal(PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE)),
+    code: Schema.optional(
+      Schema.Union([Schema.Number, Schema.Literal(PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE)]),
+    ),
     cause: Schema.optional(Schema.Defect),
   },
 ) {

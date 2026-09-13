@@ -59,6 +59,7 @@ import {
 } from "../Services/ProviderAdapter.ts";
 import {
   CodexAppServerManager,
+  CodexJsonRpcResponseError,
   parseCodexUserInputQuestions,
   type CodexAppServerSendTurnInput,
   type CodexAppServerStartSessionInput,
@@ -266,6 +267,12 @@ function toRequestError(threadId: ThreadId, method: string, cause: unknown): Pro
   if (sessionError) {
     return sessionError;
   }
+  const normalizedRequestCode =
+    cause instanceof CodexJsonRpcResponseError
+      ? cause.code
+      : asObject(cause)?.code === PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE
+        ? PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE
+        : undefined;
   return new ProviderAdapterRequestError({
     provider: PROVIDER,
     method,
@@ -273,9 +280,7 @@ function toRequestError(threadId: ThreadId, method: string, cause: unknown): Pro
     ...(asObject(cause)?.requestOutcome === "rejected"
       ? { requestOutcome: "rejected" as const }
       : {}),
-    ...(asObject(cause)?.code === PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE
-      ? { code: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
-      : {}),
+    ...(normalizedRequestCode !== undefined ? { code: normalizedRequestCode } : {}),
     cause,
   });
 }
