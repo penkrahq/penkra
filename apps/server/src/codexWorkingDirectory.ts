@@ -29,17 +29,22 @@ export class CodexWorkingDirectoryAccessError extends Error {
 export function assertCodexWorkingDirectoryExists(
   cwd: string,
   openDirectory: (path: string) => Dir = opendirSync,
+  readStats: typeof statSync = statSync,
 ): void {
   try {
-    const stats = statSync(cwd);
+    const stats = readStats(cwd);
     if (!stats.isDirectory()) {
       throw new Error(
         `Project working directory is not a directory: ${cwd}. Relocate or reconnect the project in Penkra.`,
       );
     }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
       throw new Error(formatMissingCodexWorkingDirectoryError(cwd));
+    }
+    if (code === "EPERM" || code === "EACCES") {
+      throw new CodexWorkingDirectoryAccessError(cwd, code, error);
     }
     throw error;
   }

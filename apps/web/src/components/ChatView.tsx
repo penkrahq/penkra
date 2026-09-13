@@ -72,6 +72,7 @@ import {
 import { resolveThreadBindingRevisionAtAdmission as resolveBindingRevisionAtAdmission } from "~/lib/threadBindingAdmission";
 import {
   pruneUnavailableComposerConnectionSelections,
+  resolveAnonymousModelDiscoveryRoute,
   resolveComposerConnectionAtAdmission,
 } from "~/lib/providerConnectionCapabilities";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
@@ -119,6 +120,7 @@ import { resolveSubagentPresentationForThread } from "../lib/subagentPresentatio
 import { readActiveSpaceId, useSpacesUiStore } from "../spacesUiStore";
 import { registerDesktopThreadLiveHandlers } from "../desktopThreadApiBroker";
 import {
+  buildOptimisticComposerAttachments,
   buildComposerFileAttachmentsFromFiles,
   buildComposerImageAttachmentsFromFiles,
   stageUploadComposerAttachments,
@@ -218,6 +220,7 @@ import {
 } from "../session-logic";
 import {
   buildPendingUserInputAnswers,
+  resolvePendingUserInputAnswer,
   derivePendingUserInputProgress,
   hasCompletePendingUserInputAnswers,
   omitNullPendingUserInputAnswers,
@@ -289,6 +292,7 @@ import {
   type QueuedComposerTurn,
   captureComposerPromptHistorySavedDraft,
   flushComposerDraftsDurably,
+  publishComposerEditRecovery,
   useComposerDraftStore,
   useComposerThreadDraft,
   useEffectiveComposerModelState,
@@ -2375,15 +2379,11 @@ export default function ChatView({
       }
       if (connectionId === undefined) continue;
       if (connectionId === null) {
-        const modelProviderId =
-          provider === "opencode"
-            ? (composerModelHintByProvider[provider]?.split("/", 1)[0] ?? null)
-            : null;
-        const route = snapshot.anonymousRoutes.find(
-          (candidate) =>
-            candidate.harness === provider &&
-            (modelProviderId === null || candidate.internalProviderId === modelProviderId),
-        );
+        const route = resolveAnonymousModelDiscoveryRoute({
+          snapshot,
+          provider,
+          modelHint: composerModelHintByProvider[provider],
+        });
         if (route !== undefined) {
           result[provider] = {
             connectionId: null,
@@ -3022,6 +3022,7 @@ export default function ChatView({
         phase,
         latestTurn: activeLatestTurn,
         session: activeThread?.session ?? null,
+        messages: activeThread?.messages ?? EMPTY_MESSAGES,
         hasPendingApproval: activePendingApproval !== null,
         hasPendingUserInput: activePendingUserInput !== null,
         threadError: activeThread?.error,
@@ -3032,6 +3033,7 @@ export default function ChatView({
       activePendingUserInput,
       activeThread?.error,
       activeThread?.session,
+      activeThread?.messages,
       localDispatch,
       phase,
     ],
@@ -3353,6 +3355,7 @@ export default function ChatView({
           id: messageId,
           role: "user" as const,
           text: queuedTurn.prompt,
+          attachments: buildOptimisticComposerAttachments(queuedTurn),
           dispatchMode: "steer" as const,
           ...(queuedTurn.skills.length > 0 ? { skills: queuedTurn.skills } : {}),
           ...(queuedTurn.mentions.length > 0 ? { mentions: queuedTurn.mentions } : {}),
@@ -6318,6 +6321,7 @@ export default function ChatView({
       if (!isServerAccepted) {
         if (restoreForEdit) {
           recoverCancelledQueuedTurn(threadId, resolvedQueuedTurn);
+          publishComposerEditRecovery(threadId, resolvedQueuedTurn);
         } else {
           removeQueuedComposerTurnFromDraft(threadId, resolvedQueuedTurn.id);
         }
@@ -6339,6 +6343,7 @@ export default function ChatView({
         if (restoreForEdit) {
           markQueuedComposerActionAccepted(threadId, messageId, receipt.sequence);
           recoverCancelledQueuedTurn(threadId, resolvedQueuedTurn);
+          publishComposerEditRecovery(threadId, resolvedQueuedTurn);
         } else {
           markQueuedComposerActionAccepted(threadId, messageId, receipt.sequence);
           removeQueuedComposerTurnFromDraft(threadId, resolvedQueuedTurn.id);
@@ -6771,24 +6776,12 @@ export default function ChatView({
       preflightOutgoingText,
       selectedComposerMentionsForSend,
     );
-    const buildOptimisticAttachments = (images: readonly ComposerImageAttachment[]) => [
-      ...composerAssistantSelectionsForSend,
-      ...images.map((image) => ({
-        type: "image" as const,
-        id: image.id,
-        name: image.name,
-        mimeType: image.mimeType,
-        sizeBytes: image.sizeBytes,
-        previewUrl: image.previewUrl,
-      })),
-      ...composerFilesForSend.map((file) => ({
-        type: "file" as const,
-        id: file.id,
-        name: file.name,
-        mimeType: file.mimeType,
-        sizeBytes: file.sizeBytes,
-      })),
-    ];
+    const buildOptimisticAttachments = (images: readonly ComposerImageAttachment[]) =>
+      buildOptimisticComposerAttachments({
+        images,
+        files: composerFilesForSend,
+        assistantSelections: composerAssistantSelectionsForSend,
+      });
     const setPreflightProjection = (images: readonly ComposerImageAttachment[]) => {
       if (shouldQueueCapturedSend) return;
       const attachments = buildOptimisticAttachments(images);
@@ -7909,7 +7902,8 @@ export default function ChatView({
   );
   const onClearPendingEditedUserMessage = useCallback(
     (messageId: MessageId) => {
-      const pending = useComposerDraftStore.getState().draftsByThreadId[threadId]?.pendingMessageEdit;
+      const pending =
+        useComposerDraftStore.getState().draftsByThreadId[threadId]?.pendingMessageEdit;
       if (pending?.messageId === messageId) {
         useComposerDraftStore.getState().setPendingMessageEdit(threadId, null);
       }
@@ -8040,10 +8034,6 @@ export default function ChatView({
       await runOwnedQueuedComposerAction(queuedTurn, "steer", async () => {
         const previousQueue = queuedComposerTurnsRef.current;
         const queuedIndex = previousQueue.findIndex((entry) => entry.id === queuedTurn.id);
-        if (queuedIndex < 0) {
-          return;
-        }
-        setComposerQueuePaused(threadId, false);
         let resolvedQueuedTurn = queuedTurn;
         const pendingDispatch = getQueuedComposerTurnDispatchInFlight(threadId, queuedTurn.id);
         if (pendingDispatch) {
@@ -8065,6 +8055,10 @@ export default function ChatView({
           resolvedQueuedTurn.serverAcceptedAt !== undefined ||
           delivery !== undefined ||
           (activeThread?.queuedMessageIds ?? []).includes(messageId);
+        // Restored server queue rows have no local draft. Only an unsent local
+        // turn needs a draft index for removal and rollback below.
+        if (!isServerAccepted && queuedIndex < 0) return;
+        setComposerQueuePaused(threadId, false);
         if (isServerAccepted) {
           const api = readNativeApi();
           if (!api) {

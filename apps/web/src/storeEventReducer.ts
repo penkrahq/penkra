@@ -1106,6 +1106,7 @@ function applyOrchestrationEvent(
             event.sequence >= message.delivery.sequence
               ? {
                   ...message,
+                  dispatchMode: "steer",
                   delivery: { ...message.delivery, state: "steering", sequence: event.sequence },
                 }
               : message,
@@ -1173,9 +1174,7 @@ function applyOrchestrationEvent(
             event.payload.dispatchMode === "steer" ? "steering" : "starting";
           const nativeSteer =
             event.payload.dispatchMode === "steer" &&
-            providerSupportsNativeTurnSteering(
-              thread.session?.provider ?? modelSelection.provider,
-            );
+            providerSupportsNativeTurnSteering(thread.session?.provider ?? modelSelection.provider);
           const existingQueuedMessageIds = thread.queuedMessageIds ?? [];
           const queuedMessageIds = existingQueuedMessageIds.filter(
             (messageId) => messageId !== event.payload.messageId,
@@ -1215,13 +1214,14 @@ function applyOrchestrationEvent(
                   : message,
               )
               .toSorted(compareChatMessagesForTranscript),
-            pendingTurnStartMessageId:
-              // `pendingTurnStartMessageId` bridges admission to provider start.
-              // A native steer already has a running provider turn; a provider
-              // without live steering promotes the intent as replacement work.
-              nativeSteer
-                ? thread.pendingTurnStartMessageId
-                : event.payload.messageId,
+            // `pendingTurnStartMessageId` bridges admission to provider start.
+            // A native steer already has a running provider turn; a provider
+            // without live steering promotes the intent as replacement work.
+            ...(nativeSteer
+              ? thread.pendingTurnStartMessageId === undefined
+                ? {}
+                : { pendingTurnStartMessageId: thread.pendingTurnStartMessageId }
+              : { pendingTurnStartMessageId: event.payload.messageId }),
             queuedMessageIds,
             updatedAt:
               (thread.updatedAt ?? thread.createdAt) > event.payload.createdAt

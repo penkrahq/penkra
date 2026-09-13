@@ -25,7 +25,16 @@ export interface OperationRequest<Input = unknown> extends OperationAddress {
 /** MCP-compatible content returned alongside an App operation's structured result. */
 export type AppOperationContent =
   | { readonly type: "text"; readonly text: string }
-  | { readonly type: "image"; readonly data: string; readonly mimeType: string };
+  | { readonly type: "image"; readonly data: string; readonly mimeType: string }
+  | {
+      readonly type: "resource";
+      readonly resource: {
+        readonly uri: string;
+        readonly name?: string;
+        readonly mimeType?: string;
+        readonly blob: string;
+      };
+    };
 
 /**
  * Rich App-operation result. The host validates `structuredContent` against the

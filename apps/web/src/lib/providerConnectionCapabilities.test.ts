@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   pruneUnavailableComposerConnectionSelections,
+  resolveAnonymousModelDiscoveryRoute,
   anonymousRouteAuthorizesModel,
   connectionAuthorizesModel,
   isManagedHarnessConfigured,
@@ -283,4 +284,47 @@ describe("provider Connection capabilities", () => {
     ).resolves.toBe(goConnectionId);
     expect(modelRefreshCount).toBe(1);
   });
+});
+
+describe("anonymous model discovery", () => {
+  it("discovers Free models despite a retained Go model without authorizing that model", () => {
+    const model = "opencode-go/deepseek-v4-flash";
+    expect(
+      resolveAnonymousModelDiscoveryRoute({ snapshot, provider: "opencode", modelHint: model }),
+    ).toEqual({ harness: "opencode", internalProviderId: "opencode" });
+    expect(
+      anonymousRouteAuthorizesModel({
+        snapshot,
+        provider: "opencode",
+        model,
+        availableConnectionIds: [null],
+      }),
+    ).toBe(false);
+  });
+
+  it("prefers a matching anonymous route when more than one exists", () => {
+    const routes = {
+      ...snapshot,
+      anonymousRoutes: [
+        { harness: "opencode", internalProviderId: "another" },
+        ...snapshot.anonymousRoutes,
+      ],
+    } as ProviderConnectionsSnapshot;
+    expect(
+      resolveAnonymousModelDiscoveryRoute({
+        snapshot: routes,
+        provider: "opencode",
+        modelHint: "opencode/big-pickle",
+      })?.internalProviderId,
+    ).toBe("opencode");
+  });
+
+  it.each(["codex", "claudeAgent"] as const)(
+    "never borrows an OpenCode route for %s",
+    (provider) => {
+      expect(
+        resolveAnonymousModelDiscoveryRoute({ snapshot, provider, modelHint: null }),
+      ).toBeUndefined();
+    },
+  );
 });

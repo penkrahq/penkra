@@ -47,6 +47,8 @@ export const DESKTOP_IPC_CHANNELS = {
     listVoices: "desktop:composer-drafts-list-voices",
     readVoice: "desktop:composer-drafts-read-voice",
     deleteVoice: "desktop:composer-drafts-delete-voice",
+    publishEditRecovery: "desktop:composer-drafts-publish-edit-recovery",
+    editRecovery: "desktop:composer-drafts-edit-recovery",
   },
   accountAuth: {
     getState: "desktop:account-auth-get-state",

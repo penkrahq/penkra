@@ -1,6 +1,8 @@
 import { type ChildProcess, type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import * as Path from "node:path";
 
 import {
   ApprovalRequestId,
@@ -190,6 +192,7 @@ interface CodexSessionContext {
    * activity, but they are not evidence that the turn became active again.
    */
   terminalTurnIds: Set<TurnId>;
+  temporaryResourcePaths: Map<TurnId, Set<string>>;
   mcpStartupStatuses: Map<string, McpStartupStatusEntry>;
   computerUseHealth?: ComputerUseCapabilityHealth;
   taskCompleteFallback?:
@@ -217,6 +220,7 @@ interface CodexPluginReadInput extends Omit<ProviderReadPluginInput, "provider">
 interface JsonRpcError {
   code?: number;
   message?: string;
+  data?: unknown;
 }
 
 interface JsonRpcRequest {
@@ -243,6 +247,7 @@ export class CodexJsonRpcResponseError extends Error {
     readonly method: string,
     readonly code: number | undefined,
     message: string,
+    readonly data?: unknown,
   ) {
     super(`${method} failed: ${message}`);
     this.name = "CodexJsonRpcResponseError";
@@ -807,6 +812,15 @@ export interface CodexAppServerManagerEvents {
 
 const CODEX_DISCOVERY_CACHE_MAX_ENTRIES = 128;
 export const CODEX_MODEL_DISCOVERY_CACHE_TTL_MS = 24 * 60 * 60_000;
+const CODEX_TEMPORARY_RESOURCE_MAX_BYTES = 16 * 1024 * 1024;
+
+function safeTemporaryResourceName(value: string | undefined): string {
+  const normalized = (value?.trim() || "attachment").normalize("NFKC");
+  const safe = Path.basename(normalized)
+    .replace(/[^A-Za-z0-9._-]+/gu, "-")
+    .slice(0, 160);
+  return safe && safe !== "." && safe !== ".." ? safe : "attachment";
+}
 
 type TimedDiscoveryCacheEntry<T> = {
   readonly result: T;
@@ -862,6 +876,50 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     | undefined;
   private readonly teardownProcessTree: typeof teardownProviderProcessTree;
   private readonly taskCompleteFallbackGraceMs: number;
+
+  private async materializeTemporaryResource(
+    context: CodexSessionContext,
+    turnId: TurnId,
+    resource: { readonly name?: string; readonly blob: string },
+  ): Promise<string> {
+    const bytes = Buffer.from(resource.blob, "base64");
+    if (bytes.byteLength > CODEX_TEMPORARY_RESOURCE_MAX_BYTES) {
+      throw new Error("App operation resource exceeds the 16 MiB Codex handoff limit.");
+    }
+    const directory = Path.join(
+      context.session.cwd ?? ensureIsolatedScratchWorkspace(context.session.threadId),
+      ".penkra",
+      "operation-resources",
+      String(turnId),
+    );
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const filePath = Path.join(
+      directory,
+      `${randomUUID()}-${safeTemporaryResourceName(resource.name)}`,
+    );
+    await writeFile(filePath, bytes, { flag: "wx", mode: 0o600 });
+    const tracked = context.temporaryResourcePaths ?? (context.temporaryResourcePaths = new Map());
+    const paths = tracked.get(turnId) ?? new Set<string>();
+    paths.add(filePath);
+    tracked.set(turnId, paths);
+    return filePath;
+  }
+
+  private async clearTemporaryResources(
+    context: CodexSessionContext,
+    turnId?: TurnId,
+  ): Promise<void> {
+    const tracked = context.temporaryResourcePaths;
+    if (!tracked) return;
+    const entries = turnId
+      ? ([[turnId, tracked.get(turnId) ?? new Set<string>()]] as const)
+      : Array.from(tracked.entries());
+    if (turnId) tracked.delete(turnId);
+    else tracked.clear();
+    await Promise.allSettled(
+      entries.flatMap(([, paths]) => Array.from(paths, (path) => rm(path, { force: true }))),
+    );
+  }
   constructor(
     services?: ServiceMap.ServiceMap<never>,
     options?: {
@@ -1057,6 +1115,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         collabReceiverParents: new Map(),
         reviewTurnIds: new Set(),
         terminalTurnIds: new Set(),
+        temporaryResourcePaths: new Map(),
         mcpStartupStatuses: new Map(),
         nextRequestId: 1,
         stopping: false,
@@ -1831,6 +1890,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         collabReceiverParents: new Map(),
         reviewTurnIds: new Set(),
         terminalTurnIds: new Set(),
+        temporaryResourcePaths: new Map(),
         mcpStartupStatuses: new Map(),
         nextRequestId: 1,
         stopping: false,
@@ -2218,6 +2278,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!context.stopping) {
       context.stopping = true;
       this.clearTaskCompleteFallback(context);
+      void this.clearTemporaryResources(context);
       context.gatewaySessionLease?.release();
 
       this.rejectPendingRequests(context, new Error("Session stopped before request completed."));
@@ -2698,6 +2759,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
+      temporaryResourcePaths: new Map(),
       mcpStartupStatuses: new Map(),
       nextRequestId: 1,
       stopping: false,
@@ -2770,6 +2832,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     context.stopping = true;
+    void this.clearTemporaryResources(context);
     this.rejectPendingRequests(
       context,
       new Error("Discovery session stopped before request completed."),
@@ -3130,6 +3193,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       context.collabReceiverTurns.clear();
       context.collabReceiverParents.clear();
       if (rawRoute.turnId) {
+        void this.clearTemporaryResources(context, rawRoute.turnId);
         context.terminalTurnIds.add(rawRoute.turnId);
         context.reviewTurnIds.delete(rawRoute.turnId);
       }
@@ -3156,6 +3220,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       context.collabReceiverTurns.clear();
       context.collabReceiverParents.clear();
       if (rawRoute.turnId) {
+        void this.clearTemporaryResources(context, rawRoute.turnId);
         context.terminalTurnIds.add(rawRoute.turnId);
         context.reviewTurnIds.delete(rawRoute.turnId);
       }
@@ -3399,17 +3464,47 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         name: toolName,
         arguments: rawArguments as Record<string, unknown>,
       });
+      const contentItems: Array<
+        { type: "inputText"; text: string } | { type: "inputImage"; imageUrl: string }
+      > = [];
+      const toolTurnId =
+        toTurnId(this.readString(params, "turnId")) ?? context.session.activeTurnId;
+      for (const item of result.content) {
+        if (item.type === "text") {
+          contentItems.push({ type: "inputText", text: item.text });
+          continue;
+        }
+        if (item.type === "image") {
+          contentItems.push({
+            type: "inputImage",
+            imageUrl: `data:${item.mimeType};base64,${item.data}`,
+          });
+          continue;
+        }
+        if (item.resource.mimeType?.startsWith("image/")) {
+          contentItems.push({
+            type: "inputImage",
+            imageUrl: `data:${item.resource.mimeType};base64,${item.resource.blob}`,
+          });
+          continue;
+        }
+        if (!toolTurnId) {
+          throw new Error("Codex cannot receive a temporary App resource outside an active turn.");
+        }
+        const filePath = await this.materializeTemporaryResource(
+          context,
+          toolTurnId,
+          item.resource,
+        );
+        contentItems.push({
+          type: "inputText",
+          text: `Downloaded ${item.resource.name ?? "attachment"} (${item.resource.mimeType ?? "application/octet-stream"}) to ${filePath}. This temporary file is available only for the current turn.`,
+        });
+      }
       await this.writeMessage(context, {
         id: request.id,
         result: {
-          contentItems: result.content.map((item) =>
-            item.type === "text"
-              ? { type: "inputText", text: item.text }
-              : {
-                  type: "inputImage",
-                  imageUrl: `data:${item.mimeType};base64,${item.data}`,
-                },
-          ),
+          contentItems,
           success: result.isError !== true,
         },
       });
@@ -3435,12 +3530,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     clearTimeout(pending.timeout);
     context.pending.delete(key);
 
-    if (response.error?.message) {
+    if (response.error) {
       pending.reject(
         new CodexJsonRpcResponseError(
           pending.method,
           response.error.code,
-          String(response.error.message),
+          typeof response.error.message === "string"
+            ? response.error.message
+            : "Codex returned a JSON-RPC error without a message.",
+          response.error.data,
         ),
       );
       return;
@@ -3587,6 +3685,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       context.collabReceiverTurns.clear();
       context.collabReceiverParents.clear();
+      void this.clearTemporaryResources(context, turnId);
       context.terminalTurnIds.add(turnId);
       context.reviewTurnIds.delete(turnId);
       this.updateSession(context, {

@@ -6,6 +6,8 @@ import * as Path from "node:path";
 import { defaultProcessTreeKiller } from "./terminal/processTreeKiller";
 
 const APP_TEST_HOST_STOP_TIMEOUT_MS = 1_000;
+const APP_TEST_HOST_RESULT_POLL_MS = 25;
+const APP_TEST_HOST_EXIT_GRACE_MS = 250;
 
 export { packageAppDirectory, type AppPackageEvidence } from "@penkra/shared/appPackaging";
 
@@ -129,10 +131,35 @@ function spawnAppTestHost(input: {
     };
     child.stdout?.on("data", append);
     child.stderr?.on("data", append);
-    const timeout = setTimeout(() => {
+    let completionWatch: ReturnType<typeof setInterval> | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const clearCompletionWatch = () => {
+      if (completionWatch) clearInterval(completionWatch);
+    };
+    const settleFromTerminalEvidence = async () => {
+      if (settled || terminating) return;
+      if (!(await hasTerminalAppTestResult(input.resultPath)) || settled || terminating) return;
+      terminating = true;
+      const exited = await waitForExit(childExited, APP_TEST_HOST_EXIT_GRACE_MS);
+      const cleanupFailure = exited ? null : await stopAppTestHost(child, childExited);
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      clearCompletionWatch();
+      if (cleanupFailure) {
+        reject(new Error(`App integration host completed but cleanup failed: ${cleanupFailure}`));
+        return;
+      }
+      resolve();
+    };
+    completionWatch = setInterval(() => {
+      void settleFromTerminalEvidence();
+    }, APP_TEST_HOST_RESULT_POLL_MS);
+    timeout = setTimeout(() => {
       if (settled || terminating) return;
       terminating = true;
-      void stopTimedOutAppTestHost(child, childExited).then((cleanupFailure) => {
+      clearCompletionWatch();
+      void stopAppTestHost(child, childExited).then((cleanupFailure) => {
         if (settled) return;
         settled = true;
         const timeoutMessage = appTestHostFailure(
@@ -152,14 +179,16 @@ function spawnAppTestHost(input: {
       resolveExited?.();
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
+      clearCompletionWatch();
       reject(error);
     });
     child.once("exit", async (code, signal) => {
       resolveExited?.();
       if (settled || terminating) return;
       settled = true;
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
+      clearCompletionWatch();
       if (
         code === 0 ||
         (await FS.stat(input.resultPath)
@@ -181,7 +210,16 @@ function spawnAppTestHost(input: {
   });
 }
 
-async function stopTimedOutAppTestHost(
+async function hasTerminalAppTestResult(resultPath: string): Promise<boolean> {
+  return FS.readFile(resultPath, "utf8")
+    .then((content) => {
+      const result = JSON.parse(content) as Record<string, unknown>;
+      return typeof result.ok === "boolean";
+    })
+    .catch(() => false);
+}
+
+async function stopAppTestHost(
   child: ReturnType<typeof spawn>,
   childExited: Promise<void>,
 ): Promise<string | null> {

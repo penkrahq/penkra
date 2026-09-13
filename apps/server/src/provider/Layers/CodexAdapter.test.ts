@@ -765,11 +765,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       );
 
       const result = yield* adapter
-        .rollbackThread(
-          asThreadId("thread-paginated"),
-          1,
-          asTurnId("turn-paginated-tail"),
-        )
+        .rollbackThread(asThreadId("thread-paginated"), 1, asTurnId("turn-paginated-tail"))
         .pipe(Effect.result);
 
       assert.equal(result._tag, "Failure");
@@ -777,6 +773,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       assert.equal(result.failure._tag, "ProviderAdapterRequestError");
       if (result.failure._tag !== "ProviderAdapterRequestError") return;
       assert.equal(result.failure.requestOutcome, "rejected");
+      assert.equal(result.failure.code, -32602);
       assert.match(result.failure.detail, /paginated threads do not support thread\/rollback/);
     }),
   );

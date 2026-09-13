@@ -264,6 +264,7 @@ describe("store event reducer", () => {
       ),
     ]);
     expect(threadsOf(steering)[0]?.messages[0]?.delivery?.state).toBe("steering");
+    expect(threadsOf(steering)[0]?.messages[0]?.dispatchMode).toBe("steer");
 
     const accepted = applyOrchestrationEvents(steering, [
       makeDomainEvent(
@@ -1149,90 +1150,90 @@ describe("store event reducer", () => {
       );
 
       const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent(
-        "thread.message-sent",
-        {
-          threadId,
-          messageId,
-          role: "user",
-          text: "promote me",
-          attachments: [],
-          dispatchMode: "queue",
-          dispatchOrigin: "user",
-          delivery: { state: "queued", queued: true },
-          turnId: TurnId.makeUnsafe(`turn:${messageId}`),
-          streaming: false,
-          source: "native",
-          createdAt: "2026-09-11T09:09:34.640Z",
-          updatedAt: "2026-09-11T09:09:34.640Z",
-        },
-        { sequence: 3 },
-      ),
-      makeDomainEvent(
-        "thread.turn-queued",
-        {
-          threadId,
-          turnId: TurnId.makeUnsafe(`turn:${messageId}`),
-          messageId,
-          restartRecovery: false,
-          dispatchMode: "queue",
-          dispatchOrigin: "user",
-          runtimeMode: DEFAULT_RUNTIME_MODE,
-          createdAt: "2026-09-11T09:09:34.640Z",
-        },
-        { sequence: 4 },
-      ),
-      makeDomainEvent(
-        "thread.turn-steer-queued-requested",
-        {
-          threadId,
-          messageId,
-          createdAt: "2026-09-11T09:09:36.168Z",
-        },
-        { sequence: 5 },
-      ),
-      makeDomainEvent(
-        "thread.turn-start-requested",
-        {
-          threadId,
-          turnId: TurnId.makeUnsafe("turn-promoted-steer"),
-          messageId,
-          restartRecovery: false,
-          runtimeMode: DEFAULT_RUNTIME_MODE,
-          dispatchMode: "steer",
-          dispatchOrigin: "user",
-          createdAt: "2026-09-11T09:09:36.168Z",
-        },
-        { sequence: 6 },
-      ),
-      makeDomainEvent(
-        "thread.message-delivery-set",
-        {
-          threadId,
-          messageId,
-          turnId: TurnId.makeUnsafe("turn-promoted-steer"),
-          state: "accepted",
-          providerTurnId,
-          updatedAt: "2026-09-11T09:09:38.620Z",
-        },
-        { sequence: 7 },
-      ),
-      makeDomainEvent(
-        "thread.session-set",
-        {
-          threadId,
-          session: {
+        makeDomainEvent(
+          "thread.message-sent",
+          {
             threadId,
-            status: "ready",
-            providerName: provider,
-            runtimeMode: DEFAULT_RUNTIME_MODE,
-            activeTurnId: null,
-            lastError: null,
-            updatedAt: "2026-09-11T09:10:20.236Z",
+            messageId,
+            role: "user",
+            text: "promote me",
+            attachments: [],
+            dispatchMode: "queue",
+            dispatchOrigin: "user",
+            delivery: { state: "queued", queued: true },
+            turnId: TurnId.makeUnsafe(`turn:${messageId}`),
+            streaming: false,
+            source: "native",
+            createdAt: "2026-09-11T09:09:34.640Z",
+            updatedAt: "2026-09-11T09:09:34.640Z",
           },
-        },
-        { sequence: 8, occurredAt: "2026-09-11T09:10:20.236Z" },
-      ),
+          { sequence: 3 },
+        ),
+        makeDomainEvent(
+          "thread.turn-queued",
+          {
+            threadId,
+            turnId: TurnId.makeUnsafe(`turn:${messageId}`),
+            messageId,
+            restartRecovery: false,
+            dispatchMode: "queue",
+            dispatchOrigin: "user",
+            runtimeMode: DEFAULT_RUNTIME_MODE,
+            createdAt: "2026-09-11T09:09:34.640Z",
+          },
+          { sequence: 4 },
+        ),
+        makeDomainEvent(
+          "thread.turn-steer-queued-requested",
+          {
+            threadId,
+            messageId,
+            createdAt: "2026-09-11T09:09:36.168Z",
+          },
+          { sequence: 5 },
+        ),
+        makeDomainEvent(
+          "thread.turn-start-requested",
+          {
+            threadId,
+            turnId: TurnId.makeUnsafe("turn-promoted-steer"),
+            messageId,
+            restartRecovery: false,
+            runtimeMode: DEFAULT_RUNTIME_MODE,
+            dispatchMode: "steer",
+            dispatchOrigin: "user",
+            createdAt: "2026-09-11T09:09:36.168Z",
+          },
+          { sequence: 6 },
+        ),
+        makeDomainEvent(
+          "thread.message-delivery-set",
+          {
+            threadId,
+            messageId,
+            turnId: TurnId.makeUnsafe("turn-promoted-steer"),
+            state: "accepted",
+            providerTurnId,
+            updatedAt: "2026-09-11T09:09:38.620Z",
+          },
+          { sequence: 7 },
+        ),
+        makeDomainEvent(
+          "thread.session-set",
+          {
+            threadId,
+            session: {
+              threadId,
+              status: "ready",
+              providerName: provider,
+              runtimeMode: DEFAULT_RUNTIME_MODE,
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: "2026-09-11T09:10:20.236Z",
+            },
+          },
+          { sequence: 8, occurredAt: "2026-09-11T09:10:20.236Z" },
+        ),
       ]);
 
       const thread = threadsOf(next)[0];

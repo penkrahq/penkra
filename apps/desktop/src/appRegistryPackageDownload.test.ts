@@ -11,10 +11,11 @@ import {
 describe("registry App package download", () => {
   it("allows a transfer to exceed the timeout duration while bytes keep arriving", async () => {
     let chunk = 0;
+    const expectedChunks = 30;
     const body = new ReadableStream<Uint8Array>({
       async pull(controller) {
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        if (chunk === 4) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        if (chunk === expectedChunks) {
           controller.close();
           return;
         }
@@ -23,23 +24,32 @@ describe("registry App package download", () => {
     });
     const diagnostics: RegistryPackageDownloadDiagnostic[] = [];
     const downloaded = await downloadRegistryPackage({
-      fetch: vi.fn().mockResolvedValue(new Response(body, { headers: { "content-length": "4" } })),
+      fetch: vi
+        .fn()
+        .mockResolvedValue(
+          new Response(body, { headers: { "content-length": String(expectedChunks) } }),
+        ),
       url: "https://downloads.example.test/canvas.penkra",
       appSlug: "canvas",
       version: "1.0.0",
-      expectedBytes: 4,
+      expectedBytes: expectedChunks,
       maximumBytes: 100,
-      stallTimeoutMs: 30,
+      stallTimeoutMs: 100,
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
     });
     try {
-      await expect(readFile(downloaded.archivePath)).resolves.toEqual(Buffer.from([1, 2, 3, 4]));
+      await expect(readFile(downloaded.archivePath)).resolves.toEqual(
+        Buffer.from(Array.from({ length: expectedChunks }, (_, index) => index + 1)),
+      );
       expect(diagnostics.map((diagnostic) => diagnostic.event)).toEqual([
         "started",
         "response",
         "completed",
       ]);
-      expect(diagnostics.at(-1)).toMatchObject({ receivedBytes: 4, expectedBytes: 4 });
+      expect(diagnostics.at(-1)).toMatchObject({
+        receivedBytes: expectedChunks,
+        expectedBytes: expectedChunks,
+      });
     } finally {
       await downloaded.dispose();
     }

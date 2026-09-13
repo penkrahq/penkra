@@ -765,9 +765,7 @@ export function projectEvent(
               pendingTurnStartMessageId:
                 // A native steer rides an existing provider turn. Providers
                 // without live steering start replacement work after interrupt.
-                nativeSteer
-                  ? thread.pendingTurnStartMessageId
-                  : payload.messageId,
+                nativeSteer ? thread.pendingTurnStartMessageId : payload.messageId,
               runtimeMode: payload.runtimeMode,
               updatedAt: payload.createdAt,
             }),
@@ -785,6 +783,7 @@ export function projectEvent(
             message.id === event.payload.messageId && message.delivery !== undefined
               ? {
                   ...message,
+                  dispatchMode: "steer",
                   delivery: { ...message.delivery, state: "steering", sequence: event.sequence },
                 }
               : message,
@@ -850,6 +849,13 @@ export function projectEvent(
                 : entry.text,
             streaming: message.streaming,
             source: message.source,
+            // Reusing a user message id is the edit-and-resend contract: the
+            // replacement is dispatched at a new causal boundary. Preserve
+            // assistant stream creation times across deltas, but move the
+            // edited user message to the replay boundary so live/snapshot
+            // projections agree with projection_thread_messages and elapsed
+            // work is not measured from the superseded send.
+            createdAt: message.role === "user" ? message.createdAt : entry.createdAt,
             updatedAt: message.updatedAt,
             turnId: resolveStableMessageTurnId({
               existingTurnId: entry.turnId,
@@ -982,10 +988,9 @@ export function projectEvent(
                     },
                   }
                 : {}),
-              pendingTurnStartMessageId:
-                clearsPendingTurnStart
-                  ? null
-                  : thread.pendingTurnStartMessageId,
+              pendingTurnStartMessageId: clearsPendingTurnStart
+                ? null
+                : thread.pendingTurnStartMessageId,
               ...(ownsStartingSession && payload.failureDetail !== undefined
                 ? {
                     session: {

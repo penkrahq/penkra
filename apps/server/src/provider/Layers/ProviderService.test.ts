@@ -713,6 +713,20 @@ it.effect(
 );
 
 routing.layer("ProviderServiceLive routing", (it) => {
+  it.effect("identifies an answer to a missing session as an expired interaction", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const failure = yield* Effect.flip(
+        provider.respondToUserInput({
+          threadId: asThreadId("thread-without-provider-owner"),
+          requestId: asRequestId("question-without-provider-owner"),
+          lifecycleGeneration: "retired-generation",
+          answers: { format: "Guide" },
+        }),
+      );
+      assert.equal("code" in failure ? failure.code : undefined, "PENDING_INTERACTION_NOT_FOUND");
+    }),
+  );
   it.effect("runs the idempotent adapter cleanup barrier for an inactive binding", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
@@ -773,6 +787,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         staleResponse,
         new ProviderValidationError({
           operation: "ProviderService.respondToRequest",
+          code: "PENDING_INTERACTION_NOT_FOUND",
           issue: `Cannot respond to stale request 'request-from-old-generation' from provider generation '${String(firstGeneration)}'.`,
         }),
       );
@@ -791,6 +806,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         staleUserInputResponse,
         new ProviderValidationError({
           operation: "ProviderService.respondToUserInput",
+          code: "PENDING_INTERACTION_NOT_FOUND",
           issue: `Cannot respond to stale request 'user-input-from-old-generation' from provider generation '${String(firstGeneration)}'.`,
         }),
       );

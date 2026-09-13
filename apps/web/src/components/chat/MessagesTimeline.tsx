@@ -974,9 +974,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       if (!nextText) {
         return Promise.resolve();
       }
-      const messageRow = rows.find(
-        (row) => row.kind === "message" && row.message.id === messageId,
-      );
+      const messageRow = rows.find((row) => row.kind === "message" && row.message.id === messageId);
       const priorDeliverySequence =
         messageRow?.kind === "message" ? (messageRow.message.delivery?.sequence ?? -1) : -1;
       setSubmittingEditedUserMessageId(messageId);
@@ -1005,13 +1003,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     const admitted = pendingEditedUserMessage ?? admittedEditedUserMessage;
     if (!admitted) return;
     const replacement = rows.find(
-      (row) =>
-        row.kind === "message" && row.message.id === admitted.messageId,
+      (row) => row.kind === "message" && row.message.id === admitted.messageId,
     );
     if (
       replacement?.kind !== "message" ||
-      (replacement.message.delivery?.sequence ?? -1) <=
-        admitted.priorDeliverySequence
+      (replacement.message.delivery?.sequence ?? -1) <= admitted.priorDeliverySequence
     ) {
       return;
     }
