@@ -36,6 +36,10 @@ import {
   createDesktopComposerDraftStorage,
 } from "./lib/desktopComposerDraftStorage";
 import { measureChatPerformanceWork } from "./chatPerformanceDiagnostics";
+import {
+  createComposerEditRecoverySync,
+  type ComposerEditRecoveryTransport,
+} from "./lib/composerEditRecoverySync";
 
 export {
   findSupersededComposerImageBlobAttachments,
@@ -85,6 +89,20 @@ const composerPersistStorage = createDeferredPersistStorage<
     measureChatPerformanceWork("draft-checkpoint", () => partializeComposerDraftStoreState(state)),
   debounceMs: COMPOSER_PERSIST_DEBOUNCE_MS,
 });
+let suppressComposerPersistence = false;
+const composerStorePersistStorage: typeof composerPersistStorage = {
+  getItem: (name) => composerPersistStorage.getItem(name),
+  setItem: (name, value) => {
+    if (suppressComposerPersistence) return;
+    return composerPersistStorage.setItem(name, value);
+  },
+  removeItem: (name) => {
+    if (suppressComposerPersistence) return;
+    return composerPersistStorage.removeItem(name);
+  },
+  flush: () => composerPersistStorage.flush(),
+  discardPending: () => composerPersistStorage.discardPending(),
+};
 
 // Flush pending composer draft writes before the page goes away so at most one
 // debounce window of changes can be lost.
@@ -98,7 +116,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
       version: COMPOSER_DRAFT_STORAGE_VERSION,
       // Partialization is owned by deferred storage so serialization does not run
       // on each keystroke and instead happens once per 250ms checkpoint window.
-      storage: composerPersistStorage,
+      storage: composerStorePersistStorage,
       migrate: migratePersistedComposerDraftStoreState,
       merge: (persistedState, currentState) => {
         const normalizedPersisted =
@@ -122,6 +140,54 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
     },
   ),
 );
+
+function createComposerEditRecoveryTransport(): ComposerEditRecoveryTransport | null {
+  const bridge = typeof window === "undefined" ? undefined : window.desktopBridge?.composerDrafts;
+  if (bridge?.publishEditRecovery && bridge.onEditRecovery) {
+    return {
+      publish: (recovery) => bridge.publishEditRecovery!(recovery),
+      subscribe: (listener) => bridge.onEditRecovery!(listener),
+    };
+  }
+  if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return null;
+  const channel = new BroadcastChannel("penkra:composer-edit-recovery:v1");
+  return {
+    publish: (recovery) => channel.postMessage(recovery),
+    subscribe: (listener) => {
+      const onMessage = (event: MessageEvent<unknown>) => listener(event.data as never);
+      channel.addEventListener("message", onMessage);
+      return () => {
+        channel.removeEventListener("message", onMessage);
+        channel.close();
+      };
+    },
+  };
+}
+
+const composerEditRecoveryTransport = createComposerEditRecoveryTransport();
+const composerEditRecoverySync = composerEditRecoveryTransport
+  ? createComposerEditRecoverySync({
+      transport: composerEditRecoveryTransport,
+      recover: (threadId, queuedTurn) => {
+        // The origin window owns the durable checkpoint for this shared action.
+        // Prevent an older debounced snapshot in this receiver from overwriting it.
+        composerPersistStorage.discardPending();
+        suppressComposerPersistence = true;
+        try {
+          return useComposerDraftStore.getState().recoverCancelledQueuedTurn(threadId, queuedTurn);
+        } finally {
+          suppressComposerPersistence = false;
+        }
+      },
+    })
+  : null;
+
+export function publishComposerEditRecovery(
+  threadId: ThreadId,
+  queuedTurn: import("./composerDraftDomain").QueuedComposerTurn,
+): boolean {
+  return composerEditRecoverySync?.publish(threadId, queuedTurn) ?? false;
+}
 
 export async function flushComposerDraftsDurably(): Promise<void> {
   composerPersistStorage.flush();

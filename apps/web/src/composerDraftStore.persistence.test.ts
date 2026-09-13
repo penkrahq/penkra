@@ -98,6 +98,49 @@ describe("composerDraftStore persisted-state hydration", () => {
 
     expect(normalized.stickyConnectionByProvider).toEqual({ codex: connectionId });
   });
+
+  it("preserves durable file metadata in drafts, history snapshots, and queued turns", () => {
+    const threadId = ThreadId.makeUnsafe("thread-file-hydration");
+    const file = {
+      id: "file-durable",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 12,
+      assetKey: "asset-durable",
+    };
+    const queuedTurn = makeQueuedChatTurn("queued-file-hydration");
+    const normalized = normalizeCurrentPersistedComposerDraftStoreState({
+      draftsByThreadId: {
+        [threadId]: {
+          prompt: "draft",
+          attachments: [],
+          files: [file],
+          promptHistorySavedDraft: {
+            prompt: "saved draft",
+            attachments: [],
+            files: [file],
+          },
+          queuedTurns: [
+            {
+              ...queuedTurn,
+              images: [],
+              files: [file],
+            },
+          ],
+        },
+      },
+      draftThreadsByThreadId: {},
+      projectDraftThreadIdByFolderId: {},
+    });
+
+    expect(normalized.draftsByThreadId[threadId]?.files).toEqual([file]);
+    expect(normalized.draftsByThreadId[threadId]?.promptHistorySavedDraft).toMatchObject({
+      files: [file],
+    });
+    expect(normalized.draftsByThreadId[threadId]?.queuedTurns?.[0]).toMatchObject({
+      files: [file],
+    });
+  });
 });
 
 describe("composerDraftStore provider references", () => {
@@ -724,6 +767,24 @@ describe("createDeferredPersistStorage", () => {
     expect(partialize).not.toHaveBeenCalled();
     expect(base.setItem).not.toHaveBeenCalled();
     expect(base.removeItem).toHaveBeenCalledWith("key");
+  });
+
+  it("discards a stale pending snapshot without removing authoritative storage", () => {
+    const base = createMockStorage();
+    const partialize = vi.fn((state: { readonly value: number }) => state);
+    const storage = createDeferredPersistStorage<{ readonly value: number }>({
+      getStorage: () => base,
+      partialize,
+    });
+
+    storage.setItem("key", { state: { value: 1 }, version: 1 });
+    storage.discardPending();
+    vi.advanceTimersByTime(300);
+    storage.flush();
+
+    expect(partialize).not.toHaveBeenCalled();
+    expect(base.setItem).not.toHaveBeenCalled();
+    expect(base.removeItem).not.toHaveBeenCalled();
   });
 });
 
