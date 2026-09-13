@@ -380,118 +380,123 @@ describe("orchestration projector", () => {
       };
 
       const events: OrchestrationEvent[] = [
-      makeEvent({
-        sequence: 3,
-        type: "thread.message-sent",
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: createdAt,
-        commandId: messageId,
-        payload: {
-          threadId,
-          messageId,
-          role: "user",
-          text: "promote me",
-          attachments: [],
-          dispatchMode: "queue",
-          dispatchOrigin: "user",
-          delivery: { state: "queued", queued: true },
-          turnId: `turn:${messageId}`,
-          streaming: false,
-          source: "native",
-          createdAt,
-          updatedAt: createdAt,
-        },
-      }),
-      makeEvent({
-        sequence: 4,
-        type: "thread.turn-queued",
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: createdAt,
-        commandId: messageId,
-        payload: {
-          threadId,
-          turnId: `turn:${messageId}`,
-          messageId,
-          restartRecovery: false,
-          dispatchMode: "queue",
-          dispatchOrigin: "user",
-          runtimeMode: "full-access",
-          createdAt,
-        },
-      }),
-      makeEvent({
-        sequence: 5,
-        type: "thread.turn-steer-queued-requested",
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: "2026-09-11T09:09:36.168Z",
-        commandId: "cmd-promote-steer",
-        payload: {
-          threadId,
-          messageId,
-          createdAt: "2026-09-11T09:09:36.168Z",
-        },
-      }),
-      makeEvent({
-        sequence: 6,
-        type: "thread.turn-start-requested",
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: "2026-09-11T09:09:36.168Z",
-        commandId: "cmd-promote-steer",
-        payload: {
-          threadId,
-          turnId: "turn-promoted-steer",
-          messageId,
-          restartRecovery: false,
-          runtimeMode: "full-access",
-          dispatchMode: "steer",
-          dispatchOrigin: "user",
-          createdAt: "2026-09-11T09:09:36.168Z",
-        },
-      }),
-      makeEvent({
-        sequence: 7,
-        type: "thread.message-delivery-set",
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: "2026-09-11T09:09:38.620Z",
-        commandId: "cmd-steer-accepted",
-        payload: {
-          threadId,
-          messageId,
-          turnId: "turn-promoted-steer",
-          state: "accepted",
-          providerTurnId,
-          updatedAt: "2026-09-11T09:09:38.620Z",
-        },
-      }),
-      makeEvent({
-        sequence: 8,
-        type: "thread.session-set",
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: "2026-09-11T09:10:20.236Z",
-        commandId: "cmd-ready",
-        payload: {
-          threadId,
-          session: {
+        makeEvent({
+          sequence: 3,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: createdAt,
+          commandId: messageId,
+          payload: {
             threadId,
-            status: "ready",
-            providerName: provider,
-            runtimeMode: "full-access",
-            activeTurnId: null,
-            lastError: null,
-            updatedAt: "2026-09-11T09:10:20.236Z",
+            messageId,
+            role: "user",
+            text: "promote me",
+            attachments: [],
+            dispatchMode: "queue",
+            dispatchOrigin: "user",
+            delivery: { state: "queued", queued: true },
+            turnId: `turn:${messageId}`,
+            streaming: false,
+            source: "native",
+            createdAt,
+            updatedAt: createdAt,
           },
-        },
-      }),
+        }),
+        makeEvent({
+          sequence: 4,
+          type: "thread.turn-queued",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: createdAt,
+          commandId: messageId,
+          payload: {
+            threadId,
+            turnId: `turn:${messageId}`,
+            messageId,
+            restartRecovery: false,
+            dispatchMode: "queue",
+            dispatchOrigin: "user",
+            runtimeMode: "full-access",
+            createdAt,
+          },
+        }),
+        makeEvent({
+          sequence: 5,
+          type: "thread.turn-steer-queued-requested",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-09-11T09:09:36.168Z",
+          commandId: "cmd-promote-steer",
+          payload: {
+            threadId,
+            messageId,
+            createdAt: "2026-09-11T09:09:36.168Z",
+          },
+        }),
+        makeEvent({
+          sequence: 6,
+          type: "thread.turn-start-requested",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-09-11T09:09:36.168Z",
+          commandId: "cmd-promote-steer",
+          payload: {
+            threadId,
+            turnId: "turn-promoted-steer",
+            messageId,
+            restartRecovery: false,
+            runtimeMode: "full-access",
+            dispatchMode: "steer",
+            dispatchOrigin: "user",
+            createdAt: "2026-09-11T09:09:36.168Z",
+          },
+        }),
+        makeEvent({
+          sequence: 7,
+          type: "thread.message-delivery-set",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-09-11T09:09:38.620Z",
+          commandId: "cmd-steer-accepted",
+          payload: {
+            threadId,
+            messageId,
+            turnId: "turn-promoted-steer",
+            state: "accepted",
+            providerTurnId,
+            updatedAt: "2026-09-11T09:09:38.620Z",
+          },
+        }),
+        makeEvent({
+          sequence: 8,
+          type: "thread.session-set",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-09-11T09:10:20.236Z",
+          commandId: "cmd-ready",
+          payload: {
+            threadId,
+            session: {
+              threadId,
+              status: "ready",
+              providerName: provider,
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: "2026-09-11T09:10:20.236Z",
+            },
+          },
+        }),
       ];
 
       for (const event of events) {
         state = await Effect.runPromise(projectEvent(state, event));
+        if (event.type === "thread.turn-steer-queued-requested") {
+          expect(
+            state.threads[0]?.messages.find((message) => message.id === messageId)?.dispatchMode,
+          ).toBe("steer");
+        }
       }
 
       expect(state.threads[0]?.pendingTurnStartMessageId).toBeNull();
@@ -510,9 +515,7 @@ describe("orchestration projector", () => {
         ...thread,
         modelSelection: { provider: "opencode", model: "openai/gpt-5" },
         session:
-          thread.session === null
-            ? null
-            : { ...thread.session, providerName: "opencode" as const },
+          thread.session === null ? null : { ...thread.session, providerName: "opencode" as const },
       })),
     };
 
@@ -884,7 +887,113 @@ describe("orchestration projector", () => {
     expect(message?.id).toBe("assistant:msg-1");
     expect(message?.text).toBe("hello");
     expect(message?.streaming).toBe(false);
+    expect(message?.createdAt).toBe(deltaAt);
     expect(message?.updatedAt).toBe(completeAt);
+  });
+
+  it("moves an edited user message to its resend boundary", async () => {
+    const originalAt = "2026-09-11T10:28:50.952Z";
+    const replayAt = "2026-09-11T17:21:54.125Z";
+    const afterCreate = await Effect.runPromise(
+      projectEvent(
+        createEmptyReadModel(originalAt),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-edit-replay-time",
+          occurredAt: originalAt,
+          commandId: "cmd-create-edit-replay-time",
+          payload: {
+            threadId: "thread-edit-replay-time",
+            folderId: "project-1",
+            title: "edit replay time",
+            modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
+            runtimeMode: "full-access",
+            createdAt: originalAt,
+            updatedAt: originalAt,
+          },
+        }),
+      ),
+    );
+    const originalMessage = await Effect.runPromise(
+      projectEvent(
+        afterCreate,
+        makeEvent({
+          sequence: 2,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: "thread-edit-replay-time",
+          occurredAt: originalAt,
+          commandId: "cmd-original-message",
+          payload: {
+            threadId: "thread-edit-replay-time",
+            messageId: "message-edit-replay-time",
+            role: "user",
+            text: "original text",
+            turnId: "turn-original",
+            streaming: false,
+            source: "native",
+            createdAt: originalAt,
+            updatedAt: originalAt,
+          },
+        }),
+      ),
+    );
+
+    const afterRollback = await Effect.runPromise(
+      projectEvent(
+        originalMessage,
+        makeEvent({
+          sequence: 3,
+          type: "thread.conversation-rolled-back",
+          aggregateKind: "thread",
+          aggregateId: "thread-edit-replay-time",
+          occurredAt: replayAt,
+          commandId: "cmd-edit-replay-rollback",
+          payload: {
+            threadId: "thread-edit-replay-time",
+            messageId: "message-edit-replay-time",
+            numTurns: 1,
+            removedTurnIds: ["turn-original"],
+            skipAttachmentPrune: true,
+          },
+        }),
+      ),
+    );
+
+    const replayedMessage = await Effect.runPromise(
+      projectEvent(
+        afterRollback,
+        makeEvent({
+          sequence: 4,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: "thread-edit-replay-time",
+          occurredAt: replayAt,
+          commandId: "cmd-replayed-message",
+          payload: {
+            threadId: "thread-edit-replay-time",
+            messageId: "message-edit-replay-time",
+            role: "user",
+            text: "edited text",
+            turnId: "turn-replay",
+            streaming: false,
+            source: "native",
+            createdAt: replayAt,
+            updatedAt: replayAt,
+          },
+        }),
+      ),
+    );
+
+    expect(replayedMessage.threads[0]?.messages[0]).toMatchObject({
+      id: "message-edit-replay-time",
+      text: "edited text",
+      turnId: "turn-replay",
+      createdAt: replayAt,
+      updatedAt: replayAt,
+    });
   });
 
   it("keeps activity order while appending and replacing without a full sort", async () => {

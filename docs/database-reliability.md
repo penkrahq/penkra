@@ -132,6 +132,12 @@ the stable `FatalSqliteDatabaseError` marker and exits without further database 
 recognizes that marker, stops automatic restart attempts, and directs the operator to logs and an
 offline verified recovery. An unsupported SQLite runtime is also non-retryable.
 
+A routine canonical forward migration normally creates a verified snapshot first. If the snapshot
+cannot fit, startup logs `backupOutcome: skipped-insufficient-space` with the database path,
+source/target versions, and byte counts, then runs the canonical migration in the migrator's SQLite
+transaction. Imported, legacy, untracked, or malformed migration lineages still fail closed when a
+snapshot cannot fit because those recovery paths may replay schema and data.
+
 ## Required QA matrix
 
 Use disposable state roots unless a manual installed-profile check explicitly requires otherwise.
@@ -146,6 +152,8 @@ Never induce concurrency against a valued database.
   before the new owner acquires the lock;
 - terminate the backend abruptly, reopen it, and verify WAL recovery;
 - take and validate a migration snapshot;
+- force insufficient snapshot space and prove a canonical forward migration starts without a
+  backup while a lineage-repair migration still fails closed;
 - reject a physically valid database whose projections exist without authoritative events;
 - reject a projection sequence ahead of the event log;
 - reject SQLite earlier than 3.51.3;
@@ -159,10 +167,11 @@ instance is fully stopped.
 ## Rollout gates
 
 Passing local tests and the manual QA matrix does not authorize a version change, release, or
-deployment. For each rollout cohort, retain a verified pre-migration snapshot, record the offline
-`verify` and `report` results before and after migration, and prove restart acknowledgement, active
-turn recovery, explicit-stop persistence, and ordinary Thread continuation on a real upgraded
-profile.
+deployment. For each rollout cohort with enough disk, retain a verified pre-migration snapshot.
+When the canonical low-space fallback is exercised, retain its structured warning instead. Record
+the offline `verify` and `report` results before and after migration, and prove restart
+acknowledgement, active turn recovery, explicit-stop persistence, and ordinary Thread continuation
+on a real upgraded profile.
 
 Do not widen the cohort or select a compact candidate while any integrity, projection high-water,
 runtime-recovery, or notification-state regression remains unexplained. Observe each deployed

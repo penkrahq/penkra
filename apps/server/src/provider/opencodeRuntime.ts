@@ -38,7 +38,6 @@ import {
 import * as Semaphore from "effect/Semaphore";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { NetService, type NetServiceShape } from "@penkra/shared/Net";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 import { buildProviderChildEnvironment } from "../providerChildEnvironment.ts";
 import {
@@ -856,13 +855,11 @@ const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.
 
 export interface OpenCodeRuntimeLiveOptions {
   readonly teardownProcessTree?: typeof teardownProviderProcessTree;
-  readonly netService?: NetServiceShape;
 }
 
 const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const netService = yield* NetService;
     const pooledServerScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
       Scope.close(scope, Exit.void),
     );
@@ -927,18 +924,9 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
         const cliSpec = input.cliSpec ?? OPENCODE_CLI_SPEC;
 
         const hostname = input.hostname ?? DEFAULT_HOSTNAME;
-        const port =
-          input.port ??
-          (yield* netService.findAvailablePort(0).pipe(
-            Effect.mapError(
-              (cause) =>
-                new OpenCodeRuntimeError({
-                  operation: "startOpenCodeServerProcess",
-                  detail: `Failed to find available port: ${openCodeRuntimeErrorDetail(cause)}`,
-                  cause,
-                }),
-            ),
-          ));
+        // Let the OS allocate the port at the provider's actual bind. A probe
+        // cannot reserve it across process startup and may use another address family.
+        const port = input.port ?? 0;
         const timeoutMs = input.timeoutMs ?? DEFAULT_OPENCODE_SERVER_TIMEOUT_MS;
         const args = [
           "serve",
@@ -1512,10 +1500,6 @@ export class OpenCodeRuntime extends ServiceMap.Service<OpenCodeRuntime, OpenCod
 ) {}
 
 export const makeOpenCodeRuntimeLive = (options?: OpenCodeRuntimeLiveOptions) =>
-  Layer.effect(OpenCodeRuntime, makeOpenCodeRuntime(options)).pipe(
-    Layer.provide(
-      options?.netService ? Layer.succeed(NetService, options.netService) : NetService.layer,
-    ),
-  );
+  Layer.effect(OpenCodeRuntime, makeOpenCodeRuntime(options));
 
 export const OpenCodeRuntimeLive = makeOpenCodeRuntimeLive();

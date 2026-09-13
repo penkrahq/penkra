@@ -57,6 +57,7 @@ export interface AppTabAuthority {
 
 interface AppTabRecord {
   descriptor: DesktopAppTabDescriptor;
+  endpoint: AppTabEndpoint;
   app: InstalledAppPackage;
   rendererId: number;
   unregisterBroker: () => void;
@@ -291,12 +292,34 @@ export class ElectronAppTabHost implements AppTabHost {
   ): Promise<DesktopAppTabDescriptor> {
     const origin = [...this.#records.values()].find((record) => record.rendererId === rendererId);
     if (!origin) throw new Error("The originating App tab is unavailable.");
+    const existing = this.presentExisting({
+      appId: input.appId,
+      spaceId: origin.descriptor.spaceId,
+      threadId: origin.descriptor.threadId,
+    });
+    if (existing) return this.#require(existing.id).descriptor;
     return this.openInstalled({
       appId: input.appId,
       spaceId: origin.descriptor.spaceId,
       threadId: origin.descriptor.threadId,
       route: "/",
     });
+  }
+
+  presentExisting(input: {
+    appId: string;
+    spaceId: string;
+    threadId: string;
+  }): AppTabEndpoint | null {
+    const record = [...this.#records.values()].find(
+      (candidate) =>
+        candidate.app.appId === input.appId &&
+        candidate.descriptor.spaceId === input.spaceId &&
+        candidate.descriptor.threadId === input.threadId,
+    );
+    if (!record) return null;
+    this.present(record.descriptor.id);
+    return record.endpoint;
   }
 
   list(): ReadonlyArray<DesktopAppTabDescriptor> {
@@ -739,6 +762,7 @@ export class ElectronAppTabHost implements AppTabHost {
       rollback.defer("operation-broker", unregisterBroker);
       const record: AppTabRecord = {
         descriptor,
+        endpoint,
         app: input.app,
         rendererId,
         unregisterBroker,

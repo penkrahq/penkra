@@ -29,6 +29,7 @@ import type {
   ProviderStopSessionInput,
   ProviderStopTaskInput,
   ThreadId,
+  TurnId,
   ProviderTurnStartResult,
 } from "@penkra/contracts";
 import { ServiceMap } from "effect";

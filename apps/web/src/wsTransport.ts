@@ -841,20 +841,18 @@ export class WsTransport {
 
     const oldRuntime = this.runtime;
     const oldClientScope = this.clientScope;
-    this.resetAllStreamCapacityRetries();
-    for (const cleanup of this.streamCleanups.values()) cleanup();
-    this.streamCleanups.clear();
-    this.activeThreadStreamInputs.clear();
 
-    this.setState("connecting");
-
-    // Publish the replacement promise before retiring the old scope. Closing
-    // that scope settles its streams and pending requests, and any of those
-    // callbacks may re-enter reconnect(). The replacement must not open until
-    // every old-scope callback and finalizer has drained; otherwise a late exit
-    // can mistake the new session for the failed one and retire it while its
-    // WebSocket is still connecting.
+    // Publish the replacement promise before cancelling streams or notifying
+    // state listeners: either can synchronously re-enter reconnect(). Retire
+    // stream ownership before invoking cancellations so their exit callbacks
+    // cannot independently replace this session.
     const reconnect = Promise.resolve().then(async () => {
+      this.resetAllStreamCapacityRetries();
+      const cleanups = [...this.streamCleanups.values()];
+      this.streamCleanups.clear();
+      this.activeThreadStreamInputs.clear();
+      this.setState("connecting");
+      for (const cleanup of cleanups) cleanup();
       await oldRuntime.runPromise(Scope.close(oldClientScope, Exit.void)).catch(() => undefined);
       await oldRuntime.dispose().catch(() => undefined);
       return this.openReconnectSession();

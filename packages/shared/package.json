@@ -216,6 +216,10 @@
       "types": "./src/appPackaging.ts",
       "import": "./src/appPackaging.ts"
     },
+    "./appHandlerContract": {
+      "types": "./src/appHandlerContract.ts",
+      "import": "./src/appHandlerContract.ts"
+    },
     "./appPackageLimits": {
       "types": "./src/appPackageLimits.ts",
       "import": "./src/appPackageLimits.ts"

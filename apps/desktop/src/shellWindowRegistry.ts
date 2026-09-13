@@ -27,6 +27,11 @@ export class ShellWindowRegistry {
     return this.list().find((window) => window.webContents === contents) ?? null;
   }
 
+  windowForWebContentsId(contentsId: number | null | undefined): BrowserWindow | null {
+    if (contentsId == null) return null;
+    return this.list().find((window) => window.webContents.id === contentsId) ?? null;
+  }
+
   list(): BrowserWindow[] {
     const live: BrowserWindow[] = [];
     for (const window of this.#windows) {
@@ -51,5 +56,15 @@ export class ShellWindowRegistry {
     for (const window of this.list()) {
       window.webContents.send(channel, ...args);
     }
+  }
+
+  broadcastExcept(senderId: number, channel: string, ...args: unknown[]): number {
+    let recipientCount = 0;
+    for (const window of this.list()) {
+      if (window.webContents.id === senderId) continue;
+      window.webContents.send(channel, ...args);
+      recipientCount += 1;
+    }
+    return recipientCount;
   }
 }

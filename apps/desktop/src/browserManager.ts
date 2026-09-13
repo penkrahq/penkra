@@ -1221,6 +1221,7 @@ export class DesktopBrowserManager {
         }
       }
       try {
+        if (runtime.webContents.isDestroyed()) continue;
         if (runtime.webContents.debugger.isAttached()) runtime.webContents.debugger.detach();
         if (runtime.ownsWebContents && !runtime.webContents.isDestroyed()) {
           runtime.webContents.close({ waitForBeforeUnload: false });

@@ -869,6 +869,15 @@ export interface DesktopComposerDraftsBridge {
   listVoices: () => Promise<DesktopVoiceDraftDescriptor[]>;
   readVoice: (id: string) => Promise<Uint8Array | null>;
   deleteVoice: (id: string) => Promise<void>;
+  publishEditRecovery?: (recovery: DesktopComposerEditRecovery) => void;
+  onEditRecovery?: (listener: (recovery: DesktopComposerEditRecovery) => void) => () => void;
+}
+
+export interface DesktopComposerEditRecovery {
+  recoveryId: string;
+  threadId: ThreadId;
+  queuedTurnId: string;
+  queuedTurnJson: string;
 }
 
 export interface DesktopBridge {

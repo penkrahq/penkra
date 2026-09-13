@@ -291,15 +291,13 @@ describe("deriveWorkLogEntries", () => {
       }),
     ];
 
+    const visibleSequenceFloor = deriveVisibleWorkLogSequenceFloor(messages);
     const entries = deriveWorkLogEntries(activities, nextUserTurnId, {
       visibleTurnIds: new Set([syntheticUserTurnId, nextUserTurnId]),
-      visibleSequenceFloor: deriveVisibleWorkLogSequenceFloor(messages),
+      ...(visibleSequenceFloor !== undefined ? { visibleSequenceFloor } : {}),
     });
 
-    expect(entries.map((entry) => entry.id)).toEqual([
-      "tool-only-work",
-      "tool-only-compaction",
-    ]);
+    expect(entries.map((entry) => entry.id)).toEqual(["tool-only-work", "tool-only-compaction"]);
     expect(deriveTimelineEntries(messages, entries).map((entry) => entry.id)).toEqual([
       "message-user-before-tools",
       "tool-only-work",

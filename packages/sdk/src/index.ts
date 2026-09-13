@@ -69,7 +69,6 @@ export {
   type AppContextMenuItem,
   type AppContextMenuSeparatorItem,
   type AppContextMenuSubmenuItem,
-  type AppBrowserFindResult,
   type AppBrowserExtensionAction,
   type AppBrowserDownloadEvent,
   type AppHostedSurfaceInsets,

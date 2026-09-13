@@ -308,6 +308,7 @@ it.layer(OpenCodeTextGenerationTestLayer)("OpenCodeTextGenerationServiceLive", (
         modelSelection: DEFAULT_TEST_MODEL_SELECTION,
         managedLaunch: managedLaunch("connection-a", "credential-a"),
       });
+      expect(runtimeMock.state.closeCalls).toEqual(["http://127.0.0.1:4301"]);
       yield* textGeneration.generateThreadTitle({
         cwd: process.cwd(),
         message: "Title with Connection B",
@@ -316,6 +317,10 @@ it.layer(OpenCodeTextGenerationTestLayer)("OpenCodeTextGenerationServiceLive", (
       });
 
       expect(runtimeMock.state.startCalls).toEqual(["/managed/opencode", "/managed/opencode"]);
+      expect(runtimeMock.state.closeCalls).toEqual([
+        "http://127.0.0.1:4301",
+        "http://127.0.0.1:4302",
+      ]);
       expect(runtimeMock.state.startEnvs.map((env) => env?.OPENCODE_AUTH_CONTENT)).toEqual([
         "credential-a",
         "credential-b",

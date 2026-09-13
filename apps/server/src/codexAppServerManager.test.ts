@@ -117,10 +117,20 @@ describe("Codex Penkra harness policy", () => {
   });
 
   it("dispatches Codex dynamic-tool calls through the authenticated native surface", async () => {
+    const resourceRoot = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-tool-resource-"));
     const invoke = vi.fn().mockResolvedValue({
       content: [
         { type: "text", text: '{"ok":true}' },
         { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+        {
+          type: "resource",
+          resource: {
+            uri: "penkra-app-resource://whatsapp/attachment-1/fees.pdf",
+            name: "fees.pdf",
+            mimeType: "application/pdf",
+            blob: "cGRmLWJ5dGVz",
+          },
+        },
       ],
     });
     const manager = new CodexAppServerManager(undefined, {
@@ -142,6 +152,7 @@ describe("Codex Penkra harness policy", () => {
         status: "running",
         threadId: asThreadId("thread-native-tool"),
         runtimeMode: "full-access",
+        cwd: resourceRoot,
         resumeCursor: { threadId: "provider-thread-native" },
         createdAt: "2026-08-10T00:00:00.000Z",
         updatedAt: "2026-08-10T00:00:00.000Z",
@@ -152,6 +163,7 @@ describe("Codex Penkra harness policy", () => {
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
+      temporaryResourcePaths: new Map(),
       stopping: false,
     };
     vi.spyOn(
@@ -184,13 +196,29 @@ describe("Codex Penkra harness policy", () => {
       name: "penkra_exec_command",
       arguments: { command: "apps list" },
     });
+    const response = writeMessage.mock.calls[0]?.[1] as {
+      result: { contentItems: Array<{ type: string; text?: string; imageUrl?: string }> };
+    };
+    expect(response.result.contentItems.slice(0, 2)).toEqual([
+      { type: "inputText", text: '{"ok":true}' },
+      { type: "inputImage", imageUrl: "data:image/png;base64,aW1hZ2U=" },
+    ]);
+    const resourceItem = response.result.contentItems[2];
+    expect(resourceItem?.type).toBe("inputText");
+    const resourcePath = resourceItem?.text?.match(/ to (.+)\. This temporary file/)?.[1];
+    expect(resourcePath).toBeTruthy();
+    expect(readFileSync(resourcePath!, "utf8")).toBe("pdf-bytes");
+    await (
+      manager as unknown as {
+        clearTemporaryResources: (context: unknown, turnId: TurnId) => Promise<void>;
+      }
+    ).clearTemporaryResources(context, asTurnId("turn-native"));
+    expect(() => readFileSync(resourcePath!, "utf8")).toThrow();
+    rmSync(resourceRoot, { recursive: true, force: true });
     expect(writeMessage).toHaveBeenCalledWith(context, {
       id: 71,
       result: {
-        contentItems: [
-          { type: "inputText", text: '{"ok":true}' },
-          { type: "inputImage", imageUrl: "data:image/png;base64,aW1hZ2U=" },
-        ],
+        contentItems: response.result.contentItems,
         success: true,
       },
     });
@@ -1712,6 +1740,32 @@ describe("startSession", () => {
     },
   );
 
+  it.each(["EPERM", "EACCES"] as const)(
+    "reports stat denial as an inaccessible project working directory (%s)",
+    (code) => {
+      const cwd = path.join(os.tmpdir(), `penkra-stat-denied-${code.toLowerCase()}`);
+      const failure = Object.assign(new Error(`${code}: operation not permitted`), { code });
+
+      expect(() =>
+        assertCodexWorkingDirectoryExists(cwd, undefined, () => {
+          throw failure;
+        }),
+      ).toThrow(formatInaccessibleCodexWorkingDirectoryError(cwd));
+      try {
+        assertCodexWorkingDirectoryExists(cwd, undefined, () => {
+          throw failure;
+        });
+      } catch (error) {
+        expect(error).toBeInstanceOf(CodexWorkingDirectoryAccessError);
+        expect(error).toMatchObject({
+          cwd,
+          osErrorCode: code,
+          phase: "workspace-read-preflight",
+        });
+      }
+    },
+  );
+
   it("resumes Codex execution state without returning transcript history", async () => {
     const request = vi.fn().mockResolvedValue({ thread: { id: "provider-thread" } });
 
@@ -1868,7 +1922,7 @@ describe("startSession", () => {
 });
 
 describe("sendTurn", () => {
-  it("maps a protocol JSON-RPC turn/start error using only its message", async () => {
+  it("preserves structured protocol JSON-RPC error evidence", async () => {
     const manager = new CodexAppServerManager();
     const context = {
       nextRequestId: 1,
@@ -1906,6 +1960,13 @@ describe("sendTurn", () => {
       message: "turn/start failed: usage limit reached",
       method: "turn/start",
       code: -32000,
+      data: {
+        error: {
+          message: "usage limit reached",
+          codexErrorInfo: "usageLimitExceeded",
+          additionalDetails: "Provider-supplied diagnostic text.",
+        },
+      },
       requestOutcome: "rejected",
     } satisfies Partial<CodexJsonRpcResponseError>);
     expect(context.pending.size).toBe(0);
@@ -2919,10 +2980,7 @@ describe("provider thread control", () => {
       },
     });
 
-    const result = await manager.revertThread(
-      asThreadId("thread_1"),
-      asTurnId("turn_replaced"),
-    );
+    const result = await manager.revertThread(asThreadId("thread_1"), asTurnId("turn_replaced"));
 
     expect(sendRequest).toHaveBeenCalledWith(context, "thread/revert", {
       threadId: "thread_1",

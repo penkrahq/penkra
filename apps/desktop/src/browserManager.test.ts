@@ -182,6 +182,31 @@ function asCharacterizationAccess(
 }
 
 describe("DesktopBrowserManager repeated workflow characterization", () => {
+  it("closes a session with an already destroyed native runtime without accessing its debugger", () => {
+    const manager = new DesktopBrowserManager();
+    manager.open({ threadId: THREAD_ID });
+    const webContents = new FakeWebContents();
+    webContents.destroyed = true;
+    const debuggerAccess = vi.fn(() => {
+      throw new TypeError("Object has been destroyed");
+    });
+    Object.defineProperty(webContents, "debugger", { get: debuggerAccess });
+    const disposeListener = vi.fn();
+    const runtimes = (manager as unknown as { runtimes: Map<string, unknown> }).runtimes;
+    runtimes.set(`${THREAD_ID}:destroyed-page`, {
+      threadId: THREAD_ID,
+      webContents,
+      ownsWebContents: false,
+      listenerDisposers: [disposeListener],
+    });
+
+    expect(() => manager.close({ threadId: THREAD_ID })).not.toThrow();
+    expect(debuggerAccess).not.toHaveBeenCalled();
+    expect(disposeListener).toHaveBeenCalledOnce();
+    expect(manager.hasSession(THREAD_ID)).toBe(false);
+    expect(runtimes.size).toBe(0);
+  });
+
   it("detaches browser session authority before publishing its closed state", () => {
     const manager = new DesktopBrowserManager();
     const observed: Array<{ open: boolean; authorityPresent: boolean }> = [];

@@ -25,7 +25,6 @@ export type {
   AppAccountRealtimeSubscriptionOptions,
   AppBrowserDownloadEvent,
   AppBrowserExtensionAction,
-  AppBrowserFindResult,
   AppBrowserPage,
   AppBrowserSessionState,
   AppComposerModelSelection,

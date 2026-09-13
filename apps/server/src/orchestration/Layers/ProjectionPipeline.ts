@@ -849,8 +849,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ? (existingMessage.value.sequence ?? event.sequence)
               : event.sequence,
             createdAt:
-              (Option.isSome(existingMessage) ? existingMessage.value.createdAt : null) ??
-              event.payload.createdAt,
+              event.payload.role === "user"
+                ? event.payload.createdAt
+                : ((Option.isSome(existingMessage) ? existingMessage.value.createdAt : null) ??
+                  event.payload.createdAt),
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -883,19 +885,20 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                 : "starting";
           yield* projectionThreadMessageRepository.upsert({
             ...existingMessage.value,
+            ...(event.type === "thread.turn-steer-queued-requested"
+              ? { dispatchMode: "steer" as const }
+              : {}),
             deliveryState: state,
             ...(event.type === "thread.message-delivery-set" && event.payload.queued !== undefined
               ? { deliveryQueued: event.payload.queued }
               : {}),
             deliverySequence: event.sequence,
-            ...(event.type === "thread.message-delivery-set" &&
-            event.payload.failurePhase !== undefined
-              ? { deliveryFailurePhase: event.payload.failurePhase }
-              : {}),
-            ...(event.type === "thread.message-delivery-set" &&
-            event.payload.failureDetail !== undefined
-              ? { deliveryFailureDetail: event.payload.failureDetail }
-              : {}),
+            deliveryFailurePhase:
+              event.type === "thread.message-delivery-set" ? event.payload.failurePhase : undefined,
+            deliveryFailureDetail:
+              event.type === "thread.message-delivery-set"
+                ? event.payload.failureDetail
+                : undefined,
             updatedAt:
               event.type === "thread.message-delivery-set"
                 ? event.payload.updatedAt
@@ -1202,10 +1205,25 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                   toPersistenceSqlError("ProjectionPipeline.upsertRestartTurnRecovery:query"),
                 ),
               );
-            } else if (
-              event.payload.session.status === "ready" ||
-              event.payload.session.status === "error"
-            ) {
+            } else if (event.payload.session.status === "ready") {
+              yield* sql`
+                DELETE FROM restart_turn_recoveries AS recovery
+                WHERE recovery.thread_id = ${event.payload.threadId}
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM projection_turns AS turn_row
+                    WHERE turn_row.thread_id = recovery.thread_id
+                      AND turn_row.turn_id = recovery.turn_id
+                      AND turn_row.state = 'running'
+                      AND turn_row.started_at IS NULL
+                      AND turn_row.provider_turn_id IS NULL
+                  )
+              `.pipe(
+                Effect.mapError(
+                  toPersistenceSqlError("ProjectionPipeline.deleteRestartTurnRecovery:query"),
+                ),
+              );
+            } else if (event.payload.session.status === "error") {
               yield* sql`
                 DELETE FROM restart_turn_recoveries
                 WHERE thread_id = ${event.payload.threadId}

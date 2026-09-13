@@ -68,6 +68,41 @@ writeFileSync(process.env.PENKRA_APP_TEST_RESULT, JSON.stringify({
     });
   });
 
+  it("accepts terminal evidence from a host that remains alive", async () => {
+    const source = await mkdtemp(join(tmpdir(), "penkra-app-test-source-"));
+    roots.push(source);
+    const host = join(source, "host.mjs");
+    const hostPidPath = join(source, "host.pid");
+    await writeFile(
+      host,
+      `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(hostPidPath)}, String(process.pid));
+writeFileSync(process.env.PENKRA_APP_TEST_RESULT, JSON.stringify({
+  ok: true,
+  appId: "com.example.canvas",
+  version: "1.0.0",
+  help: { root: true, operations: ["documents.execute"] },
+  tab: { id: "tab-installed", status: "ready" },
+  diagnostics: [{ kind: "tab-ready" }]
+}));
+setInterval(() => undefined, 1_000);
+`,
+    );
+    vi.stubEnv("PENKRA_APP_TEST_ELECTRON", process.execPath);
+    vi.stubEnv("PENKRA_APP_TEST_HOST", host);
+    vi.stubEnv("PENKRA_APP_TEST_PACKAGED", "0");
+
+    await expect(testAppDirectory({ directory: source, timeoutMs: 2_000 })).resolves.toMatchObject({
+      ok: true,
+      appId: "com.example.canvas",
+      profileRemoved: true,
+    });
+
+    const hostPid = Number(await readFile(hostPidPath, "utf8"));
+    expect(Number.isInteger(hostPid)).toBe(true);
+    expect(processExists(hostPid)).toBe(false);
+  });
+
   it("rejects a host result that did not exercise generated agent help", async () => {
     const source = await mkdtemp(join(tmpdir(), "penkra-app-test-source-"));
     roots.push(source);
@@ -322,6 +357,54 @@ describe("App developer packaging", () => {
         output: join(root, "..", "invalid-example.penkra"),
       }),
     ).rejects.toThrow("does not match its input schema");
+  });
+
+  it("rejects a file handler whose delivery does not match its operation schema", async () => {
+    const root = await fixture();
+    const manifestPath = join(root, "penkra-app.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.entrypoints.controller = "operations.js";
+    manifest.operations = [
+      {
+        key: "resources.open",
+        summary: "Open a local resource.",
+        input: {
+          type: "object",
+          properties: { path: { type: "string", minLength: 1 } },
+          required: ["path"],
+          additionalProperties: false,
+        },
+        output: { type: "object", additionalProperties: true },
+        examples: [{ name: "Open a path", input: { path: "/example/document.md" } }],
+        handler: "resources.open",
+      },
+    ];
+    manifest.contributions = {
+      handlers: [
+        {
+          intent: "open-file",
+          operation: "resources.open",
+          extensions: [".md"],
+        },
+      ],
+    };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    await expect(
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "bad-handler.penkra"),
+      }),
+    ).rejects.toThrow("delivers a scoped handle, but operation resources.open rejects that input");
+
+    manifest.contributions.handlers[0].input = "path";
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    await expect(
+      packageAppDirectory({
+        directory: root,
+        output: join(root, "..", "path-handler.penkra"),
+      }),
+    ).resolves.toMatchObject({ slug: "canvas" });
   });
 
   it("rejects symlinks and output paths inside the package root", async () => {

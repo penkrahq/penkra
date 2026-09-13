@@ -18,11 +18,13 @@ import {
   FolderId,
   SpaceId,
   RuntimeItemId,
+  RuntimeRequestId,
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
 import { Deferred, Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { derivePendingThreadRequestIds } from "@penkra/shared/threadSummary";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
@@ -368,6 +370,150 @@ describe("ProviderRuntimeIngestion", () => {
       sql,
     };
   }
+
+  it.each(
+    PROVIDER_KINDS.flatMap((provider) =>
+      (["question", "approval"] as const).flatMap((kind) =>
+        (
+          [
+            "retired",
+            "live",
+            "current-generation",
+            "successor-generation",
+            "successor-reused-request",
+            "retired-projection-live-owner",
+          ] as const
+        ).map((state) => ({ provider, kind, state })),
+      ),
+    ),
+  )(
+    "replays $provider $kind with owner=$state without reviving expired requests",
+    async ({ provider, kind, state }) => {
+      const retired = state === "retired" || state === "retired-projection-live-owner";
+      const successor = state === "successor-generation" || state === "successor-reused-request";
+      const expires = state === "retired" || successor;
+      const harness = await createHarness({ startIngestion: false, provider });
+      const threadId = asThreadId("thread-1");
+      const createdAt = "2026-09-12T00:09:36.931Z";
+      const restartedAt = "2026-09-12T04:21:19.523Z";
+      await Effect.runPromise(
+        harness.runtimeEventRepository.append({
+          ...(kind === "question"
+            ? {
+                type: "user-input.requested" as const,
+                payload: {
+                  questions: [
+                    {
+                      id: "format",
+                      header: "Format",
+                      question: "Which format?",
+                      options: [{ label: "Guide", description: "Write a practical guide." }],
+                    },
+                  ],
+                },
+              }
+            : {
+                type: "request.opened" as const,
+                payload: { requestType: "command_execution_approval" },
+              }),
+          eventId: asEventId("evt-question-before-crash"),
+          provider,
+          createdAt,
+          threadId,
+          turnId: asTurnId("turn-before-crash"),
+          lifecycleGeneration: "generation-before-crash",
+          requestId: RuntimeRequestId.makeUnsafe("question-before-crash"),
+        }),
+      );
+      // Startup reconciles projection rows before the unconsumed runtime journal.
+      // The question is durable but has no pending-interaction projection yet.
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-restart-session-settled"),
+          threadId,
+          session: {
+            threadId,
+            status: retired ? "interrupted" : "running",
+            providerName: provider,
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            updatedAt: restartedAt,
+            lastError: null,
+          },
+          createdAt: restartedAt,
+        }),
+      );
+      if (state !== "retired" && state !== "live") {
+        const generation = successor ? "new-generation" : "generation-before-crash";
+        await Effect.runPromise(harness.sql`
+          INSERT INTO provider_session_runtime (
+            thread_id, provider_name, adapter_key, runtime_mode, status,
+            lifecycle_generation, last_seen_at, resume_cursor_json, runtime_payload_json
+          ) VALUES (
+            'thread-1', ${provider}, ${provider}, 'approval-required', 'running',
+            ${generation}, ${restartedAt}, NULL, NULL
+          )
+        `);
+      }
+      if (state === "successor-reused-request") {
+        await Effect.runPromise(
+          harness.engine.dispatch({
+            type: "thread.activity.append",
+            commandId: CommandId.makeUnsafe("current-request"),
+            threadId,
+            activity: {
+              id: EventId.makeUnsafe("current-request"),
+              kind: kind === "question" ? "user-input.requested" : "approval.requested",
+              tone: "info",
+              summary: "Current request",
+              turnId: null,
+              createdAt: restartedAt,
+              payload: {
+                requestId: "question-before-crash",
+                lifecycleGeneration: "new-generation",
+                ...(kind === "question"
+                  ? {
+                      questions: [
+                        {
+                          id: "current",
+                          header: "Current",
+                          question: "Current question?",
+                          options: [{ label: "Yes", description: "Continue" }],
+                        },
+                      ],
+                    }
+                  : { requestType: "command_execution_approval" }),
+              },
+            },
+            createdAt: restartedAt,
+          }),
+        );
+      }
+      await harness.startIngestion();
+      await harness.drain();
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find((entry) => entry.id === threadId);
+      expect(thread?.session?.status).toBe(retired ? "interrupted" : "running");
+      expect(
+        thread?.activities.some(
+          (activity) =>
+            activity.id ===
+            (expires ? "evt-question-before-crash:expired" : "evt-question-before-crash"),
+        ),
+      ).toBe(true);
+      const pending = derivePendingThreadRequestIds({ activities: thread?.activities ?? [] });
+      expect(
+        kind === "question" ? pending.userInputRequestIds : pending.approvalRequestIds,
+      ).toEqual(expires && state !== "successor-reused-request" ? [] : ["question-before-crash"]);
+      if (state === "successor-reused-request") {
+        const rows = await Effect.runPromise(
+          harness.sql`SELECT lifecycle_generation, status FROM projection_pending_interactions WHERE thread_id = 'thread-1' AND request_id = 'question-before-crash'`,
+        );
+        expect(rows).toEqual([{ lifecycle_generation: "new-generation", status: "pending" }]);
+      }
+    },
+  );
 
   it("REL-01C gate: replays output persisted before subscription without duplicate acceptance", async () => {
     const harness = await createHarness({ startIngestion: false });

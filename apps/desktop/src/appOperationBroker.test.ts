@@ -266,7 +266,17 @@ describe("AppOperationBroker", () => {
 
   it("opens another enabled App by installed slug in the invoking Thread", async () => {
     const open = vi.fn(async () => tab("canvas-tab", { appId: "com.acme.canvas" }));
-    const runtime = broker(crossAppState, { open });
+    const ensureController = vi.fn(async () => undefined);
+    const runtime = new AppOperationBroker({
+      installationState: crossAppState,
+      mintInvocationId: () => "invocation-1",
+      resolveIdentity: async () => ({ subject: "sub_test", space: "space_test" }),
+      ensureController,
+      tabs: {
+        open,
+        openForResult: vi.fn(async () => ({ completed: true })) as never,
+      },
+    });
     runtime.registerController({
       appId: "com.acme.linear",
       spaceId: "personal",
@@ -293,6 +303,49 @@ describe("AppOperationBroker", () => {
         route: "/",
       }),
     );
+    expect(ensureController).toHaveBeenCalledWith("com.acme.github", "personal");
+  });
+
+  it("presents an existing target App instead of opening a duplicate", async () => {
+    const existing = tab("github-tab", { appId: "com.acme.github" });
+    const open = vi.fn();
+    const presentExisting = vi.fn(() => existing);
+    const runtime = new AppOperationBroker({
+      installationState: crossAppState,
+      mintInvocationId: () => "invocation-1",
+      resolveIdentity: async () => ({ subject: "sub_test", space: "space_test" }),
+      ensureController: vi.fn(async () => undefined),
+      tabs: {
+        open,
+        openForResult: vi.fn(async () => ({ completed: true })) as never,
+        presentExisting,
+      },
+    });
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: {
+        "issues.create": async (_input, context) => ({
+          tabId: (await context.apps.open({ slug: "github" })).id,
+        }),
+      },
+    });
+
+    await expect(
+      runtime.invoke({
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        threadId: "thread-1",
+        input: {},
+      }),
+    ).resolves.toEqual({ tabId: "github-tab" });
+    expect(presentExisting).toHaveBeenCalledWith({
+      appId: "com.acme.github",
+      spaceId: "personal",
+      threadId: "thread-1",
+    });
+    expect(open).not.toHaveBeenCalled();
   });
 
   it("checks installation and Space enablement at invocation time", async () => {
@@ -372,6 +425,43 @@ describe("AppOperationBroker", () => {
       }),
     ).resolves.toEqual({
       content: [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }],
+      structuredContent: { created: true },
+    });
+  });
+
+  it("validates an embedded temporary App resource", async () => {
+    const runtime = broker(enabledState);
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: {
+        "issues.create": async () => ({
+          content: [
+            {
+              type: "resource",
+              resource: {
+                uri: "penkra-app-resource://attachments/example.pdf",
+                name: "example.pdf",
+                mimeType: "application/pdf",
+                blob: "aGVsbG8=",
+              },
+            },
+          ],
+          structuredContent: { created: true },
+        }),
+      },
+    });
+
+    await expect(
+      runtime.invoke({
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        threadId: "thread-1",
+        input: {},
+      }),
+    ).resolves.toMatchObject({
+      content: [{ type: "resource", resource: { name: "example.pdf" } }],
       structuredContent: { created: true },
     });
   });

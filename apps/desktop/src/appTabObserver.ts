@@ -892,19 +892,20 @@ export class AppTabObserver {
 
   async #observeDialogs(tabId: string, target: AppTabObservationTarget): Promise<void> {
     const contents = target.webContents;
+    const contentsId = contents.id;
     if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
-    const tabs = this.#dialogTabsByContents.get(contents.id) ?? new Set<string>();
+    const tabs = this.#dialogTabsByContents.get(contentsId) ?? new Set<string>();
     tabs.add(tabId);
-    this.#dialogTabsByContents.set(contents.id, tabs);
-    this.#dialogTargets.set(dialogTargetKey(contents.id, target.cdpSessionId), { tabId, target });
+    this.#dialogTabsByContents.set(contentsId, tabs);
+    this.#dialogTargets.set(dialogTargetKey(contentsId, target.cdpSessionId), { tabId, target });
     const url = target.frame?.url ?? contents.getURL();
-    if (url) this.#dialogTargets.set(dialogUrlKey(contents.id, url), { tabId, target });
-    if (!this.#dialogListeners.has(contents.id)) {
-      this.#dialogListeners.add(contents.id);
+    if (url) this.#dialogTargets.set(dialogUrlKey(contentsId, url), { tabId, target });
+    if (!this.#dialogListeners.has(contentsId)) {
+      this.#dialogListeners.add(contentsId);
       const debuggerDetached = () => {
         // DevTools or Chromium can detach the root debugger without emitting one child-target
         // event per flattened session. Every cached child session is invalid after that boundary.
-        this.#forgetProtocolSessions(contents.id);
+        this.#forgetProtocolSessions(contentsId);
       };
       contents.debugger.on("detach", debuggerDetached);
       contents.debugger.on("message", (_event, method, params, sessionId) => {
@@ -913,18 +914,18 @@ export class AppTabObserver {
             typeof params.sessionId === "string" ? params.sessionId : sessionId;
           const detachedTargetId =
             typeof params.targetId === "string" ? params.targetId : undefined;
-          this.#forgetProtocolSessions(contents.id, detachedTargetId, detachedSessionId);
+          this.#forgetProtocolSessions(contentsId, detachedTargetId, detachedSessionId);
           return;
         }
         if (method !== "Page.javascriptDialogOpening" || !isRecord(params)) return;
         const url = typeof params.url === "string" ? params.url : "";
         const owner =
-          this.#dialogTargets.get(dialogTargetKey(contents.id, sessionId)) ??
-          (url ? this.#dialogTargets.get(dialogUrlKey(contents.id, url)) : undefined) ??
+          this.#dialogTargets.get(dialogTargetKey(contentsId, sessionId)) ??
+          (url ? this.#dialogTargets.get(dialogUrlKey(contentsId, url)) : undefined) ??
           singleDialogOwner(
-            this.#dialogTabsByContents.get(contents.id),
+            this.#dialogTabsByContents.get(contentsId),
             this.#dialogTargets,
-            contents.id,
+            contentsId,
           );
         if (!owner) return;
         this.#pendingDialogs.set(owner.tabId, {
@@ -936,15 +937,14 @@ export class AppTabObserver {
         });
       });
       contents.once("destroyed", () => {
-        contents.debugger.removeListener("detach", debuggerDetached);
-        this.#dialogListeners.delete(contents.id);
-        this.#dialogTabsByContents.delete(contents.id);
-        this.#forgetProtocolSessions(contents.id);
+        this.#dialogListeners.delete(contentsId);
+        this.#dialogTabsByContents.delete(contentsId);
+        this.#forgetProtocolSessions(contentsId);
         for (const [key, owner] of this.#dialogTargets) {
-          if (owner.target.webContents.id === contents.id) this.#dialogTargets.delete(key);
+          if (owner.target.webContents === contents) this.#dialogTargets.delete(key);
         }
         for (const [ownerTabId, dialog] of this.#pendingDialogs) {
-          if (dialog.target.webContents.id === contents.id) this.#pendingDialogs.delete(ownerTabId);
+          if (dialog.target.webContents === contents) this.#pendingDialogs.delete(ownerTabId);
         }
       });
     }

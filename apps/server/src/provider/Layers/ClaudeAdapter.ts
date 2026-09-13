@@ -1146,7 +1146,9 @@ function buildUserMessageEffect(
 
 function turnStatusFromResult(result: SDKResultMessage): ProviderRuntimeTurnStatus {
   if (result.subtype === "success") {
-    return "completed";
+    // The SDK can finish normally while the API request failed (for example,
+    // insufficient credit). The envelope subtype alone is not turn success.
+    return result.is_error ? "failed" : "completed";
   }
 
   const errors = resultErrorsText(result);
@@ -3289,7 +3291,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             : turnStatusFromResult(message);
         const errorMessage =
           message.subtype === "success"
-            ? undefined
+            ? message.is_error
+              ? normalizeClaudeUserVisibleErrorMessage(message.result, status)
+              : undefined
             : normalizeClaudeUserVisibleErrorMessage(message.errors[0], status);
 
         if (status === "failed") {

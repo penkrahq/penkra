@@ -450,6 +450,51 @@ describe("Claude Penkra harness policy", () => {
 });
 
 describe("ClaudeAdapterLive", () => {
+  for (const isError of [false, true]) {
+    it.effect(`honors is_error=${isError} on a success-subtype result`, () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const eventsFiber = yield* adapter.streamEvents.pipe(
+          Stream.takeUntil((event) => event.type === "turn.completed"),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+        yield* adapter.sendTurn({ threadId: THREAD_ID, input: "Plan a workshop", attachments: [] });
+        harness.query.emit({
+          type: "result",
+          subtype: "success",
+          is_error: isError,
+          result: isError ? "Credit balance is too low" : "Workshop outline",
+          session_id: "sdk-session-1",
+          uuid: "result-credit",
+        } as unknown as SDKMessage);
+        const events = Array.from(yield* Fiber.join(eventsFiber));
+        const completed = events.find((event) => event.type === "turn.completed");
+        assert.equal(completed?.type, "turn.completed");
+        if (completed?.type === "turn.completed") {
+          assert.equal(completed.payload.state, isError ? "failed" : "completed");
+          assert.equal(
+            completed.payload.errorMessage,
+            isError ? "Credit balance is too low" : undefined,
+          );
+        }
+        assert.equal(
+          events.some((event) => event.type === "runtime.error"),
+          isError,
+        );
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    });
+  }
+
   it.effect("silently verifies an exact Claude continuation with startup and no prompt", () => {
     const resume = "44c0b890-8775-4f30-b47f-0709d29cc9e1";
     let warmInput:

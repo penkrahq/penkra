@@ -3,15 +3,23 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const columns = yield* sql<{ readonly name: string }>`
+    PRAGMA table_info(projection_thread_messages)
+  `;
+  const columnNames = new Set(columns.map((column) => column.name));
 
-  yield* sql`
-    ALTER TABLE projection_thread_messages
-    ADD COLUMN delivery_failure_phase TEXT
-  `;
-  yield* sql`
-    ALTER TABLE projection_thread_messages
-    ADD COLUMN delivery_failure_detail TEXT
-  `;
+  if (!columnNames.has("delivery_failure_phase")) {
+    yield* sql`
+      ALTER TABLE projection_thread_messages
+      ADD COLUMN delivery_failure_phase TEXT
+    `;
+  }
+  if (!columnNames.has("delivery_failure_detail")) {
+    yield* sql`
+      ALTER TABLE projection_thread_messages
+      ADD COLUMN delivery_failure_detail TEXT
+    `;
+  }
 
   // Restore the exact failure evidence for rows whose current delivery state
   // still points at the authoritative delivery event. A later transition must

@@ -18,6 +18,7 @@ import {
   type ProviderStartOptions,
   type ProviderSkillReference,
   type ProviderTurnStartResult,
+  type ProviderUserInputAnswers,
   type OrchestrationSession,
   type OrchestrationFolderShell,
   type OrchestrationThread,
@@ -64,6 +65,7 @@ import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 
 import {
   ProviderAdapterRequestError,
+  ProviderValidationError,
   ProviderAdapterValidationError,
   ProviderServiceError,
 } from "../../provider/Errors.ts";
@@ -323,18 +325,10 @@ function availableThreadMentionContextChars(messageText: string): number {
   );
 }
 
-function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
+function isUnknownPendingInteractionError(cause: Cause.Cause<ProviderServiceError>): boolean {
   const error = Cause.squash(cause);
   return (
-    Schema.is(ProviderAdapterRequestError)(error) &&
-    error.code === PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE
-  );
-}
-
-function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
-  const error = Cause.squash(cause);
-  return (
-    Schema.is(ProviderAdapterRequestError)(error) &&
+    (Schema.is(ProviderAdapterRequestError)(error) || Schema.is(ProviderValidationError)(error)) &&
     error.code === PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE
   );
 }
@@ -354,18 +348,6 @@ function interactionFailureSettlementStatus(
   });
 }
 
-function isStaleCodexResumeError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("thread/resume") &&
-    (normalized.includes("no rollout found") ||
-      normalized.includes("thread not found") ||
-      normalized.includes("missing thread") ||
-      normalized.includes("unknown thread"))
-  );
-}
-
 function isStaleClaudeResumeError(error: unknown): boolean {
   if (Schema.is(ProviderAdapterRequestError)(error)) {
     return (
@@ -374,17 +356,6 @@ function isStaleClaudeResumeError(error: unknown): boolean {
     );
   }
   return String(error).toLowerCase().includes("no conversation found with session id");
-}
-
-function isRollbackStillInProgressError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("rollback") &&
-    (normalized.includes("turn is in progress") ||
-      normalized.includes("turn in progress") ||
-      normalized.includes("active turn"))
-  );
 }
 
 export interface ProviderCommandReactorLiveOptions {
@@ -555,6 +526,7 @@ const make = Effect.gen(function* () {
     readonly responseCommandId?: CommandId;
     readonly settlementStatus?: "retryable" | "uncertain";
     readonly failureCode?: typeof PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE;
+    readonly answers?: ProviderUserInputAnswers;
   }) =>
     orchestrationEngine.dispatch({
       type: "thread.activity.append",
@@ -572,6 +544,7 @@ const make = Effect.gen(function* () {
           ...(input.responseCommandId ? { responseCommandId: input.responseCommandId } : {}),
           ...(input.settlementStatus ? { settlementStatus: input.settlementStatus } : {}),
           ...(input.failureCode ? { failureCode: input.failureCode } : {}),
+          ...(input.answers === undefined ? {} : { answers: input.answers }),
         },
         turnId: input.turnId,
         createdAt: input.createdAt,
@@ -792,76 +765,16 @@ const make = Effect.gen(function* () {
       // thread while the first is still running.
     });
 
-  const clearStaleProviderResumeState = Effect.fnUntraced(function* (input: {
-    readonly threadId: ThreadId;
-    readonly cause: ProviderServiceError;
-    readonly preserveActiveRuntime?: boolean;
-  }) {
-    if (providerService.clearSessionResumeCursor) {
-      yield* providerService
-        .clearSessionResumeCursor({
-          threadId: input.threadId,
-          ...(input.preserveActiveRuntime === true ? { preserveActiveRuntime: true } : {}),
-        })
-        .pipe(Effect.catch(() => Effect.void));
-    } else if (input.preserveActiveRuntime !== true) {
-      yield* providerService
-        .stopSession({ threadId: input.threadId })
-        .pipe(Effect.catch(() => Effect.void));
-    }
-    yield* Effect.logWarning("provider command reactor cleared stale provider resume state", {
-      threadId: input.threadId,
-      cause: input.cause.message,
-    });
-  });
-
   const rollbackProviderConversationForEdit = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly numTurns: number;
     readonly beforeTurnId: TurnId;
   }) {
-    const projectedThread = yield* resolveThread(input.threadId);
-    const provider = projectedThread
-      ? Schema.is(ProviderKind)(projectedThread.session?.providerName)
-        ? projectedThread.session?.providerName
-        : projectedThread.modelSelection.provider
-      : undefined;
-    const rebuildsContext =
-      provider !== undefined &&
-      (yield* providerService.getCapabilities(provider)).conversationRollback === "unsupported";
-    let attempt = 0;
-    while (true) {
-      let rollbackError: ProviderServiceError | null = null;
-      yield* providerService
-        .rollbackConversation({
-          threadId: input.threadId,
-          numTurns: input.numTurns,
-          beforeTurnId: input.beforeTurnId,
-        })
-        .pipe(
-          Effect.catch((error) =>
-            Effect.sync(() => {
-              rollbackError = error;
-            }),
-          ),
-        );
-      if (rollbackError === null) {
-        return;
-      }
-      if (isStaleCodexResumeError(rollbackError)) {
-        yield* clearStaleProviderResumeState({
-          threadId: input.threadId,
-          cause: rollbackError,
-        });
-        return;
-      }
-      if (isRollbackStillInProgressError(rollbackError) && attempt < 30) {
-        attempt += 1;
-        yield* Effect.sleep(100);
-        continue;
-      }
-      return yield* Effect.fail(rollbackError);
-    }
+    yield* providerService.rollbackConversation({
+      threadId: input.threadId,
+      numTurns: input.numTurns,
+      beforeTurnId: input.beforeTurnId,
+    });
   });
 
   const resolveManagedTurnRuntime = Effect.fnUntraced(function* (input: {
@@ -2870,6 +2783,9 @@ const make = Effect.gen(function* () {
           createdAt: event.payload.createdAt,
           requestId: event.payload.requestId,
           responseCommandId: event.commandId,
+          ...(event.type === "thread.user-input-response-requested"
+            ? { answers: event.payload.answers }
+            : {}),
           settlementStatus: input.settlementStatus,
           ...(input.failureCode ? { failureCode: input.failureCode } : {}),
           ...(event.payload.lifecycleGeneration === undefined
@@ -2938,7 +2854,7 @@ const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.catchCause((cause) => {
-          const unknownPendingRequest = isUnknownPendingApprovalRequestError(cause);
+          const unknownPendingRequest = isUnknownPendingInteractionError(cause);
           return appendInteractionResponseFailure(event, {
             interactionKind: "approval",
             detail: unknownPendingRequest
@@ -2975,7 +2891,7 @@ const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.catchCause((cause) => {
-          const unknownPendingRequest = isUnknownPendingUserInputRequestError(cause);
+          const unknownPendingRequest = isUnknownPendingInteractionError(cause);
           return appendInteractionResponseFailure(event, {
             interactionKind: "userInput",
             detail: unknownPendingRequest
@@ -3766,10 +3682,13 @@ const make = Effect.gen(function* () {
       const providerThreadId = providerThread?.id ?? threadId;
       const stopRuntimeSession = providerService.stopRuntimeSession;
       if (!stopRuntimeSession) {
-        yield* Effect.logWarning("provider delivery recovery lacks a binding-preserving runtime stop", {
-          threadId,
-          providerThreadId,
-        });
+        yield* Effect.logWarning(
+          "provider delivery recovery lacks a binding-preserving runtime stop",
+          {
+            threadId,
+            providerThreadId,
+          },
+        );
         quarantinedThreads.add(threadId);
         return null;
       }

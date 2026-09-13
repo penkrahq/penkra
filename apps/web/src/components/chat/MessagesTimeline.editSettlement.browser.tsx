@@ -9,8 +9,9 @@ import type { deriveTimelineEntries } from "../../session-logic";
 import { MessagesTimeline } from "./MessagesTimeline";
 
 type TimelineEntries = ReturnType<typeof deriveTimelineEntries>;
+type EditHandler = (messageId: MessageId, text: string) => Promise<boolean>;
 
-function EditSettlementTimeline(props: { readonly onEdit: ReturnType<typeof vi.fn> }) {
+function EditSettlementTimeline(props: { readonly onEdit: EditHandler }) {
   const [deliverySequence, setDeliverySequence] = useState(11);
   const [mounted, setMounted] = useState(true);
   const [pendingEdit, setPendingEdit] = useState<{
@@ -55,28 +56,30 @@ function EditSettlementTimeline(props: { readonly onEdit: ReturnType<typeof vi.f
         Toggle timeline
       </button>
       <div style={{ height: 420 }}>
-        {mounted ? <MessagesTimeline
-          hasMessages
-          isWorking={false}
-          activeTurnInProgress={false}
-          activeTurnStartedAt={null}
-          timelineEntries={entries}
-          nowIso="2026-09-11T15:38:48.000Z"
-          expandedWorkGroups={{}}
-          onToggleWorkGroup={() => {}}
-          onImageExpand={() => {}}
-          onEditUserMessage={async (messageId, text) => {
-            const admitted = await props.onEdit(messageId, text);
-            if (admitted) setPendingEdit({ messageId, text, priorDeliverySequence: 11 });
-            return admitted;
-          }}
-          pendingEditedUserMessage={pendingEdit}
-          onClearPendingEditedUserMessage={() => setPendingEdit(null)}
-          markdownCwd={undefined}
-          resolvedTheme="dark"
-          timestampFormat="locale"
-          workspaceRoot={undefined}
-        /> : null}
+        {mounted ? (
+          <MessagesTimeline
+            hasMessages
+            isWorking={false}
+            activeTurnInProgress={false}
+            activeTurnStartedAt={null}
+            timelineEntries={entries}
+            nowIso="2026-09-11T15:38:48.000Z"
+            expandedWorkGroups={{}}
+            onToggleWorkGroup={() => {}}
+            onImageExpand={() => {}}
+            onEditUserMessage={async (messageId, text) => {
+              const admitted = await props.onEdit(messageId, text);
+              if (admitted) setPendingEdit({ messageId, text, priorDeliverySequence: 11 });
+              return admitted;
+            }}
+            pendingEditedUserMessage={pendingEdit}
+            onClearPendingEditedUserMessage={() => setPendingEdit(null)}
+            markdownCwd={undefined}
+            resolvedTheme="dark"
+            timestampFormat="locale"
+            workspaceRoot={undefined}
+          />
+        ) : null}
       </div>
     </div>
   );
