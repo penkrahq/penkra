@@ -32,6 +32,13 @@ export interface AppIdentityToken {
   expiresAt: string;
 }
 
+export interface AppAccountProfile {
+  name: string | null;
+  email: string;
+  emailVerified: boolean;
+  avatarUrl: string | null;
+}
+
 export interface AppAccountDataResponse {
   status: number;
   headers: Readonly<Record<string, string>>;
@@ -53,13 +60,34 @@ export interface AppAccountRealtimeSubscriptionOptions {
   metadata?: Readonly<Record<string, string | number | boolean>>;
 }
 
-export interface AppContextMenuItem<T extends string = string> {
+export interface AppContextMenuActionItem<T extends string = string> {
+  type?: "action";
   id: T;
   label: string;
   /** Starts a new visual group before this actionable row. */
   separatorBefore?: boolean;
+  enabled?: boolean;
+  checked?: boolean;
+  accelerator?: string;
   destructive?: boolean;
 }
+
+export interface AppContextMenuSubmenuItem<T extends string = string> {
+  type: "submenu";
+  label: string;
+  items: ReadonlyArray<AppContextMenuItem<T>>;
+  separatorBefore?: boolean;
+  enabled?: boolean;
+}
+
+export interface AppContextMenuSeparatorItem {
+  type: "separator";
+}
+
+export type AppContextMenuItem<T extends string = string> =
+  | AppContextMenuActionItem<T>
+  | AppContextMenuSubmenuItem<T>
+  | AppContextMenuSeparatorItem;
 
 export interface AppScopedFileHandle {
   id: string;
@@ -458,6 +486,8 @@ export interface PenkraTabRuntimeApi {
   };
   /** Credential-hidden access to this App's Account-scoped backend namespace. */
   account: {
+    /** Permission-gated profile for the currently signed-in Penkra Account. */
+    profile(): Promise<AppAccountProfile>;
     request(input: {
       path: string;
       method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
@@ -542,7 +572,7 @@ export type PenkraControllerRuntimeApi = Pick<
       callback: AppControllerRequestHandler<Input, Result>,
     ): () => void;
   };
-  account: Pick<PenkraTabRuntimeApi["account"], "request">;
+  account: Pick<PenkraTabRuntimeApi["account"], "profile" | "request">;
   permissions: Pick<PenkraTabRuntimeApi["permissions"], "query">;
 };
 
@@ -697,6 +727,7 @@ export const identity: PenkraTabRuntimeApi["identity"] = {
 };
 
 export const account: PenkraTabRuntimeApi["account"] = {
+  profile: () => runtime().account.profile(),
   request: (input) => runtime().account.request(input),
   subscribe: (channel, listener, options) =>
     runtime().account.subscribe(channel, listener, options),

@@ -44,6 +44,7 @@ export const identity: PenkraControllerRuntimeApi["identity"] = {
 };
 
 export const account: PenkraControllerRuntimeApi["account"] = {
+  profile: () => runtime().account.profile(),
   request: (input) => runtime().account.request(input),
 };
 
