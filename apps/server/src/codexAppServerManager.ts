@@ -220,6 +220,7 @@ interface CodexPluginReadInput extends Omit<ProviderReadPluginInput, "provider">
 interface JsonRpcError {
   code?: number;
   message?: string;
+  data?: unknown;
 }
 
 interface JsonRpcRequest {
@@ -246,6 +247,7 @@ export class CodexJsonRpcResponseError extends Error {
     readonly method: string,
     readonly code: number | undefined,
     message: string,
+    readonly data?: unknown,
   ) {
     super(`${method} failed: ${message}`);
     this.name = "CodexJsonRpcResponseError";
@@ -3528,12 +3530,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     clearTimeout(pending.timeout);
     context.pending.delete(key);
 
-    if (response.error?.message) {
+    if (response.error) {
       pending.reject(
         new CodexJsonRpcResponseError(
           pending.method,
           response.error.code,
-          String(response.error.message),
+          typeof response.error.message === "string"
+            ? response.error.message
+            : "Codex returned a JSON-RPC error without a message.",
+          response.error.data,
         ),
       );
       return;

@@ -773,6 +773,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       assert.equal(result.failure._tag, "ProviderAdapterRequestError");
       if (result.failure._tag !== "ProviderAdapterRequestError") return;
       assert.equal(result.failure.requestOutcome, "rejected");
+      assert.equal(result.failure.code, -32602);
       assert.match(result.failure.detail, /paginated threads do not support thread\/rollback/);
     }),
   );
