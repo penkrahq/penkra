@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { opendirSync, statSync, type Dir } from "node:fs";
 
 /**
  * Missing project CWDs often surface as spawn ENOENT (Node/Effect access the
@@ -9,7 +9,27 @@ export function formatMissingCodexWorkingDirectoryError(cwd: string): string {
   return `Project working directory no longer exists: ${cwd}. Relocate or reconnect the project in Penkra.`;
 }
 
-export function assertCodexWorkingDirectoryExists(cwd: string): void {
+export function formatInaccessibleCodexWorkingDirectoryError(cwd: string): string {
+  return `Penkra cannot access the project working directory: ${cwd}. Choose that folder again in Penkra to restore access.`;
+}
+
+export class CodexWorkingDirectoryAccessError extends Error {
+  readonly phase = "workspace-read-preflight" as const;
+
+  constructor(
+    readonly cwd: string,
+    readonly osErrorCode: "EACCES" | "EPERM",
+    cause: unknown,
+  ) {
+    super(formatInaccessibleCodexWorkingDirectoryError(cwd), { cause });
+    this.name = "CodexWorkingDirectoryAccessError";
+  }
+}
+
+export function assertCodexWorkingDirectoryExists(
+  cwd: string,
+  openDirectory: (path: string) => Dir = opendirSync,
+): void {
   try {
     const stats = statSync(cwd);
     if (!stats.isDirectory()) {
@@ -20,6 +40,15 @@ export function assertCodexWorkingDirectoryExists(cwd: string): void {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       throw new Error(formatMissingCodexWorkingDirectoryError(cwd));
+    }
+    throw error;
+  }
+  try {
+    openDirectory(cwd).closeSync();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EPERM" || code === "EACCES") {
+      throw new CodexWorkingDirectoryAccessError(cwd, code, error);
     }
     throw error;
   }

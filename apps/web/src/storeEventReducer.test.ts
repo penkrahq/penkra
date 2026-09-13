@@ -352,6 +352,8 @@ describe("store event reducer", () => {
         }),
       ],
     });
+    expect(threadsOf(requeued)[0]?.messages[0]?.delivery).not.toHaveProperty("failurePhase");
+    expect(threadsOf(requeued)[0]?.messages[0]?.delivery).not.toHaveProperty("failureDetail");
   });
 
   it("projects an exact pre-dispatch failure immediately without touching accepted or successor state", () => {
@@ -473,6 +475,26 @@ describe("store event reducer", () => {
         { id: messageId, delivery: { state: "failed", sequence: 12 } },
         { id: successorId, delivery: { state: "queued", sequence: 11 } },
       ],
+    });
+    const retried = threadsOf(
+      applyOrchestrationEvents(failedState, [
+        makeDomainEvent(
+          "thread.message-delivery-set",
+          {
+            threadId,
+            messageId,
+            turnId,
+            state: "starting",
+            updatedAt: "2026-09-07T01:00:01.500Z",
+          },
+          { sequence: 13 },
+        ),
+      ]),
+    )[0];
+    expect(retried?.messages[0]?.delivery).toEqual({
+      state: "starting",
+      queued: false,
+      sequence: 13,
     });
 
     const accepted = threadsOf(

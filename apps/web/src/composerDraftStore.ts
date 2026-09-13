@@ -56,6 +56,7 @@ export type {
   ComposerThreadDraftState,
   DraftThreadState,
   PendingStartRecovery,
+  PendingMessageEdit,
   PendingStartRecoveryRecord,
   PendingStartRecoverySettlement,
   QueuedComposerChatTurn,

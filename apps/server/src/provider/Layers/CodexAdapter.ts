@@ -270,6 +270,9 @@ function toRequestError(threadId: ThreadId, method: string, cause: unknown): Pro
     provider: PROVIDER,
     method,
     detail: toMessage(cause, `${method} failed`),
+    ...(asObject(cause)?.requestOutcome === "rejected"
+      ? { requestOutcome: "rejected" as const }
+      : {}),
     ...(asObject(cause)?.code === PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE
       ? { code: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
       : {}),
@@ -2005,7 +2008,11 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         })),
       );
 
-    const rollbackThread: CodexAdapterShape["rollbackThread"] = (threadId, numTurns) => {
+    const rollbackThread: CodexAdapterShape["rollbackThread"] = (
+      threadId,
+      numTurns,
+      beforeTurnId,
+    ) => {
       if (!Number.isInteger(numTurns) || numTurns < 1) {
         return Effect.fail(
           new ProviderAdapterValidationError({
@@ -2015,10 +2022,19 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           }),
         );
       }
+      if (!beforeTurnId) {
+        return Effect.fail(
+          new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "rollbackThread",
+            issue: "Codex rewind requires the exact first excluded turn id.",
+          }),
+        );
+      }
 
       return Effect.tryPromise({
-        try: () => manager.rollbackThread(threadId, numTurns),
-        catch: (cause) => toRequestError(threadId, "thread/rollback", cause),
+        try: () => manager.revertThread(threadId, beforeTurnId),
+        catch: (cause) => toRequestError(threadId, "thread/revert", cause),
       }).pipe(
         Effect.map((snapshot) => ({
           threadId,

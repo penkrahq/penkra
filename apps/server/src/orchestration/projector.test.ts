@@ -1297,6 +1297,31 @@ describe("orchestration projector", () => {
       latestTurn: { turnId, state: "error", startedAt: null, completedAt: failedAt },
       messages: [{ id: messageId, delivery: { state: "failed", sequence: 4 } }],
     });
+    const retried = await Effect.runPromise(
+      projectEvent(
+        failed,
+        makeEvent({
+          sequence: 5,
+          type: "thread.message-delivery-set",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: failedAt,
+          commandId: "cmd-retry-after-pre-dispatch-failure",
+          payload: {
+            threadId: "thread-1",
+            messageId,
+            turnId,
+            state: "starting",
+            updatedAt: failedAt,
+          },
+        }),
+      ),
+    );
+    expect(retried.threads[0]?.messages[0]?.delivery).toEqual({
+      state: "starting",
+      queued: false,
+      sequence: 5,
+    });
 
     const accepted = await Effect.runPromise(projectEvent(seed("accepted"), failure));
     expect(accepted.threads[0]?.messages[0]?.delivery?.state).toBe("accepted");

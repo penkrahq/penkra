@@ -437,6 +437,103 @@ describe("AppDockPane Runtime v2 frame", () => {
     expect(bridge.browserWebviewDetach).not.toHaveBeenCalled();
   });
 
+  it("mounts Browser guests only in the window that owns the hosted surface", async () => {
+    const bridge = installBridge();
+    await render(
+      <div className="h-80 w-[640px]">
+        <AppDockPane
+          appName="Browser"
+          documentUrl={FRAME_DOCUMENT}
+          rendererId={-1}
+          status="ready"
+          tabId="shared-browser-tab"
+          visible={true}
+        />
+      </div>,
+    );
+    await vi.waitFor(() => expect(bridge.frameReady).toHaveBeenCalledOnce());
+    bridge.emitHostMessage({
+      tabId: "shared-browser-tab",
+      rendererId: -1,
+      delivery: {
+        kind: "event",
+        name: "browser.state",
+        payload: {
+          activePageId: "page-1",
+          pages: [{ id: "page-1", url: "https://example.com", title: "Example" }],
+        },
+      },
+    });
+    bridge.emitHostMessage({
+      tabId: "shared-browser-tab",
+      rendererId: -1,
+      delivery: {
+        kind: "event",
+        name: "browser.surface",
+        payload: {
+          partition: "persist:shared-browser",
+          insets: { top: 44, right: 8, bottom: 16, left: 8 },
+          owned: false,
+        },
+      },
+    });
+
+    await expect
+      .element(page.getByText("The Browser is active in another Penkra window."))
+      .toBeVisible();
+    expect(document.querySelector("webview")).toBeNull();
+    expect(bridge.browserWebviewAttach).not.toHaveBeenCalled();
+
+    await page.getByRole("button", { name: "Open here" }).click();
+    expect(bridge.setActive).toHaveBeenLastCalledWith({
+      tabId: "shared-browser-tab",
+      rendererId: -1,
+      active: true,
+    });
+
+    bridge.emitHostMessage({
+      tabId: "shared-browser-tab",
+      rendererId: -1,
+      delivery: {
+        kind: "event",
+        name: "browser.surface",
+        payload: {
+          partition: "persist:shared-browser",
+          insets: { top: 44, right: 8, bottom: 16, left: 8 },
+          owned: true,
+        },
+      },
+    });
+    await vi.waitFor(() => expect(document.querySelector("webview")).not.toBeNull());
+    const ownedWebview = document.querySelector("webview") as HTMLElement & {
+      getWebContentsId(): number;
+    };
+    ownedWebview.getWebContentsId = () => 91;
+    ownedWebview.dispatchEvent(new Event("dom-ready"));
+    await vi.waitFor(() => expect(bridge.browserWebviewAttach).toHaveBeenCalledOnce());
+
+    bridge.emitHostMessage({
+      tabId: "shared-browser-tab",
+      rendererId: -1,
+      delivery: {
+        kind: "event",
+        name: "browser.surface",
+        payload: {
+          partition: "persist:shared-browser",
+          insets: { top: 44, right: 8, bottom: 16, left: 8 },
+          owned: false,
+        },
+      },
+    });
+    await vi.waitFor(() => expect(document.querySelector("webview")).toBeNull());
+    expect(bridge.browserWebviewDetach).toHaveBeenCalledWith({
+      tabId: "shared-browser-tab",
+      rendererId: -1,
+      pageId: "page-1",
+      webContentsId: 91,
+    });
+  });
+
   it("reattaches the same legacy webview when the App renderer generation changes", async () => {
     const bridge = installBridge();
     function Harness() {

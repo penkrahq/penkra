@@ -3,6 +3,7 @@
 // Exports: Normal and hot-path event batch reducers.
 
 import {
+  type MessageDelivery,
   type OrchestrationEvent,
   type OrchestrationPendingInteraction,
   type ThreadId,
@@ -43,6 +44,11 @@ import {
 } from "./storeProjection";
 import type { AppState } from "./storeState";
 import type { ChatMessage, Thread } from "./types";
+
+function withoutDeliveryFailureEvidence(delivery: MessageDelivery): MessageDelivery {
+  const { failurePhase: _failurePhase, failureDetail: _failureDetail, ...current } = delivery;
+  return current;
+}
 
 type ThreadMessageSentEvent = Extract<OrchestrationEvent, { type: "thread.message-sent" }>;
 type ThreadActivityAppendedEvent = Extract<
@@ -950,12 +956,18 @@ function applyOrchestrationEvent(
                   ? {
                       ...message,
                       delivery: {
-                        ...message.delivery,
+                        ...withoutDeliveryFailureEvidence(message.delivery),
                         state: event.payload.state,
                         ...(event.payload.queued !== undefined
                           ? { queued: event.payload.queued }
                           : {}),
                         sequence: event.sequence,
+                        ...(event.payload.failurePhase !== undefined
+                          ? { failurePhase: event.payload.failurePhase }
+                          : {}),
+                        ...(event.payload.failureDetail !== undefined
+                          ? { failureDetail: event.payload.failureDetail }
+                          : {}),
                       },
                       completedAt: event.payload.updatedAt,
                     }
@@ -1195,7 +1207,7 @@ function applyOrchestrationEvent(
                   ? {
                       ...message,
                       delivery: {
-                        ...message.delivery,
+                        ...withoutDeliveryFailureEvidence(message.delivery),
                         state: deliveryState,
                         sequence: event.sequence,
                       },
