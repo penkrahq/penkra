@@ -32,6 +32,12 @@ export const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFie
     deliverySequence: Schema.optional(Schema.NullOr(NonNegativeInt)).pipe(
       Schema.withDecodingDefault(() => null),
     ),
+    deliveryFailurePhase: Schema.optional(
+      Schema.NullOr(Schema.Literal("before-provider-dispatch")),
+    ).pipe(Schema.withDecodingDefault(() => null)),
+    deliveryFailureDetail: Schema.optional(Schema.NullOr(Schema.String)).pipe(
+      Schema.withDecodingDefault(() => null),
+    ),
     sequence: Schema.NullOr(NonNegativeInt),
   }),
 );
@@ -64,6 +70,12 @@ export function projectionThreadMessageFromRow(
           deliveryState: row.deliveryState,
           deliveryQueued: row.deliveryQueued === 1,
           ...(row.deliverySequence !== null ? { deliverySequence: row.deliverySequence } : {}),
+          ...(row.deliveryFailurePhase !== null
+            ? { deliveryFailurePhase: row.deliveryFailurePhase }
+            : {}),
+          ...(row.deliveryFailureDetail !== null
+            ? { deliveryFailureDetail: row.deliveryFailureDetail }
+            : {}),
         }
       : {}),
   };
@@ -90,6 +102,12 @@ export function orchestrationMessageFromProjectionRow(
             state: row.deliveryState,
             queued: row.deliveryQueued === 1,
             sequence: row.deliverySequence,
+            ...(row.deliveryFailurePhase !== null
+              ? { failurePhase: row.deliveryFailurePhase }
+              : {}),
+            ...(row.deliveryFailureDetail !== null
+              ? { failureDetail: row.deliveryFailureDetail }
+              : {}),
           },
         }
       : {}),

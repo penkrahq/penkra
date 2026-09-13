@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeDesktopSpacesMenuInput } from "./spacesMenu";
+import {
+  normalizeDesktopSpacesMenuInput,
+  shouldPromoteDesktopSpacesMenuState,
+} from "./spacesMenu";
 
 describe("normalizeDesktopSpacesMenuInput", () => {
   it("preserves ordered Spaces and the active marker", () => {
@@ -35,5 +38,34 @@ describe("normalizeDesktopSpacesMenuInput", () => {
         ],
       }),
     ).toEqual({ activeSpaceId: null, spaces: [{ id: "work", name: "Work" }] });
+  });
+});
+
+describe("shouldPromoteDesktopSpacesMenuState", () => {
+  it("accepts the first renderer state even when another application owns focus", () => {
+    expect(
+      shouldPromoteDesktopSpacesMenuState({
+        senderFocused: false,
+        shellWindowExists: true,
+        currentSpaceCount: 0,
+      }),
+    ).toBe(true);
+  });
+
+  it("preserves a populated state until its shell is focused", () => {
+    expect(
+      shouldPromoteDesktopSpacesMenuState({
+        senderFocused: false,
+        shellWindowExists: true,
+        currentSpaceCount: 2,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPromoteDesktopSpacesMenuState({
+        senderFocused: true,
+        shellWindowExists: true,
+        currentSpaceCount: 2,
+      }),
+    ).toBe(true);
   });
 });

@@ -178,6 +178,12 @@ const PersistedComposerPromptHistorySavedDraft = Schema.Union([
 type PersistedComposerPromptHistorySavedDraft =
   typeof PersistedComposerPromptHistorySavedDraft.Type;
 
+const PersistedPendingMessageEdit = Schema.Struct({
+  messageId: MessageId,
+  text: Schema.String,
+  priorDeliverySequence: Schema.Number,
+});
+
 const PersistedComposerThreadDraftState = Schema.Struct({
   prompt: Schema.String,
   appliedVoiceJobIds: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -208,6 +214,7 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   // Retain the short-lived WIP spelling when reading an already-written
   // checkpoint; it is normalized into the per-message map below.
   pendingStartRecovery: Schema.optionalKey(Schema.Unknown),
+  pendingMessageEdit: Schema.optionalKey(PersistedPendingMessageEdit),
   queuePaused: Schema.optionalKey(Schema.Boolean),
   modelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
@@ -953,6 +960,11 @@ function normalizePersistedDraftsByThreadId(
       draftCandidate.pendingStartRecovery,
     );
     const queuePaused = draftCandidate.queuePaused === true;
+    const pendingMessageEdit = Schema.is(PersistedPendingMessageEdit)(
+      draftCandidate.pendingMessageEdit,
+    )
+      ? draftCandidate.pendingMessageEdit
+      : undefined;
     const hasModelData =
       Object.keys(modelSelectionByProvider).length > 0 || activeProvider !== null;
     const hasQueuedTurns = normalizedQueuedTurns.length > 0;
@@ -968,6 +980,7 @@ function normalizePersistedDraftsByThreadId(
       !hasReferenceData &&
       !hasQueuedTurns &&
       Object.keys(pendingStartRecoveriesByMessageId).length === 0 &&
+      pendingMessageEdit === undefined &&
       !queuePaused &&
       !hasModelData &&
       !runtimeMode
@@ -988,6 +1001,7 @@ function normalizePersistedDraftsByThreadId(
       ...(Object.keys(pendingStartRecoveriesByMessageId).length > 0
         ? { pendingStartRecoveriesByMessageId }
         : {}),
+      ...(pendingMessageEdit ? { pendingMessageEdit } : {}),
       ...(queuePaused ? { queuePaused: true } : {}),
       ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
@@ -1157,6 +1171,7 @@ export function partializeComposerDraftStoreState(
       !hasReferenceData &&
       !hasQueuedTurns &&
       Object.keys(persistedPendingStartRecoveriesByMessageId).length === 0 &&
+      draft.pendingMessageEdit === null &&
       !draft.queuePaused &&
       !hasModelData &&
       draft.runtimeMode === null
@@ -1307,6 +1322,7 @@ export function partializeComposerDraftStoreState(
       ...(Object.keys(persistedPendingStartRecoveriesByMessageId).length === 0
         ? {}
         : { pendingStartRecoveriesByMessageId: persistedPendingStartRecoveriesByMessageId }),
+      ...(draft.pendingMessageEdit ? { pendingMessageEdit: draft.pendingMessageEdit } : {}),
       ...(draft.queuePaused ? { queuePaused: true } : {}),
       ...(hasModelData
         ? {
@@ -1605,6 +1621,7 @@ export function toHydratedThreadDraft(
         persistedDraft.pendingStartRecovery,
       ),
     ),
+    pendingMessageEdit: persistedDraft.pendingMessageEdit ?? null,
     queuePaused: persistedDraft.queuePaused === true,
     modelSelectionByProvider,
     activeProvider,

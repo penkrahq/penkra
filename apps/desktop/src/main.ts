@@ -115,7 +115,7 @@ import {
 } from "./bundleSwapDetection";
 import { waitForBackendStartupReady } from "./backendStartupReadiness";
 import { showDesktopConfirmDialog } from "./confirmDialog";
-import { normalizeDesktopSpacesMenuInput } from "./spacesMenu";
+import { normalizeDesktopSpacesMenuInput, shouldPromoteDesktopSpacesMenuState } from "./spacesMenu";
 import {
   makeUpdateInstallPreparationCoordinator,
   type UpdateInstallPreparationAttempt,
@@ -1249,16 +1249,45 @@ const hostedBrowserPageBoundsByTabId = new Map<
 const configuredAppBrowserDownloadPartitions = new Set<string>();
 let configuredUpdaterCacheDirName: string | null = null;
 
+function publishAppBrowserSurface(tabId: string): void {
+  const runtime = desktopAppRuntime;
+  if (!runtime?.appTabs.has(tabId)) return;
+  const rendererId = runtime.appTabs.rendererId(tabId);
+  const insets = appBrowserSurfaceInsetsByTabId.get(tabId);
+  const owner = appBrowserOwnerByTabId.get(tabId);
+  const activeSurfaceId = runtime.appTabs.activeSurfaceId(tabId);
+  for (const window of shellWindows()) {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) continue;
+    window.webContents.send(IPC.appTabs.frameHostMessage, {
+      tabId,
+      rendererId,
+      delivery: {
+        kind: "event",
+        name: "browser.surface",
+        payload:
+          insets && owner
+            ? {
+                insets,
+                partition: createScopedBrowserSessionPartition(owner.appId, owner.spaceId),
+                owned: window.webContents.id === activeSurfaceId,
+              }
+            : null,
+      },
+    });
+  }
+}
+
 function dropAppBrowserSurface(surfaceId: number): void {
   for (const [tabId, surfaceIds] of appBrowserSurfaceIdsByTabId) {
     surfaceIds.delete(surfaceId);
-    if (surfaceIds.size > 0) continue;
+    if (surfaceIds.size > 0) {
+      publishAppBrowserSurface(tabId);
+      continue;
+    }
     appBrowserSurfaceIdsByTabId.delete(tabId);
     appBrowserSurfaceInsetsByTabId.delete(tabId);
     browserManager.setRendererSurfaceActive(tabId as ThreadId, false);
-    if (desktopAppRuntime?.appTabs.has(tabId)) {
-      desktopAppRuntime.appTabs.sendFrameEvent(tabId, "browser.surface", null);
-    }
+    publishAppBrowserSurface(tabId);
   }
   for (const [tabId, boundsBySurfaceId] of hostedBrowserPageBoundsByTabId) {
     const removed = boundsBySurfaceId.get(surfaceId);
@@ -1589,22 +1618,20 @@ async function invokeRuntimeV2BrowserCall(input: {
         surfaceIds.delete(input.surfaceId);
         if (surfaceIds.size > 0) {
           appBrowserSurfaceIdsByTabId.set(input.tabId, surfaceIds);
+          publishAppBrowserSurface(input.tabId);
           return;
         }
         appBrowserSurfaceIdsByTabId.delete(input.tabId);
         appBrowserSurfaceInsetsByTabId.delete(input.tabId);
         browserManager.setRendererSurfaceActive(browserSessionId, false);
-        desktopAppRuntime?.appTabs.sendFrameEvent(input.tabId, "browser.surface", null);
+        publishAppBrowserSurface(input.tabId);
         return;
       }
       surfaceIds.add(input.surfaceId);
       appBrowserSurfaceIdsByTabId.set(input.tabId, surfaceIds);
       appBrowserSurfaceInsetsByTabId.set(input.tabId, insets);
       browserManager.setRendererSurfaceActive(browserSessionId, true);
-      desktopAppRuntime?.appTabs.sendFrameEvent(input.tabId, "browser.surface", {
-        insets,
-        partition: createScopedBrowserSessionPartition(input.appId, input.spaceId),
-      });
+      publishAppBrowserSurface(input.tabId);
       return;
     }
     case "navigate": {
@@ -6014,6 +6041,7 @@ function registerIpcHandlers(): void {
     // capability token is already inactive, so the host intentionally treats it as satisfied.
     requireShellAppTabs(event.sender.id).setActive(tabId, rendererId, active, event.sender.id);
     if (active) applyActiveHostedBrowserPageBounds(tabId);
+    publishAppBrowserSurface(tabId);
   });
   ipcMain.handle(IPC.appTabs.frameMessage, async (event, input: unknown) => {
     const tabs = requireShellAppTabs(event.sender.id);
@@ -6045,11 +6073,7 @@ function registerIpcHandlers(): void {
       );
       const insets = appBrowserSurfaceInsetsByTabId.get(tabId);
       if (insets) {
-        const identity = tabs.frameIdentity(tabId, rendererId);
-        tabs.sendFrameEvent(tabId, "browser.surface", {
-          insets,
-          partition: createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
-        });
+        publishAppBrowserSurface(tabId);
       }
     }
   });
@@ -6068,6 +6092,7 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid hosted Browser webview identity.");
     }
     const identity = tabs.frameIdentity(tabId, rendererId);
+    if (tabs.activeSurfaceId(tabId) !== event.sender.id) return;
     browserManager.setSessionPartition(
       tabId as ThreadId,
       createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
@@ -6098,6 +6123,7 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid hosted Browser webview load failure details.");
     }
     tabs.frameIdentity(tabId, rendererId);
+    if (tabs.activeSurfaceId(tabId) !== event.sender.id) return;
     browserManager.reportRendererWebviewLoadFailure({
       threadId: tabId as ThreadId,
       tabId: pageId,
@@ -7376,7 +7402,15 @@ function registerIpcHandlers(): void {
     if (!nextState) return;
     spacesMenuStateByShellRendererId.set(event.sender.id, nextState);
     const senderWindow = shellWindowForSender(event.sender);
-    if (senderWindow?.isFocused() || !resolveShellWindow()) spacesMenuState = nextState;
+    if (
+      shouldPromoteDesktopSpacesMenuState({
+        senderFocused: senderWindow?.isFocused() ?? false,
+        shellWindowExists: resolveShellWindow() !== null,
+        currentSpaceCount: spacesMenuState.spaces.length,
+      })
+    ) {
+      spacesMenuState = nextState;
+    }
     await bootstrapConfiguredAppsForSpaces();
     configureApplicationMenu();
   });
@@ -7792,7 +7826,10 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     browserManager.setWindow(window);
     desktopAppRuntime?.appTabs.focusSurface(rendererOwnerId);
     const visibleTabId = desktopAppRuntime?.appTabs.visibleTabIdForSurface(rendererOwnerId);
-    if (visibleTabId) applyActiveHostedBrowserPageBounds(visibleTabId);
+    if (visibleTabId) {
+      applyActiveHostedBrowserPageBounds(visibleTabId);
+      publishAppBrowserSurface(visibleTabId);
+    }
     const windowSpaces = spacesMenuStateByShellRendererId.get(window.webContents.id);
     if (windowSpaces) {
       spacesMenuState = windowSpaces;

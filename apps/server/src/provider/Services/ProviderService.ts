@@ -202,11 +202,13 @@ export interface ProviderServiceShape {
   ) => Effect.Effect<ProviderAdapterCapabilities, ProviderServiceError>;
 
   /**
-   * Roll back provider conversation state by a number of turns.
+   * Rewind provider conversation state. `beforeTurnId` is the exact first turn
+   * excluded by providers that support stable turn-addressed reverts.
    */
   readonly rollbackConversation: (input: {
     readonly threadId: ThreadId;
     readonly numTurns: number;
+    readonly beforeTurnId?: TurnId;
   }) => Effect.Effect<void, ProviderServiceError>;
 
   /**

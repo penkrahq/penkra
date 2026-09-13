@@ -34,3 +34,11 @@ export function normalizeDesktopSpacesMenuInput(input: unknown): DesktopSpacesMe
       : null;
   return { activeSpaceId, spaces };
 }
+
+export function shouldPromoteDesktopSpacesMenuState(input: {
+  senderFocused: boolean;
+  shellWindowExists: boolean;
+  currentSpaceCount: number;
+}): boolean {
+  return input.senderFocused || !input.shellWindowExists || input.currentSpaceCount === 0;
+}

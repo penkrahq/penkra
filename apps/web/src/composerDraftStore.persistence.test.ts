@@ -149,6 +149,43 @@ describe("composerDraftStore provider references", () => {
   });
 });
 
+describe("composerDraftStore admitted message edits", () => {
+  const threadId = ThreadId.makeUnsafe("thread-pending-message-edit");
+  const messageId = MessageId.makeUnsafe("message-pending-edit");
+
+  beforeEach(() => resetComposerDraftStore());
+
+  it("persists, hydrates, and explicitly clears the exact edit checkpoint", () => {
+    useComposerDraftStore.getState().setPendingMessageEdit(threadId, {
+      messageId,
+      text: "Edited after navigation",
+      priorDeliverySequence: 41,
+    });
+
+    const persistedState = partializeComposerDraftStoreState(useComposerDraftStore.getState());
+    const persistApi = useComposerDraftStore.persist as unknown as {
+      getOptions: () => {
+        merge: (
+          persistedState: unknown,
+          currentState: ReturnType<typeof useComposerDraftStore.getState>,
+        ) => ReturnType<typeof useComposerDraftStore.getState>;
+      };
+    };
+    const hydrated = persistApi
+      .getOptions()
+      .merge(persistedState, useComposerDraftStore.getInitialState());
+
+    expect(hydrated.draftsByThreadId[threadId]?.pendingMessageEdit).toEqual({
+      messageId,
+      text: "Edited after navigation",
+      priorDeliverySequence: 41,
+    });
+
+    useComposerDraftStore.getState().setPendingMessageEdit(threadId, null);
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
+  });
+});
+
 describe("composerDraftStore terminal contexts", () => {
   const threadId = ThreadId.makeUnsafe("thread-dedupe");
 

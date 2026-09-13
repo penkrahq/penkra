@@ -6928,6 +6928,210 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("RED: keeps the Steer label while requested delivery precedes its receipt", async () => {
+    const prompt = "steer label must survive requested-before-receipt";
+    let currentSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-l1-steer-requested-before-receipt" as MessageId,
+      targetText: "active task",
+      sessionStatus: "running",
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: currentSnapshot,
+    });
+    const api = readNativeApi()!;
+    const originalDispatch = api.orchestration.dispatchCommand;
+    let releaseSteerReceipt!: () => void;
+    const steerReceiptGate = new Promise<void>((resolve) => {
+      releaseSteerReceipt = resolve;
+    });
+    const actions: string[] = [];
+    const observed: Array<{
+      phase: string;
+      deliveryState: string | null;
+      queued: boolean | null;
+      dispatchMode: string | null;
+      steeringLabel: boolean;
+    }> = [];
+
+    const syncActiveThread = (
+      update: (
+        thread: OrchestrationReadModel["threads"][number],
+      ) => OrchestrationReadModel["threads"][number],
+    ) => {
+      currentSnapshot = {
+        ...currentSnapshot,
+        snapshotSequence: currentSnapshot.snapshotSequence + 1,
+        threads: currentSnapshot.threads.map((thread) =>
+          thread.id === THREAD_ID ? update(thread) : thread,
+        ),
+        updatedAt: isoAt(currentSnapshot.snapshotSequence + 2_500),
+      };
+      fixture = { ...fixture, snapshot: currentSnapshot };
+      useStore.getState().syncServerReadModel(currentSnapshot);
+    };
+
+    const record = (phase: string, messageId: MessageId) => {
+      const message = currentSnapshot.threads
+        .find((thread) => thread.id === THREAD_ID)
+        ?.messages.find((candidate) => candidate.id === messageId);
+      observed.push({
+        phase,
+        deliveryState: message?.delivery?.state ?? null,
+        queued: message?.delivery?.queued ?? null,
+        dispatchMode: message?.dispatchMode ?? null,
+        steeringLabel: (document.body.textContent ?? "").includes("Steering conversation"),
+      });
+    };
+
+    const spy = vi
+      .spyOn(api.orchestration, "dispatchCommand")
+      .mockImplementation(async (command) => {
+        actions.push(command.type);
+        const receipt = await originalDispatch(command);
+        if (command.type === "thread.turn.steer-queued") {
+          // Hold the receipt open while the server publishes requested steering.
+          // This is the ordering that lets the durable row race the local overlay.
+          await steerReceiptGate;
+        }
+        return receipt;
+      });
+
+    try {
+      await waitForComposerEditor();
+      await page.getByTestId("composer-editor").fill(prompt);
+      document
+        .querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]')!
+        .requestSubmit();
+      await vi.waitFor(() => expect(actions).toContain("thread.turn.start"));
+
+      const queuedCommand = await vi.waitFor(() => {
+        const command = wsRequests
+          .map(readDispatchedCommand)
+          .find(
+            (candidate) =>
+              candidate?.type === "thread.turn.start" &&
+              typeof candidate.message === "object" &&
+              candidate.message !== null &&
+              "messageId" in candidate.message,
+          );
+        expect(command).toBeTruthy();
+        return command!;
+      });
+      const queuedMessageId = (queuedCommand.message as { messageId: MessageId }).messageId;
+      syncActiveThread((thread) => ({
+        ...thread,
+        queuedMessageIds: [queuedMessageId],
+        messages: [
+          ...thread.messages,
+          {
+            id: queuedMessageId,
+            role: "user" as const,
+            text: prompt,
+            dispatchMode: "queue" as const,
+            delivery: {
+              state: "queued" as const,
+              queued: true,
+              sequence: 2866267,
+            },
+            turnId: null,
+            streaming: false,
+            source: "native" as const,
+            createdAt: isoAt(3_000),
+            updatedAt: isoAt(3_001),
+          },
+        ],
+      }));
+      await vi.waitFor(() =>
+        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull(),
+      );
+      record("queued", queuedMessageId);
+
+      const steer = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+            (button) => button.textContent?.trim() === "Steer",
+          ) ?? null,
+        "Steer absent",
+      );
+      steer.click();
+      await vi.waitFor(() => expect(actions).toContain("thread.turn.steer-queued"));
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain("Steering conversation"),
+      );
+      record("local-forced-overlay", queuedMessageId);
+
+      // Requested delivery arrives before dispatchCommand resolves. The server row
+      // has the same id, but still carries queue mode until message-sent follows.
+      syncActiveThread((thread) => ({
+        ...thread,
+        queuedMessageIds: [queuedMessageId],
+        messages: thread.messages.map((message) =>
+          message.id === queuedMessageId
+            ? {
+                ...message,
+                dispatchMode: "queue" as const,
+                delivery: {
+                  state: "steering" as const,
+                  queued: true,
+                  sequence: 2866269,
+                },
+              }
+            : message,
+        ),
+      }));
+      await vi.waitFor(() =>
+        expect(document.body.textContent).not.toContain("Steering conversation"),
+      );
+      record("requested-before-receipt", queuedMessageId);
+
+      // The subsequent message-sent projection restores canonical steer mode.
+      syncActiveThread((thread) => ({
+        ...thread,
+        queuedMessageIds: [],
+        messages: thread.messages.map((message) =>
+          message.id === queuedMessageId
+            ? {
+                ...message,
+                dispatchMode: "steer" as const,
+                delivery: {
+                  state: "steering" as const,
+                  queued: false,
+                  sequence: 2866270,
+                },
+              }
+            : message,
+        ),
+      }));
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain("Steering conversation"),
+      );
+      record("message-sent", queuedMessageId);
+
+      releaseSteerReceipt();
+      await vi.waitFor(() => expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(1));
+
+      // This is deliberately the expected continuity assertion. It is RED on
+      // the current implementation when requested delivery wins same-id row
+      // selection before the receipt settles the local forced mode.
+      expect(observed).toEqual([
+        expect.objectContaining({ phase: "queued", steeringLabel: false }),
+        expect.objectContaining({ phase: "local-forced-overlay", steeringLabel: true }),
+        expect.objectContaining({
+          phase: "requested-before-receipt",
+          deliveryState: "steering",
+          dispatchMode: "queue",
+          steeringLabel: true,
+        }),
+        expect.objectContaining({ phase: "message-sent", dispatchMode: "steer", steeringLabel: true }),
+      ]);
+    } finally {
+      releaseSteerReceipt();
+      spy.mockRestore();
+      await mounted.cleanup();
+    }
+  });
+
   it("rolls back an immediate Steer presentation when server admission rejects", async () => {
     const prompt = "rejected steer remains retryable";
     const mounted = await mountChatView({

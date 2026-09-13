@@ -888,6 +888,14 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ? { deliveryQueued: event.payload.queued }
               : {}),
             deliverySequence: event.sequence,
+            ...(event.type === "thread.message-delivery-set" &&
+            event.payload.failurePhase !== undefined
+              ? { deliveryFailurePhase: event.payload.failurePhase }
+              : {}),
+            ...(event.type === "thread.message-delivery-set" &&
+            event.payload.failureDetail !== undefined
+              ? { deliveryFailureDetail: event.payload.failureDetail }
+              : {}),
             updatedAt:
               event.type === "thread.message-delivery-set"
                 ? event.payload.updatedAt
