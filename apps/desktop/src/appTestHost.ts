@@ -49,6 +49,11 @@ void runHostPhase("electron-ready", () => app.whenReady())
         getAccountId: async () => "app-test-account",
       }),
     );
+    let result: Record<string, unknown> = {
+      ok: false,
+      error: "The App integration host did not produce a result.",
+      profilePath,
+    };
     try {
       await runHostPhase("app-sideload", () =>
         bootstrapDevelopmentSideload(runtime, sourcePath, TEST_SPACE_ID),
@@ -106,48 +111,34 @@ void runHostPhase("electron-ready", () => app.whenReady())
           spaceId: TEST_SPACE_ID,
         }),
       );
-      await runHostPhase("success-evidence-write", () =>
-        FS.writeFile(
-          resultPath,
-          `${JSON.stringify(
-            {
-              ok: true,
-              appId: packageRecord.appId,
-              version: packageRecord.version,
-              help,
-              tab,
-              diagnostics,
-              profilePath,
-            },
-            null,
-            2,
-          )}\n`,
-          { encoding: "utf8", mode: 0o600 },
-        ),
-      );
+      result = {
+        ok: true,
+        appId: packageRecord.appId,
+        version: packageRecord.version,
+        help,
+        tab,
+        diagnostics,
+        profilePath,
+      };
     } catch (error) {
-      await runHostPhase(
-        "failure-evidence-write",
-        () =>
-          FS.writeFile(
-            resultPath,
-            `${JSON.stringify(
-              {
-                ok: false,
-                error: error instanceof Error ? error.message : String(error),
-                profilePath,
-              },
-              null,
-              2,
-            )}\n`,
-            { encoding: "utf8", mode: 0o600 },
-          ),
-        2_000,
-      ).catch(() => undefined);
+      result = {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        profilePath,
+      };
       process.exitCode = 1;
     } finally {
       await runHostPhase("runtime-stop", () => runtime.stop(), 5_000).catch(() => undefined);
       window.destroy();
+      await runHostPhase(
+        result.ok === true ? "success-evidence-write" : "failure-evidence-write",
+        () =>
+          FS.writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, {
+            encoding: "utf8",
+            mode: 0o600,
+          }),
+        2_000,
+      );
       // runtime.stop has observed exact controller process and stdio closure,
       // and the result file is durable. Electron 40 app.exit() can return
       // without terminating when this disposable host is supervised by pipes,
