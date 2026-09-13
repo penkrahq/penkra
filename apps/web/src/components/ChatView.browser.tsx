@@ -7168,7 +7168,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("RED: keeps the Steer label while requested delivery precedes its receipt", async () => {
+  it("keeps the Steer label while requested delivery precedes its receipt", async () => {
     const prompt = "steer label must survive requested-before-receipt";
     let currentSnapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-l1-steer-requested-before-receipt" as MessageId,
@@ -7318,9 +7318,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             : message,
         ),
       }));
-      await vi.waitFor(() =>
-        expect(document.body.textContent).not.toContain("Steering conversation"),
-      );
+      await waitForLayout();
+      expect(document.body.textContent).toContain("Steering conversation");
       record("requested-before-receipt", queuedMessageId);
 
       // The subsequent message-sent projection restores canonical steer mode.
@@ -7349,9 +7348,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(1),
       );
 
-      // This is deliberately the expected continuity assertion. It is RED on
-      // the current implementation when requested delivery wins same-id row
-      // selection before the receipt settles the local forced mode.
       expect(observed).toEqual([
         expect.objectContaining({ phase: "queued", steeringLabel: false }),
         expect.objectContaining({ phase: "local-forced-overlay", steeringLabel: true }),
