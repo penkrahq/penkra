@@ -13,6 +13,7 @@ import {
   PENKRA_APP_PACKAGE_MAX_EXPANDED_BYTES,
   PENKRA_APP_PACKAGE_MAX_FILES,
 } from "@penkra/shared/appPackageLimits";
+import { assertAppHandlerContracts } from "@penkra/shared/appHandlerContract";
 
 import {
   assertPublishableAppManifest,
@@ -103,6 +104,7 @@ export class AppPackageIngestor {
     const files = await collectPackageFiles(sourcePath);
     const manifest = await readManifest(sourcePath);
     assertOperationSchemas(manifest);
+    assertAppHandlerContracts(manifest);
     await assertTextDocument(sourcePath, "README.md", PENKRA_APP_README_MAX_BYTES);
     await assertTextDocument(sourcePath, "INSTRUCTIONS.md", PENKRA_APP_INSTRUCTIONS_MAX_BYTES);
     for (const operation of manifest.operations ?? []) {

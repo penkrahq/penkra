@@ -76,6 +76,46 @@ describe("AppPackageIngestor", () => {
     ).rejects.toThrow("must not be empty");
   });
 
+  it("rejects a handler whose host delivery does not match its operation schema", async () => {
+    const { sourcePath, storePath } = fixture();
+    const manifestPath = Path.join(sourcePath, PENKRA_APP_MANIFEST_FILE_NAME);
+    const manifest = JSON.parse(FS.readFileSync(manifestPath, "utf8"));
+    manifest.entrypoints.controller = "operations.js";
+    manifest.operations = [
+      {
+        key: "resources.open",
+        summary: "Open a local resource.",
+        input: {
+          type: "object",
+          properties: { path: { type: "string", minLength: 1 } },
+          required: ["path"],
+          additionalProperties: false,
+        },
+        output: { type: "object", additionalProperties: true },
+        examples: [{ name: "Open a path", input: { path: "/example/document.md" } }],
+        handler: "resources.open",
+      },
+    ];
+    manifest.contributions = {
+      handlers: [
+        {
+          intent: "open-file",
+          operation: "resources.open",
+          extensions: [".md"],
+        },
+      ],
+    };
+    FS.writeFileSync(manifestPath, JSON.stringify(manifest));
+    FS.writeFileSync(Path.join(sourcePath, "operations.js"), "export {};\n");
+
+    await expect(
+      new AppPackageIngestor(storePath).ingestDirectory({
+        sourcePath,
+        source: "sideload",
+      }),
+    ).rejects.toThrow("delivers a scoped handle, but operation resources.open rejects that input");
+  });
+
   it("ingests nonempty file-backed operation guidance and rejects an empty guide", async () => {
     const { sourcePath, storePath } = fixture();
     const manifestPath = Path.join(sourcePath, PENKRA_APP_MANIFEST_FILE_NAME);
