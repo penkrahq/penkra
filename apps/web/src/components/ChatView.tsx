@@ -292,6 +292,7 @@ import {
   type QueuedComposerTurn,
   captureComposerPromptHistorySavedDraft,
   flushComposerDraftsDurably,
+  publishComposerEditRecovery,
   useComposerDraftStore,
   useComposerThreadDraft,
   useEffectiveComposerModelState,
@@ -6320,6 +6321,7 @@ export default function ChatView({
       if (!isServerAccepted) {
         if (restoreForEdit) {
           recoverCancelledQueuedTurn(threadId, resolvedQueuedTurn);
+          publishComposerEditRecovery(threadId, resolvedQueuedTurn);
         } else {
           removeQueuedComposerTurnFromDraft(threadId, resolvedQueuedTurn.id);
         }
@@ -6341,6 +6343,7 @@ export default function ChatView({
         if (restoreForEdit) {
           markQueuedComposerActionAccepted(threadId, messageId, receipt.sequence);
           recoverCancelledQueuedTurn(threadId, resolvedQueuedTurn);
+          publishComposerEditRecovery(threadId, resolvedQueuedTurn);
         } else {
           markQueuedComposerActionAccepted(threadId, messageId, receipt.sequence);
           removeQueuedComposerTurnFromDraft(threadId, resolvedQueuedTurn.id);

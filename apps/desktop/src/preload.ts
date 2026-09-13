@@ -148,6 +148,14 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     listVoices: () => ipcRenderer.invoke(IPC.composerDrafts.listVoices),
     readVoice: (id) => ipcRenderer.invoke(IPC.composerDrafts.readVoice, id),
     deleteVoice: (id) => ipcRenderer.invoke(IPC.composerDrafts.deleteVoice, id),
+    publishEditRecovery: (recovery) =>
+      ipcRenderer.send(IPC.composerDrafts.publishEditRecovery, recovery),
+    onEditRecovery: (listener) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, recovery: unknown) =>
+        listener(recovery as Parameters<typeof listener>[0]);
+      ipcRenderer.on(IPC.composerDrafts.editRecovery, wrapped);
+      return () => ipcRenderer.removeListener(IPC.composerDrafts.editRecovery, wrapped);
+    },
   },
   accountAuth: {
     getState: () => ipcRenderer.invoke(IPC.accountAuth.getState),
