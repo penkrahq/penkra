@@ -75,6 +75,12 @@ function fixture() {
       token: "header.payload.signature",
       expiresAt: "2026-08-18T12:05:00Z",
     })),
+    getAccountProfile: vi.fn(async () => ({
+      name: "Local Developer",
+      email: "local-developer@penkra.test",
+      emailVerified: true,
+      avatarUrl: null,
+    })),
     accountDataRequest: vi.fn(async () => ({
       status: 200,
       headers: {},

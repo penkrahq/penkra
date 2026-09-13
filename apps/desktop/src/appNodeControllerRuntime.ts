@@ -51,6 +51,7 @@ export class AppNodeControllerRuntime {
         getToken: (input) => transport.serviceCall("identity.getToken", input),
       },
       account: {
+        profile: () => transport.serviceCall("account.profile"),
         request: (input) => transport.serviceCall("account.request", input),
       },
       settings: {

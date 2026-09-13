@@ -128,7 +128,7 @@ export function AppDockPane(props: {
           setBrowserState(input.delivery.payload as AppBrowserSessionState);
         }
         if (input.delivery.kind === "event" && input.delivery.name === "browser.surface") {
-          const surface = isBrowserSurface(input.delivery.payload) ? input.delivery.payload : null;
+          const surface = parseBrowserSurface(input.delivery.payload);
           if (surface) setBrowserSurface(surface);
           setBrowserSurfacePresented(surface !== null);
         }
@@ -185,7 +185,7 @@ export function AppDockPane(props: {
           onLoad={(event) => connectFrame(event.currentTarget)}
         />
       ) : null}
-      {browserSurface && browserSurfacePartition
+      {browserSurface?.owned && browserSurfacePartition
         ? browserState?.pages.map((page) => {
             const isActive = page.id === browserPage?.id;
             const isPresented =
@@ -226,6 +226,29 @@ export function AppDockPane(props: {
             );
           })
         : null}
+      {props.visible && browserSurfacePresented && browserSurface && !browserSurface.owned ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background px-6">
+          <PanelStateMessage>
+            <div className="flex flex-col items-center gap-3 text-center">
+              <span>The Browser is active in another Penkra window.</span>
+              <button
+                className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted"
+                onClick={() => {
+                  window.focus();
+                  void window.desktopBridge?.appTabs?.setActive({
+                    tabId: props.tabId,
+                    rendererId: props.rendererId,
+                    active: true,
+                  });
+                }}
+                type="button"
+              >
+                Open here
+              </button>
+            </div>
+          </PanelStateMessage>
+        </div>
+      ) : null}
       {props.visible && simulatorSurface && simulatorFrame ? (
         <img
           alt="Live simulator display"
@@ -451,6 +474,7 @@ interface BrowserWebviewDidFailLoadEvent extends Event {
 interface BrowserSurface {
   insets: { top: number; right: number; bottom: number; left: number };
   partition: string;
+  owned: boolean;
 }
 
 interface SurfaceBounds {
@@ -460,11 +484,17 @@ interface SurfaceBounds {
   height: number;
 }
 
-function isBrowserSurface(value: unknown): value is BrowserSurface {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+function parseBrowserSurface(value: unknown): BrowserSurface | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  if (typeof record.partition !== "string") return false;
-  return isSurfaceInsets(record.insets);
+  if (typeof record.partition !== "string" || !isSurfaceInsets(record.insets)) return null;
+  return {
+    insets: record.insets,
+    partition: record.partition,
+    // Desktop versions predating multi-window ownership sent no marker. Treat those payloads as
+    // owned so a web renderer upgraded ahead of its host keeps the established single-window UI.
+    owned: typeof record.owned === "boolean" ? record.owned : true,
+  };
 }
 
 function isSurfaceInsets(value: unknown): value is BrowserSurface["insets"] {

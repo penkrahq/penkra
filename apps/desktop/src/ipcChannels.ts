@@ -82,6 +82,7 @@ export const DESKTOP_IPC_CHANNELS = {
     permissionRequest: "penkra-app:permission-request",
     identityGet: "penkra-app:identity-get",
     identityGetToken: "penkra-app:identity-get-token",
+    accountProfileGet: "penkra-app:account-profile-get",
     accountDataRequest: "penkra-app:account-data-request",
     accountDataSubscribeStart: "penkra-app:account-data-subscribe-start",
     accountDataSubscribeStop: "penkra-app:account-data-subscribe-stop",

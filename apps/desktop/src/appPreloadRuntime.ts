@@ -28,6 +28,7 @@ export interface AppPreloadTransport {
   ): Promise<import("@penkra/sdk").AppPermissionStatus>;
   getIdentity(): Promise<import("@penkra/sdk").AppIdentity>;
   getIdentityToken(input: { audience: string }): Promise<import("@penkra/sdk").AppIdentityToken>;
+  getAccountProfile(): Promise<import("@penkra/sdk").AppAccountProfile>;
   accountDataRequest(
     input: Parameters<import("@penkra/sdk").PenkraTabRuntimeApi["account"]["request"]>[0],
   ): ReturnType<import("@penkra/sdk").PenkraTabRuntimeApi["account"]["request"]>;
@@ -329,6 +330,7 @@ export class AppPreloadRuntime {
         getToken: (input) => this.#transport.getIdentityToken(input),
       },
       account: {
+        profile: () => this.#transport.getAccountProfile(),
         request: (input) => this.#transport.accountDataRequest(input),
         subscribe: (channel, listener, options) =>
           this.#transport.accountDataSubscribe(channel, listener, options),

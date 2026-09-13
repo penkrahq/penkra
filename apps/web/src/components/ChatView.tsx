@@ -3606,13 +3606,21 @@ export default function ChatView({
       pendingMessages.length === 0
         ? serverMessagesWithPreviewHandoff
         : [...serverMessagesWithPreviewHandoff, ...pendingMessages];
-    const visibleMessageIds = new Set(withPending.map((message) => message.id));
+    const pendingSteerMessageIds = new Set(
+      queuedComposerActionSteerMessages.map((message) => message.id),
+    );
+    const withPendingSteerMode = withPending.map((message) =>
+      pendingSteerMessageIds.has(message.id) && message.dispatchMode !== "steer"
+        ? { ...message, dispatchMode: "steer" as const }
+        : message,
+    );
+    const visibleMessageIds = new Set(withPendingSteerMode.map((message) => message.id));
     const pendingSteerMessages = queuedComposerActionSteerMessages.filter(
       (message) => !visibleMessageIds.has(message.id),
     );
     return pendingSteerMessages.length === 0
-      ? withPending
-      : [...withPending, ...pendingSteerMessages];
+      ? withPendingSteerMode
+      : [...withPendingSteerMode, ...pendingSteerMessages];
   }, [
     serverMessages,
     serverQueuedMessageIds,
