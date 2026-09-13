@@ -22,6 +22,7 @@ const descriptor: DesktopAppTabDescriptor = {
 };
 
 function makeContents() {
+  let destroyed = false;
   const listeners = new Map<string, () => void>();
   const listenerSets = new Map<string, Set<() => void>>();
   const debuggerListeners = new Map<string, (...args: unknown[]) => void>();
@@ -50,19 +51,26 @@ function makeContents() {
     }
     return {};
   });
-  const contents = {
-    id: 12,
-    debugger: {
-      isAttached: () => true,
-      attach: vi.fn(),
-      sendCommand,
-      on: (event: string, listener: (...args: unknown[]) => void) =>
-        debuggerListeners.set(event, listener),
-      removeListener: (event: string, listener: (...args: unknown[]) => void) => {
-        if (debuggerListeners.get(event) === listener) debuggerListeners.delete(event);
-      },
+  const debuggerApi = {
+    isAttached: () => true,
+    attach: vi.fn(),
+    sendCommand,
+    on: (event: string, listener: (...args: unknown[]) => void) =>
+      debuggerListeners.set(event, listener),
+    removeListener: (event: string, listener: (...args: unknown[]) => void) => {
+      if (debuggerListeners.get(event) === listener) debuggerListeners.delete(event);
     },
-    isDestroyed: () => false,
+  };
+  const contents = {
+    get id() {
+      if (destroyed) throw new TypeError("Object has been destroyed");
+      return 12;
+    },
+    get debugger() {
+      if (destroyed) throw new TypeError("Object has been destroyed");
+      return debuggerApi;
+    },
+    isDestroyed: () => destroyed,
     getURL: () => "penkra-app://com.acme.canvas/app.html",
     getTitle: () => "Canvas",
     executeJavaScript: vi.fn(async () => ({
@@ -102,6 +110,10 @@ function makeContents() {
     emitDebugger: (method: string, params: Record<string, unknown>, sessionId?: string) =>
       debuggerListeners.get("message")?.({}, method, params, sessionId),
     emitDebuggerDetach: () => debuggerListeners.get("detach")?.({}, "target closed"),
+    emitDestroyed: () => {
+      destroyed = true;
+      for (const listener of [...(listenerSets.get("destroyed") ?? [])]) listener();
+    },
   };
 }
 
@@ -695,6 +707,22 @@ describe("AppTabObserver", () => {
     // The observer's one shared JavaScript-dialog listener remains until WebContents destruction;
     // only per-snapshot lifecycle listeners are owned by invalidate().
     expect(listenerCount("destroyed")).toBe(1);
+  });
+
+  it("cleans observer state without touching WebContents after destruction", async () => {
+    const { contents, emitDestroyed } = makeContents();
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents }),
+    });
+
+    await observer.snapshot("tab-1");
+
+    expect(emitDestroyed).not.toThrow();
+    expect(observer.getPerformanceSnapshot()).toMatchObject({
+      dialogListenerCount: 0,
+      protocolSessionCount: 0,
+      snapshotStateCount: 0,
+    });
   });
 
   it("returns screenshots as MCP-ready PNG data", async () => {
