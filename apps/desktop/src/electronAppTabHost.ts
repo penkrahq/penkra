@@ -94,7 +94,7 @@ export class ElectronAppTabHost implements AppTabHost {
   readonly #broker: Pick<AppOperationBroker, "registerTab">;
   readonly #rpc: Pick<
     AppRendererRpcHost,
-    "registerTarget" | "request" | "acceptResponse" | "acceptContextCall"
+    "registerTarget" | "deliver" | "request" | "acceptResponse" | "acceptContextCall"
   >;
   readonly #ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
   readonly #opened: ProtectedPublisher<DesktopAppTabOpened>;
@@ -133,7 +133,7 @@ export class ElectronAppTabHost implements AppTabHost {
     broker: Pick<AppOperationBroker, "registerTab">;
     rpc: Pick<
       AppRendererRpcHost,
-      "registerTarget" | "request" | "acceptResponse" | "acceptContextCall"
+      "registerTarget" | "deliver" | "request" | "acceptResponse" | "acceptContextCall"
     >;
     ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
     onOpened: (descriptor: DesktopAppTabOpened) => void;
@@ -839,7 +839,10 @@ export class ElectronAppTabHost implements AppTabHost {
   }
 
   async #navigate(tabId: string, input: { route: string; state?: unknown }): Promise<void> {
-    await this.#request(tabId, "tab.navigate", input);
+    const record = this.#require(tabId);
+    this.#rpc.deliver(record.rendererId, "tab.navigate", input, {
+      targetLabel: record.app.name,
+    });
     this.setRoute(tabId, input);
   }
 
