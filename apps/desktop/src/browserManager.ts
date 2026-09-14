@@ -153,12 +153,15 @@ export interface BrowserLifecycleEvent {
     | "session-closed"
     | "runtime-created"
     | "runtime-destroyed"
+    | "presentation-attached"
+    | "presentation-detached"
     | "observation-resolved"
     | "observation-unavailable";
   sessionId: string;
   pageId?: string;
   webContentsId?: number;
   owner?: "main" | "renderer";
+  shellWebContentsId?: number;
   reason?: string;
 }
 
@@ -194,6 +197,7 @@ interface DetachedBrowserThread {
   readonly [detachedBrowserThreadBrand]: true;
   readonly attachedRuntime: LiveTabRuntime | null;
   readonly attachedParentView: View | null;
+  readonly attachedWindow: BrowserWindow | null;
   readonly hostedContainer: HostedBrowserContainer | null;
   readonly runtimes: readonly LiveTabRuntime[];
   readonly popups: readonly OAuthPopupRuntime[];
@@ -354,6 +358,8 @@ function resolveManifestIconPath(
 }
 
 export class DesktopBrowserManager {
+  // `window` is only the target for the next explicit surface-layout update. The native view's
+  // actual owner is tracked separately so focusing an unrelated shell cannot migrate the page.
   private window: BrowserWindow | null = null;
   private activeThreadId: ThreadId | null = null;
   private activeBounds: BrowserPanelBounds | null = null;
@@ -361,6 +367,7 @@ export class DesktopBrowserManager {
   private attachedRuntimeKey: string | null = null;
   private attachedBoundsSignature: string | null = null;
   private attachedParentView: View | null = null;
+  private attachedWindow: BrowserWindow | null = null;
   private readonly hostedContainerByThreadId = new Map<ThreadId, HostedBrowserContainer>();
   private readonly hostedPageIdByThreadId = new Map<ThreadId, string>();
   private readonly states = new Map<ThreadId, ThreadBrowserState>();
@@ -425,28 +432,19 @@ export class DesktopBrowserManager {
   }
 
   setWindow(window: BrowserWindow | null): void {
-    if (this.window && this.window !== window) {
-      // A native Browser page has exactly one visual owner. Detach it from the previous shell
-      // before moving the manager's window pointer; otherwise cleanup targets the new window and
-      // the old window can retain an orphaned view.
-      this.detachAttachedRuntime();
-    }
     this.window = window;
-    if (window) {
-      const bounds = this.activeThreadId
-        ? this.getVisibleBoundsForThread(this.activeThreadId)
-        : null;
-      if (this.activeThreadId && bounds) {
-        this.attachActiveTab(this.activeThreadId, bounds);
-      }
-      return;
-    }
+    if (window) return;
 
     this.detachAttachedRuntime();
     this.destroyAllRuntimes();
     this.closeAllPopupWindows();
     this.closeExtensionPopup();
     this.destroyHostedContainers();
+  }
+
+  releaseWindow(window: BrowserWindow): void {
+    if (this.attachedWindow === window) this.detachAttachedRuntime("shell-closed");
+    if (this.window === window) this.window = null;
   }
 
   subscribe(listener: BrowserStateListener): () => void {
@@ -1131,11 +1129,13 @@ export class DesktopBrowserManager {
         ? (this.runtimes.get(this.attachedRuntimeKey) ?? null)
         : null;
     const attachedParentView = this.activeThreadId === threadId ? this.attachedParentView : null;
+    const attachedWindow = this.activeThreadId === threadId ? this.attachedWindow : null;
     if (this.activeThreadId === threadId) {
       this.activeThreadId = null;
       this.attachedRuntimeKey = null;
       this.attachedBoundsSignature = null;
       this.attachedParentView = null;
+      this.attachedWindow = null;
     }
     this.clearActiveBoundsForThread(threadId);
 
@@ -1167,6 +1167,7 @@ export class DesktopBrowserManager {
       [detachedBrowserThreadBrand]: true,
       attachedRuntime,
       attachedParentView,
+      attachedWindow,
       hostedContainer,
       runtimes,
       popups,
@@ -1176,9 +1177,13 @@ export class DesktopBrowserManager {
 
   private disposeDetachedThread(detached: DetachedBrowserThread): void {
     const failures: unknown[] = [];
-    if (detached.attachedRuntime?.view && detached.attachedRuntime.hostManaged && this.window) {
+    if (
+      detached.attachedRuntime?.view &&
+      detached.attachedRuntime.hostManaged &&
+      detached.attachedWindow
+    ) {
       try {
-        this.window.removeBrowserView(detached.attachedRuntime.view as BrowserView);
+        detached.attachedWindow.removeBrowserView(detached.attachedRuntime.view as BrowserView);
       } catch (error) {
         failures.push(error);
       }
@@ -1191,9 +1196,9 @@ export class DesktopBrowserManager {
         failures.push(error);
       }
     }
-    if (detached.hostedContainer && this.window) {
+    if (detached.hostedContainer) {
       try {
-        this.window.contentView.removeChildView(detached.hostedContainer.view);
+        detached.hostedContainer.ownerView.removeChildView(detached.hostedContainer.view);
       } catch (error) {
         failures.push(error);
       }
@@ -1294,6 +1299,7 @@ export class DesktopBrowserManager {
     if (
       this.activeThreadId === input.threadId &&
       this.attachedRuntimeKey === activeRuntimeKey &&
+      this.attachedWindow === this.window &&
       this.attachedBoundsSignature === nextBoundsSignature
     ) {
       this.perfCounters.setPanelBoundsNoopSkips += 1;
@@ -2126,7 +2132,7 @@ export class DesktopBrowserManager {
       this.updatePopupWindowsForThread(runtime.threadId);
       return;
     }
-    if (this.attachedRuntimeKey === runtime.key) {
+    if (this.attachedRuntimeKey === runtime.key && this.attachedWindow === window) {
       this.setRuntimeViewHidden(runtime, false);
       this.bringRuntimeViewToFront(runtime);
       if (this.attachedBoundsSignature === nextBoundsSignature) {
@@ -2144,6 +2150,15 @@ export class DesktopBrowserManager {
     runtime.view.setBounds(bounds);
     this.attachedRuntimeKey = runtime.key;
     this.attachedBoundsSignature = nextBoundsSignature;
+    this.attachedWindow = window;
+    this.reportLifecycle({
+      kind: "presentation-attached",
+      sessionId: runtime.threadId,
+      pageId: runtime.tabId,
+      webContentsId: runtime.webContents.id,
+      owner: runtime.ownsWebContents ? "main" : "renderer",
+      shellWebContentsId: window.webContents?.id,
+    });
     this.updatePopupWindowsForThread(runtime.threadId);
   }
 
@@ -2190,12 +2205,10 @@ export class DesktopBrowserManager {
   private destroyHostedContainer(threadId: ThreadId): void {
     const hosted = this.hostedContainerByThreadId.get(threadId);
     if (!hosted) return;
-    if (this.window) {
-      try {
-        this.window.contentView.removeChildView(hosted.view);
-      } catch {
-        // The container may already be detached during window teardown.
-      }
+    try {
+      hosted.ownerView.removeChildView(hosted.view);
+    } catch {
+      // The container may already be detached during window teardown.
     }
     this.hostedContainerByThreadId.delete(threadId);
     this.hostedPageIdByThreadId.delete(threadId);
@@ -2207,21 +2220,32 @@ export class DesktopBrowserManager {
     }
   }
 
-  private detachAttachedRuntime(): void {
-    if (!this.window || !this.attachedRuntimeKey) {
+  private detachAttachedRuntime(reason = "presentation-changed"): void {
+    const ownerWindow = this.attachedWindow;
+    if (!ownerWindow || !this.attachedRuntimeKey) {
       this.attachedRuntimeKey = null;
       this.attachedBoundsSignature = null;
       this.attachedParentView = null;
+      this.attachedWindow = null;
       return;
     }
 
     const runtime = this.runtimes.get(this.attachedRuntimeKey);
     if (runtime?.view) {
+      this.reportLifecycle({
+        kind: "presentation-detached",
+        sessionId: runtime.threadId,
+        pageId: runtime.tabId,
+        webContentsId: runtime.webContents.id,
+        owner: runtime.ownsWebContents ? "main" : "renderer",
+        shellWebContentsId: ownerWindow.webContents?.id,
+        reason,
+      });
       this.setRuntimeViewHidden(runtime, true);
       if (runtime.hostManaged) {
-        this.window.removeBrowserView(runtime.view as BrowserView);
+        ownerWindow.removeBrowserView(runtime.view as BrowserView);
       } else {
-        (this.attachedParentView ?? this.window.contentView).removeChildView(
+        (this.attachedParentView ?? ownerWindow.contentView).removeChildView(
           runtime.view as WebContentsView,
         );
       }
@@ -2229,6 +2253,7 @@ export class DesktopBrowserManager {
     this.attachedRuntimeKey = null;
     this.attachedBoundsSignature = null;
     this.attachedParentView = null;
+    this.attachedWindow = null;
   }
 
   private setRuntimeViewHidden(runtime: LiveTabRuntime, hidden: boolean): void {
