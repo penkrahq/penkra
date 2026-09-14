@@ -28,6 +28,7 @@ import {
   syncServerThreadTurnsPage,
 } from "./storeProjection";
 import type { AppState } from "./storeState";
+import { applyOrchestrationEvents } from "./storeEventReducer";
 import { getThreadFromState } from "./threadDerivation";
 import {
   makeThread,
@@ -250,7 +251,10 @@ describe("store projection", () => {
       MessageId.makeUnsafe("message-paged"),
       MessageId.makeUnsafe("message-live"),
     ]);
-    expect(thread?.messages[1]).toMatchObject({ text: "still streaming", streaming: true });
+    expect(thread?.messages[1]).toMatchObject({
+      text: "still streaming",
+      streaming: true,
+    });
     expect(thread?.activities).toHaveLength(1);
     expect(thread?.activities[0]).toMatchObject({
       id: EventId.makeUnsafe("canonical-operation"),
@@ -352,6 +356,158 @@ describe("store projection", () => {
       hasOlder: true,
       nextCursor: "older-page-2",
     });
+  });
+
+  it("keeps visible tool history when a loaded turn contains more raw activity than the summary cap", () => {
+    const threadId = ThreadId.makeUnsafe("thread-oversized-activity-turn-page");
+    const turnId = TurnId.makeUnsafe("turn-oversized-activity-page");
+    const historicalTool = makeActivity({
+      id: "historical-tool-before-bookkeeping",
+      turnId,
+      kind: "tool.completed",
+      summary: "Historical tool output",
+      sequence: 2,
+      createdAt: "2026-09-14T00:00:01.000Z",
+    });
+    const bookkeeping = Array.from({ length: 2_000 }, (_, index) =>
+      makeActivity({
+        id: `context-window-bookkeeping-${index}`,
+        turnId,
+        kind: "context-window.updated",
+        summary: "Context window updated",
+        sequence: index + 3,
+        createdAt: new Date(Date.parse("2026-09-14T00:00:02.000Z") + index).toISOString(),
+      }),
+    );
+    const page = {
+      threadId,
+      snapshotSequence: 2_010,
+      conversationTurnCount: 1,
+      messages: [
+        {
+          id: MessageId.makeUnsafe("oversized-activity-user"),
+          role: "user",
+          text: "Run the long task",
+          attachments: [],
+          sequence: 1,
+          turnId,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-14T00:00:00.000Z",
+          updatedAt: "2026-09-14T00:00:00.000Z",
+        },
+        {
+          id: MessageId.makeUnsafe("oversized-activity-assistant"),
+          role: "assistant",
+          text: "The long task continued",
+          attachments: [],
+          sequence: 2_009,
+          turnId,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-14T00:00:10.000Z",
+          updatedAt: "2026-09-14T00:00:10.000Z",
+        },
+      ],
+      activities: [historicalTool, ...bookkeeping],
+      pendingInteractions: [],
+      hasOlder: false,
+      nextCursor: null,
+    } satisfies OrchestrationGetThreadTurnsPageResult;
+
+    const next = syncServerThreadTurnsPage(
+      makeState(makeThread({ id: threadId, messages: [], activities: [] })),
+      page,
+    );
+    const withLiveActivity = applyOrchestrationEvents(next, [
+      {
+        sequence: 2_011,
+        eventId: EventId.makeUnsafe("oversized-activity-live-event"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        type: "thread.activity-read-model-updated",
+        payload: {
+          threadId,
+          turnId,
+          activity: makeActivity({
+            id: "live-tool-after-reopen",
+            turnId,
+            kind: "tool.completed",
+            summary: "Live tool after reopen",
+            sequence: 2_011,
+            createdAt: "2026-09-14T00:00:11.000Z",
+          }),
+          updatedAt: "2026-09-14T00:00:11.000Z",
+        },
+        occurredAt: "2026-09-14T00:00:11.000Z",
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+      },
+    ]);
+    const thread = getThreadFromState(withLiveActivity, threadId)!;
+    const visibleWork = deriveWorkLogEntries(thread.activities, turnId, {
+      visibleTurnIds: new Set([turnId]),
+      visibleSequenceFloor: 1,
+    });
+
+    expect(thread.messages.map((message) => message.text)).toEqual([
+      "Run the long task",
+      "The long task continued",
+    ]);
+    expect(visibleWork.map((entry) => entry.id)).toContain("historical-tool-before-bookkeeping");
+    expect(visibleWork.map((entry) => entry.id)).toContain("live-tool-after-reopen");
+
+    const evicted = evictThreadDetailFromClientState(withLiveActivity, threadId);
+    expect(getThreadFromState(evicted, threadId)?.messages).toEqual([]);
+    expect(getThreadFromState(evicted, threadId)?.activities).toEqual([]);
+    expect(evicted.threadDetailSyncById?.[threadId]).toBeUndefined();
+  });
+
+  it("ignores a late turn-page response after the thread is deleted", () => {
+    const threadId = ThreadId.makeUnsafe("thread-deleted-during-page-read");
+    const turnId = TurnId.makeUnsafe("turn-deleted-during-page-read");
+    const initial = makeState(makeThread({ id: threadId, messages: [], activities: [] }));
+    const deleted = removeDeletedThreadFromClientState(initial, threadId);
+    const page = {
+      threadId,
+      snapshotSequence: 2,
+      conversationTurnCount: 1,
+      messages: [
+        {
+          id: MessageId.makeUnsafe("late-page-assistant-message"),
+          role: "assistant",
+          text: "This response arrived after deletion",
+          attachments: [],
+          sequence: 2,
+          turnId,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-14T00:00:01.000Z",
+          updatedAt: "2026-09-14T00:00:01.000Z",
+        },
+      ],
+      activities: [
+        makeActivity({
+          id: "late-page-tool",
+          turnId,
+          kind: "tool.completed",
+          summary: "Late tool output",
+          sequence: 1,
+          createdAt: "2026-09-14T00:00:00.000Z",
+        }),
+      ],
+      pendingInteractions: [],
+      hasOlder: false,
+      nextCursor: null,
+    } satisfies OrchestrationGetThreadTurnsPageResult;
+
+    expect(syncServerThreadTurnsPage(deleted, page)).toBe(deleted);
+    expect(deleted.deletedThreadIdsById?.[threadId]).toEqual(expect.any(Number));
+    expect(deleted.threadShellById?.[threadId]).toBeUndefined();
+    expect(deleted.messageByThreadId?.[threadId]).toBeUndefined();
+    expect(deleted.activityByThreadId?.[threadId]).toBeUndefined();
   });
 
   it("preserves message mention references from read-model snapshots", () => {
@@ -730,7 +886,12 @@ describe("store projection", () => {
     // getThreadsFromState (the shell projection), so this asserts the fields survive the round trip.
     const messageId = MessageId.makeUnsafe("assistant-pin-1");
     const pinnedMessages = [
-      { messageId, label: null, done: false, pinnedAt: "2026-02-27T00:01:00.000Z" },
+      {
+        messageId,
+        label: null,
+        done: false,
+        pinnedAt: "2026-02-27T00:01:00.000Z",
+      },
     ];
     const next = syncServerReadModel(
       makeState(makeThread()),
@@ -752,7 +913,12 @@ describe("store projection", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const messageId = MessageId.makeUnsafe("assistant-pin-3");
     const pinnedMessages = [
-      { messageId, label: null, done: true, pinnedAt: "2026-02-27T00:03:00.000Z" },
+      {
+        messageId,
+        label: null,
+        done: true,
+        pinnedAt: "2026-02-27T00:03:00.000Z",
+      },
     ];
     const initialState = syncServerReadModel(
       makeState(makeThread()),
@@ -1930,7 +2096,11 @@ describe("store projection", () => {
     const recentTurnId = TurnId.makeUnsafe("turn-recent");
     const activities = [
       ...Array.from({ length: 50 }, (_, index) =>
-        makeActivity({ id: `old-${index}`, turnId: "turn-old", sequence: index }),
+        makeActivity({
+          id: `old-${index}`,
+          turnId: "turn-old",
+          sequence: index,
+        }),
       ),
       ...Array.from({ length: 200 }, (_, index) =>
         makeActivity({

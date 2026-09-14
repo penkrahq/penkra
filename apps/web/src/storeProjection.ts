@@ -660,7 +660,12 @@ export function clearThreadDetailSyncFailureInClientState(
   return clearThreadDetailSyncState(state, threadId);
 }
 
-function writeThreadState(state: AppState, nextThread: Thread, previousThread?: Thread): AppState {
+function writeThreadState(
+  state: AppState,
+  nextThread: Thread,
+  previousThread?: Thread,
+  options: { readonly capActivities?: boolean } = {},
+): AppState {
   const nextShell = toThreadShell(nextThread);
   const nextTurnState = toThreadTurnState(nextThread);
   const previousShell = state.threadShellById?.[nextThread.id];
@@ -729,7 +734,9 @@ function writeThreadState(state: AppState, nextThread: Thread, previousThread?: 
   }
 
   if (previousThread?.activities !== nextThread.activities) {
-    const activities = capThreadActivities(dedupeActivitiesById(nextThread.activities));
+    const dedupedActivities = dedupeActivitiesById(nextThread.activities);
+    const activities =
+      options.capActivities === false ? dedupedActivities : capThreadActivities(dedupedActivities);
     const previousIds = nextState.activityIdsByThreadId?.[nextThread.id];
     const previousById = nextState.activityByThreadId?.[nextThread.id];
     const slice = buildNormalizedSlice(
@@ -1109,6 +1116,7 @@ export function applyThreadUpdate(
   threadId: ThreadId,
   updater: (thread: Thread) => Thread,
   options?: {
+    capActivities?: boolean;
     recomputeSummarySignals?: boolean;
     updateSidebarSummary?: boolean;
   },
@@ -1124,9 +1132,18 @@ export function applyThreadUpdate(
   if (updatedThread === currentThread) {
     return state;
   }
-  return commitThreadProjection(writeThreadState(state, updatedThread, currentThread), threadId, {
-    updateSidebarSummary: options?.updateSidebarSummary ?? true,
-  });
+  return commitThreadProjection(
+    writeThreadState(
+      state,
+      updatedThread,
+      currentThread,
+      options?.capActivities === undefined ? {} : { capActivities: options.capActivities },
+    ),
+    threadId,
+    {
+      updateSidebarSummary: options?.updateSidebarSummary ?? true,
+    },
+  );
 }
 
 export function syncServerShellSnapshot(
@@ -1283,6 +1300,10 @@ export function syncServerThreadTurnsPage(
   const activities = normalizeActivities(
     [...currentThread.activities, ...incomingActivities],
     currentThread.activities,
+    // A turn page is one causal transcript window. Independently truncating
+    // its activity half leaves assistant prose visible without the tools that
+    // occurred between those messages. Detail eviction owns the memory bound.
+    { cap: false },
   ).toSorted((left, right) => {
     const byCreatedAt = left.createdAt.localeCompare(right.createdAt);
     if (byCreatedAt !== 0) return byCreatedAt;
@@ -1311,7 +1332,7 @@ export function syncServerThreadTurnsPage(
       activities,
       pendingInteractions: [...pendingInteractionById.values()],
     }),
-    { updateSidebarSummary: false },
+    { capActivities: false, updateSidebarSummary: false },
   );
   recordChatPaginationDiagnostic({
     event: "store-merged",
