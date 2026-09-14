@@ -53,7 +53,10 @@ import {
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { advanceComposerSendPreflightAppliedSequence } from "../composerSendPreflight";
-import { recordChatLifecycleSyncDiagnostic } from "../chatLifecycleDiagnostics";
+import {
+  recordChatLifecycleSyncDiagnostic,
+  recordChatSyncPublicationDiagnostic,
+} from "../chatLifecycleDiagnostics";
 import { recordChatPaginationDiagnostic } from "../chatScrollDiagnostics";
 import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
@@ -872,11 +875,53 @@ function EventRouter() {
       removeOrphanedTerminalStates(activeThreadIds);
     };
 
-    const flushSyncDeliveries = () => {
+    const flushSyncDeliveries = (
+      reason: "delivery" | "visible-timer" | "visibility-hidden" | "window-blur" = "visible-timer",
+    ) => {
       syncDeliveryFlushTimer = null;
       if (disposed || syncApplicationFailed || pendingSyncDeliveries.length === 0) return;
       const deliveries = pendingSyncDeliveries;
       pendingSyncDeliveries = [];
+      const publicationRanges = new Map<
+        string,
+        { firstOrchestrationSequence: number; lastOrchestrationSequence: number }
+      >();
+      for (const item of deliveries) {
+        const threadId =
+          item.kind === "event" && item.event.aggregateKind === "thread"
+            ? String(item.event.aggregateId)
+            : "*";
+        const orchestrationSequence =
+          item.kind === "event" ? item.event.sequence : item.snapshot.snapshotSequence;
+        const existing = publicationRanges.get(threadId);
+        publicationRanges.set(threadId, {
+          firstOrchestrationSequence: Math.min(
+            existing?.firstOrchestrationSequence ?? orchestrationSequence,
+            orchestrationSequence,
+          ),
+          lastOrchestrationSequence: Math.max(
+            existing?.lastOrchestrationSequence ?? orchestrationSequence,
+            orchestrationSequence,
+          ),
+        });
+      }
+      const recordPublicationBatch = (
+        event: "sync-publication-flushed" | "sync-publication-apply-failed",
+        failureName?: string,
+      ) => {
+        for (const [threadId, range] of publicationRanges) {
+          recordChatSyncPublicationDiagnostic({
+            event,
+            threadId,
+            rendererVisibility: document.visibilityState,
+            rendererHasFocus: document.hasFocus(),
+            reason,
+            queuedDeliveryCount: deliveries.length,
+            ...range,
+            ...(failureName === undefined ? {} : { failureName }),
+          });
+        }
+      };
       let latestApplied:
         | { readonly deliveryId: string; readonly appliedSequence: number }
         | undefined;
@@ -927,9 +972,15 @@ function EventRouter() {
         }
       } catch (error) {
         syncApplicationFailed = true;
+        recordPublicationBatch(
+          "sync-publication-apply-failed",
+          error instanceof Error ? error.name : "UnknownError",
+        );
         console.error("Failed to apply orchestration synchronization delivery", error);
         return;
       }
+
+      recordPublicationBatch("sync-publication-flushed");
 
       if (latestApplied) {
         advanceComposerSendPreflightAppliedSequence(latestApplied.appliedSequence);
@@ -941,23 +992,56 @@ function EventRouter() {
       if (disposed || syncApplicationFailed) return;
       if (item.kind === "event") recordChatLifecycleSyncDiagnostic(item.event, "received");
       pendingSyncDeliveries.push(item);
+      const orchestrationSequence =
+        item.kind === "event" ? item.event.sequence : item.snapshot.snapshotSequence;
+      recordChatSyncPublicationDiagnostic({
+        event: "sync-publication-queued",
+        threadId:
+          item.kind === "event" && item.event.aggregateKind === "thread"
+            ? String(item.event.aggregateId)
+            : "*",
+        rendererVisibility: document.visibilityState,
+        rendererHasFocus: document.hasFocus(),
+        reason: "delivery",
+        queuedDeliveryCount: pendingSyncDeliveries.length,
+        firstOrchestrationSequence: orchestrationSequence,
+        lastOrchestrationSequence: orchestrationSequence,
+      });
+      if (document.visibilityState !== "visible" || !document.hasFocus()) {
+        if (syncDeliveryFlushTimer !== null) {
+          clearTimeout(syncDeliveryFlushTimer);
+          syncDeliveryFlushTimer = null;
+        }
+        flushSyncDeliveries("delivery");
+        return;
+      }
       if (syncDeliveryFlushTimer !== null) return;
       // Provider deltas commonly arrive in separate socket tasks. Publish their
       // ordered projection at a bounded interactive cadence instead of committing React
       // work for every delivery; persistence and server admission remain immediate.
-      // A timer rather than requestAnimationFrame also guarantees hidden windows
-      // eventually advance and acknowledge their durable synchronization cursor.
       syncDeliveryFlushTimer = setTimeout(
-        flushSyncDeliveries,
+        () => flushSyncDeliveries("visible-timer"),
         ORCHESTRATION_SYNC_PUBLICATION_INTERVAL_MS,
       );
     });
-    // Durable synchronization is the canonical UI projection. Keep the legacy
-    // domain stream attached so compatibility producers cannot create an
-    // unobserved transport lifecycle, but never apply its duplicate events to
-    // the store a second time.
-    const unsubDomainEvent = api.orchestration.onDomainEvent(() => undefined);
-
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible" || pendingSyncDeliveries.length === 0) return;
+      if (syncDeliveryFlushTimer !== null) {
+        clearTimeout(syncDeliveryFlushTimer);
+        syncDeliveryFlushTimer = null;
+      }
+      flushSyncDeliveries("visibility-hidden");
+    };
+    const onWindowBlur = () => {
+      if (pendingSyncDeliveries.length === 0) return;
+      if (syncDeliveryFlushTimer !== null) {
+        clearTimeout(syncDeliveryFlushTimer);
+        syncDeliveryFlushTimer = null;
+      }
+      flushSyncDeliveries("window-blur");
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("blur", onWindowBlur);
     const unsubTerminalEvent = api.terminal.onEvent((event) => {
       const terminalThreadId = ThreadId.makeUnsafe(event.threadId);
       if (event.type === "activity") {
@@ -1082,8 +1166,9 @@ function EventRouter() {
         clearTimeout(syncDeliveryFlushTimer);
         syncDeliveryFlushTimer = null;
       }
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("blur", onWindowBlur);
       unsubSyncEvent();
-      unsubDomainEvent();
       unsubTerminalEvent();
       unsubDevServerEvent();
       unsubWorkspaceChange();
