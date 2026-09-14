@@ -1292,6 +1292,7 @@ function applyOrchestrationEvent(
           const nextActivities = normalizeActivities(
             [...thread.activities, sequencedActivity],
             thread.activities,
+            { cap: state.threadDetailSyncById?.[event.payload.threadId] !== "synced" },
           );
           return nextActivities === thread.activities
             ? thread
@@ -1305,6 +1306,7 @@ function applyOrchestrationEvent(
               };
         },
         {
+          capActivities: state.threadDetailSyncById?.[event.payload.threadId] !== "synced",
           ...options,
           updateSidebarSummary: true,
         },
@@ -1322,6 +1324,7 @@ function applyOrchestrationEvent(
           const nextActivities = normalizeActivities(
             [...thread.activities, sequencedActivity],
             thread.activities,
+            { cap: state.threadDetailSyncById?.[event.payload.threadId] !== "synced" },
           );
           const pendingInteractions = reconcilePendingInteractionsFromActivity(
             thread.id,
@@ -1345,6 +1348,7 @@ function applyOrchestrationEvent(
           };
         },
         {
+          capActivities: state.threadDetailSyncById?.[event.payload.threadId] !== "synced",
           ...options,
           recomputeSummarySignals: threadActivityUpdatesSummary(event),
           updateSidebarSummary:
@@ -1488,7 +1492,9 @@ function applyThreadActivityEventBatch(
     (thread) => {
       // One accumulator for the whole batch: appending N activities used to re-normalize the
       // full activity list N times (O(batch x activities)); it is now O(batch) amortised.
-      const activityAccumulator = createThreadActivityAccumulator(thread.activities);
+      const activityAccumulator = createThreadActivityAccumulator(thread.activities, {
+        cap: state.threadDetailSyncById?.[firstEvent.payload.threadId] !== "synced",
+      });
       let nextPendingInteractions = thread.pendingInteractions;
       let updatedAt = thread.updatedAt ?? thread.createdAt;
       for (const event of events) {
@@ -1526,6 +1532,7 @@ function applyThreadActivityEventBatch(
       };
     },
     {
+      capActivities: state.threadDetailSyncById?.[firstEvent.payload.threadId] !== "synced",
       ...options,
       recomputeSummarySignals: updatesSummary,
       updateSidebarSummary: options.updateSidebarSummary === true || updatesSummary,

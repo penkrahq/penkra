@@ -1039,6 +1039,7 @@ export function mergeReadModelThreadDetailWithLiveHotPath(
 export function normalizeActivities(
   incoming: ReadModelThread["activities"],
   previous: Thread["activities"] | undefined,
+  options: { readonly cap?: boolean } = {},
 ): Thread["activities"] {
   const previousActivities = previous ? dedupeActivitiesById(previous) : undefined;
   const incomingActivities = dedupeActivitiesById(incoming);
@@ -1056,8 +1057,9 @@ export function normalizeActivities(
     }
     return activity;
   });
-  const cappedActivities = capThreadActivities(nextActivities);
-  return arraysShallowEqual(previous, cappedActivities) ? previous : cappedActivities;
+  const retainedActivities =
+    options.cap === false ? nextActivities : capThreadActivities(nextActivities);
+  return arraysShallowEqual(previous, retainedActivities) ? previous : retainedActivities;
 }
 
 type ThreadActivity = Thread["activities"][number];
@@ -1085,6 +1087,7 @@ export interface ThreadActivityAccumulator {
 
 export function createThreadActivityAccumulator(
   previous: Thread["activities"],
+  options: { readonly cap?: boolean } = {},
 ): ThreadActivityAccumulator {
   const deduped = dedupeActivitiesById(previous);
   // `dedupeActivitiesById` only returns a new array when it actually removed a duplicate, so a
@@ -1133,7 +1136,7 @@ export function createThreadActivityAccumulator(
           changed = true;
         }
       }
-      if (working.length > MAX_THREAD_ACTIVITIES) {
+      if (options.cap !== false && working.length > MAX_THREAD_ACTIVITIES) {
         const capped = capThreadActivities(working);
         // `capThreadActivities` only filters, so an unchanged length means unchanged contents.
         if (capped.length !== working.length) {

@@ -72,6 +72,8 @@ let syncStreamRequestId: string | null = null;
 let syncStreamClient: EffectRpcWebSocketClient | null = null;
 let domainStreamRequestCount = 0;
 let getThreadTurnsPageRequests: ThreadId[] = [];
+let holdThreadTurnsPageRequests = false;
+let heldThreadTurnsPageExits: Array<() => void> = [];
 let acknowledgementObservations: AcknowledgementObservation[] = [];
 let holdSyncAcknowledgements = false;
 let heldSyncAcknowledgementExits: Array<() => void> = [];
@@ -239,7 +241,13 @@ const worker = setupWorker(
       if (method === ORCHESTRATION_WS_METHODS.getThreadTurnsPage) {
         const threadId = requestBody.threadId as ThreadId;
         getThreadTurnsPageRequests.push(threadId);
-        sendEffectRpcExit(client, request.id, createThreadTurnsPage(threadId));
+        const respond = () =>
+          sendEffectRpcExit(client, request.id, createThreadTurnsPage(threadId));
+        if (holdThreadTurnsPageRequests) {
+          heldThreadTurnsPageExits.push(respond);
+        } else {
+          respond();
+        }
         return;
       }
       if (method === ORCHESTRATION_WS_METHODS.acknowledgeSync) {
@@ -389,6 +397,8 @@ describe("EventRouter uniform orchestration sync", () => {
     syncStreamClient = null;
     domainStreamRequestCount = 0;
     getThreadTurnsPageRequests = [];
+    holdThreadTurnsPageRequests = false;
+    for (const respond of heldThreadTurnsPageExits.splice(0)) respond();
     acknowledgementObservations = [];
     holdSyncAcknowledgements = false;
     for (const respond of heldSyncAcknowledgementExits.splice(0)) respond();
@@ -898,6 +908,82 @@ describe("EventRouter uniform orchestration sync", () => {
         ).toBe(true);
         expect(document.body.textContent).toContain("Assistant update while inactive");
         expect(document.body.textContent).toContain("completed while away");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("does not discard reopened history when unrelated shell state changes before the page returns", async () => {
+    activePageThreadIds = [THREAD_ID];
+    const mounted = await mountApp();
+
+    try {
+      await vi.waitFor(() => {
+        expect(useStore.getState().threadDetailSyncById?.[THREAD_ID]).toBe("synced");
+      });
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: OTHER_THREAD_ID },
+      });
+      await vi.waitFor(() => expect(getThreadTurnsPageRequests).toEqual([OTHER_THREAD_ID]));
+
+      const rootThread = getFixtureThread(THREAD_ID);
+      const missedTurnId = TurnId.makeUnsafe("turn-missed-during-reopen-race");
+      fixture.snapshot = {
+        ...fixture.snapshot,
+        snapshotSequence: 2,
+        threads: fixture.snapshot.threads.map((thread) =>
+          thread.id === THREAD_ID
+            ? {
+                ...rootThread,
+                messages: [
+                  ...rootThread.messages,
+                  {
+                    id: MessageId.makeUnsafe("message-missed-during-reopen-race"),
+                    role: "assistant",
+                    text: "Assistant update before reopening",
+                    turnId: missedTurnId,
+                    streaming: false,
+                    source: "native",
+                    createdAt: "2026-03-04T12:00:02.000Z",
+                    updatedAt: "2026-03-04T12:00:02.000Z",
+                  },
+                ],
+                activities: [
+                  ...rootThread.activities,
+                  makeActivity({
+                    id: "activity-missed-during-reopen-race",
+                    turnId: missedTurnId,
+                    createdAt: "2026-03-04T12:00:03.000Z",
+                    kind: "tool.completed",
+                    summary: "Missed tool before reopening",
+                    payload: { itemType: "command_execution", detail: "historical tool output" },
+                  }),
+                ],
+              }
+            : thread,
+        ),
+      };
+
+      holdThreadTurnsPageRequests = true;
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: THREAD_ID },
+      });
+      await vi.waitFor(() =>
+        expect(getThreadTurnsPageRequests).toEqual([OTHER_THREAD_ID, THREAD_ID]),
+      );
+
+      // A shell reconciliation can replace the id registry while preserving its
+      // contents. That rerender must not revoke the already-authorized page read.
+      useStore.setState((state) => ({ ...state, threadIds: [...(state.threadIds ?? [])] }));
+      for (const respond of heldThreadTurnsPageExits.splice(0)) respond();
+      holdThreadTurnsPageRequests = false;
+
+      await vi.waitFor(() => {
+        expect(document.body.textContent).toContain("Assistant update before reopening");
+        expect(document.body.textContent).toContain("historical tool output");
       });
     } finally {
       await mounted.cleanup();

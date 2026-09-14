@@ -1191,7 +1191,6 @@ function EventRouter() {
   useLayoutEffect(() => {
     const api = readNativeApi();
     if (!api) return;
-    let cancelled = false;
     const previouslyVisibleThreadIds = previouslyVisibleThreadIdsRef.current;
     previouslyVisibleThreadIdsRef.current = new Set(visibleThreadIds);
     for (const threadId of visibleThreadIds) {
@@ -1219,7 +1218,10 @@ function EventRouter() {
       void api.orchestration
         .getThreadTurnsPage({ threadId })
         .then((page) => {
-          if (cancelled) return;
+          // The response hydrates an authoritative retained-detail cache, not
+          // component-local state. A route or shell rerender while the read is
+          // in flight must not revoke it; deleted threads are rejected by the
+          // store merge itself.
           syncServerThreadTurnsPage(page);
           recordChatPaginationDiagnostic({
             event: "visible-reconcile-applied",
@@ -1234,22 +1236,17 @@ function EventRouter() {
           if (thread) reconcilePromotedDraftFromThreadDetail(thread);
         })
         .catch((error: unknown) => {
-          if (!cancelled) {
-            useStore.getState().markThreadDetailSyncFailed(threadId);
-            recordChatPaginationDiagnostic({
-              event: "visible-reconcile-failed",
-              threadId,
-              dataCount: 0,
-              detail: {
-                errorName: error instanceof Error ? error.name : typeof error,
-              },
-            });
-          }
+          useStore.getState().markThreadDetailSyncFailed(threadId);
+          recordChatPaginationDiagnostic({
+            event: "visible-reconcile-failed",
+            threadId,
+            dataCount: 0,
+            detail: {
+              errorName: error instanceof Error ? error.name : typeof error,
+            },
+          });
         });
     }
-    return () => {
-      cancelled = true;
-    };
   }, [serverThreadIds, syncServerThreadTurnsPage, visibleThreadIds]);
 
   return null;
