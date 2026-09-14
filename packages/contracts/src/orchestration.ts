@@ -202,7 +202,9 @@ export const PROVIDER_SEND_TURN_MAX_ATTACHMENTS = 8;
 export const PROVIDER_SEND_TURN_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const PROVIDER_SEND_TURN_MAX_FILE_BYTES = 25 * 1024 * 1024;
 /**
- * Bounded hydration windows for thread detail held in memory or sent to clients.
+ * Safety bounds for bulk/shell hydration and thread detail without an owned
+ * turn page. Explicit turn pages retain their complete causal message/activity
+ * window and are bounded by page ownership plus client detail eviction instead.
  * Durable projection tables retain the complete history independently.
  */
 export const ORCHESTRATION_THREAD_HYDRATION_LIMITS = {
