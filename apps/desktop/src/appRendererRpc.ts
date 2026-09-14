@@ -196,6 +196,32 @@ export class AppRendererRpcHost {
     };
   }
 
+  deliver(
+    targetId: number,
+    method: "tab.navigate",
+    input: unknown,
+    options: Pick<AppRendererRpcRequestOptions, "signal" | "targetLabel"> = {},
+  ): void {
+    if (this.#stopped) {
+      throw new AppRendererRpcError("host-stopped", "App renderer RPC host is stopped.");
+    }
+    const target = this.#targets.get(targetId);
+    if (!target) {
+      throw new AppRendererRpcError(
+        "renderer-unavailable",
+        `${targetLabel(options.targetLabel)} is temporarily unavailable, possibly because the App is updating or reinstalling. The command was not dispatched and no App mutation ran. Retrying is safe after 20 seconds.`,
+      );
+    }
+    assertPayloadSize(input, this.#maxPayloadBytes);
+    if (options.signal?.aborted) throw abortError(options.signal.reason);
+    target.send({
+      type: "request",
+      id: `delivery-${randomUUID()}`,
+      method,
+      input,
+    });
+  }
+
   async request<Result = unknown>(
     targetId: number,
     method: AppRendererRpcMethod,
