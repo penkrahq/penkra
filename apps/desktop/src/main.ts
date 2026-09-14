@@ -7958,7 +7958,6 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     },
   });
   window.on("focus", () => {
-    browserManager.setWindow(window);
     desktopAppRuntime?.appTabs.focusSurface(rendererOwnerId);
     const visibleTabId = desktopAppRuntime?.appTabs.visibleTabIdForSurface(rendererOwnerId);
     if (visibleTabId) {
@@ -7971,7 +7970,6 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
       configureApplicationMenu();
     }
   });
-  browserManager.setWindow(window);
   attachDesktopZoomFactorSync(window);
   attachRendererCrashRecovery(window);
   attachDesktopWindowShortcuts(window.webContents);
@@ -8086,6 +8084,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   });
 
   window.on("closed", () => {
+    browserManager.releaseWindow(window);
     activeWorkPowerBlocker.releaseOwner(rendererOwnerId);
     desktopAppRuntime?.appTabs.dropSurface(rendererOwnerId);
     dropAppBrowserSurface(rendererOwnerId);
@@ -8094,7 +8093,6 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     if (mainWindow === window) {
       mainWindow = shellWindowRegistry.first();
     }
-    browserManager.setWindow(resolveShellWindow());
   });
 
   return window;
