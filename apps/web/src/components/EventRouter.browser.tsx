@@ -24,6 +24,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { render } from "vitest-browser-react";
 
 import { useComposerDraftStore } from "../composerDraftStore";
+import {
+  getChatLifecycleDiagnosticSamples,
+  resetChatLifecycleDiagnostics,
+} from "../chatLifecycleDiagnostics";
 import { getRouter } from "../router";
 import { useStore } from "../store";
 import { initialState } from "../storeState";
@@ -66,8 +70,7 @@ let activePageThreadIds: ThreadId[] = [];
 let subscribeSyncRequestCount = 0;
 let syncStreamRequestId: string | null = null;
 let syncStreamClient: EffectRpcWebSocketClient | null = null;
-let domainStreamRequestId: string | null = null;
-let domainStreamClient: EffectRpcWebSocketClient | null = null;
+let domainStreamRequestCount = 0;
 let getThreadTurnsPageRequests: ThreadId[] = [];
 let acknowledgementObservations: AcknowledgementObservation[] = [];
 let holdSyncAcknowledgements = false;
@@ -267,8 +270,7 @@ const worker = setupWorker(
         return;
       }
       if (method === WS_METHODS.subscribeOrchestrationDomainEvents) {
-        domainStreamRequestId = request.id;
-        domainStreamClient = client;
+        domainStreamRequestCount += 1;
         return;
       }
       sendEffectRpcExit(client, request.id, resolveUnaryRequest(method));
@@ -294,13 +296,6 @@ async function mountApp(routeThreadId: ThreadId = THREAD_ID) {
       if (host.isConnected) host.remove();
     },
   };
-}
-
-function sendDomainEvent(event: OrchestrationEvent): void {
-  if (!domainStreamClient || !domainStreamRequestId) {
-    throw new Error("Orchestration domain stream is not connected");
-  }
-  sendEffectRpcChunk(domainStreamClient, domainStreamRequestId, event);
 }
 
 function sendSyncDelivery(item: OrchestrationSyncStreamItem): void {
@@ -334,26 +329,33 @@ function createThreadUpdatedEvent(input: {
   };
 }
 
-function createThreadActivityEvent(input: {
+function createThreadActivityReadModelEvent(input: {
   sequence: number;
   threadId: ThreadId;
 }): OrchestrationEvent {
   const occurredAt = new Date(Date.parse(NOW_ISO) + input.sequence * 1_000).toISOString();
   return {
     sequence: input.sequence,
-    eventId: EventId.makeUnsafe(`event-thread-activity-${input.sequence}`),
+    eventId: EventId.makeUnsafe(`event-thread-activity-read-model-${input.sequence}`),
     aggregateKind: "thread",
     aggregateId: input.threadId,
-    type: "thread.activity-appended",
+    type: "thread.activity-read-model-updated",
     payload: {
       threadId: input.threadId,
+      turnId: TurnId.makeUnsafe(`turn-canonical-operation-${input.sequence}`),
       activity: makeActivity({
-        id: `activity-${input.sequence}`,
+        id: `operation-${input.sequence}`,
+        turnId: TurnId.makeUnsafe(`turn-canonical-operation-${input.sequence}`),
         createdAt: occurredAt,
-        kind: "tool.updated",
-        summary: `Tool output ${input.sequence}`,
-        payload: { itemType: "command_output", detail: `chunk ${input.sequence}` },
+        kind: "tool.completed",
+        summary: `Canonical tool output ${input.sequence}`,
+        payload: {
+          operationId: `operation-${input.sequence}`,
+          itemType: "command_execution",
+          detail: `canonical chunk ${input.sequence}`,
+        },
       }),
+      updatedAt: occurredAt,
     },
     occurredAt,
     commandId: null,
@@ -385,14 +387,15 @@ describe("EventRouter uniform orchestration sync", () => {
     subscribeSyncRequestCount = 0;
     syncStreamRequestId = null;
     syncStreamClient = null;
-    domainStreamRequestId = null;
-    domainStreamClient = null;
+    domainStreamRequestCount = 0;
     getThreadTurnsPageRequests = [];
     acknowledgementObservations = [];
     holdSyncAcknowledgements = false;
     for (const respond of heldSyncAcknowledgementExits.splice(0)) respond();
     document.body.innerHTML = "";
     localStorage.clear();
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    resetChatLifecycleDiagnostics();
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
@@ -404,6 +407,7 @@ describe("EventRouter uniform orchestration sync", () => {
 
   afterEach(async () => {
     await resetWsNativeApiForTest();
+    vi.restoreAllMocks();
     document.body.innerHTML = "";
   });
 
@@ -548,7 +552,7 @@ describe("EventRouter uniform orchestration sync", () => {
     }
   });
 
-  it("batches sustained tool-output publication across visible, background, and duplicate streams", async () => {
+  it("batches sustained canonical tool-output publication across visible and background threads", async () => {
     activePageThreadIds = [THREAD_ID];
     const mounted = await mountApp(THREAD_ID);
 
@@ -579,7 +583,7 @@ describe("EventRouter uniform orchestration sync", () => {
           sendSyncDelivery({
             kind: "event",
             deliveryId: "sync-lease-activity",
-            event: createThreadActivityEvent({ sequence, threadId }),
+            event: createThreadActivityReadModelEvent({ sequence, threadId }),
           });
           await nextTask();
         }
@@ -601,39 +605,199 @@ describe("EventRouter uniform orchestration sync", () => {
     try {
       await vi.waitFor(() => {
         expect(acknowledgementObservations).toHaveLength(1);
-        expect(domainStreamRequestId).not.toBeNull();
+        expect(domainStreamRequestCount).toBe(0);
       });
 
       const visible = await measureSyncBurst(THREAD_ID, 2);
       const background = await measureSyncBurst(OTHER_THREAD_ID, 14);
 
-      let duplicateStoreUpdates = 0;
-      const unsubscribeDuplicate = useStore.subscribe(() => {
-        duplicateStoreUpdates += 1;
-      });
-      try {
-        for (let sequence = 26; sequence < 38; sequence += 1) {
-          sendDomainEvent(createThreadActivityEvent({ sequence, threadId: THREAD_ID }));
-          await nextTask();
-        }
-        await new Promise<void>((resolve) => setTimeout(resolve, 100));
-      } finally {
-        unsubscribeDuplicate();
-      }
-
       expect(visible).toMatchObject({
         storeUpdates: 1,
         visibleThreadChanges: 1,
         backgroundThreadChanges: 0,
-        sidebarSummaryChanges: 0,
+        sidebarSummaryChanges: 1,
       });
       expect(background).toMatchObject({
         storeUpdates: 1,
         visibleThreadChanges: 0,
         backgroundThreadChanges: 1,
-        sidebarSummaryChanges: 0,
+        sidebarSummaryChanges: 1,
       });
-      expect(duplicateStoreUpdates).toBe(0);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("applies canonical tool activity while the renderer is hidden without waiting for a throttled timer", async () => {
+    activePageThreadIds = [THREAD_ID];
+    const mounted = await mountApp(THREAD_ID);
+
+    try {
+      await vi.waitFor(() => expect(acknowledgementObservations).toHaveLength(1));
+
+      const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+      try {
+        sendSyncDelivery({
+          kind: "event",
+          deliveryId: "sync-hidden-canonical-operation",
+          event: createThreadActivityReadModelEvent({ sequence: 2, threadId: THREAD_ID }),
+        });
+        await vi.waitFor(() => {
+          expect(
+            getChatLifecycleDiagnosticSamples(THREAD_ID).some(
+              (sample) =>
+                sample.event === "sync-publication-flushed" &&
+                sample.firstOrchestrationSequence === 2 &&
+                sample.rendererVisibility === "hidden" &&
+                sample.reason === "delivery",
+            ),
+          ).toBe(true);
+          expect(
+            getThreadFromState(useStore.getState(), THREAD_ID)?.activities.some(
+              (activity) => activity.id === "operation-2",
+            ),
+          ).toBe(true);
+        });
+      } finally {
+        visibility.mockRestore();
+      }
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("applies canonical tool activity while a visible renderer is unfocused", async () => {
+    activePageThreadIds = [THREAD_ID];
+    const mounted = await mountApp(THREAD_ID);
+
+    try {
+      await vi.waitFor(() => expect(acknowledgementObservations).toHaveLength(1));
+      vi.mocked(document.hasFocus).mockReturnValue(false);
+
+      sendSyncDelivery({
+        kind: "event",
+        deliveryId: "sync-unfocused-canonical-operation",
+        event: createThreadActivityReadModelEvent({ sequence: 2, threadId: THREAD_ID }),
+      });
+
+      await vi.waitFor(() => {
+        expect(
+          getChatLifecycleDiagnosticSamples(THREAD_ID).some(
+            (sample) =>
+              sample.event === "sync-publication-flushed" &&
+              sample.firstOrchestrationSequence === 2 &&
+              sample.rendererVisibility === "visible" &&
+              sample.rendererHasFocus === false &&
+              sample.reason === "delivery",
+          ),
+        ).toBe(true);
+        expect(
+          getThreadFromState(useStore.getState(), THREAD_ID)?.activities.some(
+            (activity) => activity.id === "operation-2",
+          ),
+        ).toBe(true);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("flushes a focused canonical tool batch when the renderer loses focus", async () => {
+    activePageThreadIds = [THREAD_ID];
+    const mounted = await mountApp(THREAD_ID);
+
+    try {
+      await vi.waitFor(() => expect(acknowledgementObservations).toHaveLength(1));
+
+      sendSyncDelivery({
+        kind: "event",
+        deliveryId: "sync-focused-before-blur-canonical-operation",
+        event: createThreadActivityReadModelEvent({ sequence: 2, threadId: THREAD_ID }),
+      });
+      await vi.waitFor(() => {
+        expect(
+          getChatLifecycleDiagnosticSamples(THREAD_ID).some(
+            (sample) =>
+              sample.event === "sync-publication-queued" &&
+              sample.firstOrchestrationSequence === 2 &&
+              sample.rendererHasFocus === true,
+          ),
+        ).toBe(true);
+      });
+
+      vi.mocked(document.hasFocus).mockReturnValue(false);
+      window.dispatchEvent(new Event("blur"));
+
+      await vi.waitFor(() => {
+        expect(
+          getChatLifecycleDiagnosticSamples(THREAD_ID).some(
+            (sample) =>
+              sample.event === "sync-publication-flushed" &&
+              sample.firstOrchestrationSequence === 2 &&
+              sample.rendererHasFocus === false &&
+              sample.reason === "window-blur",
+          ),
+        ).toBe(true);
+        expect(
+          getThreadFromState(useStore.getState(), THREAD_ID)?.activities.some(
+            (activity) => activity.id === "operation-2",
+          ),
+        ).toBe(true);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("flushes a visible canonical tool batch when the renderer becomes hidden", async () => {
+    activePageThreadIds = [THREAD_ID];
+    const mounted = await mountApp(THREAD_ID);
+
+    try {
+      await vi.waitFor(() => expect(acknowledgementObservations).toHaveLength(1));
+
+      let rendererVisibility: DocumentVisibilityState = "visible";
+      const visibility = vi
+        .spyOn(document, "visibilityState", "get")
+        .mockImplementation(() => rendererVisibility);
+      try {
+        sendSyncDelivery({
+          kind: "event",
+          deliveryId: "sync-visible-before-hidden-canonical-operation",
+          event: createThreadActivityReadModelEvent({ sequence: 2, threadId: THREAD_ID }),
+        });
+        await vi.waitFor(() => {
+          expect(
+            getChatLifecycleDiagnosticSamples(THREAD_ID).some(
+              (sample) =>
+                sample.event === "sync-publication-queued" &&
+                sample.firstOrchestrationSequence === 2 &&
+                sample.rendererVisibility === "visible",
+            ),
+          ).toBe(true);
+        });
+        rendererVisibility = "hidden";
+        document.dispatchEvent(new Event("visibilitychange"));
+
+        await vi.waitFor(() => {
+          expect(
+            getChatLifecycleDiagnosticSamples(THREAD_ID).some(
+              (sample) =>
+                sample.event === "sync-publication-flushed" &&
+                sample.firstOrchestrationSequence === 2 &&
+                sample.rendererVisibility === "hidden" &&
+                sample.reason === "visibility-hidden",
+            ),
+          ).toBe(true);
+          expect(
+            getThreadFromState(useStore.getState(), THREAD_ID)?.activities.some(
+              (activity) => activity.id === "operation-2",
+            ),
+          ).toBe(true);
+        });
+      } finally {
+        visibility.mockRestore();
+      }
     } finally {
       await mounted.cleanup();
     }

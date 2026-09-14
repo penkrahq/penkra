@@ -108,10 +108,31 @@ export interface ChatLifecycleSyncDiagnosticSample {
   readonly commandId: string | null;
 }
 
+export interface ChatSyncPublicationDiagnosticSample {
+  readonly event:
+    | "sync-publication-queued"
+    | "sync-publication-flushed"
+    | "sync-publication-apply-failed";
+  readonly sequence: number;
+  readonly recordedAt: string;
+  readonly performanceNow: number;
+  readonly rendererSessionId: string;
+  readonly threadId: string;
+  readonly route: string;
+  readonly rendererVisibility: DocumentVisibilityState;
+  readonly rendererHasFocus: boolean;
+  readonly reason: "delivery" | "visible-timer" | "visibility-hidden" | "window-blur";
+  readonly queuedDeliveryCount: number;
+  readonly firstOrchestrationSequence: number;
+  readonly lastOrchestrationSequence: number;
+  readonly failureName?: string;
+}
+
 export type ChatLifecycleSample =
   | ChatLifecycleDiagnosticSample
   | ChatLifecycleUiDiagnosticSample
-  | ChatLifecycleSyncDiagnosticSample;
+  | ChatLifecycleSyncDiagnosticSample
+  | ChatSyncPublicationDiagnosticSample;
 
 const MAX_SAMPLES = 1_000;
 interface ChatLifecycleDiagnosticBuffer {
@@ -119,6 +140,7 @@ interface ChatLifecycleDiagnosticBuffer {
   logToConsole: boolean;
   samples: ChatLifecycleSample[];
   lastSignatureByThreadId: Map<string, string>;
+  rendererSessionId: string;
 }
 
 declare global {
@@ -135,7 +157,15 @@ const state: ChatLifecycleDiagnosticBuffer =
         logToConsole: false,
         samples: [],
         lastSignatureByThreadId: new Map<string, string>(),
+        rendererSessionId: crypto.randomUUID(),
       };
+
+// A renderer that hot-updated from the first instrumentation build may retain
+// the older buffer shape even though new module code has the current type.
+const retainedState = state as ChatLifecycleDiagnosticBuffer & {
+  rendererSessionId?: string;
+};
+retainedState.rendererSessionId ??= crypto.randomUUID();
 
 // Samples recorded by the first hot-loaded instrumentation build predate the
 // explicit event discriminator. Preserve that evidence and label it instead of
@@ -222,6 +252,24 @@ export function recordChatLifecycleSyncDiagnostic(
     occurredAt: event.occurredAt,
     ingestedAt: event.metadata.ingestedAt ?? null,
     commandId: event.commandId === null ? null : String(event.commandId),
+  });
+}
+
+/** Records renderer publication boundaries without retaining event payloads. */
+export function recordChatSyncPublicationDiagnostic(
+  input: Omit<
+    ChatSyncPublicationDiagnosticSample,
+    "sequence" | "recordedAt" | "performanceNow" | "rendererSessionId" | "route"
+  >,
+): void {
+  if (!diagnosticsAvailable()) return;
+  appendSample({
+    ...input,
+    sequence: state.nextSequence++,
+    recordedAt: new Date().toISOString(),
+    performanceNow: performance.now(),
+    rendererSessionId: state.rendererSessionId,
+    route: `${location.pathname}${location.hash}`,
   });
 }
 
