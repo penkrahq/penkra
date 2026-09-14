@@ -1035,6 +1035,130 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
     });
   });
 
+  it("does not migrate a hosted page when an unrelated shell becomes current", () => {
+    const lifecycle = vi.fn();
+    const manager = new DesktopBrowserManager({ reportLifecycle: lifecycle });
+    const firstRoot = new FakeNativeView();
+    const secondRoot = new FakeNativeView();
+    const firstWindow = {
+      contentView: firstRoot,
+      webContents: { id: 101 },
+      addBrowserView: vi.fn(),
+      removeBrowserView: vi.fn(),
+      setTopBrowserView: vi.fn(),
+      isDestroyed: () => false,
+    } as unknown as BrowserWindow;
+    const secondWindow = {
+      contentView: secondRoot,
+      webContents: { id: 202 },
+      addBrowserView: vi.fn(),
+      removeBrowserView: vi.fn(),
+      setTopBrowserView: vi.fn(),
+      isDestroyed: () => false,
+    } as unknown as BrowserWindow;
+    manager.setWindow(firstWindow);
+
+    const opened = manager.open({ threadId: THREAD_ID });
+    const pageId = opened.activeTabId;
+    if (!pageId) throw new Error("Expected a Browser page.");
+    const state = (
+      manager as unknown as {
+        states: Map<
+          ThreadId,
+          {
+            tabs: Array<{
+              id: string;
+              presentation: "host" | "renderer";
+              status: "live" | "suspended";
+            }>;
+          }
+        >;
+      }
+    ).states.get(THREAD_ID);
+    const page = state?.tabs.find((tab) => tab.id === pageId);
+    if (!page) throw new Error("Expected Browser page state.");
+    page.presentation = "host";
+    page.status = "live";
+
+    const pageContents = new FakeWebContents();
+    const pageView = new FakeHostedPageView(pageContents);
+    (
+      manager as unknown as {
+        runtimes: Map<string, unknown>;
+      }
+    ).runtimes.set(`${THREAD_ID}:${pageId}`, {
+      key: `${THREAD_ID}:${pageId}`,
+      threadId: THREAD_ID,
+      tabId: pageId,
+      webContents: pageContents,
+      view: pageView,
+      ownsWebContents: true,
+      hostManaged: true,
+      listenerDisposers: [],
+    });
+
+    expect(
+      manager.setHostedPageBounds({
+        threadId: THREAD_ID,
+        tabId: pageId,
+        bounds: { x: 400, y: 80, width: 800, height: 700 },
+        parentView: firstRoot as unknown as View,
+      }),
+    ).toBe(true);
+    expect(firstWindow.addBrowserView).toHaveBeenCalledWith(pageView);
+    vi.mocked(firstWindow.addBrowserView).mockClear();
+    vi.mocked(firstWindow.removeBrowserView).mockClear();
+
+    // This is the production trigger: another Penkra shell receives focus while it is showing
+    // Canvas (or a Thread), so no Browser surface geometry follows the shell change.
+    manager.setWindow(secondWindow);
+
+    expect(firstWindow.removeBrowserView).not.toHaveBeenCalled();
+    expect(firstWindow.addBrowserView).not.toHaveBeenCalled();
+    expect(secondWindow.addBrowserView).not.toHaveBeenCalled();
+    expect(lifecycle).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "presentation-attached", shellWebContentsId: 202 }),
+    );
+
+    // Publishing Browser geometry from B is the explicit ownership handoff.
+    expect(
+      manager.setHostedPageBounds({
+        threadId: THREAD_ID,
+        tabId: pageId,
+        bounds: { x: 400, y: 80, width: 800, height: 700 },
+        parentView: secondRoot as unknown as View,
+      }),
+    ).toBe(true);
+    expect(firstWindow.removeBrowserView).toHaveBeenCalledWith(pageView);
+    expect(secondWindow.addBrowserView).toHaveBeenCalledWith(pageView);
+    expect(lifecycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "presentation-detached",
+        shellWebContentsId: 101,
+        sessionId: THREAD_ID,
+        pageId,
+        reason: "presentation-changed",
+      }),
+    );
+    expect(lifecycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "presentation-attached",
+        shellWebContentsId: 202,
+        sessionId: THREAD_ID,
+        pageId,
+      }),
+    );
+
+    vi.mocked(firstWindow.removeBrowserView).mockClear();
+    vi.mocked(secondWindow.removeBrowserView).mockClear();
+    manager.releaseWindow(firstWindow);
+    expect(firstWindow.removeBrowserView).not.toHaveBeenCalled();
+    expect(secondWindow.removeBrowserView).not.toHaveBeenCalled();
+
+    manager.releaseWindow(secondWindow);
+    expect(secondWindow.removeBrowserView).toHaveBeenCalledWith(pageView);
+  });
+
   it("observes the attached renderer webview without creating a hidden substitute", async () => {
     const createWebContentsView = vi.fn(() => {
       throw new Error("ordinary Browser observation must not create a native page");
