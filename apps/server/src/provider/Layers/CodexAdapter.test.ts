@@ -300,7 +300,9 @@ validationLayer("CodexAdapterLive validation", (it) => {
         runtimeMode: "full-access",
         managedLaunch,
       });
-      assert.deepStrictEqual(result.resumeCursor, { threadId: "forked-native-codex-thread" });
+      assert.deepStrictEqual(result.resumeCursor, {
+        threadId: "forked-native-codex-thread",
+      });
       assert.strictEqual(
         validationManager.forkThreadImpl.mock.calls[0]?.[0].managedLaunch,
         managedLaunch,
@@ -530,7 +532,11 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
       });
       const adapter = yield* CodexAdapter;
       const result = yield* adapter
-        .sendTurn({ threadId: asThreadId("thread-1"), input: "hello", attachments: [] })
+        .sendTurn({
+          threadId: asThreadId("thread-1"),
+          input: "hello",
+          attachments: [],
+        })
         .pipe(Effect.result);
 
       assert.equal(result._tag, "Failure");
@@ -1313,6 +1319,32 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       assert.equal(
         firstEvent.value.payload.message,
         "write_stdin failed: stdin is closed for this session",
+      );
+    }),
+  );
+
+  it.effect("maps named MCP startup failures to runtime.warning", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-mcp-startup-failed"),
+        kind: "error",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        createdAt: new Date().toISOString(),
+        method: "mcpServer/startupFailed",
+        message: "MCP server “paper” failed to start. Its tools are unavailable for this session.",
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") return;
+      assert.equal(firstEvent.value.type, "runtime.warning");
+      assert.equal(
+        firstEvent.value.payload.message,
+        "MCP server “paper” failed to start. Its tools are unavailable for this session.",
       );
     }),
   );

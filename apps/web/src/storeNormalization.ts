@@ -565,11 +565,13 @@ export function normalizeChatMessage(
 function normalizeChatMessages(
   incoming: ReadModelThread["messages"],
   previous: ChatMessage[] | undefined,
+  options: { readonly cap?: boolean } = {},
 ): ChatMessage[] {
   const previousById = new Map(previous?.map((message) => [message.id, message] as const));
-  const normalizedMessages = incoming
-    .slice(-MAX_THREAD_MESSAGES)
-    .map((message) => normalizeChatMessage(message, previousById.get(message.id)));
+  const retainedMessages = options.cap === false ? incoming : incoming.slice(-MAX_THREAD_MESSAGES);
+  const normalizedMessages = retainedMessages.map((message) =>
+    normalizeChatMessage(message, previousById.get(message.id)),
+  );
   const nextMessages = orderMessagesForTranscript(normalizedMessages, "read-model-normalization");
   return arraysShallowEqual(previous, nextMessages) ? previous : nextMessages;
 }
@@ -688,6 +690,7 @@ function mergeReadModelMessagesWithLiveHotPath(
     // Turn the snapshot has just settled: its message contents are final, so the
     // "local row looks richer" heuristics must not resurrect mid-stream text.
     readonly authoritativeTurnId?: TurnId | null;
+    readonly retainHydratedWindow?: boolean;
   },
 ): ReadModelThread["messages"] {
   if (!previousThread || previousThread.messages.length === 0) {
@@ -761,7 +764,10 @@ function mergeReadModelMessagesWithLiveHotPath(
     if (mergedById.has(previousMessage.id)) {
       continue;
     }
-    if (!shouldRetainLiveMessageForHotPath(previousThread, previousMessage)) {
+    if (
+      options?.retainHydratedWindow !== true &&
+      !shouldRetainLiveMessageForHotPath(previousThread, previousMessage)
+    ) {
       continue;
     }
     changed = true;
@@ -818,15 +824,17 @@ function mergeReadModelActivitiesWithLiveHotPath(
   incomingActivities: ReadModelThread["activities"],
   previousThread: Thread,
   preserveRunningTurn: boolean,
+  retainHydratedWindow: boolean,
 ): ReadModelThread["activities"] {
   const liveTurnId = previousThread.latestTurn?.turnId;
-  if (!preserveRunningTurn || !liveTurnId) {
+  if (!retainHydratedWindow && (!preserveRunningTurn || !liveTurnId)) {
     return incomingActivities;
   }
 
   const incomingIds = new Set(incomingActivities.map((activity) => activity.id));
   const missingLiveActivities = previousThread.activities.filter(
-    (activity) => activity.turnId === liveTurnId && !incomingIds.has(activity.id),
+    (activity) =>
+      !incomingIds.has(activity.id) && (retainHydratedWindow || activity.turnId === liveTurnId),
   );
   if (missingLiveActivities.length === 0) {
     return incomingActivities;
@@ -978,6 +986,7 @@ function clearSettledTurnStreamingFlags(
 export function mergeReadModelThreadDetailWithLiveHotPath(
   incoming: ReadModelThread,
   previousThread: Thread | undefined,
+  options: { readonly retainHydratedWindow?: boolean } = {},
 ): ReadModelThread {
   if (!previousThread) {
     return incoming;
@@ -1002,6 +1011,9 @@ export function mergeReadModelThreadDetailWithLiveHotPath(
     settledLocalTurnId === null && shouldPreserveRunningTurn(previousThread, incoming);
   const mergedMessages = mergeReadModelMessagesWithLiveHotPath(incoming.messages, previousThread, {
     authoritativeTurnId: settledLocalTurnId,
+    ...(options.retainHydratedWindow === undefined
+      ? {}
+      : { retainHydratedWindow: options.retainHydratedWindow }),
   });
   const messages =
     settledLocalTurnId === null
@@ -1018,6 +1030,7 @@ export function mergeReadModelThreadDetailWithLiveHotPath(
     incoming.activities,
     previousThread,
     preserveRunningTurn,
+    options.retainHydratedWindow === true,
   );
   if (
     messages === incoming.messages &&
@@ -1500,10 +1513,15 @@ function normalizeThreadLifecycle(
 export function normalizeThreadFromReadModel(
   incoming: ReadModelThread,
   previous: Thread | undefined,
+  options: { readonly capMessages?: boolean; readonly capActivities?: boolean } = {},
 ): Thread {
   const modelSelection = normalizeModelSelection(incoming.modelSelection, previous?.modelSelection);
   const { session, latestTurn } = normalizeThreadLifecycle(incoming, previous);
-  const messages = normalizeChatMessages(incoming.messages, previous?.messages);
+  const messages = normalizeChatMessages(
+    incoming.messages,
+    previous?.messages,
+    options.capMessages === undefined ? {} : { cap: options.capMessages },
+  );
   const incomingQueuedMessageIds = incoming.queuedMessageIds ?? [];
   const queuedMessageIds = arraysShallowEqual(previous?.queuedMessageIds, incomingQueuedMessageIds)
     ? (previous?.queuedMessageIds ?? [])
@@ -1514,7 +1532,11 @@ export function normalizeThreadFromReadModel(
       ? previous.pinnedMessages
       : (incoming.pinnedMessages as Thread["pinnedMessages"]);
   const notes = incoming.notes;
-  const activities = normalizeActivities(incoming.activities, previous?.activities);
+  const activities = normalizeActivities(
+    incoming.activities,
+    previous?.activities,
+    options.capActivities === undefined ? {} : { cap: options.capActivities },
+  );
   const incomingPendingInteractions = Object.hasOwn(incoming, "pendingInteractions")
     ? (incoming.pendingInteractions ?? [])
     : previous?.pendingInteractions;

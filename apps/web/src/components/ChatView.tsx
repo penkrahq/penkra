@@ -144,6 +144,7 @@ import {
   getQueuedComposerActionRevision,
   subscribeQueuedComposerActions,
   markQueuedComposerActionAccepted,
+  recordQueuedComposerActionPresentation,
   reconcileAcceptedQueuedComposerActions,
   type QueuedComposerActionKind,
 } from "../lib/queuedComposerActionOwnership";
@@ -2579,17 +2580,15 @@ export default function ChatView({
   const handleManageConnections = useCallback(() => {
     void navigate({ to: "/settings", search: { section: "providers" } });
   }, [navigate]);
-  const selectedBindingRevision = threadProviderBindingQuery.data?.binding?.revision;
   const resolveThreadBindingRevisionAtAdmission = useCallback(async (): Promise<number> => {
     return resolveBindingRevisionAtAdmission({
       hasThreadStarted,
-      ...(selectedBindingRevision === undefined ? {} : { cachedRevision: selectedBindingRevision }),
       loadCurrentRevision: async () => {
         const refreshed = await threadProviderBindingQuery.refetch();
         return refreshed.data?.binding?.revision;
       },
     });
-  }, [hasThreadStarted, selectedBindingRevision, threadProviderBindingQuery]);
+  }, [hasThreadStarted, threadProviderBindingQuery]);
   const providerOptionsForDispatch = useMemo(() => getProviderStartOptions(settings), [settings]);
   const selectedModelForPicker =
     selectedModelSelection.provider === selectedProvider
@@ -5364,8 +5363,14 @@ export default function ChatView({
   }, [composerMenuOpen]);
 
   const visibleQueuedComposerTurns = useMemo(() => {
+    const transcriptSteerMessageIds = new Set(
+      timelineMessages
+        .filter((message) => message.dispatchMode === "steer")
+        .map((message) => message.id),
+    );
     const visibleLocalTurns = queuedComposerTurns.filter(
       (queuedTurn) =>
+        !transcriptSteerMessageIds.has(queuedComposerTurnServerMessageId(queuedTurn)) &&
         !queuedComposerActionInFlightIds.has(queuedTurn.id) &&
         !locallyOwnedQueuedActionMessageIds.has(queuedComposerTurnServerMessageId(queuedTurn)) &&
         !queuedActionStateByMessageId.has(queuedComposerTurnServerMessageId(queuedTurn)),
@@ -5392,6 +5397,7 @@ export default function ChatView({
         (queuedActionStateByMessageId.get(messageId) ?? message.delivery.state) === "queued";
       if (!legacyQueued && !lifecycleQueued) return [];
       if (queuedComposerActionInFlightIds.has(`server:${messageId}`)) return [];
+      if (transcriptSteerMessageIds.has(messageId)) return [];
       if (locallyOwnedQueuedActionMessageIds.has(messageId)) return [];
       if (localMessageIds.has(messageId)) {
         return [];
@@ -5443,7 +5449,20 @@ export default function ChatView({
     selectedModelSelection,
     selectedPromptEffort,
     selectedProvider,
+    timelineMessages,
   ]);
+  useLayoutEffect(() => {
+    const visibleQueueMessageIds = visibleQueuedComposerTurns.map((turn) =>
+      queuedComposerTurnServerMessageId(turn),
+    );
+    recordQueuedComposerActionPresentation(
+      threadId,
+      visibleQueueMessageIds,
+      timelineMessages
+        .filter((message) => message.dispatchMode === "steer")
+        .map((message) => message.id),
+    );
+  }, [threadId, timelineMessages, visibleQueuedComposerTurns]);
 
   const beginLocalDispatch = useCallback(
     (options?: { readonly expectedUserMessageId?: MessageId }) => {

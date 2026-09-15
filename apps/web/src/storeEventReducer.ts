@@ -414,7 +414,11 @@ function mergeStreamingMessage(
   };
 }
 
-function applyThreadMessageSentEvent(thread: Thread, event: ThreadMessageSentEvent): Thread {
+function applyThreadMessageSentEvent(
+  thread: Thread,
+  event: ThreadMessageSentEvent,
+  options: { readonly capMessages: boolean },
+): Thread {
   const payload = event.payload;
   // Single scan: the previous implementation ran `find` and `findIndex` with the same predicate
   // over the (up to MAX_THREAD_MESSAGES) message list for every streaming delta.
@@ -451,7 +455,10 @@ function applyThreadMessageSentEvent(thread: Thread, event: ThreadMessageSentEve
       messages = thread.messages.with(existingIndex, mergedMessage);
     }
   } else {
-    messages = [...thread.messages, incomingMessage].slice(-MAX_THREAD_MESSAGES);
+    const appendedMessages = [...thread.messages, incomingMessage];
+    messages = options.capMessages
+      ? appendedMessages.slice(-MAX_THREAD_MESSAGES)
+      : appendedMessages;
   }
 
   let latestTurn = thread.latestTurn;
@@ -884,7 +891,10 @@ function applyOrchestrationEvent(
       return applyThreadUpdate(
         state,
         event.payload.threadId,
-        (thread) => applyThreadMessageSentEvent(thread, event),
+        (thread) =>
+          applyThreadMessageSentEvent(thread, event, {
+            capMessages: state.threadDetailSyncById?.[event.payload.threadId] !== "synced",
+          }),
         {
           ...options,
           recomputeSummarySignals: threadMessageUpdatesSummary(event),

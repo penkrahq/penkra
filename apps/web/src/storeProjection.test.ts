@@ -33,6 +33,7 @@ import { getThreadFromState } from "./threadDerivation";
 import {
   makeThread,
   makeActivity,
+  makeDomainEvent,
   makeState,
   makeProject,
   makeReadModelThread,
@@ -463,6 +464,185 @@ describe("store projection", () => {
     expect(getThreadFromState(evicted, threadId)?.messages).toEqual([]);
     expect(getThreadFromState(evicted, threadId)?.activities).toEqual([]);
     expect(evicted.threadDetailSyncById?.[threadId]).toBeUndefined();
+  });
+
+  it("does not discard a loaded turn page when its next live detail exceeds the snapshot window", () => {
+    const threadId = ThreadId.makeUnsafe("thread-live-detail-after-large-page");
+    const turnId = TurnId.makeUnsafe("turn-live-detail-after-large-page");
+    const historicalTool = makeActivity({
+      id: "historical-tool-from-loaded-page",
+      turnId,
+      kind: "tool.completed",
+      summary: "Historical tool from loaded page",
+      sequence: 2,
+      createdAt: "2026-09-15T00:00:01.000Z",
+    });
+    const snapshotWindow = Array.from({ length: 2_000 }, (_, index) =>
+      makeActivity({
+        id: `live-detail-window-${index}`,
+        turnId,
+        kind: "context-window.updated",
+        summary: "Context window updated",
+        sequence: index + 3,
+        createdAt: new Date(Date.parse("2026-09-15T00:00:02.000Z") + index).toISOString(),
+      }),
+    );
+    const initial = makeState(
+      makeThread({
+        id: threadId,
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: turnId,
+          createdAt: "2026-09-15T00:00:00.000Z",
+          updatedAt: "2026-09-15T00:00:02.000Z",
+        },
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-09-15T00:00:00.000Z",
+          startedAt: "2026-09-15T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+    const paged = syncServerThreadTurnsPage(initial, {
+      threadId,
+      snapshotSequence: 2_002,
+      conversationTurnCount: 1,
+      messages: [],
+      activities: [historicalTool, ...snapshotWindow],
+      pendingInteractions: [],
+      hasOlder: false,
+      nextCursor: null,
+    });
+    expect(getThreadFromState(paged, threadId)?.activities).toHaveLength(2_001);
+
+    const liveTool = makeActivity({
+      id: "new-live-tool-after-page",
+      turnId,
+      kind: "tool.completed",
+      summary: "New live tool after page",
+      sequence: 2_003,
+      createdAt: "2026-09-15T00:00:05.000Z",
+    });
+    const reconciled = syncServerThreadDetailHotPath(
+      paged,
+      makeReadModelThread({
+        id: threadId,
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-09-15T00:00:00.000Z",
+          startedAt: "2026-09-15T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        activities: [...snapshotWindow, liveTool],
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: turnId,
+          lastError: null,
+          updatedAt: "2026-09-15T00:00:05.000Z",
+        },
+      }),
+    );
+    const activityIds = getThreadFromState(reconciled, threadId)?.activities.map(
+      (activity) => activity.id,
+    );
+
+    expect(activityIds).toContain(EventId.makeUnsafe("historical-tool-from-loaded-page"));
+    expect(activityIds).toContain(EventId.makeUnsafe("new-live-tool-after-page"));
+    expect(activityIds).toHaveLength(2_002);
+  });
+
+  it("does not discard messages from an admitted page when a new live message crosses the snapshot window", () => {
+    const threadId = ThreadId.makeUnsafe("thread-live-message-after-large-page");
+    const messages = Array.from({ length: 2_000 }, (_, index) => ({
+      id: MessageId.makeUnsafe(`retained-page-message-${index}`),
+      role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      text: `Retained page message ${index}`,
+      attachments: [],
+      sequence: index + 1,
+      turnId: TurnId.makeUnsafe(`retained-page-turn-${Math.floor(index / 2)}`),
+      streaming: false,
+      source: "native" as const,
+      createdAt: new Date(Date.parse("2026-09-15T01:00:00.000Z") + index).toISOString(),
+      updatedAt: new Date(Date.parse("2026-09-15T01:00:00.000Z") + index).toISOString(),
+    }));
+    const paged = syncServerThreadTurnsPage(makeState(makeThread({ id: threadId })), {
+      threadId,
+      snapshotSequence: 2_000,
+      conversationTurnCount: 1_000,
+      messages,
+      activities: [],
+      pendingInteractions: [],
+      hasOlder: false,
+      nextCursor: null,
+    });
+
+    const next = applyOrchestrationEvents(paged, [
+      makeDomainEvent("thread.message-sent", {
+        threadId,
+        messageId: MessageId.makeUnsafe("live-message-after-loaded-page"),
+        role: "user",
+        text: "New live message",
+        attachments: [],
+        turnId: TurnId.makeUnsafe("live-turn-after-loaded-page"),
+        streaming: false,
+        source: "native",
+        createdAt: "2026-09-15T02:00:00.000Z",
+        updatedAt: "2026-09-15T02:00:00.000Z",
+      }),
+    ]);
+    const retained = getThreadFromState(next, threadId)?.messages;
+
+    expect(retained?.[0]?.id).toBe(MessageId.makeUnsafe("retained-page-message-0"));
+    expect(retained?.at(-1)?.id).toBe(MessageId.makeUnsafe("live-message-after-loaded-page"));
+    expect(retained).toHaveLength(2_001);
+  });
+
+  it("keeps an unmounted summary message window bounded before detail admission", () => {
+    const threadId = ThreadId.makeUnsafe("thread-unmounted-message-window");
+    const messages = Array.from({ length: 2_000 }, (_, index) => ({
+      id: MessageId.makeUnsafe(`summary-message-${index}`),
+      role: "user" as const,
+      text: `Summary message ${index}`,
+      attachments: [],
+      sequence: index + 1,
+      turnId: null,
+      streaming: false,
+      source: "native" as const,
+      createdAt: new Date(Date.parse("2026-09-15T03:00:00.000Z") + index).toISOString(),
+      updatedAt: new Date(Date.parse("2026-09-15T03:00:00.000Z") + index).toISOString(),
+    }));
+    const initial = makeState(makeThread({ id: threadId, messages }));
+
+    const next = applyOrchestrationEvents(initial, [
+      makeDomainEvent("thread.message-sent", {
+        threadId,
+        messageId: MessageId.makeUnsafe("new-summary-message"),
+        role: "user",
+        text: "Newest summary message",
+        attachments: [],
+        turnId: null,
+        streaming: false,
+        source: "native",
+        createdAt: "2026-09-15T04:00:00.000Z",
+        updatedAt: "2026-09-15T04:00:00.000Z",
+      }),
+    ]);
+    const retained = getThreadFromState(next, threadId)?.messages;
+
+    expect(retained).toHaveLength(2_000);
+    expect(retained?.[0]?.id).toBe(MessageId.makeUnsafe("summary-message-1"));
+    expect(retained?.at(-1)?.id).toBe(MessageId.makeUnsafe("new-summary-message"));
+    expect(next.threadDetailSyncById?.[threadId]).toBeUndefined();
   });
 
   it("ignores a late turn-page response after the thread is deleted", () => {

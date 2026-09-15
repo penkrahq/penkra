@@ -19,12 +19,15 @@ interface AcceptedQueuedComposerAction {
 export interface QueuedComposerActionDiagnosticSample {
   readonly sequence: number;
   readonly recordedAt: string;
-  readonly event: "claim" | "claim-conflict" | "release" | "accepted" | "settled";
+  readonly event: "claim" | "claim-conflict" | "release" | "accepted" | "settled" | "presentation";
   readonly threadId: ThreadId;
   readonly queuedTurnId: string | null;
   readonly messageId: MessageId | null;
   readonly action: QueuedComposerActionKind;
   readonly receiptSequence: number | null;
+  readonly visibleQueueMessageIds?: readonly MessageId[];
+  readonly visibleSteerMessageIds?: readonly MessageId[];
+  readonly duplicateMessageIds?: readonly MessageId[];
 }
 
 export class QueuedComposerActionOwnership {
@@ -77,6 +80,25 @@ export class QueuedComposerActionOwnership {
     return this.#diagnosticSamples
       .filter((sample) => threadId === undefined || sample.threadId === threadId)
       .map((sample) => Object.assign({}, sample));
+  }
+
+  recordPresentation(
+    threadId: ThreadId,
+    visibleQueueMessageIds: readonly MessageId[],
+    visibleSteerMessageIds: readonly MessageId[],
+  ): void {
+    const visibleSteerIds = new Set(visibleSteerMessageIds);
+    this.#recordDiagnostic({
+      event: "presentation",
+      threadId,
+      queuedTurnId: null,
+      messageId: null,
+      action: "steer",
+      receiptSequence: null,
+      visibleQueueMessageIds,
+      visibleSteerMessageIds,
+      duplicateMessageIds: visibleQueueMessageIds.filter((id) => visibleSteerIds.has(id)),
+    });
   }
 
   resetForTests(): void {
@@ -280,6 +302,16 @@ export const getQueuedComposerActionDiagnosticSamples = (
   threadId?: ThreadId,
 ): readonly QueuedComposerActionDiagnosticSample[] =>
   sharedQueuedComposerActionOwnership.diagnosticSamples(threadId);
+export const recordQueuedComposerActionPresentation = (
+  threadId: ThreadId,
+  visibleQueueMessageIds: readonly MessageId[],
+  visibleSteerMessageIds: readonly MessageId[],
+): void =>
+  sharedQueuedComposerActionOwnership.recordPresentation(
+    threadId,
+    visibleQueueMessageIds,
+    visibleSteerMessageIds,
+  );
 export const resetQueuedComposerActionOwnershipForTests = (): void =>
   sharedQueuedComposerActionOwnership.resetForTests();
 

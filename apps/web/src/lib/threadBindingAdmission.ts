@@ -6,14 +6,10 @@ const THREAD_BINDING_LOAD_ERROR = "Could not load the thread's current provider 
 
 export async function resolveThreadBindingRevisionAtAdmission(input: {
   readonly hasThreadStarted: boolean;
-  readonly cachedRevision?: number;
   readonly loadCurrentRevision: () => Promise<number | undefined>;
 }): Promise<number> {
   if (!input.hasThreadStarted) {
     return 0;
-  }
-  if (input.cachedRevision !== undefined) {
-    return input.cachedRevision;
   }
 
   const revision = await input.loadCurrentRevision();

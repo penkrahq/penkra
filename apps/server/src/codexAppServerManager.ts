@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import * as Path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 import {
   ApprovalRequestId,
@@ -195,6 +196,10 @@ interface CodexSessionContext {
   terminalTurnIds: Set<TurnId>;
   temporaryResourcePaths: Map<TurnId, Set<string>>;
   mcpStartupStatuses: Map<string, McpStartupStatusEntry>;
+  reportedMcpStartupFailures: Set<string>;
+  stderrLineFramer: CodexStderrLineFramer;
+  deferredMcpTransportWarnings: string[];
+  deferredMcpTransportWarningTimer?: NodeJS.Timeout;
   computerUseHealth?: ComputerUseCapabilityHealth;
   taskCompleteFallback?:
     | {
@@ -369,6 +374,31 @@ const CODEX_DISCOVERY_SESSION_IDLE_MS = 10 * 60 * 1000;
 const CODEX_PENDING_SETTLE_DEADLINE_MS = 2_000;
 const CODEX_STDERR_TAIL_MAX_BYTES = 64 * 1024;
 const CODEX_STDOUT_END_GRACE_MS = 100;
+const CODEX_MCP_TRANSPORT_STATUS_GRACE_MS = 5_000;
+
+export class CodexStderrLineFramer {
+  private readonly decoder = new StringDecoder("utf8");
+  private remainder = "";
+
+  push(chunk: Buffer): string[] {
+    const lines = `${this.remainder}${this.decoder.write(chunk)}`.split(/\r?\n/g);
+    this.remainder = lines.pop() ?? "";
+    return lines;
+  }
+
+  finish(): string[] {
+    const finalLine = `${this.remainder}${this.decoder.end()}`;
+    this.remainder = "";
+    return finalLine ? [finalLine] : [];
+  }
+}
+
+export function isCodexMcpTransportWorkerFailure(line: string): boolean {
+  return (
+    line.includes("rmcp::transport::worker") &&
+    line.includes("worker quit with fatal: Transport channel closed")
+  );
+}
 
 function redactCodexProcessOutput(value: string): string {
   return value
@@ -1015,7 +1045,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     } catch (error) {
       if (signal?.aborted) throw error;
       if (isPluginListUnavailable(error)) {
-        log.warn("Codex plugin reconciliation is unavailable in this runtime", { error });
+        log.warn("Codex plugin reconciliation is unavailable in this runtime", {
+          error,
+        });
         return;
       }
       throw error;
@@ -1118,6 +1150,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         terminalTurnIds: new Set(),
         temporaryResourcePaths: new Map(),
         mcpStartupStatuses: new Map(),
+        reportedMcpStartupFailures: new Set(),
+        stderrLineFramer: new CodexStderrLineFramer(),
+        deferredMcpTransportWarnings: [],
         nextRequestId: 1,
         stopping: false,
       };
@@ -1812,7 +1847,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   }
 
   async forkThread(
-    input: ProviderForkThreadInput & { readonly managedLaunch?: ProviderManagedLaunchContext },
+    input: ProviderForkThreadInput & {
+      readonly managedLaunch?: ProviderManagedLaunchContext;
+    },
   ): Promise<ProviderForkThreadResult> {
     const threadId = input.threadId;
     const now = new Date().toISOString();
@@ -1893,6 +1930,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         terminalTurnIds: new Set(),
         temporaryResourcePaths: new Map(),
         mcpStartupStatuses: new Map(),
+        reportedMcpStartupFailures: new Set(),
+        stderrLineFramer: new CodexStderrLineFramer(),
+        deferredMcpTransportWarnings: [],
         nextRequestId: 1,
         stopping: false,
       };
@@ -2453,6 +2493,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const inventory: McpToolInventoryEntry[] = [];
     const seenCursors = new Set<string>();
     let cursor: string | null = null;
+    let observedNamedFailure = false;
 
     do {
       const response: Record<string, unknown> = await this.sendRequest<Record<string, unknown>>(
@@ -2472,6 +2513,21 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         if (!name) continue;
         const tools = asObject(server?.tools) ?? {};
         inventory.push({ name, toolNames: Object.keys(tools) });
+        const runtimeStatus = asString(server?.runtimeStatus)?.trim();
+        const startupStatus = context.mcpStartupStatuses.get(name);
+        const toolsError = asString(server?.toolsError)?.trim();
+        const failureDetail =
+          toolsError ??
+          (runtimeStatus === "failed" || startupStatus?.state === "failed"
+            ? startupStatus?.error?.trim() || "Startup failed."
+            : undefined);
+        if (runtimeStatus === "connected" || startupStatus?.state === "ready") {
+          context.reportedMcpStartupFailures.delete(name);
+        }
+        if (failureDetail) {
+          observedNamedFailure = true;
+          this.reportMcpStartupFailure(context, name, failureDetail);
+        }
       }
       const nextCursor: string | null = asString(response.nextCursor)?.trim() || null;
       if (nextCursor && seenCursors.has(nextCursor)) {
@@ -2480,6 +2536,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (nextCursor) seenCursors.add(nextCursor);
       cursor = nextCursor;
     } while (cursor !== null);
+
+    if (observedNamedFailure) {
+      this.discardDeferredMcpTransportWarnings(context);
+    } else {
+      this.flushDeferredMcpTransportWarning(context);
+    }
 
     const health = classifyComputerUseCapability({
       inventory,
@@ -2762,6 +2824,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       terminalTurnIds: new Set(),
       temporaryResourcePaths: new Map(),
       mcpStartupStatuses: new Map(),
+      reportedMcpStartupFailures: new Set(),
+      stderrLineFramer: new CodexStderrLineFramer(),
+      deferredMcpTransportWarnings: [],
       nextRequestId: 1,
       stopping: false,
       discovery: true,
@@ -2810,7 +2875,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
 
       void this.stopDiscoverySession(discoveryKey).catch((error) => {
-        log.warn("Failed to stop idle Codex discovery session", { discoveryKey, error });
+        log.warn("Failed to stop idle Codex discovery session", {
+          discoveryKey,
+          error,
+        });
       });
     }, CODEX_DISCOVERY_SESSION_IDLE_MS);
     timer.unref();
@@ -2916,15 +2984,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (context.stopping) {
         return;
       }
-      const raw = chunk.toString();
-      const lines = raw.split(/\r?\n/g);
-      for (const rawLine of lines) {
-        const classified = classifyCodexStderrLine(rawLine);
-        if (!classified) {
-          continue;
-        }
-
-        this.emitErrorEvent(context, "process/stderr", classified.message);
+      for (const rawLine of context.stderrLineFramer.push(chunk)) {
+        this.handleCodexStderrLine(context, rawLine);
+      }
+    });
+    context.child.stderr.once("end", () => {
+      for (const rawLine of context.stderrLineFramer.finish()) {
+        this.handleCodexStderrLine(context, rawLine);
       }
     });
 
@@ -2934,6 +3000,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (context.stopping) {
         return;
       }
+
+      this.discardDeferredMcpTransportWarnings(context);
 
       if (context.stdoutEndTimer) {
         clearTimeout(context.stdoutEndTimer);
@@ -3015,6 +3083,67 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         error: stopError,
       });
     });
+  }
+
+  private handleCodexStderrLine(context: CodexSessionContext, rawLine: string): void {
+    const classified = classifyCodexStderrLine(rawLine);
+    if (!classified) return;
+    if (isCodexMcpTransportWorkerFailure(rawLine)) {
+      const deferredWarnings = (context.deferredMcpTransportWarnings ??= []);
+      if (deferredWarnings.length === 0) {
+        deferredWarnings.push(classified.message);
+      }
+      if (!context.deferredMcpTransportWarningTimer) {
+        context.deferredMcpTransportWarningTimer = setTimeout(() => {
+          delete context.deferredMcpTransportWarningTimer;
+          this.flushDeferredMcpTransportWarning(context);
+        }, CODEX_MCP_TRANSPORT_STATUS_GRACE_MS);
+        context.deferredMcpTransportWarningTimer.unref();
+      }
+      return;
+    }
+    this.emitErrorEvent(context, "process/stderr", classified.message);
+  }
+
+  private reportMcpStartupFailure(
+    context: CodexSessionContext,
+    name: string,
+    failureDetail: string,
+  ): void {
+    if (context.reportedMcpStartupFailures.has(name)) return;
+    context.reportedMcpStartupFailures.add(name);
+    this.discardDeferredMcpTransportWarnings(context);
+    log.warn("Codex MCP server failed to start", {
+      threadId: context.session.threadId,
+      serverName: name,
+      error: failureDetail,
+    });
+    this.emitErrorEvent(
+      context,
+      "mcpServer/startupFailed",
+      `MCP server “${name}” failed to start. Its tools are unavailable for this session.`,
+    );
+  }
+
+  private flushDeferredMcpTransportWarning(context: CodexSessionContext): void {
+    if (context.deferredMcpTransportWarningTimer) {
+      clearTimeout(context.deferredMcpTransportWarningTimer);
+      delete context.deferredMcpTransportWarningTimer;
+    }
+    const deferredWarnings = (context.deferredMcpTransportWarnings ??= []);
+    const warning = deferredWarnings.shift();
+    deferredWarnings.length = 0;
+    if (warning && !context.stopping) {
+      this.emitErrorEvent(context, "process/stderr", warning);
+    }
+  }
+
+  private discardDeferredMcpTransportWarnings(context: CodexSessionContext): void {
+    if (context.deferredMcpTransportWarningTimer) {
+      clearTimeout(context.deferredMcpTransportWarningTimer);
+      delete context.deferredMcpTransportWarningTimer;
+    }
+    (context.deferredMcpTransportWarnings ??= []).length = 0;
   }
 
   private handleStdoutLine(context: CodexSessionContext, line: string): void {
@@ -3533,7 +3662,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           id: request.id,
           result: {
             contentItems: [
-              { type: "inputText", text: "Penkra rejected an invalid dynamic tool request." },
+              {
+                type: "inputText",
+                text: "Penkra rejected an invalid dynamic tool request.",
+              },
             ],
             success: false,
           },
