@@ -112,7 +112,10 @@ export interface ChatSyncPublicationDiagnosticSample {
   readonly event:
     | "sync-publication-queued"
     | "sync-publication-flushed"
-    | "sync-publication-apply-failed";
+    | "sync-publication-apply-failed"
+    | "sync-publication-recovery-scheduled"
+    | "sync-publication-recovered"
+    | "sync-publication-recovery-exhausted";
   readonly sequence: number;
   readonly recordedAt: string;
   readonly performanceNow: number;
@@ -126,6 +129,7 @@ export interface ChatSyncPublicationDiagnosticSample {
   readonly firstOrchestrationSequence: number;
   readonly lastOrchestrationSequence: number;
   readonly failureName?: string;
+  readonly recoveryAttempt?: number;
 }
 
 export type ChatLifecycleSample =
@@ -135,6 +139,15 @@ export type ChatLifecycleSample =
   | ChatSyncPublicationDiagnosticSample;
 
 const MAX_SAMPLES = 1_000;
+const PERSISTED_SYNC_INCIDENTS_KEY = "penkra:chat-sync-incidents:v1";
+const PERSISTED_SYNC_INCIDENT_MAX_AGE_MS = 10 * 60 * 1_000;
+const MAX_PERSISTED_SYNC_INCIDENTS = 100;
+const PERSISTED_SYNC_INCIDENT_EVENTS = new Set<ChatSyncPublicationDiagnosticSample["event"]>([
+  "sync-publication-apply-failed",
+  "sync-publication-recovery-scheduled",
+  "sync-publication-recovered",
+  "sync-publication-recovery-exhausted",
+]);
 interface ChatLifecycleDiagnosticBuffer {
   nextSequence: number;
   logToConsole: boolean;
@@ -190,6 +203,48 @@ function appendSample(sample: ChatLifecycleSample): void {
   }
   if (state.logToConsole) {
     console.debug("[chat-lifecycle]", sample);
+  }
+  if (
+    sample.event.startsWith("sync-publication-") &&
+    PERSISTED_SYNC_INCIDENT_EVENTS.has(sample.event as ChatSyncPublicationDiagnosticSample["event"])
+  ) {
+    persistSyncIncident(sample as ChatSyncPublicationDiagnosticSample);
+  }
+}
+
+function readPersistedSyncIncidents(now = Date.now()): ChatSyncPublicationDiagnosticSample[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(PERSISTED_SYNC_INCIDENTS_KEY) ?? "[]",
+    ) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (sample): sample is ChatSyncPublicationDiagnosticSample =>
+          typeof sample === "object" &&
+          sample !== null &&
+          "recordedAt" in sample &&
+          typeof sample.recordedAt === "string" &&
+          now - Date.parse(sample.recordedAt) <= PERSISTED_SYNC_INCIDENT_MAX_AGE_MS,
+      )
+      .slice(-MAX_PERSISTED_SYNC_INCIDENTS);
+  } catch {
+    return [];
+  }
+}
+
+function persistSyncIncident(sample: ChatSyncPublicationDiagnosticSample): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(
+      PERSISTED_SYNC_INCIDENTS_KEY,
+      JSON.stringify(
+        [...readPersistedSyncIncidents(), sample].slice(-MAX_PERSISTED_SYNC_INCIDENTS),
+      ),
+    );
+  } catch {
+    // Diagnostics must never interfere with transcript recovery.
   }
 }
 
@@ -281,6 +336,10 @@ export function getChatLifecycleDiagnosticSamples(
     .map((sample) => Object.assign({}, sample));
 }
 
+export function getPersistedChatSyncIncidents(): readonly ChatSyncPublicationDiagnosticSample[] {
+  return readPersistedSyncIncidents().map((sample) => Object.assign({}, sample));
+}
+
 export function resetChatLifecycleDiagnostics(): void {
   state.nextSequence = 1;
   state.samples = [];
@@ -295,6 +354,7 @@ declare global {
   interface Window {
     penkraChatLifecycle?: {
       samples: typeof getChatLifecycleDiagnosticSamples;
+      incidents: typeof getPersistedChatSyncIncidents;
       reset: typeof resetChatLifecycleDiagnostics;
       logToConsole: typeof setChatLifecycleConsoleLogging;
     };
@@ -304,6 +364,7 @@ declare global {
 if (typeof window !== "undefined") {
   window.penkraChatLifecycle = {
     samples: getChatLifecycleDiagnosticSamples,
+    incidents: getPersistedChatSyncIncidents,
     reset: resetChatLifecycleDiagnostics,
     logToConsole: setChatLifecycleConsoleLogging,
   };

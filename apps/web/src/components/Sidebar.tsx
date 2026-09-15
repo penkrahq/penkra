@@ -44,7 +44,7 @@ import { cn } from "~/lib/utils";
 import { useAppSettings } from "../appSettings";
 import type { LastThreadRoute } from "../chatRouteRestore";
 import { useComposerDraftStore } from "../composerDraftStore";
-import { useComposerSendPreflightThreadIds } from "../composerSendPreflight";
+import { useComposerSendActivityThreadIds } from "../composerSendPreflight";
 import { recordSidebarLifecycleDiagnostic } from "../sidebarLifecycleDiagnostics";
 import { isElectron } from "../env";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
@@ -390,7 +390,7 @@ export default function Sidebar() {
   const openChatThreadPage = useTerminalStateStore((state) => state.openChatThreadPage);
   const openTerminalThreadPage = useTerminalStateStore((state) => state.openTerminalThreadPage);
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
-  const localSendOwnerThreadIds = useComposerSendPreflightThreadIds();
+  const localSendOwnerThreadIds = useComposerSendActivityThreadIds();
   const persistedPinnedFolderIds = usePinnedFoldersStore((store) => store.pinnedFolderIds);
   const pinProjectLocally = usePinnedFoldersStore((store) => store.pinProject);
   const unpinProject = usePinnedFoldersStore((store) => store.unpinProject);
