@@ -43,3 +43,9 @@ export function requireDesktopThreadLiveHandlers(threadId: string): DesktopThrea
   }
   return handlers;
 }
+
+export function getDesktopThreadLiveHandlers(
+  threadId: string,
+): DesktopThreadLiveHandlers | undefined {
+  return handlersByThreadId.get(threadId);
+}

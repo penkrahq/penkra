@@ -6,11 +6,16 @@ import { ThreadId, type ModelSelection, type ProviderKind } from "@penkra/contra
 import { useEffect } from "react";
 
 import { useComposerDraftStore } from "../composerDraftStore";
-import { requireDesktopThreadLiveHandlers } from "../desktopThreadApiBroker";
+import {
+  getDesktopThreadLiveHandlers,
+  requireDesktopThreadLiveHandlers,
+} from "../desktopThreadApiBroker";
 import { useProviderStatusesForLocalConfig } from "../hooks/useProviderStatusesForLocalConfig";
 import { useRefreshProviderStatusesNow } from "../hooks/useProviderStatusRefresh";
 import { createPastedTextDraft } from "../lib/composerPastedText";
+import { deriveUnmountedThreadLiveState } from "../lib/desktopThreadState";
 import { resolveProviderSendAvailabilityWithRefresh } from "../lib/providerAvailability";
+import { useStore } from "../store";
 
 const RECEIPT_TTL_MS = 10 * 60_000;
 const RECEIPT_STORAGE_KEY = "penkra.app-thread-composition-receipts.v1";
@@ -73,6 +78,7 @@ export function DesktopThreadApiBridge() {
       }
       const input = request.input;
       const threadId = ThreadId.makeUnsafe(request.threadId);
+      requireDesktopThreadLiveHandlers(threadId);
       const before = readState(threadId);
       if (!before.composer.empty || before.phase !== "idle" || before.queued.count > 0) {
         const code = before.pendingQuestion
@@ -281,7 +287,14 @@ export function DesktopThreadApiBridge() {
 }
 
 function readState(threadId: string): import("@penkra/sdk").AppThreadState {
-  const live = requireDesktopThreadLiveHandlers(threadId).read();
+  const live =
+    getDesktopThreadLiveHandlers(threadId)?.read() ??
+    deriveUnmountedThreadLiveState(
+      threadId,
+      useStore.getState().sidebarThreadSummaryById[threadId],
+      useComposerDraftStore.getState().draftsByThreadId[ThreadId.makeUnsafe(threadId)]?.queuedTurns
+        .length ?? 0,
+    );
   const draft = useComposerDraftStore.getState().draftsByThreadId[ThreadId.makeUnsafe(threadId)];
   const empty = !draft || !hasComposerContent(draft);
   const fingerprint = draft ? draftFingerprint(draft) : null;
