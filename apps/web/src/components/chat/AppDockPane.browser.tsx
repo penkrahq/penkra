@@ -10,6 +10,10 @@ import { AppDockPane } from "./AppDockPane";
 
 const originalDesktopBridge = Object.getOwnPropertyDescriptor(window, "desktopBridge");
 const originalNavigatorUserAgent = Object.getOwnPropertyDescriptor(window.navigator, "userAgent");
+const originalDocumentVisibilityState = Object.getOwnPropertyDescriptor(
+  document,
+  "visibilityState",
+);
 const originalWebContentsId = Object.getOwnPropertyDescriptor(
   HTMLElement.prototype,
   "getWebContentsId",
@@ -35,6 +39,11 @@ afterEach(() => {
     Object.defineProperty(window.navigator, "userAgent", originalNavigatorUserAgent);
   } else {
     Reflect.deleteProperty(window.navigator, "userAgent");
+  }
+  if (originalDocumentVisibilityState) {
+    Object.defineProperty(document, "visibilityState", originalDocumentVisibilityState);
+  } else {
+    Reflect.deleteProperty(document, "visibilityState");
   }
   if (originalWebContentsId) {
     Object.defineProperty(HTMLElement.prototype, "getWebContentsId", originalWebContentsId);
@@ -92,6 +101,56 @@ function installBridge() {
 }
 
 describe("AppDockPane Runtime v2 frame", () => {
+  it("reports an open pane inactive while its shell document is hidden", async () => {
+    const bridge = installBridge();
+    await render(
+      <div className="h-40 w-80">
+        <AppDockPane
+          appName="Canvas"
+          documentUrl={FRAME_DOCUMENT}
+          rendererId={101}
+          status="ready"
+          tabId="stable-tab"
+          visible={true}
+        />
+      </div>,
+    );
+
+    await vi.waitFor(() =>
+      expect(bridge.setActive).toHaveBeenLastCalledWith({
+        tabId: "stable-tab",
+        rendererId: 101,
+        active: true,
+      }),
+    );
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.waitFor(() =>
+      expect(bridge.setActive).toHaveBeenLastCalledWith({
+        tabId: "stable-tab",
+        rendererId: 101,
+        active: false,
+      }),
+    );
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.waitFor(() =>
+      expect(bridge.setActive).toHaveBeenLastCalledWith({
+        tabId: "stable-tab",
+        rendererId: 101,
+        active: true,
+      }),
+    );
+  });
+
   it("remounts the App document when an update assigns a new renderer identity", async () => {
     const bridge = installBridge();
     function Harness() {
