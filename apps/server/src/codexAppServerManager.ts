@@ -73,6 +73,7 @@ import {
   CodexAppServerTransportError,
   CodexJsonlFramer,
   CodexJsonlWriter,
+  type CodexOversizedNotificationFrame,
 } from "./codexAppServerTransport.ts";
 import { buildCodexTurnInput, type CodexTurnInputItem } from "./codexTurnInput.ts";
 import {
@@ -2867,7 +2868,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (context.stopping) return;
       try {
         for (const line of context.stdoutFramer.push(chunk)) {
-          if (!isIgnorableCodexProcessLine(line)) this.handleStdoutLine(context, line);
+          if (typeof line === "string") {
+            if (!isIgnorableCodexProcessLine(line)) this.handleStdoutLine(context, line);
+          } else {
+            this.handleOversizedNotification(context, line);
+          }
         }
       } catch (cause) {
         this.handleTransportFailure(context, cause);
@@ -2985,6 +2990,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     log.error("codex app-server transport failed", {
       threadId: context.session.threadId,
       message,
+      ...(error instanceof CodexAppServerTransportError
+        ? {
+            protocolMethod: error.protocolMethod ?? null,
+            protocolTypes: error.protocolTypes,
+            observedBytes: error.observedBytes,
+            maxBytes: error.maxBytes,
+          }
+        : {}),
     });
     // Preserve the process diagnosis for whichever startup/runtime request was
     // actually waiting. stopSession's generic cancellation must not overwrite
@@ -3051,6 +3064,74 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       "protocol/unrecognizedMessage",
       "Received protocol message in an unknown shape.",
     );
+  }
+
+  private handleOversizedNotification(
+    context: CodexSessionContext,
+    frame: CodexOversizedNotificationFrame,
+  ): void {
+    const turnId = toTurnId(frame.turnId) ?? context.session.activeTurnId;
+    const providerThreadId =
+      frame.threadId ?? this.readString(context.session.resumeCursor, "threadId");
+    log.warn("Compacted oversized Codex app-server notification", {
+      threadId: context.session.threadId,
+      providerThreadId: providerThreadId ?? null,
+      providerTurnId: turnId ?? null,
+      providerItemId: frame.itemId ?? null,
+      method: frame.method,
+      observedBytes: frame.observedBytes,
+      maxBytes: frame.maxBytes,
+      pendingRequest: context.lastRequestMethod ?? null,
+      pendingRequestCount: context.pending.size,
+      lifecycleGeneration: context.lifecycleGeneration ?? null,
+      pid: context.child.pid ?? null,
+    });
+
+    this.emitEvent({
+      id: EventId.makeUnsafe(randomUUID()),
+      kind: "notification",
+      provider: "codex",
+      threadId: context.session.threadId,
+      createdAt: new Date().toISOString(),
+      ...(context.lifecycleGeneration !== undefined
+        ? { lifecycleGeneration: context.lifecycleGeneration }
+        : {}),
+      method: "protocol/oversizedNotificationCompacted",
+      ...(turnId ? { turnId } : {}),
+      ...(frame.itemId ? { itemId: toProviderItemId(frame.itemId) } : {}),
+      ...(providerThreadId ? { providerThreadId } : {}),
+      payload: {
+        sourceMethod: frame.method,
+        observedBytes: frame.observedBytes,
+        maxBytes: frame.maxBytes,
+      },
+    });
+
+    if (
+      (frame.method !== "item/started" && frame.method !== "item/completed") ||
+      frame.itemType !== "fileChange"
+    ) {
+      return;
+    }
+
+    this.handleServerNotification(context, {
+      method: frame.method,
+      params: {
+        ...(providerThreadId ? { threadId: providerThreadId } : {}),
+        ...(turnId ? { turnId } : {}),
+        item: {
+          type: "fileChange",
+          ...(frame.itemId ? { id: frame.itemId } : {}),
+          changes: [],
+          status: frame.status ?? (frame.method === "item/started" ? "inProgress" : "completed"),
+          detailsOmitted: {
+            reason: "frame-byte-limit",
+            originalBytes: frame.observedBytes,
+          },
+        },
+        completedAtMs: Date.now(),
+      },
+    });
   }
 
   private handleServerNotification(

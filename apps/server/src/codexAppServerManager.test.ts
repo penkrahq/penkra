@@ -879,6 +879,175 @@ describe("Codex app-server teardown", () => {
     expect(error.message).not.toContain("bearer-secret-value-that-must-not-leak");
   });
 
+  it("keeps response correlation after compacting an oversized file-change notification", () => {
+    class FakeCodexChild extends EventEmitter {
+      readonly pid = 5400;
+      exitCode: number | null = null;
+      signalCode: NodeJS.Signals | null = null;
+      killed = false;
+      readonly stdin = new PassThrough();
+      readonly stdout = new PassThrough();
+      readonly stderr = new PassThrough();
+    }
+    const child = new FakeCodexChild();
+    const manager = new CodexAppServerManager();
+    const threadId = asThreadId("thread-codex-oversized-file-change");
+    const resolve = vi.fn();
+    const reject = vi.fn();
+    const timeout = setTimeout(() => undefined, 60_000);
+    const context = {
+      session: {
+        provider: "codex",
+        status: "running",
+        threadId,
+        activeTurnId: asTurnId("parent-turn"),
+        resumeCursor: { threadId: "parent-provider-thread" },
+        runtimeMode: "full-access",
+        createdAt: "2026-09-15T00:00:00.000Z",
+        updatedAt: "2026-09-15T00:00:00.000Z",
+      },
+      account: { type: "unknown", planType: null, sparkEnabled: true },
+      child,
+      stdoutFramer: new CodexJsonlFramer(1_024),
+      stdinWriter: new CodexJsonlWriter(child.stdin),
+      pending: new Map([
+        [
+          "7",
+          {
+            method: "turn/steer",
+            timeout,
+            resolve,
+            reject,
+          },
+        ],
+      ]),
+      pendingApprovals: new Map(),
+      pendingUserInputs: new Map(),
+      collabReceiverTurns: new Map([["child-provider-thread", asTurnId("parent-turn")]]),
+      collabReceiverParents: new Map([["child-provider-thread", "parent-provider-thread"]]),
+      reviewTurnIds: new Set(),
+      terminalTurnIds: new Set(),
+      mcpStartupStatuses: new Map(),
+      nextRequestId: 8,
+      lastRequestMethod: "turn/steer",
+      stopping: false,
+    };
+    const events: Array<{ readonly method?: string; readonly payload?: unknown }> = [];
+    manager.on("event", (event) => events.push(event));
+    const internals = manager as unknown as {
+      sessions: Map<ThreadId, unknown>;
+      attachProcessListeners: (context: unknown) => void;
+    };
+    internals.sessions.set(threadId, context);
+    internals.attachProcessListeners(context);
+
+    child.stdout.write(
+      `${JSON.stringify({
+        method: "item/started",
+        params: {
+          item: {
+            type: "fileChange",
+            id: "patch-1",
+            changes: [{ path: "generated.js", kind: "delete", diff: "x".repeat(2_048) }],
+            status: "inProgress",
+          },
+          threadId: "child-provider-thread",
+          turnId: "child-turn",
+        },
+      })}\n${JSON.stringify({
+        method: "codex/event/item_completed",
+        params: {
+          id: "child-turn",
+          msg: {
+            type: "item_completed",
+            thread_id: "child-provider-thread",
+            turn_id: "child-turn",
+            item: {
+              type: "FileChange",
+              id: "patch-legacy",
+              changes: {
+                "generated.js": { type: "delete", content: "x".repeat(2_048) },
+              },
+            },
+          },
+        },
+      })}\n${JSON.stringify({
+        method: "item/completed",
+        params: {
+          item: {
+            type: "fileChange",
+            id: "patch-1",
+            changes: [{ path: "generated.js", kind: "delete", diff: "x".repeat(2_048) }],
+            status: "failed",
+          },
+          threadId: "child-provider-thread",
+          turnId: "child-turn",
+          completedAtMs: 123,
+        },
+      })}\n${JSON.stringify({ id: 7, result: { turnId: "provider-turn" } })}\n`,
+    );
+
+    expect(reject).not.toHaveBeenCalled();
+    expect(resolve).toHaveBeenCalledWith({ turnId: "provider-turn" });
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          method: "protocol/oversizedNotificationCompacted",
+          payload: expect.objectContaining({
+            sourceMethod: "item/started",
+            maxBytes: 1_024,
+          }),
+        }),
+        expect.objectContaining({
+          method: "protocol/oversizedNotificationCompacted",
+          payload: expect.objectContaining({
+            sourceMethod: "codex/event/item_completed",
+            maxBytes: 1_024,
+          }),
+        }),
+        expect.objectContaining({
+          method: "protocol/oversizedNotificationCompacted",
+          payload: expect.objectContaining({
+            sourceMethod: "item/completed",
+            maxBytes: 1_024,
+          }),
+        }),
+        expect.objectContaining({
+          method: "item/started",
+          turnId: "child-turn",
+          parentTurnId: "parent-turn",
+          providerThreadId: "child-provider-thread",
+          providerParentThreadId: "parent-provider-thread",
+          payload: expect.objectContaining({
+            item: expect.objectContaining({
+              type: "fileChange",
+              id: "patch-1",
+              changes: [],
+              status: "inProgress",
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          method: "item/completed",
+          turnId: "child-turn",
+          parentTurnId: "parent-turn",
+          providerThreadId: "child-provider-thread",
+          providerParentThreadId: "parent-provider-thread",
+          payload: expect.objectContaining({
+            item: expect.objectContaining({
+              type: "fileChange",
+              id: "patch-1",
+              changes: [],
+              status: "failed",
+            }),
+          }),
+        }),
+      ]),
+    );
+    expect(manager.hasSession(threadId)).toBe(true);
+    child.stdin.end();
+  });
+
   it("rejects the pending request with stderr when stdout closes first", async () => {
     vi.useFakeTimers();
     try {
