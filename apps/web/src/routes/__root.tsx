@@ -100,6 +100,7 @@ import {
 
 const seenProviderUpdateNotificationKeys = new Set<string>();
 const ORCHESTRATION_SYNC_PUBLICATION_INTERVAL_MS = 50;
+const ORCHESTRATION_SYNC_APPLICATION_RECOVERY_DELAYS_MS = [0, 250, 1_000] as const;
 
 type ProviderUpdateToastId = ReturnType<typeof toastManager.add>;
 type ActiveProviderUpdateToast =
@@ -819,6 +820,10 @@ function EventRouter() {
     let pendingSyncDeliveries: OrchestrationSyncStreamItem[] = [];
     let syncDeliveryFlushTimer: ReturnType<typeof setTimeout> | null = null;
     let syncApplicationFailed = false;
+    let syncApplicationRecoveryAttempts = 0;
+    let syncApplicationRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
+    let unsubscribeSyncEvent: (() => void) | null = null;
+    let subscribeToSyncEvents: () => void = () => undefined;
     let pendingSyncAcknowledgement: {
       readonly deliveryId: string;
       readonly appliedSequence: number;
@@ -906,8 +911,13 @@ function EventRouter() {
         });
       }
       const recordPublicationBatch = (
-        event: "sync-publication-flushed" | "sync-publication-apply-failed",
-        failureName?: string,
+        event:
+          | "sync-publication-flushed"
+          | "sync-publication-apply-failed"
+          | "sync-publication-recovery-scheduled"
+          | "sync-publication-recovered"
+          | "sync-publication-recovery-exhausted",
+        options?: { readonly failureName?: string; readonly recoveryAttempt?: number },
       ) => {
         for (const [threadId, range] of publicationRanges) {
           recordChatSyncPublicationDiagnostic({
@@ -918,7 +928,10 @@ function EventRouter() {
             reason,
             queuedDeliveryCount: deliveries.length,
             ...range,
-            ...(failureName === undefined ? {} : { failureName }),
+            ...(options?.failureName === undefined ? {} : { failureName: options.failureName }),
+            ...(options?.recoveryAttempt === undefined
+              ? {}
+              : { recoveryAttempt: options.recoveryAttempt }),
           });
         }
       };
@@ -972,15 +985,49 @@ function EventRouter() {
         }
       } catch (error) {
         syncApplicationFailed = true;
-        recordPublicationBatch(
-          "sync-publication-apply-failed",
-          error instanceof Error ? error.name : "UnknownError",
-        );
+        recordPublicationBatch("sync-publication-apply-failed", {
+          failureName: error instanceof Error ? error.name : "UnknownError",
+        });
         console.error("Failed to apply orchestration synchronization delivery", error);
+        const recoveryDelay =
+          ORCHESTRATION_SYNC_APPLICATION_RECOVERY_DELAYS_MS[syncApplicationRecoveryAttempts];
+        if (recoveryDelay !== undefined && syncApplicationRecoveryTimer === null) {
+          syncApplicationRecoveryAttempts += 1;
+          recordPublicationBatch("sync-publication-recovery-scheduled", {
+            failureName: error instanceof Error ? error.name : "UnknownError",
+            recoveryAttempt: syncApplicationRecoveryAttempts,
+          });
+          syncApplicationRecoveryTimer = setTimeout(() => {
+            syncApplicationRecoveryTimer = null;
+            if (disposed) return;
+            // Do not acknowledge or retry the failed batch in place. Closing its
+            // lease makes the server replace it with an authoritative snapshot,
+            // which is the only safe boundary after a client projection error.
+            unsubscribeSyncEvent?.();
+            unsubscribeSyncEvent = null;
+            pendingSyncDeliveries = [];
+            syncApplicationFailed = false;
+            subscribeToSyncEvents();
+          }, recoveryDelay);
+        } else if (recoveryDelay === undefined) {
+          recordPublicationBatch("sync-publication-recovery-exhausted", {
+            failureName: error instanceof Error ? error.name : "UnknownError",
+            recoveryAttempt: syncApplicationRecoveryAttempts,
+          });
+        }
         return;
       }
 
       recordPublicationBatch("sync-publication-flushed");
+      if (
+        syncApplicationRecoveryAttempts > 0 &&
+        deliveries.some((delivery) => delivery.kind === "snapshot")
+      ) {
+        recordPublicationBatch("sync-publication-recovered", {
+          recoveryAttempt: syncApplicationRecoveryAttempts,
+        });
+        syncApplicationRecoveryAttempts = 0;
+      }
 
       if (latestApplied) {
         advanceComposerSendPreflightAppliedSequence(latestApplied.appliedSequence);
@@ -988,42 +1035,45 @@ function EventRouter() {
       }
     };
 
-    const unsubSyncEvent = api.orchestration.onSyncEvent((item) => {
-      if (disposed || syncApplicationFailed) return;
-      if (item.kind === "event") recordChatLifecycleSyncDiagnostic(item.event, "received");
-      pendingSyncDeliveries.push(item);
-      const orchestrationSequence =
-        item.kind === "event" ? item.event.sequence : item.snapshot.snapshotSequence;
-      recordChatSyncPublicationDiagnostic({
-        event: "sync-publication-queued",
-        threadId:
-          item.kind === "event" && item.event.aggregateKind === "thread"
-            ? String(item.event.aggregateId)
-            : "*",
-        rendererVisibility: document.visibilityState,
-        rendererHasFocus: document.hasFocus(),
-        reason: "delivery",
-        queuedDeliveryCount: pendingSyncDeliveries.length,
-        firstOrchestrationSequence: orchestrationSequence,
-        lastOrchestrationSequence: orchestrationSequence,
-      });
-      if (document.visibilityState !== "visible" || !document.hasFocus()) {
-        if (syncDeliveryFlushTimer !== null) {
-          clearTimeout(syncDeliveryFlushTimer);
-          syncDeliveryFlushTimer = null;
+    subscribeToSyncEvents = () => {
+      unsubscribeSyncEvent = api.orchestration.onSyncEvent((item) => {
+        if (disposed || syncApplicationFailed) return;
+        if (item.kind === "event") recordChatLifecycleSyncDiagnostic(item.event, "received");
+        pendingSyncDeliveries.push(item);
+        const orchestrationSequence =
+          item.kind === "event" ? item.event.sequence : item.snapshot.snapshotSequence;
+        recordChatSyncPublicationDiagnostic({
+          event: "sync-publication-queued",
+          threadId:
+            item.kind === "event" && item.event.aggregateKind === "thread"
+              ? String(item.event.aggregateId)
+              : "*",
+          rendererVisibility: document.visibilityState,
+          rendererHasFocus: document.hasFocus(),
+          reason: "delivery",
+          queuedDeliveryCount: pendingSyncDeliveries.length,
+          firstOrchestrationSequence: orchestrationSequence,
+          lastOrchestrationSequence: orchestrationSequence,
+        });
+        if (document.visibilityState !== "visible" || !document.hasFocus()) {
+          if (syncDeliveryFlushTimer !== null) {
+            clearTimeout(syncDeliveryFlushTimer);
+            syncDeliveryFlushTimer = null;
+          }
+          flushSyncDeliveries("delivery");
+          return;
         }
-        flushSyncDeliveries("delivery");
-        return;
-      }
-      if (syncDeliveryFlushTimer !== null) return;
-      // Provider deltas commonly arrive in separate socket tasks. Publish their
-      // ordered projection at a bounded interactive cadence instead of committing React
-      // work for every delivery; persistence and server admission remain immediate.
-      syncDeliveryFlushTimer = setTimeout(
-        () => flushSyncDeliveries("visible-timer"),
-        ORCHESTRATION_SYNC_PUBLICATION_INTERVAL_MS,
-      );
-    });
+        if (syncDeliveryFlushTimer !== null) return;
+        // Provider deltas commonly arrive in separate socket tasks. Publish their
+        // ordered projection at a bounded interactive cadence instead of committing React
+        // work for every delivery; persistence and server admission remain immediate.
+        syncDeliveryFlushTimer = setTimeout(
+          () => flushSyncDeliveries("visible-timer"),
+          ORCHESTRATION_SYNC_PUBLICATION_INTERVAL_MS,
+        );
+      });
+    };
+    subscribeToSyncEvents();
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible" || pendingSyncDeliveries.length === 0) return;
       if (syncDeliveryFlushTimer !== null) {
@@ -1166,9 +1216,13 @@ function EventRouter() {
         clearTimeout(syncDeliveryFlushTimer);
         syncDeliveryFlushTimer = null;
       }
+      if (syncApplicationRecoveryTimer !== null) {
+        clearTimeout(syncApplicationRecoveryTimer);
+        syncApplicationRecoveryTimer = null;
+      }
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("blur", onWindowBlur);
-      unsubSyncEvent();
+      unsubscribeSyncEvent?.();
       unsubTerminalEvent();
       unsubDevServerEvent();
       unsubWorkspaceChange();

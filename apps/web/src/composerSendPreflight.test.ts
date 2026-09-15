@@ -11,6 +11,7 @@ const submission = (prompt: string) => ({
 });
 
 import {
+  type ComposerSendPreflightOwner,
   advanceComposerSendPreflightAppliedSequence,
   cancelComposerSendPreflight,
   claimComposerSendPreflight,
@@ -24,8 +25,23 @@ import {
   releaseComposerSendPreflight,
   markComposerSendPreflightAdmission,
   resetComposerSendPreflightsForTests,
-  useHasComposerSendPreflight,
+  useHasComposerSendActivity,
+  useComposerSendPreflightProjection,
 } from "./composerSendPreflight";
+
+function publishUserProjection(
+  owner: ComposerSendPreflightOwner,
+  messageId: MessageId,
+  text: string,
+): void {
+  setComposerSendPreflightProjection(owner, {
+    id: messageId,
+    role: "user",
+    text,
+    createdAt: "2026-09-14T23:00:00.000Z",
+    streaming: false,
+  });
+}
 
 describe("composerSendPreflight", () => {
   let root: Root | null = null;
@@ -119,6 +135,48 @@ describe("composerSendPreflight", () => {
     expect(getComposerSendPreflight(threadId)?.optimisticMessage).toEqual(projection);
   });
 
+  it("does not publish visible send activity before its user-message projection", () => {
+    const threadId = ThreadId.makeUnsafe("thread-preflight-atomic-visibility");
+    const messageId = MessageId.makeUnsafe("message-preflight-atomic-visibility");
+    const owner = claimComposerSendPreflight(
+      threadId,
+      submission("atomic visibility"),
+      [],
+      messageId,
+    )!;
+
+    container = document.body.appendChild(document.createElement("div"));
+    root = createRoot(container);
+    function VisibleSendState() {
+      const active = useHasComposerSendActivity(threadId);
+      const projection = useComposerSendPreflightProjection(threadId);
+      return createElement(
+        "div",
+        null,
+        `${active ? "Thinking" : "Idle"} ${projection ? `Message:${projection.id}` : "No message"}`,
+      );
+    }
+    act(() => root?.render(createElement(VisibleSendState)));
+
+    expect(getComposerSendPreflightProjection(threadId)).toBeNull();
+    expect(hasComposerSendActivity(threadId)).toBe(false);
+    expect(container.textContent).toBe("Idle No message");
+
+    act(() => {
+      setComposerSendPreflightProjection(owner, {
+        id: messageId,
+        role: "user",
+        text: "atomic visibility",
+        createdAt: "2026-09-14T23:00:00.000Z",
+        streaming: false,
+      });
+    });
+
+    expect(getComposerSendPreflightProjection(threadId)?.id).toBe(messageId);
+    expect(hasComposerSendActivity(threadId)).toBe(true);
+    expect(container.textContent).toBe(`Thinking Message:${messageId}`);
+  });
+
   it("projects the newly captured send while an earlier dispatch is still awaiting admission", () => {
     const threadId = ThreadId.makeUnsafe("thread-preflight-successive-projection");
     const firstId = MessageId.makeUnsafe("first-pending-projection");
@@ -182,6 +240,7 @@ describe("composerSendPreflight", () => {
     const threadId = ThreadId.makeUnsafe("thread-preflight-visual");
     const messageId = MessageId.makeUnsafe("message-preflight-visual");
     const owner = claimComposerSendPreflight(threadId, submission("visual"))!;
+    publishUserProjection(owner, messageId, "visual");
     markComposerSendPreflightDispatching(owner, messageId, {
       ...submission("visual"),
       messageId,
@@ -202,6 +261,7 @@ describe("composerSendPreflight", () => {
     const threadId = ThreadId.makeUnsafe("thread-preflight-global-ack");
     const messageId = MessageId.makeUnsafe("message-preflight-global-ack");
     const owner = claimComposerSendPreflight(threadId, submission("global acknowledgement"))!;
+    publishUserProjection(owner, messageId, "global acknowledgement");
     markComposerSendPreflightDispatching(owner, messageId, {
       ...submission("global acknowledgement"),
       messageId,
@@ -220,6 +280,7 @@ describe("composerSendPreflight", () => {
     const threadId = ThreadId.makeUnsafe("thread-preflight-frontier-race");
     const messageId = MessageId.makeUnsafe("message-preflight-frontier-race");
     const owner = claimComposerSendPreflight(threadId, submission("frontier race"))!;
+    publishUserProjection(owner, messageId, "frontier race");
     markComposerSendPreflightDispatching(owner, messageId, {
       ...submission("frontier race"),
       messageId,
@@ -240,6 +301,7 @@ describe("composerSendPreflight", () => {
     const threadId = ThreadId.makeUnsafe("thread-projection-before-receipt");
     const messageId = MessageId.makeUnsafe("message-projection-before-receipt");
     const owner = claimComposerSendPreflight(threadId, submission("already projected"))!;
+    publishUserProjection(owner, messageId, "already projected");
     markComposerSendPreflightDispatching(owner, messageId, {
       ...submission("already projected"),
       messageId,
@@ -270,6 +332,7 @@ describe("composerSendPreflight", () => {
     const threadId = ThreadId.makeUnsafe("thread-preflight-remount");
     const messageId = MessageId.makeUnsafe("message-preflight-remount");
     const owner = claimComposerSendPreflight(threadId, submission("remount"))!;
+    publishUserProjection(owner, messageId, "remount");
     markComposerSendPreflightDispatching(owner, messageId, {
       ...submission("remount"),
       messageId,
@@ -282,7 +345,7 @@ describe("composerSendPreflight", () => {
     root = createRoot(container);
     let hasPreflight = false;
     function Probe() {
-      hasPreflight = useHasComposerSendPreflight(threadId);
+      hasPreflight = useHasComposerSendActivity(threadId);
       return null;
     }
 

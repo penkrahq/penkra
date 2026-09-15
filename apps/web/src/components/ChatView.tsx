@@ -312,7 +312,7 @@ import {
   updateComposerSendPreflightImages,
   releaseComposerSendPreflight,
   markComposerSendPreflightAdmission,
-  useHasComposerSendPreflight,
+  useHasComposerSendActivity,
   useComposerSendPreflightProjection,
 } from "../composerSendPreflight";
 import { useComposerFocusRequestStore } from "../composerFocusRequestStore";
@@ -3039,7 +3039,7 @@ export default function ChatView({
     ],
   );
   const isSendBusy = localDispatch !== null && !serverAcknowledgedLocalDispatch;
-  const hasSendPreflight = useHasComposerSendPreflight(activeThreadId ?? null);
+  const hasSendPreflight = useHasComposerSendActivity(activeThreadId ?? null);
   const preflightOptimisticUserMessage = useComposerSendPreflightProjection(activeThreadId ?? null);
   const hasLiveTurn = phase === "running";
   const authoritativePendingTurnStartMessageId = useMemo(() => {
