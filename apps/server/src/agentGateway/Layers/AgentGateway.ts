@@ -716,6 +716,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     credentials,
     snapshotQuery,
     projectionTurns,
+    providerRuntimeEvents,
     tools,
     instructions: () => Effect.succeed(renderPenkraMcpServerInstructions()),
     requireThreadShell,

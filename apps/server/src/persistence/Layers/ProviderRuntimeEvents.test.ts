@@ -107,6 +107,22 @@ layer("ProviderRuntimeEventRepository", (it) => {
         })).map((row) => row.event.eventId),
         ["runtime-event-1"],
       );
+      assert.deepStrictEqual(
+        (yield* repository.listOpenTurnsByThreadId("thread-runtime-journal")).map((turn) => [
+          turn.threadId,
+          turn.turnId,
+          turn.firstSequence,
+          turn.updatedAt,
+        ]),
+        [
+          [
+            "thread-runtime-journal",
+            "turn-runtime-journal",
+            first.sequence,
+            "2026-07-14T00:00:01.000Z",
+          ],
+        ],
+      );
 
       assert.isTrue(
         yield* repository.advanceThreadCursor({
@@ -139,6 +155,7 @@ layer("ProviderRuntimeEventRepository", (it) => {
         }),
         0,
       );
+      assert.lengthOf(yield* repository.listOpenTurnsByThreadId("thread-runtime-journal"), 0);
 
       const conflict = yield* Effect.flip(
         repository.append(runtimeEvent("runtime-event-1", "different")),

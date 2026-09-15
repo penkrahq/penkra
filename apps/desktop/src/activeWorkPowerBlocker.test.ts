@@ -8,8 +8,9 @@ function createHarness() {
     stop: vi.fn(),
   };
   const onError = vi.fn();
-  const manager = new ActiveWorkPowerBlocker({ blocker, onError });
-  return { blocker, manager, onError };
+  const onStateChange = vi.fn();
+  const manager = new ActiveWorkPowerBlocker({ blocker, onError, onStateChange });
+  return { blocker, manager, onError, onStateChange };
 }
 
 describe("ActiveWorkPowerBlocker", () => {
@@ -44,6 +45,82 @@ describe("ActiveWorkPowerBlocker", () => {
     manager.releaseOwner(8);
     expect(blocker.stop).toHaveBeenCalledOnce();
     expect(blocker.stop).toHaveBeenCalledWith(41);
+  });
+
+  it("does not let an older window veto a newer app-wide idle projection", () => {
+    const { blocker, manager } = createHarness();
+
+    manager.setOwnerState(7, {
+      threadExecution: true,
+      voice: false,
+      snapshotSequence: 10,
+    });
+    manager.setOwnerState(8, {
+      threadExecution: false,
+      voice: false,
+      snapshotSequence: 11,
+    });
+
+    expect(blocker.stop).toHaveBeenCalledWith(41);
+
+    manager.releaseOwner(8);
+    expect(blocker.start).toHaveBeenCalledOnce();
+
+    manager.setOwnerState(7, {
+      threadExecution: true,
+      voice: false,
+      snapshotSequence: 12,
+    });
+    expect(blocker.start).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports the renderer and thread claims behind the native assertion", () => {
+    const { manager, onStateChange } = createHarness();
+
+    manager.setOwnerState(7, {
+      threadExecution: true,
+      voice: false,
+      activeThreadIds: ["thread-a", "thread-b"],
+    });
+    expect(onStateChange).toHaveBeenLastCalledWith({
+      ownerId: 7,
+      state: {
+        threadExecution: true,
+        voice: false,
+        activeThreadIds: ["thread-a", "thread-b"],
+      },
+      ownerCount: 1,
+      latestSnapshotSequence: null,
+      blocksDisplaySleep: true,
+    });
+
+    manager.releaseOwner(7);
+    expect(onStateChange).toHaveBeenLastCalledWith({
+      ownerId: 7,
+      state: null,
+      ownerCount: 0,
+      latestSnapshotSequence: null,
+      blocksDisplaySleep: false,
+    });
+  });
+
+  it("does not report sequence-only updates for unchanged active work", () => {
+    const { manager, onStateChange } = createHarness();
+
+    manager.setOwnerState(7, {
+      threadExecution: true,
+      voice: false,
+      activeThreadIds: ["thread-a"],
+      snapshotSequence: 10,
+    });
+    manager.setOwnerState(7, {
+      threadExecution: true,
+      voice: false,
+      activeThreadIds: ["thread-a"],
+      snapshotSequence: 11,
+    });
+
+    expect(onStateChange).toHaveBeenCalledOnce();
   });
 
   it("releases when an owner reports no active work", () => {

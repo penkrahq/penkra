@@ -28,6 +28,24 @@ function stateWithThread(
 }
 
 describe("hasActiveThreadExecution", () => {
+  it.each(["codex", "claudeAgent", "opencode"] as const)(
+    "uses the same active-session policy for %s",
+    (provider) => {
+      const state = stateWithThread({
+        modelSelection: { provider, model: "test-model" },
+        session: {
+          provider,
+          status: "running",
+          createdAt: "2026-08-09T00:00:00.000Z",
+          updatedAt: "2026-08-09T00:00:01.000Z",
+          orchestrationStatus: "running",
+        },
+      });
+
+      expect(hasActiveThreadExecution(state)).toBe(true);
+    },
+  );
+
   it.each(["starting", "running"] as const)(
     "keeps the display awake for a %s orchestration session",
     (orchestrationStatus) => {
@@ -60,6 +78,50 @@ describe("hasActiveThreadExecution", () => {
     expect(hasActiveThreadExecution(state)).toBe(true);
   });
 
+  it("does not keep the display awake for a stale running turn after its session settled", () => {
+    const state = stateWithThread({
+      session: {
+        provider: "codex",
+        status: "ready",
+        createdAt: "2026-08-09T00:00:00.000Z",
+        updatedAt: "2026-08-09T00:02:00.000Z",
+        orchestrationStatus: "interrupted",
+      },
+      latestTurn: {
+        turnId: TurnId.makeUnsafe("turn-stale"),
+        state: "running",
+        requestedAt: "2026-08-09T00:00:00.000Z",
+        startedAt: "2026-08-09T00:01:00.000Z",
+        completedAt: null,
+        assistantMessageId: null,
+      },
+    });
+
+    expect(hasActiveThreadExecution(state)).toBe(false);
+  });
+
+  it("keeps the display awake when a running turn is newer than the last settled session", () => {
+    const state = stateWithThread({
+      session: {
+        provider: "opencode",
+        status: "ready",
+        createdAt: "2026-08-09T00:00:00.000Z",
+        updatedAt: "2026-08-09T00:01:00.000Z",
+        orchestrationStatus: "idle",
+      },
+      latestTurn: {
+        turnId: TurnId.makeUnsafe("turn-new"),
+        state: "running",
+        requestedAt: "2026-08-09T00:02:00.000Z",
+        startedAt: "2026-08-09T00:02:01.000Z",
+        completedAt: null,
+        assistantMessageId: null,
+      },
+    });
+
+    expect(hasActiveThreadExecution(state)).toBe(true);
+  });
+
   it.each([
     { hasPendingApprovals: true },
     { hasPendingUserInput: true },
@@ -81,5 +143,28 @@ describe("hasActiveThreadExecution", () => {
 
   it("returns false when every known thread is idle", () => {
     expect(hasActiveThreadExecution(stateWithThread({}))).toBe(false);
+  });
+
+  it("keeps one app-wide assertion when any thread remains active", () => {
+    const idle = stateWithThread({}).sidebarThreadSummaryById["thread-1"]!;
+    const activeId = ThreadId.makeUnsafe("thread-2");
+    const active = {
+      ...idle,
+      id: activeId,
+      session: {
+        provider: "claudeAgent" as const,
+        status: "running" as const,
+        createdAt: "2026-08-09T00:00:00.000Z",
+        updatedAt: "2026-08-09T00:01:00.000Z",
+        orchestrationStatus: "running" as const,
+      },
+    };
+
+    expect(
+      hasActiveThreadExecution({
+        threadIds: [idle.id, activeId],
+        sidebarThreadSummaryById: { [idle.id]: idle, [activeId]: active },
+      }),
+    ).toBe(true);
   });
 });
