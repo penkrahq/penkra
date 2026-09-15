@@ -89,6 +89,12 @@ boundary.
   and acknowledgement/failure outcomes. For visual bugs, capture intermediate frames and row
   geometry/order, not only screenshots or assertions after settlement. Keep capture bounded and
   local by default, exclude credentials, and measure instrumentation overhead.
+- Investigation does not authorize implementation. After the evidence is assembled, present and
+  discuss any consequential product, architecture, protocol, data, compatibility, security, or
+  user-visible direction with the user and obtain explicit approval of the proposed direction
+  before implementing it. Do this even when one direction appears technically obvious or no equal
+  alternative remains. Diagnostic logging, observability, and bounded reproduction harnesses may
+  precede that approval only to establish facts; do not let them grow into the product fix.
 - Discuss architecture or product forks before implementing a consequential design choice.
   Research primary sources when behavior is delicate, unfamiliar, or dependency-sensitive,
   especially Thread lifecycle and provider integration. Ask the user focused questions when
