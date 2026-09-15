@@ -56,17 +56,20 @@ export function AppDockPane(props: {
   useEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
+    const reportActiveState = () => {
+      const active = props.visible && document.visibilityState === "visible";
+      void bridge.setActive({
+        tabId: props.tabId,
+        rendererId: props.rendererId,
+        active,
+      });
+    };
+    reportActiveState();
+    document.addEventListener("visibilitychange", reportActiveState);
     return () => {
+      document.removeEventListener("visibilitychange", reportActiveState);
       void bridge.setActive({ tabId: props.tabId, rendererId: props.rendererId, active: false });
     };
-  }, [props.rendererId, props.tabId]);
-
-  useEffect(() => {
-    void window.desktopBridge?.appTabs?.setActive({
-      tabId: props.tabId,
-      rendererId: props.rendererId,
-      active: props.visible,
-    });
   }, [props.rendererId, props.tabId, props.visible]);
 
   const disconnectFrame = useCallback(() => {
