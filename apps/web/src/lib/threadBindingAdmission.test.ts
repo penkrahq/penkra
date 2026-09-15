@@ -18,17 +18,18 @@ describe("resolveThreadBindingRevisionAtAdmission", () => {
     expect(getThreadBinding).not.toHaveBeenCalled();
   });
 
-  it("uses an already-loaded exact revision without another request", async () => {
-    const getThreadBinding = vi.fn();
+  it("refreshes a started thread instead of trusting a window-local cached revision", async () => {
+    const getThreadBinding = vi.fn().mockResolvedValue({
+      binding: { revision: 8 },
+    });
 
     await expect(
       resolveThreadBindingRevisionAtAdmission({
         hasThreadStarted: true,
-        cachedRevision: 7,
-        loadCurrentRevision: async () => undefined,
+        loadCurrentRevision: async () => (await getThreadBinding({ threadId })).binding?.revision,
       }),
-    ).resolves.toBe(7);
-    expect(getThreadBinding).not.toHaveBeenCalled();
+    ).resolves.toBe(8);
+    expect(getThreadBinding).toHaveBeenCalledWith({ threadId });
   });
 
   it("loads the authoritative revision at dispatch time for a background continuation", async () => {
