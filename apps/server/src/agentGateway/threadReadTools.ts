@@ -283,11 +283,13 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
       Effect.gen(function* () {
         const caller = yield* requireThreadShell(context.callerThreadId);
         const turnId =
+          context.callerTurnId ??
           (yield* resolveAuthoritativeActiveTurn({
             threadId: caller.id,
             session: caller.session,
             projectionTurns,
-          }))?.turnId ?? null;
+          }))?.turnId ??
+          null;
         return mcpToolResultJson({
           harness: {
             name: "Penkra",

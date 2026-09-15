@@ -428,6 +428,25 @@ const make = Effect.gen(function* () {
       });
     };
 
+  const listOpenTurnsByThreadId: ProviderRuntimeEventRepositoryShape["listOpenTurnsByThreadId"] = (
+    threadId,
+  ) =>
+    sql<{
+      readonly threadId: string;
+      readonly turnId: string;
+      readonly firstSequence: number;
+      readonly updatedAt: string;
+    }>`
+      SELECT
+        thread_id AS "threadId",
+        turn_id AS "turnId",
+        first_sequence AS "firstSequence",
+        updated_at AS "updatedAt"
+      FROM provider_runtime_open_turns
+      WHERE thread_id = ${threadId}
+      ORDER BY first_sequence ASC, turn_id ASC
+    `.pipe(Effect.mapError(toPersistenceSqlError("ProviderRuntimeEvent.listOpenTurnsByThreadId")));
+
   const pruneSettledOpenTurns: ProviderRuntimeEventRepositoryShape["pruneSettledOpenTurns"] = sql`
       DELETE FROM provider_runtime_open_turns
       WHERE EXISTS (
@@ -1092,6 +1111,7 @@ const make = Effect.gen(function* () {
     getThreadCoverage,
     readThreadEvents,
     readAcceptedOpenTurnEvents,
+    listOpenTurnsByThreadId,
     pruneSettledOpenTurns,
     getThreadCursor,
     advanceThreadCursor,

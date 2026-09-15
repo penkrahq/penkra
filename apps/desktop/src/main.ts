@@ -931,6 +931,17 @@ const activeWorkPowerBlocker = new ActiveWorkPowerBlocker({
   blocker: powerSaveBlocker,
   onError: (message, error) =>
     safeConsoleError(`[desktop-power] ${message} ${formatErrorMessage(error)}`),
+  onStateChange: ({ ownerId, state, ownerCount, latestSnapshotSequence, blocksDisplaySleep }) =>
+    console.info("[desktop-power] Renderer activity changed.", {
+      rendererOwnerId: ownerId,
+      threadExecution: state?.threadExecution ?? false,
+      voice: state?.voice ?? false,
+      activeThreadIds: state?.activeThreadIds ?? [],
+      snapshotSequence: state?.snapshotSequence ?? null,
+      ownerCount,
+      latestSnapshotSequence,
+      blocksDisplaySleep,
+    }),
 });
 let spacesMenuState: DesktopSpacesMenuInput = {
   activeSpaceId: null,
@@ -7807,22 +7818,40 @@ function registerIpcHandlers(): void {
     if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
       return;
     }
+    const activeWorkInput = input as Record<string, unknown> | null;
     if (
       !input ||
       typeof input !== "object" ||
       Array.isArray(input) ||
-      typeof (input as Record<string, unknown>).threadExecution !== "boolean" ||
-      typeof (input as Record<string, unknown>).voice !== "boolean"
+      typeof activeWorkInput?.threadExecution !== "boolean" ||
+      typeof activeWorkInput.voice !== "boolean" ||
+      ("activeThreadIds" in input &&
+        (!Array.isArray(activeWorkInput.activeThreadIds) ||
+          !activeWorkInput.activeThreadIds.every(
+            (threadId: unknown) => typeof threadId === "string",
+          ))) ||
+      ("snapshotSequence" in input &&
+        (typeof activeWorkInput.snapshotSequence !== "number" ||
+          !Number.isSafeInteger(activeWorkInput.snapshotSequence) ||
+          activeWorkInput.snapshotSequence < 0))
     ) {
       throw new Error("Invalid active-work power state.");
     }
     const activeWorkState = input as {
       threadExecution: boolean;
       voice: boolean;
+      activeThreadIds?: ReadonlyArray<string>;
+      snapshotSequence?: number;
     };
+    const snapshotState =
+      activeWorkState.snapshotSequence === undefined
+        ? {}
+        : { snapshotSequence: activeWorkState.snapshotSequence };
     activeWorkPowerBlocker.setOwnerState(event.sender.id, {
       threadExecution: activeWorkState.threadExecution,
       voice: activeWorkState.voice,
+      activeThreadIds: activeWorkState.activeThreadIds ?? [],
+      ...snapshotState,
     });
   });
   registerDesktopVoiceTranscriptionHandler({

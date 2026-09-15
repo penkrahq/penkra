@@ -17,6 +17,13 @@ export interface PersistedProviderRuntimeEvent {
   readonly event: ProviderRuntimeEvent;
 }
 
+export interface ProviderRuntimeOpenTurn {
+  readonly threadId: string;
+  readonly turnId: string;
+  readonly firstSequence: number;
+  readonly updatedAt: string;
+}
+
 export type ProviderRuntimeProjectionFailureStatus = "active" | "quarantined" | "resolved";
 
 export interface ProviderRuntimeProjectionFailure {
@@ -102,6 +109,9 @@ export interface ProviderRuntimeEventRepositoryShape {
     ReadonlyArray<PersistedProviderRuntimeEvent>,
     ProviderRuntimeEventRepositoryError
   >;
+  readonly listOpenTurnsByThreadId: (
+    threadId: string,
+  ) => Effect.Effect<ReadonlyArray<ProviderRuntimeOpenTurn>, PersistenceSqlError>;
   readonly pruneSettledOpenTurns: Effect.Effect<void, PersistenceSqlError>;
   readonly getThreadCursor: (
     threadId: string,

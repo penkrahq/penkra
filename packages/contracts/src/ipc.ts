@@ -944,7 +944,12 @@ export interface DesktopBridge {
   };
   power?: {
     /** Keep the display awake while this renderer observes active Penkra work. */
-    setActiveWork: (input: { threadExecution: boolean; voice: boolean }) => Promise<void>;
+    setActiveWork: (input: {
+      threadExecution: boolean;
+      voice: boolean;
+      activeThreadIds?: ReadonlyArray<string>;
+      snapshotSequence?: number;
+    }) => Promise<void>;
   };
   threadApi?: {
     onRequest(listener: (request: DesktopThreadApiRequest) => void): () => void;
