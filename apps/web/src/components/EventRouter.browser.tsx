@@ -13,6 +13,7 @@ import {
   type OrchestrationReadModel,
   type OrchestrationSyncStreamItem,
   type OrchestrationThread,
+  type ModelSelection,
   type ServerConfig,
   type WsWelcomePayload,
   WS_METHODS,
@@ -26,6 +27,7 @@ import { render } from "vitest-browser-react";
 import { useComposerDraftStore } from "../composerDraftStore";
 import {
   getChatLifecycleDiagnosticSamples,
+  getPersistedChatSyncIncidents,
   resetChatLifecycleDiagnostics,
 } from "../chatLifecycleDiagnostics";
 import { getRouter } from "../router";
@@ -50,6 +52,11 @@ const OTHER_THREAD_ID = ThreadId.makeUnsafe("thread-other-browser-test");
 const PROJECT_ID = FolderId.makeUnsafe("project-root-browser-test");
 const TEST_SPACE_ID = SpaceId.makeUnsafe("space-root-browser-test");
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
+const PROVIDER_RECOVERY_CASES: ReadonlyArray<[string, ModelSelection]> = [
+  ["Codex", { provider: "codex", model: "gpt-5" }],
+  ["Claude", { provider: "claudeAgent", model: "sonnet" }],
+  ["OpenCode", { provider: "opencode", model: "openrouter/gpt-oss-120b:free" }],
+];
 
 interface TestFixture {
   snapshot: OrchestrationReadModel;
@@ -512,6 +519,105 @@ describe("EventRouter uniform orchestration sync", () => {
       await mounted.cleanup();
     }
   });
+
+  it.each(PROVIDER_RECOVERY_CASES)(
+    "recovers the canonical %s sync stream after one renderer application failure",
+    async (_providerLabel, modelSelection) => {
+      activePageThreadIds = [THREAD_ID];
+      fixture = {
+        ...fixture,
+        snapshot: {
+          ...fixture.snapshot,
+          threads: fixture.snapshot.threads.map((thread) => ({
+            ...thread,
+            modelSelection,
+            session: thread.session
+              ? { ...thread.session, providerName: modelSelection.provider }
+              : thread.session,
+          })),
+        },
+      };
+      const applyOrchestrationEvents = useStore.getState().applyOrchestrationEvents;
+      let failNextEventBatch = true;
+      useStore.setState({
+        applyOrchestrationEvents: (events) => {
+          if (failNextEventBatch) {
+            failNextEventBatch = false;
+            throw new Error("forced renderer application failure");
+          }
+          applyOrchestrationEvents(events);
+        },
+      });
+      const mounted = await mountApp();
+
+      try {
+        await vi.waitFor(() => expect(acknowledgementObservations).toHaveLength(1));
+
+        sendSyncDelivery({
+          kind: "event",
+          deliveryId: "sync-event-failed",
+          event: createThreadUpdatedEvent({
+            sequence: 2,
+            title: "Must not partially apply",
+            occurredAt: "2026-03-04T12:00:01.000Z",
+          }),
+        });
+
+        await vi.waitFor(() => {
+          const samples = getChatLifecycleDiagnosticSamples(THREAD_ID);
+          expect(
+            samples.some(
+              (sample) =>
+                sample.event === "sync-publication-apply-failed" &&
+                sample.firstOrchestrationSequence === 2,
+            ),
+          ).toBe(true);
+          expect(
+            samples.some(
+              (sample) =>
+                sample.event === "sync-publication-recovery-scheduled" &&
+                sample.firstOrchestrationSequence === 2 &&
+                sample.recoveryAttempt === 1,
+            ),
+          ).toBe(true);
+        });
+        expect(getThreadFromState(useStore.getState(), THREAD_ID)?.title).toBe("Root test thread");
+        expect(acknowledgementObservations.at(-1)?.appliedSequence).toBe(1);
+
+        await vi.waitFor(() => expect(subscribeSyncRequestCount).toBe(2));
+        sendSyncDelivery({
+          kind: "event",
+          deliveryId: "sync-event-recovered",
+          event: createThreadUpdatedEvent({
+            sequence: 3,
+            title: "Recovered streamed title",
+            occurredAt: "2026-03-04T12:00:02.000Z",
+          }),
+        });
+
+        await vi.waitFor(() => {
+          expect(getThreadFromState(useStore.getState(), THREAD_ID)?.title).toBe(
+            "Recovered streamed title",
+          );
+          expect(acknowledgementObservations.at(-1)?.appliedSequence).toBe(3);
+          expect(
+            getChatLifecycleDiagnosticSamples("*").some(
+              (sample) =>
+                sample.event === "sync-publication-recovered" && sample.recoveryAttempt === 1,
+            ),
+          ).toBe(true);
+          expect(getPersistedChatSyncIncidents().map((sample) => sample.event)).toEqual([
+            "sync-publication-apply-failed",
+            "sync-publication-recovery-scheduled",
+            "sync-publication-recovered",
+            "sync-publication-recovered",
+          ]);
+        });
+      } finally {
+        await mounted.cleanup();
+      }
+    },
+  );
 
   it("applies a large FIFO backlog while a cumulative acknowledgement is still pending", async () => {
     activePageThreadIds = [THREAD_ID];
