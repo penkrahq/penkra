@@ -119,6 +119,24 @@ installation remains active, and contributor changes use the explicit runtime-sa
 
 ## Hosted Browser surface geometry
 
+### Rejected native App-surface model
+
+Penkra 0.11.0 replaced main-process-positioned `WebContentsView` App tabs with sandboxed DOM
+iframes. Do not restore the former native App surface merely to obtain a separate `WebContents`.
+It makes the shell's DOM panel and the App's independently composited native content follow
+different layout clocks: changing the panel and calling `setBounds` can expose an edge, present
+stale guest width, or visibly settle after the shell during continuous resizing. It also cannot
+represent one logical tab in multiple shell windows with one view because an Electron
+`WebContents` may be presented by only one `WebContentsView` at a time.
+
+The retained `native-view-resize-probe.cjs` isolates the native resize behavior. The paired
+`hosted-surface-resize-probe.mjs` and child probe exercise the current DOM-owned layout, including
+deliberately delayed child rendering, rapid and paced resize cases, divider lag, edge exposure, and
+shell-overlay ordering. Any future proposal for a native App surface starts as a new architecture
+decision and must first reproduce those controls while also proving same-App failure containment,
+App×Space storage, multi-window replicas, focus and input routing, observation, hosted Browser
+composition, crash recovery, and exact lifecycle cleanup. Renderer isolation alone is not enough.
+
 The Browser App iframe owns browser chrome; AppDock owns the isolated Electron `<webview>`. Keep
 the guest element in the trusted shell DOM so App packages cannot create Electron guests directly
 and shell overlays remain above the entire App frame. Do not position it with dimensions reported
