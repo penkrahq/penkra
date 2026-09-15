@@ -1229,19 +1229,33 @@ function syncServerThreadDetailWithOptions(
   thread: ReadModelThread,
   options?: {
     mergeLiveHotPath?: boolean;
+    retainHydratedWindow?: boolean;
   },
 ): AppState {
   const previousThread = getThreadFromState(state, thread.id);
   const nextThreadDetail =
     options?.mergeLiveHotPath === true
-      ? mergeReadModelThreadDetailWithLiveHotPath(thread, previousThread)
+      ? mergeReadModelThreadDetailWithLiveHotPath(
+          thread,
+          previousThread,
+          options.retainHydratedWindow === undefined
+            ? {}
+            : { retainHydratedWindow: options.retainHydratedWindow },
+        )
       : thread;
   return writeThreadDetailSyncState(
     commitThreadProjection(
       writeThreadState(
         state,
-        normalizeThreadFromReadModel(nextThreadDetail, previousThread),
+        normalizeThreadFromReadModel(
+          nextThreadDetail,
+          previousThread,
+          options?.retainHydratedWindow === true
+            ? { capMessages: false, capActivities: false }
+            : {},
+        ),
         previousThread,
+        options?.retainHydratedWindow === true ? { capActivities: false } : undefined,
       ),
       thread.id,
       {
@@ -1270,9 +1284,30 @@ export function syncServerThreadDetailHotPath(state: AppState, thread: ReadModel
   ) {
     return removeThreadState(state, thread.id);
   }
-  return syncServerThreadDetailWithOptions(state, thread, {
+  const retainHydratedWindow = state.threadDetailSyncById?.[thread.id] === "synced";
+  const previousThread = getThreadFromState(state, thread.id);
+  const next = syncServerThreadDetailWithOptions(state, thread, {
     mergeLiveHotPath: true,
+    retainHydratedWindow,
   });
+  const nextThread = getThreadFromState(next, thread.id);
+  recordChatPaginationDiagnostic({
+    event: "detail-hot-path-merged",
+    threadId: thread.id,
+    dataCount: nextThread?.messages.length ?? 0,
+    detail: {
+      retainHydratedWindow,
+      previousMessageCount: previousThread?.messages.length ?? 0,
+      incomingMessageCount: thread.messages.length,
+      retainedMessageCount: nextThread?.messages.length ?? 0,
+      previousActivityCount: previousThread?.activities.length ?? 0,
+      incomingActivityCount: thread.activities.length,
+      retainedActivityCount: nextThread?.activities.length ?? 0,
+      firstRetainedMessageId: nextThread?.messages[0]?.id ?? null,
+      firstRetainedActivityId: nextThread?.activities[0]?.id ?? null,
+    },
+  });
+  return next;
 }
 
 export function syncServerThreadTurnsPage(
@@ -1334,6 +1369,7 @@ export function syncServerThreadTurnsPage(
     }),
     { capActivities: false, updateSidebarSummary: false },
   );
+  const storedThread = getThreadFromState(withPage, page.threadId);
   recordChatPaginationDiagnostic({
     event: "store-merged",
     threadId: page.threadId,
@@ -1350,6 +1386,10 @@ export function syncServerThreadTurnsPage(
         previousMessageIds.has(messageId),
       ).length,
       mergedMessageCount: messages.length,
+      storedMessageCount: storedThread?.messages.length ?? 0,
+      droppedMessageCount: Math.max(0, messages.length - (storedThread?.messages.length ?? 0)),
+      firstStoredMessageId: storedThread?.messages[0]?.id ?? null,
+      lastStoredMessageId: storedThread?.messages.at(-1)?.id ?? null,
       previousActivityCount: currentThread.activities.length,
       incomingActivityCount: incomingActivities.length,
       uniqueIncomingActivityCount: uniqueIncomingActivityIds.size,
@@ -1357,6 +1397,10 @@ export function syncServerThreadTurnsPage(
         (activityId) => !previousActivityIds.has(activityId),
       ).length,
       mergedActivityCount: activities.length,
+      storedActivityCount: storedThread?.activities.length ?? 0,
+      droppedActivityCount: Math.max(0, activities.length - (storedThread?.activities.length ?? 0)),
+      firstStoredActivityId: storedThread?.activities[0]?.id ?? null,
+      lastStoredActivityId: storedThread?.activities.at(-1)?.id ?? null,
       pendingInteractionCount: pendingInteractionById.size,
       hasOlder: page.hasOlder,
       nextCursorPresent: page.nextCursor !== null,

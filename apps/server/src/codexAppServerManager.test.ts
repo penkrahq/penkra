@@ -13,7 +13,13 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { ApprovalRequestId, MessageId, ThreadId, TurnId } from "@penkra/contracts";
+import {
+  ApprovalRequestId,
+  MessageId,
+  type ProviderEvent,
+  ThreadId,
+  TurnId,
+} from "@penkra/contracts";
 
 import { buildCodexProcessEnv } from "./codexProcessEnv";
 import {
@@ -25,6 +31,8 @@ import {
   CodexAppServerManager,
   CodexJsonRpcResponseError,
   classifyCodexStderrLine,
+  CodexStderrLineFramer,
+  isCodexMcpTransportWorkerFailure,
   inspectCodexThreadActivity,
   normalizeCodexModelSlug,
   readCodexAccountSnapshot,
@@ -62,10 +70,16 @@ describe("Codex Penkra harness policy", () => {
       const manager = new CodexAppServerManager(undefined, {
         agentGatewayHostTool: {
           acquireSessionLease: () => ({
-            connection: { url: "http://unused.invalid/mcp", bearerToken: "token" },
+            connection: {
+              url: "http://unused.invalid/mcp",
+              bearerToken: "token",
+            },
             release: () => undefined,
           }),
-          requireNativeSurface: () => ({ definitions: [], invoke: async () => ({ content: [] }) }),
+          requireNativeSurface: () => ({
+            definitions: [],
+            invoke: async () => ({ content: [] }),
+          }),
         },
       });
       const env = await (
@@ -136,7 +150,10 @@ describe("Codex Penkra harness policy", () => {
     const manager = new CodexAppServerManager(undefined, {
       agentGatewayHostTool: {
         acquireSessionLease: () => ({
-          connection: { url: "http://unused.invalid/mcp", bearerToken: "thread-token" },
+          connection: {
+            url: "http://unused.invalid/mcp",
+            bearerToken: "thread-token",
+          },
           release: () => undefined,
         }),
         requireNativeSurface: () => ({ definitions: [], invoke }),
@@ -144,7 +161,10 @@ describe("Codex Penkra harness policy", () => {
     });
     const context = {
       gatewaySessionLease: {
-        connection: { url: "http://unused.invalid/mcp", bearerToken: "thread-token" },
+        connection: {
+          url: "http://unused.invalid/mcp",
+          bearerToken: "thread-token",
+        },
         release: () => undefined,
       },
       session: {
@@ -172,7 +192,9 @@ describe("Codex Penkra harness policy", () => {
     ).mockImplementation(() => {});
     const writeMessage = vi
       .spyOn(
-        manager as unknown as { writeMessage: (...args: unknown[]) => Promise<void> },
+        manager as unknown as {
+          writeMessage: (...args: unknown[]) => Promise<void>;
+        },
         "writeMessage",
       )
       .mockResolvedValue(undefined);
@@ -197,7 +219,9 @@ describe("Codex Penkra harness policy", () => {
       arguments: { command: "apps list" },
     });
     const response = writeMessage.mock.calls[0]?.[1] as {
-      result: { contentItems: Array<{ type: string; text?: string; imageUrl?: string }> };
+      result: {
+        contentItems: Array<{ type: string; text?: string; imageUrl?: string }>;
+      };
     };
     expect(response.result.contentItems.slice(0, 2)).toEqual([
       { type: "inputText", text: '{"ok":true}' },
@@ -260,7 +284,9 @@ function createSendTurnHarness(runtimeMode: "approval-required" | "full-access" 
     .mockReturnValue(context);
   const sendRequest = vi
     .spyOn(
-      manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
+      manager as unknown as {
+        sendRequest: (...args: unknown[]) => Promise<unknown>;
+      },
       "sendRequest",
     )
     .mockResolvedValue({
@@ -305,7 +331,9 @@ function createThreadControlHarness() {
     )
     .mockReturnValue(context);
   const sendRequest = vi.spyOn(
-    manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
+    manager as unknown as {
+      sendRequest: (...args: unknown[]) => Promise<unknown>;
+    },
     "sendRequest",
   );
   const updateSession = vi
@@ -315,7 +343,14 @@ function createThreadControlHarness() {
     .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
     .mockImplementation(() => {});
 
-  return { manager, context, requireSession, sendRequest, updateSession, emitEvent };
+  return {
+    manager,
+    context,
+    requireSession,
+    sendRequest,
+    updateSession,
+    emitEvent,
+  };
 }
 
 function createPendingUserInputHarness() {
@@ -357,7 +392,9 @@ function createPendingUserInputHarness() {
     .mockReturnValue(context);
   const writeMessage = vi
     .spyOn(
-      manager as unknown as { writeMessage: (...args: unknown[]) => Promise<void> },
+      manager as unknown as {
+        writeMessage: (...args: unknown[]) => Promise<void>;
+      },
       "writeMessage",
     )
     .mockResolvedValue(undefined);
@@ -423,7 +460,9 @@ function createPendingApprovalHarness(
     .mockReturnValue(context);
   const writeMessage = vi
     .spyOn(
-      manager as unknown as { writeMessage: (...args: unknown[]) => Promise<void> },
+      manager as unknown as {
+        writeMessage: (...args: unknown[]) => Promise<void>;
+      },
       "writeMessage",
     )
     .mockResolvedValue(undefined);
@@ -432,7 +471,9 @@ function createPendingApprovalHarness(
     .mockImplementation(() => {});
   const sendRequest = vi
     .spyOn(
-      manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
+      manager as unknown as {
+        sendRequest: (...args: unknown[]) => Promise<unknown>;
+      },
       "sendRequest",
     )
     .mockResolvedValue({
@@ -505,12 +546,21 @@ function createCollabNotificationHarness() {
     .mockReturnValue(context);
   const writeMessage = vi
     .spyOn(
-      manager as unknown as { writeMessage: (...args: unknown[]) => Promise<void> },
+      manager as unknown as {
+        writeMessage: (...args: unknown[]) => Promise<void>;
+      },
       "writeMessage",
     )
     .mockResolvedValue(undefined);
 
-  return { manager, context, emitEvent, updateSession, requireSession, writeMessage };
+  return {
+    manager,
+    context,
+    emitEvent,
+    updateSession,
+    requireSession,
+    writeMessage,
+  };
 }
 
 function handleServerNotificationForTest(
@@ -679,7 +729,9 @@ describe("Codex app-server teardown", () => {
         return { escalated: false as const, signalErrors: [] };
       },
     );
-    const manager = new CodexAppServerManager(undefined, { teardownProcessTree });
+    const manager = new CodexAppServerManager(undefined, {
+      teardownProcessTree,
+    });
     const threadId = asThreadId("thread-codex-exit-proof");
     const revokeSessionToken = vi.fn();
     const gatewaySessionLease = acquireAgentGatewaySessionLease(
@@ -850,6 +902,9 @@ describe("Codex app-server teardown", () => {
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
       mcpStartupStatuses: new Map(),
+      reportedMcpStartupFailures: new Set(),
+      stderrLineFramer: new CodexStderrLineFramer(),
+      deferredMcpTransportWarnings: [],
       nextRequestId: 2,
       lastRequestMethod: "initialize",
       stopping: false,
@@ -928,11 +983,17 @@ describe("Codex app-server teardown", () => {
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
       mcpStartupStatuses: new Map(),
+      reportedMcpStartupFailures: new Set(),
+      stderrLineFramer: new CodexStderrLineFramer(),
+      deferredMcpTransportWarnings: [],
       nextRequestId: 8,
       lastRequestMethod: "turn/steer",
       stopping: false,
     };
-    const events: Array<{ readonly method?: string; readonly payload?: unknown }> = [];
+    const events: Array<{
+      readonly method?: string;
+      readonly payload?: unknown;
+    }> = [];
     manager.on("event", (event) => events.push(event));
     const internals = manager as unknown as {
       sessions: Map<ThreadId, unknown>;
@@ -1062,7 +1123,10 @@ describe("Codex app-server teardown", () => {
       }
       const child = new FakeCodexChild();
       const manager = new CodexAppServerManager(undefined, {
-        teardownProcessTree: async () => ({ escalated: false, signalErrors: [] }),
+        teardownProcessTree: async () => ({
+          escalated: false,
+          signalErrors: [],
+        }),
       });
       const threadId = asThreadId("thread-codex-diagnostic-stdout-end");
       const reject = vi.fn();
@@ -1100,6 +1164,9 @@ describe("Codex app-server teardown", () => {
         reviewTurnIds: new Set(),
         terminalTurnIds: new Set(),
         mcpStartupStatuses: new Map(),
+        reportedMcpStartupFailures: new Set(),
+        stderrLineFramer: new CodexStderrLineFramer(),
+        deferredMcpTransportWarnings: [],
         nextRequestId: 2,
         lastRequestMethod: "initialize",
         stopping: false,
@@ -1157,6 +1224,13 @@ describe("classifyCodexStderrLine", () => {
     });
   });
 
+  it("recognizes rmcp transport worker failures for status correlation", () => {
+    const line =
+      '2026-09-15T13:00:35.067479Z ERROR rmcp::transport::worker: worker quit with fatal: Transport channel closed, when Client(HttpRequest(HttpRequest("http/request failed: error sending request for url (http://127.0.0.1:29979/mcp)")))';
+    expect(isCodexMcpTransportWorkerFailure(line)).toBe(true);
+    expect(classifyCodexStderrLine(line)).toEqual({ message: line });
+  });
+
   it("keeps plain stderr messages", () => {
     const line = "fatal: permission denied";
     expect(classifyCodexStderrLine(line)).toEqual({
@@ -1170,6 +1244,154 @@ describe("classifyCodexStderrLine", () => {
     expect(classifyCodexStderrLine(line)).toEqual({
       message: "Tool call failed because the same argument was sent twice (yield_time_ms).",
     });
+  });
+});
+
+describe("CodexStderrLineFramer", () => {
+  it("holds a partial stderr line until its newline arrives", () => {
+    const framer = new CodexStderrLineFramer();
+    expect(framer.push(Buffer.from("first line\npartial"))).toEqual(["first line"]);
+    expect(framer.push(Buffer.from(" line\n"))).toEqual(["partial line"]);
+  });
+
+  it("preserves a multi-byte character split across chunks", () => {
+    const framer = new CodexStderrLineFramer();
+    const encoded = Buffer.from("warning: café\n");
+    const splitAt = encoded.indexOf(0xc3) + 1;
+    expect(framer.push(encoded.subarray(0, splitAt))).toEqual([]);
+    expect(framer.push(encoded.subarray(splitAt))).toEqual(["warning: café"]);
+  });
+
+  it("flushes an unterminated final line", () => {
+    const framer = new CodexStderrLineFramer();
+    expect(framer.push(Buffer.from("final warning"))).toEqual([]);
+    expect(framer.finish()).toEqual(["final warning"]);
+  });
+});
+
+describe("Codex MCP startup diagnostics", () => {
+  it("emits one named warning for repeated status reads of one failed server", async () => {
+    const manager = new CodexAppServerManager();
+    const sendRequest = vi
+      .spyOn(
+        manager as unknown as {
+          sendRequest: (...args: unknown[]) => Promise<unknown>;
+        },
+        "sendRequest",
+      )
+      .mockResolvedValue({
+        data: [
+          {
+            name: "paper",
+            tools: {},
+            toolsError: "MCP startup failed: connection refused",
+          },
+        ],
+        nextCursor: null,
+      });
+    const events: ProviderEvent[] = [];
+    manager.on("event", (event) => events.push(event));
+    const context = {
+      session: { threadId: asThreadId("thread-mcp-startup-failure") },
+      mcpStartupStatuses: new Map(),
+      reportedMcpStartupFailures: new Set<string>(),
+      deferredMcpTransportWarnings: [] as string[],
+    };
+    const internals = manager as unknown as {
+      refreshComputerUseCapabilityHealth: (
+        context: unknown,
+        providerThreadId: string,
+      ) => Promise<unknown>;
+    };
+
+    await internals.refreshComputerUseCapabilityHealth(context, "provider-thread");
+    context.deferredMcpTransportWarnings.push("raw transport warning from the same failure");
+    await internals.refreshComputerUseCapabilityHealth(context, "provider-thread");
+
+    expect(sendRequest).toHaveBeenCalledTimes(2);
+    expect(context.deferredMcpTransportWarnings).toEqual([]);
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: "error",
+        method: "mcpServer/startupFailed",
+        message: "MCP server “paper” failed to start. Its tools are unavailable for this session.",
+      }),
+    ]);
+  });
+
+  it("reports the current runtimeStatus failure shape", async () => {
+    const manager = new CodexAppServerManager();
+    vi.spyOn(
+      manager as unknown as {
+        sendRequest: (...args: unknown[]) => Promise<unknown>;
+      },
+      "sendRequest",
+    ).mockResolvedValue({
+      data: [{ name: "paper", runtimeStatus: "failed", tools: {} }],
+      nextCursor: null,
+    });
+    const events: ProviderEvent[] = [];
+    manager.on("event", (event) => events.push(event));
+    const context = {
+      session: { threadId: asThreadId("thread-mcp-runtime-status-failure") },
+      mcpStartupStatuses: new Map(),
+      reportedMcpStartupFailures: new Set<string>(),
+    };
+
+    await (
+      manager as unknown as {
+        refreshComputerUseCapabilityHealth: (
+          context: unknown,
+          providerThreadId: string,
+        ) => Promise<unknown>;
+      }
+    ).refreshComputerUseCapabilityHealth(context, "provider-thread");
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        method: "mcpServer/startupFailed",
+        message: "MCP server “paper” failed to start. Its tools are unavailable for this session.",
+      }),
+    ]);
+  });
+
+  it("reports a new failure after the MCP server recovers", async () => {
+    const manager = new CodexAppServerManager();
+    const failed = {
+      data: [{ name: "paper", tools: {}, toolsError: "connection refused" }],
+      nextCursor: null,
+    };
+    vi.spyOn(
+      manager as unknown as {
+        sendRequest: (...args: unknown[]) => Promise<unknown>;
+      },
+      "sendRequest",
+    )
+      .mockResolvedValueOnce(failed)
+      .mockResolvedValueOnce({
+        data: [{ name: "paper", runtimeStatus: "connected", tools: {} }],
+        nextCursor: null,
+      })
+      .mockResolvedValueOnce(failed);
+    const events: ProviderEvent[] = [];
+    manager.on("event", (event) => events.push(event));
+    const context = {
+      session: { threadId: asThreadId("thread-mcp-recovery") },
+      mcpStartupStatuses: new Map(),
+      reportedMcpStartupFailures: new Set<string>(),
+    };
+    const internals = manager as unknown as {
+      refreshComputerUseCapabilityHealth: (
+        context: unknown,
+        providerThreadId: string,
+      ) => Promise<unknown>;
+    };
+
+    await internals.refreshComputerUseCapabilityHealth(context, "provider-thread");
+    await internals.refreshComputerUseCapabilityHealth(context, "provider-thread");
+    await internals.refreshComputerUseCapabilityHealth(context, "provider-thread");
+
+    expect(events).toHaveLength(2);
   });
 });
 
@@ -1299,11 +1521,19 @@ describe("codex CLI version gate", () => {
     reset();
     try {
       writeBinary("9.9.9", "original");
-      await assertSupportedCodexCliVersion({ binaryPath: "codex", cwd: dir, homePath });
+      await assertSupportedCodexCliVersion({
+        binaryPath: "codex",
+        cwd: dir,
+        homePath,
+      });
 
       writeBinary("0.1.0", "replaced-in-place-by-a-downgrade");
       await expect(
-        assertSupportedCodexCliVersion({ binaryPath: "codex", cwd: dir, homePath }),
+        assertSupportedCodexCliVersion({
+          binaryPath: "codex",
+          cwd: dir,
+          homePath,
+        }),
       ).rejects.toThrow(/too old for Penkra/);
     } finally {
       reset();
@@ -1974,7 +2204,9 @@ describe("startSession", () => {
       }),
     ).toEqual({ active: true, activeTurnId: "turn-live" });
     expect(
-      inspectCodexThreadActivity({ thread: { id: "provider-thread", status: "idle" } }),
+      inspectCodexThreadActivity({
+        thread: { id: "provider-thread", status: "idle" },
+      }),
     ).toEqual({ active: false });
   });
 
@@ -2173,14 +2405,21 @@ describe("sendTurn", () => {
       });
       expect(updateSession).not.toHaveBeenCalledWith(
         context,
-        expect.objectContaining({ status: "running", activeTurnId: `turn_${status}` }),
+        expect.objectContaining({
+          status: "running",
+          activeTurnId: `turn_${status}`,
+        }),
       );
       expect(events).toContainEqual(
         expect.objectContaining({
           method: "turn/completed",
           turnId: `turn_${status}`,
           payload: expect.objectContaining({
-            turn: expect.objectContaining({ id: `turn_${status}`, status, error }),
+            turn: expect.objectContaining({
+              id: `turn_${status}`,
+              status,
+              error,
+            }),
           }),
         }),
       );
@@ -2190,14 +2429,22 @@ describe("sendTurn", () => {
   it("keeps an in-progress turn/start result running", async () => {
     const { manager, context, sendRequest, updateSession } = createSendTurnHarness();
     sendRequest.mockResolvedValueOnce({
-      turn: { id: "turn_running", status: "inProgress", items: [], error: null },
+      turn: {
+        id: "turn_running",
+        status: "inProgress",
+        items: [],
+        error: null,
+      },
     });
     await expect(
       manager.sendTurn({ threadId: asThreadId("thread_1"), input: "hello" }),
     ).resolves.toMatchObject({ turnId: "turn_running" });
     expect(updateSession).toHaveBeenLastCalledWith(
       context,
-      expect.objectContaining({ status: "running", activeTurnId: "turn_running" }),
+      expect.objectContaining({
+        status: "running",
+        activeTurnId: "turn_running",
+      }),
     );
   });
 
@@ -2210,13 +2457,21 @@ describe("sendTurn", () => {
           resolveResponse = resolve;
         }),
     );
-    const pending = manager.sendTurn({ threadId: asThreadId("thread_1"), input: "hello" });
+    const pending = manager.sendTurn({
+      threadId: asThreadId("thread_1"),
+      input: "hello",
+    });
     await Promise.resolve();
     const terminalNotification = {
       method: "turn/completed",
       params: {
         threadId: "thread_1",
-        turn: { id: "turn_raced", status: "failed", items: [], error: { message: "failed" } },
+        turn: {
+          id: "turn_raced",
+          status: "failed",
+          items: [],
+          error: { message: "failed" },
+        },
       },
     };
     (
@@ -2230,7 +2485,10 @@ describe("sendTurn", () => {
     await expect(pending).resolves.toMatchObject({ turnId: "turn_raced" });
     expect(updateSession).not.toHaveBeenCalledWith(
       context,
-      expect.objectContaining({ status: "running", activeTurnId: "turn_raced" }),
+      expect.objectContaining({
+        status: "running",
+        activeTurnId: "turn_raced",
+      }),
     );
 
     updateSession.mockClear();
@@ -2674,12 +2932,18 @@ describe("CodexAppServerManager discovery", () => {
       ).mockReturnValue(context);
       const sendRequest = vi
         .spyOn(
-          manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
+          manager as unknown as {
+            sendRequest: (...args: unknown[]) => Promise<unknown>;
+          },
           "sendRequest",
         )
-        .mockResolvedValueOnce({ result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] } })
         .mockResolvedValueOnce({
-          result: { items: [{ id: "gpt-6-astra", name: "Astra", isDefault: true }] },
+          result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] },
+        })
+        .mockResolvedValueOnce({
+          result: {
+            items: [{ id: "gpt-6-astra", name: "Astra", isDefault: true }],
+          },
         });
 
       await expect(manager.listModels("thread_1")).resolves.toMatchObject({
@@ -2724,10 +2988,14 @@ describe("CodexAppServerManager discovery", () => {
         "resolveContextForDiscovery",
       ).mockReturnValue(context);
       vi.spyOn(
-        manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
+        manager as unknown as {
+          sendRequest: (...args: unknown[]) => Promise<unknown>;
+        },
         "sendRequest",
       )
-        .mockResolvedValueOnce({ result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] } })
+        .mockResolvedValueOnce({
+          result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] },
+        })
         .mockRejectedValueOnce(new Error("provider unavailable"));
 
       await manager.listModels("thread_1");
@@ -3050,7 +3318,12 @@ describe("provider thread control", () => {
         turns: [
           {
             id: "turn_1",
-            items: [{ type: "userMessage", content: [{ type: "text", text: "hello" }] }],
+            items: [
+              {
+                type: "userMessage",
+                content: [{ type: "text", text: "hello" }],
+              },
+            ],
           },
         ],
       },
@@ -3938,7 +4211,10 @@ describe("collab child conversation routing", () => {
     );
     expect(updateSession).toHaveBeenCalledWith(
       context,
-      expect.objectContaining({ status: "running", activeTurnId: "turn_parent" }),
+      expect.objectContaining({
+        status: "running",
+        activeTurnId: "turn_parent",
+      }),
     );
   });
 
@@ -3959,7 +4235,10 @@ describe("collab child conversation routing", () => {
     expect(updateSession).not.toHaveBeenCalled();
     expect(emitEvent).toHaveBeenCalledTimes(1);
     expect(emitEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ method: "item/started", turnId: "turn-resumed-live" }),
+      expect.objectContaining({
+        method: "item/started",
+        turnId: "turn-resumed-live",
+      }),
     );
   });
 
@@ -4442,7 +4721,9 @@ describe("CodexAppServerManager process teardown", () => {
       await exitProof;
       return { escalated: false, signalErrors: [] };
     });
-    const manager = new CodexAppServerManager(undefined, { teardownProcessTree });
+    const manager = new CodexAppServerManager(undefined, {
+      teardownProcessTree,
+    });
     const threadId = asThreadId("thread-stop-proof");
     const closedEvents: string[] = [];
     manager.on("event", (event) => {
@@ -4518,7 +4799,9 @@ describe("CodexAppServerManager process teardown", () => {
         escalated: true,
         signalErrors: [],
       });
-    const manager = new CodexAppServerManager(undefined, { teardownProcessTree });
+    const manager = new CodexAppServerManager(undefined, {
+      teardownProcessTree,
+    });
     const threadId = asThreadId("thread-stop-proof-retry");
     const closedEvents: string[] = [];
     manager.on("event", (event) => {

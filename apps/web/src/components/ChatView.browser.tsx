@@ -7192,6 +7192,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       queued: boolean | null;
       dispatchMode: string | null;
       steeringLabel: boolean;
+      queuedRowVisible: boolean;
     }> = [];
 
     const syncActiveThread = (
@@ -7221,6 +7222,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         queued: message?.delivery?.queued ?? null,
         dispatchMode: message?.dispatchMode ?? null,
         steeringLabel: (document.body.textContent ?? "").includes("Steering conversation"),
+        queuedRowVisible: document.querySelector('[data-testid="queued-follow-up-row"]') !== null,
       });
     };
 
@@ -7348,24 +7350,125 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(1),
       );
 
+      const presentationSamples = window.penkraQueuedComposerActions
+        ?.samples(THREAD_ID)
+        .filter((sample) => sample.event === "presentation");
+      expect(
+        presentationSamples?.filter((sample) => (sample.duplicateMessageIds?.length ?? 0) > 0),
+      ).toEqual([]);
+
       expect(observed).toEqual([
-        expect.objectContaining({ phase: "queued", steeringLabel: false }),
-        expect.objectContaining({ phase: "local-forced-overlay", steeringLabel: true }),
+        expect.objectContaining({ phase: "queued", steeringLabel: false, queuedRowVisible: true }),
+        expect.objectContaining({
+          phase: "local-forced-overlay",
+          steeringLabel: true,
+          queuedRowVisible: false,
+        }),
         expect.objectContaining({
           phase: "requested-before-receipt",
           deliveryState: "steering",
           dispatchMode: "queue",
           steeringLabel: true,
+          queuedRowVisible: false,
         }),
         expect.objectContaining({
           phase: "message-sent",
           dispatchMode: "steer",
           steeringLabel: true,
+          queuedRowVisible: false,
         }),
       ]);
     } finally {
       releaseSteerReceipt();
       spy.mockRestore();
+      await mounted.cleanup();
+    }
+  });
+
+  it("never commits a queued card beside its canonical accepted Steer message", async () => {
+    const messageId = "msg-steer-canonical-before-draft-cleanup" as MessageId;
+    const prompt = "accepted steer cannot remain in the queue bar";
+    useComposerDraftStore.getState().enqueueQueuedTurn(THREAD_ID, {
+      id: "queued-steer-canonical-before-cleanup",
+      kind: "chat",
+      createdAt: isoAt(3_000),
+      serverAcceptedAt: isoAt(3_001),
+      serverMessageId: messageId,
+      previewText: prompt,
+      prompt,
+      images: [],
+      files: [],
+      assistantSelections: [],
+      terminalContexts: [],
+      fileComments: [],
+      pastedTexts: [],
+      skills: [],
+      mentions: [],
+      selectedProvider: "codex",
+      selectedModel: "gpt-5",
+      selectedPromptEffort: null,
+      modelSelection: { provider: "codex", model: "gpt-5" },
+      connectionId: TEST_CONNECTION_ID,
+      runtimeMode: "full-access",
+    });
+    const base = createSnapshotForTargetUser({
+      targetMessageId: "msg-steer-canonical-active" as MessageId,
+      targetText: "active task",
+      sessionStatus: "running",
+    });
+    const snapshot = {
+      ...base,
+      threads: base.threads.map((thread) =>
+        thread.id !== THREAD_ID
+          ? thread
+          : {
+              ...thread,
+              queuedMessageIds: [messageId],
+              messages: [
+                ...thread.messages,
+                {
+                  id: messageId,
+                  role: "user" as const,
+                  text: prompt,
+                  dispatchMode: "queue" as const,
+                  delivery: { state: "queued" as const, queued: true, sequence: 300 },
+                  turnId: null,
+                  streaming: false,
+                  source: "native" as const,
+                  createdAt: isoAt(3_000),
+                  updatedAt: isoAt(3_002),
+                },
+              ],
+            },
+      ),
+    };
+
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      await waitForComposerEditor();
+      await vi.waitFor(() =>
+        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull(),
+      );
+      useStore
+        .getState()
+        .applyOrchestrationEvents([
+          makeDomainEvent(
+            "thread.turn-steer-queued-requested",
+            { threadId: THREAD_ID, messageId, createdAt: isoAt(3_002) },
+            { sequence: 301 },
+          ),
+        ]);
+      await waitForLayout();
+      expect(document.body.textContent).toContain("Steering conversation");
+      expect(
+        window.penkraQueuedComposerActions
+          ?.samples(THREAD_ID)
+          .filter(
+            (sample) =>
+              sample.event === "presentation" && (sample.duplicateMessageIds?.length ?? 0) > 0,
+          ),
+      ).toEqual([]);
+    } finally {
       await mounted.cleanup();
     }
   });
