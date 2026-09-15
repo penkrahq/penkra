@@ -37,6 +37,17 @@ boundary.
 
 ## Bug Investigation and Reproduction
 
+- Never implement a behavioral, architectural, performance, data-model, or product change before
+  investigating the actual current system. Inspect the relevant history, design authority, source,
+  dependencies, runtime configuration, release/deployment state, prior fixes, and current worktree
+  before selecting a solution. Verify uncertain outcomes before repeating an action.
+- Treat user-facing and agent-facing writing as part of the system under investigation. Audit the
+  exact instructions, generated help, operation manuals, manifest summaries, labels, errors,
+  comments presented as guidance, and installed version that the affected actor actually saw. Check
+  for ambiguity, omission, stale terminology, misleading examples, duplicated guidance, and
+  source-versus-installed version skew before attributing behavior only to code or the model.
+  Reconstruct when and why help was or was not loaded; do not assume the first visible failed call
+  was the actor's first interaction with the system.
 - Start every reported bug with a concrete reproduction strategy. Explain the trigger, the
   observable failure, the evidence to capture, and how the same scenario will be checked before
   and after a fix. Force intermittent failures with controlled timing, delayed acknowledgements,
@@ -45,6 +56,26 @@ boundary.
   Diagnostic logging, observability, and reproduction harnesses may be added first. If the
   original occurrence cannot yet be explained, distinguish a reproduced matching mechanism from
   proof of its historical cause; do not call an unreproduced symptom fixed.
+- Determine whether the behavior is a regression, a pre-existing limitation, newly exposed data, or
+  an incomplete earlier fix. Identify a known-good version or commit when one exists, compare the
+  same scenario and measurements on both sides, inspect the introducing history, and bisect when
+  necessary. Never call something a regression—or say it has always existed—without that evidence.
+- Use historical comparison only after source, history, telemetry, or the reproduction identifies a
+  plausible causal boundary. Test the smallest relevant before/after pair first; do not benchmark a
+  sweep of old releases merely because they are available. Expand to a bisect or broader matrix only
+  when the narrower experiment cannot distinguish the credible causes and the answer matters to the
+  fix or product decision.
+- Keep reported problems separate and make each investigation large enough to produce a useful
+  result without turning it into a catch-all program. Start with the user-visible issue as stated,
+  prove its mechanism, and close or explicitly defer it before absorbing adjacent observations.
+  Do not spend substantial effort on unreported, low-impact, or low-information possibilities unless
+  evidence shows they block the reported issue, create material risk, or are unusually cheap to rule
+  out.
+- Reconstruct the complete causal interaction, not only the terminal error: the user's request,
+  available context, loaded instructions/help, tool calls and their purpose, returned data, timing,
+  retries, mutations, and the claim the actor made. Explain why each apparently unnecessary action
+  occurred and whether it was required, induced by guidance, compensating for a missing capability,
+  or simply an actor mistake.
 - Ground the investigation in the actual app, build, process, numbered instance, window, Thread,
   provider, and connection. Inspect relevant code, dependencies, commits, prior fixes, and
   release/deployment status before selecting a root fix. Preserve existing invariants and identify
@@ -62,9 +93,44 @@ boundary.
   Research primary sources when behavior is delicate, unfamiliar, or dependency-sensitive,
   especially Thread lifecycle and provider integration. Ask the user focused questions when
   their observations or preferences can resolve uncertainty; continue independent investigation.
+- Before asking for or making a product decision, present the complete decision surface: current
+  behavior and constraints; goals and non-goals; representative and deliberately diverse user
+  stories and examples; data, protocol, operation, and state shapes; empty, loading, partial,
+  error, recovery, permission, concurrency, scale, and lifecycle cases; alternatives and
+  tradeoffs; migration/compatibility consequences; observability; and acceptance evidence. Use
+  generic examples when one domain-specific example would bias the design.
+- Make user stories operational rather than decorative. For each representative story, state the
+  actor and permissions, starting state and scale, trigger, ordered interaction, expected visible
+  and persisted results, relevant timing expectation, failure/recovery behavior, and how acceptance
+  will be observed. Show concrete request/response, data, state-machine, UI, or lifecycle shapes when
+  they materially affect the decision, plus examples and counterexamples that prevent overfitting.
+- Explain every proposed abstraction in plain product language before asking for a decision. Show
+  what changes for users and agents, what remains unchanged, benefits, costs, risks, reversibility,
+  migration implications, and viable alternatives. Do not ask for approval of an implementation
+  term such as isolation, caching, previewing, source-only reads, or incremental rendering without
+  first showing its observable behavior and tradeoffs.
+- Separate documented facts, directly observed facts, controlled experimental results, and open
+  questions. A plausible correlation, successful mutation, saved revision, clean warning list, or
+  passing test that never reproduced the original failure is not proof of visual correctness or
+  root cause. Do not present “this points to” as a conclusion.
+- Do not ask the user to decide questions that source, history, logs, experiments, or primary-source
+  research can answer. Ask focused questions when the remaining choice genuinely changes product
+  behavior, data, compatibility, or scope.
+- Discuss product and architecture choices directly in the conversation. Do not reduce them to a
+  constrained choice form or polling UI. Show the evidence, shapes, user stories, examples,
+  alternatives, edge cases, and recommendation in prose so the user can challenge assumptions and
+  introduce a direction that was not pre-listed.
 - Verify the same failing reproduction passes after the fix, then run the relevant regression
   matrix and required desktop QA. Record what was reproduced, what changed, and what remains
   unproven. A passing test that never failed on the original behavior is not reproduction evidence.
+- Build the regression matrix from both the changed mechanism and its historical neighboring flows.
+  Include previously working small/common cases, affected large or unusual cases, fresh and restored
+  lifecycles, failure and recovery, and source-versus-installed guidance where relevant. Verify that
+  performance work preserves visual and data fidelity; faster completion alone is not success.
+- Summarize the full investigation and verification in the handoff, including reproduction steps,
+  evidence, controls, user stories and edge cases covered, exact changes, regressions exercised,
+  failures encountered, and residual uncertainty. Do not reduce the result to a test count or claim
+  broader coverage than was actually run.
 
 ## Task Completion Requirements
 
