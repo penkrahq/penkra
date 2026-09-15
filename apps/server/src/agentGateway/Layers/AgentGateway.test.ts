@@ -35,6 +35,7 @@ import { OrchestrationEventDeliveryRepository } from "../../persistence/Services
 import {
   ProviderRuntimeEventRepository,
   type PersistedProviderRuntimeEvent,
+  type ProviderRuntimeOpenTurn,
   type ProviderRuntimeProjectionFailure,
 } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import { ThreadDiagnosticsQuery } from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
@@ -179,6 +180,7 @@ interface GatewayHarness {
 const VALID_TOKENS: Record<string, string> = {
   "token-parent": "thread-parent",
   "token-parent-claude": "thread-parent",
+  "token-parent-opencode": "thread-parent",
   "token-parent-readonly": "thread-parent",
   "token-ghost": "thread-ghost",
 };
@@ -236,6 +238,12 @@ function makeHarnessLayer(
     readonly diagnosticActivities?: ReadonlyArray<DiagnosticThreadActivity>;
     readonly diagnosticEvents?: ReadonlyArray<OrchestrationEvent>;
     readonly providerRuntimeEvents?: ReadonlyArray<PersistedProviderRuntimeEvent>;
+    readonly providerRuntimeOpenTurns?: ReadonlyArray<ProviderRuntimeOpenTurn>;
+    readonly clearProviderRuntimeOpenTurnsAfterRead?: boolean;
+    readonly projectParentTurnOnSecondShellRead?: {
+      readonly turnId: string;
+      readonly providerTurnId: string;
+    };
     readonly providerRuntimeProjectionFailure?: ProviderRuntimeProjectionFailure;
     readonly operationalDiagnostics?: ReadonlyArray<OperationalDiagnostic>;
     readonly providerDeliveryBlockers?: ReadonlyArray<ProviderBlockingDeliveryEvidence>;
@@ -271,7 +279,11 @@ function makeHarnessLayer(
             sessionKey: `session-for-${threadId}`,
             threadId: ThreadId.makeUnsafe(threadId),
             provider:
-              token === "token-parent-claude" ? ("claudeAgent" as const) : ("codex" as const),
+              token === "token-parent-claude"
+                ? ("claudeAgent" as const)
+                : token === "token-parent-opencode"
+                  ? ("opencode" as const)
+                  : ("codex" as const),
             issuedAt: 0,
             capabilities:
               token === "token-parent-readonly"
@@ -287,7 +299,11 @@ function makeHarnessLayer(
             sessionKey: `session-for-${threadId}`,
             threadId: ThreadId.makeUnsafe(threadId),
             provider:
-              token === "token-parent-claude" ? ("claudeAgent" as const) : ("codex" as const),
+              token === "token-parent-claude"
+                ? ("claudeAgent" as const)
+                : token === "token-parent-opencode"
+                  ? ("opencode" as const)
+                  : ("codex" as const),
             turnId,
           }
         : null;
@@ -317,6 +333,7 @@ function makeHarnessLayer(
     }
   >();
 
+  let parentShellReads = 0;
   const snapshotLayer = Layer.succeed(ProjectionSnapshotQuery, {
     getShellSnapshot: () =>
       Effect.succeed({
@@ -338,7 +355,24 @@ function makeHarnessLayer(
         updatedAt: NOW,
       }),
     getThreadShellById: (threadId: ThreadIdType) =>
-      Effect.succeed(Option.fromNullishOr(threadsById.get(threadId as string))),
+      Effect.sync(() => {
+        if (threadId === "thread-parent") {
+          parentShellReads += 1;
+          if (parentShellReads === 2 && options.projectParentTurnOnSecondShellRead) {
+            const projected = options.projectParentTurnOnSecondShellRead;
+            projectionTurnsByKey.set(`thread-parent:${projected.turnId}`, {
+              threadId: "thread-parent",
+              turnId: projected.turnId,
+              state: "running",
+              assistantMessageId: null,
+              pendingMessageId: null,
+              providerTurnId: projected.providerTurnId,
+              providerTurnIds: [projected.providerTurnId],
+            });
+          }
+        }
+        return Option.fromNullishOr(threadsById.get(threadId as string));
+      }),
     getFolderShellById: (folderId: string) =>
       Effect.succeed(
         Option.fromNullishOr(
@@ -586,6 +620,7 @@ function makeHarnessLayer(
           .slice(0, input.limit),
       ),
   } as unknown as (typeof OrchestrationEventDeliveryRepository)["Service"]);
+  let providerRuntimeOpenTurnReads = 0;
   const providerRuntimeEventsLayer = Layer.succeed(ProviderRuntimeEventRepository, {
     getThreadCursor: () => Effect.succeed(0),
     getThreadProjectionFailure: (threadId: string) =>
@@ -631,6 +666,16 @@ function makeHarnessLayer(
           .toSorted((left, right) => right.sequence - left.sequence)
           .slice(0, input.limit),
       ),
+    listOpenTurnsByThreadId: (threadId: string) =>
+      Effect.sync(() => {
+        providerRuntimeOpenTurnReads += 1;
+        if (options.clearProviderRuntimeOpenTurnsAfterRead && providerRuntimeOpenTurnReads > 1) {
+          return [];
+        }
+        return (options.providerRuntimeOpenTurns ?? []).filter(
+          (turn) => turn.threadId === threadId,
+        );
+      }),
   } as unknown as (typeof ProviderRuntimeEventRepository)["Service"]);
 
   const engineLayer = Layer.succeed(OrchestrationEngineService, {
@@ -2605,6 +2650,297 @@ describe("AgentGateway", () => {
       }).pipe(Effect.provide(gatewayLayer));
     },
   );
+
+  it.effect(
+    "authorizes the durable runtime-open turn while its projection is between continuations",
+    () => {
+      const continuationTurnId = "turn-runtime-continuation";
+      const parent = makeThreadShell("thread-parent", {
+        latestTurn: {
+          turnId: TurnId.makeUnsafe("turn-previous-completed"),
+          state: "completed",
+          requestedAt: "2026-08-31T12:24:18.000Z",
+          startedAt: "2026-08-31T12:24:19.000Z",
+          completedAt: "2026-08-31T12:24:20.000Z",
+          assistantMessageId: null,
+        },
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-parent"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: TurnId.makeUnsafe(continuationTurnId),
+          lastError: null,
+          updatedAt: "2026-08-31T12:24:21.000Z",
+        },
+      });
+      const { gatewayLayer, makeHarness } = makeHarnessLayer(
+        [parent, ...baseThreads.filter((thread) => thread.id !== "thread-parent")],
+        {
+          providerRuntimeOpenTurns: [
+            {
+              threadId: "thread-parent",
+              turnId: continuationTurnId,
+              firstSequence: 42,
+              updatedAt: "2026-08-31T12:24:21.000Z",
+            },
+          ],
+        },
+      );
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const context = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_context",
+          args: {},
+        });
+        assert.equal(
+          (toolResultJson(context.result).caller as { turnId?: unknown } | undefined)?.turnId,
+          continuationTurnId,
+        );
+
+        const response = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_create_thread",
+          args: {
+            requestId: "create-during-runtime-projection-gap",
+            prompt: "continue without losing the App command",
+            target: { provider: "codex", model: "gpt-5.5" },
+          },
+        });
+        assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      }).pipe(Effect.provide(gatewayLayer));
+    },
+  );
+
+  it.effect("keeps runtime authority when its logical projection catches up in flight", () => {
+    const providerTurnId = "provider-turn-catches-up";
+    const logicalTurnId = "logical-turn-catches-up";
+    const parent = makeThreadShell("thread-parent", {
+      latestTurn: null,
+      session: {
+        threadId: ThreadId.makeUnsafe("thread-parent"),
+        status: "running",
+        providerName: "codex",
+        runtimeMode: "approval-required",
+        activeTurnId: TurnId.makeUnsafe(providerTurnId),
+        lastError: null,
+        updatedAt: NOW,
+      },
+    });
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [parent, ...baseThreads.filter((thread) => thread.id !== "thread-parent")],
+      {
+        providerRuntimeOpenTurns: [
+          { threadId: "thread-parent", turnId: providerTurnId, firstSequence: 10, updatedAt: NOW },
+        ],
+        projectParentTurnOnSecondShellRead: {
+          turnId: logicalTurnId,
+          providerTurnId,
+        },
+      },
+    );
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_create_thread",
+        args: {
+          requestId: "projection-catches-up-in-flight",
+          prompt: "continue after projection catch-up",
+          target: { provider: "codex", model: "gpt-5.5" },
+        },
+      });
+      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  for (const { provider, token } of [
+    { provider: "claudeAgent", token: "token-parent-claude" },
+    { provider: "opencode", token: "token-parent-opencode" },
+  ] as const) {
+    it.effect(`uses the same runtime-open authority fallback for ${provider}`, () => {
+      const turnId = `turn-${provider}-continuation`;
+      const parent = makeThreadShell("thread-parent", {
+        modelSelection: { provider, model: "test-model" },
+        latestTurn: null,
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-parent"),
+          status: "running",
+          providerName: provider,
+          runtimeMode: "approval-required",
+          activeTurnId: TurnId.makeUnsafe(turnId),
+          lastError: null,
+          updatedAt: NOW,
+        },
+      });
+      const { gatewayLayer, makeHarness } = makeHarnessLayer(
+        [parent, ...baseThreads.filter((thread) => thread.id !== "thread-parent")],
+        {
+          providerRuntimeOpenTurns: [
+            { threadId: "thread-parent", turnId, firstSequence: 10, updatedAt: NOW },
+          ],
+        },
+      );
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const response = yield* harness.callTool({ token, name: "penkra_context", args: {} });
+        assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+        assert.equal(
+          (toolResultJson(response.result).caller as { turnId?: unknown } | undefined)?.turnId,
+          turnId,
+        );
+      }).pipe(Effect.provide(gatewayLayer));
+    });
+  }
+
+  it.effect("fails closed when runtime-open turns are ambiguous", () => {
+    const parent = makeThreadShell("thread-parent", { latestTurn: null });
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [parent, ...baseThreads.filter((thread) => thread.id !== "thread-parent")],
+      {
+        providerRuntimeOpenTurns: [
+          { threadId: "thread-parent", turnId: "turn-a", firstSequence: 10, updatedAt: NOW },
+          { threadId: "thread-parent", turnId: "turn-b", firstSequence: 11, updatedAt: NOW },
+        ],
+      },
+    );
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_create_thread",
+        args: {
+          requestId: "ambiguous-runtime-turns",
+          prompt: "must not inherit ambiguous authority",
+          target: { provider: "codex", model: "gpt-5.5" },
+        },
+      });
+      assert.isTrue(isToolError(response.result));
+      assert.include(toolErrorText(response.result), "no caller turn was active");
+      assert.lengthOf(harness.dispatched, 0);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("does not trust a stale runtime-open row after the provider session settled", () => {
+    const parent = makeThreadShell("thread-parent", {
+      latestTurn: null,
+      session: {
+        threadId: ThreadId.makeUnsafe("thread-parent"),
+        status: "ready",
+        providerName: "codex",
+        runtimeMode: "approval-required",
+        activeTurnId: null,
+        lastError: null,
+        updatedAt: NOW,
+      },
+    });
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [parent, ...baseThreads.filter((thread) => thread.id !== "thread-parent")],
+      {
+        providerRuntimeOpenTurns: [
+          {
+            threadId: "thread-parent",
+            turnId: "turn-stale-runtime-row",
+            firstSequence: 10,
+            updatedAt: NOW,
+          },
+        ],
+      },
+    );
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_create_thread",
+        args: {
+          requestId: "stale-runtime-row",
+          prompt: "must not inherit settled authority",
+          target: { provider: "codex", model: "gpt-5.5" },
+        },
+      });
+      assert.isTrue(isToolError(response.result));
+      assert.lengthOf(harness.dispatched, 0);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("does not trust a runtime-open row retained by an errored provider session", () => {
+    const turnId = "turn-failed-runtime-row";
+    const parent = makeThreadShell("thread-parent", {
+      latestTurn: null,
+      session: {
+        threadId: ThreadId.makeUnsafe("thread-parent"),
+        status: "error",
+        providerName: "codex",
+        runtimeMode: "approval-required",
+        activeTurnId: TurnId.makeUnsafe(turnId),
+        lastError: "provider failed",
+        updatedAt: NOW,
+      },
+    });
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [parent, ...baseThreads.filter((thread) => thread.id !== "thread-parent")],
+      {
+        providerRuntimeOpenTurns: [
+          { threadId: "thread-parent", turnId, firstSequence: 10, updatedAt: NOW },
+        ],
+      },
+    );
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_create_thread",
+        args: {
+          requestId: "errored-runtime-row",
+          prompt: "must not inherit failed authority",
+          target: { provider: "codex", model: "gpt-5.5" },
+        },
+      });
+      assert.isTrue(isToolError(response.result));
+      assert.lengthOf(harness.dispatched, 0);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("revokes runtime-open authority when the turn settles before execution", () => {
+    const turnId = "turn-settles-before-command";
+    const parent = makeThreadShell("thread-parent", {
+      latestTurn: null,
+      session: {
+        threadId: ThreadId.makeUnsafe("thread-parent"),
+        status: "running",
+        providerName: "codex",
+        runtimeMode: "approval-required",
+        activeTurnId: TurnId.makeUnsafe(turnId),
+        lastError: null,
+        updatedAt: NOW,
+      },
+    });
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [parent, ...baseThreads.filter((thread) => thread.id !== "thread-parent")],
+      {
+        providerRuntimeOpenTurns: [
+          { threadId: "thread-parent", turnId, firstSequence: 10, updatedAt: NOW },
+        ],
+        clearProviderRuntimeOpenTurnsAfterRead: true,
+      },
+    );
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_create_thread",
+        args: {
+          requestId: "settled-before-execution",
+          prompt: "must not retain settled authority",
+          target: { provider: "codex", model: "gpt-5.5" },
+        },
+      });
+      assert.isTrue(isToolError(response.result));
+      assert.include(toolErrorText(response.result), "no longer active");
+      assert.lengthOf(harness.dispatched, 0);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
 
   it.effect("sends a follow-up message with the agent dispatch origin", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer([
