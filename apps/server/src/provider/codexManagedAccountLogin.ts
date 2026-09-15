@@ -116,6 +116,7 @@ export async function readCodexManagedAccount(
   child.stdout.on("data", (chunk: Buffer) => {
     try {
       for (const frame of framer.push(chunk)) {
+        if (typeof frame !== "string") continue;
         if (!frame.trim()) continue;
         const message = record(JSON.parse(frame));
         if (!message || typeof message.id !== "number") continue;
@@ -225,6 +226,7 @@ export async function startCodexManagedAccountLogin(
   child.stdout.on("data", (chunk: Buffer) => {
     try {
       for (const frame of framer.push(chunk)) {
+        if (typeof frame !== "string") continue;
         if (!frame.trim()) continue;
         const message = record(JSON.parse(frame));
         if (!message) continue;
