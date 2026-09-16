@@ -202,6 +202,7 @@ const derivedWorkLogEntryByActivity = new WeakMap<
   OrchestrationThreadActivity,
   DerivedWorkLogEntry
 >();
+const publicWorkLogEntryByDerived = new WeakMap<DerivedWorkLogEntry, WorkLogEntry>();
 
 function deriveActivityWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry {
   const cached = derivedWorkLogEntryByActivity.get(activity);
@@ -211,6 +212,22 @@ function deriveActivityWorkLogEntry(activity: OrchestrationThreadActivity): Deri
   const entry = toDerivedWorkLogEntry(activity);
   derivedWorkLogEntryByActivity.set(activity, entry);
   return entry;
+}
+
+function toPublicWorkLogEntry(entry: DerivedWorkLogEntry): WorkLogEntry {
+  const cached = publicWorkLogEntryByDerived.get(entry);
+  if (cached) {
+    return cached;
+  }
+  const {
+    collapseKey: _collapseKey,
+    runtimeWarningMessage: _runtimeWarningMessage,
+    runtimeWarningRepeatCount: _runtimeWarningRepeatCount,
+    suppressStandaloneCommandStart: _suppressStandaloneCommandStart,
+    ...publicEntry
+  } = entry;
+  publicWorkLogEntryByDerived.set(entry, publicEntry);
+  return publicEntry;
 }
 
 // Thread activity arrays are immutable store values and most call sites need the
@@ -352,15 +369,7 @@ export function deriveWorkLogEntries(
     options,
   )
     .filter((entry) => !isUninformativeCommandStartEntry(entry))
-    .map(
-      ({
-        collapseKey: _collapseKey,
-        runtimeWarningMessage: _runtimeWarningMessage,
-        runtimeWarningRepeatCount: _runtimeWarningRepeatCount,
-        suppressStandaloneCommandStart: _suppressStandaloneCommandStart,
-        ...entry
-      }) => entry,
-    );
+    .map(toPublicWorkLogEntry);
 }
 
 function shouldKeepActivityForWorkLog(

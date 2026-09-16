@@ -96,6 +96,7 @@ import {
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
 import { cn } from "~/lib/utils";
+import { measureChatPerformanceWork } from "~/chatPerformanceDiagnostics";
 import {
   DEFAULT_CHAT_FONT_SIZE_PX,
   normalizeChatFontSizePx,
@@ -418,13 +419,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   const rawRows = useMemo(
     () =>
-      deriveMessagesTimelineRows({
-        timelineEntries,
-        isWorking,
-        activeTurnInProgress,
-        activeTurnId,
-        activeTurnStartedAt,
-      }),
+      measureChatPerformanceWork("transcript-rows", () =>
+        deriveMessagesTimelineRows({
+          timelineEntries,
+          isWorking,
+          activeTurnInProgress,
+          activeTurnId,
+          activeTurnStartedAt,
+        }),
+      ),
     [timelineEntries, isWorking, activeTurnInProgress, activeTurnId, activeTurnStartedAt],
   );
   const rows = useStableRows(rawRows);

@@ -803,6 +803,7 @@ function workLogLiveActivitiesEqual(
 }
 
 function workLogEntryContentEqual(a: WorkLogEntry, b: WorkLogEntry): boolean {
+  if (a === b) return true;
   return (
     a.id === b.id &&
     a.createdAt === b.createdAt &&
