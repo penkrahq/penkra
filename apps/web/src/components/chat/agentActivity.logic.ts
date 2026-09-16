@@ -21,6 +21,18 @@ export interface AgentActivityTimelineState {
 
 const REASONING_GROUP_PREFIX = "agent-reasoning";
 
+interface AgentActivityEntryProjection {
+  readonly isReasoning: boolean;
+  readonly reasoningPreview: string | null;
+  readonly displayEntry: WorkLogEntry;
+  readonly detail: AgentActivityDetail | null;
+}
+
+const agentActivityEntryProjectionByWorkEntry = new WeakMap<
+  WorkLogEntry,
+  AgentActivityEntryProjection
+>();
+
 export function isReasoningUpdateWorkEntry(
   entry: Pick<WorkLogEntry, "label" | "toolTitle">,
 ): boolean {
@@ -136,37 +148,53 @@ export function deriveAgentActivityTimelineState(
     // Legacy providers emit free-standing reasoning updates with no item id;
     // keep compacting those. Canonical Codex reasoning carries toolCallId, so
     // each completed provider item remains its own visible row.
-    if (isReasoningUpdateWorkEntry(entry) && !entry.toolCallId) {
+    const projection = projectAgentActivityEntry(entry);
+    if (projection.isReasoning && !entry.toolCallId) {
       pendingReasoningEntries.push(entry);
       continue;
     }
 
     flushReasoningEntries();
-    const reasoningPreview = isReasoningUpdateWorkEntry(entry)
-      ? formatAgentActivityEntryPreview(entry)
-      : null;
     // Old Penkra builds persisted a literal placeholder for every empty Codex
     // reasoning lifecycle. Match Codex history semantics and hide those rows.
-    if (isReasoningUpdateWorkEntry(entry) && !reasoningPreview) {
+    if (projection.isReasoning && !projection.reasoningPreview) {
       continue;
     }
-    const displayEntry = reasoningPreview
-      ? {
-          ...entry,
-          label: "Reasoning trace",
-          toolTitle: "Reasoning trace",
-          preview: reasoningPreview,
-          tone: "tool" as const,
-        }
-      : entry;
-    timelineWorkEntries.push(displayEntry);
-    if (isAgentActivityWorkEntry(entry)) {
-      detailById.set(entry.id, buildAgentActivityDetail(entry.id, displayEntry, [entry]));
+    timelineWorkEntries.push(projection.displayEntry);
+    if (projection.detail) {
+      detailById.set(entry.id, projection.detail);
     }
   }
 
   flushReasoningEntries();
   return { timelineWorkEntries, detailById };
+}
+
+function projectAgentActivityEntry(entry: WorkLogEntry): AgentActivityEntryProjection {
+  const cached = agentActivityEntryProjectionByWorkEntry.get(entry);
+  if (cached) return cached;
+
+  const isReasoning = isReasoningUpdateWorkEntry(entry);
+  const reasoningPreview = isReasoning ? formatAgentActivityEntryPreview(entry) : null;
+  const displayEntry = reasoningPreview
+    ? {
+        ...entry,
+        label: "Reasoning trace",
+        toolTitle: "Reasoning trace",
+        preview: reasoningPreview,
+        tone: "tool" as const,
+      }
+    : entry;
+  const projection: AgentActivityEntryProjection = {
+    isReasoning,
+    reasoningPreview,
+    displayEntry,
+    detail: isAgentActivityWorkEntry(entry)
+      ? buildAgentActivityDetail(entry.id, displayEntry, [entry])
+      : null,
+  };
+  agentActivityEntryProjectionByWorkEntry.set(entry, projection);
+  return projection;
 }
 
 function buildAgentActivityDetail(

@@ -65,7 +65,7 @@ describe("deriveAgentActivityTimelineState", () => {
   });
 
   it("keeps canonical reasoning tool calls as separate timeline rows", () => {
-    const state = deriveAgentActivityTimelineState([
+    const entries = [
       workEntry({
         id: "reasoning-item-1",
         label: "Reasoning",
@@ -87,7 +87,9 @@ describe("deriveAgentActivityTimelineState", () => {
         toolCallId: "provider-reasoning-3",
         detail: "Verify the result",
       }),
-    ]);
+    ];
+    const state = deriveAgentActivityTimelineState(entries);
+    const repeated = deriveAgentActivityTimelineState(entries);
 
     expect(state.timelineWorkEntries.map((entry) => entry.id)).toEqual([
       "reasoning-item-1",
@@ -97,6 +99,9 @@ describe("deriveAgentActivityTimelineState", () => {
     expect(state.timelineWorkEntries.every((entry) => entry.tone === "tool")).toBe(true);
     expect(state.timelineWorkEntries.every((entry) => !isAgentActivityWorkEntry(entry))).toBe(true);
     expect(state.detailById.size).toBe(0);
+    expect(repeated.timelineWorkEntries[0]).toBe(state.timelineWorkEntries[0]);
+    expect(repeated.timelineWorkEntries[1]).toBe(state.timelineWorkEntries[1]);
+    expect(repeated.timelineWorkEntries[2]).toBe(state.timelineWorkEntries[2]);
   });
 
   it("shows the latest readable Codex summary and omits empty placeholders", () => {

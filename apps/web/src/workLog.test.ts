@@ -12,6 +12,42 @@ import {
 import { makeActivity } from "./storeTestFixtures";
 
 describe("deriveWorkLogEntries", () => {
+  it.each(["codex", "claudeAgent", "opencode"] as const)(
+    "preserves public entry identity for an unchanged %s history prefix",
+    (provider) => {
+      const turnId = TurnId.makeUnsafe("turn-stable-work-entry-prefix");
+      const historical = Array.from({ length: 3 }, (_, index) =>
+        makeActivity({
+          id: `stable-prefix-${index}`,
+          kind: "tool.completed",
+          summary: `Completed tool ${index}`,
+          turnId,
+          sequence: index + 1,
+          payload: { provider },
+        }),
+      );
+      const first = deriveWorkLogEntries(historical, turnId);
+      const appended = deriveWorkLogEntries(
+        [
+          ...historical,
+          makeActivity({
+            id: "stable-prefix-live-tail",
+            kind: "tool.completed",
+            summary: "Completed live tail",
+            turnId,
+            sequence: 4,
+            payload: { provider },
+          }),
+        ],
+        turnId,
+      );
+
+      expect(appended).toHaveLength(4);
+      expect(appended[0]).toBe(first[0]);
+      expect(appended[1]).toBe(first[1]);
+      expect(appended[2]).toBe(first[2]);
+    },
+  );
   it("derives the causal work boundary from the first visible user message", () => {
     expect(
       deriveVisibleWorkLogSequenceFloor([

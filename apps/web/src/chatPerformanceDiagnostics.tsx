@@ -5,7 +5,17 @@
 import { Profiler, type ProfilerOnRenderCallback, type ReactNode } from "react";
 
 export type ChatPerformanceSurface = "composer" | "transcript";
-export type ChatPerformanceWorkKind = "draft-checkpoint";
+export type ChatPerformanceWorkKind =
+  | "draft-checkpoint"
+  | "transcript-commit"
+  | "transcript-work-log"
+  | "transcript-strip-work-log"
+  | "transcript-agent-activity"
+  | "transcript-pending-interactions"
+  | "transcript-workflow"
+  | "transcript-context"
+  | "transcript-timeline"
+  | "transcript-rows";
 
 export interface ChatPerformanceWorkSample {
   readonly kind: ChatPerformanceWorkKind | "long-task";
@@ -132,6 +142,9 @@ export function getChatPerformanceSummary(): {
   readonly transcriptCommitCount: number;
   readonly draftCheckpointP95Ms: number | null;
   readonly longTaskCount: number;
+  readonly workByKind: Partial<
+    Record<ChatPerformanceWorkSample["kind"], { readonly count: number; readonly p95Ms: number }>
+  >;
 } {
   const samples = getChatPerformanceSamples();
   const inputToPaint = samples.flatMap((sample) =>
@@ -144,6 +157,18 @@ export function getChatPerformanceSummary(): {
   const draftCheckpoints = workSamples
     .filter((sample) => sample.kind === "draft-checkpoint")
     .map((sample) => sample.durationMs);
+  const workByKind: Partial<
+    Record<ChatPerformanceWorkSample["kind"], { readonly count: number; readonly p95Ms: number }>
+  > = {};
+  for (const kind of new Set(workSamples.map((sample) => sample.kind))) {
+    const durations = workSamples
+      .filter((sample) => sample.kind === kind)
+      .map((sample) => sample.durationMs);
+    const p95Ms = percentile(durations, 0.95);
+    if (p95Ms !== null) {
+      workByKind[kind] = { count: durations.length, p95Ms };
+    }
+  }
   return {
     enabled: state.enabled,
     sampleCount: samples.length,
@@ -156,6 +181,7 @@ export function getChatPerformanceSummary(): {
     ),
     draftCheckpointP95Ms: percentile(draftCheckpoints, 0.95),
     longTaskCount: workSamples.filter((sample) => sample.kind === "long-task").length,
+    workByKind,
   };
 }
 
@@ -205,15 +231,24 @@ export function recordChatPerformanceCommit(
 ): void {
   if (!state.enabled) return;
   const sample = state.activeInteraction;
-  if (!sample) return;
   if (surface === "transcript") {
     // A Profiler boundary can commit because its parent recreated the wrapper
     // while the memoized transcript child did no work. Count only measured work.
     if (actualDurationMs < 0.05) return;
+    appendWorkSample({
+      kind: "transcript-commit",
+      startedAt: commitTime - actualDurationMs,
+      durationMs: actualDurationMs,
+    });
+    if (state.logToConsole) {
+      console.debug("[chat-performance] transcript commit", { actualDurationMs, commitTime });
+    }
+    if (!sample) return;
     sample.transcriptCommitCount += 1;
     sample.transcriptActualDurationMs += actualDurationMs;
     return;
   }
+  if (!sample) return;
   sample.composerCommitMs ??= commitTime - sample.startedAt;
   requestAnimationFrame(() => {
     sample.inputToPaintMs ??= performance.now() - sample.startedAt;
