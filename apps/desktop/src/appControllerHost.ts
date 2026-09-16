@@ -55,6 +55,7 @@ export class AppControllerHost {
   invoke(input: {
     appId: string;
     spaceId: string;
+    deckId: string;
     threadId: string;
     tabId: string;
     handler: string;
@@ -73,7 +74,11 @@ export class AppControllerHost {
       {
         handler: input.handler,
         input: input.value,
-        context: { threadId: input.threadId, tabId: input.tabId },
+        context: {
+          deckId: input.deckId,
+          threadId: input.threadId,
+          tabId: input.tabId,
+        },
       },
       {
         ...(input.signal ? { signal: input.signal } : {}),
@@ -199,7 +204,9 @@ async function handleContextCall(
     case "context.tabs.open-for-result":
       return context.tabs.openForResult(parseNavigation(record));
     case "context.apps.open": {
-      const tab = await context.apps.open({ slug: requireNonEmptyString(record.slug, "slug") });
+      const tab = await context.apps.open({
+        slug: requireNonEmptyString(record.slug, "slug"),
+      });
       openedTabs.set(tab.id, tab);
       return { id: tab.id };
     }
@@ -250,7 +257,10 @@ function resolveTab(
   throw contextError("TAB_REQUIRED", "This operation requires an explicit App tab.");
 }
 
-function parseNavigation(input: Record<string, unknown>): { route: string; state?: unknown } {
+function parseNavigation(input: Record<string, unknown>): {
+  route: string;
+  state?: unknown;
+} {
   const route = requireNonEmptyString(input.route, "route");
   return input.state === undefined ? { route } : { route, state: input.state };
 }

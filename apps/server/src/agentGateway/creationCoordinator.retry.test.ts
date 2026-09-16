@@ -1,3 +1,4 @@
+import { singletonThreadDeckId } from "@penkra/contracts";
 import {
   FolderId,
   CommandId,
@@ -79,6 +80,8 @@ const FOLDER: OrchestrationFolderShell = {
 
 const CALLER: OrchestrationThreadShell = {
   id: CALLER_THREAD_ID,
+  deckId: singletonThreadDeckId(CALLER_THREAD_ID),
+  deckSortOrder: 0,
   folderId: FOLDER_ID,
   title: "Synthetic caller",
   modelSelection: TARGET,
@@ -397,7 +400,9 @@ describe("create thread retry characterization", () => {
 
   it("rejects explicit account B against an existing account A binding before any dispatch", async () => {
     const ids = expectedIds();
-    const harness = makeHarness({ existingBinding: makeBinding(ACCOUNT_A, ids.threadId, 0) });
+    const harness = makeHarness({
+      existingBinding: makeBinding(ACCOUNT_A, ids.threadId, 0),
+    });
 
     const result = await invoke(harness, { ...INPUT, connectionId: ACCOUNT_B });
 
@@ -442,7 +447,11 @@ describe("create thread retry characterization", () => {
 
     const result = await invoke(harness);
     const payload = JSON.parse(resultText(result)) as {
-      error?: { code?: string; message?: string; details?: Record<string, unknown> };
+      error?: {
+        code?: string;
+        message?: string;
+        details?: Record<string, unknown>;
+      };
     };
     expect(payload.error?.code).toBe("operation_failed");
     expect(payload.error?.message).toContain("following thread may already exist");
@@ -533,7 +542,11 @@ describe("create thread retry characterization", () => {
           getThreadShellById: (threadId) =>
             Effect.succeed(
               threadId === ids.threadId
-                ? Option.some({ ...CALLER, id: ids.threadId, folderId: movedFolderId })
+                ? Option.some({
+                    ...CALLER,
+                    id: ids.threadId,
+                    folderId: movedFolderId,
+                  })
                 : Option.none(),
             ),
           getFolderShellById: (folderId) =>
@@ -641,6 +654,7 @@ effectIt.layer(sqliteAdmissionLayer)("durable creation admission replay", (it) =
           type: "thread.create",
           commandId: CommandId.makeUnsafe("retry-caller-create"),
           threadId: CALLER_THREAD_ID,
+          deckId: singletonThreadDeckId(CALLER_THREAD_ID),
           folderId: FOLDER_ID,
           title: CALLER.title,
           modelSelection: TARGET,
@@ -727,12 +741,16 @@ effectIt.layer(sqliteAdmissionLayer)("durable creation admission replay", (it) =
         const ids = expectedIds();
         expect(
           Option.isSome(
-            yield* commandReceipts.getByCommandId({ commandId: ids.threadCreateCommandId }),
+            yield* commandReceipts.getByCommandId({
+              commandId: ids.threadCreateCommandId,
+            }),
           ),
         ).toBe(true);
         expect(
           Option.isNone(
-            yield* commandReceipts.getByCommandId({ commandId: ids.turnStartCommandId }),
+            yield* commandReceipts.getByCommandId({
+              commandId: ids.turnStartCommandId,
+            }),
           ),
         ).toBe(true);
         expect(Option.isNone(yield* threadBindings.getRuntimeBinding(ids.threadId))).toBe(true);

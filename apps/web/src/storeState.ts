@@ -12,6 +12,7 @@ import type {
   Thread,
   ThreadSession,
   ThreadShell,
+  ThreadDeck,
   ThreadTurnState,
 } from "./types";
 
@@ -33,6 +34,7 @@ export interface AppState {
   archivedSpaces: Space[];
   folders: Project[];
   archivedFolders: Project[];
+  decks: ThreadDeck[];
   sidebarThreadSummaryById: Record<string, SidebarThreadSummary>;
   threadsHydrated: boolean;
   threadIds?: ThreadId[];
@@ -81,6 +83,7 @@ export const initialState: AppState = {
   archivedSpaces: [],
   folders: [],
   archivedFolders: [],
+  decks: [],
   sidebarThreadSummaryById: {},
   threadsHydrated: false,
   threadIds: [],

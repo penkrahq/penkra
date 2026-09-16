@@ -1,4 +1,4 @@
-import { FolderId, ThreadId } from "@penkra/contracts";
+import { FolderId, ThreadDeckId, ThreadId, singletonThreadDeckId } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selectComposerThreadDraft } from "./composerDraftDomain";
 import {
@@ -184,6 +184,7 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
     expect(useComposerDraftStore.getState().getDraftThreadByFolderId(folderId)).toEqual({
       threadId,
+      deckId: "deck:thread-a",
       folderId,
       spaceId: null,
       entryPoint: "chat",
@@ -192,6 +193,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toEqual({
+      deckId: "deck:thread-a",
       folderId,
       spaceId: null,
       entryPoint: "chat",
@@ -217,6 +219,7 @@ describe("composerDraftStore project draft thread mapping", () => {
 
     store.registerDraftThread(threadId, {
       folderId,
+      deckId: singletonThreadDeckId(threadId),
       entryPoint: "terminal",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
@@ -228,6 +231,39 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
     expect(useComposerDraftStore.getState().getDraftThreadByFolderId(folderId, "terminal")).toBe(
       null,
+    );
+  });
+
+  it("keeps pending drafts for separate decks in the same folder independent", () => {
+    const deckA = ThreadDeckId.makeUnsafe("deck-a");
+    const deckB = ThreadDeckId.makeUnsafe("deck-b");
+    const store = useComposerDraftStore.getState();
+
+    store.registerDraftThread(threadId, { folderId, deckId: deckA, entryPoint: "chat" });
+    store.registerDraftThread(otherThreadId, { folderId, deckId: deckB, entryPoint: "chat" });
+    store.setDraftThreadContext(threadId, { workingDirectory: "/repo/a" });
+    store.setDraftThreadContext(otherThreadId, { workingDirectory: "/repo/b" });
+
+    expect(useComposerDraftStore.getState().getDraftThreadByDeckId(deckA)).toMatchObject({
+      threadId,
+      folderId,
+      workingDirectory: "/repo/a",
+    });
+    expect(useComposerDraftStore.getState().getDraftThreadByDeckId(deckB)).toMatchObject({
+      threadId: otherThreadId,
+      folderId,
+      workingDirectory: "/repo/b",
+    });
+    expect(useComposerDraftStore.getState().getDraftThreadByFolderId(folderId)).toBeNull();
+
+    const projectDraftId = ThreadId.makeUnsafe("thread-project-slot");
+    useComposerDraftStore.getState().setProjectDraftThreadId(folderId, projectDraftId);
+    expect(useComposerDraftStore.getState().getDraftThreadByDeckId(deckA)?.threadId).toBe(threadId);
+    expect(useComposerDraftStore.getState().getDraftThreadByDeckId(deckB)?.threadId).toBe(
+      otherThreadId,
+    );
+    expect(useComposerDraftStore.getState().getDraftThreadByFolderId(folderId)?.threadId).toBe(
+      projectDraftId,
     );
   });
 

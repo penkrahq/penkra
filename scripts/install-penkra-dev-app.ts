@@ -4,7 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildMacosIcon, resolvePenkraDevIconSource } from "./lib/macos-icon.ts";
@@ -24,15 +24,29 @@ import {
 } from "./lib/penkra-dev-instance.ts";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const launcherScriptPath = join(repoRoot, "scripts", "penkra-dev-launcher.ts");
 const microphoneUsageDescription =
   "Penkra needs microphone access so you can record voice notes and transcribe them into the chat composer.";
-const launcherEntitlementsPath = join(
-  repoRoot,
-  "scripts",
-  "resources",
-  "penkra-dev-launcher.entitlements.plist",
-);
+
+export function resolvePenkraDevPrimaryCheckoutRoot(
+  repositoryRoot: string,
+  gitCommonDirectory: string,
+): string {
+  const commonDirectory = resolve(repositoryRoot, gitCommonDirectory.trim());
+  if (basename(commonDirectory) !== ".git") return resolve(repositoryRoot);
+  return dirname(commonDirectory);
+}
+
+function discoverPenkraDevPrimaryCheckoutRoot(repositoryRoot: string): string {
+  const result = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  });
+  if (result.status !== 0 || !result.stdout.trim()) return resolve(repositoryRoot);
+  const primaryRoot = resolvePenkraDevPrimaryCheckoutRoot(repositoryRoot, result.stdout);
+  return existsSync(join(primaryRoot, "scripts", "penkra-dev-launcher.ts"))
+    ? primaryRoot
+    : resolve(repositoryRoot);
+}
 
 function resolveBunExecutable(): string {
   const configured = process.env.BUN_EXECUTABLE?.trim();
@@ -135,6 +149,7 @@ function installInstance(input: {
   readonly instance: number;
   readonly bunExecutable: string;
   readonly signingIdentity: string;
+  readonly desktopRoot: string;
 }): string {
   const definition = resolvePenkraDevInstanceDefinition(input.instance);
   const temporaryRoot = mkdtempSync(join(tmpdir(), `penkra-dev-${input.instance}-app-`));
@@ -154,12 +169,12 @@ function installInstance(input: {
       input.bunExecutable,
       resolvePenkraDevLauncherCompileArgs({
         bunExecutable: input.bunExecutable,
-        launcherScriptPath,
+        launcherScriptPath: join(input.desktopRoot, "scripts", "penkra-dev-launcher.ts"),
         executablePath,
-        repoRoot,
+        repoRoot: input.desktopRoot,
         instance: input.instance,
       }),
-      { cwd: repoRoot, encoding: "utf8" },
+      { cwd: input.desktopRoot, encoding: "utf8" },
     );
     if (compile.status !== 0) {
       throw new Error(
@@ -167,7 +182,7 @@ function installInstance(input: {
       );
     }
     buildMacosIcon({
-      sourcePngPath: resolvePenkraDevIconSource(repoRoot),
+      sourcePngPath: resolvePenkraDevIconSource(input.desktopRoot),
       targetIcnsPath: iconPath,
       ...(input.instance > 1 ? { badgeText: String(input.instance) } : {}),
     });
@@ -175,7 +190,12 @@ function installInstance(input: {
     const sign = spawnSync(
       "/usr/bin/codesign",
       resolvePenkraDevLauncherSignArgs({
-        entitlementsPath: launcherEntitlementsPath,
+        entitlementsPath: join(
+          input.desktopRoot,
+          "scripts",
+          "resources",
+          "penkra-dev-launcher.entitlements.plist",
+        ),
         signingIdentity: input.signingIdentity,
         stagedAppPath,
       }),
@@ -217,6 +237,8 @@ function install(): void {
   if (process.platform !== "darwin") {
     throw new Error("Penkra Dev Applications launcher is available only on macOS.");
   }
+  const desktopRoot = discoverPenkraDevPrimaryCheckoutRoot(repoRoot);
+  const launcherScriptPath = join(desktopRoot, "scripts", "penkra-dev-launcher.ts");
   if (!existsSync(launcherScriptPath)) {
     throw new Error(`Missing launcher runtime: ${launcherScriptPath}`);
   }
@@ -225,22 +247,22 @@ function install(): void {
   const signingIdentity = resolveMacDevelopmentSigningIdentity();
   const configuredBackendRoot = process.env.PENKRA_BACKEND_ROOT?.trim();
   const backendRoot = discoverPenkraBackendRoot({
-    desktopRoot: repoRoot,
+    desktopRoot,
     ...(configuredBackendRoot ? { configuredBackendRoot } : {}),
   });
   const configuredWebsiteRoot = process.env.PENKRA_WEBSITE_ROOT?.trim();
   const configuredAppsRoot = process.env.PENKRA_APPS_ROOT?.trim();
   const workspace = writePenkraDevWorkspace(
     {
-      desktopRoot: repoRoot,
+      desktopRoot,
       backendRoot,
       websiteRoot: discoverPenkraWebsiteRoot({
-        desktopRoot: repoRoot,
+        desktopRoot,
         backendRoot,
         ...(configuredWebsiteRoot ? { configuredWebsiteRoot } : {}),
       }),
       appsRoot: discoverPenkraAppsRoot({
-        desktopRoot: repoRoot,
+        desktopRoot,
         ...(configuredAppsRoot ? { configuredAppsRoot } : {}),
       }),
     },
@@ -256,14 +278,14 @@ function install(): void {
       ? configuredInstances
       : [...DEFAULT_INSTALLED_PENKRA_DEV_INSTANCES];
   const installedPaths = instances.map((instance) =>
-    installInstance({ instance, bunExecutable, signingIdentity }),
+    installInstance({ instance, bunExecutable, signingIdentity, desktopRoot }),
   );
   rmSync("/Applications/Penkra (Dev).app", { recursive: true, force: true });
-  rmSync(join(repoRoot, "apps", "desktop", ".electron-runtime", "Electron.app"), {
+  rmSync(join(desktopRoot, "apps", "desktop", ".electron-runtime", "Electron.app"), {
     recursive: true,
     force: true,
   });
-  rmSync(join(repoRoot, "apps", "desktop", ".electron-runtime", "Penkra (Dev).app"), {
+  rmSync(join(desktopRoot, "apps", "desktop", ".electron-runtime", "Penkra (Dev).app"), {
     recursive: true,
     force: true,
   });

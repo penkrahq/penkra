@@ -1874,6 +1874,7 @@ const make = Effect.gen(function* () {
               type: "thread.create",
               commandId: providerCommandId(event, "subagent-thread-create", childThreadId),
               threadId: childThreadId,
+              deckId: parentThread.deckId,
               folderId: parentThread.folderId,
               title: subagentThreadTitle({
                 nickname: identity?.nickname,

@@ -63,11 +63,22 @@ it.effect("preserves thread activity payloads through the RPC JSON codec", () =>
     const readModel = {
       snapshotSequence: 1,
       spaces: [],
+      decks: [
+        {
+          id: "deck:thread-1",
+          spaceId: "space-1",
+          threadIds: ["thread-1"],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
       updatedAt: "2026-01-01T00:00:00.000Z",
       folders: [],
       threads: [
         {
           id: "thread-1",
+          deckId: "deck:thread-1",
+          deckSortOrder: 0,
           codexThreadId: null,
           folderId: "project-1",
           title: "Thread 1",
@@ -358,6 +369,8 @@ it.effect("decodes thread.created runtime mode for historical events", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeThreadCreatedPayload({
       threadId: "thread-1",
+      deckId: "deck:thread-1",
+      deckSortOrder: 0,
       folderId: "project-1",
       title: "Thread title",
       modelSelection: {

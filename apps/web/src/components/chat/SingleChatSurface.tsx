@@ -1,5 +1,5 @@
 import type { DesktopAppTabDescriptor } from "@penkra/contracts";
-import type { FolderId, ThreadId } from "@penkra/contracts";
+import { singletonThreadDeckId, type FolderId, type ThreadId } from "@penkra/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
@@ -9,7 +9,11 @@ import {
   createThreadResourceOpener,
   showThreadResourceContextMenu,
 } from "../../lib/threadResourceOpener";
-import { selectRightDockState, useRightDockStore } from "../../rightDockStore";
+import {
+  migrateLegacyRightDockStorage,
+  selectRightDockState,
+  useRightDockStore,
+} from "../../rightDockStore";
 import type { RightDockPane } from "../../rightDockStore.logic";
 import { useStore } from "../../store";
 import {
@@ -18,21 +22,26 @@ import {
   createThreadWorkspaceMetadataSelector,
 } from "../../storeSelectors";
 import { resolveThreadWorkingDirectory } from "../../routes/-chatThreadRoute.logic";
+import ChatView from "../ChatView";
 import { RouteInsetSurface } from "../RouteInsetSurface";
 import { IconButton } from "../ui/icon-button";
 import { toastManager } from "../ui/toast";
 import { AppsIcon } from "~/lib/icons";
-import { cn } from "~/lib/utils";
+import { isElectron } from "~/env";
+import { cn, isWindowsPlatform } from "~/lib/utils";
 import { AppDockPane } from "./AppDockPane";
 import {
   createAppTabRestoreRequest,
   isAppPaneInSpace,
-  isAppTabOutsideThreadSpace,
+  isAppTabOutsideDeckSpace,
   shouldMountAppDockPane,
   shouldRetryAppTabHostReady,
 } from "./appTabRestore.logic";
-import { resolveAppsLauncherAction, resolveAppsLauncherSpaceId } from "./appsLauncher.logic";
-import { DeferredChatView } from "./ChatThreadSurfacePrimitives";
+import {
+  resolveAppsLauncherAction,
+  resolveAppsLauncherRightInsetPx,
+  resolveAppsLauncherSpaceId,
+} from "./appsLauncher.logic";
 import {
   CHAT_BACKGROUND_CLASS_NAME,
   CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME,
@@ -89,31 +98,45 @@ function appPaneFromTab(tab: DesktopAppTabDescriptor) {
 }
 
 export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderId | null }) {
-  const dockState = useRightDockStore(
-    useMemo(() => selectRightDockState(props.threadId), [props.threadId]),
+  const appsLauncherRightInsetPx = resolveAppsLauncherRightInsetPx({
+    isElectron,
+    isWindowsDesktop: typeof navigator !== "undefined" && isWindowsPlatform(navigator.platform),
+  });
+  const draftThread = useComposerDraftStore(
+    (store) => store.draftThreadsByThreadId[props.threadId] ?? null,
   );
-  const dockStateByThreadId = useRightDockStore((store) => store.dockStateByThreadId);
+  const persistedDeckId = useStore(
+    (store) => store.threadShellById?.[props.threadId]?.deckId ?? null,
+  );
+  const threadsHydrated = useStore((store) => store.threadsHydrated);
+  const threadShellById = useStore((store) => store.threadShellById ?? {});
+  const deckId = persistedDeckId ?? draftThread?.deckId ?? singletonThreadDeckId(props.threadId);
+  const dockState = useRightDockStore(useMemo(() => selectRightDockState(deckId), [deckId]));
+  const dockStateByDeckId = useRightDockStore((store) => store.dockStateByDeckId);
   const retainedAppPanes = useMemo(() => {
     const panes = new Map<string, RightDockPane>();
-    for (const state of Object.values(dockStateByThreadId)) {
+    for (const state of Object.values(dockStateByDeckId)) {
       for (const pane of state?.panes ?? []) panes.set(pane.id, pane);
     }
     return [...panes.values()];
-  }, [dockStateByThreadId]);
+  }, [dockStateByDeckId]);
   const openPane = useRightDockStore((store) => store.openPane);
   const closePane = useRightDockStore((store) => store.closePane);
   const setActivePane = useRightDockStore((store) => store.setActivePane);
   const setDockOpen = useRightDockStore((store) => store.setDockOpen);
   const setDockWidth = useRightDockStore((store) => store.setDockWidth);
   const updatePane = useRightDockStore((store) => store.updatePane);
+  useEffect(() => {
+    if (!threadsHydrated) return;
+    migrateLegacyRightDockStorage(
+      new Map(Object.values(threadShellById).map((thread) => [thread.id, thread.deckId])),
+    );
+  }, [threadShellById, threadsHydrated]);
   const activeProject = useStore(
     useMemo(() => createProjectSelector(props.folderId), [props.folderId]),
   );
   const threadWorkspaceMetadata = useStore(
     useMemo(() => createThreadWorkspaceMetadataSelector(props.threadId), [props.threadId]),
-  );
-  const draftThread = useComposerDraftStore(
-    (store) => store.draftThreadsByThreadId[props.threadId] ?? null,
   );
   const threadSummaries = useStore(useMemo(() => createSidebarThreadSummariesSelector(), []));
   const restoringAppPaneIdsRef = useRef(new Set<string>());
@@ -136,28 +159,31 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
       createThreadResourceOpener({
         directory: threadDirectory,
         spaceId: currentSpaceId,
+        deckId,
         threadId: props.threadId,
       }),
-    [currentSpaceId, props.threadId, threadDirectory],
+    [currentSpaceId, deckId, props.threadId, threadDirectory],
   );
 
   useEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
     const removeOpened = bridge.onOpened((tab) => {
-      if (currentSpaceId && isAppTabOutsideThreadSpace(tab, props.threadId, currentSpaceId)) {
+      if (tab.deckId !== deckId) return;
+      if (currentSpaceId && isAppTabOutsideDeckSpace(tab, deckId, currentSpaceId)) {
         void bridge.close({ tabId: tab.id }).catch(() => undefined);
-        closePane(props.threadId, tab.id);
+        closePane(deckId, tab.id);
         return;
       }
       setConfirmedAppPaneIds((current) => new Set(current).add(tab.id));
-      openPane(tab.threadId as ThreadId, {
+      openPane(deckId, {
         ...appPaneFromTab(tab),
         preserveSelection: tab.selection === "preserve",
       });
     });
     const removeState = bridge.onState((tab) => {
-      updatePane(tab.threadId as ThreadId, tab.id, {
+      if (tab.deckId !== deckId) return;
+      updatePane(deckId, tab.id, {
         appIconDataUrl: tab.iconDataUrl,
         appRendererId: tab.rendererId,
         appDocumentUrl: tab.documentUrl,
@@ -167,20 +193,21 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
       });
     });
     const removeClosed = bridge.onClosed((tab) => {
+      if (tab.deckId !== deckId) return;
       setConfirmedAppPaneIds((current) => {
         if (!current.has(tab.id)) return current;
         const next = new Set(current);
         next.delete(tab.id);
         return next;
       });
-      closePane(tab.threadId as ThreadId, tab.id);
+      closePane(deckId, tab.id);
     });
     return () => {
       removeOpened();
       removeState();
       removeClosed();
     };
-  }, [closePane, currentSpaceId, openPane, props.threadId, updatePane]);
+  }, [closePane, currentSpaceId, deckId, openPane, props.threadId, updatePane]);
 
   useEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
@@ -194,26 +221,26 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
         .then((tabs) => {
           if (cancelled) return;
           const currentTabs = tabs.filter(
-            (tab) => !isAppTabOutsideThreadSpace(tab, props.threadId, currentSpaceId),
+            (tab) => tab.deckId === deckId && tab.spaceId === currentSpaceId,
           );
           for (const tab of tabs) {
-            if (isAppTabOutsideThreadSpace(tab, props.threadId, currentSpaceId)) {
+            if (isAppTabOutsideDeckSpace(tab, deckId, currentSpaceId)) {
               void bridge.close({ tabId: tab.id }).catch(() => undefined);
-              closePane(props.threadId, tab.id);
+              closePane(deckId, tab.id);
             }
           }
           const liveIds = new Set(currentTabs.map((tab) => tab.id));
           setConfirmedAppPaneIds(liveIds);
-          const currentDockStates = useRightDockStore.getState().dockStateByThreadId;
+          const currentDockStates = useRightDockStore.getState().dockStateByDeckId;
           for (const tab of currentTabs) {
-            const stateForThread = currentDockStates[tab.threadId];
+            const stateForThread = currentDockStates[deckId];
             if (!stateForThread?.panes.some((pane) => pane.id === tab.id)) {
-              openPane(tab.threadId as ThreadId, {
+              openPane(deckId, {
                 ...appPaneFromTab(tab),
                 preserveSelection: true,
               });
             } else {
-              updatePane(tab.threadId as ThreadId, tab.id, {
+              updatePane(deckId, tab.id, {
                 appIconDataUrl: tab.iconDataUrl,
                 appRendererId: tab.rendererId,
                 appDocumentUrl: tab.documentUrl,
@@ -226,13 +253,13 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           for (const pane of dockState.panes) {
             if (!isAppPaneInSpace(pane, currentSpaceId)) {
               void bridge.close({ tabId: pane.id }).catch(() => undefined);
-              closePane(props.threadId, pane.id);
+              closePane(deckId, pane.id);
               continue;
             }
             if (liveIds.has(pane.id) || restoringAppPaneIdsRef.current.has(pane.id)) continue;
             restoringAppPaneIdsRef.current.add(pane.id);
             void bridge
-              .open(createAppTabRestoreRequest(pane, props.threadId))
+              .open(createAppTabRestoreRequest(pane, deckId, props.threadId))
               .catch((error: unknown) => {
                 toastManager.add({
                   type: "error",
@@ -263,7 +290,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
       cancelled = true;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
-  }, [closePane, currentSpaceId, dockState.panes, openPane, props.threadId, updatePane]);
+  }, [closePane, currentSpaceId, deckId, dockState.panes, openPane, props.threadId, updatePane]);
 
   const openAppsListing = useCallback(
     (appId: string) => {
@@ -273,7 +300,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
         (pane) => pane.appId === "com.penkra.apps" && isAppPaneInSpace(pane, currentSpaceId),
       );
       if (existing) {
-        setActivePane(props.threadId, existing.id);
+        setActivePane(deckId, existing.id);
         void bridge
           .navigate({
             tabId: existing.id,
@@ -294,11 +321,12 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
         .open({
           appId: "com.penkra.apps",
           spaceId: currentSpaceId,
+          deckId,
           threadId: props.threadId,
           route: "/detail",
           state: { appId, tab: "description" },
         })
-        .then((tab) => openPane(props.threadId, appPaneFromTab(tab)))
+        .then((tab) => openPane(deckId, appPaneFromTab(tab)))
         .catch((error: unknown) =>
           toastManager.add({
             type: "error",
@@ -307,7 +335,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           }),
         );
     },
-    [currentSpaceId, dockState.panes, openPane, props.threadId, setActivePane],
+    [currentSpaceId, deckId, dockState.panes, openPane, props.threadId, setActivePane],
   );
 
   useEffect(() => {
@@ -334,11 +362,11 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
       appsPaneId: appsPane?.id ?? null,
     });
     if (action.kind === "collapse") {
-      setDockOpen(props.threadId, false);
+      setDockOpen(deckId, false);
       return;
     }
     if (action.kind === "switch") {
-      setActivePane(props.threadId, action.paneId);
+      setActivePane(deckId, action.paneId);
       return;
     }
     const bridge = window.desktopBridge?.appTabs;
@@ -354,10 +382,11 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
       .open({
         appId: "com.penkra.apps",
         spaceId: currentSpaceId,
+        deckId,
         threadId: props.threadId,
         route: "/",
       })
-      .then((tab) => openPane(props.threadId, appPaneFromTab(tab)))
+      .then((tab) => openPane(deckId, appPaneFromTab(tab)))
       .catch((error: unknown) =>
         toastManager.add({
           type: "error",
@@ -371,6 +400,8 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
     shouldMountAppDockPane(pane.id, confirmedAppPaneIds) && pane.appRendererId !== undefined ? (
       <AppDockPane
         appName={pane.appName}
+        deckId={deckId}
+        threadId={props.threadId}
         {...(pane.appIconDataUrl !== undefined ? { iconDataUrl: pane.appIconDataUrl } : {})}
         status={pane.appStatus}
         tabId={pane.id}
@@ -390,7 +421,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
 
   const closeAppPane = (paneId: string) => {
     void window.desktopBridge?.appTabs?.close({ tabId: paneId }).catch(() => undefined);
-    closePane(props.threadId, paneId);
+    closePane(deckId, paneId);
   };
 
   return (
@@ -420,10 +451,9 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
             compensateForLeftSidebar={false}
             surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}
           >
-            <DeferredChatView
+            <ChatView
               threadId={props.threadId}
               paneScopeId={SINGLE_CHAT_PANE_SCOPE_ID}
-              deferMount={draftThread !== null}
               surfaceMode="single"
               isFocusedPane
             />
@@ -436,14 +466,17 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           contentMinWidth={THREAD_PANEL_MIN_WIDTH}
           defaultWidth={APP_PANEL_DEFAULT_WIDTH}
           shouldAcceptWidth={shouldAcceptAppPanelWidth}
-          motionKey={props.threadId}
-          onSelectPane={(paneId) => setActivePane(props.threadId, paneId)}
+          motionKey={deckId}
+          onSelectPane={(paneId) => setActivePane(deckId, paneId)}
           onClosePane={closeAppPane}
-          onOpenChange={(open) => setDockOpen(props.threadId, open)}
-          onResize={(width) => setDockWidth(props.threadId, width)}
+          onOpenChange={(open) => setDockOpen(deckId, open)}
+          onResize={(width) => setDockWidth(deckId, width)}
           renderPane={renderAppPane}
         />
-        <div className="absolute right-1.5 top-1.5 z-50 [-webkit-app-region:no-drag]">
+        <div
+          className="absolute top-1.5 z-50 [-webkit-app-region:no-drag]"
+          style={{ right: appsLauncherRightInsetPx }}
+        >
           <IconButton
             variant="chrome"
             size="icon-xs"

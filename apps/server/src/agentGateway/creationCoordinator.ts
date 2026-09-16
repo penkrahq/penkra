@@ -366,6 +366,7 @@ export const makeCreateThreadHandler = Effect.fn(function* (
         type: "thread.create",
         commandId: ids.threadCreateCommandId,
         threadId: ids.threadId,
+        deckId: caller.deckId,
         folderId,
         title,
         modelSelection: target,

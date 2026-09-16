@@ -5,6 +5,7 @@
 import type { Rectangle, WebContents, WebFrameMain } from "electron";
 import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { appTabKeyDefinition } from "./appTabKeyboard";
@@ -109,7 +110,10 @@ export interface AppTabObservationTarget {
 }
 
 export interface AppTabObserverResolver {
-  resolve(tabId: string): Promise<AppTabObservationTarget> | AppTabObservationTarget;
+  resolve(
+    tabId: string,
+    surfaceId?: number,
+  ): Promise<AppTabObservationTarget> | AppTabObservationTarget;
   validateUploadPaths?(
     descriptor: DesktopAppTabDescriptor,
     paths: ReadonlyArray<string>,
@@ -180,6 +184,7 @@ export async function resolveAppTabObservationTarget(input: {
 
 export class AppTabObserver {
   readonly #resolver: AppTabObserverResolver;
+  readonly #surface = new AsyncLocalStorage<number | undefined>();
   readonly #states = new Map<string, TabSnapshotState>();
   readonly #snapshotTails = new Map<string, Promise<void>>();
   readonly #protocolSessions = new Map<
@@ -204,6 +209,10 @@ export class AppTabObserver {
 
   constructor(resolver: AppTabObserverResolver) {
     this.#resolver = resolver;
+  }
+
+  runOnSurface<T>(surfaceId: number | null, operation: () => Promise<T>): Promise<T> {
+    return this.#surface.run(surfaceId ?? undefined, operation);
   }
 
   getPerformanceSnapshot(): AppTabObserverPerformanceSnapshot {
@@ -872,7 +881,10 @@ export class AppTabObserver {
         `A browser JavaScript ${existingDialog.type} dialog is open: ${JSON.stringify(bounded(existingDialog.message))}. Handle it with penkra tabs handle-dialog before continuing.`,
       );
     }
-    const target = await this.#resolver.resolve(tabId);
+    const surfaceId = this.#surface.getStore();
+    const target = await (surfaceId === undefined
+      ? this.#resolver.resolve(tabId)
+      : this.#resolver.resolve(tabId, surfaceId));
     if (target.webContents.isDestroyed())
       throw observerError("TAB_CLOSED", `App tab ${tabId} is closed.`);
     if (target.embedded?.target.webContents.isDestroyed())

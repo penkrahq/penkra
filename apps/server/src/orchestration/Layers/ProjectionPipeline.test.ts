@@ -8,6 +8,7 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
+  singletonThreadDeckId,
 } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -123,6 +124,8 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-1"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
+          deckSortOrder: 0,
           folderId: FolderId.makeUnsafe("project-1"),
           title: "Thread 1",
           modelSelection: {
@@ -243,6 +246,8 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-visit"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-visit")),
+          deckSortOrder: 0,
           folderId: FolderId.makeUnsafe("project-visit"),
           title: "Thread",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
@@ -331,6 +336,8 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-turn-settings"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-turn-settings")),
+          deckSortOrder: 0,
           folderId: FolderId.makeUnsafe("project-turn-settings"),
           title: "Thread",
           modelSelection: {
@@ -554,6 +561,8 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         metadata: {},
         payload: {
           threadId,
+          deckId: singletonThreadDeckId(threadId),
+          deckSortOrder: 0,
           folderId: FolderId.makeUnsafe("project-retained-error"),
           title: "Retained error thread",
           modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
@@ -696,6 +705,8 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           type: "thread.created",
           payload: {
             threadId,
+            deckId: singletonThreadDeckId(threadId),
+            deckSortOrder: 0,
             folderId: FolderId.makeUnsafe("project-restart-recovery"),
             title: "Restart recovery",
             modelSelection: { provider: "codex", model: "gpt-5-codex" },
@@ -1249,6 +1260,8 @@ it.effect("fast-forwards lagging hot projector cursors before restart replay", (
         metadata: {},
         payload: {
           threadId,
+          deckId: singletonThreadDeckId(threadId),
+          deckSortOrder: 0,
           folderId,
           title: "Bootstrap fast-forward thread",
           modelSelection: {
@@ -1596,6 +1609,8 @@ it.layer(
         metadata: {},
         payload: {
           threadId,
+          deckId: singletonThreadDeckId(threadId),
+          deckSortOrder: 0,
           folderId,
           title: "Approvals Thread",
           modelSelection: {
@@ -1730,6 +1745,8 @@ it.layer(
         metadata: {},
         payload: {
           threadId,
+          deckId: singletonThreadDeckId(threadId),
+          deckSortOrder: 0,
           folderId,
           title: "Streaming Shell Thread",
           modelSelection: {
@@ -1831,6 +1848,8 @@ it.layer(
         metadata: {},
         payload: {
           threadId,
+          deckId: singletonThreadDeckId(threadId),
+          deckSortOrder: 0,
           folderId,
           title: "User Input Thread",
           modelSelection: {
@@ -2308,6 +2327,8 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           metadata: {},
           payload: {
             threadId: ThreadId.makeUnsafe("thread-clear-attachments"),
+            deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-clear-attachments")),
+            deckSortOrder: 0,
             folderId: FolderId.makeUnsafe("project-clear-attachments"),
             title: "Thread Clear Attachments",
             modelSelection: {
@@ -2435,6 +2456,8 @@ it.layer(
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-overwrite"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-overwrite")),
+          deckSortOrder: 0,
           folderId: FolderId.makeUnsafe("project-overwrite"),
           title: "Thread Overwrite",
           modelSelection: {
@@ -2579,6 +2602,8 @@ it.layer(
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-rollback"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-rollback")),
+          deckSortOrder: 0,
           folderId: FolderId.makeUnsafe("project-rollback"),
           title: "Thread Rollback",
           modelSelection: {
@@ -2699,6 +2724,8 @@ it.layer(
         metadata: {},
         payload: {
           threadId,
+          deckId: singletonThreadDeckId(threadId),
+          deckSortOrder: 0,
           folderId,
           title: "Stream Append Thread",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
@@ -2929,6 +2956,8 @@ it.layer(
         metadata: {},
         payload: {
           threadId,
+          deckId: singletonThreadDeckId(threadId),
+          deckSortOrder: 0,
           folderId,
           title: "Stream Restart Thread",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
@@ -3094,6 +3123,8 @@ it.layer(
         metadata: {},
         payload: {
           threadId,
+          deckId: singletonThreadDeckId(threadId),
+          deckSortOrder: 0,
           folderId: FolderId.makeUnsafe("project-revert-files"),
           title: "Thread Revert Files",
           modelSelection: {
@@ -3323,6 +3354,8 @@ it.layer(
         metadata: {},
         payload: {
           threadId,
+          deckId: singletonThreadDeckId(threadId),
+          deckSortOrder: 0,
           folderId: FolderId.makeUnsafe("project-delete-files"),
           title: "Thread Delete Files",
           modelSelection: {
@@ -3480,6 +3513,8 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-a"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-a")),
+          deckSortOrder: 0,
           folderId: FolderId.makeUnsafe("project-a"),
           title: "Thread A",
           modelSelection: {
@@ -3606,6 +3641,8 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-empty"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-empty")),
+          deckSortOrder: 0,
           folderId: FolderId.makeUnsafe("project-empty"),
           title: "Thread Empty",
           modelSelection: {
@@ -3898,6 +3935,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-routed-thread"),
         threadId,
+        deckId: singletonThreadDeckId(threadId),
         folderId,
         title: "Routed telemetry",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },

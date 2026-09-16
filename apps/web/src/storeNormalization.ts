@@ -1564,6 +1564,8 @@ export function normalizeThreadFromReadModel(
   if (
     previous &&
     previous.folderId === incoming.folderId &&
+    previous.deckId === incoming.deckId &&
+    previous.deckSortOrder === incoming.deckSortOrder &&
     (previous.sidebarSortOrder ?? 0) === (incoming.sidebarSortOrder ?? 0) &&
     previous.title === incoming.title &&
     previous.modelSelection === modelSelection &&
@@ -1603,6 +1605,8 @@ export function normalizeThreadFromReadModel(
 
   return {
     id: incoming.id,
+    deckId: incoming.deckId,
+    deckSortOrder: incoming.deckSortOrder,
     codexThreadId: null,
     folderId: incoming.folderId,
     spaceId: previous?.spaceId ?? null,
@@ -1662,6 +1666,8 @@ export function normalizeThreadShellSnapshot(
   const nextWorkingDirectory = incoming.workingDirectory ?? null;
   const shell: ThreadShell = {
     id: incoming.id,
+    deckId: incoming.deckId,
+    deckSortOrder: incoming.deckSortOrder,
     codexThreadId: previous?.codexThreadId ?? null,
     folderId: incoming.folderId,
     spaceId: previous?.spaceId ?? null,

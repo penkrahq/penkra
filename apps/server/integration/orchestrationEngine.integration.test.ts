@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { singletonThreadDeckId } from "@penkra/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -132,6 +133,7 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       type: "thread.create",
       commandId: CommandId.makeUnsafe("cmd-thread-create"),
       threadId: THREAD_ID,
+      deckId: singletonThreadDeckId(THREAD_ID),
       folderId: PROJECT_ID,
       title: "Integration Thread",
       modelSelection: {
@@ -264,6 +266,7 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           type: "thread.create",
           commandId: CommandId.makeUnsafe("cmd-thread-create-real-codex"),
           threadId: THREAD_ID,
+          deckId: singletonThreadDeckId(THREAD_ID),
           folderId: PROJECT_ID,
           title: "Integration Thread",
           modelSelection: {

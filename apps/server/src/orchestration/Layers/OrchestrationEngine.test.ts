@@ -1,3 +1,4 @@
+import { singletonThreadDeckId } from "@penkra/contracts";
 import {
   CommandId,
   EventId,
@@ -151,6 +152,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-engine-quiesce-thread"),
         threadId,
+        deckId: singletonThreadDeckId(threadId),
         folderId: asFolderId("project-engine-quiesce"),
         title: "Engine quiesce thread",
         modelSelection: {
@@ -311,6 +313,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-1-create"),
         threadId: ThreadId.makeUnsafe("thread-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
         folderId: asFolderId("project-1"),
         title: "Thread",
         modelSelection: {
@@ -400,6 +403,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-managed-attachment-thread"),
         threadId,
+        deckId: singletonThreadDeckId(threadId),
         folderId: asFolderId("project-managed-attachment"),
         title: "Managed attachment thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
@@ -530,6 +534,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-replay-create"),
         threadId: ThreadId.makeUnsafe("thread-replay"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-replay")),
         folderId: asFolderId("project-replay"),
         title: "replay",
         modelSelection: {
@@ -597,6 +602,7 @@ describe("OrchestrationEngine", () => {
           type: "thread.create",
           commandId: CommandId.makeUnsafe("cmd-stream-thread-create"),
           threadId: ThreadId.makeUnsafe("thread-stream"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-stream")),
           folderId: asFolderId("project-stream"),
           title: "domain-stream",
           modelSelection: {
@@ -698,6 +704,7 @@ describe("OrchestrationEngine", () => {
           type: "thread.create",
           commandId: CommandId.makeUnsafe("cmd-flaky-1"),
           threadId: ThreadId.makeUnsafe("thread-flaky-fail"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-flaky-fail")),
           folderId: asFolderId("project-flaky"),
           title: "flaky-fail",
           modelSelection: {
@@ -715,6 +722,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-flaky-2"),
         threadId: ThreadId.makeUnsafe("thread-flaky-ok"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-flaky-ok")),
         folderId: asFolderId("project-flaky"),
         title: "flaky-ok",
         modelSelection: {
@@ -791,6 +799,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-atomic-create"),
         threadId: ThreadId.makeUnsafe("thread-atomic"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-atomic")),
         folderId: asFolderId("project-atomic"),
         title: "atomic",
         modelSelection: {
@@ -1065,6 +1074,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-sync-create"),
         threadId: ThreadId.makeUnsafe("thread-sync"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-sync")),
         folderId: asFolderId("project-sync"),
         title: "sync-before",
         modelSelection: {
@@ -1199,6 +1209,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-deferred-recovery"),
         threadId: ThreadId.makeUnsafe("thread-deferred-recovery"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-deferred-recovery")),
         folderId: asFolderId("project-deferred-recovery"),
         title: "deferred-recovery",
         modelSelection: {
@@ -1339,6 +1350,7 @@ describe("OrchestrationEngine", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-duplicate-1"),
         threadId: ThreadId.makeUnsafe("thread-duplicate"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-duplicate")),
         folderId: asFolderId("project-duplicate"),
         title: "duplicate",
         modelSelection: {
@@ -1356,6 +1368,7 @@ describe("OrchestrationEngine", () => {
           type: "thread.create",
           commandId: CommandId.makeUnsafe("cmd-thread-duplicate-2"),
           threadId: ThreadId.makeUnsafe("thread-duplicate"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-duplicate")),
           folderId: asFolderId("project-duplicate"),
           title: "duplicate",
           modelSelection: {
@@ -1399,7 +1412,9 @@ describe("OrchestrationEngine", () => {
       const outcome = Option.getOrThrow(poisonedOutcome);
       expect(outcome._tag).toBe("Failure");
       if (outcome._tag === "Failure") {
-        expect(outcome.failure).toMatchObject({ _tag: "OrchestrationCommandInternalError" });
+        expect(outcome.failure).toMatchObject({
+          _tag: "OrchestrationCommandInternalError",
+        });
       }
 
       // The worker survived: the next command still runs.

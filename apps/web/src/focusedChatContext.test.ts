@@ -1,4 +1,4 @@
-import { FolderId, SpaceId, ThreadId, TurnId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId, TurnId, singletonThreadDeckId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { type DraftThreadState } from "./composerDraftStore";
@@ -26,8 +26,10 @@ function makeProject(): Project {
 }
 
 function makeThread(threadId: ThreadId, overrides: Partial<Thread> = {}): Thread {
-  return {
+  const thread = {
     id: threadId,
+    deckId: singletonThreadDeckId(threadId),
+    deckSortOrder: 0,
     codexThreadId: null,
     folderId: PROJECT_ID,
     title: `Thread ${threadId}`,
@@ -50,11 +52,16 @@ function makeThread(threadId: ThreadId, overrides: Partial<Thread> = {}): Thread
     activities: [],
     ...overrides,
   };
+  return Object.assign({}, thread, {
+    deckId: overrides.deckId ?? singletonThreadDeckId(threadId),
+    deckSortOrder: overrides.deckSortOrder ?? 0,
+  }) as Thread;
 }
 
 function makeDraftThread(overrides: Partial<DraftThreadState> = {}): DraftThreadState {
   return {
     folderId: PROJECT_ID,
+    deckId: singletonThreadDeckId(THREAD_A),
     createdAt: "2026-04-07T10:00:00.000Z",
     runtimeMode: "full-access",
     entryPoint: "chat",

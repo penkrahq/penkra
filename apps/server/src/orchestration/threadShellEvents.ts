@@ -22,6 +22,8 @@ const THREAD_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "thread.deleted",
   "thread.archived",
   "thread.unarchived",
+  "thread.deck-moved",
+  "thread.deck-reordered",
 ]);
 
 const OTHER_THREAD_SHELL_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([

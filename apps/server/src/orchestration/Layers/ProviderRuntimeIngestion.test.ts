@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { singletonThreadDeckId } from "@penkra/contracts";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 
 import type {
@@ -321,6 +322,7 @@ describe("ProviderRuntimeIngestion", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-create"),
         threadId: ThreadId.makeUnsafe("thread-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
         folderId: asFolderId("project-1"),
         title: "Thread",
         modelSelection: {
@@ -407,7 +409,12 @@ describe("ProviderRuntimeIngestion", () => {
                       id: "format",
                       header: "Format",
                       question: "Which format?",
-                      options: [{ label: "Guide", description: "Write a practical guide." }],
+                      options: [
+                        {
+                          label: "Guide",
+                          description: "Write a practical guide.",
+                        },
+                      ],
                     },
                   ],
                 },
@@ -502,7 +509,9 @@ describe("ProviderRuntimeIngestion", () => {
             (expires ? "evt-question-before-crash:expired" : "evt-question-before-crash"),
         ),
       ).toBe(true);
-      const pending = derivePendingThreadRequestIds({ activities: thread?.activities ?? [] });
+      const pending = derivePendingThreadRequestIds({
+        activities: thread?.activities ?? [],
+      });
       expect(
         kind === "question" ? pending.userInputRequestIds : pending.approvalRequestIds,
       ).toEqual(expires && state !== "successor-reused-request" ? [] : ["question-before-crash"]);
@@ -1174,6 +1183,7 @@ describe("ProviderRuntimeIngestion", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-accepted-rebuild-healthy-create"),
         threadId: thread2,
+        deckId: singletonThreadDeckId(thread2),
         folderId: asFolderId("project-1"),
         title: "Accepted Rebuild Healthy Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
@@ -1422,6 +1432,7 @@ describe("ProviderRuntimeIngestion", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-2-create"),
         threadId: thread2,
+        deckId: singletonThreadDeckId(thread2),
         folderId: asFolderId("project-1"),
         title: "Independent Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
@@ -1996,7 +2007,9 @@ describe("ProviderRuntimeIngestion", () => {
     const releaseLifecycleDispatch = await Effect.runPromise(Deferred.make<void>());
     const originalDispatch = harness.engine.dispatch;
     let held = false;
-    const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+    const dispatchTarget = harness.engine as {
+      dispatch: typeof harness.engine.dispatch;
+    };
     dispatchTarget.dispatch = (command, context) => {
       if (
         !held &&
@@ -2128,7 +2141,10 @@ describe("ProviderRuntimeIngestion", () => {
   });
 
   it("durably replays a missing-runtime lifecycle write as the same null-session skip", async () => {
-    const harness = await createHarness({ startIngestion: false, seedSession: false });
+    const harness = await createHarness({
+      startIngestion: false,
+      seedSession: false,
+    });
     const createdAt = "2026-09-07T01:01:20.000Z";
     const event: ProviderRuntimeEvent = {
       type: "session.state.changed",
@@ -2385,7 +2401,10 @@ describe("ProviderRuntimeIngestion", () => {
       itemId: asItemId("item-current-error-buffer"),
       createdAt: now,
       lifecycleGeneration: "generation-current-error",
-      payload: { streamKind: "assistant_text", delta: "partial response survives" },
+      payload: {
+        streamKind: "assistant_text",
+        delta: "partial response survives",
+      },
     });
     harness.emit({
       type: "runtime.error",
@@ -2407,7 +2426,10 @@ describe("ProviderRuntimeIngestion", () => {
             !message.streaming,
         ),
     );
-    expect(thread.session).toMatchObject({ status: "error", activeTurnId: null });
+    expect(thread.session).toMatchObject({
+      status: "error",
+      activeTurnId: null,
+    });
   });
 
   it("finalizes an explicit old error turn without mutating its active successor", async () => {
@@ -2556,7 +2578,9 @@ describe("ProviderRuntimeIngestion", () => {
     const admitted = await Effect.runPromise(Deferred.make<void>());
     const release = await Effect.runPromise(Deferred.make<void>());
     const originalDispatch = harness.engine.dispatch;
-    const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+    const dispatchTarget = harness.engine as {
+      dispatch: typeof harness.engine.dispatch;
+    };
     dispatchTarget.dispatch = (command, context) =>
       command.type === "thread.session.set" && command.commandId.includes("evt-raced-session-exit")
         ? Deferred.succeed(admitted, undefined).pipe(
@@ -2780,7 +2804,10 @@ describe("ProviderRuntimeIngestion", () => {
       harness.engine,
       (entry) => entry.session?.updatedAt === "2026-08-31T12:24:18.000Z",
     );
-    expect(thread.session).toMatchObject({ status: "stopped", activeTurnId: null });
+    expect(thread.session).toMatchObject({
+      status: "stopped",
+      activeTurnId: null,
+    });
   });
 
   it("preserves a pending request when provider thread readiness precedes turn start", async () => {
@@ -4247,7 +4274,10 @@ describe("ProviderRuntimeIngestion", () => {
     expect(rows[0]?.count).toBe(1);
     expect(rows[0]?.operationId).toMatch(/^operation:/u);
     expect(rows[0]?.status).toBe("completed");
-    expect(JSON.parse(rows[0]?.inputJson ?? "null")).toEqual({ query: "TODO.md", path: "apps" });
+    expect(JSON.parse(rows[0]?.inputJson ?? "null")).toEqual({
+      query: "TODO.md",
+      path: "apps",
+    });
     expect(JSON.parse(rows[0]?.activityJson ?? "{}")).toMatchObject({
       payload: { detail: "3 matches" },
     });
@@ -4885,6 +4915,7 @@ describe("ProviderRuntimeIngestion", () => {
         type: "thread.create",
         commandId: CommandId.makeUnsafe("cmd-thread-create-delivery-buffered"),
         threadId: secondThreadId,
+        deckId: singletonThreadDeckId(secondThreadId),
         folderId: asFolderId("project-1"),
         title: "Buffered Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
@@ -7276,7 +7307,10 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(compactions).toHaveLength(1);
     expect(compactions[0]?.summary).toBe("Context compacted automatically");
-    expect(compactions[0]?.payload).toMatchObject({ compactionId: itemId, status: "completed" });
+    expect(compactions[0]?.payload).toMatchObject({
+      compactionId: itemId,
+      status: "completed",
+    });
   });
 
   it.each(["item.started", "item.updated"] as const)(
@@ -8081,7 +8115,9 @@ describe("ProviderRuntimeIngestion", () => {
       const admitted = await Effect.runPromise(Deferred.make<void>());
       const release = await Effect.runPromise(Deferred.make<void>());
       const originalDispatch = harness.engine.dispatch;
-      const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+      const dispatchTarget = harness.engine as {
+        dispatch: typeof harness.engine.dispatch;
+      };
       dispatchTarget.dispatch = (command, context) =>
         command.type === "thread.session.set" && command.commandId.includes(event.eventId)
           ? Deferred.succeed(admitted, undefined).pipe(
@@ -8210,7 +8246,9 @@ describe("ProviderRuntimeIngestion", () => {
     const admitted = await Effect.runPromise(Deferred.make<void>());
     const release = await Effect.runPromise(Deferred.make<void>());
     const originalDispatch = harness.engine.dispatch;
-    const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+    const dispatchTarget = harness.engine as {
+      dispatch: typeof harness.engine.dispatch;
+    };
     dispatchTarget.dispatch = (command, context) =>
       command.type === "thread.session.set" && command.commandId.includes(event.eventId)
         ? Deferred.succeed(admitted, undefined).pipe(
@@ -8341,7 +8379,9 @@ describe("ProviderRuntimeIngestion", () => {
     const admitted = await Effect.runPromise(Deferred.make<void>());
     const release = await Effect.runPromise(Deferred.make<void>());
     const originalDispatch = harness.engine.dispatch;
-    const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+    const dispatchTarget = harness.engine as {
+      dispatch: typeof harness.engine.dispatch;
+    };
     dispatchTarget.dispatch = (command, context) =>
       command.type === "thread.session.set" && command.commandId.includes(event.eventId)
         ? Deferred.succeed(admitted, undefined).pipe(
@@ -8485,7 +8525,9 @@ describe("ProviderRuntimeIngestion", () => {
     const admitted = await Effect.runPromise(Deferred.make<void>());
     const release = await Effect.runPromise(Deferred.make<void>());
     const originalDispatch = harness.engine.dispatch;
-    const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+    const dispatchTarget = harness.engine as {
+      dispatch: typeof harness.engine.dispatch;
+    };
     dispatchTarget.dispatch = (command, context) =>
       command.type === "thread.session.set" && command.commandId.includes(event.eventId)
         ? Deferred.succeed(admitted, undefined).pipe(
@@ -8607,7 +8649,10 @@ describe("ProviderRuntimeIngestion", () => {
   });
 
   it("fences a generation-bearing turn.started captured with a null session", async () => {
-    const harness = await createHarness({ startIngestion: false, seedSession: false });
+    const harness = await createHarness({
+      startIngestion: false,
+      seedSession: false,
+    });
     const generationA = "generation-null-session-a";
     const generationB = "generation-null-session-b";
     const startedAt = "2026-09-07T02:03:00.000Z";
@@ -8636,7 +8681,9 @@ describe("ProviderRuntimeIngestion", () => {
     const admitted = await Effect.runPromise(Deferred.make<void>());
     const release = await Effect.runPromise(Deferred.make<void>());
     const originalDispatch = harness.engine.dispatch;
-    const dispatchTarget = harness.engine as { dispatch: typeof harness.engine.dispatch };
+    const dispatchTarget = harness.engine as {
+      dispatch: typeof harness.engine.dispatch;
+    };
     dispatchTarget.dispatch = (command, context) =>
       command.type === "thread.session.set" && command.commandId.includes(event.eventId)
         ? Deferred.succeed(admitted, undefined).pipe(

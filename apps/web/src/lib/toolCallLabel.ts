@@ -125,10 +125,15 @@ const PENKRA_MCP_TOOL_PRESENTATIONS = {
     completed: "Penkra checked its context",
     failed: "Penkra couldn't check its context",
   },
-  penkra_capabilities: {
-    running: "Penkra is checking available agents",
-    completed: "Penkra checked available agents",
-    failed: "Penkra couldn't check available agents",
+  penkra_list_connections: {
+    running: "Penkra is listing connections",
+    completed: "Penkra listed connections",
+    failed: "Penkra couldn't list connections",
+  },
+  penkra_list_models: {
+    running: "Penkra is listing models",
+    completed: "Penkra listed models",
+    failed: "Penkra couldn't list models",
   },
   penkra_list_folders: {
     running: "Penkra is listing folders",
@@ -347,7 +352,10 @@ export function sanitizePenkraMcpToolPreview(input: {
 }): string | null {
   const preview = input.preview?.trim();
   if (!preview) return null;
-  const previewTitle = derivePenkraMcpToolTitle({ title: preview, status: input.status });
+  const previewTitle = derivePenkraMcpToolTitle({
+    title: preview,
+    status: input.status,
+  });
   if (
     previewTitle &&
     normalizePenkraMcpIdentifier(previewTitle) === normalizePenkraMcpIdentifier(input.heading)
