@@ -1,4 +1,12 @@
-import { CommandId, EventId, MessageId, FolderId, SpaceId, ThreadId } from "@penkra/contracts";
+import {
+  CommandId,
+  EventId,
+  MessageId,
+  FolderId,
+  SpaceId,
+  ThreadId,
+  singletonThreadDeckId,
+} from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 
@@ -199,6 +207,8 @@ describe("decider project scripts", () => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-mixed-active"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-mixed-active")),
+          deckSortOrder: 0,
           folderId: asFolderId("project-mixed-active"),
           title: "Saved chat",
           modelSelection: {
@@ -388,6 +398,8 @@ describe("decider project scripts", () => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-1"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
+          deckSortOrder: 0,
           folderId: asFolderId("project-1"),
           title: "Thread",
           modelSelection: {
@@ -598,6 +610,8 @@ describe("decider project scripts", () => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-1"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
+          deckSortOrder: 0,
           folderId: asFolderId("project-1"),
           title: "Thread",
           modelSelection: {

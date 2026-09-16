@@ -48,6 +48,10 @@ export const account: PenkraControllerRuntimeApi["account"] = {
   request: (input) => runtime().account.request(input),
 };
 
+export const models: PenkraControllerRuntimeApi["models"] = {
+  listPossible: () => runtime().models.listPossible(),
+};
+
 export const settings: PenkraControllerRuntimeApi["settings"] = {
   get: (key) => runtime().settings.get(key),
   set: (key, value) => runtime().settings.set(key, value),

@@ -7,6 +7,7 @@ import type { AppTabGenerationOwner } from "./electronAppTabHost";
 export interface AppRendererIdentity {
   appId: string;
   spaceId: string;
+  deckId?: string;
   threadId?: string;
   tabId?: string;
 }

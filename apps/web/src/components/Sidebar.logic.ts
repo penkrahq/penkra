@@ -504,6 +504,35 @@ export function resolveThreadStatusPill(input: {
   return null;
 }
 
+/**
+ * Adapts the canonical shell summary to the shared visible lifecycle resolver.
+ * Every surface representing a Thread (sidebar rows, deck tabs, and future
+ * switchers) must use this path instead of rendering the coarse work-status
+ * rollup directly.
+ */
+export function resolveSidebarThreadSummaryStatus(input: {
+  readonly thread: SidebarThreadSummary;
+  readonly dismissedStatusKey?: string | undefined;
+  readonly isPromotedDraftPending?: boolean;
+  readonly hasLocalSendOwner?: boolean;
+}): ThreadStatusPill | null {
+  return resolveThreadStatusPill({
+    thread: {
+      ...input.thread,
+      dismissedStatusKey: input.dismissedStatusKey,
+    },
+    hasPendingApprovals: input.thread.hasPendingApprovals,
+    hasPendingUserInput: input.thread.hasPendingUserInput,
+    ...(input.isPromotedDraftPending === undefined
+      ? {}
+      : { isPromotedDraftPending: input.isPromotedDraftPending }),
+    hasCanonicalThreadSummary: true,
+    ...(input.hasLocalSendOwner === undefined
+      ? {}
+      : { hasLocalSendOwner: input.hasLocalSendOwner }),
+  });
+}
+
 export function resolveProjectStatusIndicator(
   statuses: ReadonlyArray<ThreadStatusPill | null>,
 ): ThreadStatusPill | null {

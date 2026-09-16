@@ -15,6 +15,8 @@ import type {
   OrchestrationThreadActivity,
   ProjectScript as ContractProjectScript,
   ThreadId,
+  ThreadDeckId,
+  ThreadDeck as ContractThreadDeck,
   FolderId,
   SpaceId,
   SpaceIconName,
@@ -142,6 +144,8 @@ export interface Space {
   archivedAt?: string | null;
 }
 
+export type ThreadDeck = ContractThreadDeck;
+
 export interface ThreadWorkspaceState {
   workingDirectory?: string | null;
 }
@@ -152,6 +156,8 @@ export interface ThreadWorkspacePatch {
 
 export interface Thread extends ThreadWorkspaceState {
   id: ThreadId;
+  deckId: ThreadDeckId;
+  deckSortOrder: number;
   codexThreadId: string | null;
   folderId: FolderId;
   spaceId?: SpaceId | null;
@@ -191,6 +197,8 @@ export interface Thread extends ThreadWorkspaceState {
 
 export interface ThreadShell extends ThreadWorkspaceState {
   id: ThreadId;
+  deckId: ThreadDeckId;
+  deckSortOrder: number;
   codexThreadId: string | null;
   folderId: FolderId;
   spaceId?: SpaceId | null;
@@ -234,6 +242,8 @@ export interface ThreadTurnState {
 
 export interface SidebarThreadSummary {
   id: ThreadId;
+  deckId: ThreadDeckId;
+  deckSortOrder: number;
   folderId: FolderId;
   spaceId?: SpaceId | null;
   sidebarSortOrder?: number;

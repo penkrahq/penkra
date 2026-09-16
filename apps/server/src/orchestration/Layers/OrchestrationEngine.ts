@@ -4,6 +4,7 @@ import type {
   OrchestrationReadModel,
   FolderId,
   SpaceId,
+  ThreadDeckId,
   ThreadId,
 } from "@penkra/contracts";
 import { OrchestrationCommand, ORCHESTRATION_WS_METHODS } from "@penkra/contracts";
@@ -150,8 +151,8 @@ const providerSessionOwnershipMatches = (
       observed.activeTurnId === (expected.activeTurnId ?? null);
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "space" | "folder" | "thread";
-  readonly aggregateId: SpaceId | FolderId | ThreadId;
+  readonly aggregateKind: "space" | "folder" | "thread" | "deck";
+  readonly aggregateId: SpaceId | FolderId | ThreadId | ThreadDeckId;
 } {
   switch (command.type) {
     case "space.create":
@@ -180,6 +181,12 @@ function commandToAggregateRef(command: OrchestrationCommand): {
       return {
         aggregateKind: "folder",
         aggregateId: command.folderId,
+      };
+    case "thread.deck.move":
+    case "thread.deck.leave":
+      return {
+        aggregateKind: "deck",
+        aggregateId: command.deckId,
       };
     default:
       return {

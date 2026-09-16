@@ -106,6 +106,8 @@ describe("AppDockPane Runtime v2 frame", () => {
     await render(
       <div className="h-40 w-80">
         <AppDockPane
+          deckId="deck-1"
+          threadId="thread-1"
           appName="Canvas"
           documentUrl={FRAME_DOCUMENT}
           rendererId={101}
@@ -121,6 +123,8 @@ describe("AppDockPane Runtime v2 frame", () => {
         tabId: "stable-tab",
         rendererId: 101,
         active: true,
+        deckId: "deck-1",
+        threadId: "thread-1",
       }),
     );
 
@@ -134,6 +138,8 @@ describe("AppDockPane Runtime v2 frame", () => {
         tabId: "stable-tab",
         rendererId: 101,
         active: false,
+        deckId: "deck-1",
+        threadId: "thread-1",
       }),
     );
 
@@ -147,6 +153,8 @@ describe("AppDockPane Runtime v2 frame", () => {
         tabId: "stable-tab",
         rendererId: 101,
         active: true,
+        deckId: "deck-1",
+        threadId: "thread-1",
       }),
     );
   });
@@ -162,6 +170,8 @@ describe("AppDockPane Runtime v2 frame", () => {
           </button>
           <div className="h-40 w-80">
             <AppDockPane
+              deckId="deck-1"
+              threadId="thread-1"
               appName="Studio"
               documentUrl={FRAME_DOCUMENT}
               rendererId={rendererId}
@@ -185,6 +195,8 @@ describe("AppDockPane Runtime v2 frame", () => {
     await render(
       <div className="h-40 w-80">
         <AppDockPane
+          deckId="deck-1"
+          threadId="thread-1"
           appName="Canvas"
           documentUrl={FRAME_DOCUMENT}
           rendererId={101}
@@ -199,6 +211,8 @@ describe("AppDockPane Runtime v2 frame", () => {
     expect(bridge.frameCall).toHaveBeenCalledWith({
       tabId: "stable-tab",
       rendererId: 101,
+      deckId: "deck-1",
+      threadId: "thread-1",
       method: "identity.get",
     });
     expect(bridge.frameMessage).toHaveBeenCalledWith({
@@ -210,6 +224,8 @@ describe("AppDockPane Runtime v2 frame", () => {
       tabId: "stable-tab",
       rendererId: 101,
       active: true,
+      deckId: "deck-1",
+      threadId: "thread-1",
     });
   });
 
@@ -224,6 +240,8 @@ describe("AppDockPane Runtime v2 frame", () => {
           </button>
           <div className="h-40 w-80">
             <AppDockPane
+              deckId="deck-1"
+              threadId="thread-1"
               appName="Generation test"
               documentUrl={FRAME_DOCUMENT}
               rendererId={rendererId}
@@ -262,6 +280,8 @@ describe("AppDockPane Runtime v2 frame", () => {
           </button>
           <div className={wide ? "h-40 w-[640px]" : "h-40 w-80"}>
             <AppDockPane
+              deckId="deck-1"
+              threadId="thread-1"
               appName="Explorer"
               documentUrl={FRAME_DOCUMENT}
               rendererId={101}
@@ -291,6 +311,8 @@ describe("AppDockPane Runtime v2 frame", () => {
     await render(
       <div className="relative h-40 w-80">
         <AppDockPane
+          deckId="deck-1"
+          threadId="thread-1"
           appName="Apps"
           documentUrl={FRAME_DOCUMENT}
           rendererId={101}
@@ -329,6 +351,8 @@ describe("AppDockPane Runtime v2 frame", () => {
     await render(
       <div className="h-80 w-[640px]">
         <AppDockPane
+          deckId="deck-1"
+          threadId="thread-1"
           appName="Browser"
           documentUrl={FRAME_DOCUMENT}
           rendererId={-1}
@@ -501,6 +525,8 @@ describe("AppDockPane Runtime v2 frame", () => {
     await render(
       <div className="h-80 w-[640px]">
         <AppDockPane
+          deckId="deck-1"
+          threadId="thread-1"
           appName="Browser"
           documentUrl={FRAME_DOCUMENT}
           rendererId={-1}
@@ -548,6 +574,8 @@ describe("AppDockPane Runtime v2 frame", () => {
       tabId: "shared-browser-tab",
       rendererId: -1,
       active: true,
+      deckId: "deck-1",
+      threadId: "thread-1",
     });
 
     bridge.emitHostMessage({
@@ -604,6 +632,8 @@ describe("AppDockPane Runtime v2 frame", () => {
           </button>
           <div className="h-80 w-[640px]">
             <AppDockPane
+              deckId="deck-1"
+              threadId="thread-1"
               appName="Browser"
               documentUrl={FRAME_DOCUMENT}
               rendererId={rendererId}
@@ -679,6 +709,8 @@ describe("AppDockPane Runtime v2 frame", () => {
     const bridge = installBridge();
     await render(
       <AppDockPane
+        deckId="deck-1"
+        threadId="thread-1"
         appName="Browser"
         documentUrl={FRAME_DOCUMENT}
         rendererId={-1}
@@ -725,6 +757,8 @@ describe("AppDockPane Runtime v2 frame", () => {
     await render(
       <div className="h-80 w-[640px]">
         <AppDockPane
+          deckId="deck-1"
+          threadId="thread-1"
           appName="Browser"
           documentUrl={FRAME_DOCUMENT}
           rendererId={-2}
@@ -819,6 +853,8 @@ describe("AppDockPane Runtime v2 frame", () => {
           </button>
           <div className="h-80 w-[640px]">
             <AppDockPane
+              deckId="deck-1"
+              threadId="thread-1"
               appName="Browser"
               documentUrl={FRAME_DOCUMENT}
               rendererId={-3}
@@ -896,6 +932,8 @@ describe("AppDockPane Runtime v2 frame", () => {
         tabId: "retained-browser-tab",
         rendererId: -3,
         active: false,
+        deckId: "deck-1",
+        threadId: "thread-1",
       }),
     );
     expect(loginWebview.style.visibility).toBe("hidden");
@@ -947,6 +985,8 @@ describe("AppDockPane Runtime v2 frame", () => {
           </button>
           <div data-testid="browser-host" style={{ height: 320, width }}>
             <AppDockPane
+              deckId="deck-1"
+              threadId="thread-1"
               appName="Browser"
               documentUrl={FRAME_DOCUMENT}
               rendererId={-2}

@@ -141,6 +141,28 @@ describe("dispatchQueuedComposerTurn", () => {
     );
   });
 
+  it("preserves an explicit steer dispatch for an offscreen thread", async () => {
+    const dispatchCommand = vi.fn().mockResolvedValue({ sequence: 15 });
+    const api = {
+      orchestration: { dispatchCommand },
+      provider: {
+        getThreadBinding: vi.fn().mockResolvedValue({ binding: { revision: 2 } }),
+      },
+    } as unknown as NativeApi;
+
+    await dispatchQueuedComposerTurn({
+      api,
+      threadId: ThreadId.makeUnsafe("thread-offscreen-steer"),
+      queuedTurn: { ...makeQueuedTurn(), id: "queued-steer", dispatchMode: "steer" },
+      assistantDeliveryMode: "streaming",
+      persistDispatchAdmission: vi.fn(),
+    });
+
+    expect(dispatchCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ dispatchMode: "steer" }),
+    );
+  });
+
   it("rotates command identity only for a new semantic binding attempt", () => {
     expect(queuedComposerTurnCommandId({ id: "queued-1" })).toBe("composer-queue:queued-1");
     expect(queuedComposerTurnCommandId({ id: "queued-1", dispatchAttempt: 1 })).toBe(

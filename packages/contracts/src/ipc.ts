@@ -136,6 +136,7 @@ export interface ContextMenuItem<T extends string = string> {
   label: string;
   /** Starts a new visual group before this actionable row. */
   separatorBefore?: boolean;
+  enabled?: boolean;
   destructive?: boolean;
 }
 
@@ -640,6 +641,7 @@ export interface DesktopAppTabDescriptor {
   agentAddressable?: boolean;
   iconDataUrl: string | null;
   spaceId: string;
+  deckId: string;
   threadId: string;
   route: string;
   /** JSON-compatible App navigation state paired with `route` for exact reconstruction. */
@@ -664,6 +666,7 @@ export interface DesktopAppFrameHostMessage {
 
 export interface DesktopAppTabClosed {
   id: string;
+  deckId: string;
   threadId: string;
 }
 
@@ -675,14 +678,24 @@ export interface DesktopAppTabsBridge {
     tabId?: string;
     appId: string;
     spaceId: string;
+    deckId: string;
     threadId: string;
     route: string;
     state?: unknown;
   }) => Promise<DesktopAppTabDescriptor>;
-  setActive: (input: { tabId: string; rendererId: number; active: boolean }) => Promise<void>;
+  setActive: (input: {
+    tabId: string;
+    rendererId: number;
+    active: boolean;
+    deckId: string;
+    threadId: string;
+  }) => Promise<void>;
+  setContext: (input: { tabId: string; deckId: string; threadId: string }) => Promise<void>;
   frameCall: (input: {
     tabId: string;
     rendererId: number;
+    deckId: string;
+    threadId: string;
     method: string;
     input?: unknown;
   }) => Promise<unknown>;
@@ -730,6 +743,7 @@ export interface DesktopResourceOpenInput {
   url?: string;
   requestedApp?: string;
   spaceId: string;
+  deckId: string;
   threadId: string;
 }
 
@@ -737,6 +751,7 @@ export interface DesktopResourceContextMenuInput {
   path?: string;
   url?: string;
   spaceId: string;
+  deckId: string;
   threadId: string;
   position: { x: number; y: number };
 }
@@ -954,6 +969,9 @@ export interface DesktopBridge {
   threadApi?: {
     onRequest(listener: (request: DesktopThreadApiRequest) => void): () => void;
     respond(response: DesktopThreadApiResponse): void;
+    publishState(input: { spaceId: string; deckId: string; threads: ReadonlyArray<unknown> }): void;
+    bindTurnOrigin(input: { turnId: string }): void;
+    unbindTurnOrigin(input: { turnId: string }): void;
   };
   composerDrafts?: DesktopComposerDraftsBridge;
   accountAuth?: {
@@ -1000,27 +1018,65 @@ interface DesktopThreadApiRequestBase {
   id: string;
   appId: string;
   spaceId: string;
+  deckId: string;
   tabId: string;
   threadId: string;
 }
 
+interface DesktopThreadCompositionInput {
+  text?: string;
+  documents?: Array<{ title: string; content: string }>;
+  files?: DesktopThreadComposeAttachment[];
+  images?: DesktopThreadComposeAttachment[];
+  skills?: Array<{ name: string; path: string }>;
+  model?: ReadonlyArray<{
+    provider: string;
+    model: string;
+    options?: Record<string, unknown>;
+  }>;
+  effort?: string;
+}
+
+export type DesktopThreadDeckPosition =
+  | { type: "start" }
+  | { type: "end" }
+  | { type: "before"; threadId: string }
+  | { type: "after"; threadId: string };
+
 export type DesktopThreadApiRequest =
-  | (DesktopThreadApiRequestBase & { method: "read" })
+  | (DesktopThreadApiRequestBase & { method: "current.read" })
+  | (DesktopThreadApiRequestBase & { method: "list" })
+  | (DesktopThreadApiRequestBase & {
+      method: "get";
+      input: { threadId: string };
+    })
+  | (DesktopThreadApiRequestBase & {
+      method: "select";
+      input: { threadId: string };
+    })
+  | (DesktopThreadApiRequestBase & {
+      method: "leave";
+      input: { threadId: string };
+    })
+  | (DesktopThreadApiRequestBase & {
+      method: "archive";
+      input: { threadId: string };
+    })
+  | (DesktopThreadApiRequestBase & {
+      method: "create";
+      input: { folderId?: string; title?: string; select?: boolean };
+    })
+  | (DesktopThreadApiRequestBase & {
+      method: "add";
+      input: { threadId: string; position?: DesktopThreadDeckPosition };
+    })
+  | (DesktopThreadApiRequestBase & {
+      method: "reorder";
+      input: { threadId: string; position: DesktopThreadDeckPosition };
+    })
   | (DesktopThreadApiRequestBase & {
       method: "compose";
-      input?: {
-        text?: string;
-        documents?: Array<{ title: string; content: string }>;
-        files?: DesktopThreadComposeAttachment[];
-        images?: DesktopThreadComposeAttachment[];
-        skills?: Array<{ name: string; path: string }>;
-        model?: ReadonlyArray<{
-          provider: string;
-          model: string;
-          options?: Record<string, unknown>;
-        }>;
-        effort?: string;
-      };
+      input: DesktopThreadCompositionInput & { threadId: string };
     })
   | (DesktopThreadApiRequestBase & {
       method: "send";

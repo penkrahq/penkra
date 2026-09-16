@@ -13,6 +13,7 @@ import {
   SpaceId,
   ProviderItemId,
   ProviderConnectionId,
+  ThreadDeckId,
   ThreadId,
   TrimmedNonEmptyString,
   TurnId,
@@ -548,6 +549,8 @@ export type OrchestrationPendingInteraction = typeof OrchestrationPendingInterac
 
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
+  deckId: ThreadDeckId,
+  deckSortOrder: NonNegativeInt,
   folderId: FolderId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
@@ -616,6 +619,8 @@ export type OrchestrationThread = typeof OrchestrationThread.Type;
 
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
+  deckId: ThreadDeckId,
+  deckSortOrder: NonNegativeInt,
   folderId: FolderId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
@@ -670,10 +675,20 @@ export const OrchestrationThreadShell = Schema.Struct({
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 
+export const ThreadDeck = Schema.Struct({
+  id: ThreadDeckId,
+  spaceId: SpaceId,
+  threadIds: Schema.Array(ThreadId).check(Schema.isMinLength(1)),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type ThreadDeck = typeof ThreadDeck.Type;
+
 export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   spaces: Schema.Array(OrchestrationSpace),
   folders: Schema.Array(OrchestrationFolder),
+  decks: Schema.Array(ThreadDeck),
   threads: Schema.Array(OrchestrationThread),
   updatedAt: IsoDateTime,
 });
@@ -689,6 +704,7 @@ export const OrchestrationShellSnapshot = Schema.Struct({
   archivedFolders: Schema.optional(Schema.Array(OrchestrationFolderShell)).pipe(
     Schema.withDecodingDefault(() => []),
   ),
+  decks: Schema.Array(ThreadDeck),
   threads: Schema.Array(OrchestrationThreadShell),
   updatedAt: IsoDateTime,
 });
@@ -739,6 +755,16 @@ export const OrchestrationShellStreamEvent = Schema.Union([
     kind: Schema.Literal("thread-removed"),
     sequence: NonNegativeInt,
     threadId: ThreadId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("deck-layout-updated"),
+    sequence: NonNegativeInt,
+    sourceDeckId: ThreadDeckId,
+    destinationDeckId: ThreadDeckId,
+    spaceId: SpaceId,
+    sourceThreadIds: Schema.Array(ThreadId),
+    destinationThreadIds: Schema.Array(ThreadId).check(Schema.isMinLength(1)),
+    updatedAt: IsoDateTime,
   }),
 ]);
 export type OrchestrationShellStreamEvent = typeof OrchestrationShellStreamEvent.Type;
@@ -866,6 +892,7 @@ const ThreadCreateCommand = Schema.Struct({
   type: Schema.Literal("thread.create"),
   commandId: CommandId,
   threadId: ThreadId,
+  deckId: ThreadDeckId,
   folderId: FolderId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
@@ -906,6 +933,7 @@ const ThreadForkCreateCommand = Schema.Struct({
   type: Schema.Literal("thread.fork.create"),
   commandId: CommandId,
   threadId: ThreadId,
+  deckId: ThreadDeckId,
   sourceThreadId: ThreadId,
   folderId: FolderId,
   title: TrimmedNonEmptyString,
@@ -932,6 +960,29 @@ const ThreadUnarchiveCommand = Schema.Struct({
   type: Schema.Literal("thread.unarchive"),
   commandId: CommandId,
   threadId: ThreadId,
+});
+
+export const ThreadDeckPosition = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("start") }),
+  Schema.Struct({ type: Schema.Literal("end") }),
+  Schema.Struct({ type: Schema.Literal("before"), threadId: ThreadId }),
+  Schema.Struct({ type: Schema.Literal("after"), threadId: ThreadId }),
+]);
+export type ThreadDeckPosition = typeof ThreadDeckPosition.Type;
+
+const ThreadDeckMoveCommand = Schema.Struct({
+  type: Schema.Literal("thread.deck.move"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  deckId: ThreadDeckId,
+  position: ThreadDeckPosition,
+});
+
+const ThreadDeckLeaveCommand = Schema.Struct({
+  type: Schema.Literal("thread.deck.leave"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  deckId: ThreadDeckId,
 });
 
 const ThreadUpdateCommand = Schema.Struct({
@@ -1204,6 +1255,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
+  ThreadDeckMoveCommand,
+  ThreadDeckLeaveCommand,
   ThreadUpdateCommand,
   ThreadPinnedMessageAddCommand,
   ThreadPinnedMessageRemoveCommand,
@@ -1241,6 +1294,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
+  ThreadDeckMoveCommand,
+  ThreadDeckLeaveCommand,
   ThreadUpdateCommand,
   ThreadPinnedMessageAddCommand,
   ThreadPinnedMessageRemoveCommand,
@@ -1382,6 +1437,8 @@ export const OrchestrationEventType = Schema.Literals([
   // Legacy desktop installs can still contain these rows in orchestration_events.
   "thread.archived",
   "thread.unarchived",
+  "thread.deck-moved",
+  "thread.deck-reordered",
   "thread.updated",
   "thread.pinned-message-added",
   "thread.pinned-message-removed",
@@ -1415,7 +1472,7 @@ export const OrchestrationEventType = Schema.Literals([
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["space", "folder", "thread"]);
+export const OrchestrationAggregateKind = Schema.Literals(["space", "folder", "thread", "deck"]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -1511,6 +1568,8 @@ export const SidebarLayoutUpdatedPayload = Schema.Struct({
 
 export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
+  deckId: ThreadDeckId,
+  deckSortOrder: NonNegativeInt,
   folderId: FolderId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
@@ -1547,6 +1606,23 @@ export const ThreadCreatedPayload = Schema.Struct({
 export const ThreadDeletedPayload = Schema.Struct({
   threadId: ThreadId,
   deletedAt: IsoDateTime,
+});
+
+export const ThreadDeckMovedPayload = Schema.Struct({
+  threadId: ThreadId,
+  sourceDeckId: ThreadDeckId,
+  destinationDeckId: ThreadDeckId,
+  spaceId: SpaceId,
+  sourceThreadIds: Schema.Array(ThreadId),
+  destinationThreadIds: Schema.Array(ThreadId).check(Schema.isMinLength(1)),
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadDeckReorderedPayload = Schema.Struct({
+  deckId: ThreadDeckId,
+  spaceId: SpaceId,
+  threadIds: Schema.Array(ThreadId).check(Schema.isMinLength(1)),
+  updatedAt: IsoDateTime,
 });
 
 export const ThreadArchivedPayload = Schema.Struct({
@@ -1809,7 +1885,7 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([SpaceId, FolderId, ThreadId]),
+  aggregateId: Schema.Union([SpaceId, FolderId, ThreadId, ThreadDeckId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -1877,6 +1953,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.deleted"),
     payload: ThreadDeletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.deck-moved"),
+    payload: ThreadDeckMovedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.deck-reordered"),
+    payload: ThreadDeckReorderedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

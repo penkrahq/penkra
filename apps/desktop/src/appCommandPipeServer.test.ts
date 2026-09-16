@@ -97,6 +97,7 @@ describe("AppCommandPipeServer", () => {
       name: "Linear",
       iconDataUrl: null,
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       route: "/issues",
       status: "ready" as const,
@@ -124,6 +125,11 @@ describe("AppCommandPipeServer", () => {
     };
     const snapshot = vi.fn(async () => ({ snapshot: "" }));
     const screenshot = vi.fn(async () => ({ kind: "image" }));
+    const observedSurfaceIds: Array<number | null> = [];
+    const runOnSurface = async <T>(surfaceId: number | null, operation: () => Promise<T>) => {
+      observedSurfaceIds.push(surfaceId);
+      return operation();
+    };
     const server = new AppCommandPipeServer({
       path,
       token: "secret",
@@ -138,10 +144,13 @@ describe("AppCommandPipeServer", () => {
       tabs: {
         list: () => [current, secondTab, otherThreadTab, soleSalesTab],
         current: () => current,
-        currentFor: (_spaceId, threadId) =>
-          threadId === "thread-1" ? current : threadId === "thread-2" ? otherThreadTab : null,
+        currentFor: (_spaceId, deckId, surfaceId) =>
+          deckId === "deck-1" ? (surfaceId === 202 ? secondTab : current) : null,
       },
+      resolveTurnSurface: (turnId) => (turnId === "turn-origin" ? 202 : null),
+      runOnSurface,
       observer: {
+        runOnSurface,
         snapshot,
         find: vi.fn(async () => ({ matches: [] })),
         screenshot,
@@ -185,6 +194,7 @@ describe("AppCommandPipeServer", () => {
       operation: "issues.create",
       input: { title: "Fix auth" },
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       tabId: "tab-1",
       signal: expect.any(AbortSignal),
@@ -200,6 +210,7 @@ describe("AppCommandPipeServer", () => {
           operation: "whatsapp.send",
           input: { phone: "+13073461585", text: "Hello" },
           spaceId: "personal",
+          deckId: "deck-1",
           threadId: "thread-1",
         },
       }),
@@ -210,6 +221,7 @@ describe("AppCommandPipeServer", () => {
       operation: "whatsapp.send",
       input: { phone: "+13073461585", text: "Hello" },
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       tabId: "tab-sales",
       signal: expect.any(AbortSignal),
@@ -224,6 +236,7 @@ describe("AppCommandPipeServer", () => {
           path: "/tmp/example.pdf",
           requestedApp: "explorer",
           spaceId: "personal",
+          deckId: "deck-1",
           threadId: "thread-1",
         },
       }),
@@ -236,6 +249,7 @@ describe("AppCommandPipeServer", () => {
       path: "/tmp/example.pdf",
       requestedApp: "explorer",
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
     });
 
@@ -260,9 +274,10 @@ describe("AppCommandPipeServer", () => {
       send(path, {
         id: "request-thread-compose",
         token: "secret",
-        method: "threads.current.compose",
+        method: "threads.compose",
         params: {
           spaceId: "personal",
+          deckId: "deck-1",
           threadId: "thread-1",
           input: { text: "Attend to new messages" },
         },
@@ -274,6 +289,7 @@ describe("AppCommandPipeServer", () => {
     });
     expect(thread).toHaveBeenCalledWith({
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       method: "compose",
       value: { text: "Attend to new messages" },
@@ -284,12 +300,12 @@ describe("AppCommandPipeServer", () => {
         id: "request-tabs",
         token: "secret",
         method: "tabs.list",
-        params: { spaceId: "personal", threadId: "thread-1" },
+        params: { spaceId: "personal", deckId: "deck-1", threadId: "thread-1" },
       }),
     ).resolves.toEqual({
       ok: true,
       id: "request-tabs",
-      result: [current, secondTab, soleSalesTab],
+      result: [current, secondTab, otherThreadTab, soleSalesTab],
     });
 
     await expect(
@@ -297,12 +313,12 @@ describe("AppCommandPipeServer", () => {
         id: "request-tabs-other-thread",
         token: "secret",
         method: "tabs.list",
-        params: { spaceId: "personal", threadId: "thread-2" },
+        params: { spaceId: "personal", deckId: "deck-1", threadId: "thread-2" },
       }),
     ).resolves.toEqual({
       ok: true,
       id: "request-tabs-other-thread",
-      result: [otherThreadTab],
+      result: [current, secondTab, otherThreadTab, soleSalesTab],
     });
 
     await expect(
@@ -310,7 +326,12 @@ describe("AppCommandPipeServer", () => {
         id: "request-exact-second-tab",
         token: "secret",
         method: "tabs.snapshot",
-        params: { spaceId: "personal", threadId: "thread-1", tabId: "tab-2" },
+        params: {
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-1",
+          tabId: "tab-2",
+        },
       }),
     ).resolves.toEqual({
       ok: true,
@@ -331,22 +352,24 @@ describe("AppCommandPipeServer", () => {
         method: "tabs.snapshot",
         params: {
           spaceId: "personal",
+          deckId: "deck-1",
           threadId: "thread-1",
           tabId: "tab-other-thread",
         },
       }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { message: expect.stringContaining("not open in the caller Thread and Space") },
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-cross-thread-tab",
+      result: { snapshot: "" },
     });
-    expect(snapshot).toHaveBeenCalledOnce();
+    expect(snapshot).toHaveBeenCalledTimes(2);
 
     await expect(
       send(path, {
         id: "request-visible-screenshot",
         token: "secret",
         method: "tabs.screenshot",
-        params: { spaceId: "personal", threadId: "thread-1" },
+        params: { spaceId: "personal", deckId: "deck-1", threadId: "thread-1" },
       }),
     ).resolves.toEqual({
       ok: true,
@@ -360,12 +383,94 @@ describe("AppCommandPipeServer", () => {
         id: "request-current-other-window",
         token: "secret",
         method: "tabs.current",
-        params: { spaceId: "personal", threadId: "thread-2" },
+        params: { spaceId: "personal", deckId: "deck-1", threadId: "thread-2" },
       }),
     ).resolves.toEqual({
       ok: true,
       id: "request-current-other-window",
-      result: otherThreadTab,
+      result: current,
+    });
+
+    await expect(
+      send(path, {
+        id: "request-current-origin-window",
+        token: "secret",
+        method: "tabs.current",
+        params: {
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-1",
+          callerTurnId: "turn-origin",
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-current-origin-window",
+      result: secondTab,
+    });
+
+    await expect(
+      send(path, {
+        id: "request-origin-snapshot",
+        token: "secret",
+        method: "tabs.snapshot",
+        params: {
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-1",
+          tabId: "tab-2",
+          callerTurnId: "turn-origin",
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-origin-snapshot",
+      result: { snapshot: "" },
+    });
+    expect(observedSurfaceIds.at(-1)).toBe(202);
+
+    await expect(
+      send(path, {
+        id: "request-origin-thread-select",
+        token: "secret",
+        method: "threads.select",
+        params: {
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-1",
+          callerTurnId: "turn-origin",
+          input: { threadId: "thread-2" },
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-origin-thread-select",
+      result: { method: "select", value: { threadId: "thread-2" } },
+    });
+    expect(thread).toHaveBeenLastCalledWith({
+      spaceId: "personal",
+      deckId: "deck-1",
+      threadId: "thread-1",
+      surfaceId: 202,
+      method: "select",
+      value: { threadId: "thread-2" },
+    });
+
+    await expect(
+      send(path, {
+        id: "request-missing-origin-window",
+        token: "secret",
+        method: "tabs.current",
+        params: {
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-1",
+          callerTurnId: "turn-missing",
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { message: "The window where this agent turn originated is no longer available." },
     });
 
     await expect(
@@ -410,6 +515,7 @@ describe("AppCommandPipeServer", () => {
       name: "Linear",
       iconDataUrl: null,
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       route: "/",
       status: "ready" as const,

@@ -15,6 +15,7 @@ const descriptor: DesktopAppTabDescriptor = {
   name: "Canvas",
   iconDataUrl: null,
   spaceId: "personal",
+  deckId: "deck-1",
   threadId: "thread-1",
   route: "/",
   status: "ready",

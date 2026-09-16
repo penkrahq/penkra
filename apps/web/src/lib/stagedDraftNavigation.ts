@@ -1,15 +1,18 @@
 // FILE: stagedDraftNavigation.ts
-// Purpose: Serializes draft-route creation per project slot and finalizes staged drafts only
+// Purpose: Serializes draft-route creation per owning container and finalizes staged drafts only
 //          after their destination route actually commits.
 // Layer: Web navigation orchestration
 
 const inFlightDraftNavigationBySlot = new Map<string, Promise<unknown>>();
 
-export function draftNavigationSlotKey(folderId: string, entryPoint: string): string {
-  return `${folderId}\u0000${entryPoint}`;
+export function draftNavigationSlotKey(
+  container: { kind: "deck" | "folder"; id: string },
+  entryPoint: string,
+): string {
+  return `${container.kind}\u0000${container.id}\u0000${entryPoint}`;
 }
 
-/** Coalesces repeated clicks/shortcuts that target the same project + entry-point slot. */
+/** Coalesces repeated clicks/shortcuts that target the same container + entry-point slot. */
 export function runDraftNavigationOnce<T>(slotKey: string, run: () => Promise<T>): Promise<T> {
   const existing = inFlightDraftNavigationBySlot.get(slotKey) as Promise<T> | undefined;
   if (existing) {

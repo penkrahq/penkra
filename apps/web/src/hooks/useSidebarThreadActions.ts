@@ -17,6 +17,7 @@ import {
   isLatestPinnedThreadMutation,
 } from "../components/Sidebar.logic";
 import { toastManager } from "../components/ui/toast";
+import { findNearestVisibleDeckThread } from "../lib/threadDeckNavigation";
 import { deleteActiveThreadFromClient } from "../lib/activeThreadDelete";
 import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientReconciliation";
 import {
@@ -377,6 +378,18 @@ export function useSidebarThreadActions(input: {
       if (!api) return false;
       const thread = getThreadFromState(useStore.getState(), threadId);
       if (!thread) return false;
+      const stateBeforeArchive = useStore.getState();
+      const deck = stateBeforeArchive.decks.find((candidate) => candidate.id === thread.deckId);
+      const nearestDeckThreadId = deck
+        ? findNearestVisibleDeckThread({
+            threadIds: deck.threadIds,
+            removedThreadId: threadId,
+            isVisible: (candidateId) => {
+              const candidate = getThreadFromState(stateBeforeArchive, candidateId);
+              return candidate != null && candidate.archivedAt == null;
+            },
+          })
+        : null;
       const pendingThreadIds = archivePendingThreadIdsRef.current;
       if (pendingThreadIds.has(threadId)) return false;
 
@@ -384,12 +397,14 @@ export function useSidebarThreadActions(input: {
       const runArchive = async (): Promise<boolean> => {
         await archiveThreadFromClient(api.orchestration, threadId);
         if (routeThreadId === threadId) {
-          const fallbackThreadId = getFallbackThreadIdAfterDelete({
-            threads: sidebarThreads,
-            deletedThreadId: threadId,
-            deletedThreadIds: new Set<ThreadId>(),
-            sortOrder: appSettings.sidebarThreadSortOrder,
-          });
+          const fallbackThreadId =
+            nearestDeckThreadId ??
+            getFallbackThreadIdAfterDelete({
+              threads: sidebarThreads,
+              deletedThreadId: threadId,
+              deletedThreadIds: new Set<ThreadId>(),
+              sortOrder: appSettings.sidebarThreadSortOrder,
+            });
           if (fallbackThreadId) {
             await navigate({
               to: "/$threadId",

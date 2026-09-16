@@ -84,12 +84,17 @@ export interface DesktopAppRuntime {
   readonly packageGarbageCollection: AppPackageGarbageCollectionResult;
   canManageInstallations(rendererId: number): boolean;
   installationSpaceId(rendererId: number): string | null;
-  rendererIdentity(
-    rendererId: number,
-  ): { appId: string; spaceId: string; threadId?: string; tabId?: string } | null;
+  rendererIdentity(rendererId: number): {
+    appId: string;
+    spaceId: string;
+    deckId?: string;
+    threadId?: string;
+    tabId?: string;
+  } | null;
   invokeController(input: {
     appId: string;
     spaceId: string;
+    deckId: string;
     threadId: string;
     tabId: string;
     handler: string;
@@ -245,12 +250,14 @@ export async function startDesktopAppRuntime(input: {
   const registerRendererIdentity = ({
     appId,
     spaceId,
+    deckId,
     threadId,
     tabId,
     rendererId,
   }: {
     appId: string;
     spaceId: string;
+    deckId?: string;
     threadId?: string;
     tabId?: string;
     rendererId: number;
@@ -258,6 +265,7 @@ export async function startDesktopAppRuntime(input: {
     const identity = {
       appId,
       spaceId,
+      ...(deckId === undefined ? {} : { deckId }),
       ...(threadId === undefined ? {} : { threadId }),
       ...(tabId === undefined ? {} : { tabId }),
     };
@@ -278,16 +286,26 @@ export async function startDesktopAppRuntime(input: {
             return queryAppPermission(store.snapshot(), identity, request.input);
           case "settings.get":
             if (typeof request.input !== "string") throw new Error("Setting key must be a string.");
-            return installations.getSetting({ ...identity, key: request.input });
+            return installations.getSetting({
+              ...identity,
+              key: request.input,
+            });
           case "settings.set": {
             const value = requireControllerRecord(request.input, "Setting input");
             if (typeof value.key !== "string") throw new Error("Setting key must be a string.");
-            await installations.setSetting({ ...identity, key: value.key, value: value.value });
+            await installations.setSetting({
+              ...identity,
+              key: value.key,
+              value: value.value,
+            });
             return null;
           }
           case "settings.reset":
             if (typeof request.input !== "string") throw new Error("Setting key must be a string.");
-            await installations.resetSetting({ ...identity, key: request.input });
+            await installations.resetSetting({
+              ...identity,
+              key: request.input,
+            });
             return null;
           case "secrets.get":
             if (typeof request.input !== "string") throw new Error("Secret name must be a string.");
@@ -409,7 +427,10 @@ export async function startDesktopAppRuntime(input: {
         try {
           input.tabAuthority?.retireGeneration(owner);
         } catch (error) {
-          failures.push({ role: "desktop-authority-retire-generation", failure: error });
+          failures.push({
+            role: "desktop-authority-retire-generation",
+            failure: error,
+          });
         }
         try {
           if (blobs) blobUrls.disposeDetached(blobs);
@@ -454,7 +475,10 @@ export async function startDesktopAppRuntime(input: {
         try {
           input.tabAuthority?.retireTab(owner);
         } catch (error) {
-          failures.push({ role: "desktop-authority-retire-tab", failure: error });
+          failures.push({
+            role: "desktop-authority-retire-tab",
+            failure: error,
+          });
         }
         try {
           if (blobs) blobUrls.disposeDetached(blobs);
@@ -495,11 +519,12 @@ export async function startDesktopAppRuntime(input: {
     });
   });
   let openWithHandlerFingerprint = appOpenWithHandlerFingerprint(installations.snapshot());
-  await reconcileAppOpenWithPreferences({ state: installations.snapshot(), openWith }).catch(
-    (error) => {
-      console.error("[penkra-app] Could not reconcile Open With preferences at startup.", error);
-    },
-  );
+  await reconcileAppOpenWithPreferences({
+    state: installations.snapshot(),
+    openWith,
+  }).catch((error) => {
+    console.error("[penkra-app] Could not reconcile Open With preferences at startup.", error);
+  });
   const unsubscribeOpenWithReconciliation = installations.subscribe((state) => {
     const nextFingerprint = appOpenWithHandlerFingerprint(state);
     if (nextFingerprint === openWithHandlerFingerprint) return;

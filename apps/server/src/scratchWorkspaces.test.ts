@@ -1,42 +1,82 @@
 // FILE: scratchWorkspaces.test.ts
-// Purpose: Verifies per-thread scratch workspace paths stay inside the shared
-//          temp root even when thread ids contain path-like characters.
+// Purpose: Verifies durable per-thread workspaces remain isolated and adopt
+//          files from the legacy OS-temp location.
 // Layer: Server filesystem utility tests
 
-import { rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { ThreadId } from "@penkra/contracts";
-import { SCRATCH_WORKSPACES_DIRNAME } from "@penkra/shared/threadWorkspace";
 import { describe, expect, it } from "vitest";
 
-import { ensureIsolatedScratchWorkspace } from "./scratchWorkspaces";
+import {
+  DURABLE_THREAD_WORKSPACES_DIRNAME,
+  ensureDurableThreadWorkspace,
+} from "./scratchWorkspaces";
 
-function scratchRoot(): string {
-  return path.join(tmpdir(), SCRATCH_WORKSPACES_DIRNAME);
+function temporaryRoot(prefix: string): string {
+  return mkdtempSync(path.join(tmpdir(), prefix));
 }
 
-describe("ensureIsolatedScratchWorkspace", () => {
-  it("creates a readable per-thread directory under the scratch root", () => {
-    const workspace = ensureIsolatedScratchWorkspace(ThreadId.makeUnsafe("thread-1"));
+describe("ensureDurableThreadWorkspace", () => {
+  it("creates a private per-thread directory under the durable state root", () => {
+    const stateDir = temporaryRoot("penkra-durable-workspace-");
     try {
-      expect(workspace).toContain(`${path.sep}${SCRATCH_WORKSPACES_DIRNAME}${path.sep}thread-1-`);
-      expect(path.relative(scratchRoot(), workspace).startsWith("..")).toBe(false);
+      const workspace = ensureDurableThreadWorkspace(ThreadId.makeUnsafe("thread-1"), stateDir);
+      const durableRoot = path.join(stateDir, DURABLE_THREAD_WORKSPACES_DIRNAME);
+      expect(workspace).toContain(
+        `${path.sep}${DURABLE_THREAD_WORKSPACES_DIRNAME}${path.sep}thread-1-`,
+      );
+      expect(path.relative(durableRoot, workspace).startsWith("..")).toBe(false);
     } finally {
-      rmSync(workspace, { recursive: true, force: true });
+      rmSync(stateDir, { recursive: true, force: true });
     }
   });
 
-  it("does not let path-like thread ids escape the scratch root", () => {
-    const workspace = ensureIsolatedScratchWorkspace(ThreadId.makeUnsafe("../outside/thread"));
+  it("does not let path-like thread ids escape the durable root", () => {
+    const stateDir = temporaryRoot("penkra-durable-workspace-");
     try {
-      const relative = path.relative(scratchRoot(), workspace);
+      const workspace = ensureDurableThreadWorkspace(
+        ThreadId.makeUnsafe("../outside/thread"),
+        stateDir,
+      );
+      const relative = path.relative(
+        path.join(stateDir, DURABLE_THREAD_WORKSPACES_DIRNAME),
+        workspace,
+      );
       expect(relative.startsWith("..")).toBe(false);
       expect(path.isAbsolute(relative)).toBe(false);
       expect(workspace).not.toContain(`${path.sep}..${path.sep}`);
     } finally {
-      rmSync(workspace, { recursive: true, force: true });
+      rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("adopts surviving files from the legacy temp workspace", () => {
+    const stateDir = temporaryRoot("penkra-durable-workspace-");
+    const legacyScratchRoot = temporaryRoot("penkra-legacy-workspace-");
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    try {
+      const firstWorkspace = ensureDurableThreadWorkspace(threadId, stateDir, {
+        legacyScratchRoot,
+      });
+      rmSync(firstWorkspace, { recursive: true, force: true });
+      const legacyWorkspace = path.join(legacyScratchRoot, path.basename(firstWorkspace));
+      mkdirSync(legacyWorkspace, { recursive: true });
+      writeFileSync(path.join(legacyWorkspace, "job-pipeline.csv"), "id,title\n1,Engineer\n");
+
+      const adoptedWorkspace = ensureDurableThreadWorkspace(threadId, stateDir, {
+        legacyScratchRoot,
+      });
+
+      expect(readFileSync(path.join(adoptedWorkspace, "job-pipeline.csv"), "utf8")).toBe(
+        "id,title\n1,Engineer\n",
+      );
+      expect(existsSync(legacyWorkspace)).toBe(false);
+    } finally {
+      rmSync(stateDir, { recursive: true, force: true });
+      rmSync(legacyScratchRoot, { recursive: true, force: true });
     }
   });
 });

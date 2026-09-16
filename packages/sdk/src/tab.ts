@@ -14,7 +14,7 @@ export {
   simulator,
   storage,
   tab,
-  thread,
+  threads,
   transfer,
 } from "./runtime";
 
@@ -30,6 +30,9 @@ export type {
   AppComposerModelSelection,
   AppThreadComposeInput,
   AppThreadComposition,
+  AppThreadCreateInput,
+  AppThreadCreateResult,
+  AppThreadDeckPosition,
   AppThreadState,
   AppControllerRequestContext,
   AppContextMenuItem,

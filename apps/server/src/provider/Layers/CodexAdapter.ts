@@ -1691,6 +1691,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           options?.makeManager?.(services) ??
           new CodexAppServerManager(services, {
             penkraSkillsDir: penkraSkillsDir(serverConfig.baseDir),
+            stateDir: serverConfig.stateDir,
             ...(agentGatewayCredentials
               ? {
                   agentGatewayHostTool: {
@@ -1898,7 +1899,8 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       }
 
       const verificationManager =
-        options?.makeVerificationManager?.(services) ?? new CodexAppServerManager(services);
+        options?.makeVerificationManager?.(services) ??
+        new CodexAppServerManager(services, { stateDir: serverConfig.stateDir });
       const verificationThreadId = ThreadId.makeUnsafe("codex-native-resume-verification");
       return Effect.tryPromise({
         try: async () => {

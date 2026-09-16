@@ -134,6 +134,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       return () => ipcRenderer.removeListener(IPC.threadApiRequest, wrapped);
     },
     respond: (response) => ipcRenderer.send(IPC.threadApiResponse, response),
+    publishState: (input) => ipcRenderer.send(IPC.threadApiState, input),
+    bindTurnOrigin: (input) => ipcRenderer.send(IPC.threadApiTurnOriginBind, input),
+    unbindTurnOrigin: (input) => ipcRenderer.send(IPC.threadApiTurnOriginUnbind, input),
   },
   composerDrafts: {
     readSnapshot: () => ipcRenderer.invoke(IPC.composerDrafts.readSnapshot),
@@ -226,6 +229,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     consumeListingRequest: () => ipcRenderer.invoke(IPC.appTabs.consumeListingRequest),
     open: (input) => ipcRenderer.invoke(IPC.appTabs.open, input),
     setActive: (input) => ipcRenderer.invoke(IPC.appTabs.setActive, input),
+    setContext: (input) => ipcRenderer.invoke(IPC.appTabs.setContext, input),
     frameCall: (input) => ipcRenderer.invoke(IPC.appTabs.frameCall, input),
     frameMessage: (input) => ipcRenderer.invoke(IPC.appTabs.frameMessage, input),
     frameReady: (input) => ipcRenderer.invoke(IPC.appTabs.frameReady, input),

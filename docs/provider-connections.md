@@ -82,13 +82,14 @@ initialize-only settings patch. It cannot overwrite an explicit host selection,
 including null. The app shell owns this migration; ordinary settings readers do
 not initialize composer persistence.
 
-`penkra capabilities` returns safe Connection identifiers and labels and resolves
-models against the selected/default Connection. Supply `provider` and
-`connectionId` for an exact account catalog; a structured JSON null selects
-anonymous access. `penkra threads create` accepts the same optional `connectionId`
-and returns the resolved identifier. Omitting it uses the host default, not the
-caller Thread's account. A retry with an existing binding preserves that binding
-and rejects a conflicting explicit Connection.
+`penkra connections list` returns safe Connection identifiers, labels, health, lifecycle, and
+default status without credentials or model catalogs. `penkra models list --availability
+available` resolves models against one route. Supply a concrete `connectionId` for an exact
+account catalog; supply `provider` plus structured JSON null for anonymous access; or omit
+`connectionId` to use that provider's host default. `penkra threads create` accepts the same
+optional `connectionId` and returns the resolved identifier. Omitting it uses the host default,
+not the caller Thread's account. A retry with an existing binding preserves that binding and
+rejects a conflicting explicit Connection.
 
 Creation retry identifiers are scoped to the caller execution and request ID. Retrying does not
 override a subsequently changed child binding: a stale initial revision is rejected. Discovery

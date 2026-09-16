@@ -2,7 +2,7 @@
 // Purpose: Route Thread file references through Penkra's configured App/OS handlers.
 // Layer: Web UI resource activation
 
-import type { ThreadId } from "@penkra/contracts";
+import type { ThreadDeckId, ThreadId } from "@penkra/contracts";
 import { isLocalAbsolutePath, isWorkspaceRelativePathSafe } from "@penkra/shared/path";
 import { createContext, useContext } from "react";
 
@@ -60,6 +60,7 @@ export function resolveThreadResourcePath(
 export function createThreadResourceOpener(input: {
   directory: string | null;
   spaceId: string | null;
+  deckId: ThreadDeckId;
   threadId: ThreadId;
 }): ThreadResourceOpener {
   const showContextMenu = (
@@ -72,6 +73,7 @@ export function createThreadResourceOpener(input: {
       .showContextMenu({
         ...resource,
         spaceId: input.spaceId,
+        deckId: input.deckId,
         threadId: input.threadId,
         position,
       })
@@ -92,7 +94,12 @@ export function createThreadResourceOpener(input: {
       const bridge = window.desktopBridge?.resources;
       if (!path || !bridge || !input.spaceId) return false;
       void bridge
-        .open({ path, spaceId: input.spaceId, threadId: input.threadId })
+        .open({
+          path,
+          spaceId: input.spaceId,
+          deckId: input.deckId,
+          threadId: input.threadId,
+        })
         .catch((error: unknown) => {
           toastManager.add({
             type: "error",
@@ -107,7 +114,12 @@ export function createThreadResourceOpener(input: {
       const bridge = window.desktopBridge?.resources;
       if (!/^https?:\/\//i.test(url) || !bridge || !input.spaceId) return false;
       void bridge
-        .open({ url, spaceId: input.spaceId, threadId: input.threadId })
+        .open({
+          url,
+          spaceId: input.spaceId,
+          deckId: input.deckId,
+          threadId: input.threadId,
+        })
         .catch((error: unknown) => {
           toastManager.add({
             type: "error",

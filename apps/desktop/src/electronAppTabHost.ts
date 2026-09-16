@@ -36,6 +36,7 @@ import {
 export interface AppTabGenerationOwner {
   appId: string;
   spaceId: string;
+  deckId: string;
   threadId: string;
   tabId: string;
   rendererId: number;
@@ -44,6 +45,7 @@ export interface AppTabGenerationOwner {
 export interface AppTabLogicalOwner {
   appId: string;
   spaceId: string;
+  deckId: string;
   threadId: string;
   tabId: string;
 }
@@ -82,6 +84,7 @@ function shouldRetireLogicalAppTab(reason: OperationCancellationCode): boolean {
 
 export interface AppUpdateTabSnapshot {
   id: string;
+  deckId: string;
   threadId: string;
   route: string;
   state?: unknown;
@@ -110,6 +113,7 @@ export class ElectronAppTabHost implements AppTabHost {
   readonly #registerRendererIdentity: (input: {
     appId: string;
     spaceId: string;
+    deckId: string;
     threadId: string;
     tabId: string;
     rendererId: number;
@@ -149,6 +153,7 @@ export class ElectronAppTabHost implements AppTabHost {
     registerRendererIdentity?: (input: {
       appId: string;
       spaceId: string;
+      deckId: string;
       threadId: string;
       tabId: string;
       rendererId: number;
@@ -209,6 +214,7 @@ export class ElectronAppTabHost implements AppTabHost {
     tabId?: string;
     appId: string;
     spaceId: string;
+    deckId: string;
     threadId: string;
     route: string;
     state?: unknown;
@@ -221,6 +227,7 @@ export class ElectronAppTabHost implements AppTabHost {
       tabId?: string;
       appId: string;
       spaceId: string;
+      deckId: string;
       threadId: string;
       route: string;
       state?: unknown;
@@ -295,12 +302,13 @@ export class ElectronAppTabHost implements AppTabHost {
     const existing = this.presentExisting({
       appId: input.appId,
       spaceId: origin.descriptor.spaceId,
-      threadId: origin.descriptor.threadId,
+      deckId: origin.descriptor.deckId,
     });
     if (existing) return this.#require(existing.id).descriptor;
     return this.openInstalled({
       appId: input.appId,
       spaceId: origin.descriptor.spaceId,
+      deckId: origin.descriptor.deckId,
       threadId: origin.descriptor.threadId,
       route: "/",
     });
@@ -309,13 +317,13 @@ export class ElectronAppTabHost implements AppTabHost {
   presentExisting(input: {
     appId: string;
     spaceId: string;
-    threadId: string;
+    deckId: string;
   }): AppTabEndpoint | null {
     const record = [...this.#records.values()].find(
       (candidate) =>
         candidate.app.appId === input.appId &&
         candidate.descriptor.spaceId === input.spaceId &&
-        candidate.descriptor.threadId === input.threadId,
+        candidate.descriptor.deckId === input.deckId,
     );
     if (!record) return null;
     this.present(record.descriptor.id);
@@ -330,9 +338,9 @@ export class ElectronAppTabHost implements AppTabHost {
     return this.#records.has(tabId);
   }
 
-  listFor(spaceId: string, threadId: string): ReadonlyArray<DesktopAppTabDescriptor> {
+  listFor(spaceId: string, deckId: string): ReadonlyArray<DesktopAppTabDescriptor> {
     return this.list().filter(
-      (descriptor) => descriptor.spaceId === spaceId && descriptor.threadId === threadId,
+      (descriptor) => descriptor.spaceId === spaceId && descriptor.deckId === deckId,
     );
   }
 
@@ -342,17 +350,25 @@ export class ElectronAppTabHost implements AppTabHost {
       : (this.#records.get(this.#lastVisibleTabId)?.descriptor ?? null);
   }
 
-  currentFor(spaceId: string, threadId: string): DesktopAppTabDescriptor | null {
+  currentFor(spaceId: string, deckId: string, surfaceId?: number): DesktopAppTabDescriptor | null {
+    if (surfaceId !== undefined) {
+      const tabId = this.#visibleTabIdBySurfaceId.get(surfaceId);
+      const descriptor = tabId ? this.#records.get(tabId)?.descriptor : undefined;
+      return descriptor?.spaceId === spaceId && descriptor.deckId === deckId ? descriptor : null;
+    }
     for (const tabId of [...this.#visibleTabIdBySurfaceId.values()].reverse()) {
       const descriptor = this.#records.get(tabId)?.descriptor;
-      if (descriptor?.spaceId === spaceId && descriptor.threadId === threadId) return descriptor;
+      if (descriptor?.spaceId === spaceId && descriptor.deckId === deckId) return descriptor;
     }
     return null;
   }
 
   /** Re-announces an existing tab so the trusted shell opens its dock and selects it. */
   present(tabId: string): void {
-    this.#opened.publish({ ...this.#require(tabId).descriptor, selection: "activate" });
+    this.#opened.publish({
+      ...this.#require(tabId).descriptor,
+      selection: "activate",
+    });
   }
 
   async applyTheme(css: string): Promise<void> {
@@ -480,6 +496,37 @@ export class ElectronAppTabHost implements AppTabHost {
     });
   }
 
+  setContext(tabId: string, input: { deckId: string; threadId: string }): void {
+    const record = this.#require(tabId);
+    if (record.descriptor.deckId !== input.deckId) {
+      throw new Error("An App tab cannot move between Thread Decks.");
+    }
+    if (record.descriptor.threadId === input.threadId) return;
+
+    record.releaseIdentity();
+    const releaseRendererIdentity = this.#registerRendererIdentity({
+      appId: record.app.appId,
+      spaceId: record.descriptor.spaceId,
+      deckId: record.descriptor.deckId,
+      threadId: input.threadId,
+      tabId,
+      rendererId: record.rendererId,
+    });
+    let identityReleased = false;
+    record.releaseIdentity = () => {
+      if (identityReleased) return;
+      identityReleased = true;
+      releaseRendererIdentity?.();
+    };
+    record.endpoint.threadId = input.threadId;
+    record.descriptor = { ...record.descriptor, threadId: input.threadId };
+    this.#state.publish(record.descriptor);
+    this.#sendEvent(record, "thread.context-changed", {
+      deckId: record.descriptor.deckId,
+      threadId: input.threadId,
+    });
+  }
+
   acceptFrameMessage(tabId: string, rendererId: number, message: unknown): void {
     if (!this.#matchingRenderer(tabId, rendererId)) throw new Error("The App frame is stale.");
     if (!message || typeof message !== "object" || Array.isArray(message)) {
@@ -497,6 +544,7 @@ export class ElectronAppTabHost implements AppTabHost {
   ): {
     appId: string;
     spaceId: string;
+    deckId: string;
     threadId: string;
     tabId: string;
   } {
@@ -505,6 +553,7 @@ export class ElectronAppTabHost implements AppTabHost {
     return {
       appId: record.app.appId,
       spaceId: record.descriptor.spaceId,
+      deckId: record.descriptor.deckId,
       threadId: record.descriptor.threadId,
       tabId,
     };
@@ -539,7 +588,9 @@ export class ElectronAppTabHost implements AppTabHost {
       if (this.#typographyCss) {
         this.#sendEvent(record, "appearance.typography-css", this.#typographyCss);
       }
-      this.#sendEvent(record, "lifecycle.visibility", { active: this.#isVisible(tabId) });
+      this.#sendEvent(record, "lifecycle.visibility", {
+        active: this.#isVisible(tabId),
+      });
       return;
     }
     record.frameReady = true;
@@ -576,6 +627,7 @@ export class ElectronAppTabHost implements AppTabHost {
       .filter((record) => record.app.appId === appId && record.descriptor.spaceId === spaceId)
       .map((record) => ({
         id: record.descriptor.id,
+        deckId: record.descriptor.deckId,
         threadId: record.descriptor.threadId,
         ...record.navigation,
       }));
@@ -593,6 +645,7 @@ export class ElectronAppTabHost implements AppTabHost {
             tabId: tab.id,
             appId,
             spaceId,
+            deckId: tab.deckId,
             threadId: tab.threadId,
             route: tab.route,
             ...(tab.state === undefined ? {} : { state: tab.state }),
@@ -608,17 +661,29 @@ export class ElectronAppTabHost implements AppTabHost {
       if (!tab) continue;
       let retirementFailure: unknown;
       try {
-        this.#authority.retireTab({ appId, spaceId, threadId: tab.threadId, tabId: tab.id });
+        this.#authority.retireTab({
+          appId,
+          spaceId,
+          deckId: tab.deckId,
+          threadId: tab.threadId,
+          tabId: tab.id,
+        });
       } catch (error) {
         retirementFailure = error;
       }
-      this.#closed.publish({ id: tab.id, threadId: tab.threadId });
+      this.#closed.publish({
+        id: tab.id,
+        deckId: tab.deckId,
+        threadId: tab.threadId,
+      });
       const failure = appRuntimeOperationFailure({
         message: "App tab restoration failed.",
         primary: result.reason,
         ...(retirementFailure === undefined
           ? {}
-          : { secondary: [{ role: "tab-retirement", failure: retirementFailure }] }),
+          : {
+              secondary: [{ role: "tab-retirement", failure: retirementFailure }],
+            }),
       });
       this.#diagnostics.publish({
         kind: "tab-navigation-restore-failed",
@@ -655,7 +720,11 @@ export class ElectronAppTabHost implements AppTabHost {
       );
     }
     if (shouldNotifyAppTabClosed(reason)) {
-      this.#closed.publish({ id: tabId, threadId: record.descriptor.threadId });
+      this.#closed.publish({
+        id: tabId,
+        deckId: record.descriptor.deckId,
+        threadId: record.descriptor.threadId,
+      });
     }
     if (failures.length > 0) {
       const failure = appRuntimeGroupFailure("App tab retirement was incomplete.", failures);
@@ -705,6 +774,7 @@ export class ElectronAppTabHost implements AppTabHost {
       const releaseRendererIdentity = this.#registerRendererIdentity({
         appId: input.app.appId,
         spaceId: input.spaceId,
+        deckId: input.deckId,
         threadId: input.threadId,
         tabId: id,
         rendererId,
@@ -725,6 +795,7 @@ export class ElectronAppTabHost implements AppTabHost {
         agentAddressable: input.app.manifest.agentAddressable !== false,
         iconDataUrl: await this.#resolveIconDataUrl(input.app),
         spaceId: input.spaceId,
+        deckId: input.deckId,
         threadId: input.threadId,
         route: input.route,
         ...(input.state === undefined ? {} : { state: input.state }),
@@ -752,6 +823,7 @@ export class ElectronAppTabHost implements AppTabHost {
         id,
         appId: input.app.appId,
         spaceId: input.spaceId,
+        deckId: input.deckId,
         threadId: input.threadId,
         close: async () => this.close(id),
         navigate: (navigation) => this.#navigate(id, navigation),
@@ -825,6 +897,7 @@ export class ElectronAppTabHost implements AppTabHost {
     return {
       appId: record.app.appId,
       spaceId: record.descriptor.spaceId,
+      deckId: record.descriptor.deckId,
       threadId: record.descriptor.threadId,
       tabId: record.descriptor.id,
     };
