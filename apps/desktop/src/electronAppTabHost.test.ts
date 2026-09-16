@@ -196,7 +196,13 @@ describe("ElectronAppTabHost", () => {
       { targetLabel: "Apps" },
     );
     expect(host.captureForUpdate(app.appId, "personal")).toEqual([
-      { id: descriptor.id, threadId: "thread-1", route: "/document/7", state: { page: 3 } },
+      {
+        id: descriptor.id,
+        deckId: "deck-1",
+        threadId: "thread-1",
+        route: "/document/7",
+        state: { page: 3 },
+      },
     ]);
 
     rpc.request.mockRejectedValueOnce(new Error("navigation was not accepted"));
