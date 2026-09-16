@@ -158,12 +158,20 @@ describe("ElectronAppTabHost", () => {
     host.close(secondDescriptor.id);
 
     await host.navigate(descriptor.id, { route: "/document/7", state: { page: 3 } });
-    expect(rpc.deliver).toHaveBeenCalledWith(
+    expect(rpc.request).toHaveBeenCalledWith(
       descriptor.rendererId,
       "tab.navigate",
       { route: "/document/7", state: { page: 3 } },
       { targetLabel: "Apps" },
     );
+    expect(host.captureForUpdate(app.appId, "personal")).toEqual([
+      { id: descriptor.id, threadId: "thread-1", route: "/document/7", state: { page: 3 } },
+    ]);
+
+    rpc.request.mockRejectedValueOnce(new Error("navigation was not accepted"));
+    await expect(
+      host.navigate(descriptor.id, { route: "/document/failed", state: { page: 99 } }),
+    ).rejects.toThrow("navigation was not accepted");
     expect(host.captureForUpdate(app.appId, "personal")).toEqual([
       { id: descriptor.id, threadId: "thread-1", route: "/document/7", state: { page: 3 } },
     ]);
@@ -292,7 +300,7 @@ describe("ElectronAppTabHost", () => {
     expect(host.list()).toEqual([
       expect.objectContaining({ id: "background-tab", route: "/document/7", status: "loading" }),
     ]);
-    expect(rpc.deliver).toHaveBeenCalledWith(
+    expect(rpc.request).toHaveBeenCalledWith(
       -1,
       "tab.navigate",
       { route: "/document/7", state: { page: 3 } },
@@ -360,6 +368,46 @@ describe("ElectronAppTabHost", () => {
         route: "/",
       }),
     ).resolves.toMatchObject({ id: "failed-tab" });
+  });
+
+  it("does not let a retired generation's delayed navigation failure close its replacement", async () => {
+    const app = installedApp();
+    let rejectOldNavigation!: (error: Error) => void;
+    const rpc = createRpcMock();
+    rpc.request
+      .mockImplementationOnce(
+        () => new Promise<void>((_resolve, reject) => (rejectOldNavigation = reject)),
+      )
+      .mockResolvedValue(undefined);
+    const host = new ElectronAppTabHost({
+      installations: {
+        snapshot: () => ({ packagesByInstallationKey: { [`personal\0${app.appId}`]: app } }),
+        isActive: () => true,
+        setEnabled: vi.fn(),
+      } as never,
+      sessions: {
+        get: () => ({ appId: app.appId, spaceId: "personal", origin: TEST_ORIGIN }) as never,
+      },
+      frameDocuments: { activate: async () => "/app.html" },
+      broker: { registerTab: vi.fn(() => vi.fn()) },
+      rpc,
+      ipcBridge: { waitForReady: vi.fn(async () => undefined) },
+      onOpened: vi.fn(),
+      onState: vi.fn(),
+    });
+    const snapshot = [{ id: "stable-tab", threadId: "thread-1", route: "/document/7" }];
+
+    await host.restoreAfterUpdate(app.appId, "personal", snapshot);
+    const oldRendererId = host.rendererId("stable-tab");
+    host.closeForAppSpace(app.appId, "personal", "app-updated");
+    await host.restoreAfterUpdate(app.appId, "personal", snapshot);
+    const replacementRendererId = host.rendererId("stable-tab");
+    expect(replacementRendererId).not.toBe(oldRendererId);
+
+    rejectOldNavigation(new Error("late failure from retired generation"));
+    await Promise.resolve();
+    expect(host.has("stable-tab")).toBe(true);
+    expect(host.rendererId("stable-tab")).toBe(replacementRendererId);
   });
 
   it("unwinds partial registration when creation fails after renderer identity registration", async () => {

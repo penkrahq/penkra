@@ -556,6 +556,12 @@ export interface PenkraTabRuntimeApi {
       operation: string,
       handler: AppTabOperationHandler<Input, Result>,
     ): () => void;
+    /**
+     * Receive navigation initiated outside the App. Ordinary navigation is acknowledged once this
+     * handler is registered and invoked; its asynchronous route work continues independently.
+     * Render a loading or destination state synchronously before the handler's first await, and
+     * handle later failures in the App UI. Result-waiting navigation awaits the returned value.
+     */
     onNavigate<Result = void>(handler: AppTabNavigationHandler<Result>): () => void;
   };
 }

@@ -338,9 +338,63 @@ describe("AppPreloadRuntime", () => {
       expect(test.sent).toContainEqual({
         type: "result",
         id: "initial-navigation",
-        result: { route: "/document", state: { documentId: "doc-1" } },
+        result: null,
       });
     });
+  });
+
+  it("acknowledges ordinary navigation after the App accepts it without waiting for route work", async () => {
+    const test = fixture();
+    let finishNavigation!: () => void;
+    const routeWork = new Promise<void>((resolve) => {
+      finishNavigation = resolve;
+    });
+    const handler = vi.fn(() => routeWork);
+    test.runtime.api.tab.onNavigate(handler);
+
+    test.host({
+      type: "request",
+      id: "ordinary-navigation",
+      method: "tab.navigate",
+      input: { route: "/document", state: { documentId: "doc-1" } },
+    });
+
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce());
+    expect(test.sent).toContainEqual({
+      type: "result",
+      id: "ordinary-navigation",
+      result: null,
+    });
+
+    finishNavigation();
+  });
+
+  it("keeps result navigation pending until the App finishes route work", async () => {
+    const test = fixture();
+    let finishNavigation!: (value: { opened: string }) => void;
+    const routeWork = new Promise<{ opened: string }>((resolve) => {
+      finishNavigation = resolve;
+    });
+    test.runtime.api.tab.onNavigate(() => routeWork);
+
+    test.host({
+      type: "request",
+      id: "result-navigation",
+      method: "tab.navigate-for-result",
+      input: { route: "/document", state: { documentId: "doc-1" } },
+    });
+
+    await Promise.resolve();
+    expect(test.sent).not.toContainEqual(expect.objectContaining({ id: "result-navigation" }));
+
+    finishNavigation({ opened: "doc-1" });
+    await vi.waitFor(() =>
+      expect(test.sent).toContainEqual({
+        type: "result",
+        id: "result-navigation",
+        result: { opened: "doc-1" },
+      }),
+    );
   });
 
   it("returns stable errors for missing handlers without exposing stacks", async () => {
