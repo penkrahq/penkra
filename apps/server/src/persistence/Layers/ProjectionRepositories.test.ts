@@ -1,4 +1,4 @@
-import { FolderId, SpaceId, ThreadId, TurnId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId, TurnId, singletonThreadDeckId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -82,6 +82,8 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
 
       yield* threads.upsert({
         threadId: ThreadId.makeUnsafe("thread-null-options"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-null-options")),
+        deckSortOrder: 0,
         folderId: FolderId.makeUnsafe("project-null-options"),
         title: "Null options thread",
         modelSelection: {
@@ -163,6 +165,8 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       const now = "2026-07-19T00:00:00.000Z";
       const makeThread = (threadId: string, deletedAt: string | null) => ({
         threadId: ThreadId.makeUnsafe(threadId),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe(threadId)),
+        deckSortOrder: 0,
         folderId: FolderId.makeUnsafe("project-wait-snapshot"),
         title: threadId,
         modelSelection: { provider: "codex" as const, model: "gpt-5.5" },

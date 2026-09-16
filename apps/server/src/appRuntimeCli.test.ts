@@ -9,7 +9,7 @@ import {
 } from "./appRuntimeCli";
 import { PENKRA_SERVER_MANUAL_MARKER } from "./agentGateway/harnessPolicy";
 
-const context = { spaceId: "personal", threadId: "thread-1" };
+const context = { spaceId: "personal", deckId: "deck-1", threadId: "thread-1" };
 const command = (...words: string[]) => ({ command: words.join(" ") });
 const catalog = [
   {
@@ -619,46 +619,135 @@ describe("penkra_exec_command discovery", () => {
     expect(clickHelp).toContain('"ref"');
   });
 
-  it("exposes receipt-bound operations for only the caller Thread", async () => {
+  it("exposes explicit Thread Deck operations and receipt-bound background sends", async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     const bridge = async (method: string, params: unknown) => {
       calls.push({ method, params });
       return method.endsWith("compose") ? { composeId: "compose-1" } : { ok: true };
     };
 
+    await executePenkraExecCommand(command("penkra", "deck", "current"), context, {}, bridge);
+    await executePenkraExecCommand(command("penkra", "deck", "list"), context, {}, bridge);
     await executePenkraExecCommand(
-      command("penkra", "threads", "current", "state"),
+      command("penkra", "deck", "get", "--thread-id", "thread-2"),
       context,
       {},
       bridge,
     );
     await executePenkraExecCommand(
-      command("penkra", "threads", "current", "composer"),
+      { command: "penkra deck compose --thread-id thread-2 --text 'Attend to new messages'" },
       context,
       {},
       bridge,
     );
     await executePenkraExecCommand(
-      { command: "penkra threads current compose --text 'Attend to new messages'" },
-      context,
-      {},
-      bridge,
-    );
-    await executePenkraExecCommand(
-      command("penkra", "threads", "current", "send", "--compose-id", "compose-1"),
+      command("penkra", "deck", "send", "--compose-id", "compose-1"),
       context,
       {},
       bridge,
     );
 
     expect(calls).toEqual([
-      { method: "threads.current.state", params: { ...context, input: {} } },
-      { method: "threads.current.composer", params: { ...context, input: {} } },
+      { method: "threads.current.read", params: { ...context, input: {} } },
+      { method: "threads.list", params: { ...context, input: {} } },
       {
-        method: "threads.current.compose",
-        params: { ...context, input: { text: "Attend to new messages" } },
+        method: "threads.get",
+        params: { ...context, input: { threadId: "thread-2" } },
       },
-      { method: "threads.current.send", params: { ...context, input: { composeId: "compose-1" } } },
+      {
+        method: "threads.compose",
+        params: {
+          ...context,
+          input: { threadId: "thread-2", text: "Attend to new messages" },
+        },
+      },
+      { method: "threads.send", params: { ...context, input: { composeId: "compose-1" } } },
+    ]);
+  });
+
+  it("forwards Thread Deck membership operations with the exact caller deck", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const bridge = async (method: string, params: unknown) => {
+      calls.push({ method, params });
+      return {};
+    };
+
+    await executePenkraExecCommand(
+      command("penkra", "deck", "create", "--title", "Investigation", "--select", "true"),
+      context,
+      {},
+      bridge,
+    );
+    await executePenkraExecCommand(
+      {
+        command: 'penkra deck add --input \'{"threadId":"thread-2","position":{"type":"end"}}\'',
+      },
+      context,
+      {},
+      bridge,
+    );
+    await executePenkraExecCommand(
+      command("penkra", "deck", "select", "--thread-id", "thread-2"),
+      context,
+      {},
+      bridge,
+    );
+    await executePenkraExecCommand(
+      {
+        command:
+          'penkra deck reorder --input \'{"threadId":"thread-2","position":{"type":"before","threadId":"thread-1"}}\'',
+      },
+      context,
+      {},
+      bridge,
+    );
+    await executePenkraExecCommand(
+      command("penkra", "deck", "leave", "--thread-id", "thread-2"),
+      context,
+      {},
+      bridge,
+    );
+    await executePenkraExecCommand(
+      command("penkra", "deck", "archive", "--thread-id", "thread-1"),
+      context,
+      {},
+      bridge,
+    );
+
+    expect(calls).toEqual([
+      {
+        method: "threads.create",
+        params: { ...context, input: { title: "Investigation", select: true } },
+      },
+      {
+        method: "threads.add",
+        params: {
+          ...context,
+          input: { threadId: "thread-2", position: { type: "end" } },
+        },
+      },
+      {
+        method: "threads.select",
+        params: { ...context, input: { threadId: "thread-2" } },
+      },
+      {
+        method: "threads.reorder",
+        params: {
+          ...context,
+          input: {
+            threadId: "thread-2",
+            position: { type: "before", threadId: "thread-1" },
+          },
+        },
+      },
+      {
+        method: "threads.leave",
+        params: { ...context, input: { threadId: "thread-2" } },
+      },
+      {
+        method: "threads.archive",
+        params: { ...context, input: { threadId: "thread-1" } },
+      },
     ]);
   });
 

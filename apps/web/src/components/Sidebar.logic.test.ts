@@ -44,7 +44,7 @@ import {
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
 import { hasUnseenThreadCompletion } from "../threadCompletion";
-import { FolderId, MessageId, SpaceId, ThreadId } from "@penkra/contracts";
+import { FolderId, MessageId, SpaceId, ThreadId, singletonThreadDeckId } from "@penkra/contracts";
 import {
   DEFAULT_RUNTIME_MODE,
   type Project,
@@ -463,6 +463,8 @@ describe("pin helpers", () => {
   const makeThread = (id: string): Thread =>
     ({
       id: id as ThreadId,
+      deckId: singletonThreadDeckId(id as ThreadId),
+      deckSortOrder: 0,
       codexThreadId: null,
       folderId: "project-1" as FolderId,
       title: id,
@@ -1531,8 +1533,11 @@ function makeProject(overrides: Partial<Project> = {}): Project {
 }
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
-  return {
-    id: ThreadId.makeUnsafe("thread-1"),
+  const id = overrides.id ?? ThreadId.makeUnsafe("thread-1");
+  const thread = {
+    id,
+    deckId: singletonThreadDeckId(id),
+    deckSortOrder: 0,
     codexThreadId: null,
     folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
@@ -1551,13 +1556,21 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     activities: [],
     ...overrides,
   };
+  return Object.assign({}, thread, {
+    id,
+    deckId: overrides.deckId ?? singletonThreadDeckId(id),
+    deckSortOrder: overrides.deckSortOrder ?? 0,
+  }) as Thread;
 }
 
 function makeSidebarThreadSummary(
   overrides: Partial<SidebarThreadSummary> = {},
 ): SidebarThreadSummary {
-  return {
-    id: ThreadId.makeUnsafe("thread-1"),
+  const id = overrides.id ?? ThreadId.makeUnsafe("thread-1");
+  const summary = {
+    id,
+    deckId: singletonThreadDeckId(id),
+    deckSortOrder: 0,
     folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
@@ -1573,6 +1586,11 @@ function makeSidebarThreadSummary(
     hasPendingUserInput: false,
     ...overrides,
   };
+  return Object.assign({}, summary, {
+    id,
+    deckId: overrides.deckId ?? singletonThreadDeckId(id),
+    deckSortOrder: overrides.deckSortOrder ?? 0,
+  }) as SidebarThreadSummary;
 }
 
 describe("deriveSidebarProjectData", () => {

@@ -54,6 +54,9 @@ export class AppNodeControllerRuntime {
         profile: () => transport.serviceCall("account.profile"),
         request: (input) => transport.serviceCall("account.request", input),
       },
+      models: {
+        listPossible: () => transport.serviceCall("models.listPossible"),
+      },
       settings: {
         get: (key) => transport.serviceCall("settings.get", key),
         set: (key, value) => transport.serviceCall("settings.set", { key, value }),
@@ -148,7 +151,10 @@ export class AppNodeControllerRuntime {
   async #dispatch(message: Record<string, unknown>): Promise<void> {
     const id = typeof message.id === "string" ? message.id : "";
     if (!id || this.#active.has(id)) return;
-    const request: ActiveRequest = { controller: new AbortController(), contextCalls: new Map() };
+    const request: ActiveRequest = {
+      controller: new AbortController(),
+      contextCalls: new Map(),
+    };
     this.#active.set(id, request);
     try {
       if (message.method === "controller.internal.invoke") {
@@ -163,6 +169,7 @@ export class AppNodeControllerRuntime {
         }
         const requestContext = requireRecord(input.context);
         const result = await handler(input.input, {
+          deckId: requireString(requestContext.deckId, "deckId"),
           threadId: requireString(requestContext.threadId, "threadId"),
           tabId: requireString(requestContext.tabId, "tabId"),
           signal: request.controller.signal,
@@ -280,7 +287,13 @@ export class AppNodeControllerRuntime {
     const id = `context-${++this.#nextContextCallId}`;
     return new Promise((resolve, reject) => {
       request.contextCalls.set(id, { resolve, reject });
-      this.#transport.send({ type: "context-call", parentId, id, method, input });
+      this.#transport.send({
+        type: "context-call",
+        parentId,
+        id,
+        method,
+        input,
+      });
     });
   }
 
@@ -324,6 +337,7 @@ function parseInvocation(value: unknown): OperationContext["invocation"] {
     app: requireString(input.app, "invocation.app"),
     operation: requireString(input.operation, "invocation.operation"),
     spaceId: requireString(input.spaceId, "invocation.spaceId"),
+    deckId: requireString(input.deckId, "invocation.deckId"),
     threadId: requireString(input.threadId, "invocation.threadId"),
     ...(input.tabId === undefined ? {} : { tabId: requireString(input.tabId, "invocation.tabId") }),
   };

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ThreadId } from "@penkra/contracts";
+import { ThreadId, singletonThreadDeckId } from "@penkra/contracts";
 
 import { createThreadResourceOpener, resolveThreadResourcePath } from "./threadResourceOpener";
 
@@ -30,10 +30,12 @@ describe("createThreadResourceOpener", () => {
       configurable: true,
       value: { desktopBridge: { resources: { open, showContextMenu } } },
     });
+    const threadId = ThreadId.makeUnsafe("thread-1");
     const opener = createThreadResourceOpener({
       directory: "/workspace/project",
       spaceId: "space-1",
-      threadId: ThreadId.makeUnsafe("thread-1"),
+      deckId: singletonThreadDeckId(threadId),
+      threadId,
     });
 
     expect(opener.openFile("README.md")).toBe(true);
@@ -43,22 +45,26 @@ describe("createThreadResourceOpener", () => {
     expect(open).toHaveBeenNthCalledWith(1, {
       path: "/workspace/project/README.md",
       spaceId: "space-1",
+      deckId: singletonThreadDeckId(threadId),
       threadId: "thread-1",
     });
     expect(open).toHaveBeenNthCalledWith(2, {
       url: "https://penkra.com/docs",
       spaceId: "space-1",
+      deckId: singletonThreadDeckId(threadId),
       threadId: "thread-1",
     });
     expect(showContextMenu).toHaveBeenNthCalledWith(1, {
       path: "/workspace/project/README.md",
       spaceId: "space-1",
+      deckId: singletonThreadDeckId(threadId),
       threadId: "thread-1",
       position: { x: 10, y: 20 },
     });
     expect(showContextMenu).toHaveBeenNthCalledWith(2, {
       url: "https://penkra.com/docs",
       spaceId: "space-1",
+      deckId: singletonThreadDeckId(threadId),
       threadId: "thread-1",
       position: { x: 30, y: 40 },
     });

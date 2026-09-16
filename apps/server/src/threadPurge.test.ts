@@ -1,4 +1,4 @@
-import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId, singletonThreadDeckId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -43,6 +43,8 @@ layer("ThreadPurge", (it) => {
       });
       yield* threads.upsert({
         threadId,
+        deckId: singletonThreadDeckId(threadId),
+        deckSortOrder: 0,
         folderId: FolderId.makeUnsafe("folder-canonical-purge"),
         title: "Irrecoverable",
         modelSelection: { provider: "codex", model: "gpt-5.5" },

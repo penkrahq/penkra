@@ -48,4 +48,30 @@ describe("SurfaceTabChip selection", () => {
     selectButton?.click();
     expect(onSelect).toHaveBeenCalledOnce();
   });
+
+  it("centers a custom close glyph in the tab icon slot", async () => {
+    await render(
+      <SurfaceTabChip
+        active
+        closeIcon={<span className="block size-3" data-testid="custom-close-glyph" />}
+        closeLabel="Archive thread"
+        icon={<span aria-hidden>AI</span>}
+        label="Thread"
+        onClose={vi.fn()}
+      />,
+    );
+
+    const button = page.getByRole("button", { name: "Archive thread" }).element();
+    const glyph = page.getByTestId("custom-close-glyph").element();
+    const buttonRect = button.getBoundingClientRect();
+    const glyphRect = glyph.getBoundingClientRect();
+    expect(glyphRect.left + glyphRect.width / 2).toBeCloseTo(
+      buttonRect.left + buttonRect.width / 2,
+      1,
+    );
+    expect(glyphRect.top + glyphRect.height / 2).toBeCloseTo(
+      buttonRect.top + buttonRect.height / 2,
+      1,
+    );
+  });
 });

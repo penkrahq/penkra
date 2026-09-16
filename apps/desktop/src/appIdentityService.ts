@@ -34,7 +34,19 @@ export class AppIdentityService {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       secret = randomBytes(32);
-      await FS.writeFile(path, secret, { flag: "wx", mode: 0o600 });
+      const temporaryPath = `${path}.tmp-${process.pid}-${randomBytes(8).toString("hex")}`;
+      try {
+        const temporaryFile = await FS.open(temporaryPath, "wx", 0o600);
+        try {
+          await temporaryFile.writeFile(secret);
+          await temporaryFile.sync();
+        } finally {
+          await temporaryFile.close();
+        }
+        await FS.rename(temporaryPath, path);
+      } finally {
+        await FS.rm(temporaryPath, { force: true });
+      }
     }
     if (secret.byteLength !== 32)
       throw new Error("The App identity key must contain exactly 32 bytes.");

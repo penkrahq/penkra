@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  bindPenkraDevWorkspaceToLauncher,
   isExpectedPenkraDevElectronCommand,
   isExpectedPenkraDevSupervisorCommand,
   resolveOrphanedDesktopBackendPids,
@@ -20,6 +21,7 @@ import {
 } from "./penkra-dev-launcher";
 import {
   makeInfoPlist,
+  resolvePenkraDevPrimaryCheckoutRoot,
   resolvePenkraDevLauncherSignArgs,
   parseAppleDevelopmentIdentity,
   resolvePenkraDevLauncherCompileArgs,
@@ -30,6 +32,37 @@ import { resolvePenkraDevWorkspaceConfigPath } from "./lib/penkra-dev-workspace"
 import { resolvePenkraDevInstanceDefinition } from "./lib/penkra-dev-instance";
 
 describe("Penkra Dev launcher", () => {
+  it("keeps the compiled launcher's checkout authoritative over mutable workspace state", () => {
+    expect(
+      bindPenkraDevWorkspaceToLauncher(
+        {
+          desktopRoot: "/tmp/retained-agent-worktree",
+          backendRoot: "/workspace/penkra-backend",
+          websiteRoot: "/workspace/penkra-website",
+          appsRoot: "/workspace/penkra-apps",
+        },
+        "/workspace/penkra",
+      ),
+    ).toEqual({
+      desktopRoot: "/workspace/penkra",
+      backendRoot: "/workspace/penkra-backend",
+      websiteRoot: "/workspace/penkra-website",
+      appsRoot: "/workspace/penkra-apps",
+    });
+  });
+
+  it("resolves linked worktree installs back to the primary development checkout", () => {
+    expect(
+      resolvePenkraDevPrimaryCheckoutRoot(
+        "/tmp/thread-workspaces/thread-1",
+        "/workspace/penkra/.git",
+      ),
+    ).toBe("/workspace/penkra");
+    expect(resolvePenkraDevPrimaryCheckoutRoot("/workspace/penkra", "/workspace/penkra/.git")).toBe(
+      "/workspace/penkra",
+    );
+  });
+
   it("rejects a live supervisor owned by another configured workspace", () => {
     const workspace = {
       desktopRoot: "/workspace/new/penkra",

@@ -13,7 +13,7 @@ export interface ClaudeManagedAccountSnapshot {
 
 export interface ClaudeManagedLoginHandle {
   readonly loginId: string;
-  readonly authUrl: null;
+  readonly authUrl: string | null;
   readonly completion: Promise<ClaudeManagedAccountSnapshot>;
   readonly cancel: () => Promise<void>;
 }
@@ -38,6 +38,52 @@ type ClaudeAuthStatusExec = (
 
 const optionalString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value : null;
+
+export const claudeOAuthUrlFromOutput = (output: string): string | null => {
+  const candidates = output.match(/https:\/\/[^\s\u0000-\u001f\u007f]+/g) ?? [];
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate);
+      const isClaudeHost =
+        url.hostname === "claude.com" ||
+        url.hostname.endsWith(".claude.com") ||
+        url.hostname === "claude.ai" ||
+        url.hostname.endsWith(".claude.ai") ||
+        url.hostname === "anthropic.com" ||
+        url.hostname.endsWith(".anthropic.com");
+      if (isClaudeHost && url.pathname.includes("/oauth/authorize")) return url.toString();
+    } catch {
+      // Claude's interactive output can contain partial URLs while a chunk is arriving.
+    }
+  }
+  return null;
+};
+
+const waitForClaudeWindowsAuthUrl = async (
+  child: ChildProcessWithoutNullStreams,
+): Promise<string | null> =>
+  new Promise((resolve) => {
+    let output = "";
+    let settled = false;
+    const finish = (authUrl: string | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      child.stdout.off("data", onData);
+      child.stderr.off("data", onData);
+      resolve(authUrl);
+    };
+    const onData = (chunk: Buffer) => {
+      output = `${output}${chunk.toString("utf8")}`.slice(-16_000);
+      const authUrl = claudeOAuthUrlFromOutput(output);
+      if (authUrl !== null) finish(authUrl);
+    };
+    const timeout = setTimeout(() => finish(null), 15_000);
+    child.stdout.on("data", onData);
+    child.stderr.on("data", onData);
+    child.once("error", () => finish(null));
+    child.once("exit", () => finish(null));
+  });
 
 export async function readClaudeManagedAccount(
   input: ClaudeManagedLoginInput,
@@ -93,6 +139,7 @@ export async function startClaudeManagedAccountLogin(
       windowsVerbatimArguments: prepared.windowsVerbatimArguments,
     });
   },
+  platform: NodeJS.Platform = process.platform,
 ): Promise<ClaudeManagedLoginHandle> {
   const child = processFactory(input);
   let cancelled = false;
@@ -121,9 +168,10 @@ export async function startClaudeManagedAccountLogin(
       );
     });
   });
+  const authUrl = platform === "win32" ? await waitForClaudeWindowsAuthUrl(child) : null;
   return {
     loginId: `claude-auth-${child.pid ?? "pending"}`,
-    authUrl: null,
+    authUrl,
     completion,
     cancel: async () => {
       cancelled = true;

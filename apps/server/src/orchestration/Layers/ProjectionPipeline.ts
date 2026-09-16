@@ -306,7 +306,9 @@ const runAttachmentSideEffects = Effect.fn(function* (sideEffects: AttachmentSid
       yield* Effect.forEach(attachmentRootEntries, (entry) => {
         const relativePath = resolveThreadAttachmentEntry(threadSegment, entry);
         return relativePath
-          ? fileSystem.remove(path.join(attachmentsRootDir, relativePath), { force: true })
+          ? fileSystem.remove(path.join(attachmentsRootDir, relativePath), {
+              force: true,
+            })
           : Effect.void;
       });
     }),
@@ -367,22 +369,49 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
     switch (event.type) {
       case "folder.created":
       case "folder.updated":
-      case "folder.moved":
       case "folder.deleted":
-        return applyFolderMetadataProjection({ event, projectionFolderRepository }).pipe(
+        return applyFolderMetadataProjection({
+          event,
+          projectionFolderRepository,
+        }).pipe(Effect.asVoid);
+      case "folder.moved":
+        return applyFolderMetadataProjection({
+          event,
+          projectionFolderRepository,
+        }).pipe(
+          Effect.andThen(
+            sql`
+              UPDATE projection_thread_decks AS deck
+              SET space_id = ${event.payload.spaceId}, updated_at = ${event.payload.updatedAt}
+              WHERE deck.deck_id IN (
+                SELECT thread.deck_id
+                FROM projection_threads AS thread
+                WHERE thread.folder_id = ${event.payload.folderId}
+                  AND thread.deleted_at IS NULL
+                GROUP BY thread.deck_id
+                HAVING COUNT(*) = 1
+              )
+            `.pipe(
+              Effect.mapError(
+                toPersistenceSqlError("ProjectionPipeline.moveSingletonFolderDecks:query"),
+              ),
+            ),
+          ),
           Effect.asVoid,
         );
       case "space.created":
       case "space.updated":
       case "space.archived":
       case "space.restored":
-        return applySpaceMetadataProjection({ event, projectionSpaceRepository }).pipe(
-          Effect.asVoid,
-        );
+        return applySpaceMetadataProjection({
+          event,
+          projectionSpaceRepository,
+        }).pipe(Effect.asVoid);
       case "space.deleted":
-        return applySpaceMetadataProjection({ event, projectionSpaceRepository }).pipe(
-          Effect.asVoid,
-        );
+        return applySpaceMetadataProjection({
+          event,
+          projectionSpaceRepository,
+        }).pipe(Effect.asVoid);
       case "sidebar.layout-updated":
         return Effect.forEach(event.payload.folderUpdates, (update) =>
           projectionFolderRepository.getById({ folderId: update.folderId }).pipe(
@@ -426,12 +455,48 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                 ? { sidebarSortOrder: update.sidebarSortOrder }
                 : {}),
               updatedAt: event.payload.updatedAt,
-            })),
+            })).pipe(
+              Effect.andThen(
+                update.folderId === undefined
+                  ? Effect.void
+                  : sql`
+                      UPDATE projection_thread_decks AS deck
+                      SET
+                        space_id = folder.space_id,
+                        updated_at = ${event.payload.updatedAt}
+                      FROM projection_threads AS thread
+                      JOIN projection_folders AS folder ON folder.folder_id = thread.folder_id
+                      WHERE thread.thread_id = ${update.threadId}
+                        AND thread.deck_id = deck.deck_id
+                        AND (
+                          SELECT COUNT(*)
+                          FROM projection_threads AS member
+                          WHERE member.deck_id = deck.deck_id
+                            AND member.deleted_at IS NULL
+                        ) = 1
+                    `.pipe(
+                      Effect.mapError(
+                        toPersistenceSqlError("ProjectionPipeline.moveSingletonThreadDeck:query"),
+                      ),
+                    ),
+              ),
+            ),
           );
           return;
         case "thread.created": {
+          yield* sql`
+            INSERT INTO projection_thread_decks (deck_id, space_id, created_at, updated_at)
+            SELECT ${event.payload.deckId}, space_id, ${event.payload.createdAt}, ${event.payload.updatedAt}
+            FROM projection_folders
+            WHERE folder_id = ${event.payload.folderId}
+            ON CONFLICT(deck_id) DO UPDATE SET updated_at = excluded.updated_at
+          `.pipe(
+            Effect.mapError(toPersistenceSqlError("ProjectionPipeline.upsertThreadDeck:query")),
+          );
           yield* projectionThreadRepository.upsert({
             threadId: event.payload.threadId,
+            deckId: event.payload.deckId,
+            deckSortOrder: event.payload.deckSortOrder,
             folderId: event.payload.folderId,
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,
@@ -593,12 +658,119 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
 
         case "thread.deleted": {
           attachmentSideEffects.deletedThreadIds.add(event.payload.threadId);
-          return yield* updateThreadProjection(event.payload.threadId, (thread) => ({
+          const existing = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          yield* updateThreadProjection(event.payload.threadId, (thread) => ({
             ...thread,
             deletedAt: event.payload.deletedAt,
             updatedAt: event.payload.deletedAt,
           }));
+          if (Option.isSome(existing)) {
+            yield* sql`
+              DELETE FROM projection_thread_decks
+              WHERE deck_id = ${existing.value.deckId}
+                AND NOT EXISTS (
+                  SELECT 1 FROM projection_threads
+                  WHERE deck_id = ${existing.value.deckId} AND deleted_at IS NULL
+                )
+            `.pipe(
+              Effect.mapError(
+                toPersistenceSqlError("ProjectionPipeline.deleteEmptyThreadDeck:query"),
+              ),
+            );
+          }
+          return;
         }
+
+        case "thread.deck-moved": {
+          yield* sql`
+            INSERT INTO projection_thread_decks (deck_id, space_id, created_at, updated_at)
+            VALUES (
+              ${event.payload.destinationDeckId},
+              ${event.payload.spaceId},
+              ${event.payload.updatedAt},
+              ${event.payload.updatedAt}
+            )
+            ON CONFLICT(deck_id) DO UPDATE SET updated_at = excluded.updated_at
+          `.pipe(
+            Effect.mapError(
+              toPersistenceSqlError("ProjectionPipeline.upsertDestinationThreadDeck:query"),
+            ),
+          );
+          yield* sql`
+            UPDATE projection_threads
+            SET deck_sort_order = deck_sort_order + 1000000
+            WHERE deleted_at IS NULL
+              AND deck_id IN (${event.payload.sourceDeckId}, ${event.payload.destinationDeckId})
+          `.pipe(
+            Effect.mapError(
+              toPersistenceSqlError("ProjectionPipeline.stageMovedThreadDeckOrder:query"),
+            ),
+          );
+          yield* Effect.forEach(event.payload.sourceThreadIds, (threadId, order) =>
+            updateThreadProjection(threadId, (thread) => ({
+              ...thread,
+              deckId: event.payload.sourceDeckId,
+              deckSortOrder: order,
+            })),
+          );
+          yield* Effect.forEach(event.payload.destinationThreadIds, (threadId, order) =>
+            updateThreadProjection(threadId, (thread) => ({
+              ...thread,
+              deckId: event.payload.destinationDeckId,
+              deckSortOrder: order,
+            })),
+          );
+          if (event.payload.sourceThreadIds.length === 0) {
+            yield* sql`
+              DELETE FROM projection_thread_decks
+              WHERE deck_id = ${event.payload.sourceDeckId}
+            `.pipe(
+              Effect.mapError(
+                toPersistenceSqlError("ProjectionPipeline.deleteSourceThreadDeck:query"),
+              ),
+            );
+          } else {
+            yield* sql`
+              UPDATE projection_thread_decks
+              SET updated_at = ${event.payload.updatedAt}
+              WHERE deck_id = ${event.payload.sourceDeckId}
+            `.pipe(
+              Effect.mapError(
+                toPersistenceSqlError("ProjectionPipeline.touchSourceThreadDeck:query"),
+              ),
+            );
+          }
+          return;
+        }
+
+        case "thread.deck-reordered":
+          yield* sql`
+            UPDATE projection_threads
+            SET deck_sort_order = deck_sort_order + 1000000
+            WHERE deleted_at IS NULL AND deck_id = ${event.payload.deckId}
+          `.pipe(
+            Effect.mapError(
+              toPersistenceSqlError("ProjectionPipeline.stageReorderedThreadDeck:query"),
+            ),
+          );
+          yield* Effect.forEach(event.payload.threadIds, (threadId, order) =>
+            updateThreadProjection(threadId, (thread) => ({
+              ...thread,
+              deckSortOrder: order,
+            })),
+          );
+          yield* sql`
+            UPDATE projection_thread_decks
+            SET updated_at = ${event.payload.updatedAt}
+            WHERE deck_id = ${event.payload.deckId}
+          `.pipe(
+            Effect.mapError(
+              toPersistenceSqlError("ProjectionPipeline.touchReorderedThreadDeck:query"),
+            ),
+          );
+          return;
 
         case "thread.archived": {
           const archivedAt =
@@ -1066,7 +1238,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             projectionThreadSessionRepository.getByThreadId({
               threadId: event.payload.threadId,
             }),
-            projectionThreadRepository.getById({ threadId: event.payload.threadId }),
+            projectionThreadRepository.getById({
+              threadId: event.payload.threadId,
+            }),
           ]);
           const turnStartSession = deriveTurnStartSession({
             threadId: event.payload.threadId,
@@ -2179,14 +2353,23 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       case "space.updated":
       case "space.archived":
       case "space.restored":
-        return applySpaceMetadataProjection({ event, projectionSpaceRepository });
+        return applySpaceMetadataProjection({
+          event,
+          projectionSpaceRepository,
+        });
       case "space.deleted":
-        return applySpaceMetadataProjection({ event, projectionSpaceRepository });
+        return applySpaceMetadataProjection({
+          event,
+          projectionSpaceRepository,
+        });
       case "folder.created":
       case "folder.updated":
       case "folder.moved":
       case "folder.deleted":
-        return applyFolderMetadataProjection({ event, projectionFolderRepository });
+        return applyFolderMetadataProjection({
+          event,
+          projectionFolderRepository,
+        });
     }
   };
 

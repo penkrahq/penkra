@@ -29,7 +29,12 @@ app.setPath("userData", profilePath);
 protocol.registerSchemesAsPrivileged([
   {
     scheme: PENKRA_APP_SCHEME,
-    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
   },
 ]);
 
@@ -97,6 +102,7 @@ void runHostPhase("electron-ready", () => app.whenReady())
         runtime.appTabs.openInstalled({
           appId: packageRecord.appId,
           spaceId: TEST_SPACE_ID,
+          deckId: `deck:${TEST_THREAD_ID}`,
           threadId: TEST_THREAD_ID,
           route: "/",
         }),

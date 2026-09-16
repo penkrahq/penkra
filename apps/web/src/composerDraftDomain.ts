@@ -13,8 +13,10 @@ import {
   type ProviderStartOptions,
   type RuntimeMode,
   type SpaceId,
+  type ThreadDeckId,
   type ThreadId,
   type MessageId,
+  singletonThreadDeckId,
 } from "@penkra/contracts";
 import * as Schema from "effect/Schema";
 
@@ -92,6 +94,7 @@ export interface QueuedComposerChatTurn {
   dispatchAttempt?: number;
   /** Exact binding revision captured for the current semantic attempt. */
   dispatchBindingRevision?: number;
+  dispatchMode?: "queue" | "steer";
   previewText: string;
   prompt: string;
   images: ComposerImageAttachment[];
@@ -175,6 +178,7 @@ export interface ComposerThreadDraftState {
 
 export interface DraftThreadState {
   folderId: FolderId;
+  deckId: ThreadDeckId;
   spaceId?: SpaceId | null;
   createdAt: string;
   runtimeMode: RuntimeMode;
@@ -184,6 +188,7 @@ export interface DraftThreadState {
 }
 
 interface DraftThreadMutationOptions {
+  deckId?: ThreadDeckId;
   spaceId?: SpaceId | null;
   workingDirectory?: string | null;
   createdAt?: string;
@@ -208,6 +213,10 @@ export interface ComposerDraftStoreState {
     folderId: FolderId,
     entryPoint?: ThreadPrimarySurface,
   ) => ProjectDraftThread | null;
+  getDraftThreadByDeckId: (
+    deckId: ThreadDeckId,
+    entryPoint?: ThreadPrimarySurface,
+  ) => ProjectDraftThread | null;
   getDraftThread: (threadId: ThreadId) => DraftThreadState | null;
   setProjectDraftThreadId: (
     folderId: FolderId,
@@ -225,6 +234,7 @@ export interface ComposerDraftStoreState {
     threadId: ThreadId,
     options: {
       folderId: FolderId;
+      deckId: ThreadDeckId;
       spaceId?: SpaceId | null;
       createdAt?: string;
       workingDirectory?: string | null;
@@ -402,6 +412,7 @@ function resolveDraftThreadCreatedAt(input: {
 }
 
 export function buildDraftThreadState(input: {
+  threadId: ThreadId;
   folderId: FolderId;
   existingThread?: DraftThreadState | undefined;
   options?: DraftThreadMutationOptions | undefined;
@@ -416,6 +427,7 @@ export function buildDraftThreadState(input: {
 
   return {
     folderId: input.folderId,
+    deckId: options?.deckId ?? existingThread?.deckId ?? singletonThreadDeckId(input.threadId),
     spaceId:
       options?.spaceId === undefined
         ? (existingThread?.spaceId ?? null)
@@ -445,6 +457,7 @@ export function draftThreadStatesEqual(
 
   return (
     left.folderId === right.folderId &&
+    left.deckId === right.deckId &&
     left.spaceId === right.spaceId &&
     left.createdAt === right.createdAt &&
     left.runtimeMode === right.runtimeMode &&
@@ -464,7 +477,9 @@ export function removeProjectDraftMappingsForThread(
       continue;
     }
     if (nextProjectDraftThreadIdByFolderId === projectDraftThreadIdByFolderId) {
-      nextProjectDraftThreadIdByFolderId = { ...projectDraftThreadIdByFolderId };
+      nextProjectDraftThreadIdByFolderId = {
+        ...projectDraftThreadIdByFolderId,
+      };
     }
     delete nextProjectDraftThreadIdByFolderId[mappingKey];
   }

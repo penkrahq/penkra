@@ -143,7 +143,7 @@ async function performQueuedComposerTurnDispatch(input: {
         ? { providerOptions: queuedTurn.providerOptionsForDispatch }
         : {}),
       assistantDeliveryMode,
-      dispatchMode: "queue",
+      dispatchMode: queuedTurn.dispatchMode ?? "queue",
       runtimeMode: queuedTurn.runtimeMode,
       createdAt: queuedTurn.createdAt,
     }),

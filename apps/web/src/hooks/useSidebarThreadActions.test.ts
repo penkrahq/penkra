@@ -2,7 +2,7 @@
 // Purpose: Characterizes Sidebar pin races, archive serialization/undo, and batch deletion.
 // Layer: Web hook tests
 
-import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadDeckId, ThreadId } from "@penkra/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {
@@ -167,11 +167,21 @@ vi.mock("../store", () => ({
   useStore: {
     getState: () => ({
       removeDeletedThreadFromClientState: harness.removeDeletedThreadFromClientState,
+      decks: [
+        {
+          id: "deck-actions",
+          threadIds: ["thread-actions", "thread-fallback"],
+        },
+      ],
     }),
   },
 }));
 vi.mock("../threadDerivation", () => ({
-  getThreadFromState: (_state: unknown, threadId: ThreadId) => ({ id: threadId }),
+  getThreadFromState: (_state: unknown, threadId: ThreadId) => ({
+    id: threadId,
+    deckId: ThreadDeckId.makeUnsafe("deck-actions"),
+    archivedAt: null,
+  }),
 }));
 
 import type { Project, SidebarThreadSummary } from "../types";
@@ -196,6 +206,7 @@ const PROJECT = {
 function makeThread(id: ThreadId, overrides: Partial<SidebarThreadSummary> = {}) {
   return {
     id,
+    deckId: ThreadDeckId.makeUnsafe("deck-actions"),
     folderId: PROJECT_ID,
     title: String(id),
     modelSelection: { provider: "codex", model: "gpt-5.6" },

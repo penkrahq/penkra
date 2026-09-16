@@ -153,7 +153,7 @@ describe("Pencil middle panel", () => {
     await render(
       <ComposerDefault
         layoutMode="application"
-        draftBar={<div data-testid="draft-bar">Choose Folder · This Mac</div>}
+        draftBar={<div data-testid="draft-bar">Choose Folder</div>}
       >
         <div data-testid="live-editor">Live editor</div>
       </ComposerDefault>,
@@ -323,17 +323,11 @@ describe("Pencil middle panel", () => {
     expect(folderName.scrollWidth).toBeGreaterThanOrEqual(folderName.clientWidth);
   });
 
-  it("uses the compact Pencil runtime menu above the draft bar", async () => {
+  it("shows only the folder picker in the draft bar", async () => {
     await render(<DraftFolderBar folderPicker={<button type="button">Choose Folder</button>} />);
 
-    await page.getByRole("button", { name: "This Mac" }).click();
-    const popup = document.querySelector<HTMLElement>("[data-pencil-component='DJLI5']");
-    expect(popup).not.toBeNull();
-    expect(popup!.getBoundingClientRect().width).toBe(160);
-    await page.getByRole("button", { name: "This Mac" }).click();
-    await vi.waitFor(() => {
-      expect(document.querySelector("[data-pencil-component='DJLI5']")).toBeNull();
-    });
+    await expect.element(page.getByRole("button", { name: "Choose Folder" })).toBeInTheDocument();
+    expect(page.getByRole("button").elements()).toHaveLength(1);
   });
 
   it("keeps the transcript in a real scroll region outside the fixed composer", async () => {

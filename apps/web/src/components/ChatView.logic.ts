@@ -396,6 +396,8 @@ export function buildLocalDraftThread(
 ): Thread {
   return {
     id: threadId,
+    deckId: draftThread.deckId,
+    deckSortOrder: 0,
     codexThreadId: null,
     folderId: draftThread.folderId,
     spaceId: draftThread.spaceId ?? null,
@@ -801,7 +803,10 @@ export function buildThreadBreadcrumbs(
     breadcrumbs.unshift({
       threadId: parentThread.id,
       title: parentThread.parentThreadId
-        ? resolveSubagentPresentationForThread({ thread: parentThread, threads }).fullLabel
+        ? resolveSubagentPresentationForThread({
+            thread: parentThread,
+            threads,
+          }).fullLabel
         : parentThread.title,
     });
     currentParentId = parentThread.parentThreadId ?? null;
@@ -952,7 +957,10 @@ export function enrichSubagentWorkEntries(
         : terminalSubagentStatusLabel(subagent.rawStatus, entry.subagentAction?.status);
       const matchedPresentation =
         matchedThread !== undefined
-          ? resolveSubagentPresentationForThread({ thread: matchedThread, threads })
+          ? resolveSubagentPresentationForThread({
+              thread: matchedThread,
+              threads,
+            })
           : null;
       const nextSubagent = Object.assign({}, subagent);
       if (matchedThread) {

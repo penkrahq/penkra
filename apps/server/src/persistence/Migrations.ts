@@ -169,6 +169,8 @@ import Migration0160 from "./Migrations/160_ProjectionTurnPendingMessageLookup.t
 import Migration0161 from "./Migrations/161_CanonicalActivitySequence.ts";
 import Migration0162 from "./Migrations/162_TranscriptMessageSearch.ts";
 import Migration0163 from "./Migrations/163_MessageDeliveryFailureEvidence.ts";
+import Migration0164 from "./Migrations/164_ThreadDecks.ts";
+import Migration0165 from "./Migrations/165_ProviderRuntimeDiagnosticEpisodes.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -337,6 +339,8 @@ export const migrationEntries = [
   [161, "CanonicalActivitySequence", Migration0161],
   [162, "TranscriptMessageSearch", Migration0162],
   [163, "MessageDeliveryFailureEvidence", Migration0163],
+  [164, "ThreadDecks", Migration0164],
+  [165, "ProviderRuntimeDiagnosticEpisodes", Migration0165],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

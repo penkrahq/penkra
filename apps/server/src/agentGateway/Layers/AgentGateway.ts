@@ -277,7 +277,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_create_thread",
       description:
-        "Use when work should run in a separate Penkra conversation. Create one standalone Thread from a self-contained prompt and a target returned by `penkra capabilities`; optionally choose a folder returned by `penkra folders list`. Retrying the same requestId is idempotent. Separate create calls are independent and non-atomic, so retain successful Thread ids if a later call fails.",
+        "Use when work should run in a separate Penkra conversation. Create one standalone Thread from a self-contained prompt and a target returned by `penkra models list --availability available`; optionally choose a Connection from `penkra connections list` and a folder from `penkra folders list`. Retrying the same requestId is idempotent. Separate create calls are independent and non-atomic, so retain successful Thread ids if a later call fails.",
       inputSchema: {
         type: "object",
         properties: {
@@ -317,7 +317,10 @@ export const makeAgentGateway = Effect.gen(function* () {
         required: ["requestId", "prompt", "target"],
         additionalProperties: false,
       },
-      annotations: { title: "Create a Penkra thread", ...IDEMPOTENT_WRITE_TOOL_ANNOTATIONS },
+      annotations: {
+        title: "Create a Penkra thread",
+        ...IDEMPOTENT_WRITE_TOOL_ANNOTATIONS,
+      },
     },
     handler: (args, context) =>
       Effect.suspend(() =>
@@ -359,7 +362,10 @@ export const makeAgentGateway = Effect.gen(function* () {
         required: ["threadId", "message"],
         additionalProperties: false,
       },
-      annotations: { title: "Send a Penkra message", ...WRITE_TOOL_ANNOTATIONS },
+      annotations: {
+        title: "Send a Penkra message",
+        ...WRITE_TOOL_ANNOTATIONS,
+      },
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -419,7 +425,10 @@ export const makeAgentGateway = Effect.gen(function* () {
       inputSchema: {
         type: "object",
         properties: {
-          threadId: { type: "string", description: "Thread whose turn should be interrupted." },
+          threadId: {
+            type: "string",
+            description: "Thread whose turn should be interrupted.",
+          },
           turnId: {
             type: "string",
             description: "Optional exact queued or running turn to cancel/interrupt.",
@@ -474,7 +483,10 @@ export const makeAgentGateway = Effect.gen(function* () {
             // turn instead of draining the whole reactor (which could block on
             // unrelated work), and never claim a terminal outcome from the
             // pre-dispatch state.
-            const state = yield* awaitInterruptedTurn({ threadId: target.id, turnId });
+            const state = yield* awaitInterruptedTurn({
+              threadId: target.id,
+              turnId,
+            });
             return mcpToolResultJson({
               threadId: target.id,
               turnId,
@@ -487,7 +499,11 @@ export const makeAgentGateway = Effect.gen(function* () {
             turn.state === "interrupted" ||
             turn.state === "cancelled"
           ) {
-            return mcpToolResultJson({ threadId: target.id, turnId, state: turn.state });
+            return mcpToolResultJson({
+              threadId: target.id,
+              turnId,
+              state: turn.state,
+            });
           }
           yield* orchestrationEngine.dispatch({
             type: "thread.turn.interrupt",
@@ -499,7 +515,10 @@ export const makeAgentGateway = Effect.gen(function* () {
               : {}),
             createdAt: isoNow(),
           });
-          const state = yield* awaitInterruptedTurn({ threadId: target.id, turnId });
+          const state = yield* awaitInterruptedTurn({
+            threadId: target.id,
+            turnId,
+          });
           return mcpToolResultJson({ threadId: target.id, turnId, state });
         }
         const activeTurn = yield* resolveAuthoritativeActiveTurn({
@@ -584,9 +603,14 @@ export const makeAgentGateway = Effect.gen(function* () {
   const gatewayCommands: ReadonlyArray<AgentGatewayCommandEntry> = [
     command(["context"], requireInternalTool("penkra_context"), "penkra context"),
     command(
-      ["capabilities"],
-      requireInternalTool("penkra_capabilities"),
-      "penkra capabilities --provider codex",
+      ["connections", "list"],
+      requireInternalTool("penkra_list_connections"),
+      "penkra connections list --provider codex",
+    ),
+    command(
+      ["models", "list"],
+      requireInternalTool("penkra_list_models"),
+      "penkra models list --availability available --provider opencode",
     ),
     command(["folders", "list"], requireInternalTool("penkra_list_folders"), "penkra folders list"),
     command(
@@ -669,7 +693,10 @@ export const makeAgentGateway = Effect.gen(function* () {
         const resolution = resolveAgentGatewayCommand(commandInput, gatewayCommands);
         if (resolution.kind === "result") return resolution.result;
         if (resolution.kind === "call") {
-          return yield* invokeResolvedAgentGatewayCommand({ resolution, context });
+          return yield* invokeResolvedAgentGatewayCommand({
+            resolution,
+            context,
+          });
         }
 
         const caller = yield* requireThreadShell(context.callerThreadId);
@@ -684,7 +711,9 @@ export const makeAgentGateway = Effect.gen(function* () {
           try: () =>
             executePenkraExecCommand(commandInput, {
               spaceId: callerSpaceId,
+              deckId: caller.deckId,
               threadId: caller.id,
+              callerTurnId: context.callerTurnId,
               workingDirectory: caller.workingDirectory ?? null,
               additionalCoreCommands: agentGatewayCommandCatalog(gatewayCommands),
             }),
@@ -694,14 +723,18 @@ export const makeAgentGateway = Effect.gen(function* () {
           return mcpToolResultImage({
             data: result.data,
             mimeType: result.mimeType,
-            description: "Screenshot of the App tab currently visible for the caller Thread.",
+            description:
+              "Screenshot of the App tab visible in the exact window surface for this agent turn.",
           });
         }
         const rich = extractPenkraExecRichResult(result);
         if (rich) {
           return mcpToolResultRich({
             content: [
-              { type: "text", text: JSON.stringify(rich.structuredContent, null, 2) },
+              {
+                type: "text",
+                text: JSON.stringify(rich.structuredContent, null, 2),
+              },
               ...rich.content,
             ],
             structuredContent: rich.structuredContent,

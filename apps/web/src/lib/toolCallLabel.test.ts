@@ -32,20 +32,29 @@ describe("extractWebFetchUrl", () => {
   });
 
   it("falls back to a bare URL token when there is no json field", () => {
-    expect(extractWebFetchUrl({ toolName: "fetch", detail: "Fetching https://example.com." })).toBe(
-      "https://example.com",
-    );
+    expect(
+      extractWebFetchUrl({
+        toolName: "fetch",
+        detail: "Fetching https://example.com.",
+      }),
+    ).toBe("https://example.com");
   });
 
   it("ignores non-fetch tools", () => {
     expect(
-      extractWebFetchUrl({ toolName: "Read", detail: '{"url":"https://example.com"}' }),
+      extractWebFetchUrl({
+        toolName: "Read",
+        detail: '{"url":"https://example.com"}',
+      }),
     ).toBeNull();
   });
 
   it("ignores non-http(s) and missing urls", () => {
     expect(
-      extractWebFetchUrl({ toolName: "WebFetch", detail: '{"url":"ftp://example.com"}' }),
+      extractWebFetchUrl({
+        toolName: "WebFetch",
+        detail: '{"url":"ftp://example.com"}',
+      }),
     ).toBeNull();
     expect(extractWebFetchUrl({ toolName: "WebFetch", detail: '{"prompt":"hi"}' })).toBeNull();
     expect(extractWebFetchUrl({ toolName: "WebFetch", detail: undefined })).toBeNull();
@@ -72,11 +81,8 @@ describe("derivePenkraMcpToolTitle", () => {
     const cases = [
       ["penkra_exec_command", "Penkra is running a command", "Penkra ran a command"],
       ["penkra_context", "Penkra is checking its context", "Penkra checked its context"],
-      [
-        "penkra_capabilities",
-        "Penkra is checking available agents",
-        "Penkra checked available agents",
-      ],
+      ["penkra_list_connections", "Penkra is listing connections", "Penkra listed connections"],
+      ["penkra_list_models", "Penkra is listing models", "Penkra listed models"],
       ["penkra_list_folders", "Penkra is listing folders", "Penkra listed folders"],
       ["penkra_list_threads", "Penkra is listing threads", "Penkra listed threads"],
       ["penkra_read_thread", "Penkra is reading a thread", "Penkra read a thread"],
@@ -134,11 +140,17 @@ describe("derivePenkraMcpToolTitle", () => {
   });
 
   it("recognizes bare and already-humanized Penkra tool names", () => {
-    expect(derivePenkraMcpToolTitle({ toolName: "penkra_send_message", status: "running" })).toBe(
-      "Penkra is sending a message",
-    );
     expect(
-      derivePenkraMcpToolTitle({ title: "Penkra: Penkra List Threads", status: "completed" }),
+      derivePenkraMcpToolTitle({
+        toolName: "penkra_send_message",
+        status: "running",
+      }),
+    ).toBe("Penkra is sending a message");
+    expect(
+      derivePenkraMcpToolTitle({
+        title: "Penkra: Penkra List Threads",
+        status: "completed",
+      }),
     ).toBe("Penkra listed threads");
   });
 
