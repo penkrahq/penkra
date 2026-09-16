@@ -34,6 +34,7 @@ describe("buildAppResourceContextMenu", () => {
         request: {
           url: "https://example.com/report",
           spaceId: "personal",
+          deckId: "deck-1",
           threadId: "thread-1",
           position: { x: 12, y: 24 },
         },
@@ -77,6 +78,7 @@ describe("buildAppResourceContextMenu", () => {
       request: {
         path,
         spaceId: "personal",
+        deckId: "deck-1",
         threadId: "thread-1",
         position: { x: 12, y: 24 },
       },
@@ -102,6 +104,7 @@ describe("buildAppResourceContextMenu", () => {
       request: {
         path: directory,
         spaceId: "personal",
+        deckId: "deck-1",
         threadId: "thread-1",
         position: { x: 12, y: 24 },
       },

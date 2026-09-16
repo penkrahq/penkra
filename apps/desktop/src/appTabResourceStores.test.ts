@@ -5,6 +5,7 @@ import { AppAccountSubscriptionStore, AppFileWatchStore } from "./appTabResource
 const generation = {
   appId: "com.acme.app",
   spaceId: "personal",
+  deckId: "deck-1",
   threadId: "thread-1",
   tabId: "tab-1",
   rendererId: -1,

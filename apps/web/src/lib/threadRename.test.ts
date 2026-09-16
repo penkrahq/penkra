@@ -4,6 +4,15 @@ const dispatchCommand = vi.fn<(command: unknown) => Promise<{ sequence: number }
 const getShellSnapshot = vi.fn(async () => ({
   snapshotSequence: 1,
   spaces: [],
+  decks: [
+    {
+      id: "deck:thread-draft",
+      spaceId: "space-1",
+      threadIds: ["thread-draft"],
+      createdAt: "2026-04-18T00:00:00.000Z",
+      updatedAt: "2026-04-18T00:00:00.000Z",
+    },
+  ],
   folders: [
     {
       id: "project-chat",
@@ -19,6 +28,8 @@ const getShellSnapshot = vi.fn(async () => ({
   threads: [
     {
       id: "thread-draft",
+      deckId: "deck:thread-draft",
+      deckSortOrder: 0,
       folderId: "project-chat",
       title: "Inbox cleanup",
       modelSelection: { provider: "codex" as const, model: "gpt-5" },
@@ -94,6 +105,7 @@ describe("dispatchThreadRename", () => {
     expect(dispatchCommand.mock.calls[0]?.[0]).toMatchObject({
       type: "thread.create",
       threadId: "thread-draft",
+      deckId: "deck:thread-draft",
       folderId: "project-chat",
       title: "Inbox cleanup",
       createdAt: "2026-04-18T00:00:00.000Z",

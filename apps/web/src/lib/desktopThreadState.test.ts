@@ -1,4 +1,4 @@
-import { FolderId, ThreadId, TurnId } from "@penkra/contracts";
+import { FolderId, ThreadDeckId, ThreadId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { SidebarThreadSummary } from "../types";
@@ -7,6 +7,8 @@ import { deriveUnmountedThreadLiveState } from "./desktopThreadState";
 function thread(overrides: Partial<SidebarThreadSummary> = {}): SidebarThreadSummary {
   return {
     id: ThreadId.makeUnsafe("thread-background"),
+    deckId: ThreadDeckId.makeUnsafe("deck-background"),
+    deckSortOrder: 0,
     folderId: FolderId.makeUnsafe("folder-1"),
     title: "Background thread",
     modelSelection: { provider: "codex", model: "gpt-5.5" },

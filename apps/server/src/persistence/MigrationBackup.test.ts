@@ -705,6 +705,8 @@ describe("migration backups", () => {
           [161, "CanonicalActivitySequence"],
           [162, "TranscriptMessageSearch"],
           [163, "MessageDeliveryFailureEvidence"],
+          [164, "ThreadDecks"],
+          [165, "ProviderRuntimeDiagnosticEpisodes"],
         ]);
       }),
     );

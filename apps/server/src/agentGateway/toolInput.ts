@@ -12,11 +12,12 @@ export const MODEL_SELECTION_INPUT_SCHEMA = {
     provider: {
       type: "string",
       enum: [...PROVIDER_KINDS],
-      description: "Exact provider kind returned by penkra_capabilities providers[].provider.",
+      description: "Exact provider kind returned by `penkra models list --availability available`.",
     },
     model: {
       type: "string",
-      description: "Exact model slug from penkra_capabilities providers[].models[].slug.",
+      description:
+        "Exact model slug from `penkra models list --availability available` items[].model.",
     },
     options: {
       type: "object",

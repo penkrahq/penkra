@@ -23,6 +23,8 @@ const ALLOW_WEBVIEW_POPUPS_ATTRIBUTE = "true" as unknown as boolean;
 export function AppDockPane(props: {
   tabId: string;
   rendererId: number;
+  deckId: string;
+  threadId: string;
   status: "loading" | "ready" | "crashed" | null;
   visible: boolean;
   appName: string | null;
@@ -62,15 +64,23 @@ export function AppDockPane(props: {
         tabId: props.tabId,
         rendererId: props.rendererId,
         active,
+        deckId: props.deckId,
+        threadId: props.threadId,
       });
     };
     reportActiveState();
     document.addEventListener("visibilitychange", reportActiveState);
     return () => {
       document.removeEventListener("visibilitychange", reportActiveState);
-      void bridge.setActive({ tabId: props.tabId, rendererId: props.rendererId, active: false });
+      void bridge.setActive({
+        tabId: props.tabId,
+        rendererId: props.rendererId,
+        active: false,
+        deckId: props.deckId,
+        threadId: props.threadId,
+      });
     };
-  }, [props.rendererId, props.tabId, props.visible]);
+  }, [props.deckId, props.rendererId, props.tabId, props.threadId, props.visible]);
 
   const disconnectFrame = useCallback(() => {
     const connection = frameConnectionRef.current;
@@ -101,6 +111,8 @@ export function AppDockPane(props: {
             .frameCall({
               tabId: props.tabId,
               rendererId: props.rendererId,
+              deckId: props.deckId,
+              threadId: props.threadId,
               method: message.method,
               ...(message.input === undefined ? {} : { input: message.input }),
             })
@@ -167,7 +179,14 @@ export function AppDockPane(props: {
         [channel.port2],
       );
     },
-    [disconnectFrame, props.documentUrl, props.rendererId, props.tabId],
+    [
+      disconnectFrame,
+      props.deckId,
+      props.documentUrl,
+      props.rendererId,
+      props.tabId,
+      props.threadId,
+    ],
   );
 
   useEffect(() => disconnectFrame, [connectFrame, disconnectFrame]);
@@ -242,6 +261,8 @@ export function AppDockPane(props: {
                     tabId: props.tabId,
                     rendererId: props.rendererId,
                     active: true,
+                    deckId: props.deckId,
+                    threadId: props.threadId,
                   });
                 }}
                 type="button"

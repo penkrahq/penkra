@@ -2,9 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import { SpaceId } from "@penkra/contracts";
 
-import { resolveAppsLauncherAction, resolveAppsLauncherSpaceId } from "./appsLauncher.logic";
+import {
+  resolveAppsLauncherAction,
+  resolveAppsLauncherRightInsetPx,
+  resolveAppsLauncherSpaceId,
+} from "./appsLauncher.logic";
 
 describe("fixed Apps launcher", () => {
+  it("clears the Windows caption-button cluster in Electron", () => {
+    expect(resolveAppsLauncherRightInsetPx({ isElectron: true, isWindowsDesktop: true })).toBe(144);
+    expect(resolveAppsLauncherRightInsetPx({ isElectron: true, isWindowsDesktop: false })).toBe(6);
+  });
+
   it("opens Apps when no Apps tab exists", () => {
     expect(
       resolveAppsLauncherAction({ dockOpen: false, activePaneId: null, appsPaneId: null }),

@@ -8,6 +8,7 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
+  singletonThreadDeckId,
   type OrchestrationEvent,
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
@@ -21,8 +22,11 @@ import { DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 const TEST_SPACE_ID = SpaceId.makeUnsafe("space-test");
 
 export function makeThread(overrides: Partial<Thread> = {}): Thread {
-  return {
-    id: ThreadId.makeUnsafe("thread-1"),
+  const id = overrides.id ?? ThreadId.makeUnsafe("thread-1");
+  const thread = {
+    id,
+    deckId: singletonThreadDeckId(id),
+    deckSortOrder: 0,
     codexThreadId: null,
     folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
@@ -43,6 +47,11 @@ export function makeThread(overrides: Partial<Thread> = {}): Thread {
     forkSourceThreadId: null,
     ...overrides,
   };
+  return Object.assign({}, thread, {
+    id,
+    deckId: overrides.deckId ?? singletonThreadDeckId(id),
+    deckSortOrder: overrides.deckSortOrder ?? 0,
+  }) as Thread;
 }
 
 export function makeDomainEvent<TType extends OrchestrationEvent["type"]>(
@@ -103,6 +112,15 @@ export function makeState(thread: Thread): AppState {
   return {
     spaces: [],
     archivedSpaces: [],
+    decks: [
+      {
+        id: thread.deckId,
+        spaceId: thread.spaceId ?? TEST_SPACE_ID,
+        threadIds: [thread.id],
+        createdAt: thread.createdAt,
+        updatedAt: thread.updatedAt ?? thread.createdAt,
+      },
+    ],
     folders: [makeProject()],
     archivedFolders: [],
     sidebarThreadSummaryById: {},
@@ -144,8 +162,11 @@ export function makeProject(
 }
 
 export function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"][number]>) {
-  return {
-    id: ThreadId.makeUnsafe("thread-1"),
+  const id = overrides.id ?? ThreadId.makeUnsafe("thread-1");
+  const thread = {
+    id,
+    deckId: singletonThreadDeckId(id),
+    deckSortOrder: 0,
     folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
@@ -162,7 +183,12 @@ export function makeReadModelThread(overrides: Partial<OrchestrationReadModel["t
     activities: [],
     session: null,
     ...overrides,
-  } satisfies OrchestrationReadModel["threads"][number];
+  };
+  return Object.assign({}, thread, {
+    id,
+    deckId: overrides.deckId ?? singletonThreadDeckId(id),
+    deckSortOrder: overrides.deckSortOrder ?? 0,
+  }) as OrchestrationReadModel["threads"][number];
 }
 
 export function makeReadModel(
@@ -188,11 +214,29 @@ export function makeReadModel(
         spaceId: TEST_SPACE_ID,
       },
     ],
+    decks: [
+      {
+        id: thread.deckId,
+        spaceId: TEST_SPACE_ID,
+        threadIds: [thread.id],
+        createdAt: thread.createdAt,
+        updatedAt: thread.updatedAt,
+      },
+    ],
     threads: [thread],
   };
 }
 
-export function makeShellSnapshot(thread: OrchestrationShellSnapshot["threads"][number]) {
+export function makeShellSnapshot(
+  thread: Omit<OrchestrationShellSnapshot["threads"][number], "deckId" | "deckSortOrder"> &
+    Partial<Pick<OrchestrationShellSnapshot["threads"][number], "deckId" | "deckSortOrder">>,
+) {
+  const deckId = thread.deckId ?? singletonThreadDeckId(thread.id);
+  const normalizedThread = {
+    ...thread,
+    deckId,
+    deckSortOrder: thread.deckSortOrder ?? 0,
+  } as OrchestrationShellSnapshot["threads"][number];
   return {
     snapshotSequence: 2,
     updatedAt: "2026-02-27T00:01:00.000Z",
@@ -212,7 +256,16 @@ export function makeShellSnapshot(thread: OrchestrationShellSnapshot["threads"][
         spaceId: TEST_SPACE_ID,
       },
     ],
-    threads: [thread],
+    decks: [
+      {
+        id: deckId,
+        spaceId: TEST_SPACE_ID,
+        threadIds: [thread.id],
+        createdAt: thread.createdAt,
+        updatedAt: thread.updatedAt,
+      },
+    ],
+    threads: [normalizedThread],
   } satisfies OrchestrationShellSnapshot;
 }
 

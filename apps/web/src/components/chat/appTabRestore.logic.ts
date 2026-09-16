@@ -4,6 +4,7 @@
 import type { RightDockPane } from "../../rightDockStore.logic";
 
 interface AppTabSpaceIdentity {
+  deckId: string;
   threadId: string;
   spaceId: string;
 }
@@ -29,19 +30,20 @@ export function isAppPaneInSpace(pane: RightDockPane, spaceId: string): boolean 
   return pane.appSpaceId === spaceId;
 }
 
-export function isAppTabOutsideThreadSpace(
+export function isAppTabOutsideDeckSpace(
   tab: AppTabSpaceIdentity,
-  threadId: string,
+  deckId: string,
   spaceId: string,
 ): boolean {
-  return tab.threadId === threadId && tab.spaceId !== spaceId;
+  return tab.deckId === deckId && tab.spaceId !== spaceId;
 }
 
-export function createAppTabRestoreRequest(pane: RightDockPane, threadId: string) {
+export function createAppTabRestoreRequest(pane: RightDockPane, deckId: string, threadId: string) {
   return {
     tabId: pane.id,
     appId: pane.appId,
     spaceId: pane.appSpaceId,
+    deckId,
     threadId,
     route: pane.appRoute,
     ...(pane.appState === undefined ? {} : { state: pane.appState }),

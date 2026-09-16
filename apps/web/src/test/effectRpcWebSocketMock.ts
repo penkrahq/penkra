@@ -144,10 +144,13 @@ export function createShellSnapshotFromReadModel(
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
       })),
+    decks: snapshot.decks,
     threads: snapshot.threads
       .filter((thread) => thread.deletedAt === null)
       .map((thread) => ({
         id: thread.id,
+        deckId: thread.deckId,
+        deckSortOrder: thread.deckSortOrder,
         folderId: thread.folderId,
         title: thread.title,
         modelSelection: thread.modelSelection,

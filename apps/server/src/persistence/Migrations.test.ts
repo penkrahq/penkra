@@ -20,11 +20,16 @@ layer("removed provider data migration", (it) => {
       const now = "2026-08-22T00:00:00.000Z";
 
       yield* sql`
+        INSERT INTO projection_spaces (
+          space_id, name, icon, sort_order, created_at, updated_at
+        ) VALUES ('space-migration-test', 'Migration test', 'bag', 0, ${now}, ${now})
+      `;
+      yield* sql`
         INSERT INTO projection_projects (
-          project_id, kind, title, workspace_root, default_model_selection_json,
+          project_id, kind, space_id, title, workspace_root, default_model_selection_json,
           scripts_json, created_at, updated_at
         ) VALUES (
-          'folder-removed-default', 'folder', 'Folder', NULL,
+          'folder-removed-default', 'folder', 'space-migration-test', 'Folder', NULL,
           '{"provider":"cursor","model":"auto"}', '[]', ${now}, ${now}
         )
       `;
@@ -72,6 +77,8 @@ layer("removed provider data migration", (it) => {
         [161, "CanonicalActivitySequence"],
         [162, "TranscriptMessageSearch"],
         [163, "MessageDeliveryFailureEvidence"],
+        [164, "ThreadDecks"],
+        [165, "ProviderRuntimeDiagnosticEpisodes"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -928,6 +935,8 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [161, "CanonicalActivitySequence"],
         [162, "TranscriptMessageSearch"],
         [163, "MessageDeliveryFailureEvidence"],
+        [164, "ThreadDecks"],
+        [165, "ProviderRuntimeDiagnosticEpisodes"],
       ]);
 
       const tracker = yield* trackerRows(sql);

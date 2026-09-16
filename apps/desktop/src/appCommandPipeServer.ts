@@ -62,10 +62,17 @@ type Request = {
     | "tabs.wait"
     | "tabs.handle-dialog"
     | "tabs.upload"
-    | "threads.current.state"
-    | "threads.current.composer"
-    | "threads.current.compose"
-    | "threads.current.send"
+    | "threads.current.read"
+    | "threads.list"
+    | "threads.get"
+    | "threads.create"
+    | "threads.add"
+    | "threads.select"
+    | "threads.reorder"
+    | "threads.leave"
+    | "threads.archive"
+    | "threads.compose"
+    | "threads.send"
     | "developer.publishers.list"
     | "developer.publishers.create"
     | "developer.apps.list"
@@ -96,9 +103,15 @@ type Request = {
 };
 
 interface AppTabObserverBridge {
+  runOnSurface?<T>(surfaceId: number | null, operation: () => Promise<T>): Promise<T>;
   snapshot(
     tabId: string,
-    options?: { target?: string; depth?: number; boxes?: boolean; outputPath?: string },
+    options?: {
+      target?: string;
+      depth?: number;
+      boxes?: boolean;
+      outputPath?: string;
+    },
   ): Promise<unknown>;
   find(tabId: string, query: string): Promise<unknown>;
   screenshot(tabId: string, outputPath?: string): Promise<unknown>;
@@ -132,8 +145,16 @@ export class AppCommandPipeServer {
   readonly #tabs: {
     list(): ReadonlyArray<DesktopAppTabDescriptor>;
     current(): DesktopAppTabDescriptor | null;
-    currentFor?(spaceId: string, threadId: string): DesktopAppTabDescriptor | null;
+    currentFor?(
+      spaceId: string,
+      deckId: string,
+      surfaceId?: number,
+    ): DesktopAppTabDescriptor | null;
   };
+  readonly #resolveTurnSurface: ((turnId: string) => number | null) | null;
+  readonly #runOnSurface:
+    | (<T>(surfaceId: number | null, operation: () => Promise<T>) => Promise<T>)
+    | null;
   readonly #observer: AppTabObserverBridge;
   readonly #registry: AppRegistryClient | null;
   readonly #sideload:
@@ -145,14 +166,29 @@ export class AppCommandPipeServer {
         url?: string;
         requestedApp?: string;
         spaceId: string;
+        deckId: string;
         threadId: string;
+        surfaceId?: number;
       }) => Promise<unknown>)
     | null;
   readonly #providerCredentialVault: ProviderCredentialVault;
   readonly #thread: (input: {
     spaceId: string;
+    deckId: string;
     threadId: string;
-    method: "read" | "compose" | "send";
+    surfaceId?: number;
+    method:
+      | "current.read"
+      | "list"
+      | "get"
+      | "create"
+      | "add"
+      | "select"
+      | "reorder"
+      | "leave"
+      | "archive"
+      | "compose"
+      | "send";
     value?: unknown;
   }) => Promise<unknown>;
   #started = false;
@@ -166,8 +202,14 @@ export class AppCommandPipeServer {
     tabs: {
       list(): ReadonlyArray<DesktopAppTabDescriptor>;
       current(): DesktopAppTabDescriptor | null;
-      currentFor?(spaceId: string, threadId: string): DesktopAppTabDescriptor | null;
+      currentFor?(
+        spaceId: string,
+        deckId: string,
+        surfaceId?: number,
+      ): DesktopAppTabDescriptor | null;
     };
+    resolveTurnSurface?: (turnId: string) => number | null;
+    runOnSurface?: <T>(surfaceId: number | null, operation: () => Promise<T>) => Promise<T>;
     observer: AppTabObserverBridge;
     registry?: AppRegistryClient | null;
     sideload?: (input: { sourcePath: string; spaceId?: string }) => Promise<unknown>;
@@ -176,13 +218,28 @@ export class AppCommandPipeServer {
       url?: string;
       requestedApp?: string;
       spaceId: string;
+      deckId: string;
       threadId: string;
+      surfaceId?: number;
     }) => Promise<unknown>;
     providerCredentialVault: ProviderCredentialVault;
     thread?: (input: {
       spaceId: string;
+      deckId: string;
       threadId: string;
-      method: "read" | "compose" | "send";
+      surfaceId?: number;
+      method:
+        | "current.read"
+        | "list"
+        | "get"
+        | "create"
+        | "add"
+        | "select"
+        | "reorder"
+        | "leave"
+        | "archive"
+        | "compose"
+        | "send";
       value?: unknown;
     }) => Promise<unknown>;
   }) {
@@ -191,6 +248,8 @@ export class AppCommandPipeServer {
     this.#catalog = input.catalog;
     this.#broker = input.broker;
     this.#tabs = input.tabs;
+    this.#resolveTurnSurface = input.resolveTurnSurface ?? null;
+    this.#runOnSurface = input.runOnSurface ?? null;
     this.#observer = input.observer;
     this.#registry = input.registry ?? null;
     this.#sideload = input.sideload ?? null;
@@ -214,7 +273,10 @@ export class AppCommandPipeServer {
   async start(): Promise<void> {
     if (this.#started) return;
     if (!this.#usesWindowsPipe) {
-      await FS.promises.mkdir(Path.dirname(this.#path), { recursive: true, mode: 0o700 });
+      await FS.promises.mkdir(Path.dirname(this.#path), {
+        recursive: true,
+        mode: 0o700,
+      });
       await FS.promises.chmod(Path.dirname(this.#path), 0o700);
       await FS.promises.rm(this.#path, { force: true });
     }
@@ -364,31 +426,34 @@ export class AppCommandPipeServer {
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.snapshot(this.#tab(params).id, observationOptions(params)),
+          result: await this.#observe(params, () =>
+            this.#observer.snapshot(this.#tab(params).id, observationOptions(params)),
+          ),
         };
       case "tabs.find":
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.find(
-            this.#tab(params).id,
-            requiredString(params.query, "query"),
+          result: await this.#observe(params, () =>
+            this.#observer.find(this.#tab(params).id, requiredString(params.query, "query")),
           ),
         };
       case "tabs.screenshot": {
         const tab = this.#scopedCurrentTab(params);
         if (!tab) {
           throw new Error(
-            "The caller Thread does not currently own the visible App tab. Open or focus its App tab before taking a screenshot.",
+            "The caller Thread Deck does not currently own the visible App tab. Open or focus its App tab before taking a screenshot.",
           );
         }
         assertAppTabAgentAddressable(tab);
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.screenshot(
-            tab.id,
-            optionalString(params.outputPath, "outputPath") ?? undefined,
+          result: await this.#observe(params, () =>
+            this.#observer.screenshot(
+              tab.id,
+              optionalString(params.outputPath, "outputPath") ?? undefined,
+            ),
           ),
         };
       }
@@ -396,148 +461,183 @@ export class AppCommandPipeServer {
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.click(
-            this.#tab(params).id,
-            requiredString(params.target, "target"),
-            optionalBoolean(params.observe, "observe") ?? false,
+          result: await this.#observe(params, () =>
+            this.#observer.click(
+              this.#tab(params).id,
+              requiredString(params.target, "target"),
+              optionalBoolean(params.observe, "observe") ?? false,
+            ),
           ),
         };
       case "tabs.hover":
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.hover(
-            this.#tab(params).id,
-            requiredString(params.target, "target"),
-            optionalBoolean(params.observe, "observe") ?? false,
+          result: await this.#observe(params, () =>
+            this.#observer.hover(
+              this.#tab(params).id,
+              requiredString(params.target, "target"),
+              optionalBoolean(params.observe, "observe") ?? false,
+            ),
           ),
         };
       case "tabs.type":
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.type(
-            this.#tab(params).id,
-            requiredString(params.target, "target"),
-            requiredStringAllowEmpty(params.text, "text"),
-            optionalBoolean(params.observe, "observe") ?? false,
+          result: await this.#observe(params, () =>
+            this.#observer.type(
+              this.#tab(params).id,
+              requiredString(params.target, "target"),
+              requiredStringAllowEmpty(params.text, "text"),
+              optionalBoolean(params.observe, "observe") ?? false,
+            ),
           ),
         };
       case "tabs.press":
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.press(
-            this.#tab(params).id,
-            requiredString(params.key, "key"),
-            optionalBoolean(params.observe, "observe") ?? false,
+          result: await this.#observe(params, () =>
+            this.#observer.press(
+              this.#tab(params).id,
+              requiredString(params.key, "key"),
+              optionalBoolean(params.observe, "observe") ?? false,
+            ),
           ),
         };
       case "tabs.select":
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.select(
-            this.#tab(params).id,
-            requiredString(params.target, "target"),
-            requiredStringAllowEmpty(params.value, "value"),
-            optionalBoolean(params.observe, "observe") ?? false,
+          result: await this.#observe(params, () =>
+            this.#observer.select(
+              this.#tab(params).id,
+              requiredString(params.target, "target"),
+              requiredStringAllowEmpty(params.value, "value"),
+              optionalBoolean(params.observe, "observe") ?? false,
+            ),
           ),
         };
       case "tabs.scroll":
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.scroll(
-            this.#tab(params).id,
-            optionalNumber(params.deltaX, "deltaX") ?? 0,
-            optionalNumber(params.deltaY, "deltaY") ?? 0,
-            optionalBoolean(params.observe, "observe") ?? false,
+          result: await this.#observe(params, () =>
+            this.#observer.scroll(
+              this.#tab(params).id,
+              optionalNumber(params.deltaX, "deltaX") ?? 0,
+              optionalNumber(params.deltaY, "deltaY") ?? 0,
+              optionalBoolean(params.observe, "observe") ?? false,
+            ),
           ),
         };
       case "tabs.handle-dialog":
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.handleDialog(
-            this.#tab(params).id,
-            optionalBoolean(params.accept, "accept") ?? true,
-            optionalString(params.text, "text") ?? undefined,
+          result: await this.#observe(params, () =>
+            this.#observer.handleDialog(
+              this.#tab(params).id,
+              optionalBoolean(params.accept, "accept") ?? true,
+              optionalString(params.text, "text") ?? undefined,
+            ),
           ),
         };
       case "tabs.upload":
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.upload(
-            this.#tab(params).id,
-            requiredString(params.target, "target"),
-            requiredStringArray(params.paths, "paths"),
+          result: await this.#observe(params, () =>
+            this.#observer.upload(
+              this.#tab(params).id,
+              requiredString(params.target, "target"),
+              requiredStringArray(params.paths, "paths"),
+            ),
           ),
         };
       case "tabs.wait":
         return {
           ok: true,
           id: request.id,
-          result: await this.#observer.wait(
-            this.#tab(params).id,
-            requiredString(params.text, "text"),
-            optionalNumber(params.timeoutMs, "timeoutMs") ?? 10_000,
+          result: await this.#observe(params, () =>
+            this.#observer.wait(
+              this.#tab(params).id,
+              requiredString(params.text, "text"),
+              optionalNumber(params.timeoutMs, "timeoutMs") ?? 10_000,
+            ),
           ),
         };
-      case "threads.current.state": {
+      case "threads.current.read": {
         const context = this.#context(params);
+        const surfaceId = this.#surfaceId(params);
         return {
           ok: true,
           id: request.id,
           result: await this.#thread({
             spaceId: context.spaceId,
+            deckId: context.deckId,
             threadId: context.threadId,
-            method: "read",
+            ...(surfaceId === null ? {} : { surfaceId }),
+            method: "current.read",
           }),
         };
       }
-      case "threads.current.composer": {
+      case "threads.list": {
         const context = this.#context(params);
+        const surfaceId = this.#surfaceId(params);
         return {
           ok: true,
           id: request.id,
           result: await this.#thread({
             spaceId: context.spaceId,
+            deckId: context.deckId,
             threadId: context.threadId,
-            method: "compose",
+            ...(surfaceId === null ? {} : { surfaceId }),
+            method: "list",
           }),
         };
       }
-      case "threads.current.compose": {
+      case "threads.get":
+      case "threads.create":
+      case "threads.add":
+      case "threads.select":
+      case "threads.reorder":
+      case "threads.leave":
+      case "threads.archive":
+      case "threads.compose":
+      case "threads.send": {
         const context = this.#context(params);
+        const surfaceId = this.#surfaceId(params);
         return {
           ok: true,
           id: request.id,
           result: await this.#thread({
             spaceId: context.spaceId,
+            deckId: context.deckId,
             threadId: context.threadId,
-            method: "compose",
-            value: params.input,
-          }),
-        };
-      }
-      case "threads.current.send": {
-        const context = this.#context(params);
-        return {
-          ok: true,
-          id: request.id,
-          result: await this.#thread({
-            spaceId: context.spaceId,
-            threadId: context.threadId,
-            method: "send",
-            value: params.input,
+            ...(surfaceId === null ? {} : { surfaceId }),
+            method: request.method.slice("threads.".length) as
+              | "get"
+              | "create"
+              | "add"
+              | "select"
+              | "reorder"
+              | "leave"
+              | "archive"
+              | "compose"
+              | "send",
+            value: params.input ?? params,
           }),
         };
       }
       case "catalog.list": {
         const context = this.#context(params);
-        return { ok: true, id: request.id, result: this.#catalog.list(context.spaceId) };
+        return {
+          ok: true,
+          id: request.id,
+          result: this.#catalog.list(context.spaceId),
+        };
       }
       case "catalog.help": {
         const context = this.#context(params);
@@ -566,16 +666,21 @@ export class AppCommandPipeServer {
         const url = optionalString(params.url, "url");
         if ((path === null) === (url === null)) throw new Error("Supply exactly one path or URL.");
         const requestedApp = optionalString(params.requestedApp, "requestedApp");
+        const surfaceId = this.#surfaceId(params);
         return {
           ok: true,
           id: request.id,
-          result: await this.#open({
-            ...(path === null ? {} : { path }),
-            ...(url === null ? {} : { url }),
-            ...(requestedApp === null ? {} : { requestedApp }),
-            spaceId: context.spaceId,
-            threadId: context.threadId,
-          }),
+          result: await this.#onSurface(surfaceId, () =>
+            this.#open!({
+              ...(path === null ? {} : { path }),
+              ...(url === null ? {} : { url }),
+              ...(requestedApp === null ? {} : { requestedApp }),
+              spaceId: context.spaceId,
+              deckId: context.deckId,
+              threadId: context.threadId,
+              ...(surfaceId === null ? {} : { surfaceId }),
+            }),
+          ),
         };
       }
       case "operations.invoke": {
@@ -586,16 +691,19 @@ export class AppCommandPipeServer {
         const tabId =
           requestedTabId ??
           (context.slug === slug ? context.id : this.#implicitOperationTab(params, slug)?.id);
-        const result = await this.#broker.invoke({
-          app: slug,
-          operation,
-          input: params.input ?? {},
-          spaceId: context.spaceId,
-          threadId: context.threadId,
-          callerKind: "agent",
-          signal,
-          ...(tabId === undefined ? {} : { tabId }),
-        });
+        const result = await this.#onSurface(this.#surfaceId(params), () =>
+          this.#broker.invoke({
+            app: slug,
+            operation,
+            input: params.input ?? {},
+            spaceId: context.spaceId,
+            deckId: context.deckId,
+            threadId: context.threadId,
+            callerKind: "agent",
+            signal,
+            ...(tabId === undefined ? {} : { tabId }),
+          }),
+        );
         return { ok: true, id: request.id, result };
       }
       case "developer.publishers.list":
@@ -806,18 +914,29 @@ export class AppCommandPipeServer {
   #context(params: Record<string, unknown>): DesktopAppTabDescriptor {
     const explicitTabId = optionalString(params.tabId, "tabId");
     const explicitSpaceId = optionalString(params.spaceId, "spaceId");
+    const explicitDeckId = optionalString(params.deckId, "deckId");
     const explicitThreadId = optionalString(params.threadId, "threadId");
-    if ((explicitSpaceId === null) !== (explicitThreadId === null)) {
-      throw new Error("spaceId and threadId must be supplied together.");
+    if (
+      (explicitSpaceId === null) !== (explicitDeckId === null) ||
+      (explicitDeckId === null) !== (explicitThreadId === null)
+    ) {
+      throw new Error("spaceId, deckId, and threadId must be supplied together.");
     }
     const tab = explicitTabId
       ? this.#tabs.list().find((candidate) => candidate.id === explicitTabId)
       : explicitSpaceId === null
         ? this.#tabs.current()
         : undefined;
-    if (explicitSpaceId !== null && explicitThreadId !== null) {
-      if (tab && (tab.spaceId !== explicitSpaceId || tab.threadId !== explicitThreadId)) {
-        throw new Error(`App tab ${tab.id} does not belong to the requested Space and Thread.`);
+    if (explicitSpaceId !== null && explicitDeckId !== null && explicitThreadId !== null) {
+      if (
+        tab &&
+        (tab.spaceId !== explicitSpaceId ||
+          tab.deckId !== explicitDeckId ||
+          tab.threadId !== explicitThreadId)
+      ) {
+        throw new Error(
+          `App tab ${tab.id} does not belong to the requested Space, Thread Deck, and Thread.`,
+        );
       }
       return (
         tab ?? {
@@ -828,6 +947,7 @@ export class AppCommandPipeServer {
           name: "",
           iconDataUrl: null,
           spaceId: explicitSpaceId,
+          deckId: explicitDeckId,
           threadId: explicitThreadId,
           route: "/",
           status: "ready",
@@ -844,9 +964,14 @@ export class AppCommandPipeServer {
     return tab;
   }
 
-  #scope(params: Record<string, unknown>): { spaceId: string; threadId: string } {
+  #scope(params: Record<string, unknown>): {
+    spaceId: string;
+    deckId: string;
+    threadId: string;
+  } {
     return {
       spaceId: requiredString(params.spaceId, "spaceId"),
+      deckId: requiredString(params.deckId, "deckId"),
       threadId: requiredString(params.threadId, "threadId"),
     };
   }
@@ -855,17 +980,34 @@ export class AppCommandPipeServer {
     const scope = this.#scope(params);
     return this.#tabs
       .list()
-      .filter((tab) => tab.spaceId === scope.spaceId && tab.threadId === scope.threadId);
+      .filter((tab) => tab.spaceId === scope.spaceId && tab.deckId === scope.deckId);
   }
 
   #scopedCurrentTab(params: Record<string, unknown>): DesktopAppTabDescriptor | null {
     const scope = this.#scope(params);
+    const surfaceId = this.#surfaceId(params);
     const current = this.#tabs.currentFor
-      ? this.#tabs.currentFor(scope.spaceId, scope.threadId)
+      ? this.#tabs.currentFor(scope.spaceId, scope.deckId, surfaceId ?? undefined)
       : this.#tabs.current();
-    return current?.spaceId === scope.spaceId && current.threadId === scope.threadId
-      ? current
-      : null;
+    return current?.spaceId === scope.spaceId && current.deckId === scope.deckId ? current : null;
+  }
+
+  #surfaceId(params: Record<string, unknown>): number | null {
+    const turnId = optionalString(params.callerTurnId, "callerTurnId");
+    if (turnId === null) return null;
+    const surfaceId = this.#resolveTurnSurface?.(turnId) ?? null;
+    if (surfaceId === null) {
+      throw new Error("The window where this agent turn originated is no longer available.");
+    }
+    return surfaceId;
+  }
+
+  #observe<T>(params: Record<string, unknown>, operation: () => Promise<T>): Promise<T> {
+    return this.#observer.runOnSurface?.(this.#surfaceId(params), operation) ?? operation();
+  }
+
+  #onSurface<T>(surfaceId: number | null, operation: () => Promise<T>): Promise<T> {
+    return this.#runOnSurface?.(surfaceId, operation) ?? operation();
   }
 
   #implicitOperationTab(
@@ -884,7 +1026,7 @@ export class AppCommandPipeServer {
   #tab(params: Record<string, unknown>): DesktopAppTabDescriptor {
     const tabId = requiredString(params.tabId, "tabId");
     const tab = this.#scopedTabs(params).find((candidate) => candidate.id === tabId);
-    if (!tab) throw new Error(`App tab ${tabId} is not open in the caller Thread and Space.`);
+    if (!tab) throw new Error(`App tab ${tabId} is not open in the caller Thread Deck and Space.`);
     assertAppTabAgentAddressable(tab);
     return tab;
   }
@@ -930,7 +1072,10 @@ export function serializeFailureResponse(error: unknown): string {
       serialized = `${JSON.stringify(response)}\n`;
       return Buffer.byteLength(serialized) <= APP_COMMAND_MAX_RESPONSE_BYTES;
     });
-    target.failure.truncation = { ...target.failure.truncation, messageCut: true };
+    target.failure.truncation = {
+      ...target.failure.truncation,
+      messageCut: true,
+    };
     serialized = `${JSON.stringify(response)}\n`;
   }
   if (Buffer.byteLength(serialized) > APP_COMMAND_MAX_RESPONSE_BYTES) {

@@ -215,7 +215,11 @@ const make = Effect.gen(function* () {
         (parsed.threadId === undefined ||
           !(yield* adapter.hasSession(ThreadId.makeUnsafe(parsed.threadId))))
       ) {
-        return { commands: [], source: "no-active-managed-session", cached: false };
+        return {
+          commands: [],
+          source: "no-active-managed-session",
+          cached: false,
+        };
       }
       return yield* adapter.listCommands(parsed);
     });
@@ -331,7 +335,11 @@ const make = Effect.gen(function* () {
         (candidate) => candidate.harness === parsed.provider && candidate.lifecycle === "active",
       );
       if (!installation) {
-        return { models: [], source: "managed-installation-unavailable", cached: false };
+        return {
+          models: [],
+          source: "managed-installation-unavailable",
+          cached: false,
+        };
       }
       const activeConnections = (yield* connections
         .list()
@@ -380,7 +388,34 @@ const make = Effect.gen(function* () {
         yield* Effect.logWarning("Managed model discovery has no eligible Connection route", {
           provider: parsed.provider,
           installationId: installation.id,
-          connectionId: requestedConnectionId ?? "unresolved",
+          connectionRequest:
+            parsed.connectionId === undefined
+              ? "omitted"
+              : parsed.connectionId === null
+                ? "anonymous"
+                : "explicit",
+          requestedConnectionId:
+            requestedConnectionId === undefined
+              ? "unresolved"
+              : requestedConnectionId === null
+                ? "anonymous"
+                : requestedConnectionId,
+          internalProviderRequest:
+            parsed.internalProviderId === undefined
+              ? "omitted"
+              : parsed.internalProviderId === null
+                ? "first-party"
+                : parsed.internalProviderId,
+          anonymousInternalProviderIds: manifest.anonymous?.internalProviderIds ?? [],
+          activeConnectionRoutes: activeConnections.map((connection) => {
+            const method = findConnectionAuthenticationMethod(connection);
+            return {
+              connectionId: connection.id,
+              authenticationTargetId: connection.authenticationTargetId,
+              authenticationMethodId: connection.authenticationMethodId,
+              internalProviderIds: method?.internalProviderIds ?? [],
+            };
+          }),
         });
         return yield* new ProviderValidationError({
           operation: "ProviderDiscoveryService.listModels",
@@ -417,7 +452,11 @@ const make = Effect.gen(function* () {
                   internalProviderId: route.internalProviderId,
                 }),
               ),
-              Effect.map((result) => ({ _tag: "Success" as const, route, result })),
+              Effect.map((result) => ({
+                _tag: "Success" as const,
+                route,
+                result,
+              })),
               Effect.catch((cause) =>
                 Effect.logWarning("Managed model discovery failed for one Connection route").pipe(
                   Effect.annotateLogs({

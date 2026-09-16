@@ -1,4 +1,10 @@
-import { FolderId, type ModelSelection, SpaceId, ThreadId } from "@penkra/contracts";
+import {
+  FolderId,
+  type ModelSelection,
+  SpaceId,
+  ThreadId,
+  singletonThreadDeckId,
+} from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import { type ComposerThreadDraftState, type DraftThreadState } from "../composerDraftStore";
 import {
@@ -35,6 +41,7 @@ function modelSelection(
 function makeDraftThread(partial?: Partial<DraftThreadState>): DraftThreadState {
   return {
     folderId: PROJECT_ID,
+    deckId: singletonThreadDeckId(THREAD_ID),
     spaceId: null,
     createdAt: "2026-04-05T10:00:00.000Z",
     runtimeMode: "approval-required",
@@ -261,11 +268,13 @@ describe("threadBootstrap", () => {
   it("builds the fresh draft seed from creation inputs", () => {
     expect(
       createFreshDraftThreadSeed({
+        threadId: THREAD_ID,
         createdAt: "2026-04-05T10:00:00.000Z",
         entryPoint: "terminal",
         options: {},
       }),
     ).toEqual({
+      deckId: singletonThreadDeckId(THREAD_ID),
       createdAt: "2026-04-05T10:00:00.000Z",
       spaceId: null,
       workingDirectory: null,
@@ -277,6 +286,7 @@ describe("threadBootstrap", () => {
   it("prefers draft state when resolving terminal creation payloads", () => {
     expect(
       resolveTerminalThreadCreationState({
+        threadId: THREAD_ID,
         activeDraftThread: null,
         activeThread: {
           folderId: PROJECT_ID,
@@ -290,6 +300,7 @@ describe("threadBootstrap", () => {
         folderId: PROJECT_ID,
       }),
     ).toEqual({
+      deckId: singletonThreadDeckId(THREAD_ID),
       spaceId: null,
       modelSelection: modelSelection("claudeAgent", "claude-opus-4-6", {
         effort: "max",
@@ -302,6 +313,7 @@ describe("threadBootstrap", () => {
   it("clears inherited worktree state when an explicit local env override is requested", () => {
     expect(
       resolveTerminalThreadCreationState({
+        threadId: THREAD_ID,
         activeDraftThread: null,
         activeThread: {
           folderId: PROJECT_ID,

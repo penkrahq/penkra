@@ -21,6 +21,7 @@ export function parseOpenAppTabRequest(input: unknown): {
   tabId?: string;
   appId: string;
   spaceId: string;
+  deckId: string;
   threadId: string;
   route: string;
   state?: unknown;
@@ -30,6 +31,7 @@ export function parseOpenAppTabRequest(input: unknown): {
     ...(value.tabId === undefined ? {} : { tabId: string(value, "tabId") }),
     appId: string(value, "appId"),
     spaceId: string(value, "spaceId"),
+    deckId: string(value, "deckId"),
     threadId: string(value, "threadId"),
     route: string(value, "route"),
     ...(value.state === undefined ? {} : { state: value.state }),
@@ -38,6 +40,19 @@ export function parseOpenAppTabRequest(input: unknown): {
 
 export function parseOpenAppFromAppsRequest(input: unknown): { appId: string } {
   return { appId: string(record(input), "appId") };
+}
+
+export function parseSetAppTabContextRequest(input: unknown): {
+  tabId: string;
+  deckId: string;
+  threadId: string;
+} {
+  const value = record(input);
+  return {
+    tabId: string(value, "tabId"),
+    deckId: string(value, "deckId"),
+    threadId: string(value, "threadId"),
+  };
 }
 
 function finiteNumber(input: Record<string, unknown>, key: string): number {
@@ -53,7 +68,10 @@ export function parseAppTabRendererRequest(input: unknown): {
   rendererId: number;
 } {
   const value = record(input);
-  return { tabId: string(value, "tabId"), rendererId: finiteNumber(value, "rendererId") };
+  return {
+    tabId: string(value, "tabId"),
+    rendererId: finiteNumber(value, "rendererId"),
+  };
 }
 
 export function parseAppTabIdRequest(input: unknown): { tabId: string } {
@@ -88,6 +106,8 @@ export function parseSetAppTabActiveRequest(input: unknown): {
   tabId: string;
   rendererId: number;
   active: boolean;
+  deckId: string;
+  threadId: string;
 } {
   const value = record(input);
   if (typeof value.active !== "boolean") throw new Error("Invalid App tab active-state request.");
@@ -95,5 +115,7 @@ export function parseSetAppTabActiveRequest(input: unknown): {
     tabId: string(value, "tabId"),
     rendererId: finiteNumber(value, "rendererId"),
     active: value.active,
+    deckId: string(value, "deckId"),
+    threadId: string(value, "threadId"),
   };
 }

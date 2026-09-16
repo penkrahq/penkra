@@ -9,6 +9,7 @@ import {
   OrchestrationEventType,
   FolderId,
   SpaceId,
+  ThreadDeckId,
   ThreadId,
 } from "@penkra/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -36,7 +37,7 @@ const UnknownFromJsonString = Schema.fromJsonString(Schema.Unknown);
 const AppendEventRequestSchema = Schema.Struct({
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  streamId: Schema.Union([SpaceId, FolderId, ThreadId]),
+  streamId: Schema.Union([SpaceId, FolderId, ThreadId, ThreadDeckId]),
   type: OrchestrationEventType,
   causationEventId: Schema.NullOr(EventId),
   correlationId: Schema.NullOr(CommandId),
@@ -81,7 +82,7 @@ const HighWaterSequenceRowSchema = Schema.Struct({
 });
 const DEFAULT_READ_FROM_SEQUENCE_LIMIT = 1_000;
 const READ_PAGE_SIZE = 500;
-const CURRENT_PERSISTED_EVENT_SCHEMA_VERSION = 1;
+const CURRENT_PERSISTED_EVENT_SCHEMA_VERSION = 2;
 const LEGACY_PERSISTED_EVENT_SCHEMA_VERSION = 0;
 const PERSISTED_EVENT_SCHEMA_VERSION_KEY = "persistedEventSchemaVersion";
 const LEGACY_MODEL_SELECTION_EVENT_TYPES = new Set([
@@ -181,12 +182,27 @@ function normalizeLegacyEventRow(row: ParsedPersistedEventRow): ParsedPersistedE
   return normalizedPayload === undefined ? row : { ...row, payload: normalizedPayload };
 }
 
+function addThreadDeckIdentity(row: ParsedPersistedEventRow): ParsedPersistedEventRow {
+  if (row.type !== "thread.created" || !isRecord(row.payload)) return row;
+  const threadId = readTrimmedString(row.payload, "threadId");
+  if (!threadId) return row;
+  return {
+    ...row,
+    payload: {
+      ...row.payload,
+      deckId: row.payload.deckId ?? `deck:${threadId}`,
+      deckSortOrder: row.payload.deckSortOrder ?? 0,
+    },
+  };
+}
+
 type PersistedEventUpcaster = (row: ParsedPersistedEventRow) => ParsedPersistedEventRow;
 
 // Every unversioned event passes through the same v0 -> v1 boundary. Most event types are a
 // no-op; the model-selection families need the historical shape normalization above.
 const PERSISTED_EVENT_UPCASTERS: Readonly<Record<number, PersistedEventUpcaster>> = {
   [LEGACY_PERSISTED_EVENT_SCHEMA_VERSION]: normalizeLegacyEventRow,
+  1: addThreadDeckIdentity,
 };
 
 function persistedEventDecodeOperation(

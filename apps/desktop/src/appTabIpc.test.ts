@@ -13,13 +13,26 @@ import {
 describe("App tab IPC boundary", () => {
   it("parses lifecycle requests without coercion", () => {
     expect(
-      parseOpenAppTabRequest({ appId: "app", spaceId: "space", threadId: "thread", route: "/" }),
-    ).toEqual({ appId: "app", spaceId: "space", threadId: "thread", route: "/" });
+      parseOpenAppTabRequest({
+        appId: "app",
+        spaceId: "space",
+        deckId: "deck",
+        threadId: "thread",
+        route: "/",
+      }),
+    ).toEqual({
+      appId: "app",
+      spaceId: "space",
+      deckId: "deck",
+      threadId: "thread",
+      route: "/",
+    });
     expect(
       parseOpenAppTabRequest({
         tabId: "stable-tab",
         appId: "app",
         spaceId: "space",
+        deckId: "deck",
         threadId: "thread",
         route: "/",
       }),
@@ -27,6 +40,7 @@ describe("App tab IPC boundary", () => {
       tabId: "stable-tab",
       appId: "app",
       spaceId: "space",
+      deckId: "deck",
       threadId: "thread",
       route: "/",
     });
@@ -44,10 +58,20 @@ describe("App tab IPC boundary", () => {
       tabId: "tab",
       route: "/document",
     });
-    expect(parseSetAppTabActiveRequest({ tabId: "tab", rendererId: 17, active: true })).toEqual({
+    expect(
+      parseSetAppTabActiveRequest({
+        tabId: "tab",
+        rendererId: 17,
+        active: true,
+        deckId: "deck-1",
+        threadId: "thread-1",
+      }),
+    ).toEqual({
       tabId: "tab",
       rendererId: 17,
       active: true,
+      deckId: "deck-1",
+      threadId: "thread-1",
     });
   });
 
@@ -56,7 +80,13 @@ describe("App tab IPC boundary", () => {
     expect(() => parseOpenAppFromAppsRequest({ appId: "" })).toThrow();
     expect(() => parseAppTabRouteRequest({ route: "" })).toThrow();
     expect(() =>
-      parseSetAppTabActiveRequest({ tabId: "tab", rendererId: 17, active: "yes" }),
+      parseSetAppTabActiveRequest({
+        tabId: "tab",
+        rendererId: 17,
+        active: "yes",
+        deckId: "deck-1",
+        threadId: "thread-1",
+      }),
     ).toThrow();
     expect(() => parseAppTabRendererRequest({ tabId: "tab", rendererId: NaN })).toThrow();
   });

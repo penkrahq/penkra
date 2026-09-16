@@ -4,7 +4,7 @@ import {
   APP_TAB_HOST_READY_RETRY_LIMIT,
   createAppTabRestoreRequest,
   isAppPaneInSpace,
-  isAppTabOutsideThreadSpace,
+  isAppTabOutsideDeckSpace,
   shouldMountAppDockPane,
   shouldRetryAppTabHostReady,
 } from "./appTabRestore.logic";
@@ -38,12 +38,14 @@ describe("App tab restoration readiness", () => {
           appState: { page: 3 },
           appStatus: "ready",
         },
+        "deck-1",
         "thread-1",
       ),
     ).toEqual({
       tabId: "stable-tab",
       appId: "com.example.canvas",
       spaceId: "space-1",
+      deckId: "deck-1",
       threadId: "thread-1",
       route: "/document/7",
       state: { page: 3 },
@@ -65,25 +67,25 @@ describe("App tab restoration readiness", () => {
     expect(isAppPaneInSpace(pane, "space-2")).toBe(false);
   });
 
-  it("discards only tabs attached to the moved Thread's previous Space", () => {
+  it("discards only tabs attached to the moved deck's previous Space", () => {
     expect(
-      isAppTabOutsideThreadSpace(
-        { threadId: "thread-1", spaceId: "space-1" },
-        "thread-1",
+      isAppTabOutsideDeckSpace(
+        { deckId: "deck-1", threadId: "thread-1", spaceId: "space-1" },
+        "deck-1",
         "space-2",
       ),
     ).toBe(true);
     expect(
-      isAppTabOutsideThreadSpace(
-        { threadId: "thread-1", spaceId: "space-2" },
-        "thread-1",
+      isAppTabOutsideDeckSpace(
+        { deckId: "deck-1", threadId: "thread-1", spaceId: "space-2" },
+        "deck-1",
         "space-2",
       ),
     ).toBe(false);
     expect(
-      isAppTabOutsideThreadSpace(
-        { threadId: "thread-2", spaceId: "space-1" },
-        "thread-1",
+      isAppTabOutsideDeckSpace(
+        { deckId: "deck-2", threadId: "thread-2", spaceId: "space-1" },
+        "deck-1",
         "space-2",
       ),
     ).toBe(false);

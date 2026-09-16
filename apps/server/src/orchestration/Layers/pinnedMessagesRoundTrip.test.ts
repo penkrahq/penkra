@@ -1,4 +1,11 @@
-import { CommandId, MessageId, FolderId, SpaceId, ThreadId } from "@penkra/contracts";
+import {
+  CommandId,
+  MessageId,
+  FolderId,
+  SpaceId,
+  ThreadId,
+  singletonThreadDeckId,
+} from "@penkra/contracts";
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -76,6 +83,7 @@ describe("pinned messages round-trip", () => {
           type: "thread.create",
           commandId: CommandId.makeUnsafe("cmd-thread-pins"),
           threadId,
+          deckId: singletonThreadDeckId(threadId),
           folderId,
           title: "Pins thread",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },

@@ -120,6 +120,7 @@ export function useHandleNewThread() {
     };
     const {
       getDraftThread,
+      getDraftThreadByDeckId,
       getDraftThreadByFolderId,
       applyStickyState,
       clearDraftThread,
@@ -132,7 +133,9 @@ export function useHandleNewThread() {
     // promotes an old terminal draft slot.
     const shouldForceFreshThread = options?.fresh === true || entryPoint === "terminal";
 
-    const storedDraftThreadCandidate = getDraftThreadByFolderId(folderId, entryPoint);
+    const storedDraftThreadCandidate = options?.deckId
+      ? getDraftThreadByDeckId(options.deckId, entryPoint)
+      : getDraftThreadByFolderId(folderId, entryPoint);
     const latestActiveDraftThreadCandidate: DraftThreadState | null = focusedThreadId
       ? getDraftThread(focusedThreadId)
       : null;
@@ -141,6 +144,7 @@ export function useHandleNewThread() {
       ? latestActiveDraftThreadCandidate
       : null;
     const bootstrapPlan = resolveThreadBootstrapPlan({
+      ...(options?.deckId ? { deckId: options.deckId } : {}),
       storedDraftThread,
       latestActiveDraftThread,
       entryPoint,
@@ -159,6 +163,7 @@ export function useHandleNewThread() {
       creationOptions: NewThreadOptions | undefined,
     ) =>
       resolveTerminalThreadCreationState({
+        threadId: targetThreadId,
         activeDraftThread: activeDraftThreadSnapshot,
         activeThread: activeThreadSnapshot,
         defaultProvider: options?.provider ?? settings.defaultProvider,
@@ -184,6 +189,7 @@ export function useHandleNewThread() {
           type: "thread.create",
           commandId: newCommandId(),
           threadId,
+          deckId: creationState.deckId,
           folderId,
           title: "New terminal",
           modelSelection: creationState.modelSelection,
@@ -210,7 +216,9 @@ export function useHandleNewThread() {
           resolvedStoredDraftThread = getDraftThread(bootstrapPlan.threadId);
         }
         applyProviderOverride(bootstrapPlan.threadId);
-        setProjectDraftThreadId(folderId, bootstrapPlan.threadId, { entryPoint });
+        if (options?.deckId === undefined) {
+          setProjectDraftThreadId(folderId, bootstrapPlan.threadId, { entryPoint });
+        }
         restoreComposerDraft(bootstrapPlan.threadId, preservedComposerDraft);
         activateThreadEntryPoint(bootstrapPlan.threadId);
         if (focusedThreadId === bootstrapPlan.threadId) {
@@ -257,7 +265,9 @@ export function useHandleNewThread() {
           resolvedActiveDraftThread = getDraftThread(bootstrapPlan.threadId);
         }
         applyProviderOverride(bootstrapPlan.threadId);
-        setProjectDraftThreadId(folderId, bootstrapPlan.threadId, { entryPoint });
+        if (options?.deckId === undefined) {
+          setProjectDraftThreadId(folderId, bootstrapPlan.threadId, { entryPoint });
+        }
         restoreComposerDraft(bootstrapPlan.threadId, preservedComposerDraft);
         activateThreadEntryPoint(bootstrapPlan.threadId);
         if (entryPoint === "terminal") {
@@ -270,52 +280,67 @@ export function useHandleNewThread() {
       })();
     }
 
-    return runDraftNavigationOnce(draftNavigationSlotKey(folderId, entryPoint), async () => {
-      const threadId = newThreadId();
-      const createdAt = new Date().toISOString();
-      const draftSeed = createFreshDraftThreadSeed({ createdAt, entryPoint, options });
-      const committed = await stageDraftNavigation({
-        // Keep the previous routed draft alive while the destination loads. Replacing the
-        // project's primary slot earlier makes the route guard redirect the old URL to Home.
-        stage: () => {
-          registerDraftThread(threadId, { folderId, ...draftSeed });
-          activateThreadEntryPoint(threadId);
-          applyStickyState(threadId);
-          applyProviderOverride(threadId);
-        },
-        // Mark the draft-landing navigation as a transition so the new route
-        // subtree renders interruptibly and the browser can paint the chat
-        // mount loader immediately instead of freezing on the synchronous commit.
-        navigate: () =>
-          new Promise<void>((resolve, reject) => {
-            startTransition(() => {
-              navigate({
-                to: "/$threadId",
-                params: { threadId },
-                ...(navigation?.search ? { search: navigation.search } : {}),
-              }).then(resolve, reject);
-            });
-          }),
-        // TanStack resolves an older navigate() promise when a newer navigation supersedes it.
-        // Verify the committed route before deleting the previous project draft.
-        isDestinationActive: () => router.state.location.pathname === `/${threadId}`,
-        finalize: () => setProjectDraftThreadId(folderId, threadId, draftSeed),
-        rollback: () => {
-          clearDraftThread(threadId);
-          clearTerminalState(threadId);
-        },
-      });
-      if (!committed) {
-        return null;
-      }
-      if (entryPoint === "terminal") {
-        await createTerminalThread(
+    const navigationContainer = options?.deckId
+      ? { kind: "deck" as const, id: options.deckId }
+      : { kind: "folder" as const, id: folderId };
+    return runDraftNavigationOnce(
+      draftNavigationSlotKey(navigationContainer, entryPoint),
+      async () => {
+        const threadId = newThreadId();
+        const createdAt = new Date().toISOString();
+        const draftSeed = createFreshDraftThreadSeed({
           threadId,
-          resolveCreationState(threadId, getDraftThread(threadId), options),
-        );
-      }
-      return threadId;
-    });
+          createdAt,
+          entryPoint,
+          options,
+        });
+        const committed = await stageDraftNavigation({
+          // Keep the previous routed draft alive while the destination loads. Replacing the
+          // project's primary slot earlier makes the route guard redirect the old URL to Home.
+          stage: () => {
+            registerDraftThread(threadId, { folderId, ...draftSeed });
+            activateThreadEntryPoint(threadId);
+            applyStickyState(threadId);
+            applyProviderOverride(threadId);
+          },
+          // Keep the routed surface available until the locally complete draft
+          // surface can commit. A fresh draft never needs a loading placeholder:
+          // all state required by its empty composer was staged above.
+          navigate: () =>
+            new Promise<void>((resolve, reject) => {
+              startTransition(() => {
+                navigate({
+                  to: "/$threadId",
+                  params: { threadId },
+                  ...(navigation?.search ? { search: navigation.search } : {}),
+                }).then(resolve, reject);
+              });
+            }),
+          // TanStack resolves an older navigate() promise when a newer navigation supersedes it.
+          // Verify the committed route before deleting the previous project draft.
+          isDestinationActive: () => router.state.location.pathname === `/${threadId}`,
+          finalize: () => {
+            if (options?.deckId === undefined) {
+              setProjectDraftThreadId(folderId, threadId, draftSeed);
+            }
+          },
+          rollback: () => {
+            clearDraftThread(threadId);
+            clearTerminalState(threadId);
+          },
+        });
+        if (!committed) {
+          return null;
+        }
+        if (entryPoint === "terminal") {
+          await createTerminalThread(
+            threadId,
+            resolveCreationState(threadId, getDraftThread(threadId), options),
+          );
+        }
+        return threadId;
+      },
+    );
   };
 
   return {

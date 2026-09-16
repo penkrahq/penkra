@@ -29,7 +29,7 @@ const roots: string[] = [];
 const owner = {
   appId: "com.example.transfer",
   spaceId: "space-1",
-  threadId: "thread-1",
+  deckId: "deck-1",
   tabId: "tab-1",
   rendererId: 9,
   origin: `penkra-app://a-${"a".repeat(64)}`,

@@ -4,7 +4,13 @@
 // Layer: Web chat composer tests
 // Depends on: deriveComposerSubagentStripItems
 
-import { EventId, ThreadId, TurnId, type OrchestrationThreadActivity } from "@penkra/contracts";
+import {
+  EventId,
+  ThreadId,
+  TurnId,
+  singletonThreadDeckId,
+  type OrchestrationThreadActivity,
+} from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { deriveWorkLogEntries, type WorkLogEntry, type WorkLogSubagent } from "../../session-logic";
@@ -416,8 +422,11 @@ describe("deriveComposerSubagentStripItems", () => {
     // A finished subagent's thread parks in an idle session state; the row must
     // surface the work log's terminal status instead of "Idle".
     function settledSubagentThread(providerThreadId: string): Thread {
+      const id = localSubagentThreadId(parentThreadId, providerThreadId);
       return {
-        id: localSubagentThreadId(parentThreadId, providerThreadId),
+        id,
+        deckId: singletonThreadDeckId(id),
+        deckSortOrder: 0,
         codexThreadId: null,
         folderId: "project-1" as Thread["folderId"],
         title: "Subagent task",
@@ -546,8 +555,11 @@ describe("deriveComposerSubagentStripItems", () => {
       includeRoutedSubagentActivities: true,
     });
 
+    const subagentThreadId = localSubagentThreadId(parentThreadId, "toolu_x");
     const subagentThread: Thread = {
-      id: localSubagentThreadId(parentThreadId, "toolu_x"),
+      id: subagentThreadId,
+      deckId: singletonThreadDeckId(subagentThreadId),
+      deckSortOrder: 0,
       codexThreadId: null,
       folderId: "project-1" as Thread["folderId"],
       title: "Subagent task",

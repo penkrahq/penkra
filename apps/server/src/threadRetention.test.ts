@@ -3,7 +3,13 @@
 // Layer: Server maintenance tests
 // Exports: Vitest coverage for threadRetention helpers.
 
-import { FolderId, ThreadId, type OrchestrationReadModel } from "@penkra/contracts";
+import {
+  FolderId,
+  SpaceId,
+  ThreadId,
+  singletonThreadDeckId,
+  type OrchestrationReadModel,
+} from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { getInactiveThreadIdsForRetention, THREAD_RETENTION_UNUSED_MS } from "./threadRetention";
@@ -11,8 +17,11 @@ import { getInactiveThreadIdsForRetention, THREAD_RETENTION_UNUSED_MS } from "./
 function makeReadModelThread(
   overrides: Partial<OrchestrationReadModel["threads"][number]> = {},
 ): OrchestrationReadModel["threads"][number] {
+  const id = overrides.id ?? ThreadId.makeUnsafe("thread-active");
   return {
-    id: ThreadId.makeUnsafe("thread-active"),
+    id,
+    deckId: singletonThreadDeckId(id),
+    deckSortOrder: 0,
     folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
     createdAt: "2026-04-01T00:00:00.000Z",
@@ -35,6 +44,13 @@ function makeReadModel(threads: OrchestrationReadModel["threads"]): Orchestratio
     snapshotSequence: 0,
     spaces: [],
     folders: [],
+    decks: threads.map((thread) => ({
+      id: thread.deckId,
+      spaceId: SpaceId.makeUnsafe("space-1"),
+      threadIds: [thread.id],
+      createdAt: thread.createdAt,
+      updatedAt: thread.updatedAt,
+    })),
     threads,
     updatedAt: "2026-04-20T00:00:00.000Z",
   };

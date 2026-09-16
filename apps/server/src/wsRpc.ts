@@ -248,6 +248,8 @@ function isShellRelevantEvent(event: OrchestrationEvent): boolean {
     event.type === "folder.moved" ||
     event.type === "folder.deleted" ||
     event.type === "thread.deleted" ||
+    event.type === "thread.deck-moved" ||
+    event.type === "thread.deck-reordered" ||
     (event.aggregateKind === "thread" && shouldPublishThreadShellForEvent(event))
   );
 }
@@ -742,6 +744,33 @@ const makeWsRpcHandlersLayer = () =>
                 threadId: event.payload.threadId,
               }),
             );
+          case "thread.deck-moved":
+            return Effect.succeed(
+              Option.some({
+                kind: "deck-layout-updated" as const,
+                sequence: event.sequence,
+                sourceDeckId: event.payload.sourceDeckId,
+                destinationDeckId: event.payload.destinationDeckId,
+                spaceId: event.payload.spaceId,
+                sourceThreadIds: event.payload.sourceThreadIds,
+                destinationThreadIds: event.payload.destinationThreadIds,
+                updatedAt: event.payload.updatedAt,
+              }),
+            );
+          case "thread.deck-reordered": {
+            return Effect.succeed(
+              Option.some({
+                kind: "deck-layout-updated" as const,
+                sequence: event.sequence,
+                sourceDeckId: event.payload.deckId,
+                destinationDeckId: event.payload.deckId,
+                spaceId: event.payload.spaceId,
+                sourceThreadIds: event.payload.threadIds,
+                destinationThreadIds: event.payload.threadIds,
+                updatedAt: event.payload.updatedAt,
+              }),
+            );
+          }
           default:
             if (event.aggregateKind !== "thread") return Effect.succeed(Option.none());
             return projectionReadModelQuery

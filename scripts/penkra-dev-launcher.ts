@@ -42,6 +42,22 @@ const repoRoot = resolve(
 const launcherScriptPath = fileURLToPath(import.meta.url);
 const launcherExecutablePath = compiledRepoRoot ? process.execPath : launcherScriptPath;
 
+export function bindPenkraDevWorkspaceToLauncher(
+  workspace: PenkraDevWorkspace,
+  launcherDesktopRoot = repoRoot,
+): PenkraDevWorkspace {
+  return {
+    ...workspace,
+    desktopRoot: resolve(launcherDesktopRoot),
+  };
+}
+
+function readLauncherWorkspace(): PenkraDevWorkspace {
+  return bindPenkraDevWorkspaceToLauncher(
+    readPenkraDevWorkspace(resolvePenkraDevWorkspaceConfigPath()),
+  );
+}
+
 export interface PenkraDevLauncherPaths {
   readonly stateDirectory: string;
   readonly lockDirectory: string;
@@ -607,7 +623,7 @@ function startInstance(
 
 async function supervise(bunExecutable: string): Promise<void> {
   const paths = resolvePenkraDevLauncherPaths(homedir(), 1);
-  const workspace = readPenkraDevWorkspace(resolvePenkraDevWorkspaceConfigPath());
+  const workspace = readLauncherWorkspace();
   if (!acquireSupervisorLock(paths)) return;
   const instances = new Map<number, ChildProcess>();
   const sharedChildren: ChildProcess[] = [];
@@ -752,7 +768,7 @@ function launchDetachedSupervisor(bunExecutable: string): void {
   const paths = resolvePenkraDevLauncherPaths();
   if (supervisorIsRunning(paths)) {
     const owner = readOwner(paths);
-    const workspace = readPenkraDevWorkspace(resolvePenkraDevWorkspaceConfigPath());
+    const workspace = readLauncherWorkspace();
     if (!owner || !supervisorOwnerMatchesWorkspace(owner, workspace)) {
       throw new Error(
         "Penkra Dev is already running from a different workspace. Close the existing Penkra Dev windows, then launch this App again.",
