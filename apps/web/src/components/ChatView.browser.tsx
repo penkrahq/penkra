@@ -637,6 +637,31 @@ function addThreadToExistingDeck(
   };
 }
 
+function markThreadsAsHavingCompletedTurns(
+  snapshot: OrchestrationReadModel,
+  threadIds: readonly ThreadId[],
+): OrchestrationReadModel {
+  const completedThreadIds = new Set(threadIds);
+  return {
+    ...snapshot,
+    threads: snapshot.threads.map((thread) =>
+      completedThreadIds.has(thread.id)
+        ? {
+            ...thread,
+            latestTurn: {
+              turnId: TurnId.makeUnsafe(`turn-completed-${thread.id}`),
+              state: "completed" as const,
+              requestedAt: NOW_ISO,
+              startedAt: NOW_ISO,
+              completedAt: NOW_ISO,
+              assistantMessageId: null,
+            },
+          }
+        : thread,
+    ),
+  };
+}
+
 function addRunningTurnToSnapshot(
   snapshot: OrchestrationReadModel,
   input: {
@@ -2412,14 +2437,28 @@ describe("ChatView timeline estimator parity (full app)", () => {
       DESTINATION_THREAD_ID,
       { title: "Needs a decision", workStatus: "attention" },
     );
-    const snapshot = {
-      ...extendedSnapshot,
-      decks: extendedSnapshot.decks.map((deck) =>
-        deck.id === DECK_ID
-          ? { ...deck, threadIds: [OTHER_THREAD_ID, THREAD_ID, DESTINATION_THREAD_ID] }
-          : deck,
+    const snapshot = addRunningTurnToSnapshot(
+      markThreadsAsHavingCompletedTurns(
+        {
+          ...extendedSnapshot,
+          decks: extendedSnapshot.decks.map((deck) =>
+            deck.id === DECK_ID
+              ? { ...deck, threadIds: [OTHER_THREAD_ID, THREAD_ID, DESTINATION_THREAD_ID] }
+              : deck,
+          ),
+        },
+        [OTHER_THREAD_ID, THREAD_ID, DESTINATION_THREAD_ID],
       ),
-    };
+      {
+        threadId: OTHER_THREAD_ID,
+        messageId: MessageId.makeUnsafe("msg-user-thread-deck-background"),
+        prompt: "Investigate in the background",
+        turnId: TurnId.makeUnsafe("turn-thread-deck-background"),
+        assistantMessageId: MessageId.makeUnsafe("msg-assistant-thread-deck-background"),
+        assistantText: "Still investigating",
+        offsetSeconds: 10,
+      },
+    );
     const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
 
     try {
@@ -2509,18 +2548,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
       ).toHaveAttribute("data-state", "default");
 
-      let draftPlus: HTMLButtonElement | undefined;
       await vi.waitFor(() => {
         const draftDeckBar = document.querySelector<HTMLElement>(
           `[data-thread-deck-id='${DECK_ID}']`,
         );
-        draftPlus = Array.from(
+        const draftPlus = Array.from(
           draftDeckBar?.querySelectorAll<HTMLButtonElement>("button") ?? [],
         ).find((button) => button.getAttribute("aria-label") === "New thread");
-        expect(draftPlus).not.toBeUndefined();
-      });
-      draftPlus!.click();
-      await vi.waitFor(() => {
+        expect(draftPlus).toBeUndefined();
         const deckDrafts = Object.entries(
           useComposerDraftStore.getState().draftThreadsByThreadId,
         ).filter(([, draft]) => draft.deckId === DECK_ID);
@@ -2543,12 +2578,15 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
 
       return withProjectScripts(
-        {
-          ...snapshot,
-          threads: snapshot.threads.map((thread) =>
-            thread.id === THREAD_ID ? Object.assign({}, thread, { title: longTitle }) : thread,
-          ),
-        },
+        markThreadsAsHavingCompletedTurns(
+          {
+            ...snapshot,
+            threads: snapshot.threads.map((thread) =>
+              thread.id === THREAD_ID ? Object.assign({}, thread, { title: longTitle }) : thread,
+            ),
+          },
+          [THREAD_ID],
+        ),
         [
           {
             id: "dev-server",
