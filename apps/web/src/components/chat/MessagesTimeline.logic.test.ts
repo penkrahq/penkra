@@ -171,6 +171,32 @@ describe("computeStableMessagesTimelineRows", () => {
     result: [],
   });
 
+  it("reuses stable work rows without rereading unchanged entry payloads", () => {
+    let payloadReadCount = 0;
+    const entry = {
+      id: "activity-stable-payload",
+      createdAt: "2026-05-09T10:00:00.000Z",
+      label: "Ran command",
+      tone: "tool" as const,
+      get detail() {
+        payloadReadCount += 1;
+        return "large stable output";
+      },
+    } satisfies WorkLogEntry;
+    const firstRow: WorkTimelineRow = {
+      kind: "work",
+      id: "work-group-stable-payload",
+      createdAt: entry.createdAt,
+      groupedEntries: [entry],
+    };
+    const first = computeStableMessagesTimelineRows([firstRow], emptyStableRows());
+    const secondRow: WorkTimelineRow = { ...firstRow, groupedEntries: [entry] };
+    const second = computeStableMessagesTimelineRows([secondRow], first);
+
+    expect(second).toBe(first);
+    expect(payloadReadCount).toBe(0);
+  });
+
   it("replaces work rows when later tool metadata adds visible details", () => {
     const firstRows: MessagesTimelineRow[] = [
       {
