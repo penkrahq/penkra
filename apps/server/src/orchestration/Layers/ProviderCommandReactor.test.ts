@@ -525,6 +525,18 @@ describe("ProviderCommandReactor", () => {
         } as never;
       }),
     ).pipe(Layer.provide(orchestrationLayer));
+    const runtimeEventRepositoryLayer = ProviderRuntimeEventRepositoryLive.pipe(
+      Layer.provideMerge(SqlitePersistenceMemory),
+    );
+    const ingestionLayer = ProviderRuntimeIngestionLive.pipe(
+      Layer.provideMerge(orchestrationLayer),
+      Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
+      Layer.provideMerge(SqlitePersistenceMemory),
+      Layer.provideMerge(runtimeEventRepositoryLayer),
+      Layer.provideMerge(Layer.succeed(ProviderService, service)),
+      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+      Layer.provideMerge(NodeServices.layer),
+    );
     const reactorLayer = makeProviderCommandReactorLive({
       ...(input?.commandEventTimeout !== undefined
         ? { commandEventTimeout: input.commandEventTimeout }
@@ -533,6 +545,7 @@ describe("ProviderCommandReactor", () => {
         ? { queuedTurnRecoveryInterval: input.queuedTurnRecoveryInterval }
         : {}),
     }).pipe(
+      Layer.provideMerge(ingestionLayer),
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(managedBindingLayer),
       Layer.provideMerge(switchCoordinatorLayer),
@@ -548,18 +561,6 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(NodeServices.layer),
       Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
       Layer.provideMerge(SqlitePersistenceMemory),
-    );
-    const runtimeEventRepositoryLayer = ProviderRuntimeEventRepositoryLive.pipe(
-      Layer.provideMerge(SqlitePersistenceMemory),
-    );
-    const ingestionLayer = ProviderRuntimeIngestionLive.pipe(
-      Layer.provideMerge(orchestrationLayer),
-      Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
-      Layer.provideMerge(SqlitePersistenceMemory),
-      Layer.provideMerge(runtimeEventRepositoryLayer),
-      Layer.provideMerge(Layer.succeed(ProviderService, service)),
-      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
-      Layer.provideMerge(NodeServices.layer),
     );
     const layer = Layer.merge(reactorLayer, ingestionLayer);
     const runtime = ManagedRuntime.make(layer);
