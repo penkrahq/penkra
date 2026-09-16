@@ -879,7 +879,12 @@ Call `tab.setRoute(...)` when navigation originates inside the App, such as clic
 its own library. This records the current App route in the host so Penkra can restore the same view
 after an App update or host restart; it does not navigate the App or call `tab.onNavigate` again.
 Use `tab.onNavigate(...)` only to receive navigation initiated by Penkra, an operation, or another
-App, and do not record that same route again from the handler.
+App, and do not record that same route again from the handler. Ordinary navigation completes for
+its caller once this handler is registered and invoked; it does not wait for asynchronous data
+loading or rendering. Update the visible route or loading state synchronously before the first
+`await`, and render later failures inside the App. A `navigateForResult` or `openForResult` caller
+instead waits for the handler's returned promise and should be reserved for flows that genuinely
+return a user result.
 
 React is optional. Hooks are exported from `@penkra/sdk/react`; UI adapters are exported from
 `@penkra/ui/react`.

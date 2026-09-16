@@ -36,7 +36,10 @@ await tab.setRoute({ route: "/note", state: { noteId: "note-123" } });
 
 `tab.setRoute` records the visual App's current route and state without navigating it or calling its
 `tab.onNavigate` handler. Penkra restores the latest recorded route after an App update or host
-restart. `tab.onNavigate` receives navigation initiated outside the App.
+restart. `tab.onNavigate` receives navigation initiated outside the App. Ordinary navigation is
+acknowledged after the handler is registered and invoked, not after its asynchronous rendering or
+data loading finishes. Show the destination's loading state before the first `await` and surface
+later failures in the App UI. Result-waiting navigation continues to await the handler result.
 
 Apps may use any browser-compatible framework. React is optional and available from
 `@penkra/sdk/react`. Visual runtime exports come from `@penkra/sdk/tab` and require a live visual
