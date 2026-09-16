@@ -29,6 +29,10 @@ const makeEntityId = <Brand extends string>(brand: Brand) =>
 
 export const ThreadId = makeEntityId("ThreadId");
 export type ThreadId = typeof ThreadId.Type;
+export const ThreadDeckId = makeEntityId("ThreadDeckId");
+export type ThreadDeckId = typeof ThreadDeckId.Type;
+export const singletonThreadDeckId = (threadId: ThreadId): ThreadDeckId =>
+  ThreadDeckId.makeUnsafe(`deck:${threadId}`);
 export const FolderId = makeEntityId("FolderId");
 export type FolderId = typeof FolderId.Type;
 export const SpaceId = makeEntityId("SpaceId");

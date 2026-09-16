@@ -1,13 +1,12 @@
 // FILE: scratchWorkspaces.ts
-// Purpose: Per-thread scratch working directories for provider sessions that
-//          start before any project workspace exists (e.g. a chat's first
-//          turn). Files agents create here are workspace-equivalent, so the
-//          local-preview allowlist also treats this root as servable.
+// Purpose: Durable per-thread working directories for provider sessions that
+//          do not have an explicitly selected project workspace. Surviving
+//          legacy OS-temp workspaces are adopted on first use.
 // Layer: Server filesystem utility
-// Exports: ensureIsolatedScratchWorkspace
+// Exports: ensureDurableThreadWorkspace
 
 import { createHash } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -24,9 +23,38 @@ function scratchWorkspaceSegment(threadId: ThreadId): string {
   return `${safePrefix || "thread"}-${digest}`;
 }
 
-export function ensureIsolatedScratchWorkspace(threadId: ThreadId): string {
-  const workspaceRoot = path.join(tmpdir(), SCRATCH_WORKSPACES_DIRNAME);
-  const workspaceDir = path.join(workspaceRoot, scratchWorkspaceSegment(threadId));
-  mkdirSync(workspaceDir, { recursive: true });
+export const DURABLE_THREAD_WORKSPACES_DIRNAME = "thread-workspaces";
+
+export function ensureDurableThreadWorkspace(
+  threadId: ThreadId,
+  stateDir: string,
+  options?: { readonly legacyScratchRoot?: string },
+): string {
+  const segment = scratchWorkspaceSegment(threadId);
+  const workspaceRoot = path.join(stateDir, DURABLE_THREAD_WORKSPACES_DIRNAME);
+  const workspaceDir = path.join(workspaceRoot, segment);
+  mkdirSync(workspaceDir, { recursive: true, mode: 0o700 });
+  chmodSync(workspaceRoot, 0o700);
+  chmodSync(workspaceDir, 0o700);
+
+  // Old releases used os.tmpdir(). Copy rather than rename so migration also
+  // works when the temp and state directories are on different volumes. The
+  // operation is idempotent: durable files win if a prior migration was
+  // interrupted, and the legacy source is removed only after a successful copy.
+  const legacyScratchRoot =
+    options?.legacyScratchRoot ?? path.join(tmpdir(), SCRATCH_WORKSPACES_DIRNAME);
+  const legacyWorkspaceDir = path.join(legacyScratchRoot, segment);
+  if (
+    path.resolve(legacyWorkspaceDir) !== path.resolve(workspaceDir) &&
+    existsSync(legacyWorkspaceDir)
+  ) {
+    cpSync(legacyWorkspaceDir, workspaceDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: false,
+    });
+    rmSync(legacyWorkspaceDir, { recursive: true, force: true });
+  }
+
   return workspaceDir;
 }

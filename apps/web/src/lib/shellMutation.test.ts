@@ -28,6 +28,7 @@ describe("dispatchShellCommand", () => {
       archivedSpaces: [],
       folders: [],
       archivedFolders: [],
+      decks: [],
       threads: [],
       updatedAt: "2026-08-21T00:00:00.000Z",
     });

@@ -26,7 +26,7 @@ const TICKET_LIFETIME_MS = 5 * 60_000;
 export interface AppTransferOwner {
   appId: string;
   spaceId: string;
-  threadId: string;
+  deckId: string;
   tabId: string;
   rendererId: number;
   origin: string;
@@ -72,7 +72,11 @@ export class AppTransferService {
 
   async begin(
     owner: AppTransferOwner,
-    input: { url: string; method?: "POST" | "PUT" | "PATCH"; headers?: Record<string, string> },
+    input: {
+      url: string;
+      method?: "POST" | "PUT" | "PATCH";
+      headers?: Record<string, string>;
+    },
   ): Promise<{ id: string; endpoint: string }> {
     const now = Date.now();
     for (const [token, ticket] of this.#tickets) {
@@ -88,7 +92,10 @@ export class AppTransferService {
       token,
       expiresAt: now + TICKET_LIFETIME_MS,
     });
-    return { id, endpoint: `${owner.origin}${APP_TRANSFER_URL_PREFIX}${token}` };
+    return {
+      id,
+      endpoint: `${owner.origin}${APP_TRANSFER_URL_PREFIX}${token}`,
+    };
   }
 
   async handleEndpoint(origin: string, request: Request): Promise<Response> {
@@ -119,7 +126,12 @@ export class AppTransferService {
       field?: string;
     },
     source: { path: string },
-  ): Promise<{ id: string; status: number; headers: Record<string, string>; body: string }> {
+  ): Promise<{
+    id: string;
+    status: number;
+    headers: Record<string, string>;
+    body: string;
+  }> {
     const id = Crypto.randomUUID();
     return this.#runActive(owner, id, async (signal) => {
       const file = await FSP.open(source.path, FS.constants.O_RDONLY | FS.constants.O_NOFOLLOW);
@@ -149,7 +161,10 @@ export class AppTransferService {
       headers?: Record<string, string>;
       body?: string;
     },
-    destination: { path: string; assertFreeSpace?(bytes: number): Promise<void> },
+    destination: {
+      path: string;
+      assertFreeSpace?(bytes: number): Promise<void>;
+    },
   ): Promise<{ id: string; bytes: number; sha256: string }> {
     const id = Crypto.randomUUID();
     return this.#runActive(owner, id, async (signal) => {
@@ -159,26 +174,26 @@ export class AppTransferService {
   }
 
   detachGeneration(
-    owner: Pick<AppTransferOwner, "appId" | "spaceId" | "threadId" | "tabId" | "rendererId">,
+    owner: Pick<AppTransferOwner, "appId" | "spaceId" | "deckId" | "tabId" | "rendererId">,
   ): DetachedAppTransfers {
     return this.#detach(
       (candidate) =>
         candidate.appId === owner.appId &&
         candidate.spaceId === owner.spaceId &&
-        candidate.threadId === owner.threadId &&
+        candidate.deckId === owner.deckId &&
         candidate.tabId === owner.tabId &&
         candidate.rendererId === owner.rendererId,
     );
   }
 
   detachTab(
-    owner: Pick<AppTransferOwner, "appId" | "spaceId" | "threadId" | "tabId">,
+    owner: Pick<AppTransferOwner, "appId" | "spaceId" | "deckId" | "tabId">,
   ): DetachedAppTransfers {
     return this.#detach(
       (candidate) =>
         candidate.appId === owner.appId &&
         candidate.spaceId === owner.spaceId &&
-        candidate.threadId === owner.threadId &&
+        candidate.deckId === owner.deckId &&
         candidate.tabId === owner.tabId,
     );
   }
@@ -222,7 +237,11 @@ export class AppTransferService {
     source: { path: string; bytes: number; file: FSP.FileHandle },
     signal: AbortSignal,
     redirects: number,
-  ): Promise<{ status: number; headers: Record<string, string>; body: string }> {
+  ): Promise<{
+    status: number;
+    headers: Record<string, string>;
+    body: string;
+  }> {
     const pinned = await pinDestination(input, new Set(["POST", "PUT", "PATCH"]), "POST");
     if (input.field !== undefined && !/^[A-Za-z0-9_.-]{1,100}$/u.test(input.field)) {
       throw new Error("Multipart field name is invalid.");
@@ -279,7 +298,10 @@ export class AppTransferService {
       headers?: Record<string, string>;
       body?: string;
     },
-    destination: { path: string; assertFreeSpace?(bytes: number): Promise<void> },
+    destination: {
+      path: string;
+      assertFreeSpace?(bytes: number): Promise<void>;
+    },
     signal: AbortSignal,
     redirects: number,
   ): Promise<{ bytes: number; sha256: string }> {
@@ -437,7 +459,10 @@ async function requestFile(
       request.write(prefix);
       moved += prefix.byteLength;
     }
-    for await (const chunk of file.createReadStream({ start: 0, autoClose: false })) {
+    for await (const chunk of file.createReadStream({
+      start: 0,
+      autoClose: false,
+    })) {
       const buffer = Buffer.from(chunk);
       moved += buffer.byteLength;
       if (!request.write(buffer)) await once(request, "drain");

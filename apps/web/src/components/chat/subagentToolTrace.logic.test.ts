@@ -4,7 +4,12 @@
 // Layer: Web chat presentation tests
 // Depends on: deriveSubagentToolTrace and deriveSubagentToolTraceByThreadId
 
-import { EventId, ThreadId, type OrchestrationThreadActivity } from "@penkra/contracts";
+import {
+  EventId,
+  ThreadId,
+  singletonThreadDeckId,
+  type OrchestrationThreadActivity,
+} from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { WorkLogEntry } from "../../session-logic";
@@ -38,8 +43,11 @@ function toolActivity(id: string, summary: string): OrchestrationThreadActivity 
 }
 
 function childThread(id: string, activities: OrchestrationThreadActivity[]): Thread {
+  const threadId = ThreadId.makeUnsafe(id);
   return {
-    id: ThreadId.makeUnsafe(id),
+    id: threadId,
+    deckId: singletonThreadDeckId(threadId),
+    deckSortOrder: 0,
     codexThreadId: null,
     folderId: "project-1" as Thread["folderId"],
     title: "Subagent task",

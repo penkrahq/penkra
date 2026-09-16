@@ -13,6 +13,7 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
+  singletonThreadDeckId,
   type WsWelcomePayload,
   WS_METHODS,
   OrchestrationSessionStatus,
@@ -116,6 +117,7 @@ vi.mock("../lib/desktopComposerDraftStorage", async (importOriginal) => {
 });
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
+const DECK_ID = singletonThreadDeckId(THREAD_ID);
 const OTHER_THREAD_ID = "thread-browser-test-other" as ThreadId;
 const DESTINATION_THREAD_ID = "thread-browser-test-destination" as ThreadId;
 const THREAD_TITLE = "Browser test thread";
@@ -369,9 +371,20 @@ function createSnapshotForTargetUser(options: {
         deletedAt: null,
       },
     ],
+    decks: [
+      {
+        id: DECK_ID,
+        spaceId: TEST_SPACE_ID,
+        threadIds: [THREAD_ID],
+        createdAt: NOW_ISO,
+        updatedAt: NOW_ISO,
+      },
+    ],
     threads: [
       {
         id: THREAD_ID,
+        deckId: DECK_ID,
+        deckSortOrder: 0,
         folderId: PROJECT_ID,
         title: THREAD_TITLE,
         modelSelection: {
@@ -531,13 +544,26 @@ function addThreadToSnapshot(
   threadId: ThreadId,
   options?: { title?: string },
 ): OrchestrationReadModel {
+  const deckId = singletonThreadDeckId(threadId);
   return {
     ...snapshot,
     snapshotSequence: snapshot.snapshotSequence + 1,
+    decks: [
+      ...snapshot.decks,
+      {
+        id: deckId,
+        spaceId: TEST_SPACE_ID,
+        threadIds: [threadId],
+        createdAt: NOW_ISO,
+        updatedAt: NOW_ISO,
+      },
+    ],
     threads: [
       ...snapshot.threads,
       {
         id: threadId,
+        deckId,
+        deckSortOrder: 0,
         folderId: PROJECT_ID,
         title: options?.title ?? "New thread",
         modelSelection: {
@@ -560,6 +586,47 @@ function addThreadToSnapshot(
           lastError: null,
           updatedAt: NOW_ISO,
         },
+      },
+    ],
+  };
+}
+
+function addThreadToExistingDeck(
+  snapshot: OrchestrationReadModel,
+  threadId: ThreadId,
+  options: {
+    title: string;
+    workStatus?: "idle" | "running" | "done" | "attention";
+  },
+): OrchestrationReadModel {
+  const sourceThread = snapshot.threads[0];
+  if (!sourceThread) throw new Error("A source Thread is required to extend the fixture deck.");
+  const deckId = sourceThread.deckId;
+  const sourceDeck = snapshot.decks.find((deck) => deck.id === deckId);
+  if (!sourceDeck) throw new Error("The source Thread's deck is missing from the fixture.");
+
+  return {
+    ...snapshot,
+    snapshotSequence: snapshot.snapshotSequence + 1,
+    decks: snapshot.decks.map((deck) =>
+      deck.id === deckId
+        ? { ...deck, threadIds: [...deck.threadIds, threadId], updatedAt: NOW_ISO }
+        : deck,
+    ),
+    threads: [
+      ...snapshot.threads,
+      {
+        ...sourceThread,
+        id: threadId,
+        deckId,
+        deckSortOrder: sourceDeck.threadIds.length,
+        title: options.title,
+        workStatus: options.workStatus ?? "idle",
+        messages: [],
+        activities: [],
+        session: sourceThread.session
+          ? { ...sourceThread.session, threadId, status: "ready" as const }
+          : null,
       },
     ],
   };
@@ -2193,7 +2260,141 @@ describe("ChatView timeline estimator parity (full app)", () => {
     document.body.innerHTML = "";
   });
 
-  it("truncates the Pencil header title before its controls can overlap", async () => {
+  it("renders a deck as one full-height thread-tab row with lifecycle status and safe dividers", async () => {
+    const extendedSnapshot = addThreadToExistingDeck(
+      addThreadToExistingDeck(
+        createSnapshotForTargetUser({
+          targetMessageId: "msg-user-thread-deck" as MessageId,
+          targetText: "thread deck",
+        }),
+        OTHER_THREAD_ID,
+        { title: "Background investigation", workStatus: "running" },
+      ),
+      DESTINATION_THREAD_ID,
+      { title: "Needs a decision", workStatus: "attention" },
+    );
+    const snapshot = {
+      ...extendedSnapshot,
+      decks: extendedSnapshot.decks.map((deck) =>
+        deck.id === DECK_ID
+          ? { ...deck, threadIds: [OTHER_THREAD_ID, THREAD_ID, DESTINATION_THREAD_ID] }
+          : deck,
+      ),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+
+    try {
+      const deckBar = document.querySelector<HTMLElement>(`[data-thread-deck-id='${DECK_ID}']`);
+      expect(deckBar).not.toBeNull();
+      expect(deckBar?.getBoundingClientRect().height).toBe(46);
+
+      const deckButton = (name: string) =>
+        Array.from(deckBar!.querySelectorAll<HTMLButtonElement>("button")).find(
+          (button) => button.getAttribute("aria-label") === name || button.title === name,
+        ) ?? null;
+      expect(deckButton(THREAD_TITLE)?.getAttribute("aria-pressed")).toBe("true");
+      expect(deckButton("Background investigation")?.getAttribute("aria-pressed")).toBe("false");
+      expect(deckButton("New thread")?.getBoundingClientRect().width).toBeGreaterThan(0);
+
+      const backgroundChip = deckButton("Background investigation")?.parentElement;
+      expect(backgroundChip?.querySelector("[data-work-status='running']")).not.toBeNull();
+      expect(backgroundChip?.querySelector("[data-slot='thread-identity']")).toBeNull();
+      const deckDividers = [
+        ...(deckBar?.querySelectorAll<HTMLElement>("[data-slot='thread-deck-divider']") ?? []),
+      ];
+      expect(deckDividers).toHaveLength(2);
+      expect(
+        deckDividers.filter((divider) => divider.classList.contains("invisible")),
+      ).toHaveLength(2);
+      expect(deckDividers.every((divider) => divider.getBoundingClientRect().width === 1)).toBe(
+        true,
+      );
+      const archiveButton = deckButton("Archive Background investigation");
+      expect(archiveButton).not.toBeNull();
+      const archiveGlyph = archiveButton!.querySelector<SVGElement>(
+        '[data-slot="surface-tab-close-glyph"] svg',
+      )!;
+      const archiveButtonRect = archiveButton!.getBoundingClientRect();
+      const archiveGlyphRect = archiveGlyph.getBoundingClientRect();
+      expect(archiveGlyphRect.width).toBe(14);
+      expect(archiveGlyphRect.left + archiveGlyphRect.width / 2).toBeCloseTo(
+        archiveButtonRect.left + archiveButtonRect.width / 2,
+        1,
+      );
+      expect(archiveGlyphRect.top + archiveGlyphRect.height / 2).toBeCloseTo(
+        archiveButtonRect.top + archiveButtonRect.height / 2,
+        1,
+      );
+
+      let deckBarDisappeared = false;
+      let draftLandingBecameTransparent = false;
+      const deckContinuityObserver = new MutationObserver(() => {
+        if (!document.querySelector(`[data-thread-deck-id='${DECK_ID}']`)) {
+          deckBarDisappeared = true;
+        }
+        const draftLanding = document.querySelector<HTMLElement>(
+          "[data-pencil-component='T0KEEB']",
+        );
+        if (draftLanding && Number.parseFloat(getComputedStyle(draftLanding).opacity) < 1) {
+          draftLandingBecameTransparent = true;
+        }
+      });
+      deckContinuityObserver.observe(document.body, { childList: true, subtree: true });
+
+      deckButton("New thread")?.click();
+      let draftThreadId = "";
+      await vi.waitFor(() => {
+        const deckDrafts = Object.entries(
+          useComposerDraftStore.getState().draftThreadsByThreadId,
+        ).filter(([, draft]) => draft.deckId === DECK_ID);
+        expect(deckDrafts).toHaveLength(1);
+        draftThreadId = deckDrafts[0]![0];
+        expect(mounted.router.state.location.pathname).toBe(`/${draftThreadId}`);
+      });
+      await waitForLayout();
+      deckContinuityObserver.disconnect();
+      expect(
+        deckBarDisappeared,
+        "Creating a local deck draft must not replace the deck and chat shell with a loader.",
+      ).toBe(false);
+      expect(
+        draftLandingBecameTransparent,
+        "A locally ready draft landing must not fade in from a blank panel.",
+      ).toBe(false);
+      expect(
+        document.querySelector(`[data-thread-item][aria-label='${THREAD_TITLE}']`),
+      ).toHaveAttribute("data-state", "active");
+      expect(
+        Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+          (button) => button.textContent?.trim() === "Project",
+        ),
+      ).toHaveAttribute("data-state", "default");
+
+      let draftPlus: HTMLButtonElement | undefined;
+      await vi.waitFor(() => {
+        const draftDeckBar = document.querySelector<HTMLElement>(
+          `[data-thread-deck-id='${DECK_ID}']`,
+        );
+        draftPlus = Array.from(
+          draftDeckBar?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+        ).find((button) => button.getAttribute("aria-label") === "New thread");
+        expect(draftPlus).not.toBeUndefined();
+      });
+      draftPlus!.click();
+      await vi.waitFor(() => {
+        const deckDrafts = Object.entries(
+          useComposerDraftStore.getState().draftThreadsByThreadId,
+        ).filter(([, draft]) => draft.deckId === DECK_ID);
+        expect(deckDrafts).toHaveLength(1);
+        expect(deckDrafts[0]![0]).toBe(draftThreadId);
+        expect(mounted.router.state.location.pathname).toBe(`/${draftThreadId}`);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("truncates the active thread deck tab before its controls can overlap", async () => {
     const longTitle =
       'remove "ago" from the sidebar while the Apps panel stays open on smaller viewports';
     const headerOverflowSnapshot = (() => {
@@ -2233,18 +2434,20 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await vi.waitFor(
         () => {
-          const header = document.querySelector<HTMLElement>(
-            "header[data-pencil-component='Kpx7i']",
-          );
-          const title = [...(header?.querySelectorAll<HTMLElement>("span") ?? [])].find(
-            (candidate) => candidate.textContent === longTitle,
+          const header = document.querySelector<HTMLElement>("header[data-thread-deck-id]");
+          const titleButton = [
+            ...(header?.querySelectorAll<HTMLButtonElement>("button") ?? []),
+          ].find((candidate) => candidate.title === longTitle);
+          const title = titleButton?.querySelector<HTMLElement>("span.truncate");
+          const newThreadButton = header?.querySelector<HTMLButtonElement>(
+            'button[aria-label="New thread"]',
           );
 
-          expect(title, "Unable to find the chat header title.").toBeTruthy();
-          expect(header?.querySelector('button[aria-label="Thread menu"]')).toBeNull();
+          expect(title, "Unable to find the active deck tab title.").toBeTruthy();
+          expect(newThreadButton, "Unable to find the deck new-thread control.").toBeTruthy();
 
           const titleRight = title!.getBoundingClientRect().right;
-          expect(titleRight).toBeLessThanOrEqual(header!.getBoundingClientRect().right + 1);
+          expect(titleRight).toBeLessThanOrEqual(newThreadButton!.getBoundingClientRect().left + 1);
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -3189,6 +3392,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           folderId: PROJECT_ID,
+          deckId: DECK_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
@@ -3226,6 +3430,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           folderId: PROJECT_ID,
+          deckId: DECK_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
@@ -3267,6 +3472,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           folderId: PROJECT_ID,
+          deckId: DECK_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
@@ -3739,6 +3945,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           folderId: PROJECT_ID,
+          deckId: DECK_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
@@ -4836,6 +5043,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           folderId: PROJECT_ID,
+          deckId: DECK_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
@@ -8556,18 +8764,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
       ),
     });
     try {
-      const source = page.getByRole("button", {
-        name: otherThreadTitle,
-        exact: true,
-      });
-      const target = page.getByRole("button", {
-        name: THREAD_TITLE,
-        exact: true,
-      });
+      const source = page
+        .getByRole("button", { name: otherThreadTitle, exact: true })
+        .elements()
+        .find((element) => element.hasAttribute("data-thread-item"))!;
+      const target = page
+        .getByRole("button", { name: THREAD_TITLE, exact: true })
+        .elements()
+        .find((element) => element.hasAttribute("data-thread-item"))!;
 
       await dragWithPointerFrames(
-        source.element(),
-        target.element(),
+        source,
+        target,
         0.25,
         () => {
           expect(document.querySelector("[data-sidebar-drop-preview]")).not.toBeNull();
@@ -8584,12 +8792,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
       await waitForLayout();
 
-      await dragWithPointerFrames(source.element(), target.element(), 0.25, async () => {
+      await dragWithPointerFrames(source, target, 0.25, async () => {
         await vi.waitFor(
           () => {
-            const targetWrapper = target
-              .element()
-              .closest<HTMLElement>("[data-sidebar-drop-preview]");
+            const targetWrapper = target.closest<HTMLElement>("[data-sidebar-drop-preview]");
             expect(targetWrapper?.dataset.sidebarDropPreview).toBe("before");
             expect(Number.parseFloat(getComputedStyle(targetWrapper!).paddingTop)).toBeGreaterThan(
               0,
@@ -8599,7 +8805,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           { timeout: 2_000, interval: 16 },
         );
       });
-      await target.click();
+      (target as HTMLButtonElement).click();
 
       await vi.waitFor(
         () => {
@@ -8766,14 +8972,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
         name: sourceThreadTitle,
         exact: true,
       });
-      const originalThread = page.getByRole("button", {
-        name: THREAD_TITLE,
-        exact: true,
-      });
-      await dragWithPointerFrames(movedSource.element(), originalThread.element(), 0.25, () => {
-        const targetWrapper = originalThread
-          .element()
-          .closest<HTMLElement>("[data-sidebar-drop-preview]");
+      const originalThread = page
+        .getByRole("button", { name: THREAD_TITLE, exact: true })
+        .elements()
+        .find((element) => element.hasAttribute("data-thread-item"))!;
+      await dragWithPointerFrames(movedSource.element(), originalThread, 0.25, () => {
+        const targetWrapper = originalThread.closest<HTMLElement>("[data-sidebar-drop-preview]");
         expect(targetWrapper?.dataset.sidebarDropPreview).toBe("before");
       });
 
@@ -9664,6 +9868,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           folderId: INBOX_FOLDER_ID,
+          deckId: DECK_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
@@ -9739,7 +9944,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
       await expect.element(page.getByTestId("workspace-picker-trigger")).toBeInTheDocument();
-      await expect.element(page.getByRole("button", { name: "This Mac" })).toBeInTheDocument();
+      await expect
+        .element(page.getByRole("button", { name: "This computer" }))
+        .not.toBeInTheDocument();
       await new Promise<void>((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
       });

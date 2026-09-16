@@ -4,8 +4,10 @@
 // Depends on: useDesktopTopBarGutter pure helpers and Vitest assertions.
 
 import { describe, expect, it } from "vitest";
+import { WINDOWS_CAPTION_CONTROLS_GUTTER_PX } from "@penkra/shared/desktopChrome";
 
 import {
+  DESKTOP_TOP_BAR_WINDOW_CONTROLS_GUTTER_CLASS,
   shouldReserveDesktopTopBarTrafficLightGutter,
   shouldReserveDesktopTopBarWindowControlsGutter,
 } from "./useDesktopTopBarGutter";
@@ -87,6 +89,12 @@ describe("shouldReserveDesktopTopBarTrafficLightGutter", () => {
 });
 
 describe("shouldReserveDesktopTopBarWindowControlsGutter", () => {
+  it("keeps the Tailwind gutter aligned with the shared caption geometry", () => {
+    expect(DESKTOP_TOP_BAR_WINDOW_CONTROLS_GUTTER_CLASS).toContain(
+      `[${WINDOWS_CAPTION_CONTROLS_GUTTER_PX}px]`,
+    );
+  });
+
   it("never reserves a gutter outside Electron", () => {
     expect(
       shouldReserveDesktopTopBarWindowControlsGutter({

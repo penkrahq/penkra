@@ -150,7 +150,10 @@ const PROVIDER_TARGET_OPTION_RULES = {
       reasoningEffort: providerOptionRule("string", CODEX_REASONING_EFFORT_OPTIONS),
       fastMode: providerOptionRule("boolean", [], "model-discovery", {
         advertised: false,
-        validation: { kind: "boolean-capability", capability: "supportsFastMode" },
+        validation: {
+          kind: "boolean-capability",
+          capability: "supportsFastMode",
+        },
       }),
     },
   }),
@@ -160,11 +163,17 @@ const PROVIDER_TARGET_OPTION_RULES = {
       effort: providerOptionRule("string", CLAUDE_CODE_EFFORT_OPTIONS),
       fastMode: providerOptionRule("boolean", [], "model-discovery", {
         advertised: false,
-        validation: { kind: "boolean-capability", capability: "supportsFastMode" },
+        validation: {
+          kind: "boolean-capability",
+          capability: "supportsFastMode",
+        },
       }),
       thinking: providerOptionRule("boolean", [], "model-discovery", {
         advertised: false,
-        validation: { kind: "boolean-capability", capability: "supportsThinkingToggle" },
+        validation: {
+          kind: "boolean-capability",
+          capability: "supportsThinkingToggle",
+        },
       }),
       autoCompactWindow: providerOptionRule("string", [], "model-discovery", {
         advertised: false,
@@ -408,7 +417,12 @@ function failUnavailableOption(
     `Option "${option}" is not available for ${target.provider}/${target.model}.${
       available && available.length > 0 ? ` Available values: ${available.join(", ")}.` : ""
     }`,
-    { provider: target.provider, model: target.model, option, available: available ?? [] },
+    {
+      provider: target.provider,
+      model: target.model,
+      option,
+      available: available ?? [],
+    },
   );
 }
 
@@ -597,7 +611,7 @@ export function resolveAgentGatewayTarget(input: {
       return yield* Effect.fail(
         new AgentGatewayTargetError(
           "model_unavailable",
-          `Model "${input.target.model}" is not available for ${input.target.provider}. Use an exact slug from penkra_capabilities.`,
+          `Model "${input.target.model}" is not available for ${input.target.provider}. Use an exact model from \`penkra models list --availability available\`.`,
           {
             provider: input.target.provider,
             requestedModel: input.target.model,
@@ -622,7 +636,10 @@ export function resolveAgentGatewayTarget(input: {
           new AgentGatewayTargetError(
             "model_unavailable",
             `The ${input.target.provider} model catalog is unavailable. Only its configured default "${catalog.defaultModel}" can be used safely; custom model "${input.target.model}" was not verified.`,
-            { provider: input.target.provider, requestedModel: input.target.model },
+            {
+              provider: input.target.provider,
+              requestedModel: input.target.model,
+            },
           ),
         );
       }

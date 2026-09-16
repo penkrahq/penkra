@@ -7,6 +7,7 @@ import {
   FolderId,
   SpaceId,
   ThreadId,
+  singletonThreadDeckId,
   type DesktopUpdateState,
   type ResolvedKeybindingsConfig,
   type SidebarItemMovePosition,
@@ -24,6 +25,7 @@ import {
   lazy,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -44,7 +46,7 @@ import { cn } from "~/lib/utils";
 import { useAppSettings } from "../appSettings";
 import type { LastThreadRoute } from "../chatRouteRestore";
 import { useComposerDraftStore } from "../composerDraftStore";
-import { useComposerSendPreflightThreadIds } from "../composerSendPreflight";
+import { useComposerSendActivityThreadIds } from "../composerSendPreflight";
 import { recordSidebarLifecycleDiagnostic } from "../sidebarLifecycleDiagnostics";
 import { isElectron } from "../env";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
@@ -140,7 +142,7 @@ import {
   resolveProjectStatusIndicator,
   resolveSidebarWorkStatus,
   resolveSidebarThreadListPaging,
-  resolveThreadStatusPill,
+  resolveSidebarThreadSummaryStatus,
   resolveVisibleThreadWorkStatus,
   shouldClearThreadSelectionOnMouseDown,
   shouldPrunePinnedThreads,
@@ -359,6 +361,7 @@ export default function Sidebar() {
   );
   const folders = useStore((store) => store.folders);
   const spaces = useStore((store) => store.spaces);
+  const decks = useStore((store) => store.decks);
   const archivedSpaces = useStore((store) => store.archivedSpaces);
   // Selection state only; the handlers and sync effects live in useSpacesController.
   const storedActiveSpaceId = useSpacesUiStore((store) => store.activeSpaceId);
@@ -390,7 +393,7 @@ export default function Sidebar() {
   const openChatThreadPage = useTerminalStateStore((state) => state.openChatThreadPage);
   const openTerminalThreadPage = useTerminalStateStore((state) => state.openTerminalThreadPage);
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
-  const localSendOwnerThreadIds = useComposerSendPreflightThreadIds();
+  const localSendOwnerThreadIds = useComposerSendActivityThreadIds();
   const persistedPinnedFolderIds = usePinnedFoldersStore((store) => store.pinnedFolderIds);
   const pinProjectLocally = usePinnedFoldersStore((store) => store.pinProject);
   const unpinProject = usePinnedFoldersStore((store) => store.unpinProject);
@@ -562,9 +565,32 @@ export default function Sidebar() {
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
 
-  const routeActiveSidebarThreadId = routeThreadId;
+  const routedSidebarThreadId =
+    routeThreadId && sidebarThreadSummaryById[routeThreadId] ? routeThreadId : null;
+  const [lastRoutedSidebarThreadId, setLastRoutedSidebarThreadId] = useState<ThreadId | null>(
+    routedSidebarThreadId,
+  );
+  useLayoutEffect(() => {
+    if (routedSidebarThreadId) {
+      setLastRoutedSidebarThreadId(routedSidebarThreadId);
+    }
+  }, [routedSidebarThreadId]);
+  const routeDraftThread = routeThreadId ? draftThreadsByThreadId[routeThreadId] : undefined;
+  const routeDraftDeck = routeDraftThread
+    ? decks.find((deck) => deck.id === routeDraftThread.deckId)
+    : undefined;
+  const retainedDeckSidebarThreadId =
+    routeDraftDeck &&
+    lastRoutedSidebarThreadId &&
+    routeDraftDeck.threadIds.includes(lastRoutedSidebarThreadId) &&
+    sidebarThreadSummaryById[lastRoutedSidebarThreadId]
+      ? lastRoutedSidebarThreadId
+      : (routeDraftDeck?.threadIds.findLast(
+          (threadId) => sidebarThreadSummaryById[threadId] !== undefined,
+        ) ?? null);
+  const routeActiveSidebarThreadId = routedSidebarThreadId ?? retainedDeckSidebarThreadId;
   const activeSidebarThreadId = optimisticActiveThreadId ?? routeActiveSidebarThreadId;
-  const visualActiveSidebarThreadId = optimisticActiveThreadId ?? routeThreadId;
+  const visualActiveSidebarThreadId = activeSidebarThreadId;
   const selectSidebarThreads = useMemo(() => createSidebarThreadSummariesSelector(), []);
   const selectSidebarTreeThreads = useMemo(() => createSidebarTreeThreadsSelector(), []);
   const sidebarThreads = useStore(selectSidebarThreads);
@@ -598,15 +624,10 @@ export default function Sidebar() {
   }, []);
   const resolveThreadStatusForSidebar = useCallback(
     (thread: SidebarThreadSummary) =>
-      resolveThreadStatusPill({
-        thread: {
-          ...thread,
-          dismissedStatusKey: dismissedThreadStatusKeyByThreadId[thread.id],
-        },
-        hasPendingApprovals: thread.hasPendingApprovals,
-        hasPendingUserInput: thread.hasPendingUserInput,
+      resolveSidebarThreadSummaryStatus({
+        thread,
+        dismissedStatusKey: dismissedThreadStatusKeyByThreadId[thread.id],
         isPromotedDraftPending: draftThreadsByThreadId[thread.id]?.promotedTo !== undefined,
-        hasCanonicalThreadSummary: true,
         hasLocalSendOwner: localSendOwnerThreadIds.has(thread.id),
       }),
     [dismissedThreadStatusKeyByThreadId, draftThreadsByThreadId, localSendOwnerThreadIds],
@@ -1115,6 +1136,7 @@ export default function Sidebar() {
           type: "thread.create",
           commandId: newCommandId(),
           threadId,
+          deckId: singletonThreadDeckId(threadId),
           folderId: activeProject.id,
           title,
           modelSelection,
@@ -1256,6 +1278,8 @@ export default function Sidebar() {
       const threadSummary = sidebarThreadSummaryById[threadId];
       const isPinned = pinnedThreadIdSet.has(threadId);
       const threadStatus = threadSummary ? resolveThreadStatusForSidebar(threadSummary) : null;
+      const threadDeck = decks.find((deck) => deck.id === thread.deckId);
+      const canLeaveDeck = (threadDeck?.threadIds.length ?? 0) > 1;
       const canArchive =
         threadSummary !== undefined &&
         canArchiveSidebarThreads([
@@ -1279,6 +1303,12 @@ export default function Sidebar() {
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path", separatorBefore: true },
           { id: "copy-thread-id", label: "Copy Thread ID" },
+          {
+            id: "leave-deck",
+            label: "Leave Deck",
+            separatorBefore: true,
+            enabled: canLeaveDeck,
+          },
           ...(options?.extraItems ?? []),
           ...getSidebarThreadLifecycleMenuItems(canArchive),
         ],
@@ -1326,6 +1356,15 @@ export default function Sidebar() {
         copyThreadIdToClipboard(threadId);
         return;
       }
+      if (clicked === "leave-deck") {
+        await api.orchestration.dispatchCommand({
+          type: "thread.deck.leave",
+          commandId: newCommandId(),
+          threadId,
+          deckId: singletonThreadDeckId(threadId),
+        });
+        return;
+      }
       if (clicked === "return-to-single-chat") {
         await options?.onExtraAction?.("return-to-single-chat");
         return;
@@ -1342,6 +1381,7 @@ export default function Sidebar() {
       confirmAndDeleteThread,
       copyPathToClipboard,
       copyThreadIdToClipboard,
+      decks,
       clearDismissedThreadStatus,
       clearThreadNotification,
       markThreadUnread,
@@ -1605,7 +1645,12 @@ export default function Sidebar() {
           title: value.name,
           workspaceRoot: null,
           ...(defaultCodexModel
-            ? { defaultModelSelection: { provider: "codex", model: defaultCodexModel } }
+            ? {
+                defaultModelSelection: {
+                  provider: "codex",
+                  model: defaultCodexModel,
+                },
+              }
             : {}),
           spaceId: value.spaceId,
           createdAt: new Date().toISOString(),
@@ -1614,7 +1659,10 @@ export default function Sidebar() {
         // The accepted command is already durable. The unified synchronization
         // stream installs the Folder in the canonical store independently; the
         // draft only needs the known parent Space to open immediately.
-        await handleNewThread(folderId, { fresh: true, spaceId: value.spaceId });
+        await handleNewThread(folderId, {
+          fresh: true,
+          spaceId: value.spaceId,
+        });
       } catch (error) {
         if (previousSpaceId) handleSelectSpaceForIncomingProject(previousSpaceId);
         throw error;
@@ -1787,12 +1835,19 @@ export default function Sidebar() {
     });
     items.push(
       { id: "rename", label: "Edit name", separatorBefore: true },
-      { id: "set-icon", label: project.iconDataUrl ? "Change icon…" : "Add icon…" },
+      {
+        id: "set-icon",
+        label: project.iconDataUrl ? "Change icon…" : "Add icon…",
+      },
       ...(project.iconDataUrl ? [{ id: "remove-icon" as const, label: "Remove icon" }] : []),
       { id: "toggle-pin", label: pinActionLabel("folder", isPinned) },
     );
     if (canArchive) {
-      items.push({ id: "archive", label: "Archive folder", separatorBefore: true });
+      items.push({
+        id: "archive",
+        label: "Archive folder",
+        separatorBefore: true,
+      });
     }
 
     const clicked = await api.contextMenu.show<ProjectNativeContextMenuId>(items, position);
@@ -2429,7 +2484,8 @@ export default function Sidebar() {
             hasContent={hasProjectContent}
             headerState={resolveProjectHeaderState({
               folderId: project.id,
-              activeDraftFolderId: activeDraftThread?.folderId,
+              activeDraftFolderId:
+                visualActiveSidebarThreadId === null ? activeDraftThread?.folderId : null,
               activeDraftPromotedTo: activeDraftThread?.promotedTo,
             })}
             header={
@@ -2443,7 +2499,10 @@ export default function Sidebar() {
                     if (title !== project.remoteName) {
                       await commitFolderRename(project.id, title);
                     }
-                    finishInlineRename({ kind: "folder", folderId: project.id });
+                    finishInlineRename({
+                      kind: "folder",
+                      folderId: project.id,
+                    });
                   }}
                   onValueChange={updateInlineRenameValue}
                   pinned={pinnedFolderIdSet.has(project.id)}
@@ -3314,7 +3373,10 @@ export default function Sidebar() {
             <div className="flex flex-col gap-4" data-slot="space-list">
               {sidebarSpaceSections.map((section, spaceIndex) => {
                 const creatingFolderHere = creatingFolderSpaceId === section.space.id;
-                const spaceParent = { kind: "space", spaceId: section.space.id } as const;
+                const spaceParent = {
+                  kind: "space",
+                  spaceId: section.space.id,
+                } as const;
                 const expanded = creatingFolderHere || !collapsedSpaceIds.has(section.key);
                 const hasContent = creatingFolderHere || section.items.length > 0;
                 const spaceProjectData = section.items.flatMap((item) => {

@@ -134,7 +134,9 @@ function validateProjectPinLimit(input: {
   }
 
   const excludeFolderIds = new Set<string>([input.folderId, ...(input.staleFolderIds ?? [])]);
-  const pinnedProjectCount = countPinnedFolders(input.readModel, { excludeFolderIds });
+  const pinnedProjectCount = countPinnedFolders(input.readModel, {
+    excludeFolderIds,
+  });
   if (pinnedProjectCount < MAX_PINNED_PROJECTS) {
     return Effect.void;
   }
@@ -149,6 +151,25 @@ function validateProjectPinLimit(input: {
 
 function isLiveSidebarThread(thread: OrchestrationThread): boolean {
   return thread.deletedAt === null && thread.archivedAt == null;
+}
+
+function requireThreadsCanMoveAcrossSpaces(input: {
+  readonly command: OrchestrationCommand;
+  readonly readModel: OrchestrationReadModel;
+  readonly threadIds: ReadonlySet<OrchestrationThread["id"]>;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  const multiThreadDeck = input.readModel.decks.find(
+    (deck) =>
+      deck.threadIds.length > 1 && deck.threadIds.some((threadId) => input.threadIds.has(threadId)),
+  );
+  return multiThreadDeck
+    ? Effect.fail(
+        new OrchestrationCommandInvariantError({
+          commandType: input.command.type,
+          detail: "Threads in a multi-thread deck cannot be moved to another Space.",
+        }),
+      )
+    : Effect.void;
 }
 
 function collectThreadTreeIds(
@@ -225,8 +246,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 > {
   switch (command.type) {
     case "space.create": {
-      yield* requireSpaceAbsent({ readModel, command, spaceId: command.spaceId });
-      yield* requireSpaceNameAvailable({ readModel, command, name: command.name });
+      yield* requireSpaceAbsent({
+        readModel,
+        command,
+        spaceId: command.spaceId,
+      });
+      yield* requireSpaceNameAvailable({
+        readModel,
+        command,
+        name: command.name,
+      });
       const activeSpaces = listActiveSpaces(readModel);
       if (activeSpaces.length >= SPACES_MAX_COUNT) {
         return yield* new OrchestrationCommandInvariantError({
@@ -258,7 +287,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "space.update": {
-      const existingSpace = yield* requireSpace({ readModel, command, spaceId: command.spaceId });
+      const existingSpace = yield* requireSpace({
+        readModel,
+        command,
+        spaceId: command.spaceId,
+      });
       // Fields equal to the current value are not changes: a Save with nothing edited (or a
       // rename that resends the icon) must not append an event or bump updatedAt.
       const nextName =
@@ -426,6 +459,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         // Already-filed and concurrently-deleted folders are settled, not errors: the
         // batch stays atomic for real failures without rejecting a raced retry.
         if (folder.deletedAt !== null || folder.spaceId === command.spaceId) continue;
+        yield* requireThreadsCanMoveAcrossSpaces({
+          command,
+          readModel,
+          threadIds: new Set(
+            readModel.threads
+              .filter((thread) => thread.deletedAt === null && thread.folderId === folder.id)
+              .map((thread) => thread.id),
+          ),
+        });
         const normalizedFolderName = normalizeEntityName(folder.title);
         if (destinationFolderNames.has(normalizedFolderName)) {
           return yield* new OrchestrationCommandInvariantError({
@@ -469,7 +511,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           : null;
       const targetSpace =
         command.target.kind === "space"
-          ? yield* requireSpace({ readModel, command, spaceId: command.target.spaceId })
+          ? yield* requireSpace({
+              readModel,
+              command,
+              spaceId: command.target.spaceId,
+            })
           : yield* requireSpace({
               readModel,
               command,
@@ -478,11 +524,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
       const movedProject =
         command.item.kind === "folder"
-          ? yield* requireFolder({ readModel, command, folderId: command.item.id })
+          ? yield* requireFolder({
+              readModel,
+              command,
+              folderId: command.item.id,
+            })
           : null;
       const movedThread =
         command.item.kind === "thread"
-          ? yield* requireThread({ readModel, command, threadId: command.item.id })
+          ? yield* requireThread({
+              readModel,
+              command,
+              threadId: command.item.id,
+            })
           : null;
       if (movedProject && command.target.kind !== "space") {
         return yield* new OrchestrationCommandInvariantError({
@@ -515,6 +569,28 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: "Archived or deleted threads cannot be moved in the sidebar.",
+        });
+      }
+
+      const movedAcrossSpaces =
+        (movedProject !== null && movedProject.spaceId !== targetSpace.id) ||
+        (movedThread !== null &&
+          readModel.folders.find((folder) => folder.id === movedThread.folderId)?.spaceId !==
+            targetSpace.id);
+      if (movedAcrossSpaces) {
+        const movedThreadIds = movedProject
+          ? new Set(
+              readModel.threads
+                .filter(
+                  (thread) => thread.deletedAt === null && thread.folderId === movedProject.id,
+                )
+                .map((thread) => thread.id),
+            )
+          : collectThreadTreeIds(readModel, movedThread!.id);
+        yield* requireThreadsCanMoveAcrossSpaces({
+          command,
+          readModel,
+          threadIds: movedThreadIds,
         });
       }
 
@@ -785,7 +861,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.create": {
-      yield* requireFolder({
+      const folder = yield* requireFolder({
         readModel,
         command,
         folderId: command.folderId,
@@ -795,6 +871,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const existingDeck = readModel.decks.find((deck) => deck.id === command.deckId);
+      if (existingDeck && existingDeck.spaceId !== folder.spaceId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread deck '${command.deckId}' belongs to a different Space.`,
+        });
+      }
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -805,6 +888,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.created",
         payload: {
           threadId: command.threadId,
+          deckId: command.deckId,
+          deckSortOrder: existingDeck?.threadIds.length ?? 0,
           folderId: command.folderId,
           title: command.title,
           modelSelection: command.modelSelection,
@@ -832,7 +917,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.fork.create": {
-      yield* requireFolder({
+      const folder = yield* requireFolder({
         readModel,
         command,
         folderId: command.folderId,
@@ -859,6 +944,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Source thread '${command.sourceThreadId}' belongs to a different folder.`,
         });
       }
+      const existingDeck = readModel.decks.find((deck) => deck.id === command.deckId);
+      if (existingDeck && existingDeck.spaceId !== folder.spaceId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread deck '${command.deckId}' belongs to a different Space.`,
+        });
+      }
 
       const createdEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
@@ -870,6 +962,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.created",
         payload: {
           threadId: command.threadId,
+          deckId: command.deckId,
+          deckSortOrder: existingDeck?.threadIds.length ?? 0,
           folderId: command.folderId,
           title: command.title,
           modelSelection: command.modelSelection,
@@ -915,6 +1009,137 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         }));
 
       return [createdEvent, ...importedMessageEvents];
+    }
+
+    case "thread.deck.move": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const sourceDeck = readModel.decks.find((deck) => deck.id === thread.deckId);
+      const destinationDeck = readModel.decks.find((deck) => deck.id === command.deckId);
+      if (!sourceDeck || !destinationDeck) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Both source and destination Thread Decks must exist.`,
+        });
+      }
+      if (!sourceDeck.threadIds.includes(thread.id)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${thread.id}' is not present in its recorded source Thread Deck '${sourceDeck.id}'.`,
+        });
+      }
+      if (sourceDeck.spaceId !== destinationDeck.spaceId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Threads cannot move between Thread Decks in different Spaces.`,
+        });
+      }
+
+      const withoutMoved = destinationDeck.threadIds.filter((threadId) => threadId !== thread.id);
+      let insertionIndex = withoutMoved.length;
+      if (command.position.type === "start") insertionIndex = 0;
+      if (command.position.type === "before" || command.position.type === "after") {
+        const anchorIndex = withoutMoved.indexOf(command.position.threadId);
+        if (anchorIndex < 0) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Thread Deck order anchor '${command.position.threadId}' is not in the destination deck.`,
+          });
+        }
+        insertionIndex = anchorIndex + (command.position.type === "after" ? 1 : 0);
+      }
+      const destinationThreadIds = [
+        ...withoutMoved.slice(0, insertionIndex),
+        thread.id,
+        ...withoutMoved.slice(insertionIndex),
+      ];
+      const occurredAt = nowIso();
+
+      if (sourceDeck.id === destinationDeck.id) {
+        return {
+          ...withEventBase({
+            aggregateKind: "deck",
+            aggregateId: destinationDeck.id,
+            occurredAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.deck-reordered",
+          payload: {
+            deckId: destinationDeck.id,
+            spaceId: destinationDeck.spaceId,
+            threadIds: destinationThreadIds,
+            updatedAt: occurredAt,
+          },
+        };
+      }
+
+      return {
+        ...withEventBase({
+          aggregateKind: "deck",
+          aggregateId: destinationDeck.id,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.deck-moved",
+        payload: {
+          threadId: thread.id,
+          sourceDeckId: sourceDeck.id,
+          destinationDeckId: destinationDeck.id,
+          spaceId: destinationDeck.spaceId,
+          sourceThreadIds: sourceDeck.threadIds.filter((threadId) => threadId !== thread.id),
+          destinationThreadIds,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.deck.leave": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const sourceDeck = readModel.decks.find((deck) => deck.id === thread.deckId);
+      if (!sourceDeck || sourceDeck.threadIds.length <= 1) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `A Thread can leave only a deck containing more than one Thread.`,
+        });
+      }
+      if (!sourceDeck.threadIds.includes(thread.id)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${thread.id}' is not present in its recorded source Thread Deck '${sourceDeck.id}'.`,
+        });
+      }
+      if (readModel.decks.some((deck) => deck.id === command.deckId)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Destination Thread Deck '${command.deckId}' already exists.`,
+        });
+      }
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "deck",
+          aggregateId: command.deckId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.deck-moved",
+        payload: {
+          threadId: thread.id,
+          sourceDeckId: sourceDeck.id,
+          destinationDeckId: command.deckId,
+          spaceId: sourceDeck.spaceId,
+          sourceThreadIds: sourceDeck.threadIds.filter((threadId) => threadId !== thread.id),
+          destinationThreadIds: [thread.id],
+          updatedAt: occurredAt,
+        },
+      };
     }
 
     case "thread.delete": {
@@ -1517,7 +1742,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
       return [
         interruptedSessionEvent,
-        { ...interruptRequestedEvent, causationEventId: interruptedSessionEvent.eventId },
+        {
+          ...interruptRequestedEvent,
+          causationEventId: interruptedSessionEvent.eventId,
+        },
       ];
     }
 

@@ -10,6 +10,7 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
+  singletonThreadDeckId,
 } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -39,11 +40,14 @@ describe("store event reducer", () => {
   it("registers six external creations in the sidebar without a snapshot or opened detail", () => {
     const initial = makeState(makeThread());
     const folderId = FolderId.makeUnsafe("project-1");
-    const events = Array.from({ length: 6 }, (_, index) =>
-      makeDomainEvent(
+    const events = Array.from({ length: 6 }, (_, index) => {
+      const threadId = ThreadId.makeUnsafe(`agent-worker-${index}`);
+      return makeDomainEvent(
         "thread.created",
         {
-          threadId: ThreadId.makeUnsafe(`agent-worker-${index}`),
+          threadId,
+          deckId: singletonThreadDeckId(threadId),
+          deckSortOrder: 0,
           folderId,
           title: `Worker ${index}`,
           modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
@@ -62,8 +66,8 @@ describe("store event reducer", () => {
           updatedAt: "2026-09-06T00:10:00.000Z",
         },
         { sequence: index + 1 },
-      ),
-    );
+      );
+    });
     const next = applyOrchestrationEvents(initial, events);
     const rows = createSidebarTreeThreadsSelector()(next);
     expect(rows.filter((row) => row.id.startsWith("agent-worker-"))).toHaveLength(6);
@@ -824,6 +828,8 @@ describe("store event reducer", () => {
     const initial = applyOrchestrationEvents(makeState(makeThread({ id: firstThreadId })), [
       makeDomainEvent("thread.created", {
         threadId: secondThreadId,
+        deckId: singletonThreadDeckId(secondThreadId),
+        deckSortOrder: 0,
         folderId: FolderId.makeUnsafe("project-1"),
         title: "Second thread",
         modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
@@ -1327,6 +1333,7 @@ describe("store event reducer", () => {
     const next = applyOrchestrationEvents(
       {
         spaces: [],
+        decks: [],
         archivedSpaces: [],
         folders: [],
         archivedFolders: [],
@@ -1370,6 +1377,7 @@ describe("store event reducer", () => {
     const next = applyOrchestrationEvents(
       {
         spaces: [],
+        decks: [],
         archivedSpaces: [],
         folders: [],
         archivedFolders: [],
@@ -1404,6 +1412,7 @@ describe("store event reducer", () => {
   it("adopts authoritative folder titles from live folder.updated events", () => {
     const initialState: AppState = {
       spaces: [],
+      decks: [],
       archivedSpaces: [],
       folders: [
         makeProject({
@@ -1468,6 +1477,7 @@ describe("store event reducer", () => {
     const next = applyOrchestrationEvents(
       {
         spaces: [],
+        decks: [],
         archivedSpaces: [],
         folders: [makeProject({ id: FolderId.makeUnsafe("project-live") })],
         archivedFolders: [],

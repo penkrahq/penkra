@@ -5,9 +5,11 @@ import {
   files,
   account,
   permissions,
+  models,
   settings,
   storage,
   transfer,
+  threads,
   tab,
   type PenkraTabRuntimeApi,
 } from "./runtime";
@@ -48,10 +50,18 @@ function createBrowserMock(): PenkraTabRuntimeApi["browser"] {
   };
 }
 
-function createThreadMock(): PenkraTabRuntimeApi["thread"] {
+function createThreadsMock(): PenkraTabRuntimeApi["threads"] {
   return {
-    read: vi.fn(),
-    compose: vi.fn() as PenkraTabRuntimeApi["thread"]["compose"],
+    current: { read: vi.fn() },
+    list: vi.fn(),
+    get: vi.fn(),
+    create: vi.fn(),
+    add: vi.fn(),
+    select: vi.fn(),
+    reorder: vi.fn(),
+    leave: vi.fn(),
+    archive: vi.fn(),
+    compose: vi.fn(),
     onState: vi.fn(),
     send: vi.fn(),
   };
@@ -146,7 +156,8 @@ describe("framework-neutral App runtime exports", () => {
       files: createFilesMock(),
       storage: createStorageMock(),
       transfer: createTransferMock(),
-      thread: createThreadMock(),
+      threads: createThreadsMock(),
+      models: { listPossible: vi.fn(async () => []) },
       open: vi.fn(),
       browser: createBrowserMock(),
       simulator: createSimulatorMock(),
@@ -200,6 +211,11 @@ describe("framework-neutral App runtime exports", () => {
     await storage.usage();
     await files.open("handle-1", "movie.mp4");
     await transfer.begin({ url: "https://uploads.example/files" });
+    await models.listPossible();
+    await threads.compose({
+      threadId: "thread-linked",
+      text: "Pause playbooks://run/run-1",
+    });
 
     expect(runtime.tab.handle).toHaveBeenCalledWith("selection.replace-text", tabHandler);
     expect(runtime.tab.onNavigate).toHaveBeenCalledWith(navigationHandler);
@@ -213,6 +229,11 @@ describe("framework-neutral App runtime exports", () => {
     expect(runtime.transfer.begin).toHaveBeenCalledWith({
       url: "https://uploads.example/files",
     });
+    expect(runtime.models.listPossible).toHaveBeenCalledOnce();
+    expect(runtime.threads.compose).toHaveBeenCalledWith({
+      threadId: "thread-linked",
+      text: "Pause playbooks://run/run-1",
+    });
   });
 
   it("forwards read-only permission inspection to the preload-owned API", async () => {
@@ -224,7 +245,8 @@ describe("framework-neutral App runtime exports", () => {
       files: createFilesMock(),
       storage: createStorageMock(),
       transfer: createTransferMock(),
-      thread: createThreadMock(),
+      threads: createThreadsMock(),
+      models: { listPossible: vi.fn(async () => []) },
       open: vi.fn(),
       browser: createBrowserMock(),
       simulator: createSimulatorMock(),
@@ -239,7 +261,11 @@ describe("framework-neutral App runtime exports", () => {
           emailVerified: true,
           avatarUrl: null,
         })),
-        request: vi.fn(async () => ({ status: 200, headers: {}, body: new Uint8Array() })),
+        request: vi.fn(async () => ({
+          status: 200,
+          headers: {},
+          body: new Uint8Array(),
+        })),
         subscribe: vi.fn(async () => vi.fn()),
       },
       settings: {
@@ -276,11 +302,18 @@ describe("framework-neutral App runtime exports", () => {
       },
     };
     (globalThis as { penkra?: PenkraTabRuntimeApi }).penkra = runtime;
-    await expect(permissions.query("network-fetch")).resolves.toMatchObject({ state: "granted" });
+    await expect(permissions.query("network-fetch")).resolves.toMatchObject({
+      state: "granted",
+    });
     expect(runtime.permissions.query).toHaveBeenCalledWith("network-fetch");
-    await expect(permissions.request("network-fetch")).resolves.toMatchObject({ state: "granted" });
+    await expect(permissions.request("network-fetch")).resolves.toMatchObject({
+      state: "granted",
+    });
     expect(runtime.permissions.request).toHaveBeenCalledWith("network-fetch");
-    await expect(identity.get()).resolves.toEqual({ subject: "sub_test", space: "space_test" });
+    await expect(identity.get()).resolves.toEqual({
+      subject: "sub_test",
+      space: "space_test",
+    });
     await account.request({ path: "/notes" });
     expect(runtime.account.request).toHaveBeenCalledWith({ path: "/notes" });
     await expect(settings.get("display-name")).resolves.toBe("value");

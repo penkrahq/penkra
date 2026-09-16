@@ -9,7 +9,7 @@ export const APP_BLOB_URL_PREFIX = "/.penkra/blob/";
 export interface AppBlobUrlOwner {
   appId: string;
   spaceId: string;
-  threadId: string;
+  deckId: string;
   tabId: string;
   rendererId: number;
   origin: string;
@@ -50,7 +50,7 @@ export class AppBlobUrlRegistry {
     if (
       record.appId !== owner.appId ||
       record.spaceId !== owner.spaceId ||
-      record.threadId !== owner.threadId ||
+      record.deckId !== owner.deckId ||
       record.tabId !== owner.tabId ||
       record.rendererId !== owner.rendererId
     ) {
@@ -60,26 +60,26 @@ export class AppBlobUrlRegistry {
   }
 
   detachGeneration(
-    owner: Pick<AppBlobUrlOwner, "appId" | "spaceId" | "threadId" | "tabId" | "rendererId">,
+    owner: Pick<AppBlobUrlOwner, "appId" | "spaceId" | "deckId" | "tabId" | "rendererId">,
   ): DetachedAppBlobUrls {
     return this.#detach(
       (record) =>
         record.appId === owner.appId &&
         record.spaceId === owner.spaceId &&
-        record.threadId === owner.threadId &&
+        record.deckId === owner.deckId &&
         record.tabId === owner.tabId &&
         record.rendererId === owner.rendererId,
     );
   }
 
   detachTab(
-    owner: Pick<AppBlobUrlOwner, "appId" | "spaceId" | "threadId" | "tabId">,
+    owner: Pick<AppBlobUrlOwner, "appId" | "spaceId" | "deckId" | "tabId">,
   ): DetachedAppBlobUrls {
     return this.#detach(
       (record) =>
         record.appId === owner.appId &&
         record.spaceId === owner.spaceId &&
-        record.threadId === owner.threadId &&
+        record.deckId === owner.deckId &&
         record.tabId === owner.tabId,
     );
   }

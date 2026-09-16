@@ -312,7 +312,7 @@ import {
   updateComposerSendPreflightImages,
   releaseComposerSendPreflight,
   markComposerSendPreflightAdmission,
-  useHasComposerSendPreflight,
+  useHasComposerSendActivity,
   useComposerSendPreflightProjection,
 } from "../composerSendPreflight";
 import { useComposerFocusRequestStore } from "../composerFocusRequestStore";
@@ -386,6 +386,7 @@ import { ThreadScreen3Rails } from "./middle-panel/thread-screen-3-rails/ThreadS
 import { ThreadScreenEmpty } from "./middle-panel/thread-screen-empty/ThreadScreenEmpty";
 import { ThreadShell } from "./middle-panel/thread-shell/ThreadShell";
 import { TopBarThreadAdapter } from "./middle-panel/top-bar-thread/TopBarThreadAdapter";
+import { ThreadDeckBar } from "./middle-panel/thread-deck-bar/ThreadDeckBar";
 import type { TranscriptVirtualListRef } from "./chat/TranscriptVirtualList";
 import { deriveAgentActivityTimelineState } from "./chat/agentActivity.logic";
 import { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -3039,7 +3040,7 @@ export default function ChatView({
     ],
   );
   const isSendBusy = localDispatch !== null && !serverAcknowledgedLocalDispatch;
-  const hasSendPreflight = useHasComposerSendPreflight(activeThreadId ?? null);
+  const hasSendPreflight = useHasComposerSendActivity(activeThreadId ?? null);
   const preflightOptimisticUserMessage = useComposerSendPreflightProjection(activeThreadId ?? null);
   const hasLiveTurn = phase === "running";
   const authoritativePendingTurnStartMessageId = useMemo(() => {
@@ -7358,6 +7359,7 @@ export default function ChatView({
             type: "thread.create",
             commandId: newCommandId(),
             threadId: threadIdForSend,
+            deckId: activeThread.deckId,
             folderId: targetFolderIdForSend,
             title,
             modelSelection: threadCreateModelSelection,
@@ -9550,24 +9552,33 @@ export default function ChatView({
         )}
       />
       {/* Top bar */}
-      <TopBarThreadAdapter
-        className={cn(
-          CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
-          "flex items-center",
-          isElectron && "drag-region",
-          // The editor-rail chat header sits in the editor's second row (inside the
-          // right-side chat pane), not flush against the window edges — the editor's
-          // own top bar already reserves both desktop window-control gutters. Applying
-          // them here just leaves redundant empty space on the sides.
-          desktopTopBarTrafficLightGutterClassName,
-          desktopTopBarWindowControlsGutterClassName,
-        )}
-        harness={activeThread.session?.provider ?? activeThread.modelSelection.provider}
-        leftRailCollapsed={!leftRailOpen}
-        onRestoreLeftRail={() => setLeftRailOpen(true)}
-        pinned={activeThread.isPinned ?? false}
-        title={activeThreadDisplayTitle}
-      />
+      {surfaceMode === "single" ? (
+        <ThreadDeckBar
+          activeThread={activeThread}
+          className={cn(
+            isElectron && "drag-region",
+            desktopTopBarTrafficLightGutterClassName,
+            desktopTopBarWindowControlsGutterClassName,
+          )}
+          leftRailCollapsed={!leftRailOpen}
+          onRestoreLeftRail={() => setLeftRailOpen(true)}
+        />
+      ) : (
+        <TopBarThreadAdapter
+          className={cn(
+            CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
+            "flex items-center",
+            isElectron && "drag-region",
+            desktopTopBarTrafficLightGutterClassName,
+            desktopTopBarWindowControlsGutterClassName,
+          )}
+          harness={activeThread.session?.provider ?? activeThread.modelSelection.provider}
+          leftRailCollapsed={!leftRailOpen}
+          onRestoreLeftRail={() => setLeftRailOpen(true)}
+          pinned={activeThread.isPinned ?? false}
+          title={activeThreadDisplayTitle}
+        />
+      )}
 
       {/* Error banner */}
       <ProviderHealthBanner

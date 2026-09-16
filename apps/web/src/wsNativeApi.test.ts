@@ -667,6 +667,7 @@ describe("wsNativeApi", () => {
     await api.contextMenu.show(
       [
         { id: "rename", label: "Rename thread" },
+        { id: "leave-deck", label: "Leave Deck", enabled: false },
         { id: "delete", label: "Delete", separatorBefore: true, destructive: true },
       ],
       { x: 200, y: 300 },
@@ -675,6 +676,7 @@ describe("wsNativeApi", () => {
     expect(showContextMenu).toHaveBeenCalledWith(
       [
         { id: "rename", label: "Rename thread" },
+        { id: "leave-deck", label: "Leave Deck", enabled: false },
         { id: "delete", label: "Delete", separatorBefore: true, destructive: true },
       ],
       { x: 200, y: 300 },

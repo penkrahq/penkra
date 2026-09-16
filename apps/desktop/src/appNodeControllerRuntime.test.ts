@@ -53,6 +53,7 @@ function controllerRequest() {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
+        deckId: "deck-1",
         threadId: "thread-1",
         tabId: "target-tab",
       },
@@ -102,7 +103,7 @@ describe("AppNodeControllerRuntime", () => {
       input: {
         handler: "explorer.stat",
         input: { relativePath: "app.js" },
-        context: { threadId: "thread-1", tabId: "tab-1" },
+        context: { deckId: "deck-1", threadId: "thread-1", tabId: "tab-1" },
       },
     });
     await vi.waitFor(() =>
@@ -212,6 +213,7 @@ describe("AppNodeControllerRuntime", () => {
       "account",
       "controller",
       "identity",
+      "models",
       "operations",
       "permissions",
       "runtime",
@@ -222,6 +224,8 @@ describe("AppNodeControllerRuntime", () => {
     expect("network" in test.runtime.api).toBe(false);
     await expect(test.runtime.api.settings.get("theme")).resolves.toBe("theme");
     expect(test.serviceCalls).toContainEqual({ method: "settings.get", input: "theme" });
+    await expect(test.runtime.api.models.listPossible()).resolves.toBeNull();
+    expect(test.serviceCalls).toContainEqual({ method: "models.listPossible", input: undefined });
   });
 
   it("aborts a handler and outstanding context call when the host cancels", async () => {

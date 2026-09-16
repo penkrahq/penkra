@@ -222,6 +222,32 @@ describe("Settings Agents Connections", () => {
     });
   });
 
+  it("opens Claude's surfaced Windows authorization URL", async () => {
+    nativeApi.beginConnectionLogin.mockResolvedValueOnce({
+      operationId: "login-claude-personal",
+      connectionId: "connection-claude-personal",
+      state: "starting",
+      authUrl: "https://claude.com/cai/oauth/authorize?state=windows-test",
+      connection: null,
+      failureReason: null,
+    });
+    await renderPage();
+
+    await page.getByRole("button", { name: "Claude agent" }).click();
+    await page.getByRole("button", { name: "Sign in for Claude" }).click({ force: true });
+
+    await vi.waitFor(() => {
+      expect(nativeApi.beginConnectionLogin).toHaveBeenCalledWith({
+        harness: "claudeAgent",
+        authenticationTargetId: "anthropic-first-party",
+        authenticationMethodId: "claude-account",
+      });
+      expect(nativeApi.openExternal).toHaveBeenCalledWith(
+        "https://claude.com/cai/oauth/authorize?state=windows-test",
+      );
+    });
+  });
+
   it("imports an OpenAI API key through the ChatGPT native profile", async () => {
     await renderPage();
 

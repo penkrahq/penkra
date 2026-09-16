@@ -1,4 +1,4 @@
-import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId, singletonThreadDeckId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { resolveChatIndexRestoreRoute } from "../routes/-chatIndexRoute.logic";
@@ -34,8 +34,11 @@ function project(input: { id: string; spaceId?: SpaceId }): Project {
 }
 
 function thread(input: { id: string; folderId: string }): SidebarThreadSummary {
+  const id = ThreadId.makeUnsafe(input.id);
   return {
-    id: ThreadId.makeUnsafe(input.id),
+    id,
+    deckId: singletonThreadDeckId(id),
+    deckSortOrder: 0,
     folderId: FolderId.makeUnsafe(input.folderId),
     title: input.id,
     modelSelection: { provider: "codex", model: "gpt-5" },

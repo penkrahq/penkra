@@ -4,6 +4,7 @@ import {
   FolderId,
   SpaceId,
   ThreadId,
+  singletonThreadDeckId,
   type ClientOrchestrationCommand,
   type NativeApi,
 } from "@penkra/contracts";
@@ -34,10 +35,12 @@ function makeApi(input: {
 }
 
 function makeThreadCreateCommand(threadId = "thread-promote") {
+  const brandedThreadId = ThreadId.makeUnsafe(threadId);
   return {
     type: "thread.create",
     commandId: CommandId.makeUnsafe(`cmd-${threadId}`),
-    threadId: ThreadId.makeUnsafe(threadId),
+    threadId: brandedThreadId,
+    deckId: singletonThreadDeckId(brandedThreadId),
     folderId: FolderId.makeUnsafe("project-promote"),
     title: "Promoted thread",
     modelSelection: {
@@ -51,13 +54,15 @@ function makeThreadCreateCommand(threadId = "thread-promote") {
 
 function makeShellSnapshot(threadId: ThreadId, snapshotSequence = 1) {
   const folderId = FolderId.makeUnsafe("project-promote");
+  const spaceId = SpaceId.makeUnsafe("space-test");
+  const deckId = singletonThreadDeckId(threadId);
   return {
     snapshotSequence,
     spaces: [],
     folders: [
       {
         id: folderId,
-        spaceId: SpaceId.makeUnsafe("space-test"),
+        spaceId,
         title: "Project",
         workspaceRoot: "/tmp/project",
         defaultModelSelection: null,
@@ -66,9 +71,20 @@ function makeShellSnapshot(threadId: ThreadId, snapshotSequence = 1) {
         updatedAt: "2026-05-06T20:00:00.000Z",
       },
     ],
+    decks: [
+      {
+        id: deckId,
+        spaceId,
+        threadIds: [threadId],
+        createdAt: "2026-05-06T20:00:00.000Z",
+        updatedAt: "2026-05-06T20:00:00.000Z",
+      },
+    ],
     threads: [
       {
         id: threadId,
+        deckId,
+        deckSortOrder: 0,
         folderId,
         title: "Promoted thread",
         modelSelection: {
@@ -203,9 +219,20 @@ describe("threadCreatePromotion", () => {
           updatedAt: "2026-05-06T20:00:00.000Z",
         },
       ],
+      decks: [
+        {
+          id: singletonThreadDeckId(threadId),
+          spaceId: SpaceId.makeUnsafe("space-test"),
+          threadIds: [threadId],
+          createdAt: "2026-05-06T20:00:00.000Z",
+          updatedAt: "2026-05-06T20:00:00.000Z",
+        },
+      ],
       threads: [
         {
           id: threadId,
+          deckId: singletonThreadDeckId(threadId),
+          deckSortOrder: 0,
           folderId,
           title: "Promoted thread",
           modelSelection: {
@@ -271,6 +298,7 @@ describe("threadCreatePromotion", () => {
         folders: [
           {
             id: folderId,
+            spaceId: SpaceId.makeUnsafe("space-test"),
             title: "Project",
             workspaceRoot: "/tmp/project",
             defaultModelSelection: null,
@@ -279,9 +307,20 @@ describe("threadCreatePromotion", () => {
             updatedAt: "2026-05-06T20:00:00.000Z",
           },
         ],
+        decks: [
+          {
+            id: singletonThreadDeckId(threadId),
+            spaceId: SpaceId.makeUnsafe("space-test"),
+            threadIds: [threadId],
+            createdAt: "2026-05-06T20:00:00.000Z",
+            updatedAt: "2026-05-06T20:00:00.000Z",
+          },
+        ],
         threads: [
           {
             id: threadId,
+            deckId: singletonThreadDeckId(threadId),
+            deckSortOrder: 0,
             folderId,
             title: "Promoted thread",
             modelSelection: {

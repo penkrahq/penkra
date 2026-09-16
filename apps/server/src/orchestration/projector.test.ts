@@ -6,13 +6,36 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
+  singletonThreadDeckId,
   type OrchestrationEvent,
   type OrchestrationReadModel,
 } from "@penkra/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { createEmptyReadModel, projectEvent } from "./projector.ts";
+import { createEmptyReadModel as createEmptyReadModelBase, projectEvent } from "./projector.ts";
+
+function createEmptyReadModel(now: string): OrchestrationReadModel {
+  return {
+    ...createEmptyReadModelBase(now),
+    folders: [
+      {
+        id: FolderId.makeUnsafe("project-1"),
+        title: "Project 1",
+        workspaceRoot: null,
+        defaultModelSelection: null,
+        scripts: [],
+        isPinned: false,
+        spaceId: SpaceId.makeUnsafe("space-1"),
+        sidebarSortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+        deletedAt: null,
+      },
+    ],
+  };
+}
 
 function makeEvent(input: {
   sequence: number;
@@ -23,6 +46,18 @@ function makeEvent(input: {
   commandId: string | null;
   payload: unknown;
 }): OrchestrationEvent {
+  const payload =
+    input.type === "thread.created" &&
+    input.payload !== null &&
+    typeof input.payload === "object" &&
+    "threadId" in input.payload &&
+    typeof input.payload.threadId === "string"
+      ? {
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe(input.payload.threadId)),
+          deckSortOrder: 0,
+          ...input.payload,
+        }
+      : input.payload;
   return {
     sequence: input.sequence,
     eventId: EventId.makeUnsafe(`event-${input.sequence}`),
@@ -39,7 +74,7 @@ function makeEvent(input: {
     causationEventId: null,
     correlationId: null,
     metadata: {},
-    payload: input.payload as never,
+    payload: payload as never,
   } as OrchestrationEvent;
 }
 
@@ -155,6 +190,8 @@ describe("orchestration projector", () => {
     expect(next.threads).toEqual([
       {
         id: "thread-1",
+        deckId: "deck:thread-1",
+        deckSortOrder: 0,
         folderId: "project-1",
         sidebarSortOrder: 0,
         title: "demo",

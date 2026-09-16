@@ -23,14 +23,28 @@ export interface DesktopThreadLiveHandlers {
 }
 
 const handlersByThreadId = new Map<string, DesktopThreadLiveHandlers>();
+const stateListeners = new Set<() => void>();
+
+function publishStateChange(): void {
+  for (const listener of stateListeners) listener();
+}
+
+export function subscribeDesktopThreadLiveStateChanges(listener: () => void): () => void {
+  stateListeners.add(listener);
+  return () => stateListeners.delete(listener);
+}
 
 export function registerDesktopThreadLiveHandlers(
   threadId: string,
   handlers: DesktopThreadLiveHandlers,
 ): () => void {
   handlersByThreadId.set(threadId, handlers);
+  publishStateChange();
   return () => {
-    if (handlersByThreadId.get(threadId) === handlers) handlersByThreadId.delete(threadId);
+    if (handlersByThreadId.get(threadId) === handlers) {
+      handlersByThreadId.delete(threadId);
+      publishStateChange();
+    }
   };
 }
 

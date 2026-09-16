@@ -14,7 +14,9 @@ import {
   ProviderStartOptions,
   RuntimeMode,
   SpaceId,
+  ThreadDeckId,
   ThreadId,
+  singletonThreadDeckId,
 } from "@penkra/contracts";
 import * as Schema from "effect/Schema";
 import type { DeepMutable } from "effect/Types";
@@ -134,6 +136,7 @@ const PersistedQueuedComposerChatTurn = Schema.Struct({
   serverMessageId: Schema.optionalKey(MessageId),
   dispatchAttempt: Schema.optionalKey(Schema.Number),
   dispatchBindingRevision: Schema.optionalKey(Schema.Number),
+  dispatchMode: Schema.optionalKey(Schema.Literals(["queue", "steer"])),
   previewText: Schema.String,
   prompt: Schema.String,
   images: Schema.Array(PersistedComposerImageAttachment),
@@ -262,6 +265,7 @@ type LegacyPersistedComposerDraftStoreState = PersistedComposerDraftStoreState &
 
 const PersistedDraftThreadState = Schema.Struct({
   folderId: FolderId,
+  deckId: ThreadDeckId,
   spaceId: Schema.optionalKey(Schema.NullOr(SpaceId)),
   createdAt: Schema.String,
   runtimeMode: RuntimeMode,
@@ -444,11 +448,18 @@ function normalizePersistedAssistantSelection(
   if (id.length === 0) {
     return null;
   }
-  const normalized = normalizeAssistantSelectionAttachment({ assistantMessageId, text });
+  const normalized = normalizeAssistantSelectionAttachment({
+    assistantMessageId,
+    text,
+  });
   if (!normalized) {
     return null;
   }
-  return { id, assistantMessageId: normalized.assistantMessageId, text: normalized.text };
+  return {
+    id,
+    assistantMessageId: normalized.assistantMessageId,
+    text: normalized.text,
+  };
 }
 
 function normalizePersistedFileCommentDraft(value: unknown): PersistedFileCommentDraft | null {
@@ -467,7 +478,12 @@ function normalizePersistedFileCommentDraft(value: unknown): PersistedFileCommen
   if (!Number.isFinite(startLine) || !Number.isFinite(endLine)) {
     return null;
   }
-  const normalized = normalizeFileCommentSelection({ path, startLine, endLine, text });
+  const normalized = normalizeFileCommentSelection({
+    path,
+    startLine,
+    endLine,
+    text,
+  });
   if (!normalized) {
     return null;
   }
@@ -789,6 +805,10 @@ function normalizePersistedDraftThreads(
       }
       draftThreadsByThreadId[threadId as ThreadId] = {
         folderId: folderId as FolderId,
+        deckId:
+          typeof candidateDraftThread.deckId === "string"
+            ? ThreadDeckId.makeUnsafe(candidateDraftThread.deckId)
+            : singletonThreadDeckId(ThreadId.makeUnsafe(threadId)),
         spaceId:
           typeof candidateDraftThread.spaceId === "string"
             ? SpaceId.makeUnsafe(candidateDraftThread.spaceId)
@@ -826,6 +846,7 @@ function normalizePersistedDraftThreads(
         if (!draftThreadsByThreadId[threadId as ThreadId]) {
           draftThreadsByThreadId[threadId as ThreadId] = {
             folderId: folderId as FolderId,
+            deckId: singletonThreadDeckId(ThreadId.makeUnsafe(threadId)),
             spaceId: null,
             createdAt: new Date().toISOString(),
             runtimeMode: DEFAULT_RUNTIME_MODE,
@@ -1131,7 +1152,9 @@ export function partializeComposerDraftStoreState(
           modelSelection: queuedTurn.modelSelection,
           connectionId: queuedTurn.connectionId,
           ...(queuedTurn.providerOptionsForDispatch
-            ? { providerOptionsForDispatch: queuedTurn.providerOptionsForDispatch }
+            ? {
+                providerOptionsForDispatch: queuedTurn.providerOptionsForDispatch,
+              }
             : {}),
           runtimeMode: queuedTurn.runtimeMode,
         });
@@ -1153,7 +1176,10 @@ export function partializeComposerDraftStoreState(
           schemaVersion: 1,
           threadId: pendingStartRecovery.threadId,
           messageId: pendingStartRecovery.messageId,
-          pendingTurn: { ...pendingTurn, messageId: pendingStartRecovery.messageId },
+          pendingTurn: {
+            ...pendingTurn,
+            messageId: pendingStartRecovery.messageId,
+          },
           settlement: pendingStartRecovery.settlement,
           ...(pendingStartRecovery.receiptSequence === undefined
             ? {}
@@ -1334,7 +1360,9 @@ export function partializeComposerDraftStoreState(
       ...(hasQueuedTurns ? { queuedTurns: persistedQueuedTurns } : {}),
       ...(Object.keys(persistedPendingStartRecoveriesByMessageId).length === 0
         ? {}
-        : { pendingStartRecoveriesByMessageId: persistedPendingStartRecoveriesByMessageId }),
+        : {
+            pendingStartRecoveriesByMessageId: persistedPendingStartRecoveriesByMessageId,
+          }),
       ...(draft.pendingMessageEdit ? { pendingMessageEdit: draft.pendingMessageEdit } : {}),
       ...(draft.queuePaused ? { queuePaused: true } : {}),
       ...(hasModelData

@@ -10,6 +10,7 @@ import {
   type RuntimeMode,
   type SpaceId,
   type ThreadId,
+  singletonThreadDeckId,
 } from "@penkra/contracts";
 import { readNativeApi } from "../nativeApi";
 import { promoteThreadCreate } from "./threadCreatePromotion";
@@ -51,6 +52,7 @@ export async function dispatchThreadRename(input: {
         type: "thread.create",
         commandId: newCommandId(),
         threadId: input.threadId,
+        deckId: singletonThreadDeckId(input.threadId),
         folderId: input.createIfMissing.folderId,
         title: trimmed,
         modelSelection: input.createIfMissing.modelSelection,

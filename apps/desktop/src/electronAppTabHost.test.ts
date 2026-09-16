@@ -83,6 +83,7 @@ describe("ElectronAppTabHost", () => {
     const descriptor = await host.openInstalled({
       appId: app.appId,
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       route: "/",
     });
@@ -95,6 +96,7 @@ describe("ElectronAppTabHost", () => {
     expect(descriptor).toMatchObject({
       appId: app.appId,
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       status: "loading",
       rendererId: -1,
@@ -110,6 +112,7 @@ describe("ElectronAppTabHost", () => {
     expect(registerRendererIdentity).toHaveBeenCalledWith({
       appId: app.appId,
       spaceId: "personal",
+      deckId: "deck-1",
       tabId: descriptor.id,
       threadId: "thread-1",
       rendererId: -1,
@@ -128,27 +131,55 @@ describe("ElectronAppTabHost", () => {
     host.focusSurface(101);
     expect(host.activeSurfaceId(descriptor.id)).toBe(101);
     expect(host.current()).toMatchObject({ ...descriptor, status: "ready" });
-    expect(host.currentFor("personal", "thread-1")).toMatchObject({
+    expect(host.currentFor("personal", "deck-1")).toMatchObject({
       ...descriptor,
       status: "ready",
     });
+    expect(host.currentFor("personal", "deck-1", 101)).toMatchObject({
+      ...descriptor,
+      status: "ready",
+    });
+    expect(host.currentFor("personal", "deck-1", 999)).toBeNull();
     host.setActive(descriptor.id, descriptor.rendererId, false, 101);
     expect(host.activeSurfaceId(descriptor.id)).toBe(202);
     expect(host.current()).toMatchObject({ ...descriptor, status: "ready" });
     host.dropSurface(202);
     expect(host.current()).toBeNull();
 
+    host.setContext(descriptor.id, {
+      deckId: "deck-1",
+      threadId: "thread-other-window",
+    });
+    expect(host.list()[0]).toMatchObject({
+      deckId: "deck-1",
+      threadId: "thread-other-window",
+    });
+    expect(releaseIdentity).toHaveBeenCalledOnce();
+    expect(onFrameHostMessage).toHaveBeenCalledWith({
+      tabId: descriptor.id,
+      rendererId: descriptor.rendererId,
+      delivery: {
+        kind: "event",
+        name: "thread.context-changed",
+        payload: { deckId: "deck-1", threadId: "thread-other-window" },
+      },
+    });
+    host.setContext(descriptor.id, {
+      deckId: "deck-1",
+      threadId: "thread-1",
+    });
+
     const secondDescriptor = await host.openInstalled({
       appId: app.appId,
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-2",
       route: "/",
     });
     host.markFrameReady(secondDescriptor.id, secondDescriptor.rendererId);
     host.setActive(descriptor.id, descriptor.rendererId, true, 303);
     host.setActive(secondDescriptor.id, secondDescriptor.rendererId, true, 303);
-    expect(host.currentFor("personal", "thread-1")).toBeNull();
-    expect(host.currentFor("personal", "thread-2")).toMatchObject({
+    expect(host.currentFor("personal", "deck-1")).toMatchObject({
       id: secondDescriptor.id,
       threadId: "thread-2",
       status: "ready",
@@ -157,12 +188,24 @@ describe("ElectronAppTabHost", () => {
 
     await host.navigate(descriptor.id, { route: "/document/7", state: { page: 3 } });
     expect(host.captureForUpdate(app.appId, "personal")).toEqual([
-      { id: descriptor.id, threadId: "thread-1", route: "/document/7", state: { page: 3 } },
+      {
+        id: descriptor.id,
+        deckId: "deck-1",
+        threadId: "thread-1",
+        route: "/document/7",
+        state: { page: 3 },
+      },
     ]);
 
     host.setRoute(descriptor.id, { route: "/document/8", state: { page: 4 } });
     expect(host.captureForUpdate(app.appId, "personal")).toEqual([
-      { id: descriptor.id, threadId: "thread-1", route: "/document/8", state: { page: 4 } },
+      {
+        id: descriptor.id,
+        deckId: "deck-1",
+        threadId: "thread-1",
+        route: "/document/8",
+        state: { page: 4 },
+      },
     ]);
 
     host.closeForAppSpace(app.appId, "personal");
@@ -170,8 +213,12 @@ describe("ElectronAppTabHost", () => {
     expect(host.has(descriptor.id)).toBe(false);
     expect(unregisterBroker).toHaveBeenCalledTimes(2);
     expect(unregisterRpc).toHaveBeenCalledWith("app-disabled");
-    expect(releaseIdentity).toHaveBeenCalledTimes(2);
-    expect(onClosed).toHaveBeenCalledWith({ id: descriptor.id, threadId: "thread-1" });
+    expect(releaseIdentity).toHaveBeenCalledTimes(4);
+    expect(onClosed).toHaveBeenCalledWith({
+      id: descriptor.id,
+      deckId: "deck-1",
+      threadId: "thread-1",
+    });
     expect(host.list()).toEqual([]);
   });
 
@@ -204,6 +251,7 @@ describe("ElectronAppTabHost", () => {
     const original = await host.openInstalled({
       appId: app.appId,
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       route: "/document/7",
       state: { page: 3 },
@@ -275,6 +323,7 @@ describe("ElectronAppTabHost", () => {
       host.restoreAfterUpdate(app.appId, "personal", [
         {
           id: "background-tab",
+          deckId: "deck-1",
           threadId: "background-thread",
           route: "/document/7",
           state: { page: 3 },
@@ -322,8 +371,8 @@ describe("ElectronAppTabHost", () => {
     });
 
     await host.restoreAfterUpdate(app.appId, "personal", [
-      { id: "failed-tab", threadId: "thread-1", route: "/" },
-      { id: "working-tab", threadId: "thread-1", route: "/" },
+      { id: "failed-tab", deckId: "deck-1", threadId: "thread-1", route: "/" },
+      { id: "working-tab", deckId: "deck-1", threadId: "thread-1", route: "/" },
     ]);
 
     expect(host.has("failed-tab")).toBe(false);
@@ -331,10 +380,15 @@ describe("ElectronAppTabHost", () => {
     expect(retireTab).toHaveBeenCalledWith({
       appId: app.appId,
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       tabId: "failed-tab",
     });
-    expect(onClosed).toHaveBeenCalledWith({ id: "failed-tab", threadId: "thread-1" });
+    expect(onClosed).toHaveBeenCalledWith({
+      id: "failed-tab",
+      deckId: "deck-1",
+      threadId: "thread-1",
+    });
     expect(onDiagnostic).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: "tab-navigation-restore-failed",
@@ -347,6 +401,7 @@ describe("ElectronAppTabHost", () => {
         tabId: "failed-tab",
         appId: app.appId,
         spaceId: "personal",
+        deckId: "deck-1",
         threadId: "thread-1",
         route: "/",
       }),
@@ -378,7 +433,9 @@ describe("ElectronAppTabHost", () => {
       onOpened: vi.fn(),
       onState: vi.fn(),
     });
-    const snapshot = [{ id: "stable-tab", threadId: "thread-1", route: "/document/7" }];
+    const snapshot = [
+      { id: "stable-tab", deckId: "deck-1", threadId: "thread-1", route: "/document/7" },
+    ];
 
     await host.restoreAfterUpdate(app.appId, "personal", snapshot);
     const oldRendererId = host.rendererId("stable-tab");
@@ -424,6 +481,7 @@ describe("ElectronAppTabHost", () => {
       host.openInstalled({
         appId: app.appId,
         spaceId: "personal",
+        deckId: "deck-1",
         threadId: "thread-1",
         route: "/",
       }),
@@ -472,6 +530,7 @@ describe("ElectronAppTabHost", () => {
       host.openInstalled({
         appId: app.appId,
         spaceId: "personal",
+        deckId: "deck-1",
         threadId: "thread-1",
         route: "/",
       }),
@@ -515,6 +574,7 @@ describe("ElectronAppTabHost", () => {
     const descriptor = await host.openInstalled({
       appId: app.appId,
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       route: "/document",
       state: { documentId: "doc-1", viewport: { x: 20, y: 40 } },
@@ -581,6 +641,7 @@ describe("ElectronAppTabHost", () => {
       host.openInstalled({
         appId: app.appId,
         spaceId: "personal",
+        deckId: "deck-1",
         threadId: "thread-1",
         route: "/",
       }),
@@ -634,6 +695,7 @@ describe("ElectronAppTabHost", () => {
     await host.openInstalled({
       appId: apps.appId,
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       route: "/",
     });
@@ -647,6 +709,7 @@ describe("ElectronAppTabHost", () => {
     expect(descriptor).toMatchObject({
       appId: target.appId,
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       route: "/",
       status: "loading",
@@ -689,6 +752,7 @@ describe("ElectronAppTabHost", () => {
     const descriptor = await host.openInstalled({
       appId: app.appId,
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       route: "/",
     });

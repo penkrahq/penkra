@@ -1,37 +1,39 @@
 // FILE: rightDockStore.ts
-// Purpose: Persist App-tab state per host Thread.
+// Purpose: Persist App-tab state per Thread Deck.
 // Layer: UI state store
-// Exports: dock store hook, per-thread selector, and stable default snapshot.
+// Exports: dock store hook, per-deck selector, one-time legacy migration, and stable default snapshot.
 
-import type { ThreadId } from "@penkra/contracts";
+import type { ThreadDeckId, ThreadId } from "@penkra/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import {
   type OpenPaneInput,
   type RightDockPane,
-  type RightDockThreadState,
+  type RightDockDeckState,
   closePaneInState,
   createDefaultRightDockState,
   openPaneInState,
-  sanitizeRightDockStateByThreadId,
+  migrateRightDockStateByThreadId,
+  sanitizeRightDockStateByDeckId,
   setActivePaneInState,
   setDockOpenInState,
   setDockWidthInState,
   updatePaneInState,
 } from "./rightDockStore.logic";
 
-const RIGHT_DOCK_STORAGE_KEY = "penkra:app-tabs-by-thread:v1";
+const RIGHT_DOCK_STORAGE_KEY = "penkra:app-tabs-by-deck:v2";
+const LEGACY_RIGHT_DOCK_STORAGE_KEY = "penkra:app-tabs-by-thread:v1";
 
 interface RightDockStore {
-  dockStateByThreadId: Record<string, RightDockThreadState | undefined>;
-  openPane: (threadId: ThreadId, input: OpenPaneInput) => void;
-  closePane: (threadId: ThreadId, paneId: string) => void;
-  setActivePane: (threadId: ThreadId, paneId: string) => void;
-  setDockOpen: (threadId: ThreadId, open: boolean) => void;
-  setDockWidth: (threadId: ThreadId, width: number) => void;
+  dockStateByDeckId: Record<string, RightDockDeckState | undefined>;
+  openPane: (deckId: ThreadDeckId, input: OpenPaneInput) => void;
+  closePane: (deckId: ThreadDeckId, paneId: string) => void;
+  setActivePane: (deckId: ThreadDeckId, paneId: string) => void;
+  setDockOpen: (deckId: ThreadDeckId, open: boolean) => void;
+  setDockWidth: (deckId: ThreadDeckId, width: number) => void;
   updatePane: (
-    threadId: ThreadId,
+    deckId: ThreadDeckId,
     paneId: string,
     patch: Partial<
       Pick<
@@ -45,7 +47,7 @@ interface RightDockStore {
       >
     >,
   ) => void;
-  clearThreadDockState: (threadId: ThreadId) => void;
+  clearDeckDockState: (deckId: ThreadDeckId) => void;
 }
 
 // Frozen shared snapshot: it is handed back from `selectRightDockState` for any
@@ -57,19 +59,19 @@ Object.freeze(DEFAULT_RIGHT_DOCK_STATE.panes);
 
 function commit(
   set: (fn: (store: RightDockStore) => Partial<RightDockStore>) => void,
-  threadId: ThreadId,
-  transform: (state: RightDockThreadState) => RightDockThreadState,
+  deckId: ThreadDeckId,
+  transform: (state: RightDockDeckState) => RightDockDeckState,
 ): void {
   set((store) => {
-    const previous = store.dockStateByThreadId[threadId] ?? DEFAULT_RIGHT_DOCK_STATE;
+    const previous = store.dockStateByDeckId[deckId] ?? DEFAULT_RIGHT_DOCK_STATE;
     const next = transform(previous);
     if (next === previous) {
       return {};
     }
     return {
-      dockStateByThreadId: {
-        ...store.dockStateByThreadId,
-        [threadId]: next,
+      dockStateByDeckId: {
+        ...store.dockStateByDeckId,
+        [deckId]: next,
       },
     };
   });
@@ -78,36 +80,35 @@ function commit(
 export const useRightDockStore = create<RightDockStore>()(
   persist(
     (set) => ({
-      dockStateByThreadId: {},
-      openPane: (threadId, input) =>
-        commit(set, threadId, (state) => openPaneInState(state, input)),
-      closePane: (threadId, paneId) =>
-        commit(set, threadId, (state) => closePaneInState(state, paneId)),
-      setActivePane: (threadId, paneId) =>
-        commit(set, threadId, (state) => setActivePaneInState(state, paneId)),
-      setDockOpen: (threadId, open) =>
-        commit(set, threadId, (state) => setDockOpenInState(state, open)),
-      setDockWidth: (threadId, width) =>
-        commit(set, threadId, (state) => setDockWidthInState(state, width)),
-      updatePane: (threadId, paneId, patch) =>
-        commit(set, threadId, (state) => updatePaneInState(state, paneId, patch)),
-      clearThreadDockState: (threadId) =>
+      dockStateByDeckId: {},
+      openPane: (deckId, input) => commit(set, deckId, (state) => openPaneInState(state, input)),
+      closePane: (deckId, paneId) =>
+        commit(set, deckId, (state) => closePaneInState(state, paneId)),
+      setActivePane: (deckId, paneId) =>
+        commit(set, deckId, (state) => setActivePaneInState(state, paneId)),
+      setDockOpen: (deckId, open) =>
+        commit(set, deckId, (state) => setDockOpenInState(state, open)),
+      setDockWidth: (deckId, width) =>
+        commit(set, deckId, (state) => setDockWidthInState(state, width)),
+      updatePane: (deckId, paneId, patch) =>
+        commit(set, deckId, (state) => updatePaneInState(state, paneId, patch)),
+      clearDeckDockState: (deckId) =>
         set((store) => {
-          if (!Object.hasOwn(store.dockStateByThreadId, threadId)) {
+          if (!Object.hasOwn(store.dockStateByDeckId, deckId)) {
             return {};
           }
-          const next = { ...store.dockStateByThreadId };
-          delete next[threadId];
-          return { dockStateByThreadId: next };
+          const next = { ...store.dockStateByDeckId };
+          delete next[deckId];
+          return { dockStateByDeckId: next };
         }),
     }),
     {
       name: RIGHT_DOCK_STORAGE_KEY,
       storage: createJSONStorage(() => localStorage),
       partialize: (store) => ({
-        dockStateByThreadId: Object.fromEntries(
-          Object.entries(store.dockStateByThreadId).map(([threadId, state]) => [
-            threadId,
+        dockStateByDeckId: Object.fromEntries(
+          Object.entries(store.dockStateByDeckId).map(([deckId, state]) => [
+            deckId,
             state
               ? {
                   ...state,
@@ -126,16 +127,47 @@ export const useRightDockStore = create<RightDockStore>()(
       }),
       merge: (persisted, current) => ({
         ...current,
-        dockStateByThreadId: sanitizeRightDockStateByThreadId(
-          (persisted as { dockStateByThreadId?: unknown } | undefined)?.dockStateByThreadId,
+        dockStateByDeckId: sanitizeRightDockStateByDeckId(
+          (persisted as { dockStateByDeckId?: unknown } | undefined)?.dockStateByDeckId,
         ),
       }),
     },
   ),
 );
 
-export function selectRightDockState(threadId: ThreadId) {
+export function migrateLegacyRightDockStorage(
+  deckIdByThreadId: ReadonlyMap<ThreadId, ThreadDeckId>,
+): void {
+  const serialized = localStorage.getItem(LEGACY_RIGHT_DOCK_STORAGE_KEY);
+  if (!serialized) return;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch {
+    localStorage.removeItem(LEGACY_RIGHT_DOCK_STORAGE_KEY);
+    return;
+  }
+  const persistedState =
+    parsed && typeof parsed === "object" && "state" in parsed
+      ? (parsed as { state?: unknown }).state
+      : parsed;
+  const legacyRecord =
+    persistedState && typeof persistedState === "object" && "dockStateByThreadId" in persistedState
+      ? (persistedState as { dockStateByThreadId?: unknown }).dockStateByThreadId
+      : undefined;
+  const migratedByDeckId = migrateRightDockStateByThreadId(legacyRecord, deckIdByThreadId);
+  useRightDockStore.setState((store) => ({
+    dockStateByDeckId: {
+      ...migratedByDeckId,
+      ...store.dockStateByDeckId,
+    },
+  }));
+  localStorage.removeItem(LEGACY_RIGHT_DOCK_STORAGE_KEY);
+}
+
+export function selectRightDockState(deckId: ThreadDeckId) {
   // Keep the fallback snapshot stable so React does not observe phantom store
   // changes while mounting a thread that has no persisted dock state yet.
-  return (store: RightDockStore) => store.dockStateByThreadId[threadId] ?? DEFAULT_RIGHT_DOCK_STATE;
+  return (store: RightDockStore) => store.dockStateByDeckId[deckId] ?? DEFAULT_RIGHT_DOCK_STATE;
 }

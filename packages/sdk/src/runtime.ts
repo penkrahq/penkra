@@ -183,6 +183,7 @@ export type AppOperationHandler<Input = unknown, Result = unknown> = (
 ) => Promise<Result> | Result;
 
 export interface AppControllerRequestContext {
+  deckId: string;
   threadId: string;
   tabId: string;
   signal: AbortSignal;
@@ -269,6 +270,10 @@ export interface AppThreadComposeInput {
 
 export interface AppThreadState {
   threadId: string;
+  deckId: string;
+  title: string;
+  order: number;
+  archived: boolean;
   phase: "idle" | "submitting" | "running" | "waiting" | "stopping" | "failed";
   activeTurnId: string | null;
   pendingQuestion: boolean;
@@ -290,6 +295,23 @@ export interface AppThreadComposition {
   resolvedModel: AppComposerModelSelection | null;
 }
 
+export type AppThreadDeckPosition =
+  | { type: "start" }
+  | { type: "end" }
+  | { type: "before"; threadId: string }
+  | { type: "after"; threadId: string };
+
+export interface AppThreadCreateInput {
+  folderId?: string;
+  title?: string;
+  select?: boolean;
+}
+
+export interface AppThreadCreateResult {
+  threadId: string;
+  deckId: string;
+}
+
 export interface AppThreadSendReceipt {
   submissionId: string;
   composeId: string;
@@ -297,6 +319,18 @@ export interface AppThreadSendReceipt {
   mode: "queue" | "steer";
   state: "accepted" | "queued" | "steering";
   acceptedAt: string;
+}
+
+export interface AppPossibleModelDescriptor {
+  provider: string;
+  model: string;
+  name: string;
+  options: ReadonlyArray<{
+    key: string;
+    valueType: "string";
+    allowedValues: ReadonlyArray<string>;
+    allowsCustomValue: boolean;
+  }>;
 }
 
 export type AppTabNavigationHandler<Result = void> = (
@@ -403,17 +437,40 @@ export interface PenkraTabRuntimeApi {
     }): Promise<{ id: string; bytes: number; sha256: string }>;
     onProgress(listener: (event: AppTransferProgressEvent) => void): () => void;
   };
-  /** Visual-tab only. Operates exclusively on this App surface's current Thread. */
-  thread: {
-    read(): Promise<AppThreadState>;
-    /** Reads composer ownership without changing it. */
-    compose(): Promise<AppThreadState["composer"]>;
+  /** Visual-tab only. Operates on the persistent Thread Deck that owns this App surface. */
+  threads: {
+    current: {
+      read(): Promise<AppThreadState>;
+    };
+    /** Lists every Thread in deck order, including archived members. */
+    list(): Promise<ReadonlyArray<AppThreadState>>;
+    /** Reads one exact member of the current deck. */
+    get(input: { threadId: string }): Promise<AppThreadState>;
+    /** Creates a persistent Thread in this deck. */
+    create(input?: AppThreadCreateInput): Promise<AppThreadCreateResult>;
+    /** Adds an existing same-Space Thread to this deck. */
+    add(input: { threadId: string; position?: AppThreadDeckPosition }): Promise<void>;
+    /** Selects one exact member without changing deck order. */
+    select(input: { threadId: string }): Promise<void>;
+    /** Changes deck order independently of the sidebar. */
+    reorder(input: { threadId: string; position: AppThreadDeckPosition }): Promise<void>;
+    /** Moves a member into a new singleton deck. */
+    leave(input: { threadId: string }): Promise<void>;
+    archive(input: { threadId: string }): Promise<void>;
     /** Writes one visible composition and returns a receipt for those exact bytes. */
-    compose(input: AppThreadComposeInput): Promise<AppThreadComposition>;
-    /** Emits current state immediately and later meaningful changes. */
-    onState(listener: (state: AppThreadState) => void): () => void;
-    /** Sends the exact composition named by the receipt once. */
+    compose(input: AppThreadComposeInput & { threadId: string }): Promise<AppThreadComposition>;
+    /** Sends the exact composition named by the receipt once; the receipt owns its Thread target. */
     send(input: { composeId: string; mode?: "queue" | "steer" }): Promise<AppThreadSendReceipt>;
+    /** Emits an immediate deck snapshot and later meaningful changes. */
+    onState(listener: (threads: ReadonlyArray<AppThreadState>) => void): () => void;
+  };
+  /**
+   * Read-only portable-authoring catalog. Entries describe possible targets, not connected
+   * availability. Agents access the same catalog through
+   * `penkra models list --availability possible`.
+   */
+  models: {
+    listPossible(): Promise<ReadonlyArray<AppPossibleModelDescriptor>>;
   };
   /** Visual-tab only. Open one scoped file with a trusted host handler. */
   open(input: { handleId: string; relativePath?: string; with: "system" }): Promise<void>;
@@ -544,10 +601,14 @@ export interface PenkraTabRuntimeApi {
   /** Visual-tab only. Operation controllers receive tab handles through OperationContext. */
   tab: {
     /**
-     * Identity of this App-owned surface. `threadId` is the containing Penkra Thread; `tabId` is
-     * this App tab and is distinct from both the Thread and any hosted Browser page ID.
+     * Identity of this App-owned surface. `deckId` owns the persistent panel, `threadId` is the
+     * active Penkra Thread, and `tabId` is distinct from both the Deck and hosted Browser page IDs.
      */
-    getContext(): Promise<{ threadId: string; tabId: string | null }>;
+    getContext(): Promise<{
+      deckId: string;
+      threadId: string;
+      tabId: string | null;
+    }>;
     /** Record the App's current route so the host can restore it after reloads and updates. */
     setRoute(input: AppTabNavigationInput): Promise<void>;
     /** Pause expensive visual work while the tab is retained but not visible. */
@@ -566,7 +627,7 @@ export interface PenkraTabRuntimeApi {
  */
 export type PenkraControllerRuntimeApi = Pick<
   PenkraTabRuntimeApi,
-  "identity" | "secrets" | "settings" | "shell"
+  "identity" | "models" | "secrets" | "settings" | "shell"
 > & {
   readonly runtime: { readonly kind: "controller" };
   operations: {
@@ -664,14 +725,23 @@ export const transfer: PenkraTabRuntimeApi["transfer"] = {
   onProgress: (listener) => runtime().transfer.onProgress(listener),
 };
 
-export const thread: PenkraTabRuntimeApi["thread"] = {
-  read: () => runtime().thread.read(),
-  compose: ((input?: AppThreadComposeInput) =>
-    input === undefined
-      ? runtime().thread.compose()
-      : runtime().thread.compose(input)) as PenkraTabRuntimeApi["thread"]["compose"],
-  onState: (listener) => runtime().thread.onState(listener),
-  send: (input) => runtime().thread.send(input),
+export const threads: PenkraTabRuntimeApi["threads"] = {
+  current: { read: () => runtime().threads.current.read() },
+  list: () => runtime().threads.list(),
+  get: (input) => runtime().threads.get(input),
+  create: (input) => runtime().threads.create(input),
+  add: (input) => runtime().threads.add(input),
+  select: (input) => runtime().threads.select(input),
+  reorder: (input) => runtime().threads.reorder(input),
+  leave: (input) => runtime().threads.leave(input),
+  archive: (input) => runtime().threads.archive(input),
+  compose: (input) => runtime().threads.compose(input),
+  send: (input) => runtime().threads.send(input),
+  onState: (listener) => runtime().threads.onState(listener),
+};
+
+export const models: PenkraTabRuntimeApi["models"] = {
+  listPossible: () => runtime().models.listPossible(),
 };
 
 export const open: PenkraTabRuntimeApi["open"] = (input) => runtime().open(input);

@@ -20,6 +20,12 @@
  */
 export const CHAT_SURFACE_HEADER_HEIGHT_PX = 46;
 
+/** Width of one renderer-owned Windows caption button. */
+export const WINDOWS_CAPTION_BUTTON_WIDTH_PX = 46;
+
+/** Width of the minimize/maximize/close cluster in the frameless Windows shell. */
+export const WINDOWS_CAPTION_CONTROLS_GUTTER_PX = WINDOWS_CAPTION_BUTTON_WIDTH_PX * 3;
+
 /** Leading inset (px) of the macOS traffic-light cluster from the window's left edge. */
 export const MAC_TRAFFIC_LIGHT_INSET_X_PX = 16;
 

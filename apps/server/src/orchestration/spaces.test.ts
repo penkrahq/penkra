@@ -6,6 +6,7 @@ import {
   FolderId,
   SpaceId,
   ThreadId,
+  singletonThreadDeckId,
   type OrchestrationCommand,
 } from "@penkra/contracts";
 import { Effect } from "effect";
@@ -74,6 +75,7 @@ async function addThread(input: {
     type: "thread.create",
     commandId: CommandId.makeUnsafe(`create-${input.id}`),
     threadId: ThreadId.makeUnsafe(input.id),
+    deckId: singletonThreadDeckId(ThreadId.makeUnsafe(input.id)),
     folderId: input.folderId,
     title: input.id,
     modelSelection: { provider: "codex", model: "gpt-5-codex" },

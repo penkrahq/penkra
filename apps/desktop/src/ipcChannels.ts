@@ -34,6 +34,9 @@ export const DESKTOP_IPC_CHANNELS = {
   powerSetActiveWork: "desktop:power-set-active-work",
   threadApiRequest: "desktop:thread-api-request",
   threadApiResponse: "desktop:thread-api-response",
+  threadApiState: "desktop:thread-api-state",
+  threadApiTurnOriginBind: "desktop:thread-api-turn-origin-bind",
+  threadApiTurnOriginUnbind: "desktop:thread-api-turn-origin-unbind",
   composerDrafts: {
     readSnapshot: "desktop:composer-drafts-read-snapshot",
     writeSnapshot: "desktop:composer-drafts-write-snapshot",
@@ -138,6 +141,7 @@ export const DESKTOP_IPC_CHANNELS = {
     open: "desktop:app-tabs-open",
     openFromApps: "desktop:app-tabs-open-from-apps",
     setActive: "desktop:app-tabs-set-active",
+    setContext: "desktop:app-tabs-set-context",
     frameCall: "desktop:app-tabs-frame-call",
     frameMessage: "desktop:app-tabs-frame-message",
     frameReady: "desktop:app-tabs-frame-ready",

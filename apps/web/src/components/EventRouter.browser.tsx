@@ -8,6 +8,7 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
+  singletonThreadDeckId,
   type OrchestrationEvent,
   type OrchestrationGetThreadTurnsPageResult,
   type OrchestrationReadModel,
@@ -83,6 +84,8 @@ function createThread(input: {
 }): OrchestrationThread {
   return {
     id: input.id,
+    deckId: singletonThreadDeckId(input.id),
+    deckSortOrder: 0,
     folderId: PROJECT_ID,
     title: input.title,
     modelSelection: { provider: "codex", model: "gpt-5" },
@@ -134,6 +137,13 @@ function createSnapshot(): OrchestrationReadModel {
         deletedAt: null,
       },
     ],
+    decks: [THREAD_ID, OTHER_THREAD_ID].map((threadId) => ({
+      id: singletonThreadDeckId(threadId),
+      spaceId: TEST_SPACE_ID,
+      threadIds: [threadId],
+      createdAt: NOW_ISO,
+      updatedAt: NOW_ISO,
+    })),
     threads: [
       createThread({
         id: THREAD_ID,

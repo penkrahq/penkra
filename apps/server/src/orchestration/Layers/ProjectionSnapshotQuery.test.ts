@@ -7,6 +7,7 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
+  singletonThreadDeckId,
 } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
@@ -431,6 +432,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.deepEqual(snapshot.threads, [
         {
           id: ThreadId.makeUnsafe("thread-1"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
+          deckSortOrder: 0,
           folderId: asFolderId("project-1"),
           title: "Thread 1",
           modelSelection: {
@@ -1696,6 +1699,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.deepEqual(shellSnapshot.threads, [
         {
           id: ThreadId.makeUnsafe("thread-shell"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-shell")),
+          deckSortOrder: 0,
           folderId: asFolderId("project-shell"),
           title: "Shell Thread",
           modelSelection: {

@@ -61,7 +61,7 @@ import {
   teardownChildProcessTree,
   teardownProviderProcessTree,
 } from "./provider/supervisedProcessTeardown.ts";
-import { ensureIsolatedScratchWorkspace } from "./scratchWorkspaces.ts";
+import { ensureDurableThreadWorkspace } from "./scratchWorkspaces.ts";
 import type { ProviderManagedLaunchContext } from "./provider/Services/ProviderAdapter.ts";
 import {
   adoptManagedCodexRollout,
@@ -876,6 +876,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     | undefined;
   private readonly teardownProcessTree: typeof teardownProviderProcessTree;
   private readonly taskCompleteFallbackGraceMs: number;
+  private readonly stateDir: string;
 
   private async materializeTemporaryResource(
     context: CodexSessionContext,
@@ -887,7 +888,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error("App operation resource exceeds the 16 MiB Codex handoff limit.");
     }
     const directory = Path.join(
-      context.session.cwd ?? ensureIsolatedScratchWorkspace(context.session.threadId),
+      context.session.cwd ?? ensureDurableThreadWorkspace(context.session.threadId, this.stateDir),
       ".penkra",
       "operation-resources",
       String(turnId),
@@ -930,6 +931,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       };
       readonly teardownProcessTree?: typeof teardownProviderProcessTree;
       readonly taskCompleteFallbackGraceMs?: number;
+      readonly stateDir?: string;
     },
   ) {
     super();
@@ -938,6 +940,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     this.agentGatewayHostTool = options?.agentGatewayHostTool;
     this.teardownProcessTree = options?.teardownProcessTree ?? teardownProviderProcessTree;
     this.taskCompleteFallbackGraceMs = Math.max(0, options?.taskCompleteFallbackGraceMs ?? 750);
+    // Direct manager construction is retained for focused tests and external
+    // consumers. Production adapters always supply Penkra's durable stateDir.
+    this.stateDir = options?.stateDir ?? Path.join(process.cwd(), ".penkra");
   }
 
   // The Penkra MCP server rides on the shared overlay config (no secrets),
@@ -1058,7 +1063,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         await this.stopSession(threadId);
       }
 
-      const resolvedCwd = input.cwd ?? ensureIsolatedScratchWorkspace(threadId);
+      const resolvedCwd = input.cwd ?? ensureDurableThreadWorkspace(threadId, this.stateDir);
 
       const session: ProviderSession = {
         provider: "codex",
@@ -1829,7 +1834,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         throw new Error("Provider fork is missing the source thread resume id.");
       }
 
-      const resolvedCwd = input.cwd ?? ensureIsolatedScratchWorkspace(threadId);
+      const resolvedCwd = input.cwd ?? ensureDurableThreadWorkspace(threadId, this.stateDir);
       const session: ProviderSession = {
         provider: "codex",
         status: "connecting",

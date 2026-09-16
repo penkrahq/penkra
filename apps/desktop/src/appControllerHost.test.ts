@@ -86,6 +86,7 @@ function fixture(app = installedApp()) {
   const session = {
     appId: app.appId,
     spaceId: "personal",
+    deckId: "deck-1",
     partition: "persist:test",
     origin: `penkra-app://a-${"a".repeat(64)}`,
     session: {} as ActiveAppSession["session"],
@@ -112,6 +113,7 @@ function operationContext(tab?: AppTabHandle): OperationContext {
       app: "linear",
       operation: "issues.create",
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       ...(tab ? { tabId: tab.id } : {}),
     },
@@ -208,6 +210,7 @@ describe("AppControllerHost", () => {
     await test.host.invoke({
       appId: test.app.appId,
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       tabId: "tab-1",
       handler: "explorer.stat",
@@ -219,7 +222,7 @@ describe("AppControllerHost", () => {
       {
         handler: "explorer.stat",
         input: { relativePath: "app.js" },
-        context: { threadId: "thread-1", tabId: "tab-1" },
+        context: { deckId: "deck-1", threadId: "thread-1", tabId: "tab-1" },
       },
       { targetLabel: "com.acme.linear" },
     );

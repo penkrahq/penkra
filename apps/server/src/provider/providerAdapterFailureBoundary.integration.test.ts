@@ -1,3 +1,4 @@
+import { singletonThreadDeckId } from "@penkra/contracts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -64,7 +65,10 @@ import { ProviderSessionRuntimeRepositoryLive } from "../persistence/Layers/Prov
 const THREAD_ID = ThreadId.makeUnsafe("thread-adapter-boundary");
 const TURN_ID = TurnId.makeUnsafe("turn-adapter-boundary");
 const CONNECTION_ID = ProviderConnectionId.makeUnsafe("fixture-connection");
-const MODEL_SELECTION: ModelSelection = { provider: "codex", model: "gpt-5-codex" };
+const MODEL_SELECTION: ModelSelection = {
+  provider: "codex",
+  model: "gpt-5-codex",
+};
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 
 type ControlledErrorNotification = {
@@ -479,6 +483,7 @@ async function makeProviderRuntime(
       type: "thread.create",
       commandId: CommandId.makeUnsafe("cmd-boundary-thread"),
       threadId: THREAD_ID,
+      deckId: singletonThreadDeckId(THREAD_ID),
       folderId: FolderId.makeUnsafe("folder-boundary"),
       title: "Adapter boundary",
       modelSelection: MODEL_SELECTION,
@@ -973,7 +978,9 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         state: "failed",
         queued: false,
       });
-      expect(authTrace.pendingStartOutcome).toMatchObject({ outcome: "unknown" });
+      expect(authTrace.pendingStartOutcome).toMatchObject({
+        outcome: "unknown",
+      });
       const steerRows = await harness.runtime.runPromise(
         harness.events.readThreadEvents({
           threadId: THREAD_ID,
@@ -1246,7 +1253,9 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         state: "succeeded",
         attemptCount: 1,
       });
-      expect(p2PredecessorTrace.pendingStartOutcome).toMatchObject({ outcome: "accepted" });
+      expect(p2PredecessorTrace.pendingStartOutcome).toMatchObject({
+        outcome: "accepted",
+      });
 
       const snapshot = await harness.runtime.runPromise(harness.projection.getSnapshot());
       const thread = snapshot.threads.find((entry) => entry.id === THREAD_ID);
@@ -1591,7 +1600,9 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         state: "failed",
         queued: false,
       });
-      expect(p4SteerTrace.pendingStartOutcome).toMatchObject({ outcome: "unknown" });
+      expect(p4SteerTrace.pendingStartOutcome).toMatchObject({
+        outcome: "unknown",
+      });
       const snapshot = await harness.runtime.runPromise(harness.projection.getSnapshot());
       const thread = snapshot.threads.find((entry) => entry.id === THREAD_ID);
       expect(thread?.messages.find((entry) => entry.id === predecessorMessageId)).toMatchObject({
@@ -1645,7 +1656,9 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         state: "uncertain",
         attemptCount: 1,
       });
-      expect(retainedTrace.pendingStartOutcome).toMatchObject({ outcome: "unknown" });
+      expect(retainedTrace.pendingStartOutcome).toMatchObject({
+        outcome: "unknown",
+      });
       expect(manager.startInputs).toHaveLength(1);
       expect(manager.sendInputs).toHaveLength(1);
       expect(manager.steerInputs).toHaveLength(1);

@@ -38,6 +38,8 @@ const replayedEntries: ReadonlyArray<readonly [id: number, name: string]> = [
   [161, "CanonicalActivitySequence"],
   [162, "TranscriptMessageSearch"],
   [163, "MessageDeliveryFailureEvidence"],
+  [164, "ThreadDecks"],
+  [165, "ProviderRuntimeDiagnosticEpisodes"],
 ];
 
 const schemaObjects = (sql: SqlClient.SqlClient) =>
@@ -62,10 +64,18 @@ const forgetMigrationsFromReplayPoint = Effect.gen(function* () {
 const seedDurableState = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`
-    INSERT INTO projection_folders (
-      folder_id, kind, title, workspace_root, scripts_json, created_at, updated_at
+    INSERT INTO projection_spaces (
+      space_id, name, icon, sort_order, created_at, updated_at
     ) VALUES (
-      'replay-project', 'project', 'Replay', '/workspace/replay', '[]',
+      'replay-space', 'Replay', 'bag', 0,
+      '2026-07-24T10:00:00.000Z', '2026-07-24T10:00:00.000Z'
+    )
+  `;
+  yield* sql`
+    INSERT INTO projection_folders (
+      folder_id, kind, space_id, title, workspace_root, scripts_json, created_at, updated_at
+    ) VALUES (
+      'replay-project', 'project', 'replay-space', 'Replay', '/workspace/replay', '[]',
       '2026-07-24T10:00:00.000Z', '2026-07-24T10:00:00.000Z'
     )
   `;
