@@ -465,7 +465,9 @@ export class AppPreloadRuntime {
       if (method === "tab.invoke") {
         result = await this.#invokeTab(request, message.input);
       } else if (method === "tab.navigate" || method === "tab.navigate-for-result") {
-        result = await this.#navigateTab(request, message.input);
+        result = await this.#navigateTab(request, message.input, {
+          waitForCompletion: method === "tab.navigate-for-result",
+        });
       } else {
         throw runtimeError("METHOD_NOT_SUPPORTED", "App renderer request method is not supported.");
       }
@@ -494,17 +496,26 @@ export class AppPreloadRuntime {
     return handler(input.input, { signal: request.controller.signal });
   }
 
-  async #navigateTab(request: ActiveRequest, value: unknown): Promise<unknown> {
+  async #navigateTab(
+    request: ActiveRequest,
+    value: unknown,
+    options: { waitForCompletion: boolean },
+  ): Promise<unknown> {
     const handler =
       this.#navigationHandler ?? (await this.#waitForNavigationHandler(request.controller.signal));
     const input = requireRecord(value);
-    return handler(
+    const result = handler(
       {
         route: requireString(input.route, "route"),
         ...(input.state === undefined ? {} : { state: input.state }),
       },
       { signal: request.controller.signal },
     );
+    if (options.waitForCompletion) return result;
+    void Promise.resolve(result).catch((error: unknown) => {
+      console.error("Penkra App navigation failed after the route was accepted.", error);
+    });
+    return null;
   }
 
   #waitForNavigationHandler(signal: AbortSignal): Promise<AppTabNavigationHandler<unknown>> {
