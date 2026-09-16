@@ -85,6 +85,11 @@ import { useVoiceSessionCoordinatorStore } from "../voiceSessionCoordinator";
 // Pre-transform the compiler-heavy component outside the first case's timeout.
 // The router's auto-split route otherwise requests this module on first mount.
 import { resetPendingStartRecoveryRegistryForTests } from "./ChatView";
+import {
+  enableChatPerformanceDiagnostics,
+  getChatPerformanceWorkSamples,
+  resetChatPerformanceDiagnostics,
+} from "../chatPerformanceDiagnostics";
 
 const composerBlobReadHarness = vi.hoisted(() => ({
   override: null as null | ((key: string) => Promise<File | null>),
@@ -1001,6 +1006,90 @@ function createSnapshotWithInlineToolOverflow(options: {
                 }
               : null,
             updatedAt: options.active ? isoAt(1_107) : isoAt(1_109),
+          }
+        : thread,
+    ),
+  };
+}
+
+function createLongRunningStreamingSnapshot(): OrchestrationReadModel {
+  const base = createSnapshotForTargetUser({
+    targetMessageId: MessageId.makeUnsafe("msg-long-stream-user"),
+    targetText: "long streaming performance reproduction",
+    sessionStatus: "running",
+  });
+  const turnId = TurnId.makeUnsafe("turn-long-stream-19");
+  const startedAt = isoAt(2_000);
+  let sequence = 10_000;
+  const activities: Array<OrchestrationReadModel["threads"][number]["activities"][number]> = [];
+  const streamedMessages: Array<OrchestrationReadModel["threads"][number]["messages"][number]> = [];
+  for (let turnIndex = 0; turnIndex < 20; turnIndex += 1) {
+    const currentTurnId = TurnId.makeUnsafe(`turn-long-stream-${turnIndex}`);
+    const userSequence = sequence++;
+    streamedMessages.push({
+      id: MessageId.makeUnsafe(`user-long-stream-${turnIndex}`),
+      role: "user",
+      text: `Long history request ${turnIndex}`,
+      turnId: currentTurnId,
+      createdAt: isoAt(userSequence),
+      updatedAt: isoAt(userSequence),
+      streaming: false,
+      source: "native",
+      sequence: userSequence,
+    });
+    for (let activityIndex = 0; activityIndex < 275; activityIndex += 1) {
+      const activitySequence = sequence++;
+      activities.push({
+        id: EventId.makeUnsafe(`activity-long-stream-${turnIndex}-${activityIndex}`),
+        createdAt: isoAt(activitySequence),
+        kind: "tool.completed",
+        summary: `Ran command ${turnIndex}-${activityIndex}`,
+        tone: "tool",
+        turnId: currentTurnId,
+        sequence: activitySequence,
+        payload: {
+          itemType: "command_execution",
+          command: `echo ${turnIndex}-${activityIndex}`,
+          status: "completed",
+        },
+      });
+      if (activityIndex % 18 === 17 && streamedMessages.length < (turnIndex + 1) * 16) {
+        const assistantIndex = streamedMessages.length - turnIndex - 1;
+        const messageSequence = sequence++;
+        const isLiveTail = turnIndex === 19 && assistantIndex === 299;
+        streamedMessages.push({
+          id: MessageId.makeUnsafe(`assistant-long-stream-${assistantIndex}`),
+          role: "assistant",
+          text: `Streaming progress ${assistantIndex}`,
+          turnId: currentTurnId,
+          createdAt: isoAt(messageSequence),
+          updatedAt: isoAt(messageSequence),
+          streaming: isLiveTail,
+          source: "native",
+          sequence: messageSequence,
+        });
+      }
+    }
+  }
+  return {
+    ...base,
+    threads: base.threads.map((thread) =>
+      thread.id === THREAD_ID
+        ? {
+            ...thread,
+            latestTurn: {
+              turnId,
+              state: "running" as const,
+              requestedAt: startedAt,
+              startedAt,
+              completedAt: null,
+              assistantMessageId: MessageId.makeUnsafe("assistant-long-stream-299"),
+            },
+            messages: [...thread.messages, ...streamedMessages],
+            activities,
+            session: thread.session
+              ? { ...thread.session, status: "running" as const, activeTurnId: turnId }
+              : null,
           }
         : thread,
     ),
@@ -2122,6 +2211,56 @@ async function mountChatView(options: {
 }
 
 describe("ChatView timeline estimator parity (full app)", () => {
+  it("keeps a 5,500-activity running transcript observable while streaming", async () => {
+    const snapshot = createLongRunningStreamingSnapshot();
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    resetChatPerformanceDiagnostics();
+    enableChatPerformanceDiagnostics();
+    try {
+      for (let revision = 1; revision <= 10; revision += 1) {
+        const next = {
+          ...snapshot,
+          snapshotSequence: snapshot.snapshotSequence + revision,
+          threads: snapshot.threads.map((thread) =>
+            thread.id === THREAD_ID
+              ? {
+                  ...thread,
+                  messages: thread.messages.map((message) =>
+                    message.id === "assistant-long-stream-299"
+                      ? {
+                          ...message,
+                          text: `${message.text} ${revision}`,
+                          updatedAt: isoAt(8_000 + revision),
+                        }
+                      : message,
+                  ),
+                }
+              : thread,
+          ),
+        };
+        useStore.getState().syncServerReadModel(next);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      const samples = getChatPerformanceWorkSamples();
+      expect(document.body.textContent).toContain("Streaming progress 299 10");
+      for (const kind of [
+        "transcript-commit",
+        "transcript-work-log",
+        "transcript-strip-work-log",
+        "transcript-agent-activity",
+        "transcript-timeline",
+        "transcript-rows",
+      ] as const) {
+        expect(
+          samples.some((sample) => sample.kind === kind),
+          kind,
+        ).toBe(true);
+      }
+    } finally {
+      await mounted.cleanup();
+    }
+  });
   beforeAll(async () => {
     fixture = buildFixture(
       createSnapshotForTargetUser({

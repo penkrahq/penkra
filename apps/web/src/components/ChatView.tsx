@@ -379,7 +379,7 @@ import {
   useDesktopTopBarWindowControlsGutterClassName,
 } from "~/hooks/useDesktopTopBarGutter";
 import { useNowMs } from "~/hooks/useNowMs";
-import { ChatPerformanceBoundary } from "~/chatPerformanceDiagnostics";
+import { ChatPerformanceBoundary, measureChatPerformanceWork } from "~/chatPerformanceDiagnostics";
 import { ChatTranscriptPane } from "./chat/ChatTranscriptPane";
 import { ThreadDetailHydrationState } from "./chat/ThreadDetailHydrationState";
 import { ComposerDefault } from "./middle-panel/composer-default/ComposerDefault";
@@ -2034,7 +2034,10 @@ export default function ChatView({
     session: activeThread?.session ?? null,
   });
   const activeContextWindow = useMemo(
-    () => deriveLatestContextWindowSnapshot(threadActivities),
+    () =>
+      measureChatPerformanceWork("transcript-context", () =>
+        deriveLatestContextWindowSnapshot(threadActivities),
+      ),
     [threadActivities],
   );
   const activeCumulativeCostUsd = useMemo(
@@ -2642,16 +2645,18 @@ export default function ChatView({
   );
   const rawWorkLogEntries = useMemo(
     () =>
-      deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined, {
-        visibleTurnIds: workLogVisibleTurnIds,
-        ...(workLogVisibleSequenceFloor === undefined
-          ? {}
-          : { visibleSequenceFloor: workLogVisibleSequenceFloor }),
-        activeTurnId: activeSessionTurnId,
-        activeTurnStartedAt: activeSessionTurnStartedAt,
-        latestTurnState: activeLatestTurn?.state ?? null,
-        latestTurnCompletedAt: activeLatestTurn?.completedAt ?? null,
-      }),
+      measureChatPerformanceWork("transcript-work-log", () =>
+        deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined, {
+          visibleTurnIds: workLogVisibleTurnIds,
+          ...(workLogVisibleSequenceFloor === undefined
+            ? {}
+            : { visibleSequenceFloor: workLogVisibleSequenceFloor }),
+          activeTurnId: activeSessionTurnId,
+          activeTurnStartedAt: activeSessionTurnStartedAt,
+          latestTurnState: activeLatestTurn?.state ?? null,
+          latestTurnCompletedAt: activeLatestTurn?.completedAt ?? null,
+        }),
+      ),
     [
       activeLatestTurn,
       activeSessionTurnId,
@@ -2789,17 +2794,19 @@ export default function ChatView({
   // unfiltered pass or it would structurally never see routed subagents.
   const stripRawWorkLogEntries = useMemo(
     () =>
-      deriveWorkLogEntries(stripSourceActivities, stripSourceLatestTurnId ?? undefined, {
-        visibleTurnIds: stripVisibleTurnIds,
-        ...(stripVisibleSequenceFloor === undefined
-          ? {}
-          : { visibleSequenceFloor: stripVisibleSequenceFloor }),
-        includeRoutedSubagentActivities: true,
-        activeTurnId: stripSourceActiveTurnId,
-        activeTurnStartedAt: stripSourceActiveTurnStartedAt,
-        latestTurnState: stripSourceLatestTurn?.state ?? null,
-        latestTurnCompletedAt: stripSourceLatestTurn?.completedAt ?? null,
-      }),
+      measureChatPerformanceWork("transcript-strip-work-log", () =>
+        deriveWorkLogEntries(stripSourceActivities, stripSourceLatestTurnId ?? undefined, {
+          visibleTurnIds: stripVisibleTurnIds,
+          ...(stripVisibleSequenceFloor === undefined
+            ? {}
+            : { visibleSequenceFloor: stripVisibleSequenceFloor }),
+          includeRoutedSubagentActivities: true,
+          activeTurnId: stripSourceActiveTurnId,
+          activeTurnStartedAt: stripSourceActiveTurnStartedAt,
+          latestTurnState: stripSourceLatestTurn?.state ?? null,
+          latestTurnCompletedAt: stripSourceLatestTurn?.completedAt ?? null,
+        }),
+      ),
     [
       stripSourceActivities,
       stripSourceActiveTurnId,
@@ -2846,7 +2853,10 @@ export default function ChatView({
     setOpenAgentActivityId(null);
   };
   const agentActivityTimelineState = useMemo(
-    () => deriveAgentActivityTimelineState(workLogEntries),
+    () =>
+      measureChatPerformanceWork("transcript-agent-activity", () =>
+        deriveAgentActivityTimelineState(workLogEntries),
+      ),
     [workLogEntries],
   );
   const openAgentActivityDetail = openAgentActivityId
@@ -2872,11 +2882,17 @@ export default function ChatView({
     return () => window.clearTimeout(settle);
   }, [agentActivityTimelineState.detailById, openAgentActivityId]);
   const pendingApprovals = useMemo(
-    () => derivePendingApprovals(threadActivities, activeThread?.pendingInteractions),
+    () =>
+      measureChatPerformanceWork("transcript-pending-interactions", () =>
+        derivePendingApprovals(threadActivities, activeThread?.pendingInteractions),
+      ),
     [activeThread?.pendingInteractions, threadActivities],
   );
   const pendingUserInputs = useMemo(
-    () => derivePendingUserInputs(threadActivities, activeThread?.pendingInteractions),
+    () =>
+      measureChatPerformanceWork("transcript-pending-interactions", () =>
+        derivePendingUserInputs(threadActivities, activeThread?.pendingInteractions),
+      ),
     [activeThread?.pendingInteractions, threadActivities],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
@@ -2998,12 +3014,14 @@ export default function ChatView({
   );
   const workflowRunState = useMemo(
     () =>
-      deriveWorkflowRunState({
-        activities: threadActivities,
-        subagentThreadsByToolUseId: workflowSubagentThreadsByToolUseId,
-        pausedByUserTaskIds: pausedWorkflowTaskIds,
-        dismissedTaskIds: dismissedWorkflowTaskIds,
-      }),
+      measureChatPerformanceWork("transcript-workflow", () =>
+        deriveWorkflowRunState({
+          activities: threadActivities,
+          subagentThreadsByToolUseId: workflowSubagentThreadsByToolUseId,
+          pausedByUserTaskIds: pausedWorkflowTaskIds,
+          dismissedTaskIds: dismissedWorkflowTaskIds,
+        }),
+      ),
     [
       threadActivities,
       workflowSubagentThreadsByToolUseId,
@@ -3666,7 +3684,10 @@ export default function ChatView({
     serverQueuedMessageIds,
   ]);
   const timelineEntries = useMemo(
-    () => deriveTimelineEntries(timelineMessages, agentActivityTimelineState.timelineWorkEntries),
+    () =>
+      measureChatPerformanceWork("transcript-timeline", () =>
+        deriveTimelineEntries(timelineMessages, agentActivityTimelineState.timelineWorkEntries),
+      ),
     [agentActivityTimelineState.timelineWorkEntries, timelineMessages],
   );
   const shouldRenderTranscriptSurface = shouldRenderTranscriptDuringHydration({
