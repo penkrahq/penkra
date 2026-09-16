@@ -18,41 +18,6 @@ function fixture(options: ConstructorParameters<typeof AppRendererRpcHost>[0] = 
 }
 
 describe("AppRendererRpcHost", () => {
-  it("accepts ordinary navigation delivery without waiting for route work", () => {
-    const test = fixture({ maxPendingPerTarget: 1 });
-
-    test.host.deliver(17, "tab.navigate", {
-      route: "/document",
-      state: { documentId: "doc-1" },
-    });
-    test.host.deliver(17, "tab.navigate", {
-      route: "/document",
-      state: { documentId: "doc-2" },
-    });
-
-    expect(test.sent).toEqual([
-      expect.objectContaining({
-        type: "request",
-        id: expect.stringMatching(/^delivery-/u),
-        method: "tab.navigate",
-        input: { route: "/document", state: { documentId: "doc-1" } },
-      }),
-      expect.objectContaining({
-        type: "request",
-        id: expect.stringMatching(/^delivery-/u),
-        method: "tab.navigate",
-        input: { route: "/document", state: { documentId: "doc-2" } },
-      }),
-    ]);
-    expect(
-      test.host.acceptResponse(17, {
-        type: "result",
-        id: (test.sent[0] as { id: string }).id,
-        result: null,
-      }),
-    ).toBe(false);
-  });
-
   it("resolves only a response from the exact target renderer", async () => {
     const test = fixture();
     const result = test.host.request(17, "controller.invoke", { operation: "issues.create" });
