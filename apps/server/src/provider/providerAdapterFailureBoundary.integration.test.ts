@@ -202,15 +202,10 @@ class ControlledCodexManager extends CodexAppServerManager {
     readonly message: string;
   }): void {
     this.nativeEmissionOrder.push(input.eventId);
-    const session = this.controlledSessions.get(THREAD_ID);
-    if (session !== undefined) {
-      const { activeTurnId: _activeTurnId, ...sessionWithoutActiveTurn } = session;
-      this.controlledSessions.set(THREAD_ID, {
-        ...sessionWithoutActiveTurn,
-        status: "ready",
-        updatedAt: input.createdAt,
-      });
-    }
+    // A closed native session is no longer routable. The real manager reports
+    // `hasSession() === false` during teardown; deleting the controlled entry
+    // preserves that public behavior for this fixture.
+    this.controlledSessions.delete(THREAD_ID);
     this.emit("event", {
       id: asEventId(input.eventId),
       kind: "session",
@@ -407,6 +402,7 @@ async function makeProviderRuntime(
   const reactorLayer = makeProviderCommandReactorLive({
     queuedTurnRecoveryInterval: Duration.millis(10),
   }).pipe(
+    Layer.provideMerge(ingestionLayer),
     Layer.provideMerge(orchestrationLayer),
     Layer.provideMerge(providerLayer),
     Layer.provideMerge(managedBindingLayer),
@@ -1355,6 +1351,10 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       );
       await harness.runtime.runPromise(harness.reactor.drain);
       await harness.runtime.runPromise(harness.ingestion.drain);
+      await waitFor(async () => manager.sendInputs.length === 2);
+      await waitFor(async () => manager.startInputs.length === 2);
+      await harness.runtime.runPromise(harness.reactor.drain);
+      await harness.runtime.runPromise(harness.ingestion.drain);
       const p3Trace = await persistedBoundaryTrace(harness, successorMessageId);
       expect(p3Trace.commandDelivery).toMatchObject({
         state: "succeeded",
@@ -1387,11 +1387,6 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         text: "P3 exact successor after session closure",
         delivery: { state: "accepted", queued: true },
       });
-      expect(thread?.session).toMatchObject({
-        threadId: THREAD_ID,
-        status: "stopped",
-        activeTurnId: null,
-      });
       const rows = await harness.runtime.runPromise(
         harness.events.readThreadEvents({
           threadId: THREAD_ID,
@@ -1410,7 +1405,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
           reason: "controlled provider session closed",
         },
       });
-      expect(manager.startInputs).toHaveLength(1);
+      expect(manager.startInputs).toHaveLength(2);
       expect(manager.sendInputs).toHaveLength(2);
       expect(manager.sendInputs[0]?.input).toBe("P3 predecessor");
       expect(manager.sendInputs[1]?.input).toBe("P3 exact successor after session closure");
@@ -1435,12 +1430,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         text: "P3 exact successor after session closure",
         delivery: { state: "accepted", queued: true },
       });
-      expect(retainedThread?.session).toMatchObject({
-        threadId: THREAD_ID,
-        status: "stopped",
-        activeTurnId: null,
-      });
-      expect(manager.startInputs).toHaveLength(1);
+      expect(manager.startInputs).toHaveLength(2);
       expect(manager.sendInputs).toHaveLength(2);
       expect(manager.steerInputs).toHaveLength(0);
     } finally {

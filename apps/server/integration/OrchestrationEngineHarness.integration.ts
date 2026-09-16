@@ -364,6 +364,7 @@ export const makeOrchestrationIntegrationHarness = (
       }),
     ).pipe(Layer.provideMerge(runtimeServicesLayer));
     const providerCommandReactorLayer = makeProviderCommandReactorLive().pipe(
+      Layer.provideMerge(runtimeIngestionLayer),
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(

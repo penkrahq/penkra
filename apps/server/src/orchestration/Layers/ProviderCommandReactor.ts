@@ -108,6 +108,7 @@ import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../../managedAttachmentPrin
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderThreadSwitchCoordinator } from "../Services/ProviderThreadSwitchCoordinator.ts";
+import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderCommandReactor,
@@ -382,6 +383,7 @@ const make = Effect.gen(function* () {
   const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
+  const providerRuntimeIngestion = yield* ProviderRuntimeIngestionService;
   const providerTurnSelectionResolver = yield* ProviderTurnSelectionResolver;
   const providerLaunchResolver = yield* ProviderLaunchResolver;
   const threadProviderBindings = yield* ThreadProviderBindingRepository;
@@ -4250,7 +4252,17 @@ const make = Effect.gen(function* () {
           ) {
             return Effect.void;
           }
-          return processQueueDrainEventSafely(event);
+          if (event.type !== "session.exited") {
+            return processQueueDrainEventSafely(event);
+          }
+          // Provider events are journaled before they are published. Drain the
+          // ingestion journal through its current durable high-water mark so a
+          // session exit is projected before its queued successor is promoted.
+          // Otherwise these independent subscribers can race and route the
+          // successor through the session that just exited.
+          return providerRuntimeIngestion.drain.pipe(
+            Effect.andThen(processQueueDrainEventSafely(event)),
+          );
         }).pipe(Effect.forkScoped),
         Effect.forever(
           Effect.sleep(queuedTurnRecoveryInterval).pipe(
