@@ -42,6 +42,7 @@ export class AppOperationBrokerError extends Error {
 export interface InvokeAppOperationRequest<Input = unknown> extends OperationRequest<Input> {
   /** Host context; these are not part of the App operation's input schema. */
   spaceId: string;
+  deckId: string;
   threadId: string;
   signal?: AbortSignal;
   callerKind?: "user" | "agent" | "host";
@@ -81,6 +82,7 @@ export interface AppOperationController {
 export interface AppTabEndpoint extends AppTabHandle {
   appId: string;
   spaceId: string;
+  deckId: string;
   threadId: string;
 }
 
@@ -89,6 +91,7 @@ export interface OpenAppTabRequest {
   tabId?: string;
   app: InstalledAppPackage;
   spaceId: string;
+  deckId: string;
   threadId: string;
   route: string;
   state?: unknown;
@@ -97,11 +100,7 @@ export interface OpenAppTabRequest {
 export interface AppTabHost {
   open(input: OpenAppTabRequest): Promise<AppTabHandle>;
   openForResult<Result = unknown>(input: OpenAppTabRequest): Promise<Result>;
-  presentExisting?(input: {
-    appId: string;
-    spaceId: string;
-    threadId: string;
-  }): AppTabHandle | null;
+  presentExisting?(input: { appId: string; spaceId: string; deckId: string }): AppTabHandle | null;
 }
 
 export interface AppOperationBrokerOptions {
@@ -222,6 +221,7 @@ export class AppOperationBroker {
       app: request.app,
       operation: request.operation,
       spaceId: request.spaceId,
+      deckId: request.deckId,
       threadId: request.threadId,
       ...(request.tabId === undefined ? {} : { tabId: request.tabId }),
     };
@@ -233,6 +233,7 @@ export class AppOperationBroker {
         this.#tabHost.open({
           app: installedApp,
           spaceId: request.spaceId,
+          deckId: request.deckId,
           threadId: request.threadId,
           ...input,
         }),
@@ -240,6 +241,7 @@ export class AppOperationBroker {
         this.#tabHost.openForResult({
           app: installedApp,
           spaceId: request.spaceId,
+          deckId: request.deckId,
           threadId: request.threadId,
           ...input,
         }),
@@ -256,12 +258,13 @@ export class AppOperationBroker {
           const existing = this.#tabHost.presentExisting?.({
             appId: target.appId,
             spaceId: request.spaceId,
-            threadId: request.threadId,
+            deckId: request.deckId,
           });
           if (existing) return existing;
           return this.#tabHost.open({
             app: target,
             spaceId: request.spaceId,
+            deckId: request.deckId,
             threadId: request.threadId,
             route: "/",
           });
@@ -272,6 +275,7 @@ export class AppOperationBroker {
           this.invoke({
             ...crossAppRequest,
             spaceId: request.spaceId,
+            deckId: request.deckId,
             threadId: request.threadId,
             ...(request.signal === undefined ? {} : { signal: request.signal }),
             caller: {

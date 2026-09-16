@@ -104,6 +104,7 @@ import {
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import { ServerConfig } from "../../config.ts";
+import { ensureDurableThreadWorkspace } from "../../scratchWorkspaces.ts";
 import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../../managedAttachmentPrincipal.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -436,17 +437,14 @@ const make = Effect.gen(function* () {
   });
 
   const resolveProjectedThreadWorkspaceCwd = Effect.fnUntraced(function* (
-    thread: Pick<OrchestrationThread, "folderId" | "workingDirectory">,
-  ): Effect.fn.Return<string | undefined> {
+    thread: Pick<OrchestrationThread, "id" | "folderId" | "workingDirectory">,
+  ): Effect.fn.Return<string> {
     const project = yield* resolveThreadWorkspaceProject(thread);
-    if (!project) {
-      return undefined;
-    }
     return (
       resolveThreadWorkspaceCwd({
         workingDirectory: thread.workingDirectory,
-        projectCwd: project.workspaceRoot,
-      }) ?? undefined
+        projectCwd: project?.workspaceRoot,
+      }) ?? ensureDurableThreadWorkspace(thread.id, serverConfig.stateDir)
     );
   });
   const editResendTurnStartKeys = new Set<string>();
@@ -2253,12 +2251,13 @@ const make = Effect.gen(function* () {
           );
         }
         const readModel = yield* orchestrationEngine.getCommandReadModel();
-        const cwd = resolveThreadWorkspaceCwd({
-          workingDirectory: thread.workingDirectory,
-          projectCwd:
-            readModel.folders.find((project) => project.id === thread.folderId)?.workspaceRoot ??
-            null,
-        });
+        const cwd =
+          resolveThreadWorkspaceCwd({
+            workingDirectory: thread.workingDirectory,
+            projectCwd:
+              readModel.folders.find((project) => project.id === thread.folderId)?.workspaceRoot ??
+              null,
+          }) ?? ensureDurableThreadWorkspace(thread.id, serverConfig.stateDir);
         const providerName = thread.session?.providerName ?? thread.modelSelection.provider;
         const providerThread = yield* resolveProviderSessionThread(event.payload.threadId);
         const sessionThreadId = providerThread?.id ?? event.payload.threadId;
@@ -3081,12 +3080,13 @@ const make = Effect.gen(function* () {
     }
 
     const readModel = yield* orchestrationEngine.getCommandReadModel();
-    const cwd = resolveThreadWorkspaceCwd({
-      workingDirectory: originalThread.workingDirectory,
-      projectCwd:
-        readModel.folders.find((project) => project.id === originalThread.folderId)
-          ?.workspaceRoot ?? null,
-    });
+    const cwd =
+      resolveThreadWorkspaceCwd({
+        workingDirectory: originalThread.workingDirectory,
+        projectCwd:
+          readModel.folders.find((project) => project.id === originalThread.folderId)
+            ?.workspaceRoot ?? null,
+      }) ?? ensureDurableThreadWorkspace(originalThread.id, serverConfig.stateDir);
     editResendTurnStartKeys.add(editResendTurnStartKey(payload.threadId, payload.messageId));
     yield* providerThreadSwitchCoordinator.dispatchTurnStart({
       command: {

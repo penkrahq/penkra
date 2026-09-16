@@ -1,3 +1,4 @@
+import { singletonThreadDeckId } from "@penkra/contracts";
 import {
   CommandId,
   FolderId,
@@ -83,6 +84,8 @@ const INPUT: PenkraCreateThreadInput = {
 
 const CALLER: OrchestrationThreadShell = {
   id: CALLER_THREAD_ID,
+  deckId: singletonThreadDeckId(CALLER_THREAD_ID),
+  deckSortOrder: 0,
   folderId: FOLDER_ID,
   title: "Retained caller",
   modelSelection: TARGET,
@@ -309,6 +312,7 @@ effectIt.layer(retainedThreadLayer)("retained Thread creation integration", (it)
           type: "thread.create",
           commandId: CommandId.makeUnsafe("retained-caller-create"),
           threadId: CALLER_THREAD_ID,
+          deckId: singletonThreadDeckId(CALLER_THREAD_ID),
           folderId: FOLDER_ID,
           title: CALLER.title,
           modelSelection: TARGET,
@@ -387,12 +391,16 @@ effectIt.layer(retainedThreadLayer)("retained Thread creation integration", (it)
         assert.isNull(childAfterFailure.session);
         assert.isTrue(
           Option.isSome(
-            yield* commandReceipts.getByCommandId({ commandId: ids.threadCreateCommandId }),
+            yield* commandReceipts.getByCommandId({
+              commandId: ids.threadCreateCommandId,
+            }),
           ),
         );
         assert.isTrue(
           Option.isNone(
-            yield* commandReceipts.getByCommandId({ commandId: ids.turnStartCommandId }),
+            yield* commandReceipts.getByCommandId({
+              commandId: ids.turnStartCommandId,
+            }),
           ),
         );
         assert.isTrue(Option.isNone(yield* bindings.getRuntimeBinding(ids.threadId)));
@@ -446,7 +454,9 @@ effectIt.layer(retainedThreadLayer)("retained Thread creation integration", (it)
         assert.strictEqual(binding.revision, 0);
         assert.strictEqual(
           Option.getOrThrow(
-            yield* commandReceipts.getByCommandId({ commandId: ids.turnStartCommandId }),
+            yield* commandReceipts.getByCommandId({
+              commandId: ids.turnStartCommandId,
+            }),
           ).status,
           "accepted",
         );

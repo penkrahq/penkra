@@ -14,6 +14,7 @@ interface ResourceTab {
   id: string;
   appId: string;
   spaceId: string;
+  deckId: string;
   threadId: string;
 }
 
@@ -39,7 +40,7 @@ export async function resolveLocalResource(pathInput: string): Promise<ResolvedL
 
 export async function openLocalAppResource(input: {
   appTabs: {
-    currentFor(spaceId: string, threadId: string): ResourceTab | null;
+    currentFor(spaceId: string, deckId: string): ResourceTab | null;
     list(): ReadonlyArray<ResourceTab>;
     present(tabId: string): void;
   };
@@ -49,6 +50,7 @@ export async function openLocalAppResource(input: {
       operation: string;
       input: unknown;
       spaceId: string;
+      deckId: string;
       threadId: string;
       tabId?: string;
       callerKind: "agent" | "user";
@@ -62,6 +64,7 @@ export async function openLocalAppResource(input: {
   path: string;
   requestedApp?: string;
   spaceId: string;
+  deckId: string;
   threadId: string;
 }): Promise<unknown> {
   const { path, kind, intent } = await resolveLocalResource(input.path);
@@ -87,7 +90,7 @@ export async function openLocalAppResource(input: {
           path,
           kind,
         });
-  const current = input.appTabs.currentFor(input.spaceId, input.threadId);
+  const current = input.appTabs.currentFor(input.spaceId, input.deckId);
   const reusableTab =
     current?.appId === resolved.appId
       ? current
@@ -97,7 +100,7 @@ export async function openLocalAppResource(input: {
             (tab) =>
               tab.appId === resolved.appId &&
               tab.spaceId === input.spaceId &&
-              tab.threadId === input.threadId,
+              tab.deckId === input.deckId,
           );
   if (reusableTab) input.appTabs.present(reusableTab.id);
   const result = await input.broker.invoke({
@@ -108,6 +111,7 @@ export async function openLocalAppResource(input: {
         ? { path }
         : { handleId: handle!.id, kind: handle!.kind, name: handle!.name },
     spaceId: input.spaceId,
+    deckId: input.deckId,
     threadId: input.threadId,
     ...(reusableTab ? { tabId: reusableTab.id } : {}),
     callerKind: input.callerKind ?? "agent",

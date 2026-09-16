@@ -136,6 +136,7 @@ describe("store facade", () => {
     const project3 = FolderId.makeUnsafe("project-3");
     const state: AppState = {
       spaces: [],
+      decks: [],
       archivedSpaces: [],
       folders: [
         makeProject({
@@ -175,6 +176,7 @@ describe("store facade", () => {
     const project2 = FolderId.makeUnsafe("project-2");
     const state: AppState = {
       spaces: [],
+      decks: [],
       archivedSpaces: [],
       folders: [
         makeProject({
@@ -209,6 +211,7 @@ describe("store facade", () => {
   it("collapses all folders when toggled off", () => {
     const state: AppState = {
       spaces: [],
+      decks: [],
       archivedSpaces: [],
       folders: [
         makeProject({
@@ -241,6 +244,7 @@ describe("store facade", () => {
     const project2 = FolderId.makeUnsafe("project-2");
     const state: AppState = {
       spaces: [],
+      decks: [],
       archivedSpaces: [],
       folders: [
         makeProject({
@@ -290,6 +294,7 @@ describe("store facade", () => {
     const project3 = FolderId.makeUnsafe("project-3");
     const initialState: AppState = {
       spaces: [],
+      decks: [],
       archivedSpaces: [],
       folders: [
         makeProject({
@@ -315,6 +320,7 @@ describe("store facade", () => {
       snapshotSequence: 2,
       updatedAt: "2026-02-27T00:00:00.000Z",
       spaces: [],
+      decks: [],
       folders: [
         makeReadModelProject({
           id: project1,
@@ -345,6 +351,7 @@ describe("store facade", () => {
     const project2 = FolderId.makeUnsafe("project-2");
     const initialState: AppState = {
       spaces: [],
+      decks: [],
       archivedSpaces: [],
       folders: [
         makeProject({
@@ -371,6 +378,7 @@ describe("store facade", () => {
       snapshotSequence: 2,
       updatedAt: "2026-02-27T00:00:00.000Z",
       spaces: [],
+      decks: [],
       folders: [
         makeReadModelProject({
           id: project1,
@@ -384,6 +392,7 @@ describe("store facade", () => {
       snapshotSequence: 3,
       updatedAt: "2026-02-27T00:01:00.000Z",
       spaces: [],
+      decks: [],
       folders: [
         makeReadModelProject({
           id: project1,

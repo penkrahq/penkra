@@ -8,6 +8,7 @@ describe("AppRendererIdentityStore", () => {
     const identity = {
       appId: "com.acme.app",
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       tabId: "tab-1",
     };
@@ -24,12 +25,14 @@ describe("AppRendererIdentityStore", () => {
     store.register(-1, {
       appId: "com.acme.app",
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       tabId: "tab-1",
     });
     store.detachGeneration({
       appId: "com.acme.app",
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       tabId: "tab-1",
       rendererId: -2,
@@ -38,6 +41,7 @@ describe("AppRendererIdentityStore", () => {
     store.detachGeneration({
       appId: "com.acme.app",
       spaceId: "personal",
+      deckId: "deck-1",
       threadId: "thread-1",
       tabId: "tab-1",
       rendererId: -1,

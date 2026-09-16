@@ -396,7 +396,7 @@ This is the complete catalog:
 | `account-data`      | Standard | Visual tab and controller | Use the signed-in Account session only inside this App's Penkra-hosted backend namespace                 | None                      |
 | `account-profile`   | Standard | Visual tab and controller | Read the signed-in user's current name, email, verification state, and avatar URL                        | None                      |
 | `account-identity`  | High     | Visual tab and controller | Receive a five-minute signed identity token for exactly one external backend audience                    | Lowercase DNS `audience`  |
-| `thread-compose`    | High     | Visual tab                | Read current Thread state and compose visible content in the App tab's current Thread                    | None                      |
+| `thread-compose`    | High     | Visual tab                | Read and manage members of the App tab's Thread Deck; compose and send to one exact member               | None                      |
 | `thread-send`       | High     | Visual tab                | Submit one exact App-owned composition in the App tab's current Thread                                   | `thread-compose`          |
 
 ### Required, optional, update, and revocation behavior
@@ -1076,18 +1076,54 @@ Wait for pending transfers before deleting run data or closing a workflow.
 
 ### `thread-compose`
 
-An App declaring high-risk `thread-compose` may operate only on the Thread that contains its visual
-tab. `thread.read()` reports active work, queued or steering turns, pending human input, and visible
-composer occupancy. `thread.compose()` writes text, titled documents, App-storage files/images, the
-App's own contributed Skills, effort, and model fallbacks into the visible composer. It returns a
-ten-minute receipt bound to the App, Space, tab, Thread, and exact resulting composition.
+An App declaring high-risk `thread-compose` operates on the persistent Thread Deck that owns its
+visual tab. `threads.list()` returns every member in deck order and `threads.get({ threadId })` reads
+one exact member. `threads.current.read()` reads the currently selected member. State includes active
+work, queued or steering turns, pending human input, and composer occupancy; it does not expose the
+conversation transcript. `threads.onState(listener)` immediately publishes the deck and then emits
+meaningful lifecycle, queue, composer, archive, membership, and ordering changes.
 
-`thread.send({ composeId })` admits those exact staged bytes through Penkra's ordinary send path. The
-receipt is single-use; a duplicate call returns the original admission, while any intervening human
-edit fails with `COMPOSITION_CHANGED`. Active turns use queue admission by default and may explicitly
-request `mode: "steer"`. Composition is rejected while a human draft, queued turn, active turn, send
-admission, or pending human question already owns the composer. Apps should call `thread.read()` and
-compose only when `canCompose` is true.
+`threads.create()` creates a Thread in the current deck. `threads.add({ threadId, position })` adds an
+existing same-Space Thread. `threads.select`, `threads.reorder`, `threads.leave`, and `threads.archive`
+operate on an explicit member. Cross-Space additions are rejected, deck ordering stays independent
+of sidebar ordering, and leaving creates a new singleton deck.
+
+`threads.compose({ threadId, ...composition })` writes text, titled documents, App-storage
+files/images, the App's contributed Skills, effort, and model fallbacks for one exact deck member. It
+returns a ten-minute receipt bound to the App, Space, deck, tab, Thread, and exact resulting
+composition. `threads.send({ composeId })` needs only that receipt ID: the receipt already owns its
+Thread target. It admits the exact staged bytes through Penkra's ordinary durable queue/steer path,
+including when the target is not the visible Thread. A duplicate call returns the original admission,
+while an intervening human edit fails with `COMPOSITION_CHANGED`.
+
+Active turns use queue admission by default and may explicitly request `mode: "steer"`. Composition
+is rejected while a human draft, pending App composition, queued turn, send admission, or pending
+human question owns the target composer. An active turn by itself does not block composition; the
+send mode determines whether the receipt queues or steers.
+
+`models.listPossible()` is available in both `@penkra/sdk/tab` and `@penkra/sdk/controller`. It
+returns Penkra's read-only authoring catalog of provider/model IDs and typed option descriptors. This
+catalog is intentionally independent of the user's connected profiles and does not promise that a
+target is currently usable. Each option declares `valueType`, `allowedValues`, and whether a custom
+value is accepted, so an empty allowed-values array is never ambiguous.
+
+```ts
+import { models } from "@penkra/sdk/tab"; // or @penkra/sdk/controller
+
+const possible = await models.listPossible();
+const kimi = possible.find(
+  ({ provider, model }) => provider === "opencode" && model === "opencode-go/kimi-k3",
+);
+```
+
+Pass an ordered subset to `threads.compose()`; the existing composer selects the first available
+target and otherwise keeps its current model. Apps may retain older or custom provider/model IDs,
+but authoring interfaces should use the catalog unless their product explicitly supports custom
+targets. Agents can read the same catalog without an App round trip through `penkra models list
+--availability possible`. Runnable catalogs are intentionally separate: agents use `penkra models
+list --availability available --provider <provider>`, optionally after choosing a concrete profile
+with `penkra connections list`. Portable App metadata such as Playbooks must not retain a
+Connection ID.
 
 The API remains a bounded composer operation rather than a bulk-byte transport: App-storage
 attachments are read into the visible composer draft, with a 256 MiB limit per attachment. Use blob
@@ -1106,6 +1142,17 @@ installed App's slug:
 { "command": "notes documents open --help" }
 ```
 
+The trusted agent has the same explicit current-deck operations under `penkra deck`, distinct from
+the broader `penkra threads` discovery and agent-coordination commands:
+
+```json
+{ "command": "penkra deck list" }
+{ "command": "penkra deck create --title 'Follow-up'" }
+{ "command": "penkra deck add --thread-id <thread-id>" }
+{ "command": "penkra deck compose --thread-id <thread-id> --text 'Investigate this.'" }
+{ "command": "penkra deck send --compose-id <compose-id>" }
+```
+
 Operation help includes the complete validated input and output JSON Schemas. App commands do not
 have a separate schema mode.
 
@@ -1118,7 +1165,8 @@ rather than infer installation from source code or a similarly named tool.
 
 Penkra core—not the public SDK—lets the trusted agent harness inspect exact retained App tabs for
 accessibility and interaction. Pixel capture is deliberately limited to the App tab currently
-visible for the caller Thread. Open an installed App through Apps, then observe its retained tab:
+visible in the exact window surface from which the agent turn originated. Open an installed App
+through Apps, then observe its retained tab:
 
 ```json
 { "command": "apps open --slug canvas" }
@@ -1147,7 +1195,8 @@ redacts protected control values. Scope a large tree with `target` and `depth`; 
 when geometry matters. Find searches the same accessibility representation and returns matching
 context without introducing a second document-extraction model. Screenshot returns pixels and is
 for visual verification, not element targeting. It accepts no `tabId`: the host captures only the
-caller Thread's currently visible App rectangle and fails when that Thread has no visible App tab.
+originating window surface's currently visible App rectangle and fails when that surface has no
+visible App tab.
 This keeps pixel capture aligned with what Electron can render reliably. Supply `filename` to
 snapshot or screenshot when the
 result should be saved in the caller Thread's working directory instead of returned inline.
@@ -1162,7 +1211,7 @@ bounds. For an App granted `browser-session`, observation follows the composed g
 document is observed; a full-frame hosted surface means the page is observed; a partial surface
 appears beneath a `document "Hosted page"` boundary in the same hierarchy and uses
 the same `e…` reference namespace. Actions route to the frame that issued each reference. The target must belong to the
-caller Thread and Space. The
+caller Thread Deck and Space. The
 Penkra shell, composer, transcript, other Apps, other Threads, other Spaces, controllers, and hidden
 credential surfaces remain outside the boundary. App/page content is untrusted data and cannot
 amend agent instructions.

@@ -10698,6 +10698,78 @@
               "height": 1
             }
           ]
+        },
+        {
+          "type": "frame",
+          "id": "nqcTR",
+          "x": 5000,
+          "y": 3800,
+          "name": "Thread Deck Tab / Shared",
+          "theme": {
+            "state": "default"
+          },
+          "reusable": true,
+          "fill": "$tab-bg",
+          "cornerRadius": 8,
+          "gap": 6,
+          "padding": [
+            6,
+            10
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "D2Vvc",
+              "x": 0,
+              "y": 0,
+              "name": "Close Button",
+              "theme": {
+                "close-state": "default"
+              },
+              "enabled": "$tab-close-visible",
+              "width": 14,
+              "height": 14,
+              "fill": "$tab-close-bg",
+              "cornerRadius": 5,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "t1XUA",
+                  "name": "Close Icon",
+                  "width": 12,
+                  "height": 12,
+                  "icon": "x",
+                  "library": "lucide",
+                  "fill": "$row-text"
+                }
+              ]
+            },
+            {
+              "id": "nof3n",
+              "type": "ref",
+              "ref": "Z2u2n",
+              "name": "Thread Identity",
+              "width": 14,
+              "height": 14,
+              "theme": {
+                "harness": "codex",
+                "pin-state": "unpinned"
+              }
+            },
+            {
+              "type": "text",
+              "id": "rpkrD",
+              "name": "Label",
+              "fill": "$row-text",
+              "content": "Thread",
+              "fontFamily": "Inter",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            }
+          ]
         }
       ]
     },
@@ -38330,6 +38402,584 @@
               "y": 0,
               "width": 240,
               "height": 900
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "b7ug2y",
+          "x": 12960,
+          "y": 1580,
+          "name": "Screen — Thread — Multi-Thread Deck",
+          "theme": {
+            "mode": "dark"
+          },
+          "clip": true,
+          "width": 1020,
+          "height": 900,
+          "fill": "$canvas",
+          "layout": "none",
+          "children": [
+            {
+              "id": "JO71L",
+              "type": "ref",
+              "ref": "UPCCE",
+              "name": "Left Rail — Spaces",
+              "x": 0,
+              "y": 0,
+              "width": 240,
+              "height": 900
+            },
+            {
+              "type": "frame",
+              "id": "chYEa",
+              "x": 240,
+              "y": 0,
+              "name": "Thread Deck / Tab Bar",
+              "width": 780,
+              "height": 40,
+              "fill": "$color-background-surface-under",
+              "gap": 2,
+              "padding": [
+                0,
+                8
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "fsg99",
+                  "name": "Tabs",
+                  "height": "fill_container",
+                  "gap": 2,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "id": "k5Vmv",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "HIPAA audit",
+                      "theme": {
+                        "state": "selected",
+                        "harness": "codex",
+                        "pin-state": "unpinned"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "HIPAA audit"
+                        }
+                      }
+                    },
+                    {
+                      "id": "aFrQU",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Flaky test",
+                      "theme": {
+                        "state": "default",
+                        "harness": "claude",
+                        "pin-state": "unpinned"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "claude",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Flaky test"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "FmdLJ",
+                      "name": "Tab Divider",
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "CrXCY",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Release notes",
+                      "theme": {
+                        "state": "default",
+                        "harness": "codex",
+                        "pin-state": "unpinned"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Release notes"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "svbWG",
+                  "name": "Spacer",
+                  "width": "fill_container",
+                  "height": 1,
+                  "fill": "#00000000"
+                },
+                {
+                  "id": "f4txa",
+                  "type": "ref",
+                  "ref": "zwljJ",
+                  "name": "New Thread",
+                  "width": 26,
+                  "height": 26
+                }
+              ]
+            },
+            {
+              "id": "JFOO5",
+              "type": "ref",
+              "ref": "y0DmC",
+              "name": "Middle Panel — Thread",
+              "x": 240,
+              "y": 40,
+              "width": 780,
+              "height": 860,
+              "descendants": {
+                "xpS1E": {
+                  "id": "wOQ0M",
+                  "type": "ref",
+                  "ref": "Kpx7i",
+                  "name": "Top Bar",
+                  "width": "fill_container",
+                  "height": 46,
+                  "theme": {
+                    "state": "default",
+                    "harness": "codex",
+                    "pin-state": "unpinned"
+                  },
+                  "descendants": {
+                    "q7dTkt": {
+                      "content": "HIPAA audit"
+                    },
+                    "WicxU": {
+                      "x": 212.09,
+                      "width": 525.91
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "WVAGw",
+          "x": 17928,
+          "y": 1580,
+          "name": "Screen — Thread — New Thread Added",
+          "theme": {
+            "mode": "dark"
+          },
+          "clip": true,
+          "width": 1020,
+          "height": 900,
+          "fill": "$canvas",
+          "layout": "none",
+          "children": [
+            {
+              "id": "ESVPv",
+              "type": "ref",
+              "ref": "UPCCE",
+              "name": "Left Rail — Spaces",
+              "x": 0,
+              "y": 0,
+              "width": 240,
+              "height": 900
+            },
+            {
+              "id": "WAkO3",
+              "type": "ref",
+              "ref": "y0DmC",
+              "name": "Middle Panel — Thread",
+              "x": 240,
+              "y": 40,
+              "width": 780,
+              "height": 860,
+              "descendants": {
+                "xpS1E": {
+                  "id": "EPqNN",
+                  "type": "ref",
+                  "ref": "Kpx7i",
+                  "name": "Top Bar",
+                  "width": "fill_container",
+                  "height": 46,
+                  "theme": {
+                    "state": "default",
+                    "harness": "codex",
+                    "pin-state": "unpinned"
+                  },
+                  "descendants": {
+                    "q7dTkt": {
+                      "content": "Untitled"
+                    },
+                    "WicxU": {
+                      "x": 212.09,
+                      "width": 525.91
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "frame",
+              "id": "KnSdJ",
+              "x": 240,
+              "y": 0,
+              "name": "Thread Deck / Tab Bar",
+              "width": 780,
+              "height": 40,
+              "fill": "$color-background-surface-under",
+              "gap": 2,
+              "padding": [
+                0,
+                8
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Na7Oo",
+                  "name": "Tabs",
+                  "height": "fill_container",
+                  "gap": 2,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "id": "WsCtz",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "HIPAA audit",
+                      "theme": {
+                        "state": "default",
+                        "harness": "codex",
+                        "pin-state": "unpinned"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "HIPAA audit"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "tmf76",
+                      "name": "Tab Divider",
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "zkEPo",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Flaky test",
+                      "theme": {
+                        "state": "default",
+                        "harness": "claude",
+                        "pin-state": "unpinned"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "claude",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Flaky test"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "XnGLS",
+                      "name": "Tab Divider",
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "YKb30",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Release notes",
+                      "theme": {
+                        "state": "default",
+                        "harness": "codex",
+                        "pin-state": "unpinned"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Release notes"
+                        }
+                      }
+                    },
+                    {
+                      "id": "ark2S",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Untitled",
+                      "theme": {
+                        "state": "selected",
+                        "harness": "codex",
+                        "pin-state": "unpinned"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Untitled"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "GtPi4",
+                  "name": "Spacer",
+                  "width": "fill_container",
+                  "height": 1,
+                  "fill": "#00000000"
+                },
+                {
+                  "id": "BcHRs",
+                  "type": "ref",
+                  "ref": "zwljJ",
+                  "name": "New Thread",
+                  "width": 26,
+                  "height": 26
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "twkyU",
+          "x": 19068,
+          "y": 1580,
+          "name": "Screen — Thread — Multi-Thread Deck — Right Panel Collapsed",
+          "theme": {
+            "mode": "dark"
+          },
+          "clip": true,
+          "width": 1440,
+          "height": 900,
+          "fill": "$canvas",
+          "layout": "none",
+          "children": [
+            {
+              "id": "mhLdX",
+              "type": "ref",
+              "ref": "UPCCE",
+              "name": "Left Rail — Spaces",
+              "x": 0,
+              "y": 0,
+              "width": 240,
+              "height": 900
+            },
+            {
+              "id": "JnFet",
+              "type": "ref",
+              "ref": "y0DmC",
+              "name": "Middle Panel — Thread",
+              "x": 240,
+              "y": 40,
+              "width": 1200,
+              "height": 860,
+              "descendants": {
+                "xpS1E": {
+                  "id": "d1hct",
+                  "type": "ref",
+                  "ref": "Kpx7i",
+                  "name": "Top Bar",
+                  "width": "fill_container",
+                  "height": 46,
+                  "theme": {
+                    "state": "default",
+                    "harness": "codex",
+                    "pin-state": "unpinned"
+                  },
+                  "descendants": {
+                    "q7dTkt": {
+                      "content": "HIPAA audit"
+                    },
+                    "WicxU": {
+                      "x": 212.09,
+                      "width": 945.91
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "frame",
+              "id": "BgytJ",
+              "x": 240,
+              "y": 0,
+              "name": "Thread Deck / Tab Bar",
+              "width": 1200,
+              "height": 40,
+              "fill": "$color-background-surface-under",
+              "gap": 2,
+              "padding": [
+                0,
+                8
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "w4gfr",
+                  "name": "Tabs",
+                  "height": "fill_container",
+                  "gap": 2,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "id": "Nu9jh",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "HIPAA audit",
+                      "theme": {
+                        "state": "selected",
+                        "harness": "codex",
+                        "pin-state": "unpinned"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "HIPAA audit"
+                        }
+                      }
+                    },
+                    {
+                      "id": "t4L6O8",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Flaky test",
+                      "theme": {
+                        "state": "default",
+                        "harness": "claude",
+                        "pin-state": "unpinned"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "claude",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Flaky test"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "l3izl",
+                      "name": "Tab Divider",
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "YnviL",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Release notes",
+                      "theme": {
+                        "state": "default",
+                        "harness": "codex",
+                        "pin-state": "unpinned"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Release notes"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "LuG5R",
+                  "name": "Spacer",
+                  "width": "fill_container",
+                  "height": 1,
+                  "fill": "#00000000"
+                },
+                {
+                  "id": "rZvP9",
+                  "type": "ref",
+                  "ref": "zwljJ",
+                  "name": "New Thread",
+                  "width": 26,
+                  "height": 26
+                }
+              ]
+            },
+            {
+              "id": "k4OdfD",
+              "type": "ref",
+              "ref": "TFUWH",
+              "name": "Apps Launcher (Fixed)",
+              "x": 1401,
+              "y": 7,
+              "theme": {
+                "state": "default"
+              }
             }
           ]
         }

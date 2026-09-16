@@ -28,9 +28,14 @@ let activeThreadIdsSnapshot = EMPTY_ACTIVE_THREAD_IDS;
 let appliedSyncSequence = 0;
 
 function publish(): void {
+  // Visible activity and its user-message projection are one publication.
+  // A raw claim still fences concurrent sends, but cannot independently make
+  // Thinking, Stop, or the sidebar spinner appear before the message row.
   activeThreadIdsSnapshot = new Set([
     ...[...owners.entries()]
-      .filter(([, threadOwners]) => threadOwners.some((owner) => !owner.cancelled))
+      .filter(([, threadOwners]) =>
+        threadOwners.some((owner) => !owner.cancelled && owner.optimisticMessage !== null),
+      )
       .map(([threadId]) => threadId),
   ]);
   for (const listener of listeners) listener();
@@ -301,18 +306,18 @@ export function cancelComposerSendPreflight(threadId: ThreadId): ComposerSendPre
   return owner;
 }
 
-export function useHasComposerSendPreflight(threadId: ThreadId | null): boolean {
+export function useHasComposerSendActivity(threadId: ThreadId | null): boolean {
   return useSyncExternalStore(
     (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    () => threadId !== null && (owners.get(threadId)?.some((owner) => !owner.cancelled) ?? false),
+    () => threadId !== null && activeThreadIdsSnapshot.has(threadId),
     () => false,
   );
 }
 
-export function useComposerSendPreflightThreadIds(): ReadonlySet<ThreadId> {
+export function useComposerSendActivityThreadIds(): ReadonlySet<ThreadId> {
   return useSyncExternalStore(
     (listener) => {
       listeners.add(listener);

@@ -10,6 +10,8 @@ import {
   OrchestrationSession,
   OrchestrationThread,
   ThreadMessageDeliverySetPayload,
+  ThreadDeckMovedPayload,
+  ThreadDeckReorderedPayload,
 } from "@penkra/contracts";
 import {
   addPinnedMessage,
@@ -20,7 +22,7 @@ import {
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import { Effect, Schema } from "effect";
 
-import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
+import { OrchestrationProjectorDecodeError, toProjectorDecodeError } from "./Errors.ts";
 import {
   MessageSentPayloadSchema,
   SpaceCreatedPayload,
@@ -234,6 +236,7 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     snapshotSequence: 0,
     spaces: [],
     folders: [],
+    decks: [],
     threads: [],
     updatedAt: nowIso,
   };
@@ -306,7 +309,11 @@ export function projectEvent(
           ...nextBase,
           spaces: nextBase.spaces.map((space) =>
             space.id === payload.spaceId
-              ? { ...space, deletedAt: payload.deletedAt, updatedAt: payload.deletedAt }
+              ? {
+                  ...space,
+                  deletedAt: payload.deletedAt,
+                  updatedAt: payload.deletedAt,
+                }
               : space,
           ),
         })),
@@ -318,7 +325,11 @@ export function projectEvent(
           ...nextBase,
           spaces: nextBase.spaces.map((space) =>
             space.id === payload.spaceId
-              ? { ...space, archivedAt: payload.archivedAt, updatedAt: payload.archivedAt }
+              ? {
+                  ...space,
+                  archivedAt: payload.archivedAt,
+                  updatedAt: payload.archivedAt,
+                }
               : space,
           ),
         })),
@@ -348,32 +359,43 @@ export function projectEvent(
       const threadUpdates = new Map(
         event.payload.threadUpdates.map((update) => [update.threadId, update] as const),
       );
+      const folders = nextBase.folders.map((folder) => {
+        const update = folderUpdates.get(folder.id);
+        return update
+          ? {
+              ...folder,
+              ...(update.sidebarSortOrder !== undefined
+                ? { sidebarSortOrder: update.sidebarSortOrder }
+                : {}),
+              updatedAt: event.payload.updatedAt,
+            }
+          : folder;
+      });
+      const threads = nextBase.threads.map((thread) => {
+        const update = threadUpdates.get(thread.id);
+        return update
+          ? {
+              ...thread,
+              ...(update.folderId !== undefined ? { folderId: update.folderId } : {}),
+              ...(update.sidebarSortOrder !== undefined
+                ? { sidebarSortOrder: update.sidebarSortOrder }
+                : {}),
+              updatedAt: event.payload.updatedAt,
+            }
+          : thread;
+      });
+      const folderById = new Map(folders.map((folder) => [folder.id, folder] as const));
       return Effect.succeed({
         ...nextBase,
-        folders: nextBase.folders.map((folder) => {
-          const update = folderUpdates.get(folder.id);
-          return update
-            ? {
-                ...folder,
-                ...(update.sidebarSortOrder !== undefined
-                  ? { sidebarSortOrder: update.sidebarSortOrder }
-                  : {}),
-                updatedAt: event.payload.updatedAt,
-              }
-            : folder;
-        }),
-        threads: nextBase.threads.map((thread) => {
-          const update = threadUpdates.get(thread.id);
-          return update
-            ? {
-                ...thread,
-                ...(update.folderId !== undefined ? { folderId: update.folderId } : {}),
-                ...(update.sidebarSortOrder !== undefined
-                  ? { sidebarSortOrder: update.sidebarSortOrder }
-                  : {}),
-                updatedAt: event.payload.updatedAt,
-              }
-            : thread;
+        folders,
+        threads,
+        decks: nextBase.decks.map((deck) => {
+          if (deck.threadIds.length !== 1) return deck;
+          const member = threads.find((thread) => thread.id === deck.threadIds[0]);
+          const spaceId = member ? folderById.get(member.folderId)?.spaceId : undefined;
+          return spaceId && spaceId !== deck.spaceId
+            ? { ...deck, spaceId, updatedAt: event.payload.updatedAt }
+            : deck;
         }),
       });
     }
@@ -442,14 +464,39 @@ export function projectEvent(
 
     case "folder.moved":
       return decodeForEvent(FolderMovedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          folders: nextBase.folders.map((folder) =>
+        Effect.map((payload) => {
+          const folders = nextBase.folders.map((folder) =>
             folder.id === payload.folderId
-              ? { ...folder, spaceId: payload.spaceId, updatedAt: payload.updatedAt }
+              ? {
+                  ...folder,
+                  spaceId: payload.spaceId,
+                  updatedAt: payload.updatedAt,
+                }
               : folder,
-          ),
-        })),
+          );
+          const singletonDeckIds = new Set(
+            nextBase.threads
+              .filter((thread) => thread.deletedAt === null && thread.folderId === payload.folderId)
+              .map((thread) => thread.deckId)
+              .filter(
+                (deckId) =>
+                  nextBase.decks.find((deck) => deck.id === deckId)?.threadIds.length === 1,
+              ),
+          );
+          return {
+            ...nextBase,
+            folders,
+            decks: nextBase.decks.map((deck) =>
+              singletonDeckIds.has(deck.id)
+                ? {
+                    ...deck,
+                    spaceId: payload.spaceId,
+                    updatedAt: payload.updatedAt,
+                  }
+                : deck,
+            ),
+          };
+        }),
       );
 
     case "folder.deleted":
@@ -480,6 +527,8 @@ export function projectEvent(
           OrchestrationThread,
           {
             id: payload.threadId,
+            deckId: payload.deckId,
+            deckSortOrder: payload.deckSortOrder,
             folderId: payload.folderId,
             sidebarSortOrder: payload.sidebarSortOrder ?? 0,
             title: payload.title,
@@ -510,8 +559,41 @@ export function projectEvent(
           "thread",
         );
         const existing = nextBase.threads.find((entry) => entry.id === thread.id);
+        const folder = nextBase.folders.find((entry) => entry.id === payload.folderId);
+        const existingDeck = nextBase.decks.find((entry) => entry.id === payload.deckId);
+        const deckSpaceId = existingDeck?.spaceId ?? folder?.spaceId;
+        if (!deckSpaceId) {
+          return yield* new OrchestrationProjectorDecodeError({
+            eventType: event.type,
+            issue: `Thread '${payload.threadId}' references missing folder '${payload.folderId}'.`,
+          });
+        }
+        if (folder && existingDeck && folder.spaceId !== existingDeck.spaceId) {
+          return yield* new OrchestrationProjectorDecodeError({
+            eventType: event.type,
+            issue: `Thread '${payload.threadId}' would join a deck in another Space.`,
+          });
+        }
+        const nextDeck = existingDeck
+          ? {
+              ...existingDeck,
+              threadIds: existingDeck.threadIds.includes(thread.id)
+                ? existingDeck.threadIds
+                : [...existingDeck.threadIds, thread.id],
+              updatedAt: payload.updatedAt,
+            }
+          : {
+              id: payload.deckId,
+              spaceId: deckSpaceId,
+              threadIds: [thread.id],
+              createdAt: payload.createdAt,
+              updatedAt: payload.updatedAt,
+            };
         return {
           ...nextBase,
+          decks: existingDeck
+            ? nextBase.decks.map((entry) => (entry.id === payload.deckId ? nextDeck : entry))
+            : [...nextBase.decks, nextDeck],
           threads: existing
             ? nextBase.threads.map((entry) => (entry.id === thread.id ? thread : entry))
             : [...nextBase.threads, thread],
@@ -520,11 +602,104 @@ export function projectEvent(
 
     case "thread.deleted":
       return decodeForEvent(ThreadDeletedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const deleted = nextBase.threads.find((thread) => thread.id === payload.threadId);
+          return {
+            ...nextBase,
+            decks: deleted
+              ? nextBase.decks.flatMap((deck) => {
+                  if (deck.id !== deleted.deckId) return [deck];
+                  const threadIds = deck.threadIds.filter(
+                    (threadId) => threadId !== payload.threadId,
+                  );
+                  return threadIds.length === 0
+                    ? []
+                    : [{ ...deck, threadIds, updatedAt: payload.deletedAt }];
+                })
+              : nextBase.decks,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              deletedAt: payload.deletedAt,
+              updatedAt: payload.deletedAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.deck-moved":
+      return decodeForEvent(ThreadDeckMovedPayload, event.payload, event.type, "payload").pipe(
+        Effect.flatMap((payload) => {
+          const sourceDeck = nextBase.decks.find((deck) => deck.id === payload.sourceDeckId);
+          if (payload.sourceThreadIds.length > 0 && !sourceDeck) {
+            return Effect.fail(
+              new OrchestrationProjectorDecodeError({
+                eventType: event.type,
+                issue: `source Thread Deck '${payload.sourceDeckId}' is missing`,
+              }),
+            );
+          }
+          return Effect.succeed({
+            ...nextBase,
+            decks: [
+              ...nextBase.decks.filter(
+                (deck) => deck.id !== payload.sourceDeckId && deck.id !== payload.destinationDeckId,
+              ),
+              ...(payload.sourceThreadIds.length === 0
+                ? []
+                : [
+                    {
+                      ...sourceDeck!,
+                      threadIds: payload.sourceThreadIds,
+                      updatedAt: payload.updatedAt,
+                    },
+                  ]),
+              {
+                ...(nextBase.decks.find((deck) => deck.id === payload.destinationDeckId) ?? {
+                  id: payload.destinationDeckId,
+                  spaceId: payload.spaceId,
+                  createdAt: payload.updatedAt,
+                }),
+                threadIds: payload.destinationThreadIds,
+                updatedAt: payload.updatedAt,
+              },
+            ],
+            threads: nextBase.threads.map((thread) => {
+              const sourceIndex = payload.sourceThreadIds.indexOf(thread.id);
+              if (sourceIndex >= 0) {
+                return {
+                  ...thread,
+                  deckId: payload.sourceDeckId,
+                  deckSortOrder: sourceIndex,
+                };
+              }
+              const destinationIndex = payload.destinationThreadIds.indexOf(thread.id);
+              return destinationIndex < 0
+                ? thread
+                : {
+                    ...thread,
+                    deckId: payload.destinationDeckId,
+                    deckSortOrder: destinationIndex,
+                  };
+            }),
+          });
+        }),
+      );
+
+    case "thread.deck-reordered":
+      return decodeForEvent(ThreadDeckReorderedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
-            deletedAt: payload.deletedAt,
-            updatedAt: payload.deletedAt,
+          decks: nextBase.decks.map((deck) =>
+            deck.id === payload.deckId
+              ? {
+                  ...deck,
+                  threadIds: payload.threadIds,
+                  updatedAt: payload.updatedAt,
+                }
+              : deck,
+          ),
+          threads: nextBase.threads.map((thread) => {
+            const index = payload.threadIds.indexOf(thread.id);
+            return index < 0 ? thread : { ...thread, deckSortOrder: index };
           }),
         })),
       );
@@ -784,7 +959,11 @@ export function projectEvent(
               ? {
                   ...message,
                   dispatchMode: "steer",
-                  delivery: { ...message.delivery, state: "steering", sequence: event.sequence },
+                  delivery: {
+                    ...message.delivery,
+                    state: "steering",
+                    sequence: event.sequence,
+                  },
                 }
               : message,
           ),

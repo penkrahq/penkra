@@ -12,6 +12,8 @@ import {
   OrchestrationGetPendingStartOutcomeResult,
   OrchestrationThreadDetailSnapshot,
   ThreadPinnedMessages,
+  ThreadDeck,
+  ThreadDeckId,
   ProjectScript,
   FolderId,
   SpaceId,
@@ -150,6 +152,12 @@ const ProjectionCountsRowSchema = Schema.Struct({
   folderCount: Schema.Number,
   threadCount: Schema.Number,
 });
+const ProjectionThreadDeckDbRowSchema = Schema.Struct({
+  id: ThreadDeckId,
+  spaceId: SpaceId,
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
 const WorkspaceRootLookupInput = Schema.Struct({
   workspaceRoot: Schema.String,
 });
@@ -233,6 +241,7 @@ type ProjectionFolderDbRow = Omit<ProjectionFolderDbRowRaw, "defaultModelSelecti
 type ProjectionThreadActivityDbRow = Schema.Schema.Type<typeof ProjectionThreadActivityDbRowSchema>;
 type ProjectionLatestTurnDbRow = Schema.Schema.Type<typeof ProjectionLatestTurnDbRowSchema>;
 type ProjectionThreadSessionDbRow = Schema.Schema.Type<typeof ProjectionThreadSessionDbRowSchema>;
+type ProjectionThreadDeckDbRow = Schema.Schema.Type<typeof ProjectionThreadDeckDbRowSchema>;
 type ProjectionStateDbRow = Schema.Schema.Type<typeof ProjectionStateDbRowSchema>;
 
 function decodeProjectionFolderRow(
@@ -431,6 +440,33 @@ function toProjectedSpaceShell(row: ProjectionSpaceDbRow): OrchestrationSpaceShe
   };
 }
 
+function toProjectedThreadDecks(
+  deckRows: ReadonlyArray<ProjectionThreadDeckDbRow>,
+  threadRows: ReadonlyArray<
+    Pick<ProjectionThreadDbRow, "threadId" | "deckId" | "deckSortOrder" | "deletedAt">
+  >,
+): ReadonlyArray<typeof ThreadDeck.Type> {
+  const threadIdsByDeck = new Map<string, Array<{ id: ThreadId; order: number }>>();
+  for (const thread of threadRows) {
+    if (thread.deletedAt !== null) continue;
+    const members = threadIdsByDeck.get(thread.deckId) ?? [];
+    members.push({ id: thread.threadId, order: thread.deckSortOrder });
+    threadIdsByDeck.set(thread.deckId, members);
+  }
+  return deckRows.flatMap((deck) => {
+    const members = threadIdsByDeck.get(deck.id);
+    if (!members?.length) return [];
+    return [
+      {
+        ...deck,
+        threadIds: members
+          .toSorted((left, right) => left.order - right.order || left.id.localeCompare(right.id))
+          .map((member) => member.id),
+      },
+    ];
+  });
+}
+
 function collectBaseUpdatedAt(input: {
   readonly spaceRows: ReadonlyArray<ProjectionSpaceDbRow>;
   readonly projectRows: ReadonlyArray<ProjectionFolderDbRow>;
@@ -550,6 +586,8 @@ function toProjectedThreadShellFromStoredSummary(input: {
   const { threadRow } = input;
   return {
     id: threadRow.threadId,
+    deckId: threadRow.deckId,
+    deckSortOrder: threadRow.deckSortOrder,
     folderId: threadRow.folderId,
     sidebarSortOrder: threadRow.sidebarSortOrder,
     title: threadRow.title,
@@ -599,6 +637,8 @@ function assembleProjectedThread(
   const { threadRow } = input;
   return {
     id: threadRow.threadId,
+    deckId: threadRow.deckId,
+    deckSortOrder: threadRow.deckSortOrder,
     folderId: threadRow.folderId,
     sidebarSortOrder: threadRow.sidebarSortOrder,
     title: threadRow.title,
@@ -783,6 +823,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          deck_id AS "deckId",
+          deck_sort_order AS "deckSortOrder",
           folder_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
@@ -826,6 +868,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          deck_id AS "deckId",
+          deck_sort_order AS "deckSortOrder",
           folder_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
@@ -857,6 +901,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           deleted_at AS "deletedAt"
         FROM projection_threads
         ORDER BY created_at ASC, thread_id ASC
+      `,
+  });
+
+  const listThreadDeckRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionThreadDeckDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          deck_id AS "id",
+          space_id AS "spaceId",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM projection_thread_decks
+        ORDER BY created_at ASC, deck_id ASC
       `,
   });
 
@@ -1275,6 +1334,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          deck_id AS "deckId",
+          deck_sort_order AS "deckSortOrder",
           folder_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
@@ -1320,6 +1381,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          deck_id AS "deckId",
+          deck_sort_order AS "deckSortOrder",
           folder_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
@@ -2005,6 +2068,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           const [
             spaceRows,
             projectRows,
+            deckRows,
             threadRows,
             messageRows,
             pendingInteractionRows,
@@ -2031,6 +2095,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 decodeProjectionFolderRows(
                   rows,
                   "ProjectionSnapshotQuery.getSnapshot:listFolders:decodeModelSelections",
+                ),
+              ),
+            ),
+            listThreadDeckRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getSnapshot:listDecks:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listDecks:decodeRows",
                 ),
               ),
             ),
@@ -2144,6 +2216,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             snapshotSequence: computeSnapshotSequence(stateRows),
             spaces: spaceRows.map(toProjectedSpace),
             folders,
+            decks: toProjectedThreadDecks(deckRows, threadRows),
             threads,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
@@ -2168,69 +2241,84 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     sql
       .withTransaction(
         Effect.gen(function* () {
-          const [spaceRows, projectRows, threadRows, sessionRows, latestTurnRows, stateRows] =
-            yield* Effect.all([
-              listSpaceRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getCommandReadModel:listSpaces:query",
-                    "ProjectionSnapshotQuery.getCommandReadModel:listSpaces:decodeRows",
-                  ),
+          const [
+            spaceRows,
+            projectRows,
+            deckRows,
+            threadRows,
+            sessionRows,
+            latestTurnRows,
+            stateRows,
+          ] = yield* Effect.all([
+            listSpaceRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getCommandReadModel:listSpaces:query",
+                  "ProjectionSnapshotQuery.getCommandReadModel:listSpaces:decodeRows",
                 ),
               ),
-              listProjectRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getCommandReadModel:listFolders:query",
-                    "ProjectionSnapshotQuery.getCommandReadModel:listFolders:decodeRows",
-                  ),
-                ),
-                Effect.flatMap((rows) =>
-                  decodeProjectionFolderRows(
-                    rows,
-                    "ProjectionSnapshotQuery.getCommandReadModel:listFolders:decodeModelSelections",
-                  ),
+            ),
+            listProjectRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getCommandReadModel:listFolders:query",
+                  "ProjectionSnapshotQuery.getCommandReadModel:listFolders:decodeRows",
                 ),
               ),
-              listThreadRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getCommandReadModel:listThreads:query",
-                    "ProjectionSnapshotQuery.getCommandReadModel:listThreads:decodeRows",
-                  ),
-                ),
-                Effect.flatMap((rows) =>
-                  decodeProjectionThreadRows(
-                    rows,
-                    "ProjectionSnapshotQuery.getCommandReadModel:listThreads:decodeModelSelections",
-                  ),
+              Effect.flatMap((rows) =>
+                decodeProjectionFolderRows(
+                  rows,
+                  "ProjectionSnapshotQuery.getCommandReadModel:listFolders:decodeModelSelections",
                 ),
               ),
-              listThreadSessionRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getCommandReadModel:listThreadSessions:query",
-                    "ProjectionSnapshotQuery.getCommandReadModel:listThreadSessions:decodeRows",
-                  ),
+            ),
+            listThreadDeckRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getCommandReadModel:listDecks:query",
+                  "ProjectionSnapshotQuery.getCommandReadModel:listDecks:decodeRows",
                 ),
               ),
-              listLatestTurnRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getCommandReadModel:listLatestTurns:query",
-                    "ProjectionSnapshotQuery.getCommandReadModel:listLatestTurns:decodeRows",
-                  ),
+            ),
+            listThreadRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getCommandReadModel:listThreads:query",
+                  "ProjectionSnapshotQuery.getCommandReadModel:listThreads:decodeRows",
                 ),
               ),
-              listProjectionStateRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getCommandReadModel:listProjectionState:query",
-                    "ProjectionSnapshotQuery.getCommandReadModel:listProjectionState:decodeRows",
-                  ),
+              Effect.flatMap((rows) =>
+                decodeProjectionThreadRows(
+                  rows,
+                  "ProjectionSnapshotQuery.getCommandReadModel:listThreads:decodeModelSelections",
                 ),
               ),
-            ]);
+            ),
+            listThreadSessionRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getCommandReadModel:listThreadSessions:query",
+                  "ProjectionSnapshotQuery.getCommandReadModel:listThreadSessions:decodeRows",
+                ),
+              ),
+            ),
+            listLatestTurnRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getCommandReadModel:listLatestTurns:query",
+                  "ProjectionSnapshotQuery.getCommandReadModel:listLatestTurns:decodeRows",
+                ),
+              ),
+            ),
+            listProjectionStateRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getCommandReadModel:listProjectionState:query",
+                  "ProjectionSnapshotQuery.getCommandReadModel:listProjectionState:decodeRows",
+                ),
+              ),
+            ),
+          ]);
 
           const sessions = collectProjectedSessions(sessionRows);
           const latestTurns = collectProjectedLatestTurns(latestTurnRows);
@@ -2253,6 +2341,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             snapshotSequence: computeSnapshotSequence(stateRows),
             spaces: spaceRows.map(toProjectedSpace),
             folders,
+            decks: toProjectedThreadDecks(deckRows, threadRows),
             threads,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           }).pipe(
@@ -2277,69 +2366,84 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     sql
       .withTransaction(
         Effect.gen(function* () {
-          const [spaceRows, projectRows, threadRows, sessionRows, latestTurnRows, stateRows] =
-            yield* Effect.all([
-              listSpaceRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getShellSnapshot:listSpaces:query",
-                    "ProjectionSnapshotQuery.getShellSnapshot:listSpaces:decodeRows",
-                  ),
+          const [
+            spaceRows,
+            projectRows,
+            deckRows,
+            threadRows,
+            sessionRows,
+            latestTurnRows,
+            stateRows,
+          ] = yield* Effect.all([
+            listSpaceRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getShellSnapshot:listSpaces:query",
+                  "ProjectionSnapshotQuery.getShellSnapshot:listSpaces:decodeRows",
                 ),
               ),
-              listProjectRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getShellSnapshot:listFolders:query",
-                    "ProjectionSnapshotQuery.getShellSnapshot:listFolders:decodeRows",
-                  ),
-                ),
-                Effect.flatMap((rows) =>
-                  decodeProjectionFolderRows(
-                    rows,
-                    "ProjectionSnapshotQuery.getShellSnapshot:listFolders:decodeModelSelections",
-                  ),
+            ),
+            listProjectRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getShellSnapshot:listFolders:query",
+                  "ProjectionSnapshotQuery.getShellSnapshot:listFolders:decodeRows",
                 ),
               ),
-              listThreadShellRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getShellSnapshot:listThreads:query",
-                    "ProjectionSnapshotQuery.getShellSnapshot:listThreads:decodeRows",
-                  ),
-                ),
-                Effect.flatMap((rows) =>
-                  decodeProjectionThreadShellRows(
-                    rows,
-                    "ProjectionSnapshotQuery.getShellSnapshot:listThreads:decodeModelSelections",
-                  ),
+              Effect.flatMap((rows) =>
+                decodeProjectionFolderRows(
+                  rows,
+                  "ProjectionSnapshotQuery.getShellSnapshot:listFolders:decodeModelSelections",
                 ),
               ),
-              listThreadSessionRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getShellSnapshot:listThreadSessions:query",
-                    "ProjectionSnapshotQuery.getShellSnapshot:listThreadSessions:decodeRows",
-                  ),
+            ),
+            listThreadDeckRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getShellSnapshot:listDecks:query",
+                  "ProjectionSnapshotQuery.getShellSnapshot:listDecks:decodeRows",
                 ),
               ),
-              listLatestTurnRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getShellSnapshot:listLatestTurns:query",
-                    "ProjectionSnapshotQuery.getShellSnapshot:listLatestTurns:decodeRows",
-                  ),
+            ),
+            listThreadShellRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getShellSnapshot:listThreads:query",
+                  "ProjectionSnapshotQuery.getShellSnapshot:listThreads:decodeRows",
                 ),
               ),
-              listProjectionStateRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getShellSnapshot:listProjectionState:query",
-                    "ProjectionSnapshotQuery.getShellSnapshot:listProjectionState:decodeRows",
-                  ),
+              Effect.flatMap((rows) =>
+                decodeProjectionThreadShellRows(
+                  rows,
+                  "ProjectionSnapshotQuery.getShellSnapshot:listThreads:decodeModelSelections",
                 ),
               ),
-            ]);
+            ),
+            listThreadSessionRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getShellSnapshot:listThreadSessions:query",
+                  "ProjectionSnapshotQuery.getShellSnapshot:listThreadSessions:decodeRows",
+                ),
+              ),
+            ),
+            listLatestTurnRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getShellSnapshot:listLatestTurns:query",
+                  "ProjectionSnapshotQuery.getShellSnapshot:listLatestTurns:decodeRows",
+                ),
+              ),
+            ),
+            listProjectionStateRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getShellSnapshot:listProjectionState:query",
+                  "ProjectionSnapshotQuery.getShellSnapshot:listProjectionState:decodeRows",
+                ),
+              ),
+            ),
+          ]);
 
           const latestTurns = collectProjectedLatestTurns(latestTurnRows);
           const sessions = collectProjectedSessions(sessionRows);
@@ -2362,6 +2466,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             archivedFolders: projectRows
               .filter((row) => row.deletedAt === null && row.archivedAt !== null)
               .map((row) => toProjectedProjectShell(row)),
+            decks: toProjectedThreadDecks(deckRows, threadRows),
             threads: threadRows
               .filter((row) => row.deletedAt === null)
               .map((row) =>

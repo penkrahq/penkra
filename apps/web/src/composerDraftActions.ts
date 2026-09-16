@@ -196,6 +196,17 @@ export const createComposerDraftStoreState =
         ...draftThread,
       };
     },
+    getDraftThreadByDeckId: (deckId, entryPoint = "chat") => {
+      const match = Object.entries(get().draftThreadsByThreadId)
+        .filter(
+          ([, draftThread]) =>
+            draftThread.deckId === deckId &&
+            normalizeDraftThreadEntryPoint(draftThread.entryPoint) === entryPoint &&
+            draftThread.promotedTo === undefined,
+        )
+        .toSorted(([, left], [, right]) => right.createdAt.localeCompare(left.createdAt))[0];
+      return match ? { threadId: ThreadId.makeUnsafe(match[0]), ...match[1] } : null;
+    },
     getDraftThread: (threadId) => {
       if (threadId.length === 0) {
         return null;
@@ -209,6 +220,7 @@ export const createComposerDraftStoreState =
       set((state) => {
         const existingThread = state.draftThreadsByThreadId[threadId];
         const nextDraftThread = buildDraftThreadState({
+          threadId,
           folderId,
           existingThread,
           options,
@@ -258,6 +270,7 @@ export const createComposerDraftStoreState =
         }
         const nextDraftThread: DraftThreadState = {
           folderId: options.folderId,
+          deckId: options.deckId,
           spaceId: options.spaceId ?? null,
           createdAt: options.createdAt ?? new Date().toISOString(),
           runtimeMode: options.runtimeMode ?? DEFAULT_RUNTIME_MODE,
@@ -286,6 +299,7 @@ export const createComposerDraftStoreState =
           return state;
         }
         const nextDraftThread = buildDraftThreadState({
+          threadId,
           folderId: nextFolderId,
           existingThread: existing,
           options,
@@ -294,10 +308,18 @@ export const createComposerDraftStoreState =
         if (draftThreadStatesEqual(existing, nextDraftThread)) {
           return state;
         }
-        const nextProjectDraftThreadIdByFolderId: Record<string, ThreadId> = {
-          ...removeProjectDraftMappingsForThread(state.projectDraftThreadIdByFolderId, threadId),
-          [projectDraftThreadMappingKey(nextFolderId, nextDraftThread.entryPoint)]: threadId,
-        };
+        const ownsProjectDraftSlot = Object.values(state.projectDraftThreadIdByFolderId).includes(
+          threadId,
+        );
+        const nextProjectDraftThreadIdByFolderId: Record<string, ThreadId> = ownsProjectDraftSlot
+          ? {
+              ...removeProjectDraftMappingsForThread(
+                state.projectDraftThreadIdByFolderId,
+                threadId,
+              ),
+              [projectDraftThreadMappingKey(nextFolderId, nextDraftThread.entryPoint)]: threadId,
+            }
+          : state.projectDraftThreadIdByFolderId;
         return {
           draftThreadsByThreadId: {
             ...state.draftThreadsByThreadId,
@@ -317,6 +339,7 @@ export const createComposerDraftStoreState =
           return state;
         }
         const nextDraftThread = buildDraftThreadState({
+          threadId,
           folderId,
           existingThread: existing,
           options,
@@ -1369,7 +1392,12 @@ export const createComposerDraftStoreState =
           };
         }
         restored = true;
-        return { draftsByThreadId: { ...state.draftsByThreadId, [threadId]: nextDraft } };
+        return {
+          draftsByThreadId: {
+            ...state.draftsByThreadId,
+            [threadId]: nextDraft,
+          },
+        };
       });
       return restored;
     },
@@ -1460,7 +1488,9 @@ export const createComposerDraftStoreState =
         }
         cleared = true;
         clearedRecovery = recovery;
-        const nextRecoveries = { ...(current.pendingStartRecoveriesByMessageId ?? {}) };
+        const nextRecoveries = {
+          ...(current.pendingStartRecoveriesByMessageId ?? {}),
+        };
         delete nextRecoveries[messageId];
         const nextDraft = {
           ...current,
@@ -1520,7 +1550,10 @@ export const createComposerDraftStoreState =
           return state;
         }
         const queuedTurns = [...current.queuedTurns];
-        queuedTurns[queuedTurnIndex] = { ...queuedTurn, serverAcceptedAt: acceptedAt };
+        queuedTurns[queuedTurnIndex] = {
+          ...queuedTurn,
+          serverAcceptedAt: acceptedAt,
+        };
         return {
           draftsByThreadId: {
             ...state.draftsByThreadId,
@@ -1637,7 +1670,10 @@ export const createComposerDraftStoreState =
         if (current.queuePaused === paused) {
           return state;
         }
-        const nextDraft: ComposerThreadDraftState = { ...current, queuePaused: paused };
+        const nextDraft: ComposerThreadDraftState = {
+          ...current,
+          queuePaused: paused,
+        };
         const nextDraftsByThreadId = { ...state.draftsByThreadId };
         if (shouldRemoveDraft(nextDraft)) {
           delete nextDraftsByThreadId[threadId];

@@ -39,7 +39,7 @@ import {
   formatMissingCodexWorkingDirectoryError,
 } from "./codexWorkingDirectory";
 import { CodexJsonlFramer, CodexJsonlWriter } from "./codexAppServerTransport";
-import { ensureIsolatedScratchWorkspace } from "./scratchWorkspaces";
+import { ensureDurableThreadWorkspace } from "./scratchWorkspaces";
 import { acquireAgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
 
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
@@ -1580,9 +1580,14 @@ describe("startSession", () => {
     });
   });
 
-  it("uses an isolated scratch workspace path when no cwd is provided", () => {
-    const cwd = ensureIsolatedScratchWorkspace(asThreadId("thread-1"));
-    expect(cwd).toContain(`${path.sep}penkra-codex-workspaces${path.sep}thread-1`);
+  it("uses a durable isolated workspace path when no cwd is provided", () => {
+    const stateDir = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-state-"));
+    try {
+      const cwd = ensureDurableThreadWorkspace(asThreadId("thread-1"), stateDir);
+      expect(cwd).toContain(`${path.sep}thread-workspaces${path.sep}thread-1`);
+    } finally {
+      rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 
   it("reconciles local plugins and reloads skills before opening a thread", async () => {

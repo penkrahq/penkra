@@ -14,6 +14,7 @@ import {
   ThreadPinnedMessages,
   FolderId,
   RuntimeMode,
+  ThreadDeckId,
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
@@ -24,6 +25,8 @@ import type { ProjectionRepositoryError } from "../Errors.ts";
 
 export const ProjectionThread = Schema.Struct({
   threadId: ThreadId,
+  deckId: ThreadDeckId,
+  deckSortOrder: NonNegativeInt,
   folderId: FolderId,
   title: Schema.String,
   modelSelection: ModelSelection,

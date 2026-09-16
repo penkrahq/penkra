@@ -44,11 +44,21 @@ export function showContextMenuFallback<T extends string>(
     }
 
     function focusItem(index: number) {
-      if (index < 0 || index >= buttons.length) return;
+      if (index < 0 || index >= buttons.length || buttons[index]?.disabled) return;
       buttons[focusedIndex]?.classList.remove("bg-[var(--sidebar-accent)]");
       focusedIndex = index;
       buttons[focusedIndex]?.classList.add("bg-[var(--sidebar-accent)]");
       buttons[focusedIndex]?.focus();
+    }
+
+    function nextEnabledIndex(direction: 1 | -1): number {
+      if (buttons.length === 0) return -1;
+      const start = focusedIndex < 0 ? (direction === 1 ? -1 : 0) : focusedIndex;
+      for (let offset = 1; offset <= buttons.length; offset += 1) {
+        const index = (start + direction * offset + buttons.length) % buttons.length;
+        if (!buttons[index]?.disabled) return index;
+      }
+      return -1;
     }
 
     function onKeyDown(e: KeyboardEvent) {
@@ -57,13 +67,17 @@ export function showContextMenuFallback<T extends string>(
         cleanup(null);
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        focusItem(focusedIndex < buttons.length - 1 ? focusedIndex + 1 : 0);
+        focusItem(nextEnabledIndex(1));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        focusItem(focusedIndex > 0 ? focusedIndex - 1 : buttons.length - 1);
+        focusItem(nextEnabledIndex(-1));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        if (focusedIndex >= 0 && focusedIndex < items.length) {
+        if (
+          focusedIndex >= 0 &&
+          focusedIndex < items.length &&
+          buttons[focusedIndex]?.disabled !== true
+        ) {
           cleanup(items[focusedIndex]!.id);
         }
       }
@@ -88,6 +102,8 @@ export function showContextMenuFallback<T extends string>(
       btn.className = isDestructive
         ? "flex w-full min-h-7 cursor-default select-none items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[length:var(--app-font-size-ui,12px)] text-foreground/86 transition-colors"
         : "flex w-full min-h-7 cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[length:var(--app-font-size-ui,12px)] text-foreground/86 transition-colors";
+      btn.disabled = item.enabled === false;
+      if (btn.disabled) btn.classList.add("opacity-40");
 
       if (item.icon) {
         const iconWrapper = document.createElement("span");
@@ -100,10 +116,8 @@ export function showContextMenuFallback<T extends string>(
       label.textContent = item.label;
       btn.appendChild(label);
 
-      btn.addEventListener("click", () => cleanup(item.id));
-      btn.addEventListener("mouseenter", () =>
-        focusItem(buttons.length > 0 ? buttons.indexOf(btn) : 0),
-      );
+      if (!btn.disabled) btn.addEventListener("click", () => cleanup(item.id));
+      btn.addEventListener("mouseenter", () => focusItem(buttons.indexOf(btn)));
       btn.addEventListener("mouseleave", () => {
         btn.classList.remove("bg-[var(--sidebar-accent)]");
         focusedIndex = -1;

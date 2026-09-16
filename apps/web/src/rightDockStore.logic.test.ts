@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   closePaneInState,
   createDefaultRightDockState,
+  migrateRightDockStateByThreadId,
   openPaneInState,
-  sanitizeRightDockStateByThreadId,
-  sanitizeRightDockThreadState,
+  sanitizeRightDockStateByDeckId,
+  sanitizeRightDockDeckState,
   setActivePaneInState,
   setDockOpenInState,
   setDockWidthInState,
@@ -85,7 +86,7 @@ describe("App tab state", () => {
     );
   });
 
-  it("retains a custom width in the Thread state", () => {
+  it("retains a custom width in the deck state", () => {
     const state = setDockWidthInState(createDefaultRightDockState(), 640);
     expect(state.width).toBe(640);
     expect(setDockWidthInState(state, 640)).toBe(state);
@@ -95,7 +96,7 @@ describe("App tab state", () => {
 
 describe("persisted App tabs", () => {
   it("restores only complete App records", () => {
-    const state = sanitizeRightDockThreadState({
+    const state = sanitizeRightDockDeckState({
       open: true,
       activePaneId: "valid",
       panes: [
@@ -123,22 +124,22 @@ describe("persisted App tabs", () => {
     expect(state.width).toBeNull();
   });
 
-  it("restores a valid per-Thread width and rejects invalid widths", () => {
-    const valid = sanitizeRightDockThreadState({ width: 612 });
-    const invalid = sanitizeRightDockThreadState({ width: Number.POSITIVE_INFINITY });
+  it("restores a valid per-deck width and rejects invalid widths", () => {
+    const valid = sanitizeRightDockDeckState({ width: 612 });
+    const invalid = sanitizeRightDockDeckState({ width: Number.POSITIVE_INFINITY });
     expect(valid.width).toBe(612);
     expect(invalid.width).toBeNull();
   });
 
   it("closes malformed or empty state", () => {
-    expect(sanitizeRightDockThreadState({ open: true, panes: [{ kind: "app" }] })).toEqual(
+    expect(sanitizeRightDockDeckState({ open: true, panes: [{ kind: "app" }] })).toEqual(
       createDefaultRightDockState(),
     );
   });
 
   it("discards legacy panes without a recorded Space instead of rebinding them", () => {
     expect(
-      sanitizeRightDockThreadState({
+      sanitizeRightDockDeckState({
         open: true,
         panes: [
           {
@@ -155,8 +156,8 @@ describe("persisted App tabs", () => {
     ).toEqual(createDefaultRightDockState());
   });
 
-  it("sanitizes the per-Thread map", () => {
-    const result = sanitizeRightDockStateByThreadId({
+  it("sanitizes the per-deck map", () => {
+    const result = sanitizeRightDockStateByDeckId({
       thread: {
         open: true,
         activePaneId: "app",
@@ -175,6 +176,31 @@ describe("persisted App tabs", () => {
       },
     });
     expect(result.thread?.panes[0]?.appSlug).toBe("apps");
+  });
+
+  it("migrates old per-Thread panels to their canonical deck without dual ownership", () => {
+    const legacy = {
+      "thread-1": {
+        open: true,
+        activePaneId: "app",
+        panes: [
+          {
+            id: "app",
+            kind: "app",
+            appId: "com.penkra.apps",
+            appSpaceId: "space-1",
+            appSlug: "apps",
+            appName: "Apps",
+            appRoute: "/",
+            appStatus: "ready",
+          },
+        ],
+      },
+    };
+
+    expect(migrateRightDockStateByThreadId(legacy, new Map([["thread-1", "deck-1"]]))).toEqual({
+      "deck-1": expect.objectContaining({ activePaneId: "app" }),
+    });
   });
 
   it("does not churn state when equivalent reconstructed navigation is received", () => {

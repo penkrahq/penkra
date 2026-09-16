@@ -35,6 +35,25 @@ function fixture() {
     lastError: null,
   }));
   const calls: Array<[string, unknown?]> = [];
+  const initialThreadState = [
+    {
+      id: "thread-1",
+      deckId: "deck-1",
+      title: "First",
+      order: 0,
+      archived: false,
+      phase: "idle" as const,
+      activeTurnId: null,
+      pendingQuestion: false,
+      composer: { empty: true, owner: "none" as const, composeId: null },
+      queued: { count: 0, hasAppSubmission: false },
+      steering: { pending: false, hasAppSubmission: false },
+      updatedAt: "2026-09-16T00:00:00.000Z",
+    },
+  ];
+  const threadsCall = vi.fn(async (method: string) =>
+    method === "list" ? initialThreadState : undefined,
+  );
   const call: NonNullable<AppPreloadTransport["call"]> = async <Result = unknown>(
     method: string,
     input?: unknown,
@@ -115,7 +134,7 @@ function fixture() {
       body: new Uint8Array(),
     })),
     storageCall: vi.fn(),
-    threadCall: vi.fn(),
+    threadsCall,
     showContextMenu: vi.fn(async () => null),
   });
   runtime.start();
@@ -127,6 +146,8 @@ function fixture() {
     browserCall,
     simulatorCall,
     calls,
+    threadsCall,
+    initialThreadState,
     browserState: (state: import("@penkra/sdk").AppBrowserSessionState) =>
       browserStateListener?.(state),
     simulatorState: (state: import("@penkra/sdk").AppSimulatorSessionState) =>
@@ -253,6 +274,32 @@ describe("AppPreloadRuntime", () => {
     unsubscribe();
     test.event("transfer.progress", { ...progress, movedBytes: 4096 });
     expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("publishes one initial Thread Deck snapshot and later semantic host updates", async () => {
+    const test = fixture();
+    const listener = vi.fn();
+    const unsubscribe = test.runtime.api.threads.onState(listener);
+
+    await vi.waitFor(() => expect(listener).toHaveBeenCalledWith(test.initialThreadState));
+    expect(test.threadsCall).toHaveBeenCalledWith("list");
+
+    const running = [
+      {
+        ...test.initialThreadState[0]!,
+        phase: "running" as const,
+        activeTurnId: "turn-1",
+        updatedAt: "2026-09-16T00:00:01.000Z",
+      },
+    ];
+    test.event("threads.state", running);
+    test.event("threads.state", running);
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenLastCalledWith(running);
+
+    unsubscribe();
+    test.event("threads.state", test.initialThreadState);
+    expect(listener).toHaveBeenCalledTimes(2);
   });
 
   it("shows native context menus without exposing Electron primitives", async () => {

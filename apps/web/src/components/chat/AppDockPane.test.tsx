@@ -7,6 +7,8 @@ describe("AppDockPane", () => {
   it("renders one sandboxed App frame and the selected icon while loading", () => {
     const html = renderToStaticMarkup(
       <AppDockPane
+        deckId="deck-1"
+        threadId="thread-1"
         appName="Figma"
         iconDataUrl="data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="
         rendererId={-1}
@@ -28,6 +30,8 @@ describe("AppDockPane", () => {
   it("keeps a retained non-visible App frame rendered for tab-scoped semantic access", () => {
     const html = renderToStaticMarkup(
       <AppDockPane
+        deckId="deck-1"
+        threadId="thread-1"
         appName="Canvas"
         rendererId={7}
         documentUrl="penkra-app://canvas/app.html"

@@ -111,7 +111,7 @@ layer("OrchestrationEventStore", (it) => {
       assert.equal(storedRows.length, 1);
       assert.equal(typeof storedRows[0]?.payloadJson, "string");
       assert.equal(typeof storedRows[0]?.metadataJson, "string");
-      assert.equal(JSON.parse(storedRows[0]!.metadataJson).persistedEventSchemaVersion, 1);
+      assert.equal(JSON.parse(storedRows[0]!.metadataJson).persistedEventSchemaVersion, 2);
 
       const replayed = yield* Stream.runCollect(
         eventStore.readFromSequence(startSequence, 10),
@@ -260,6 +260,15 @@ layer("OrchestrationEventStore", (it) => {
         },
       );
       assert.deepStrictEqual(
+        threadCreated?.type === "thread.created"
+          ? {
+              deckId: threadCreated.payload.deckId,
+              deckSortOrder: threadCreated.payload.deckSortOrder,
+            }
+          : null,
+        { deckId: "deck:thread-imported", deckSortOrder: 0 },
+      );
+      assert.deepStrictEqual(
         turnStartRequested?.type === "thread.turn-start-requested"
           ? turnStartRequested.payload.modelSelection
           : null,
@@ -368,7 +377,7 @@ layer("OrchestrationEventStore", (it) => {
             createdAt: now,
             updatedAt: now,
           })},
-          ${JSON.stringify({ persistedEventSchemaVersion: 2 })}
+          ${JSON.stringify({ persistedEventSchemaVersion: 3 })}
         )
       `;
 
@@ -380,7 +389,7 @@ layer("OrchestrationEventStore", (it) => {
         assert.ok(Schema.is(PersistenceDecodeError)(replayResult.failure));
         assert.match(replayResult.failure.operation, /sequence=\d+, type=folder\.created/);
         assert.ok(
-          replayResult.failure.issue.includes("Unsupported persisted event schema version 2"),
+          replayResult.failure.issue.includes("Unsupported persisted event schema version 3"),
           replayResult.failure.issue,
         );
       }

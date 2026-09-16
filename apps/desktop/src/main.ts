@@ -8,6 +8,7 @@ import * as Crypto from "node:crypto";
 import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 // Electron-only builtin that sees app.asar as a real file instead of a virtual
 // directory — required to stat the archive itself for swap detection.
 import * as OriginalFS from "original-fs";
@@ -72,6 +73,7 @@ import {
 } from "@penkra/shared/desktopIdentity";
 import { bindDesktopParentPid } from "@penkra/shared/desktopParentLifecycle";
 import { NetService } from "@penkra/shared/Net";
+import { POSSIBLE_MODEL_CATALOG } from "@penkra/shared/possibleModels";
 import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
 import { RotatingFileSink } from "@penkra/shared/logging";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
@@ -331,6 +333,7 @@ import {
   parseOpenAppFromAppsRequest,
   parseOpenAppTabRequest,
   parseSetAppTabActiveRequest,
+  parseSetAppTabContextRequest,
 } from "./appTabIpc";
 import { parseAppListingDeepLink } from "./appListingDeepLink";
 import { getInstalledAppPackage, type VerifiedAppPackageInput } from "./appInstallationState";
@@ -483,6 +486,7 @@ const shellWindowRegistry = new ShellWindowRegistry();
 let pendingAppListingRequest: { appId: string } | null = null;
 const MAX_PENDING_APP_TAB_EVENTS = 128;
 const pendingAppTabOpened = new Map<string, DesktopAppTabOpened>();
+const appPresentationSurface = new AsyncLocalStorage<number | null>();
 let desktopAppRuntime: DesktopAppRuntime | null = null;
 
 function shellWindows(): BrowserWindow[] {
@@ -523,7 +527,16 @@ function announceAppTabOpened(descriptor: DesktopAppTabOpened): void {
     }
     return;
   }
-  for (const window of readyWindows) window.webContents.send(IPC.appTabs.opened, descriptor);
+  const targetSurfaceId = appPresentationSurface.getStore() ?? null;
+  for (const window of readyWindows) {
+    window.webContents.send(IPC.appTabs.opened, {
+      ...descriptor,
+      selection:
+        targetSurfaceId === null || window.webContents.id === targetSurfaceId
+          ? descriptor.selection
+          : "preserve",
+    });
+  }
 }
 
 function flushPendingAppTabs(window: BrowserWindow): void {
@@ -537,7 +550,10 @@ function flushPendingAppTabs(window: BrowserWindow): void {
 function announceAppTabState(descriptor: DesktopAppTabDescriptor): void {
   const pending = pendingAppTabOpened.get(descriptor.id);
   if (pending)
-    pendingAppTabOpened.set(descriptor.id, { ...descriptor, selection: pending.selection });
+    pendingAppTabOpened.set(descriptor.id, {
+      ...descriptor,
+      selection: pending.selection,
+    });
   broadcastToShellWindows(IPC.appTabs.state, descriptor);
 }
 
@@ -557,9 +573,15 @@ function orderedShellWindows(): BrowserWindow[] {
 async function resolveShellAppFrameTarget(
   descriptor: import("@penkra/contracts").DesktopAppTabDescriptor,
   tabId: string,
+  surfaceId?: number,
 ): Promise<import("./appTabObserver").AppTabObservationTarget> {
   let retained: { window: BrowserWindow; frame: Electron.WebFrameMain } | undefined;
-  for (const window of orderedShellWindows()) {
+  const exactWindow =
+    surfaceId === undefined ? null : shellWindowRegistry.windowForWebContentsId(surfaceId);
+  if (surfaceId !== undefined && exactWindow === null) {
+    throw new Error("The window where this agent turn originated is no longer available.");
+  }
+  for (const window of exactWindow ? [exactWindow] : orderedShellWindows()) {
     const frame = window.webContents.mainFrame.framesInSubtree.find(
       (candidate) => candidate.name === `penkra-app-tab:${tabId}`,
     );
@@ -663,15 +685,38 @@ async function invokeAppStorageCall(
   }
 }
 
+type AppThreadOperationMethod =
+  | "current.read"
+  | "list"
+  | "get"
+  | "create"
+  | "add"
+  | "select"
+  | "reorder"
+  | "leave"
+  | "archive"
+  | "compose"
+  | "send";
+
 async function requestAppThreadOperation(
   runtime: DesktopAppRuntime,
-  identity: { appId: string; spaceId: string; threadId?: string; tabId?: string },
-  method: "read" | "compose" | "send",
+  identity: {
+    appId: string;
+    spaceId: string;
+    deckId?: string;
+    threadId?: string;
+    tabId?: string;
+    surfaceId?: number;
+  },
+  method: AppThreadOperationMethod,
   value: unknown,
   trustedCaller = false,
 ): Promise<unknown> {
   if (!identity.threadId) {
     throw new Error("Only an App surface attached to a Thread can use the Thread API.");
+  }
+  if (!identity.deckId) {
+    throw new Error("Only an App surface attached to a Thread Deck can use the Thread API.");
   }
   if (!identity.tabId) {
     throw new Error("Only an App tab can use the current Thread API.");
@@ -690,18 +735,22 @@ async function requestAppThreadOperation(
     }
   }
   const targetSurfaceId = runtime.appTabs.activeSurfaceId(identity.tabId);
+  const requestedSurfaceId = identity.surfaceId;
   const targetWindow =
-    shellWindowRegistry.windowForWebContentsId(targetSurfaceId) ?? resolveShellWindow();
+    requestedSurfaceId === undefined
+      ? (shellWindowRegistry.windowForWebContentsId(targetSurfaceId) ?? resolveShellWindow())
+      : shellWindowRegistry.windowForWebContentsId(requestedSurfaceId);
   if (!targetWindow) throw new Error("The Penkra shell is unavailable.");
   const base = {
     id: Crypto.randomUUID(),
     appId: identity.appId,
     spaceId: identity.spaceId,
+    deckId: identity.deckId,
     tabId: identity.tabId,
     threadId: identity.threadId,
   };
   let request: import("@penkra/contracts").DesktopThreadApiRequest;
-  if (method === "read") {
+  if (method === "current.read" || method === "list") {
     request = { ...base, method };
   } else if (method === "send") {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -717,54 +766,113 @@ async function requestAppThreadOperation(
     request = {
       ...base,
       method,
-      input: { composeId: input.composeId, ...(input.mode ? { mode: input.mode } : {}) },
+      input: {
+        composeId: input.composeId,
+        ...(input.mode ? { mode: input.mode } : {}),
+      },
+    };
+  } else if (method === "compose") {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Thread compose input must be an object.");
+    }
+    const input = value as import("@penkra/sdk").AppThreadComposeInput & {
+      threadId?: unknown;
+    };
+    if (typeof input.threadId !== "string" || input.threadId.length === 0) {
+      throw new Error("Thread compose requires a target Thread ID.");
+    }
+    const storage = appStorage;
+    if (!storage) throw new Error("The App storage service is not ready.");
+    const owner = { appId: identity.appId, spaceId: identity.spaceId };
+    const [files, images] = await Promise.all([
+      Promise.all((input.files ?? []).map((item) => storage.readComposerAttachment(owner, item))),
+      Promise.all((input.images ?? []).map((item) => storage.readComposerAttachment(owner, item))),
+    ]);
+    const contributed = await runtime.operationCatalog.skills(identity.spaceId);
+    const ownSkills = new Map(
+      contributed
+        .filter((skill) => skill.appId === identity.appId && skill.enabled)
+        .flatMap(
+          (skill) =>
+            [
+              [skill.name, { name: skill.name, path: skill.skillPath }],
+              [skill.path, { name: skill.name, path: skill.skillPath }],
+            ] as const,
+        ),
+    );
+    const skills = (input.skills ?? []).map((name) => {
+      const skill = ownSkills.get(name);
+      if (!skill) {
+        throw new Error(`Skill ${name} is not an enabled contribution from this App.`);
+      }
+      return skill;
+    });
+    request = {
+      ...base,
+      method,
+      input: {
+        threadId: input.threadId,
+        ...(input.text === undefined ? {} : { text: input.text }),
+        ...(input.documents === undefined ? {} : { documents: input.documents }),
+        ...(files.length === 0 ? {} : { files }),
+        ...(images.length === 0 ? {} : { images }),
+        ...(skills.length === 0 ? {} : { skills }),
+        ...(input.model === undefined ? {} : { model: input.model }),
+        ...(input.effort === undefined ? {} : { effort: input.effort }),
+      },
     };
   } else {
-    if (value === undefined) {
-      request = { ...base, method };
-    } else if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("Thread compose input must be an object.");
-    } else {
-      const input = value as import("@penkra/sdk").AppThreadComposeInput;
-      const storage = appStorage;
-      if (!storage) throw new Error("The App storage service is not ready.");
-      const owner = { appId: identity.appId, spaceId: identity.spaceId };
-      const [files, images] = await Promise.all([
-        Promise.all((input.files ?? []).map((item) => storage.readComposerAttachment(owner, item))),
-        Promise.all(
-          (input.images ?? []).map((item) => storage.readComposerAttachment(owner, item)),
-        ),
-      ]);
-      const contributed = await runtime.operationCatalog.skills(identity.spaceId);
-      const ownSkills = new Map(
-        contributed
-          .filter((skill) => skill.appId === identity.appId && skill.enabled)
-          .flatMap(
-            (skill) =>
-              [
-                [skill.name, { name: skill.name, path: skill.skillPath }],
-                [skill.path, { name: skill.name, path: skill.skillPath }],
-              ] as const,
-          ),
-      );
-      const skills = (input.skills ?? []).map((name) => {
-        const skill = ownSkills.get(name);
-        if (!skill) throw new Error(`Skill ${name} is not an enabled contribution from this App.`);
-        return skill;
-      });
+    const input =
+      value === undefined && method === "create"
+        ? {}
+        : !value || typeof value !== "object" || Array.isArray(value)
+          ? null
+          : (value as Record<string, unknown>);
+    if (!input) throw new Error(`Thread ${method} input must be an object.`);
+    if (method === "create") {
+      const folderId = input.folderId;
+      const title = input.title;
+      const select = input.select;
+      if (folderId !== undefined && typeof folderId !== "string") {
+        throw new Error("Thread create folderId must be a string.");
+      }
+      if (title !== undefined && typeof title !== "string") {
+        throw new Error("Thread create title must be a string.");
+      }
+      if (select !== undefined && typeof select !== "boolean") {
+        throw new Error("Thread create select must be a boolean.");
+      }
       request = {
         ...base,
         method,
         input: {
-          ...(input.text === undefined ? {} : { text: input.text }),
-          ...(input.documents === undefined ? {} : { documents: input.documents }),
-          ...(files.length === 0 ? {} : { files }),
-          ...(images.length === 0 ? {} : { images }),
-          ...(skills.length === 0 ? {} : { skills }),
-          ...(input.model === undefined ? {} : { model: input.model }),
-          ...(input.effort === undefined ? {} : { effort: input.effort }),
+          ...(folderId === undefined ? {} : { folderId }),
+          ...(title === undefined ? {} : { title }),
+          ...(select === undefined ? {} : { select }),
         },
       };
+    } else {
+      const targetThreadId = input.threadId;
+      if (typeof targetThreadId !== "string" || targetThreadId.length === 0) {
+        throw new Error(`Thread ${method} requires a target Thread ID.`);
+      }
+      if (method === "add" || method === "reorder") {
+        const rawPosition = input.position;
+        const position = parseAppThreadDeckPosition(
+          rawPosition ?? (method === "add" ? { type: "end" } : undefined),
+        );
+        request = {
+          ...base,
+          method,
+          input: { threadId: targetThreadId, position },
+        };
+      } else {
+        request = {
+          ...base,
+          method,
+          input: { threadId: targetThreadId },
+        };
+      }
     }
   }
   const startedAt = performance.now();
@@ -796,6 +904,25 @@ async function requestAppThreadOperation(
   }
 }
 
+function parseAppThreadDeckPosition(
+  value: unknown,
+): import("@penkra/contracts").DesktopThreadDeckPosition {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Thread Deck position must be an object.");
+  }
+  const position = value as { type?: unknown; threadId?: unknown };
+  if (position.type === "start" || position.type === "end") {
+    return { type: position.type };
+  }
+  if (position.type === "before" || position.type === "after") {
+    if (typeof position.threadId !== "string" || position.threadId.length === 0) {
+      throw new Error(`Thread Deck ${position.type} position requires an anchor Thread ID.`);
+    }
+    return { type: position.type, threadId: position.threadId };
+  }
+  throw new Error("Thread Deck position type must be start, end, before, or after.");
+}
+
 function acceptThreadApiResponse(
   event: Electron.IpcMainEvent,
   response: import("@penkra/contracts").DesktopThreadApiResponse,
@@ -810,6 +937,35 @@ function acceptThreadApiResponse(
   clearTimeout(pending.timer);
   if (response.ok) pending.resolve(response.result);
   else pending.reject(Object.assign(new Error(response.message), { code: response.code }));
+}
+
+function acceptThreadApiState(event: Electron.IpcMainEvent, input: unknown): void {
+  if (
+    event.sender.isDestroyed() ||
+    !shellWindowRegistry.hasWebContents(event.sender) ||
+    !input ||
+    typeof input !== "object" ||
+    Array.isArray(input)
+  ) {
+    return;
+  }
+  const state = input as {
+    spaceId?: unknown;
+    deckId?: unknown;
+    threads?: unknown;
+  };
+  if (
+    typeof state.spaceId !== "string" ||
+    typeof state.deckId !== "string" ||
+    !Array.isArray(state.threads)
+  ) {
+    return;
+  }
+  const tabs = desktopAppRuntime?.appTabs;
+  if (!tabs) return;
+  for (const tab of tabs.listFor(state.spaceId, state.deckId)) {
+    tabs.sendFrameEvent(tab.id, "threads.state", state.threads);
+  }
 }
 
 let desktopSimulatorRuntime: DesktopSimulatorHostRuntime | null = null;
@@ -839,6 +995,39 @@ const pendingThreadApiRequests = new Map<
     timer: ReturnType<typeof setTimeout>;
   }
 >();
+const turnOriginSurfaceByTurnId = new Map<string, number>();
+
+function resolveTurnOriginSurface(turnId: string): number | null {
+  const surfaceId = turnOriginSurfaceByTurnId.get(turnId) ?? null;
+  if (surfaceId === null || shellWindowRegistry.windowForWebContentsId(surfaceId) === null) {
+    if (surfaceId !== null) turnOriginSurfaceByTurnId.delete(turnId);
+    return null;
+  }
+  return surfaceId;
+}
+
+function acceptThreadApiTurnOrigin(
+  event: Electron.IpcMainEvent,
+  input: unknown,
+  active: boolean,
+): void {
+  if (
+    event.sender.isDestroyed() ||
+    !shellWindowRegistry.hasWebContents(event.sender) ||
+    !input ||
+    typeof input !== "object" ||
+    Array.isArray(input)
+  ) {
+    return;
+  }
+  const turnId = (input as { turnId?: unknown }).turnId;
+  if (typeof turnId !== "string" || turnId.length === 0) return;
+  if (active) {
+    turnOriginSurfaceByTurnId.set(turnId, event.sender.id);
+  } else if (turnOriginSurfaceByTurnId.get(turnId) === event.sender.id) {
+    turnOriginSurfaceByTurnId.delete(turnId);
+  }
+}
 const runtimeV2FileWatches = new AppFileWatchStore();
 
 function revokeRuntimeV2FileScope(appId: string, spaceId: string): void {
@@ -860,6 +1049,7 @@ function revokeRuntimeV2FileScope(appId: string, spaceId: string): void {
 function retireAppGenerationAuthority(owner: {
   appId: string;
   spaceId: string;
+  deckId: string;
   threadId: string;
   tabId: string;
   rendererId: number;
@@ -886,6 +1076,7 @@ function retireAppGenerationAuthority(owner: {
 function retireAppTabAuthority(owner: {
   appId: string;
   spaceId: string;
+  deckId: string;
   threadId: string;
   tabId: string;
 }): void {
@@ -1085,6 +1276,7 @@ async function openPenkraResource(input: {
   url?: string;
   requestedApp?: string;
   spaceId: string;
+  deckId: string;
   threadId: string;
   callerKind?: "agent" | "user";
 }): Promise<unknown> {
@@ -1112,6 +1304,7 @@ async function openPenkraResource(input: {
       operation: resolved.operation,
       input: { url: url.href },
       spaceId: input.spaceId,
+      deckId: input.deckId,
       threadId: input.threadId,
       callerKind: input.callerKind ?? "agent",
     });
@@ -1132,6 +1325,7 @@ async function openPenkraResource(input: {
     openWith: runtime.openWith,
     path: input.path ?? "",
     spaceId: input.spaceId,
+    deckId: input.deckId,
     threadId: input.threadId,
     ...(input.requestedApp ? { requestedApp: input.requestedApp } : {}),
     ...(input.callerKind ? { callerKind: input.callerKind } : {}),
@@ -1146,6 +1340,7 @@ async function showPenkraResourceContextMenu(input: {
   path?: string;
   url?: string;
   spaceId: string;
+  deckId: string;
   threadId: string;
   position: { x: number; y: number };
   ownerWindow?: BrowserWindow | null;
@@ -1189,13 +1384,18 @@ async function showPenkraResourceContextMenu(input: {
       ...resource,
       requestedApp: choice.requestedApp,
       spaceId: input.spaceId,
+      deckId: input.deckId,
       threadId: input.threadId,
       callerKind: "user",
     });
   }
   if ("url" in model.resource) {
     await shell.openExternal(model.resource.url);
-    return { destination: "system", intent: model.intent, url: model.resource.url };
+    return {
+      destination: "system",
+      intent: model.intent,
+      url: model.resource.url,
+    };
   }
   if (model.resource.kind === "directory") {
     const error = await shell.openPath(model.resource.path);
@@ -1203,7 +1403,11 @@ async function showPenkraResourceContextMenu(input: {
   } else {
     shell.showItemInFolder(model.resource.path);
   }
-  return { destination: "system", intent: model.intent, path: model.resource.path };
+  return {
+    destination: "system",
+    intent: model.intent,
+    path: model.resource.path,
+  };
 }
 
 let backendAuthToken = "";
@@ -2076,6 +2280,15 @@ function formatErrorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function describeExternalUrlForLog(externalUrl: string): string {
+  const url = new URL(externalUrl);
+  return `${url.protocol}//${url.host}`;
+}
+
+function describeExternalOpenFailure(error: unknown): string {
+  return sanitizeLogValue(formatErrorMessage(error)).replace(/https?:\/\/\S+/gi, "[url]");
 }
 
 function getSafeExternalUrl(rawUrl: unknown): string | null {
@@ -5183,6 +5396,16 @@ function registerIpcHandlers(): void {
   };
   ipcMain.removeListener(IPC.threadApiResponse, acceptThreadApiResponse);
   ipcMain.on(IPC.threadApiResponse, acceptThreadApiResponse);
+  ipcMain.removeListener(IPC.threadApiState, acceptThreadApiState);
+  ipcMain.on(IPC.threadApiState, acceptThreadApiState);
+  ipcMain.removeAllListeners(IPC.threadApiTurnOriginBind);
+  ipcMain.on(IPC.threadApiTurnOriginBind, (event, input) =>
+    acceptThreadApiTurnOrigin(event, input, true),
+  );
+  ipcMain.removeAllListeners(IPC.threadApiTurnOriginUnbind);
+  ipcMain.on(IPC.threadApiTurnOriginUnbind, (event, input) =>
+    acceptThreadApiTurnOrigin(event, input, false),
+  );
   for (const channel of Object.values(IPC.composerDrafts)) ipcMain.removeHandler(channel);
   ipcMain.removeAllListeners(IPC.composerDrafts.publishEditRecovery);
   ipcMain.on(IPC.composerDrafts.publishEditRecovery, (event, input: unknown) => {
@@ -5930,10 +6153,23 @@ function registerIpcHandlers(): void {
       throw new Error("Thread operation request must be an object.");
     }
     const { method, input } = request as { method?: unknown; input?: unknown };
-    if (method !== "read" && method !== "compose" && method !== "send") {
+    const supportedMethods: ReadonlySet<string> = new Set([
+      "current.read",
+      "list",
+      "get",
+      "create",
+      "add",
+      "select",
+      "reorder",
+      "leave",
+      "archive",
+      "compose",
+      "send",
+    ]);
+    if (typeof method !== "string" || !supportedMethods.has(method)) {
       throw new Error("Unsupported Thread operation.");
     }
-    return requestAppThreadOperation(runtime, identity, method, input);
+    return requestAppThreadOperation(runtime, identity, method as AppThreadOperationMethod, input);
   });
   const requireAppInstallations = (senderId: number) => {
     const service = desktopAppRuntime?.installations;
@@ -6166,11 +6402,20 @@ function registerIpcHandlers(): void {
     );
   });
   ipcMain.handle(IPC.appTabs.list, async (event) => requireShellAppTabs(event.sender.id).list());
+  ipcMain.handle(IPC.appTabs.setContext, async (event, input: unknown) => {
+    const { tabId, deckId, threadId } = parseSetAppTabContextRequest(input);
+    requireShellAppTabs(event.sender.id).setContext(tabId, {
+      deckId,
+      threadId,
+    });
+  });
   ipcMain.handle(IPC.appTabs.setActive, async (event, input: unknown) => {
-    const { tabId, rendererId, active } = parseSetAppTabActiveRequest(input);
+    const { tabId, rendererId, active, deckId, threadId } = parseSetAppTabActiveRequest(input);
     // React cleanup may deactivate a retired frame after an atomic App update. A stale
     // capability token is already inactive, so the host intentionally treats it as satisfied.
-    requireShellAppTabs(event.sender.id).setActive(tabId, rendererId, active, event.sender.id);
+    const tabs = requireShellAppTabs(event.sender.id);
+    if (active) tabs.setContext(tabId, { deckId, threadId });
+    tabs.setActive(tabId, rendererId, active, event.sender.id);
     if (active) applyActiveHostedBrowserPageBounds(tabId);
     publishAppBrowserSurface(tabId);
   });
@@ -6360,12 +6605,26 @@ function registerIpcHandlers(): void {
     if (!input || typeof input !== "object" || Array.isArray(input)) {
       throw new Error("Invalid App frame call.");
     }
-    const { tabId, rendererId, method, input: value } = input as Record<string, unknown>;
-    if (typeof tabId !== "string" || typeof rendererId !== "number" || typeof method !== "string") {
+    const {
+      tabId,
+      rendererId,
+      deckId,
+      threadId,
+      method,
+      input: value,
+    } = input as Record<string, unknown>;
+    if (
+      typeof tabId !== "string" ||
+      typeof rendererId !== "number" ||
+      typeof deckId !== "string" ||
+      typeof threadId !== "string" ||
+      typeof method !== "string"
+    ) {
       throw new Error("Invalid App frame call identity.");
     }
     const runtime = desktopAppRuntime;
     if (!runtime) throw new Error("The App runtime is unavailable.");
+    tabs.setContext(tabId, { deckId, threadId });
     const identity = tabs.frameIdentity(tabId, rendererId);
     const requireAppsFrame = () => {
       if (identity.appId !== "com.penkra.apps") {
@@ -6381,7 +6640,7 @@ function registerIpcHandlers(): void {
       );
     switch (method) {
       case "tab.getContext":
-        return { threadId: identity.threadId, tabId };
+        return { deckId: identity.deckId, threadId: identity.threadId, tabId };
       case "tab.setRoute":
         tabs.setRoute(tabId, parseAppTabRouteRequest(value));
         return;
@@ -6523,7 +6782,7 @@ function registerIpcHandlers(): void {
           {
             appId: identity.appId,
             spaceId: identity.spaceId,
-            threadId: identity.threadId,
+            deckId: identity.deckId,
             tabId,
             rendererId,
             origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
@@ -6538,7 +6797,7 @@ function registerIpcHandlers(): void {
           {
             appId: identity.appId,
             spaceId: identity.spaceId,
-            threadId: identity.threadId,
+            deckId: identity.deckId,
             tabId,
             rendererId,
             origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
@@ -6556,7 +6815,7 @@ function registerIpcHandlers(): void {
           {
             appId: identity.appId,
             spaceId: identity.spaceId,
-            threadId: identity.threadId,
+            deckId: identity.deckId,
             tabId,
             rendererId,
             origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
@@ -6618,7 +6877,7 @@ function registerIpcHandlers(): void {
             {
               appId: identity.appId,
               spaceId: identity.spaceId,
-              threadId: identity.threadId,
+              deckId: identity.deckId,
               tabId,
               rendererId,
             },
@@ -6645,6 +6904,7 @@ function registerIpcHandlers(): void {
         runtimeV2FileWatches.set(watchId, {
           appId: identity.appId,
           spaceId: identity.spaceId,
+          deckId: identity.deckId,
           threadId: identity.threadId,
           tabId,
           rendererId,
@@ -6703,7 +6963,7 @@ function registerIpcHandlers(): void {
           {
             appId: identity.appId,
             spaceId: identity.spaceId,
-            threadId: identity.threadId,
+            deckId: identity.deckId,
             tabId,
             rendererId,
           },
@@ -6726,7 +6986,7 @@ function registerIpcHandlers(): void {
           {
             appId: identity.appId,
             spaceId: identity.spaceId,
-            threadId: identity.threadId,
+            deckId: identity.deckId,
             tabId,
             rendererId,
           },
@@ -6746,7 +7006,7 @@ function registerIpcHandlers(): void {
         const owner = {
           appId: identity.appId,
           spaceId: identity.spaceId,
-          threadId: identity.threadId,
+          deckId: identity.deckId,
           tabId,
           rendererId,
         };
@@ -6763,6 +7023,7 @@ function registerIpcHandlers(): void {
         const watcher = runtimeV2FileWatches.take(watchId, {
           appId: identity.appId,
           spaceId: identity.spaceId,
+          deckId: identity.deckId,
           threadId: identity.threadId,
           tabId,
           rendererId,
@@ -6781,6 +7042,7 @@ function registerIpcHandlers(): void {
         return runtime.invokeController({
           appId: identity.appId,
           spaceId: identity.spaceId,
+          deckId: identity.deckId,
           threadId: identity.threadId,
           tabId,
           handler: request.handler,
@@ -6905,6 +7167,7 @@ function registerIpcHandlers(): void {
             kind: "app-generation",
             appId: identity.appId,
             spaceId: identity.spaceId,
+            deckId: identity.deckId,
             threadId: identity.threadId,
             tabId,
             rendererId,
@@ -6925,6 +7188,7 @@ function registerIpcHandlers(): void {
           kind: "app-generation",
           appId: identity.appId,
           spaceId: identity.spaceId,
+          deckId: identity.deckId,
           threadId: identity.threadId,
           tabId,
           rendererId,
@@ -7097,7 +7361,7 @@ function registerIpcHandlers(): void {
         const owner = {
           appId: identity.appId,
           spaceId: identity.spaceId,
-          threadId: identity.threadId,
+          deckId: identity.deckId,
           tabId,
           rendererId,
           origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
@@ -7169,12 +7433,26 @@ function registerIpcHandlers(): void {
       case "storage.list":
       case "storage.usage":
         return invokeAppStorageCall(identity, method.slice("storage.".length), value);
-      case "thread.read":
-        return requestAppThreadOperation(runtime, identity, "read", value);
-      case "thread.compose":
-        return requestAppThreadOperation(runtime, identity, "compose", value);
-      case "thread.send":
-        return requestAppThreadOperation(runtime, identity, "send", value);
+      case "models.listPossible":
+        return POSSIBLE_MODEL_CATALOG;
+      case "threads.current.read":
+        return requestAppThreadOperation(runtime, identity, "current.read", value);
+      case "threads.list":
+      case "threads.get":
+      case "threads.create":
+      case "threads.add":
+      case "threads.select":
+      case "threads.reorder":
+      case "threads.leave":
+      case "threads.archive":
+      case "threads.compose":
+      case "threads.send":
+        return requestAppThreadOperation(
+          runtime,
+          identity,
+          method.slice("threads.".length) as AppThreadOperationMethod,
+          value,
+        );
       case "installations.getState":
         requireAppsFrame();
         return installationSnapshot();
@@ -7561,13 +7839,19 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.openExternal, async (_event, rawUrl: unknown) => {
     const externalUrl = getSafeExternalUrl(rawUrl);
     if (!externalUrl) {
+      console.warn("[desktop] Refused invalid external URL request.");
       return false;
     }
 
+    const logTarget = describeExternalUrlForLog(externalUrl);
     try {
       await shell.openExternal(externalUrl);
+      console.info(`[desktop] Opened external URL target=${logTarget}`);
       return true;
-    } catch {
+    } catch (error) {
+      console.warn(
+        `[desktop] Failed to open external URL target=${logTarget}: ${describeExternalOpenFailure(error)}`,
+      );
       return false;
     }
   });
@@ -7581,8 +7865,12 @@ function registerIpcHandlers(): void {
       throw new Error("Resource open input must be an object.");
     }
     const record = input as Record<string, unknown>;
-    if (typeof record.spaceId !== "string" || typeof record.threadId !== "string") {
-      throw new Error("Resource open requires Space and Thread IDs.");
+    if (
+      typeof record.spaceId !== "string" ||
+      typeof record.deckId !== "string" ||
+      typeof record.threadId !== "string"
+    ) {
+      throw new Error("Resource open requires Space, Thread Deck, and Thread IDs.");
     }
     const path = typeof record.path === "string" ? record.path : undefined;
     const url = typeof record.url === "string" ? record.url : undefined;
@@ -7593,6 +7881,7 @@ function registerIpcHandlers(): void {
     const context = {
       ...(requestedApp ? { requestedApp } : {}),
       spaceId: record.spaceId,
+      deckId: record.deckId,
       threadId: record.threadId,
       callerKind: "user" as const,
     };
@@ -7610,8 +7899,12 @@ function registerIpcHandlers(): void {
       throw new Error("Resource context menu input must be an object.");
     }
     const record = input as Record<string, unknown>;
-    if (typeof record.spaceId !== "string" || typeof record.threadId !== "string") {
-      throw new Error("Resource context menu requires Space and Thread IDs.");
+    if (
+      typeof record.spaceId !== "string" ||
+      typeof record.deckId !== "string" ||
+      typeof record.threadId !== "string"
+    ) {
+      throw new Error("Resource context menu requires Space, Thread Deck, and Thread IDs.");
     }
     const position = record.position;
     if (!position || typeof position !== "object" || Array.isArray(position)) {
@@ -7634,6 +7927,7 @@ function registerIpcHandlers(): void {
     return showPenkraResourceContextMenu({
       ...(path ? { path } : { url: url! }),
       spaceId: record.spaceId,
+      deckId: record.deckId,
       threadId: record.threadId,
       position: { x: point.x, y: point.y },
       ownerWindow: shellWindowForSender(event.sender),
@@ -8438,6 +8732,9 @@ async function bootstrap(): Promise<void> {
           cookie: getPenkraAccountCookie(),
         });
       }
+      if (method === "models.listPossible") {
+        return POSSIBLE_MODEL_CATALOG;
+      }
       if (!method.startsWith("installations.") || appId !== "com.penkra.apps") {
         throw Object.assign(new Error(`App controller service ${method} is unavailable.`), {
           code: "METHOD_NOT_SUPPORTED",
@@ -8679,7 +8976,7 @@ async function bootstrap(): Promise<void> {
   });
   writeDesktopLogHeader("bootstrap App runtime started");
   appTabObserver = new AppTabObserver({
-    resolve: async (tabId) => {
+    resolve: async (tabId, surfaceId) => {
       const descriptor = desktopAppRuntime!.appTabs
         .list()
         .find((candidate) => candidate.id === tabId);
@@ -8703,7 +9000,7 @@ async function bootstrap(): Promise<void> {
         // A logical App tab may be painted in several shell windows. Resolve the focused visible
         // replica first, then any other visible replica, without changing the tab-targeted tool
         // contract or accidentally selecting a retained hidden iframe.
-        appTarget: (targetTabId) => resolveShellAppFrameTarget(descriptor, targetTabId),
+        appTarget: (targetTabId) => resolveShellAppFrameTarget(descriptor, targetTabId, surfaceId),
         // A public browser-session is isolated to the App tab that owns it;
         // DesktopBrowserManager retains the older `threadId` parameter name.
         browserWebContents: (appTabId) =>
@@ -8748,12 +9045,21 @@ async function bootstrap(): Promise<void> {
     catalog: desktopAppRuntime.operationCatalog,
     broker: desktopAppRuntime.broker,
     tabs: desktopAppRuntime.appTabs,
+    resolveTurnSurface: resolveTurnOriginSurface,
+    runOnSurface: (surfaceId, operation) => appPresentationSurface.run(surfaceId, operation),
     observer: appTabObserver,
     providerCredentialVault: desktopAppRuntime.providerCredentialVault,
-    thread: async ({ spaceId, threadId, method, value }) =>
+    thread: async ({ spaceId, deckId, threadId, surfaceId, method, value }) =>
       requestAppThreadOperation(
         desktopAppRuntime!,
-        { appId: "penkra.host", spaceId, threadId, tabId: `host:${threadId}` },
+        {
+          appId: "penkra.host",
+          spaceId,
+          deckId,
+          threadId,
+          tabId: `host:${threadId}`,
+          ...(surfaceId === undefined ? {} : { surfaceId }),
+        },
         method,
         value,
         true,

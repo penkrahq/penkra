@@ -68,7 +68,11 @@ class AppFramePortTransport implements AppPreloadTransport {
     return this.#call("tab.setRoute", input);
   }
 
-  tabGetContext(): Promise<{ threadId: string; tabId: string | null }> {
+  tabGetContext(): Promise<{
+    deckId: string;
+    threadId: string;
+    tabId: string | null;
+  }> {
     return this.#call("tab.getContext");
   }
 
@@ -181,8 +185,8 @@ class AppFramePortTransport implements AppPreloadTransport {
     return this.#call(`storage.${method}`, input);
   }
 
-  threadCall(method: "read" | "compose" | "send", input?: unknown): Promise<unknown> {
-    return this.#call(`thread.${method}`, input);
+  threadsCall(method: string, input?: unknown): Promise<unknown> {
+    return this.#call(`threads.${method}`, input);
   }
 
   showContextMenu<T extends string>(
@@ -202,9 +206,17 @@ class AppFramePortTransport implements AppPreloadTransport {
   #call<Result = void>(method: string, input?: unknown): Promise<Result> {
     const id = `call-${++this.#nextCallId}`;
     return new Promise<Result>((resolve, reject) => {
-      this.#pending.set(id, { resolve: (value) => resolve(value as Result), reject });
+      this.#pending.set(id, {
+        resolve: (value) => resolve(value as Result),
+        reject,
+      });
       try {
-        this.#post({ type: "call", id, method, ...(input === undefined ? {} : { input }) });
+        this.#post({
+          type: "call",
+          id,
+          method,
+          ...(input === undefined ? {} : { input }),
+        });
       } catch (error) {
         this.#pending.delete(id);
         reject(toError(error));
@@ -301,7 +313,10 @@ const exposedApi = Object.assign(runtime.api, {
     createDirectory: (handleId: unknown, relativePath: unknown) =>
       transport.call("files.createDirectory", { handleId, relativePath }),
     watch: async (handleId: unknown, relativePath: unknown, listener: () => void) => {
-      const watchId = await transport.call<string>("files.watch", { handleId, relativePath });
+      const watchId = await transport.call<string>("files.watch", {
+        handleId,
+        relativePath,
+      });
       const remove = transport.onEvent(`files.watch.${watchId}`, listener);
       return () => {
         remove();

@@ -13,18 +13,18 @@ import type {
 import {
   EventId,
   MessageId,
-  ModelSelection,
   FolderId,
   ProviderConnectionId,
   ProviderInstallationId,
   SpaceId,
   ThreadId,
   TurnId,
+  singletonThreadDeckId,
 } from "@penkra/contracts";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 
-import { Deferred, Effect, Layer, Option, Schema, Stream } from "effect";
+import { Deferred, Effect, Layer, Option, Stream } from "effect";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
@@ -97,6 +97,8 @@ function makeThreadShell(
 ): OrchestrationThreadShell {
   return {
     id: ThreadId.makeUnsafe(id),
+    deckId: singletonThreadDeckId(ThreadId.makeUnsafe(id)),
+    deckSortOrder: 0,
     folderId: PROJECT_ID,
     title: `Thread ${id}`,
     modelSelection: { provider: "codex", model: "gpt-5.5" },
@@ -185,7 +187,8 @@ const VALID_TOKENS: Record<string, string> = {
 
 const TEST_TOOL_COMMANDS: Readonly<Record<string, ReadonlyArray<string>>> = {
   penkra_context: ["penkra", "context"],
-  penkra_capabilities: ["penkra", "capabilities"],
+  penkra_list_connections: ["penkra", "connections", "list"],
+  penkra_list_models: ["penkra", "models", "list"],
   penkra_list_folders: ["penkra", "folders", "list"],
   penkra_list_threads: ["penkra", "threads", "list"],
   penkra_read_thread: ["penkra", "threads", "read"],
@@ -643,7 +646,10 @@ function makeHarnessLayer(
               const key = `${command.threadId}:${command.turnId}`;
               const projected = projectionTurnsByKey.get(key);
               if (projected) {
-                projectionTurnsByKey.set(key, { ...projected, state: "cancelled" });
+                projectionTurnsByKey.set(key, {
+                  ...projected,
+                  state: "cancelled",
+                });
               }
             }
             const advancedTurnState = options.advanceParentTurnAfterDispatch?.state ?? "running";
@@ -995,7 +1001,11 @@ describe("AgentGateway", () => {
         const entered = yield* Deferred.make<void>();
         const release = yield* Deferred.make<void>();
         const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-          pauseAfterDispatch: { commandType: "thread.create", entered, release },
+          pauseAfterDispatch: {
+            commandType: "thread.create",
+            entered,
+            release,
+          },
         });
         return yield* Effect.gen(function* () {
           const harness = yield* makeHarness;
@@ -1069,7 +1079,10 @@ describe("AgentGateway", () => {
       const response = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_send_message",
-        args: { threadId: "thread-child", message: "The regression checks passed." },
+        args: {
+          threadId: "thread-child",
+          message: "The regression checks passed.",
+        },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       assert.equal(
@@ -1291,6 +1304,24 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
+  it.effect("separates context, Connections, and model catalogs in root help", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_exec_command",
+        args: { command: "penkra --help" },
+      });
+      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      const text = toolErrorText(response.result);
+      assert.include(text, "`penkra context`");
+      assert.include(text, "`penkra connections list`");
+      assert.include(text, "`penkra models list`");
+      assert.notInclude(text, "`penkra capabilities`");
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
   it.effect("lists several exact threads with latest and queued turn summaries", () => {
     const first = makeThreadShell("thread-list-first", {
       latestTurn: {
@@ -1441,7 +1472,10 @@ describe("AgentGateway", () => {
         args: { threadId: target.id, turnId: requestedTurnId },
       });
       const payload = toolResultJson(response.result);
-      assert.deepEqual(payload.turn, { turnId: requestedTurnId, state: "completed" });
+      assert.deepEqual(payload.turn, {
+        turnId: requestedTurnId,
+        state: "completed",
+      });
       assert.deepEqual(
         (payload.items as Array<{ text?: string }>).map((item) => item.text),
         ["requested answer"],
@@ -1484,7 +1518,11 @@ describe("AgentGateway", () => {
                     role: "user",
                     text: "pivot now",
                     turnId: logicalTurnId,
-                    delivery: { state: "accepted", queued: false, sequence: 14 },
+                    delivery: {
+                      state: "accepted",
+                      queued: false,
+                      sequence: 14,
+                    },
                     streaming: false,
                     source: "native",
                     sequence: 10,
@@ -1566,7 +1604,10 @@ describe("AgentGateway", () => {
           args: { threadId: target.id, turnId: logicalTurnId },
         });
         const payload = toolResultJson(response.result);
-        assert.deepEqual(payload.turn, { turnId: logicalTurnId, state: "completed" });
+        assert.deepEqual(payload.turn, {
+          turnId: logicalTurnId,
+          state: "completed",
+        });
         assert.deepEqual(
           (payload.items as Array<{ text?: string }>).map((item) => item.text),
           ["provider output after the logical dispatch", "provider output after restart"],
@@ -1631,7 +1672,10 @@ describe("AgentGateway", () => {
         args: { threadId: target.id, turnId: requestedTurnId },
       });
       const payload = toolResultJson(response.result);
-      assert.deepEqual(payload.turn, { turnId: requestedTurnId, state: "running" });
+      assert.deepEqual(payload.turn, {
+        turnId: requestedTurnId,
+        state: "running",
+      });
       assert.deepInclude((payload.items as Array<Record<string, unknown>>)[0] ?? {}, {
         type: "message",
         text: "partial answer",
@@ -1640,76 +1684,67 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("returns provider-specific target option keys before the model catalog", () => {
+  it.effect("returns runnable models with provider-specific target option rules", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "penkra_capabilities",
-        args: {},
+        name: "penkra_list_models",
+        args: { availability: "available", provider: "codex" },
       });
       const payload = toolResultJson(response.result);
-      const targetConstruction = payload.targetConstruction as Record<
-        string,
-        Record<string, unknown>
-      >;
-
-      assert.equal(targetConstruction.codex?.primaryOptionKey, "reasoningEffort");
+      const items = payload.items as Array<{
+        provider: string;
+        model: string;
+        options: Array<{
+          key: string;
+          allowedValues: ReadonlyArray<unknown>;
+        }>;
+      }>;
+      assert.equal(payload.availability, "available");
+      assert.equal(payload.provider, "codex");
+      assert.deepInclude(payload.connection as object, {
+        connectionId: CONNECTION_ID,
+        provider: "codex",
+      });
       assert.deepEqual(
-        (targetConstruction.codex?.exampleTarget as { options?: unknown } | undefined)?.options,
-        {
-          reasoningEffort: "medium",
-        },
-      );
-      const codexOptionsByModel = targetConstruction.codex?.optionsByModel as
-        | Record<string, Array<{ key: string; allowedValues: ReadonlyArray<unknown> }>>
-        | undefined;
-      assert.deepEqual(
-        codexOptionsByModel?.["gpt-5.6-terra"]?.find((option) => option.key === "reasoningEffort")
-          ?.allowedValues,
+        items
+          .find((item) => item.model === "gpt-5.6-terra")
+          ?.options.find((option) => option.key === "reasoningEffort")?.allowedValues,
         ["low", "high"],
       );
-      assert.equal(targetConstruction.claudeAgent?.primaryOptionKey, "effort");
-      assert.deepEqual(
-        (targetConstruction.claudeAgent?.exampleTarget as { options?: unknown } | undefined)
-          ?.options,
-        { effort: "low" },
-      );
-      assert.deepEqual(Object.keys(targetConstruction).toSorted(), [
-        "claudeAgent",
-        "codex",
-        "opencode",
-      ]);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
 
-      for (const construction of Object.values(targetConstruction)) {
-        const exampleTarget = construction.exampleTarget;
-        if (exampleTarget === null || exampleTarget === undefined) continue;
-        assert.deepEqual(Schema.decodeUnknownSync(ModelSelection)(exampleTarget), exampleTarget);
-      }
-
-      const serialized = JSON.stringify(payload);
-      assert.isBelow(serialized.indexOf('"targetConstruction"'), serialized.indexOf('"providers"'));
-      const providers = payload.providers as Array<{
-        models: Array<Record<string, unknown>>;
-      }>;
-      assert.isTrue(providers.length > 0);
-      assert.deepEqual(Object.keys(providers[0]!.models[0]!).toSorted(), ["name", "slug"]);
-
-      const filteredResponse = yield* harness.callTool({
+  it.effect("lists portable authoring models independently of Connections", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
         token: "token-parent",
-        name: "penkra_capabilities",
-        args: { provider: "codex", detail: "full" },
+        name: "penkra_list_models",
+        args: { availability: "possible", provider: "opencode" },
       });
-      const filteredPayload = toolResultJson(filteredResponse.result);
-      assert.deepEqual(Object.keys(filteredPayload.targetConstruction as object), ["codex"]);
-      const filteredProviders = filteredPayload.providers as Array<{
+      const payload = toolResultJson(response.result);
+      const items = payload.items as Array<{
         provider: string;
-        models: Array<Record<string, unknown>>;
+        model: string;
+        options: Array<Record<string, unknown>>;
       }>;
-      assert.equal(filteredProviders.length, 1);
-      assert.equal(filteredProviders[0]?.provider, "codex");
-      assert.isTrue(filteredProviders[0]!.models.some((model) => Object.keys(model).length > 2));
+      assert.equal(payload.total, items.length);
+      assert.isTrue(items.length > 0);
+      assert.isTrue(items.every((item) => item.provider === "opencode"));
+      assert.isTrue(items.some((item) => item.model === "opencode-go/kimi-k3"));
+      assert.deepInclude(
+        items.find((item) => item.model === "opencode-go/kimi-k3")?.options[0] ?? {},
+        {
+          key: "agent",
+          valueType: "string",
+          allowedValues: [],
+          allowsCustomValue: true,
+        },
+      );
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -1847,7 +1882,9 @@ describe("AgentGateway", () => {
   it.effect(
     "searches multiple literals with deterministic filters and returns every occurrence",
     () => {
-      const shell = makeThreadShell("thread-search-filtered", { title: "Filtered result" });
+      const shell = makeThreadShell("thread-search-filtered", {
+        title: "Filtered result",
+      });
       const detail: OrchestrationThread = {
         ...makeThreadDetail(shell),
         messages: [
@@ -2371,7 +2408,7 @@ describe("AgentGateway", () => {
   });
 
   it.effect(
-    "exposes safe Connection identities and discovers explicit Free without an account",
+    "lists safe Connection identities and discovers concrete or anonymous model routes",
     () => {
       const discoveryInputs: unknown[] = [];
       const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
@@ -2379,34 +2416,60 @@ describe("AgentGateway", () => {
       });
       return Effect.gen(function* () {
         const harness = yield* makeHarness;
-        const selected = yield* harness.callTool({
+        const listed = yield* harness.callTool({
           token: "token-parent",
-          name: "penkra_capabilities",
-          args: { provider: "codex", connectionId: CONNECTION_ID },
+          name: "penkra_list_connections",
+          args: { provider: "codex" },
         });
-        assert.isFalse(isToolError(selected.result), toolErrorText(selected.result));
-        const payload = toolResultJson(selected.result);
-        assert.deepInclude((payload.connections as object[])[0], {
+        assert.isFalse(isToolError(listed.result), toolErrorText(listed.result));
+        const connectionsPayload = toolResultJson(listed.result);
+        assert.deepInclude((connectionsPayload.items as object[])[0], {
           connectionId: CONNECTION_ID,
           provider: "codex",
         });
-        assert.notInclude(JSON.stringify(payload), "credentialRef");
-        assert.notInclude(JSON.stringify(payload), "profileRef");
-        assert.deepInclude(discoveryInputs[0], { provider: "codex", connectionId: CONNECTION_ID });
+        assert.notInclude(JSON.stringify(connectionsPayload), "credentialRef");
+        assert.notInclude(JSON.stringify(connectionsPayload), "profileRef");
+
+        const selected = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_list_models",
+          args: { availability: "available", connectionId: CONNECTION_ID },
+        });
+        assert.isFalse(isToolError(selected.result), toolErrorText(selected.result));
+        assert.deepInclude(toolResultJson(selected.result).connection as object, {
+          connectionId: CONNECTION_ID,
+          provider: "codex",
+        });
+        assert.deepInclude(discoveryInputs[0], {
+          provider: "codex",
+          connectionId: CONNECTION_ID,
+        });
         const free = yield* harness.callTool({
           token: "token-parent",
-          name: "penkra_capabilities",
-          args: { provider: "opencode", connectionId: null },
+          name: "penkra_list_models",
+          args: {
+            availability: "available",
+            provider: "opencode",
+            connectionId: null,
+          },
         });
         assert.isFalse(isToolError(free.result), toolErrorText(free.result));
-        assert.deepInclude(discoveryInputs[1], { provider: "opencode", connectionId: null });
-        assert.deepInclude((toolResultJson(free.result).providers as object[])[0], {
+        assert.deepInclude(discoveryInputs[1], {
+          provider: "opencode",
           connectionId: null,
+        });
+        assert.deepInclude(toolResultJson(free.result).connection as object, {
+          connectionId: null,
+          provider: "opencode",
         });
         const wrongProvider = yield* harness.callTool({
           token: "token-parent",
-          name: "penkra_capabilities",
-          args: { provider: "claudeAgent", connectionId: CONNECTION_ID },
+          name: "penkra_list_models",
+          args: {
+            availability: "available",
+            provider: "claudeAgent",
+            connectionId: CONNECTION_ID,
+          },
         });
         assert.isTrue(isToolError(wrongProvider.result));
         assert.equal(discoveryInputs.length, 2);
@@ -2445,7 +2508,10 @@ describe("AgentGateway", () => {
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       assert.equal(toolResultJson(response.result).connectionId, originalAccount);
-      assert.deepInclude(discoveryInputs[0], { provider: "codex", connectionId: originalAccount });
+      assert.deepInclude(discoveryInputs[0], {
+        provider: "codex",
+        connectionId: originalAccount,
+      });
       const turn = harness.dispatched.find((command) => command.type === "thread.turn.start");
       assert.equal(
         turn?.type === "thread.turn.start" ? turn.connectionId : undefined,
@@ -2482,7 +2548,10 @@ describe("AgentGateway", () => {
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       assert.deepEqual(selections, [
-        { modelSelection: { provider: "codex", model: "gpt-5.5" }, connectionId: CONNECTION_ID },
+        {
+          modelSelection: { provider: "codex", model: "gpt-5.5" },
+          connectionId: CONNECTION_ID,
+        },
       ]);
       assert.equal(toolResultJson(response.result).connectionId, CONNECTION_ID);
     }).pipe(Effect.provide(gatewayLayer));
@@ -2653,7 +2722,10 @@ describe("AgentGateway", () => {
       const response = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_send_message",
-        args: { threadId: "thread-child", message: "follow the existing work" },
+        args: {
+          threadId: "thread-child",
+          message: "follow the existing work",
+        },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       const payload = toolResultJson(response.result);

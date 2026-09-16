@@ -162,7 +162,7 @@ export const DOCK_TAB_ICON_HOVER_HIDE_CLASS_NAME =
 
 /** Hover glyph: thicker X centered inside the disc. */
 export const DOCK_TAB_CLOSE_GLYPH_CLASS_NAME =
-  "absolute size-3.5 shrink-0 opacity-0 transition-opacity group-hover/dock-tab:opacity-100 group-focus-within/dock-tab:opacity-100";
+  "pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover/dock-tab:opacity-100 group-focus-within/dock-tab:opacity-100";
 
 /**
  * Shared flat tab chip for every chat surface that renders a row of closable tabs —
@@ -191,6 +191,7 @@ export function SurfaceTabChip({
   className,
   labelClassName,
   closeLabel,
+  closeIcon,
   onSelect,
   onClose,
 }: {
@@ -203,6 +204,7 @@ export function SurfaceTabChip({
   className?: string | undefined;
   labelClassName?: string | undefined;
   closeLabel?: string | undefined;
+  closeIcon?: ReactNode;
   onSelect?: (() => void) | undefined;
   onClose?: (() => void) | undefined;
 }) {
@@ -231,7 +233,9 @@ export function SurfaceTabChip({
           >
             {icon}
           </span>
-          <CentralIcon name="cross-small" className={DOCK_TAB_CLOSE_GLYPH_CLASS_NAME} />
+          <span className={DOCK_TAB_CLOSE_GLYPH_CLASS_NAME} data-slot="surface-tab-close-glyph">
+            {closeIcon ?? <CentralIcon name="cross-small" className="size-3.5" />}
+          </span>
         </button>
       ) : (
         <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>

@@ -118,10 +118,10 @@ systems that happen to share vocabulary.
 
 ## Seeing what the user sees
 
-`penkra tabs current` and `penkra tabs list` show the App tabs in this Thread and
+`penkra tabs current` and `penkra tabs list` show the App tabs in this Thread Deck and
 Space. Snapshot, find, and interaction commands take an exact `--tab-id` and can address a retained
 tab even when another tab is on screen. Screenshot is intentionally different: it takes no tab ID
-and captures only the App tab currently visible for the caller Thread. Run `penkra tabs --help` for
+and captures only the App tab visible in the exact window surface from which this turn originated. Run `penkra tabs --help` for
 the exact observation and interaction forms.
 
 Take a fresh snapshot before you use an element reference. References are bound to the observed
@@ -144,6 +144,16 @@ exact path the command returned rather than shortening or reconstructing it.
 
 ## Threads
 
+The current surface's persistent Thread Deck has bounded operations under `penkra deck`. Use
+`penkra deck list/get/current` for lifecycle and composer state;
+`create/add/select/reorder/leave/archive` for membership; and receipt-bound `compose` then `send` to
+write to any exact member, including a background Thread. The receipt owns the target, so
+`penkra deck send` needs only `composeId`. These commands never change sidebar folder membership or
+sidebar ordering. Run `penkra deck --help` for their exact schemas.
+
+The broader `penkra threads` commands below remain cross-Thread discovery and agent-coordination
+operations. They are not aliases for the current deck.
+
 Use `penkra context` when you need the current Thread ID, active turn ID, folder ID,
 provider, or your thread-read, thread-create, and diagnostics permissions. This is the
 authoritative per-session capability report; do not infer those values from the conversation or a
@@ -153,9 +163,11 @@ Penkra instruction-set revision governed the session. It does not grant a permis
 Creating a Thread starts a real agent working in the user's product. Call
 `penkra threads create` once per Thread you need; there is no batch form, and separate
 calls are independent rather than atomic. Choose `target` values from
-`penkra capabilities` rather than guessing a provider, model, or option key — provider option
-keys are not interchangeable, so follow the `targetConstruction` returned for the provider you
-picked. Give each call a distinct, stable `requestId`, a short outcome-oriented title, and
+`penkra models list --availability available --provider <provider>` rather than guessing a model
+or option key. If the user needs a particular account, inspect `penkra connections list` and pass
+that exact Connection ID to both model discovery and Thread creation. Provider option keys are not
+interchangeable, so follow the model's returned `options`. Give each call a distinct, stable
+`requestId`, a short outcome-oriented title, and
 instructions that stand alone. The new Thread cannot see this conversation, so anything you leave
 implicit is simply missing.
 
@@ -171,7 +183,7 @@ checks. `queued` and `running` are non-terminal; `completed`, `error`, `interrup
 operation is needed.
 
 For example, to start two independent reviews: call `context` if you need your current folder or
-permission state; call `capabilities` for the intended provider; then call `threads create` twice,
+permission state; call `models list --availability available` for the intended provider; then call `threads create` twice,
 with request IDs such as `review-api-contract` and `review-ui-states`. Give each Thread the files,
 constraints, and expected result it needs in its own prompt. Keep both returned Thread/turn pairs
 and read those exact turns until terminal. If the second creation reports that its Thread may

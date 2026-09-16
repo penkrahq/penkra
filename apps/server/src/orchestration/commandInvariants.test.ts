@@ -1,3 +1,4 @@
+import { singletonThreadDeckId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import {
   MessageId,
@@ -58,9 +59,18 @@ const readModel: OrchestrationReadModel = {
       deletedAt: null,
     },
   ],
+  decks: ["thread-1", "thread-2", "thread-archived", "thread-deleted"].map((id) => ({
+    id: singletonThreadDeckId(ThreadId.makeUnsafe(id)),
+    spaceId,
+    threadIds: [ThreadId.makeUnsafe(id)],
+    createdAt: now,
+    updatedAt: now,
+  })),
   threads: [
     {
       id: ThreadId.makeUnsafe("thread-1"),
+      deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
+      deckSortOrder: 0,
       folderId: FolderId.makeUnsafe("project-a"),
       title: "Thread A",
       modelSelection: {
@@ -78,6 +88,8 @@ const readModel: OrchestrationReadModel = {
     },
     {
       id: ThreadId.makeUnsafe("thread-2"),
+      deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-2")),
+      deckSortOrder: 0,
       folderId: FolderId.makeUnsafe("project-b"),
       title: "Thread B",
       modelSelection: {
@@ -95,6 +107,8 @@ const readModel: OrchestrationReadModel = {
     },
     {
       id: ThreadId.makeUnsafe("thread-archived"),
+      deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-archived")),
+      deckSortOrder: 0,
       folderId: FolderId.makeUnsafe("project-a"),
       title: "Archived Thread",
       modelSelection: {
@@ -113,6 +127,8 @@ const readModel: OrchestrationReadModel = {
     },
     {
       id: ThreadId.makeUnsafe("thread-deleted"),
+      deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-deleted")),
+      deckSortOrder: 0,
       folderId: FolderId.makeUnsafe("project-a"),
       title: "Deleted Thread",
       modelSelection: {
@@ -193,6 +209,7 @@ describe("commandInvariants", () => {
           type: "thread.create",
           commandId: CommandId.makeUnsafe("cmd-2"),
           threadId: ThreadId.makeUnsafe("thread-3"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-3")),
           folderId: FolderId.makeUnsafe("project-a"),
           title: "new",
           modelSelection: {
@@ -214,6 +231,7 @@ describe("commandInvariants", () => {
             type: "thread.create",
             commandId: CommandId.makeUnsafe("cmd-3"),
             threadId: ThreadId.makeUnsafe("thread-1"),
+            deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
             folderId: FolderId.makeUnsafe("project-a"),
             title: "dup",
             modelSelection: {

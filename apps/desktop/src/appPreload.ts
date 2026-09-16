@@ -81,7 +81,10 @@ const runtime = new AppPreloadRuntime({
     return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.browserDownload, wrapped);
   },
   simulatorCall: (method, input) =>
-    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.simulatorCall, { method, input }),
+    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.simulatorCall, {
+      method,
+      input,
+    }),
   onSimulatorState: (listener) => {
     const wrapped = (
       _event: Electron.IpcRendererEvent,
@@ -93,7 +96,7 @@ const runtime = new AppPreloadRuntime({
   networkFetch: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.networkFetch, input),
   storageCall: (method, input) =>
     ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.storageCall, { method, input }),
-  threadCall: (method, input) =>
+  threadsCall: (method, input) =>
     ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.threadCall, { method, input }),
   showContextMenu: (items) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.contextMenu, items),
 });
