@@ -237,7 +237,10 @@ globalThis.penkra.operations.handle("verification.smoke", async (input) => {
       execPath: resolveElectronExecutable(),
       execArgv: [],
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-      serialization: "advanced",
+      // The verifier runs under the host Node binary while the controller runs
+      // under Electron's embedded Node. JSON IPC stays compatible when those
+      // runtimes use different V8 serialization versions.
+      serialization: "json",
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     });
     child.stderr?.setEncoding("utf8");
