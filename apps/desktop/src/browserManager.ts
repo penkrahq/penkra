@@ -12,6 +12,7 @@ import {
   BrowserView,
   BrowserWindow,
   clipboard,
+  ClipboardItem,
   nativeImage,
   screen,
   session,
@@ -1836,7 +1837,11 @@ export class DesktopBrowserManager {
     if (image.isEmpty()) {
       throw new Error("Couldn't copy a browser screenshot to the clipboard.");
     }
-    clipboard.writeImage(image);
+    await clipboard.write([
+      new ClipboardItem({
+        "image/png": new Blob([Uint8Array.from(image.toPNG())], { type: "image/png" }),
+      }),
+    ]);
   }
 
   // Uses Chromium's native find engine so page semantics, match ordering, selection,

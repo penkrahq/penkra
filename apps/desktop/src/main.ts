@@ -17,6 +17,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  ClipboardItem,
   dialog,
   ipcMain,
   Menu,
@@ -7964,7 +7965,11 @@ function registerIpcHandlers(): void {
       return false;
     }
 
-    clipboard.writeImage(image);
+    await clipboard.write([
+      new ClipboardItem({
+        "image/png": new Blob([Uint8Array.from(image.toPNG())], { type: "image/png" }),
+      }),
+    ]);
     return true;
   });
 
