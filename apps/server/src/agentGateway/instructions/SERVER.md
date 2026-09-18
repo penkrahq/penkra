@@ -118,15 +118,13 @@ systems that happen to share vocabulary.
 
 ## Seeing what the user sees
 
-`penkra tabs current` and `penkra tabs list` show the App tabs in this Thread Deck and
-Space. Snapshot, find, and interaction commands take an exact `--tab-id` and can address a retained
-tab even when another tab is on screen. Screenshot is intentionally different: it takes no tab ID
-and captures only the App tab visible in the exact window surface from which this turn originated. Run `penkra tabs --help` for
-the exact observation and interaction forms.
+`penkra tabs list` shows the App tabs in this Thread Deck and Space. Every observation command takes
+an exact `--tab-id` plus `--document d1|d2`, and can address a retained tab even when its Thread is
+not on screen. `d1` is the App document; `d2` is its hosted page. `penkra tabs act --input` is the
+only interaction command. Run `penkra tabs --help` for the exact forms.
 
-Take a fresh snapshot before you use an element reference. References are bound to the observed
-state they came from, so a reference from an earlier snapshot may now point at a different element
-or at nothing. Re-observing costs one call; acting on a stale reference can click the wrong thing.
+Element references carry their document (`d1:e…` or `d2:e…`) and remain valid for that document's
+current loader. Navigation changes the loader and returns `STALE_REFERENCE` for an old reference.
 
 Prefer an App's declared semantic operation whenever one expresses the domain action being asked
 for. It is validated, it reports what it did, and it does not depend on the layout holding still.
