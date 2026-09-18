@@ -2,7 +2,7 @@
 // Purpose: Provides the trusted, host-only semantic observer for isolated App-tab WebContents.
 // Layer: Desktop agent capability bridge (never exposed through the App SDK)
 
-import type { Rectangle, WebContents, WebFrameMain } from "electron";
+import type { Rectangle, WebContents } from "electron";
 import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -56,22 +56,20 @@ interface CdpAxNode {
   properties?: CdpAxProperty[];
 }
 
-interface CdpFrameTree {
-  frame?: { id?: string; url?: string; name?: string };
-  childFrames?: CdpFrameTree[];
-}
-
 interface SnapshotReference {
   backendNodeId: number;
-  generation: number;
+  loaderId: string;
   target: AppTabObservationTarget;
 }
 
 interface TabSnapshotState {
-  generation: number;
+  document: AppTabDocument;
+  loaderId: string;
   nextReference: number;
   references: Map<string, SnapshotReference>;
+  referenceByBackendNodeId: Map<number, string>;
   observedTargetKey: string;
+  lastSnapshot: string | null;
   dispose: () => void;
 }
 
@@ -90,30 +88,42 @@ interface PendingJavaScriptDialog {
 }
 
 interface AppTabSnapshotOptions {
+  document?: AppTabDocument;
   target?: string;
   depth?: number;
   boxes?: boolean;
   outputPath?: string;
 }
 
+export type AppTabDocument = "d1" | "d2";
+
+export type AppTabActStep =
+  | { action: "click" | "hover"; ref: string }
+  | { action: "type"; ref: string; text: string }
+  | { action: "select"; ref: string; value: string }
+  | { action: "upload"; ref: string; paths: ReadonlyArray<string> }
+  | { action: "press"; document: AppTabDocument; key: string }
+  | { action: "scroll"; document: AppTabDocument; deltaX?: number; deltaY?: number }
+  | { action: "wait"; document: AppTabDocument; text: string; timeoutMs?: number }
+  | { action: "dialog"; accept: boolean; text?: string };
+
 export interface AppTabObservationTarget {
   descriptor: DesktopAppTabDescriptor;
+  document: AppTabDocument;
   webContents: WebContents;
-  frame?: WebFrameMain;
   cdpSessionId?: string;
   /** Null means the shell is not currently painting this tab. */
   captureBounds?: () => Promise<Rectangle | null> | Rectangle | null;
-  embedded?: {
-    target: AppTabObservationTarget;
-    insets: { top: number; right: number; bottom: number; left: number };
-  };
 }
 
 export interface AppTabObserverResolver {
   resolve(
     tabId: string,
+    document: AppTabDocument,
     surfaceId?: number,
-  ): Promise<AppTabObservationTarget> | AppTabObservationTarget;
+  ):
+    | Promise<Omit<AppTabObservationTarget, "document"> & { document?: AppTabDocument }>
+    | (Omit<AppTabObservationTarget, "document"> & { document?: AppTabDocument });
   validateUploadPaths?(
     descriptor: DesktopAppTabDescriptor,
     paths: ReadonlyArray<string>,
@@ -133,53 +143,6 @@ export interface AppTabObserverPerformanceSnapshot {
   snapshotStateCount: number;
   dialogListenerCount: number;
   protocolSessionCount: number;
-}
-
-export async function resolveAppTabObservationTarget(input: {
-  descriptor: DesktopAppTabDescriptor;
-  browserAppId: string;
-  allowHostedPage?: boolean;
-  hostedInsets?: {
-    top: number;
-    right: number;
-    bottom: number;
-    left: number;
-  } | null;
-  appTarget: (tabId: string) => Promise<AppTabObservationTarget> | AppTabObservationTarget;
-  browserWebContents: (appTabId: string) => Promise<WebContents | null>;
-  hostedWebContents?: (appTabId: string) => WebContents | null;
-}): Promise<AppTabObservationTarget> {
-  const hostedSurface = input.hostedWebContents?.(input.descriptor.id) ?? null;
-  const expectsHostedPage =
-    input.allowHostedPage === true || input.descriptor.appId === input.browserAppId;
-  const hostedPage =
-    !hostedSurface && expectsHostedPage
-      ? await input.browserWebContents(input.descriptor.id)
-      : null;
-  if (hostedSurface || hostedPage) {
-    const hostedTarget = {
-      descriptor: input.descriptor,
-      webContents: hostedSurface ?? hostedPage!,
-    };
-    const insets = input.hostedInsets;
-    if (
-      insets &&
-      [insets.top, insets.right, insets.bottom, insets.left].some((value) => value > 0)
-    ) {
-      const app = await input.appTarget(input.descriptor.id);
-      return { ...app, embedded: { target: hostedTarget, insets } };
-    }
-    return hostedTarget;
-  }
-  if (input.descriptor.appId === input.browserAppId) {
-    throw Object.assign(
-      new Error(
-        "The Browser page session is not open for this App tab. The App frame is still present, but it is not the requested web page.",
-      ),
-      { code: "BROWSER_SESSION_NOT_OPEN", retryable: true },
-    );
-  }
-  return input.appTarget(input.descriptor.id);
 }
 
 export class AppTabObserver {
@@ -225,9 +188,11 @@ export class AppTabObserver {
   }
 
   invalidate(tabId: string): void {
-    const state = this.#states.get(tabId);
-    state?.dispose();
-    this.#states.delete(tabId);
+    for (const [key, state] of this.#states) {
+      if (!key.startsWith(`${tabId}:`)) continue;
+      state.dispose();
+      this.#states.delete(key);
+    }
     this.#pendingDialogs.delete(tabId);
     for (const [key, owner] of this.#dialogTargets) {
       if (owner.tabId === tabId) this.#dialogTargets.delete(key);
@@ -256,16 +221,13 @@ export class AppTabObserver {
   async #snapshotNow(tabId: string, options: AppTabSnapshotOptions): Promise<unknown> {
     const startedAt = performance.now();
     this.#perfCounters.snapshotCalls += 1;
-    let restoreSemanticVisibility: (() => Promise<void>) | undefined;
     try {
-      const target = await this.#target(tabId);
-      restoreSemanticVisibility = await this.#prepareSemanticVisibility(target);
-      const state = this.#state(tabId, target);
+      const document = options.document ?? "d1";
+      const target = await this.#target(tabId, document);
+      const loaderId = await this.#loaderId(target);
+      const state = this.#state(tabId, target, loaderId);
       const scopedReference =
         options.target === undefined ? undefined : this.#reference(state, options.target);
-      state.generation += 1;
-      state.nextReference = 1;
-      state.references.clear();
       const depth = options.depth === undefined ? undefined : normalizeDepth(options.depth);
       const appTree =
         scopedReference && !sameProtocolTarget(scopedReference.target, target)
@@ -277,95 +239,26 @@ export class AppTabObserver {
               depth,
               options.boxes === true,
             );
-      const embeddedTree =
-        target.embedded &&
-        (!scopedReference || sameProtocolTarget(scopedReference.target, target.embedded.target))
-          ? await this.#snapshotLines(
-              target.embedded.target,
-              state,
-              scopedReference?.backendNodeId,
-              depth,
-              options.boxes === true,
-            )
-          : [];
       const lines = [...appTree];
-      if (embeddedTree.length > 0) {
-        lines.push('- document "Hosted page"');
-        lines.push(...embeddedTree.map((line) => `  ${line}`));
-      }
 
       const result = {
         tabId,
+        document,
+        loaderId,
+        snapshotId: randomUUID(),
         app: target.descriptor.slug,
-        url: target.frame?.url ?? target.webContents.getURL(),
-        title: target.frame
-          ? String(await target.frame.executeJavaScript("document.title", true))
-          : target.webContents.getTitle(),
+        url: target.webContents.getURL(),
+        title: target.webContents.getTitle(),
         snapshot: lines.join("\n"),
       };
+      state.lastSnapshot = result.snapshot;
       if (!options.outputPath) return result;
       await writeFileAtomically(options.outputPath, Buffer.from(`${result.snapshot}\n`, "utf8"));
       const { snapshot: _snapshot, ...metadata } = result;
       return { ...metadata, filename: options.outputPath };
     } finally {
-      await restoreSemanticVisibility?.();
       this.#perfCounters.snapshotTotalMs += performance.now() - startedAt;
     }
-  }
-
-  async #prepareSemanticVisibility(
-    target: AppTabObservationTarget,
-  ): Promise<(() => Promise<void>) | undefined> {
-    // Retained App iframes live under an aria-hidden dock pane while another pane is
-    // visible. That is correct for the shell's accessibility tree, but Chromium also
-    // prunes the exact iframe AX tree requested by the trusted tab observer. Remove
-    // only that ancestor for the bounded observation and restore it in `finally`.
-    // Opacity and pointer-event styling remain untouched, so no pane becomes visual
-    // or interactive. Direct WebContents targets have no matching shell element and
-    // take the no-op path.
-    if (!target.frame || target.webContents.isDestroyed()) return undefined;
-    const tabId = JSON.stringify(target.descriptor.id);
-    const acquired = await target.webContents.executeJavaScript(
-      `(() => {
-        const tabId = ${tabId};
-        const frame = document.querySelector('[data-app-tab-id="' + CSS.escape(tabId) + '"]');
-        const pane = frame?.closest('[aria-hidden="true"], [data-penkra-semantic-observation]');
-        if (!(pane instanceof HTMLElement)) return false;
-        const count = Number(pane.dataset.penkraSemanticObservationCount ?? 0);
-        if (count === 0) {
-          pane.dataset.penkraSemanticObservationAriaHidden = pane.getAttribute('aria-hidden') ?? '';
-          pane.removeAttribute('aria-hidden');
-          pane.dataset.penkraSemanticObservation = 'true';
-        }
-        pane.dataset.penkraSemanticObservationCount = String(count + 1);
-        return true;
-      })()`,
-      false,
-    );
-    if (acquired !== true) return undefined;
-    return async () => {
-      if (target.webContents.isDestroyed()) return;
-      await target.webContents.executeJavaScript(
-        `(() => {
-          const tabId = ${tabId};
-          const frame = document.querySelector('[data-app-tab-id="' + CSS.escape(tabId) + '"]');
-          const pane = frame?.closest('[data-penkra-semantic-observation]');
-          if (!(pane instanceof HTMLElement)) return;
-          const count = Math.max(0, Number(pane.dataset.penkraSemanticObservationCount ?? 1) - 1);
-          if (count > 0) {
-            pane.dataset.penkraSemanticObservationCount = String(count);
-            return;
-          }
-          const prior = pane.dataset.penkraSemanticObservationAriaHidden;
-          delete pane.dataset.penkraSemanticObservation;
-          delete pane.dataset.penkraSemanticObservationCount;
-          delete pane.dataset.penkraSemanticObservationAriaHidden;
-          if (prior === undefined || prior === '') pane.removeAttribute('aria-hidden');
-          else pane.setAttribute('aria-hidden', prior);
-        })()`,
-        false,
-      );
-    };
   }
 
   async #snapshotLines(
@@ -375,7 +268,7 @@ export class AppTabObserver {
     maxDepth: number | undefined,
     includeBoxes: boolean,
   ): Promise<string[]> {
-    const protocol = target.frame ? await this.#protocolTarget(target) : { target };
+    const protocol = { target };
     const response = asRecord(
       await this.#cdp(
         protocol.target.webContents,
@@ -383,9 +276,7 @@ export class AppTabObserver {
           ? "Accessibility.getFullAXTree"
           : "Accessibility.getPartialAXTree",
         backendNodeId === undefined
-          ? protocol.frameId
-            ? { frameId: protocol.frameId }
-            : undefined
+          ? undefined
           : { backendNodeId, fetchRelatives: false },
         protocol.target.cdpSessionId,
       ),
@@ -423,84 +314,6 @@ export class AppTabObserver {
     return lines;
   }
 
-  async #protocolTarget(
-    target: AppTabObservationTarget,
-  ): Promise<{ target: AppTabObservationTarget; frameId?: string }> {
-    const response = asRecord(await this.#cdp(target.webContents, "Page.getFrameTree"));
-    const root = response.frameTree as CdpFrameTree | undefined;
-    const expectedUrl = target.frame?.url;
-    if (!root || !expectedUrl) throw new Error("The App frame is unavailable for observation.");
-    const expectedName = `penkra-app-tab:${target.descriptor.id}`;
-    const stack = [root];
-    const frames: Array<{ id: string; url: string; name?: string }> = [];
-    while (stack.length > 0) {
-      const current = stack.pop()!;
-      if (current.frame?.id && current.frame.url) {
-        frames.push(current.frame as { id: string; url: string; name?: string });
-      }
-      stack.push(...(current.childFrames ?? []));
-    }
-    const namedMatches = frames.filter((frame) => frame.name === expectedName);
-    if (namedMatches.length === 1) return { target, frameId: namedMatches[0]!.id };
-
-    const exactFrameMatches = frames.filter((frame) => frame.url === expectedUrl);
-    if (exactFrameMatches.length === 1) {
-      return { target, frameId: exactFrameMatches[0]!.id };
-    }
-    const expectedDocumentUrl = withoutHash(expectedUrl);
-    const documentMatches = frames.filter(
-      (frame) => withoutHash(frame.url) === expectedDocumentUrl,
-    );
-    if (documentMatches.length === 1) return { target, frameId: documentMatches[0]!.id };
-
-    const targetsResponse = asRecord(await this.#cdp(target.webContents, "Target.getTargets"));
-    const targetInfos = Array.isArray(targetsResponse.targetInfos)
-      ? targetsResponse.targetInfos.filter(isRecord)
-      : [];
-    const rootFrameId = root.frame?.id;
-    const parentedShellTargets = rootFrameId
-      ? targetInfos.filter((info) => info.parentFrameId === rootFrameId)
-      : [];
-    const shellTargets =
-      parentedShellTargets.length > 0
-        ? parentedShellTargets
-        : targetInfos.filter((info) => typeof info.parentFrameId !== "string");
-    const exactTargets = shellTargets.filter(
-      (info) => info.url === expectedUrl && typeof info.targetId === "string",
-    );
-    const documentTargets = shellTargets.filter(
-      (info) =>
-        typeof info.url === "string" &&
-        withoutHash(info.url) === expectedDocumentUrl &&
-        typeof info.targetId === "string",
-    );
-    const matches = exactTargets.length > 0 ? exactTargets : documentTargets;
-    if (matches.length === 1) {
-      const targetId = matches[0]!.targetId as string;
-      const protocolSessionKey = `${target.webContents.id}:${targetId}`;
-      let session = this.#protocolSessions.get(protocolSessionKey);
-      if (!session) {
-        const attached = asRecord(
-          await this.#cdp(target.webContents, "Target.attachToTarget", {
-            targetId,
-            flatten: true,
-          }),
-        );
-        if (typeof attached.sessionId !== "string") {
-          throw new Error("Chrome did not return an App frame observation session.");
-        }
-        session = {
-          contentsId: target.webContents.id,
-          targetId,
-          sessionId: attached.sessionId,
-        };
-        this.#protocolSessions.set(protocolSessionKey, session);
-      }
-      return { target: { ...target, cdpSessionId: session.sessionId } };
-    }
-    throw new Error("The App frame is not present in the browser protocol frame tree.");
-  }
-
   async #snapshotLine(
     target: AppTabObservationTarget,
     raw: CdpAxNode,
@@ -518,12 +331,16 @@ export class AppTabObserver {
       (INTERACTIVE_ROLES.has(role) || (role !== "document" && properties.focusable === true)) &&
       typeof raw.backendDOMNodeId === "number"
     ) {
-      reference = `e${state.nextReference++}`;
-      state.references.set(reference, {
-        backendNodeId: raw.backendDOMNodeId,
-        generation: state.generation,
-        target,
-      });
+      reference = state.referenceByBackendNodeId.get(raw.backendDOMNodeId);
+      if (!reference) {
+        reference = `${state.document}:e${state.nextReference++}`;
+        state.referenceByBackendNodeId.set(raw.backendDOMNodeId, reference);
+        state.references.set(reference, {
+          backendNodeId: raw.backendDOMNodeId,
+          loaderId: state.loaderId,
+          target,
+        });
+      }
     }
     for (const key of [
       "checked",
@@ -558,8 +375,8 @@ export class AppTabObserver {
     return `- ${role}${details.length > 0 ? ` ${details.join(" ")}` : ""}`;
   }
 
-  async find(tabId: string, query: string): Promise<unknown> {
-    const observation = (await this.snapshot(tabId)) as {
+  async find(tabId: string, query: string, document: AppTabDocument = "d1"): Promise<unknown> {
+    const observation = (await this.snapshot(tabId, { document })) as {
       tabId: string;
       app: string;
       url: string;
@@ -580,25 +397,91 @@ export class AppTabObserver {
     return { ...metadata, query, matches };
   }
 
-  async screenshot(tabId: string, outputPath?: string): Promise<unknown> {
+  async diff(tabId: string, document: AppTabDocument = "d1"): Promise<unknown> {
+    const before = this.#states.get(`${tabId}:${document}`)?.lastSnapshot ?? "";
+    const observation = (await this.snapshot(tabId, { document })) as Record<string, unknown> & {
+      snapshot: string;
+    };
+    const priorLines = new Set(before ? before.split("\n") : []);
+    const nextLines = new Set(observation.snapshot ? observation.snapshot.split("\n") : []);
+    return {
+      ...observation,
+      added: [...nextLines].filter((line) => !priorLines.has(line)),
+      removed: [...priorLines].filter((line) => !nextLines.has(line)),
+    };
+  }
+
+  async evaluate(tabId: string, document: AppTabDocument, expression: string): Promise<unknown> {
+    const target = await this.#target(tabId, document);
+    return {
+      tabId,
+      document,
+      value: await this.#execute(target, expression, true),
+    };
+  }
+
+  async act(tabId: string, steps: ReadonlyArray<AppTabActStep>): Promise<unknown> {
+    const results: unknown[] = [];
+    for (const step of steps) {
+      switch (step.action) {
+        case "click":
+          results.push(await this.click(tabId, step.ref));
+          break;
+        case "hover":
+          results.push(await this.hover(tabId, step.ref));
+          break;
+        case "type":
+          results.push(await this.type(tabId, step.ref, step.text));
+          break;
+        case "select":
+          results.push(await this.select(tabId, step.ref, step.value));
+          break;
+        case "upload":
+          results.push(await this.upload(tabId, step.ref, step.paths));
+          break;
+        case "press":
+          results.push(await this.press(tabId, step.key, false, step.document));
+          break;
+        case "scroll":
+          results.push(
+            await this.scroll(
+              tabId,
+              step.deltaX ?? 0,
+              step.deltaY ?? 0,
+              false,
+              step.document,
+            ),
+          );
+          break;
+        case "wait":
+          results.push(
+            await this.wait(tabId, step.text, step.timeoutMs ?? 10_000, step.document),
+          );
+          break;
+        case "dialog":
+          results.push(await this.handleDialog(tabId, step.accept, step.text));
+          break;
+      }
+    }
+    return { tabId, steps: results };
+  }
+
+  async screenshot(
+    tabId: string,
+    document: AppTabDocument = "d1",
+    outputPath?: string,
+  ): Promise<unknown> {
     const startedAt = performance.now();
     this.#perfCounters.screenshotCalls += 1;
     try {
-      const target = await this.#target(tabId);
-      let capture = await this.#captureTarget(target);
-      if (target.embedded) {
-        const embedded = await this.#captureTarget(target.embedded.target);
-        capture = {
-          ...capture,
-          bytes: await compositePng(capture, embedded, target.embedded.insets),
-        };
-      }
+      const target = await this.#target(tabId, document);
+      const capture = await this.#captureTarget(target);
       const bytes = capture.bytes;
       if (bytes.byteLength === 0)
-        throw observerError("CAPTURE_FAILED", "The App tab capture was empty.");
+        throw observerError("SCREENSHOT_NEVER_PAINTED", `${document} never painted.`);
       if (outputPath) {
         await writeFileAtomically(outputPath, bytes);
-        return { tabId, filename: outputPath, mimeType: "image/png" };
+        return { tabId, document, filename: outputPath, mimeType: "image/png" };
       }
       if (bytes.byteLength > MAX_INLINE_SCREENSHOT_BYTES) {
         throw observerError(
@@ -607,6 +490,8 @@ export class AppTabObserver {
         );
       }
       return {
+        tabId,
+        document,
         kind: "image",
         mimeType: "image/png",
         data: bytes.toString("base64"),
@@ -614,6 +499,129 @@ export class AppTabObserver {
     } finally {
       this.#perfCounters.screenshotTotalMs += performance.now() - startedAt;
     }
+  }
+
+  async record(
+    tabId: string,
+    document: AppTabDocument,
+    durationMs: number,
+    outputPath: string,
+  ): Promise<unknown> {
+    const target = await this.#target(tabId, document);
+    const duration = boundedDuration(durationMs);
+    const startedAt = Date.now();
+    const frames: Array<{ atMs: number; mimeType: "image/png"; data: string }> = [];
+    while (Date.now() - startedAt <= duration) {
+      const capture = await this.#captureTarget(target);
+      frames.push({
+        atMs: Date.now() - startedAt,
+        mimeType: "image/png",
+        data: capture.bytes.toString("base64"),
+      });
+      if (Date.now() - startedAt >= duration) break;
+      await delay(Math.min(250, duration - (Date.now() - startedAt)));
+    }
+    await writeFileAtomically(
+      outputPath,
+      Buffer.from(JSON.stringify({ tabId, document, durationMs: Date.now() - startedAt, frames })),
+    );
+    return { tabId, document, filename: outputPath, frames: frames.length };
+  }
+
+  async trace(
+    tabId: string,
+    document: AppTabDocument,
+    durationMs: number,
+    outputPath: string,
+  ): Promise<unknown> {
+    const target = await this.#target(tabId, document);
+    const duration = boundedDuration(durationMs);
+    const events: unknown[] = [];
+    const complete = new Promise<void>((resolve) => {
+      const listener = (_event: Electron.Event, method: string, params: unknown) => {
+        if (method === "Tracing.dataCollected" && isRecord(params) && Array.isArray(params.value)) {
+          events.push(...params.value);
+        }
+        if (method === "Tracing.tracingComplete") {
+          target.webContents.debugger.removeListener("message", listener);
+          resolve();
+        }
+      };
+      target.webContents.debugger.on("message", listener);
+    });
+    await this.#cdp(target.webContents, "Tracing.start", {
+      categories: "devtools.timeline,v8,blink.user_timing",
+      transferMode: "ReportEvents",
+    });
+    await delay(duration);
+    await this.#cdp(target.webContents, "Tracing.end");
+    await complete;
+    await writeFileAtomically(outputPath, Buffer.from(JSON.stringify({ traceEvents: events })));
+    return { tabId, document, filename: outputPath, events: events.length };
+  }
+
+  async har(
+    tabId: string,
+    document: AppTabDocument,
+    durationMs: number,
+    outputPath: string,
+  ): Promise<unknown> {
+    const target = await this.#target(tabId, document);
+    const duration = boundedDuration(durationMs);
+    const requests = new Map<
+      string,
+      { startedDateTime: string; request?: Record<string, unknown>; response?: Record<string, unknown> }
+    >();
+    const listener = (
+      _event: Electron.Event,
+      method: string,
+      params: unknown,
+      sessionId?: string,
+    ) => {
+      if (
+        (target.cdpSessionId !== undefined && sessionId !== target.cdpSessionId) ||
+        !isRecord(params)
+      )
+        return;
+      const requestId = typeof params.requestId === "string" ? params.requestId : null;
+      if (!requestId) return;
+      if (method === "Network.requestWillBeSent") {
+        requests.set(requestId, {
+          startedDateTime: new Date().toISOString(),
+          request: asRecord(params.request),
+        });
+      } else if (method === "Network.responseReceived") {
+        const entry = requests.get(requestId);
+        if (entry) entry.response = asRecord(params.response);
+      }
+    };
+    target.webContents.debugger.on("message", listener);
+    try {
+      await this.#cdp(target.webContents, "Network.enable", undefined, target.cdpSessionId);
+      await delay(duration);
+    } finally {
+      target.webContents.debugger.removeListener("message", listener);
+      await this.#cdp(target.webContents, "Network.disable", undefined, target.cdpSessionId).catch(
+        () => undefined,
+      );
+    }
+    const entries = [...requests.values()].map((entry) => ({
+      startedDateTime: entry.startedDateTime,
+      time: 0,
+      request: toHarRequest(entry.request ?? {}),
+      response: toHarResponse(entry.response ?? {}),
+      cache: {},
+      timings: { send: 0, wait: 0, receive: 0 },
+    }));
+    await writeFileAtomically(
+      outputPath,
+      Buffer.from(
+        JSON.stringify({
+          log: { version: "1.2", creator: { name: "Penkra", version: "1" }, entries },
+        }),
+      ),
+    );
+    return { tabId, document, filename: outputPath, entries: entries.length };
   }
 
   async #captureTarget(target: AppTabObservationTarget): Promise<TabCapture> {
@@ -630,8 +638,8 @@ export class AppTabObserver {
             bounds.height <= 0))
       ) {
         throw observerError(
-          "TAB_NOT_VISIBLE",
-          `App tab ${target.descriptor.id} is not the currently painted App surface.`,
+          "SCREENSHOT_NEVER_PAINTED",
+          `${target.document} never painted.`,
         );
       }
       let image;
@@ -639,8 +647,8 @@ export class AppTabObserver {
         image = await target.webContents.capturePage(bounds);
       } catch (error) {
         throw observerError(
-          "TAB_NOT_VISIBLE",
-          `App tab ${target.descriptor.id} does not currently have a paintable capture surface: ${error instanceof Error ? error.message : String(error)}`,
+          "SCREENSHOT_NEVER_PAINTED",
+          `${target.document} never painted: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
       const size = image.getSize();
@@ -690,7 +698,12 @@ export class AppTabObserver {
       },
       target.cdpSessionId,
     );
-    return this.#actionResult(tabId, { tabId, target: reference, clicked: true }, observe);
+    return this.#actionResult(
+      tabId,
+      { tabId, target: reference, clicked: true },
+      observe,
+      referenceDocument(reference),
+    );
   }
 
   async hover(tabId: string, reference: string, observe = false): Promise<unknown> {
@@ -705,7 +718,12 @@ export class AppTabObserver {
       },
       target.cdpSessionId,
     );
-    return this.#actionResult(tabId, { tabId, target: reference, hovered: true }, observe);
+    return this.#actionResult(
+      tabId,
+      { tabId, target: reference, hovered: true },
+      observe,
+      referenceDocument(reference),
+    );
   }
 
   async type(tabId: string, reference: string, text: string, observe = false): Promise<unknown> {
@@ -740,14 +758,17 @@ export class AppTabObserver {
       tabId,
       { tabId, target: reference, typed: true, characters: text.length },
       observe,
+      referenceDocument(reference),
     );
   }
 
-  async press(tabId: string, key: string, observe = false): Promise<unknown> {
-    const sourceTarget = await this.#target(tabId);
-    const target = sourceTarget.frame
-      ? (await this.#protocolTarget(sourceTarget)).target
-      : sourceTarget;
+  async press(
+    tabId: string,
+    key: string,
+    observe = false,
+    document: AppTabDocument = "d1",
+  ): Promise<unknown> {
+    const target = await this.#target(tabId, document);
     const normalized = bounded(key, 100);
     const definition = appTabKeyDefinition(normalized);
     const { text: _text, ...released } = definition;
@@ -763,7 +784,12 @@ export class AppTabObserver {
       { type: "keyUp", ...released },
       target.cdpSessionId,
     );
-    return this.#actionResult(tabId, { tabId, key: normalized, pressed: true }, observe);
+    return this.#actionResult(
+      tabId,
+      { tabId, key: normalized, pressed: true },
+      observe,
+      document,
+    );
   }
 
   async select(tabId: string, reference: string, value: string, observe = false): Promise<unknown> {
@@ -786,21 +812,36 @@ export class AppTabObserver {
       },
       target.cdpSessionId,
     );
-    return this.#actionResult(tabId, { tabId, target: reference, value, selected: true }, observe);
+    return this.#actionResult(
+      tabId,
+      { tabId, target: reference, value, selected: true },
+      observe,
+      referenceDocument(reference),
+    );
   }
 
-  async scroll(tabId: string, deltaX: number, deltaY: number, observe = false): Promise<unknown> {
-    const target = await this.#target(tabId);
+  async scroll(
+    tabId: string,
+    deltaX: number,
+    deltaY: number,
+    observe = false,
+    document: AppTabDocument = "d1",
+  ): Promise<unknown> {
+    const target = await this.#target(tabId, document);
     await this.#execute(
       target,
       `window.scrollBy(${JSON.stringify(deltaX)}, ${JSON.stringify(deltaY)})`,
       true,
     );
-    return this.#actionResult(tabId, { tabId, deltaX, deltaY, scrolled: true }, observe);
+    return this.#actionResult(
+      tabId,
+      { tabId, deltaX, deltaY, scrolled: true },
+      observe,
+      document,
+    );
   }
 
   async handleDialog(tabId: string, accept: boolean, text?: string): Promise<unknown> {
-    await this.#target(tabId, true);
     const pending = this.#pendingDialogs.get(tabId);
     if (!pending) {
       throw observerError(
@@ -846,11 +887,16 @@ export class AppTabObserver {
     return { tabId, target: reference, uploaded: validatedPaths.length };
   }
 
-  async wait(tabId: string, text: string, timeoutMs: number): Promise<unknown> {
+  async wait(
+    tabId: string,
+    text: string,
+    timeoutMs: number,
+    document: AppTabDocument = "d1",
+  ): Promise<unknown> {
     const boundedTimeout = Math.min(MAX_WAIT_MS, Math.max(1, timeoutMs));
     const deadline = Date.now() + boundedTimeout;
     while (Date.now() <= deadline) {
-      const target = await this.#target(tabId);
+      const target = await this.#target(tabId, document);
       const found = await this.#execute(
         target,
         `(document.body?.innerText ?? "").includes(${JSON.stringify(text)})`,
@@ -866,37 +912,40 @@ export class AppTabObserver {
     tabId: string,
     action: Record<string, unknown>,
     observe: boolean,
+    document: AppTabDocument,
   ): Promise<unknown> {
     const dialog = this.#pendingDialogs.get(tabId);
     if (dialog) return { ...action, dialog: dialogResult(dialog) };
     if (!observe) return action;
-    return { ...action, observation: await this.snapshot(tabId) };
+    return { ...action, observation: await this.snapshot(tabId, { document }) };
   }
 
-  async #target(tabId: string, allowDialog = false): Promise<AppTabObservationTarget> {
+  async #target(
+    tabId: string,
+    document: AppTabDocument = "d1",
+    allowDialog = false,
+  ): Promise<AppTabObservationTarget> {
     const existingDialog = this.#pendingDialogs.get(tabId);
     if (existingDialog && !allowDialog) {
       throw observerError(
         "DIALOG_OPEN",
-        `A browser JavaScript ${existingDialog.type} dialog is open: ${JSON.stringify(bounded(existingDialog.message))}. Handle it with penkra tabs handle-dialog before continuing.`,
+        `A browser JavaScript ${existingDialog.type} dialog is open: ${JSON.stringify(bounded(existingDialog.message))}. Handle it with a dialog step in penkra tabs act before continuing.`,
       );
     }
     const surfaceId = this.#surface.getStore();
-    const target = await (surfaceId === undefined
-      ? this.#resolver.resolve(tabId)
-      : this.#resolver.resolve(tabId, surfaceId));
+    const resolved = await (surfaceId === undefined
+      ? this.#resolver.resolve(tabId, document)
+      : this.#resolver.resolve(tabId, document, surfaceId));
+    const target: AppTabObservationTarget = { ...resolved, document: resolved.document ?? document };
     if (target.webContents.isDestroyed())
-      throw observerError("TAB_CLOSED", `App tab ${tabId} is closed.`);
-    if (target.embedded?.target.webContents.isDestroyed())
-      throw observerError("TAB_CLOSED", `Hosted page in App tab ${tabId} is closed.`);
+      throw observerError("TAB_GONE", `App tab ${tabId} is gone.`);
     if (existingDialog) return target;
     await this.#observeDialogs(tabId, target);
-    if (target.embedded) await this.#observeDialogs(tabId, target.embedded.target);
     const pending = this.#pendingDialogs.get(tabId);
     if (pending && !allowDialog) {
       throw observerError(
         "DIALOG_OPEN",
-        `A browser JavaScript ${pending.type} dialog is open: ${JSON.stringify(bounded(pending.message))}. Handle it with penkra tabs handle-dialog before continuing.`,
+        `A browser JavaScript ${pending.type} dialog is open: ${JSON.stringify(bounded(pending.message))}. Handle it with a dialog step in penkra tabs act before continuing.`,
       );
     }
     return target;
@@ -910,7 +959,7 @@ export class AppTabObserver {
     tabs.add(tabId);
     this.#dialogTabsByContents.set(contentsId, tabs);
     this.#dialogTargets.set(dialogTargetKey(contentsId, target.cdpSessionId), { tabId, target });
-    const url = target.frame?.url ?? contents.getURL();
+    const url = contents.getURL();
     if (url) this.#dialogTargets.set(dialogUrlKey(contentsId, url), { tabId, target });
     if (!this.#dialogListeners.has(contentsId)) {
       this.#dialogListeners.add(contentsId);
@@ -963,33 +1012,34 @@ export class AppTabObserver {
     await this.#cdp(contents, "Page.enable", undefined, target.cdpSessionId);
   }
 
-  #state(tabId: string, target: AppTabObservationTarget): TabSnapshotState {
+  #state(tabId: string, target: AppTabObservationTarget, loaderId: string): TabSnapshotState {
     const contents = target.webContents;
     const targetKey = observationTargetKey(target);
-    const existing = this.#states.get(tabId);
-    if (existing?.observedTargetKey === targetKey) return existing;
+    const stateKey = `${tabId}:${target.document}`;
+    const existing = this.#states.get(stateKey);
+    if (existing?.observedTargetKey === targetKey && existing.loaderId === loaderId) return existing;
     existing?.dispose();
     const cleanups: Array<() => void> = [];
     const state: TabSnapshotState = {
-      generation: 0,
+      document: target.document,
+      loaderId,
       nextReference: 1,
       references: new Map<string, SnapshotReference>(),
+      referenceByBackendNodeId: new Map<number, string>(),
       observedTargetKey: targetKey,
+      lastSnapshot: null,
       dispose: () => {
         for (const cleanup of cleanups.splice(0)) cleanup();
       },
     };
-    this.#states.set(tabId, state);
+    this.#states.set(stateKey, state);
     const observedContents = new Map<number, WebContents>([[contents.id, contents]]);
-    if (target.embedded?.target.webContents) {
-      observedContents.set(
-        target.embedded.target.webContents.id,
-        target.embedded.target.webContents,
-      );
-    }
     for (const observed of observedContents.values()) {
       const invalidateState = () => {
-        if (this.#states.get(tabId) === state) this.invalidate(tabId);
+        if (this.#states.get(stateKey) === state) {
+          state.dispose();
+          this.#states.delete(stateKey);
+        }
       };
       observed.on("destroyed", invalidateState);
       observed.on("did-start-navigation", invalidateState);
@@ -1008,13 +1058,15 @@ export class AppTabObserver {
     target: AppTabObservationTarget;
     node: SnapshotReference;
   }> {
-    const target = await this.#target(tabId);
-    const state = this.#states.get(tabId);
+    const document = referenceDocument(reference);
+    const target = await this.#target(tabId, document);
+    const state = this.#states.get(`${tabId}:${document}`);
     const targetKey = observationTargetKey(target);
-    if (!state || state.observedTargetKey !== targetKey) {
+    const loaderId = await this.#loaderId(target);
+    if (!state || state.observedTargetKey !== targetKey || state.loaderId !== loaderId) {
       throw observerError(
-        "SNAPSHOT_REQUIRED",
-        "Take a fresh tab snapshot before using a reference.",
+        "STALE_REFERENCE",
+        `Reference ${reference} does not belong to the current ${document} loader.`,
       );
     }
     const node = this.#reference(state, reference);
@@ -1023,10 +1075,10 @@ export class AppTabObserver {
 
   #reference(state: TabSnapshotState, reference: string): SnapshotReference {
     const node = state.references.get(reference);
-    if (!node || node.generation !== state.generation) {
+    if (!node || node.loaderId !== state.loaderId) {
       throw observerError(
         "STALE_REFERENCE",
-        `Reference ${reference} is not in the latest tab snapshot.`,
+        `Reference ${reference} is stale.`,
       );
     }
     return node;
@@ -1111,6 +1163,22 @@ export class AppTabObserver {
     return object.objectId;
   }
 
+  async #loaderId(target: AppTabObservationTarget): Promise<string> {
+    const response = asRecord(
+      await this.#cdp(
+        target.webContents,
+        "Page.getFrameTree",
+        undefined,
+        target.cdpSessionId,
+      ),
+    );
+    const frame = asRecord(asRecord(response.frameTree).frame);
+    if (typeof frame.loaderId !== "string" || !frame.loaderId) {
+      throw observerError("LOAD_FAILED", `${target.document} has no committed loader.`);
+    }
+    return frame.loaderId;
+  }
+
   async #cdp(
     contents: WebContents,
     method: string,
@@ -1154,9 +1222,7 @@ export class AppTabObserver {
     source: string,
     userGesture: boolean,
   ): Promise<unknown> {
-    return target.frame
-      ? target.frame.executeJavaScript(source, userGesture)
-      : target.webContents.executeJavaScript(source, userGesture);
+    return target.webContents.executeJavaScript(source, userGesture);
   }
 }
 
@@ -1287,10 +1353,13 @@ function escapeRegExp(value: string): string {
 }
 
 function observationTargetKey(target: AppTabObservationTarget): string {
-  const primary = `${target.webContents.id}:${target.frame?.url ?? target.cdpSessionId ?? "top"}`;
-  if (!target.embedded) return primary;
-  const embedded = target.embedded.target;
-  return `${primary}|${embedded.webContents.id}:${embedded.frame?.url ?? embedded.cdpSessionId ?? "top"}`;
+  return `${target.document}:${target.webContents.id}:${target.cdpSessionId ?? "top"}`;
+}
+
+function referenceDocument(reference: string): AppTabDocument {
+  const match = /^(d[12]):e[0-9]+$/.exec(reference);
+  if (!match) throw observerError("STALE_REFERENCE", `Reference ${reference} is stale.`);
+  return match[1] as AppTabDocument;
 }
 
 function sameProtocolTarget(
@@ -1298,8 +1367,69 @@ function sameProtocolTarget(
   right: AppTabObservationTarget,
 ): boolean {
   if (left.webContents.id !== right.webContents.id) return false;
-  if (left.frame || right.frame) return left.frame?.url === right.frame?.url;
   return (left.cdpSessionId ?? null) === (right.cdpSessionId ?? null);
+}
+
+function observerError(code: string, message: string): Error {
+  return Object.assign(new Error(message), { code });
+}
+
+function boundedDuration(value: number): number {
+  if (!Number.isFinite(value) || value < 0) return 1_000;
+  return Math.min(30_000, Math.max(0, Math.round(value)));
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function headerList(value: unknown): Array<{ name: string; value: string }> {
+  if (!isRecord(value)) return [];
+  return Object.entries(value).map(([name, headerValue]) => ({
+    name,
+    value: typeof headerValue === "string" ? headerValue : String(headerValue),
+  }));
+}
+
+function toHarRequest(request: Record<string, unknown>): Record<string, unknown> {
+  return {
+    method: typeof request.method === "string" ? request.method : "GET",
+    url: typeof request.url === "string" ? request.url : "",
+    httpVersion: "HTTP/1.1",
+    headers: headerList(request.headers),
+    queryString: [],
+    cookies: [],
+    headersSize: -1,
+    bodySize: typeof request.postData === "string" ? Buffer.byteLength(request.postData) : 0,
+    ...(typeof request.postData === "string"
+      ? { postData: { mimeType: "application/octet-stream", text: request.postData } }
+      : {}),
+  };
+}
+
+function toHarResponse(response: Record<string, unknown>): Record<string, unknown> {
+  return {
+    status: typeof response.status === "number" ? response.status : 0,
+    statusText: typeof response.statusText === "string" ? response.statusText : "",
+    httpVersion: typeof response.protocol === "string" ? response.protocol : "HTTP/1.1",
+    headers: headerList(response.headers),
+    cookies: [],
+    content: {
+      size: typeof response.encodedDataLength === "number" ? response.encodedDataLength : 0,
+      mimeType: typeof response.mimeType === "string" ? response.mimeType : "",
+    },
+    redirectURL: "",
+    headersSize: -1,
+    bodySize: typeof response.encodedDataLength === "number" ? response.encodedDataLength : -1,
+  };
+}
+
+function dialogTargetKey(contentsId: number, sessionId: unknown): string {
+  return `${contentsId}:session:${typeof sessionId === "string" ? sessionId : "top"}`;
+}
+
+function dialogUrlKey(contentsId: number, url: string): string {
+  return `${contentsId}:url:${withoutHash(url)}`;
 }
 
 function withoutHash(value: string): string {
@@ -1310,18 +1440,6 @@ function withoutHash(value: string): string {
   } catch {
     return value.split("#", 1)[0] ?? value;
   }
-}
-
-function observerError(code: string, message: string): Error {
-  return Object.assign(new Error(message), { code });
-}
-
-function dialogTargetKey(contentsId: number, sessionId: unknown): string {
-  return `${contentsId}:session:${typeof sessionId === "string" ? sessionId : "top"}`;
-}
-
-function dialogUrlKey(contentsId: number, url: string): string {
-  return `${contentsId}:url:${withoutHash(url)}`;
 }
 
 function singleDialogOwner(

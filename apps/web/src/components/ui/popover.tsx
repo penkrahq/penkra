@@ -4,6 +4,7 @@ import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 
 import { cn } from "~/lib/utils";
 import { APP_TRANSLUCENT_POPUP_SURFACE_CLASS_NAME } from "../chat/composerPickerStyles";
+import { NativeAppOverlayBoundary } from "./native-app-overlay";
 
 const PopoverCreateHandle = PopoverPrimitive.createHandle;
 
@@ -42,6 +43,7 @@ function PopoverPopup({
   const tooltipStyle = tooltipStyleProp ?? false;
   return (
     <PopoverPrimitive.Portal>
+      <NativeAppOverlayBoundary />
       <PopoverPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}

@@ -144,6 +144,7 @@ describe("AppCommandPipeServer", () => {
       tabs: {
         list: () => [current, secondTab, otherThreadTab, soleSalesTab],
         current: () => current,
+        close: vi.fn(),
         currentFor: (_spaceId, deckId, surfaceId) =>
           deckId === "deck-1" ? (surfaceId === 202 ? secondTab : current) : null,
       },
@@ -152,17 +153,13 @@ describe("AppCommandPipeServer", () => {
       observer: {
         runOnSurface,
         snapshot,
-        find: vi.fn(async () => ({ matches: [] })),
+        diff: vi.fn(async () => ({ added: [], removed: [] })),
+        act: vi.fn(async () => ({ steps: [] })),
+        evaluate: vi.fn(async () => ({ value: null })),
         screenshot,
-        click: vi.fn(async () => ({})),
-        hover: vi.fn(async () => ({})),
-        type: vi.fn(async () => ({})),
-        press: vi.fn(async () => ({})),
-        select: vi.fn(async () => ({})),
-        scroll: vi.fn(async () => ({})),
-        wait: vi.fn(async () => ({})),
-        handleDialog: vi.fn(async () => ({})),
-        upload: vi.fn(async () => ({})),
+        record: vi.fn(async () => ({})),
+        trace: vi.fn(async () => ({})),
+        har: vi.fn(async () => ({})),
       },
       providerCredentialVault: {
         store: vi.fn(async () => "provider-secret:stored"),
@@ -339,10 +336,7 @@ describe("AppCommandPipeServer", () => {
       result: { snapshot: "" },
     });
     expect(snapshot).toHaveBeenCalledWith("tab-2", {
-      target: undefined,
-      depth: undefined,
-      boxes: undefined,
-      outputPath: undefined,
+      document: "d1",
     });
 
     await expect(
@@ -369,45 +363,20 @@ describe("AppCommandPipeServer", () => {
         id: "request-visible-screenshot",
         token: "secret",
         method: "tabs.screenshot",
-        params: { spaceId: "personal", deckId: "deck-1", threadId: "thread-1" },
+        params: {
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-1",
+          tabId: "tab-1",
+          document: "d1",
+        },
       }),
     ).resolves.toEqual({
       ok: true,
       id: "request-visible-screenshot",
       result: { kind: "image" },
     });
-    expect(screenshot).toHaveBeenCalledWith("tab-1", undefined);
-
-    await expect(
-      send(path, {
-        id: "request-current-other-window",
-        token: "secret",
-        method: "tabs.current",
-        params: { spaceId: "personal", deckId: "deck-1", threadId: "thread-2" },
-      }),
-    ).resolves.toEqual({
-      ok: true,
-      id: "request-current-other-window",
-      result: current,
-    });
-
-    await expect(
-      send(path, {
-        id: "request-current-origin-window",
-        token: "secret",
-        method: "tabs.current",
-        params: {
-          spaceId: "personal",
-          deckId: "deck-1",
-          threadId: "thread-1",
-          callerTurnId: "turn-origin",
-        },
-      }),
-    ).resolves.toEqual({
-      ok: true,
-      id: "request-current-origin-window",
-      result: secondTab,
-    });
+    expect(screenshot).toHaveBeenCalledWith("tab-1", "d1", undefined);
 
     await expect(
       send(path, {
@@ -454,23 +423,6 @@ describe("AppCommandPipeServer", () => {
       surfaceId: 202,
       method: "select",
       value: { threadId: "thread-2" },
-    });
-
-    await expect(
-      send(path, {
-        id: "request-missing-origin-window",
-        token: "secret",
-        method: "tabs.current",
-        params: {
-          spaceId: "personal",
-          deckId: "deck-1",
-          threadId: "thread-1",
-          callerTurnId: "turn-missing",
-        },
-      }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { message: "The window where this agent turn originated is no longer available." },
     });
 
     await expect(
@@ -526,7 +478,7 @@ describe("AppCommandPipeServer", () => {
       token: "secret",
       catalog: {} as never,
       broker: { invoke } as never,
-      tabs: { list: () => [current], current: () => current },
+      tabs: { list: () => [current], current: () => current, close: vi.fn() },
       observer: {} as never,
       providerCredentialVault: {} as never,
     });

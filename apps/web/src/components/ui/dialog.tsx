@@ -5,6 +5,7 @@ import { XIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { Button, dialogActionButtonClassName } from "~/components/ui/button";
 import { ScrollArea } from "~/components/ui/scroll-area";
+import { NativeAppOverlayBoundary } from "./native-app-overlay";
 
 const DialogCreateHandle = DialogPrimitive.createHandle;
 
@@ -88,6 +89,7 @@ function DialogPopup({
   const bottomStickOnMobile = bottomStickOnMobileProp ?? true;
   return (
     <DialogPortal>
+      <NativeAppOverlayBoundary />
       <DialogBackdrop className={backdropClassName} />
       <DialogViewport
         className={cn(bottomStickOnMobile && "max-sm:grid-rows-[1fr_auto] max-sm:p-0 max-sm:pt-12")}

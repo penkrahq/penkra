@@ -12,6 +12,7 @@ import {
   COMPOSER_PICKER_MENU_SURFACE_CLASS_NAME,
 } from "../chat/composerPickerStyles";
 import { SWITCH_THUMB_CLASS_NAME, SWITCH_TRACK_CLASS_NAME } from "./switch";
+import { NativeAppOverlayBoundary } from "./native-app-overlay";
 
 const MenuCreateHandle = MenuPrimitive.createHandle;
 
@@ -84,6 +85,7 @@ function MenuPopupBase({
 
   return (
     <MenuPrimitive.Portal>
+      <NativeAppOverlayBoundary />
       <MenuPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}

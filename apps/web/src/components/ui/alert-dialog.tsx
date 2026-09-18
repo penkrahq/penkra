@@ -4,6 +4,7 @@ import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog
 
 import { cn } from "~/lib/utils";
 import { dialogFooterButtonClassName } from "~/components/ui/dialog";
+import { NativeAppOverlayBoundary } from "./native-app-overlay";
 
 const AlertDialogCreateHandle = AlertDialogPrimitive.createHandle;
 
@@ -57,6 +58,7 @@ function AlertDialogPopup({
   const bottomStickOnMobile = bottomStickOnMobileProp ?? true;
   return (
     <AlertDialogPortal>
+      <NativeAppOverlayBoundary />
       <AlertDialogBackdrop className={backdropClassName} />
       <AlertDialogViewport
         className={cn(bottomStickOnMobile && "max-sm:grid-rows-[1fr_auto] max-sm:p-0 max-sm:pt-12")}

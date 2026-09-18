@@ -13,7 +13,6 @@ const mainJs = resolve(desktopDir, "dist-electron/entry.js");
 const preloadFiles = [
   "preload.js",
   "appPreload.js",
-  "appFrameRuntime.iife.js",
   "simulatorLicenseReviewPreload.js",
 ];
 

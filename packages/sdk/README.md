@@ -10,9 +10,9 @@ npm install @penkra/sdk
 Framework-neutral APIs for Apps running inside Penkra. The package contains manifest validation,
 typed operations, tab routing, settings, secrets, identity, permissions, mediated
 network and file access, hosted browser and simulator sessions, and native context menus. Each
-visual tab runs in its own sandboxed, cross-origin App×Space iframe. Penkra injects the public SDK
-bootstrap and binds it to the exact tab with a `MessagePort`; visual Apps never receive Electron,
-Node globals, raw IPC, or ambient filesystem access. An optional operation entrypoint runs
+visual tab runs in its own sandboxed, main-owned native view and isolated App×Space session.
+Penkra exposes the public SDK through an isolated preload bound to the exact tab renderer; visual
+Apps never receive Electron, Node globals, raw IPC, or ambient filesystem access. An optional operation entrypoint runs
 separately in a dedicated Node controller and may use ordinary Node facilities.
 
 ```ts
@@ -69,7 +69,7 @@ IDs must be unique across the complete menu because the host returns the selecte
 In a visual tab, files and directories use `files.pick("file" | "directory" | "save")` and opaque
 App×Space-scoped handle IDs.
 The host validates every descendant and symlink boundary and never reveals an absolute path.
-Handles survive iframe reload but currently expire when the desktop runtime restarts; there is no
+Handles survive App-document reload but currently expire when the desktop runtime restarts; there is no
 filesystem manifest permission or ambient filesystem namespace. Apps may also declare exact
 `open-file` extensions or `open-directory`; trusted host openings deliver a scoped handle by
 default. A Node-controller handler can explicitly declare `input: "path"` to receive `{ path }`
@@ -98,10 +98,8 @@ External Account identity requires the high-risk `account-identity` permission w
 the argument exactly matches that declaration. See `docs/app-development.md` in the Penkra
 repository for development identity, backend verification, and key rotation.
 
-The Browser page is host-owned while the App owns its surrounding chrome. Call
-`browser.setSurfaceLayout({ top, right, bottom, left })` with App-local edge insets, or `null` when
-the page surface is hidden. Insets describe structural layout and should remain unchanged during a
-plain panel resize; do not stream measured width and height through the runtime bridge.
+The Browser page is host-owned while the App owns its surrounding chrome. The host owns the page
+geometry and keeps it synchronized with the App view.
 
 An App with `browser-session` can observe and interact with its own hosted page through
 `browser.snapshot`, `find`, `click`, `hover`, `type`, `press`, `select`, `scroll`, `wait`, and

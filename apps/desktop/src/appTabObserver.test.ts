@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import { AppTabObserver, resolveAppTabObservationTarget } from "./appTabObserver";
+import { AppTabObserver } from "./appTabObserver";
 
 const descriptor: DesktopAppTabDescriptor = {
   id: "tab-1",
@@ -19,15 +19,18 @@ const descriptor: DesktopAppTabDescriptor = {
   threadId: "thread-1",
   route: "/",
   status: "ready",
-  documentUrl: "penkra-app://test/index.html#penkra-tab=tab-1",
 };
 
 function makeContents() {
   let destroyed = false;
+  let loaderId = "loader-1";
   const listeners = new Map<string, () => void>();
   const listenerSets = new Map<string, Set<() => void>>();
   const debuggerListeners = new Map<string, (...args: unknown[]) => void>();
   const sendCommand = vi.fn(async (method: string): Promise<unknown> => {
+    if (method === "Page.getFrameTree") {
+      return { frameTree: { frame: { loaderId } } };
+    }
     if (method === "Accessibility.getFullAXTree") {
       return {
         nodes: [
@@ -108,6 +111,9 @@ function makeContents() {
     listeners,
     listenerCount: (event: string) => listenerSets.get(event)?.size ?? 0,
     sendCommand,
+    setLoaderId: (value: string) => {
+      loaderId = value;
+    },
     emitDebugger: (method: string, params: Record<string, unknown>, sessionId?: string) =>
       debuggerListeners.get("message")?.({}, method, params, sessionId),
     emitDebuggerDetach: () => debuggerListeners.get("detach")?.({}, "target closed"),
@@ -118,133 +124,13 @@ function makeContents() {
   };
 }
 
-describe("resolveAppTabObservationTarget", () => {
-  it("targets Browser's hosted page by its App-tab-scoped session id", async () => {
-    const appContents = makeContents().contents;
-    const hostedContents = makeContents().contents;
-    const browserWebContents = vi.fn(async () => hostedContents);
-    const browserDescriptor = {
-      ...descriptor,
-      appId: "com.penkra.browser",
-      slug: "browser",
-    };
-
-    await expect(
-      resolveAppTabObservationTarget({
-        descriptor: browserDescriptor,
-        browserAppId: "com.penkra.browser",
-        appTarget: () => ({
-          descriptor: browserDescriptor,
-          webContents: appContents,
-        }),
-        browserWebContents,
-      }),
-    ).resolves.toEqual({
-      descriptor: browserDescriptor,
-      webContents: hostedContents,
-    });
-    expect(browserWebContents).toHaveBeenCalledExactlyOnceWith("tab-1");
-  });
-
-  it("never misreports a missing Browser session as an App iframe protocol failure", async () => {
-    const appTarget = vi.fn(() => ({
-      descriptor: { ...descriptor, appId: "com.penkra.browser", slug: "browser" },
-      webContents: makeContents().contents,
-    }));
-
-    await expect(
-      resolveAppTabObservationTarget({
-        descriptor: { ...descriptor, appId: "com.penkra.browser", slug: "browser" },
-        browserAppId: "com.penkra.browser",
-        appTarget,
-        browserWebContents: async () => null,
-      }),
-    ).rejects.toMatchObject({
-      code: "BROWSER_SESSION_NOT_OPEN",
-      retryable: true,
-      message: expect.stringContaining("App frame is still present"),
-    });
-    expect(appTarget).not.toHaveBeenCalled();
-  });
-
-  it("never substitutes a Browser page for an ordinary App", async () => {
-    const appContents = makeContents().contents;
-    const browserWebContents = vi.fn(async () => makeContents().contents);
-    const appTarget = vi.fn(() => ({ descriptor, webContents: appContents }));
-
-    await expect(
-      resolveAppTabObservationTarget({
-        descriptor,
-        browserAppId: "com.penkra.browser",
-        appTarget,
-        browserWebContents,
-      }),
-    ).resolves.toEqual({ descriptor, webContents: appContents });
-    expect(appTarget).toHaveBeenCalledExactlyOnceWith("tab-1");
-    expect(browserWebContents).not.toHaveBeenCalled();
-  });
-
-  it("targets the hosted page for an ordinary App granted browser-session", async () => {
-    const hostedContents = makeContents().contents;
-    const browserWebContents = vi.fn(async () => hostedContents);
-    await expect(
-      resolveAppTabObservationTarget({
-        descriptor,
-        browserAppId: "com.penkra.browser",
-        allowHostedPage: true,
-        appTarget: vi.fn(),
-        browserWebContents,
-      }),
-    ).resolves.toEqual({ descriptor, webContents: hostedContents });
-  });
-
-  it("composes App and hosted-page targets for a partial reserved rectangle", async () => {
-    const appContents = makeContents().contents;
-    const hostedContents = makeContents().contents;
-    const insets = { top: 42, right: 0, bottom: 0, left: 0 };
-    await expect(
-      resolveAppTabObservationTarget({
-        descriptor,
-        browserAppId: "com.penkra.browser",
-        allowHostedPage: true,
-        hostedInsets: insets,
-        appTarget: () => ({ descriptor, webContents: appContents }),
-        browserWebContents: async () => hostedContents,
-      }),
-    ).resolves.toEqual({
-      descriptor,
-      webContents: appContents,
-      embedded: { target: { descriptor, webContents: hostedContents }, insets },
-    });
-  });
-
-  it("prefers a trusted hosted surface when the App tab has one", async () => {
-    const appContents = makeContents().contents;
-    const hostedContents = makeContents().contents;
-    const appTarget = vi.fn(() => ({ descriptor, webContents: appContents }));
-    const browserWebContents = vi.fn(async () => null);
-
-    await expect(
-      resolveAppTabObservationTarget({
-        descriptor,
-        browserAppId: "com.penkra.browser",
-        appTarget,
-        browserWebContents,
-        hostedWebContents: () => hostedContents,
-      }),
-    ).resolves.toEqual({ descriptor, webContents: hostedContents });
-    expect(appTarget).not.toHaveBeenCalled();
-    expect(browserWebContents).not.toHaveBeenCalled();
-  });
-});
-
 describe("AppTabObserver", () => {
   it("dispatches structured shortcuts to the exact retained tab", async () => {
     const { contents, sendCommand } = makeContents();
     const resolve = vi.fn(() => ({ descriptor, webContents: contents }));
     const observer = new AppTabObserver({ resolve });
     await observer.press("tab-1", "Meta+Shift+ArrowRight");
-    expect(resolve).toHaveBeenCalledWith("tab-1");
+    expect(resolve).toHaveBeenCalledWith("tab-1", "d1");
     const events = sendCommand.mock.calls.filter(([method]) => method === "Input.dispatchKeyEvent");
     expect(events).toEqual([
       [
@@ -302,7 +188,7 @@ describe("AppTabObserver", () => {
     await expect(observer.snapshot("tab-1")).resolves.toMatchObject({
       tabId: "tab-1",
       app: "canvas",
-      snapshot: '- button "Save" [ref=e1]\n- textbox "Password" value="[redacted]" [ref=e2]',
+      snapshot: '- button "Save" [ref=d1:e1]\n- textbox "Password" value="[redacted]" [ref=d1:e2]',
     });
   });
 
@@ -311,6 +197,7 @@ describe("AppTabObserver", () => {
     let activeTrees = 0;
     let maximumConcurrentTrees = 0;
     sendCommand.mockImplementation(async (method: string) => {
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { loaderId: "loader-1" } } };
       if (method !== "Accessibility.getFullAXTree") return {};
       activeTrees += 1;
       maximumConcurrentTrees = Math.max(maximumConcurrentTrees, activeTrees);
@@ -330,215 +217,8 @@ describe("AppTabObserver", () => {
     ]);
 
     expect(maximumConcurrentTrees).toBe(1);
-    expect(first).toMatchObject({ snapshot: '- button "Save" [ref=e1]' });
-    expect(second).toMatchObject({ snapshot: '- button "Save" [ref=e1]' });
-  });
-
-  it("observes the exact iframe instead of the surrounding Penkra shell", async () => {
-    const { contents, sendCommand } = makeContents();
-    const frame = {
-      url: descriptor.documentUrl,
-      executeJavaScript: vi.fn(async () => "Canvas document"),
-    };
-    sendCommand.mockImplementation((async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree") {
-        return {
-          frameTree: {
-            frame: { id: "shell", url: "http://localhost:5173" },
-            childFrames: [{ frame: { id: "canvas-frame", url: descriptor.documentUrl } }],
-          },
-        };
-      }
-      if (method === "Accessibility.getFullAXTree") {
-        expect(params).toEqual({ frameId: "canvas-frame" });
-        return {
-          nodes: [
-            {
-              backendDOMNodeId: 7,
-              role: { value: "button" },
-              name: { value: "Save design" },
-            },
-          ],
-        };
-      }
-      return {};
-    }) as never);
-    const observer = new AppTabObserver({
-      resolve: () => ({ descriptor, webContents: contents, frame: frame as never }),
-    });
-
-    await expect(observer.snapshot("tab-1")).resolves.toMatchObject({
-      url: descriptor.documentUrl,
-      title: "Canvas document",
-      snapshot: '- button "Save design" [ref=e1]',
-    });
-  });
-
-  it("temporarily exposes a retained hidden iframe to the exact semantic observer", async () => {
-    const { contents, sendCommand } = makeContents();
-    const frame = {
-      url: descriptor.documentUrl,
-      executeJavaScript: vi.fn(async () => "Canvas document"),
-    };
-    let acquired = false;
-    vi.mocked(contents.executeJavaScript).mockImplementation(async (source: string) => {
-      if (source.includes("penkraSemanticObservationCount") && source.includes("return true")) {
-        acquired = true;
-        return true;
-      }
-      if (source.includes("Math.max(0")) {
-        acquired = false;
-        return undefined;
-      }
-      return undefined;
-    });
-    sendCommand.mockImplementation((async (method: string) => {
-      if (method === "Page.getFrameTree") {
-        return {
-          frameTree: {
-            frame: { id: "shell", url: "http://localhost:5173" },
-            childFrames: [{ frame: { id: "canvas-frame", url: descriptor.documentUrl } }],
-          },
-        };
-      }
-      if (method === "Accessibility.getFullAXTree") {
-        return acquired
-          ? {
-              nodes: [
-                { backendDOMNodeId: 7, role: { value: "button" }, name: { value: "Save design" } },
-              ],
-            }
-          : { nodes: [{ role: { value: "RootWebArea" }, name: { value: "Canvas" } }] };
-      }
-      return {};
-    }) as never);
-    const observer = new AppTabObserver({
-      resolve: () => ({ descriptor, webContents: contents, frame: frame as never }),
-    });
-
-    await expect(observer.snapshot("tab-1")).resolves.toMatchObject({
-      snapshot: '- button "Save design" [ref=e1]',
-    });
-    expect(acquired).toBe(false);
-    expect(contents.executeJavaScript).toHaveBeenCalledTimes(2);
-  });
-
-  it("uses the App tab iframe name when multiple tabs share one document URL", async () => {
-    const { contents, sendCommand } = makeContents();
-    const frame = {
-      url: `${descriptor.documentUrl}#penkra-tab=tab-1`,
-      executeJavaScript: vi.fn(async () => "Canvas document"),
-    };
-    sendCommand.mockImplementation((async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree") {
-        return {
-          frameTree: {
-            frame: { id: "shell", url: "http://localhost:5173" },
-            childFrames: [
-              {
-                frame: {
-                  id: "other-canvas-frame",
-                  name: "penkra-app-tab:tab-2",
-                  url: descriptor.documentUrl,
-                },
-              },
-              {
-                frame: {
-                  id: "requested-canvas-frame",
-                  name: "penkra-app-tab:tab-1",
-                  url: descriptor.documentUrl,
-                },
-              },
-            ],
-          },
-        };
-      }
-      if (method === "Accessibility.getFullAXTree") {
-        expect(params).toEqual({ frameId: "requested-canvas-frame" });
-        return {
-          nodes: [
-            {
-              backendDOMNodeId: 7,
-              role: { value: "button" },
-              name: { value: "Save design" },
-            },
-          ],
-        };
-      }
-      return {};
-    }) as never);
-    const observer = new AppTabObserver({
-      resolve: () => ({ descriptor, webContents: contents, frame: frame as never }),
-    });
-
-    await expect(observer.snapshot("tab-1")).resolves.toMatchObject({
-      snapshot: '- button "Save design" [ref=e1]',
-    });
-  });
-
-  it("selects the out-of-process App frame owned by the resolved shell window", async () => {
-    const { contents, sendCommand } = makeContents();
-    const frame = {
-      url: descriptor.documentUrl,
-      executeJavaScript: vi.fn(async () => "Canvas document"),
-    };
-    sendCommand.mockImplementation((async (
-      method: string,
-      _params?: unknown,
-      sessionId?: string,
-    ) => {
-      if (method === "Page.getFrameTree") {
-        return {
-          frameTree: { frame: { id: "selected-shell", url: "http://localhost:5173" } },
-        };
-      }
-      if (method === "Target.getTargets") {
-        return {
-          targetInfos: [
-            {
-              targetId: "wrong-window-frame",
-              parentFrameId: "other-shell",
-              type: "iframe",
-              url: descriptor.documentUrl,
-            },
-            {
-              targetId: "selected-window-frame",
-              parentFrameId: "selected-shell",
-              type: "iframe",
-              url: descriptor.documentUrl,
-            },
-          ],
-        };
-      }
-      if (method === "Target.attachToTarget") {
-        expect(_params).toEqual({ targetId: "selected-window-frame", flatten: true });
-        return { sessionId: "selected-window-session" };
-      }
-      if (method === "Accessibility.getFullAXTree") {
-        expect(sessionId).toBe("selected-window-session");
-        return {
-          nodes: [
-            {
-              backendDOMNodeId: 7,
-              role: { value: "button" },
-              name: { value: "Save design" },
-            },
-          ],
-        };
-      }
-      return {};
-    }) as never);
-    const observer = new AppTabObserver({
-      resolve: () => ({ descriptor, webContents: contents, frame: frame as never }),
-    });
-
-    await expect(observer.snapshot("tab-1")).resolves.toMatchObject({
-      snapshot: '- button "Save design" [ref=e1]',
-    });
-    expect(sendCommand).toHaveBeenCalledWith("Target.attachToTarget", {
-      targetId: "selected-window-frame",
-      flatten: true,
-    });
+    expect(first).toMatchObject({ snapshot: '- button "Save" [ref=d1:e1]' });
+    expect(second).toMatchObject({ snapshot: '- button "Save" [ref=d1:e1]' });
   });
 
   it("writes a complete snapshot to the requested artifact path", async () => {
@@ -553,7 +233,7 @@ describe("AppTabObserver", () => {
       await expect(observer.snapshot("tab-1", { outputPath: path })).resolves.toMatchObject({
         filename: path,
       });
-      await expect(readFile(path, "utf8")).resolves.toContain('- button "Save" [ref=e1]');
+      await expect(readFile(path, "utf8")).resolves.toContain('- button "Save" [ref=d1:e1]');
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -562,6 +242,7 @@ describe("AppTabObserver", () => {
   it("preserves accessibility hierarchy and scopes by depth and fresh element reference", async () => {
     const { contents, sendCommand } = makeContents();
     sendCommand.mockImplementation((async (method: string) => {
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { loaderId: "loader-1" } } };
       if (method === "Accessibility.getFullAXTree") {
         return {
           nodes: [
@@ -610,16 +291,17 @@ describe("AppTabObserver", () => {
     });
 
     await expect(observer.snapshot("tab-1", { depth: 1, boxes: true })).resolves.toMatchObject({
-      snapshot: '- document "Canvas"\n  - button "Save" [ref=e1] [box=10,20,100,40]',
+      snapshot: '- document "Canvas"\n  - button "Save" [ref=d1:e1] [box=10,20,100,40]',
     });
-    await expect(observer.snapshot("tab-1", { target: "e1" })).resolves.toMatchObject({
-      snapshot: '- button "Save" [ref=e1]',
+    await expect(observer.snapshot("tab-1", { target: "d1:e1" })).resolves.toMatchObject({
+      snapshot: '- button "Save" [ref=d1:e1]',
     });
   });
 
   it("omits a box when Chromium cannot compute layout for an accessibility node", async () => {
     const { contents, sendCommand } = makeContents();
     sendCommand.mockImplementation((async (method: string, params?: { backendNodeId?: number }) => {
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { loaderId: "loader-1" } } };
       if (method === "Accessibility.getFullAXTree") {
         return {
           nodes: [
@@ -647,7 +329,7 @@ describe("AppTabObserver", () => {
     });
 
     await expect(observer.snapshot("tab-1", { boxes: true })).resolves.toMatchObject({
-      snapshot: '- button "Visible" [ref=e1] [box=0,0,80,30]\n- option "Collapsed option" [ref=e2]',
+      snapshot: '- button "Visible" [ref=d1:e1] [box=0,0,80,30]\n- option "Collapsed option" [ref=d1:e2]',
     });
   });
 
@@ -659,7 +341,7 @@ describe("AppTabObserver", () => {
 
     await expect(observer.find("tab-1", "/save/i")).resolves.toMatchObject({
       query: "/save/i",
-      matches: [expect.stringContaining('- button "Save" [ref=e1]')],
+      matches: [expect.stringContaining('- button "Save" [ref=d1:e1]')],
     });
     const result = (await observer.find("tab-1", "Save")) as Record<string, unknown>;
     expect(result).not.toHaveProperty("snapshot");
@@ -672,7 +354,7 @@ describe("AppTabObserver", () => {
     });
     await observer.snapshot("tab-1");
 
-    await expect(observer.click("tab-1", "e1")).resolves.toMatchObject({
+    await expect(observer.click("tab-1", "d1:e1")).resolves.toMatchObject({
       clicked: true,
     });
     expect(sendCommand).toHaveBeenCalledWith("Input.dispatchMouseEvent", {
@@ -684,9 +366,42 @@ describe("AppTabObserver", () => {
     });
 
     listeners.get("did-start-navigation")?.();
-    await expect(observer.click("tab-1", "e1")).rejects.toMatchObject({
-      code: "SNAPSHOT_REQUIRED",
+    await expect(observer.click("tab-1", "d1:e1")).rejects.toMatchObject({
+      code: "STALE_REFERENCE",
     });
+  });
+
+  it("keeps d1 references stable for one loader and rejects them after the loader changes", async () => {
+    const { contents, setLoaderId } = makeContents();
+    const observer = new AppTabObserver({
+      resolve: (_tabId, document) => ({ descriptor, document, webContents: contents }),
+    });
+
+    const first = (await observer.snapshot("tab-1", { document: "d1" })) as { snapshot: string };
+    const second = (await observer.snapshot("tab-1", { document: "d1" })) as { snapshot: string };
+    expect(first.snapshot).toContain("ref=d1:e1");
+    expect(second.snapshot).toContain("ref=d1:e1");
+
+    setLoaderId("loader-2");
+    await expect(observer.click("tab-1", "d1:e1")).rejects.toMatchObject({
+      code: "STALE_REFERENCE",
+    });
+  });
+
+  it("addresses the hosted page as d2 and mints d2 references", async () => {
+    const { contents } = makeContents();
+    const resolve = vi.fn((_tabId: string, document: "d1" | "d2") => ({
+      descriptor,
+      document,
+      webContents: contents,
+    }));
+    const observer = new AppTabObserver({ resolve });
+
+    await expect(observer.snapshot("tab-1", { document: "d2" })).resolves.toMatchObject({
+      document: "d2",
+      snapshot: expect.stringContaining("ref=d2:e1"),
+    });
+    expect(resolve).toHaveBeenCalledWith("tab-1", "d2");
   });
 
   it("releases snapshot lifecycle listeners across repeated navigation cycles", async () => {
@@ -734,11 +449,63 @@ describe("AppTabObserver", () => {
     });
 
     await expect(observer.screenshot("tab-1")).resolves.toEqual({
+      tabId: "tab-1",
+      document: "d1",
       kind: "image",
       mimeType: "image/png",
       data: Buffer.from("png").toString("base64"),
     });
     expect(contents.capturePage).toHaveBeenCalledWith(captureBounds);
+  });
+
+  it("reports an exact never-painted screenshot error", async () => {
+    const { contents } = makeContents();
+    vi.mocked(contents.capturePage).mockResolvedValueOnce({
+      getSize: () => ({ width: 0, height: 0 }),
+      toPNG: () => Buffer.alloc(0),
+    } as never);
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, document: "d1", webContents: contents }),
+    });
+
+    await expect(observer.screenshot("tab-1", "d1")).rejects.toMatchObject({
+      code: "SCREENSHOT_NEVER_PAINTED",
+    });
+  });
+
+  it("captures root-document HAR traffic when Electron supplies a debugger session id", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "penkra-tab-har-"));
+    try {
+      const path = join(directory, "page.har");
+      const { contents, emitDebugger } = makeContents();
+      const observer = new AppTabObserver({
+        resolve: () => ({ descriptor, document: "d2", webContents: contents }),
+      });
+
+      const capture = observer.har("tab-1", "d2", 20, path);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      emitDebugger(
+        "Network.requestWillBeSent",
+        {
+          requestId: "request-1",
+          request: { url: "https://example.test/data", method: "GET", headers: {} },
+        },
+        "root-session",
+      );
+      emitDebugger(
+        "Network.responseReceived",
+        {
+          requestId: "request-1",
+          response: { status: 200, statusText: "OK", headers: {}, mimeType: "text/plain" },
+        },
+        "root-session",
+      );
+
+      await expect(capture).resolves.toMatchObject({ entries: 1, filename: path });
+      await expect(readFile(path, "utf8")).resolves.toContain("https://example.test/data");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("attributes semantic observation separately from page capture", async () => {
@@ -755,7 +522,7 @@ describe("AppTabObserver", () => {
       screenshotCalls: 1,
       capturePageCalls: 1,
       capturePageBytes: 3,
-      cdpCalls: 3,
+      cdpCalls: 4,
       snapshotStateCount: 1,
       dialogListenerCount: 1,
       protocolSessionCount: 0,
@@ -766,66 +533,18 @@ describe("AppTabObserver", () => {
     expect(observer.getPerformanceSnapshot().cdpTotalMs).toBeGreaterThanOrEqual(0);
   });
 
-  it("rejects screenshots when the exact App pane is not painted", async () => {
-    const { contents } = makeContents();
-    const observer = new AppTabObserver({
-      resolve: () => ({ descriptor, webContents: contents, captureBounds: () => null }),
-    });
-
-    await expect(observer.screenshot("tab-1")).rejects.toMatchObject({
-      code: "TAB_NOT_VISIBLE",
-      message: expect.stringContaining("currently painted"),
-    });
-    expect(contents.capturePage).not.toHaveBeenCalled();
-  });
-
-  it("maps a renderer without a display surface to TAB_NOT_VISIBLE", async () => {
-    const { contents } = makeContents();
-    vi.mocked(contents.capturePage).mockRejectedValue(
-      new Error("Current display surface not available for capture"),
-    );
-    const observer = new AppTabObserver({
-      resolve: () => ({ descriptor, webContents: contents }),
-    });
-
-    await expect(observer.screenshot("tab-1")).rejects.toMatchObject({
-      code: "TAB_NOT_VISIBLE",
-      message: expect.stringContaining("Current display surface not available for capture"),
-    });
-    expect(contents.capturePage).toHaveBeenCalledOnce();
-  });
-
   it("can return a fresh observation with an action", async () => {
     const { contents } = makeContents();
     const observer = new AppTabObserver({
       resolve: () => ({ descriptor, webContents: contents }),
     });
     await observer.snapshot("tab-1");
-    const result = (await observer.click("tab-1", "e1", true)) as {
+    const result = (await observer.click("tab-1", "d1:e1", true)) as {
       clicked: boolean;
       observation: { snapshot: string };
     };
     expect(result.clicked).toBe(true);
-    expect(result.observation.snapshot).toContain('- button "Save" [ref=e1]');
-  });
-
-  it("splices a partial hosted page into the App tree with frame-owned refs", async () => {
-    const app = makeContents().contents;
-    const page = makeContents().contents;
-    const observer = new AppTabObserver({
-      resolve: () => ({
-        descriptor,
-        webContents: app,
-        embedded: {
-          target: { descriptor, webContents: page },
-          insets: { top: 40, right: 0, bottom: 0, left: 0 },
-        },
-      }),
-    });
-    await expect(observer.snapshot("tab-1")).resolves.toMatchObject({
-      snapshot:
-        '- button "Save" [ref=e1]\n- textbox "Password" value="[redacted]" [ref=e2]\n- document "Hosted page"\n  - button "Save" [ref=e3]\n  - textbox "Password" value="[redacted]" [ref=e4]',
-    });
+    expect(result.observation.snapshot).toContain('- button "Save" [ref=d1:e1]');
   });
 
   it("validates App-storage paths before assigning a file input", async () => {
@@ -836,7 +555,7 @@ describe("AppTabObserver", () => {
       validateUploadPaths,
     });
     await observer.snapshot("tab-1");
-    await expect(observer.upload("tab-1", "e1", ["report.pdf"])).resolves.toMatchObject({
+    await expect(observer.upload("tab-1", "d1:e1", ["report.pdf"])).resolves.toMatchObject({
       uploaded: 1,
     });
     expect(sendCommand).toHaveBeenCalledWith("DOM.setFileInputFiles", {
