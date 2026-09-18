@@ -30,9 +30,9 @@ import {
   __codexCliVersionGateTesting,
   CodexAppServerManager,
   CodexJsonRpcResponseError,
-  classifyCodexStderrLine,
+  classifyCodexStderrRecord,
   CodexStderrLineFramer,
-  isCodexMcpTransportWorkerFailure,
+  CodexStderrRecordFramer,
   inspectCodexThreadActivity,
   normalizeCodexModelSlug,
   readCodexAccountSnapshot,
@@ -688,6 +688,8 @@ describe("Codex app-server teardown", () => {
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
+      stderrLineFramer: new CodexStderrLineFramer(),
+      stderrRecordFramer: new CodexStderrRecordFramer(),
       nextRequestId: 1,
       stopping: false,
     };
@@ -766,6 +768,8 @@ describe("Codex app-server teardown", () => {
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
+      stderrLineFramer: new CodexStderrLineFramer(),
+      stderrRecordFramer: new CodexStderrRecordFramer(),
       nextRequestId: 1,
       stopping: false,
     };
@@ -837,6 +841,8 @@ describe("Codex app-server teardown", () => {
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
+      stderrLineFramer: new CodexStderrLineFramer(),
+      stderrRecordFramer: new CodexStderrRecordFramer(),
       nextRequestId: 1,
       stopping: false,
     };
@@ -904,7 +910,7 @@ describe("Codex app-server teardown", () => {
       mcpStartupStatuses: new Map(),
       reportedMcpStartupFailures: new Set(),
       stderrLineFramer: new CodexStderrLineFramer(),
-      deferredMcpTransportWarnings: [],
+      stderrRecordFramer: new CodexStderrRecordFramer(),
       nextRequestId: 2,
       lastRequestMethod: "initialize",
       stopping: false,
@@ -985,7 +991,7 @@ describe("Codex app-server teardown", () => {
       mcpStartupStatuses: new Map(),
       reportedMcpStartupFailures: new Set(),
       stderrLineFramer: new CodexStderrLineFramer(),
-      deferredMcpTransportWarnings: [],
+      stderrRecordFramer: new CodexStderrRecordFramer(),
       nextRequestId: 8,
       lastRequestMethod: "turn/steer",
       stopping: false,
@@ -1166,7 +1172,7 @@ describe("Codex app-server teardown", () => {
         mcpStartupStatuses: new Map(),
         reportedMcpStartupFailures: new Set(),
         stderrLineFramer: new CodexStderrLineFramer(),
-        deferredMcpTransportWarnings: [],
+        stderrRecordFramer: new CodexStderrRecordFramer(),
         nextRequestId: 2,
         lastRequestMethod: "initialize",
         stopping: false,
@@ -1194,55 +1200,81 @@ describe("Codex app-server teardown", () => {
   });
 });
 
-describe("classifyCodexStderrLine", () => {
+describe("classifyCodexStderrRecord", () => {
   it("ignores empty lines", () => {
-    expect(classifyCodexStderrLine("   ")).toBeNull();
+    expect(classifyCodexStderrRecord("   ")).toBeNull();
   });
 
-  it("ignores non-error structured codex logs", () => {
+  it("classifies non-error structured Codex logs as provider traces", () => {
     const line =
       "2026-02-08T04:24:19.241256Z  WARN codex_core::features: unknown feature key in config: skills";
-    expect(classifyCodexStderrLine(line)).toBeNull();
+    expect(classifyCodexStderrRecord(line)).toEqual({
+      category: "provider-trace",
+      level: "WARN",
+      target: "codex_core::features",
+      record: line,
+    });
   });
 
   it("ignores known benign rollout path errors", () => {
     const line =
       "\u001b[2m2026-02-08T04:24:20.085687Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::rollout::list\u001b[0m: state db missing rollout path for thread 019c3b6c-46b8-7b70-ad23-82f824d161fb";
-    expect(classifyCodexStderrLine(line)).toBeNull();
+    expect(classifyCodexStderrRecord(line)).toMatchObject({
+      category: "provider-error",
+      level: "ERROR",
+      target: "codex_core::rollout::list",
+    });
   });
 
   it("ignores token usage footers emitted during shutdown", () => {
     const line =
       "^CToken usage: total=360,953 input=336,874 (+ 4,219,648 cached) output=24,079 (reasoning 7,982)";
-    expect(classifyCodexStderrLine(line)).toBeNull();
+    expect(classifyCodexStderrRecord(line)).toEqual({
+      category: "unstructured",
+      record: line,
+    });
   });
 
   it("keeps unknown structured errors", () => {
     const line = "2026-02-08T04:24:20.085687Z ERROR codex_core::runtime: unrecoverable failure";
-    expect(classifyCodexStderrLine(line)).toEqual({
-      message: line,
+    expect(classifyCodexStderrRecord(line)).toEqual({
+      category: "provider-error",
+      level: "ERROR",
+      target: "codex_core::runtime",
+      record: line,
     });
   });
 
   it("recognizes rmcp transport worker failures for status correlation", () => {
     const line =
       '2026-09-15T13:00:35.067479Z ERROR rmcp::transport::worker: worker quit with fatal: Transport channel closed, when Client(HttpRequest(HttpRequest("http/request failed: error sending request for url (http://127.0.0.1:29979/mcp)")))';
-    expect(isCodexMcpTransportWorkerFailure(line)).toBe(true);
-    expect(classifyCodexStderrLine(line)).toEqual({ message: line });
+    expect(classifyCodexStderrRecord(line)).toMatchObject({
+      category: "provider-error",
+      target: "rmcp::transport::worker",
+      record: line,
+    });
   });
 
   it("keeps plain stderr messages", () => {
     const line = "fatal: permission denied";
-    expect(classifyCodexStderrLine(line)).toEqual({
-      message: line,
+    expect(classifyCodexStderrRecord(line)).toEqual({
+      category: "unstructured",
+      record: line,
     });
   });
 
-  it("normalizes duplicate tool argument parse failures", () => {
-    const line =
-      "2026-04-11T23:48:45.012578Z ERROR codex_core::tools::router: error=failed to parse function arguments: duplicate field `yield_time_ms` at line 1 column 114";
-    expect(classifyCodexStderrLine(line)).toEqual({
-      message: "Tool call failed because the same argument was sent twice (yield_time_ms).",
+  it("classifies a multiline router failure as one self-recovered tool-attempt record", () => {
+    const record = [
+      "2026-09-18T01:45:27Z ERROR codex_core::tools::router: error=apply_patch verification failed",
+      "ipcMain.removeHandler(IPC.appRuntime.tabSetRoute);",
+      "}",
+      "const tabId = identity.tabId;",
+    ].join("\n");
+    expect(classifyCodexStderrRecord(record)).toEqual({
+      category: "tool-attempt-failure",
+      level: "ERROR",
+      target: "codex_core::tools::router",
+      record,
     });
   });
 });
@@ -1266,6 +1298,53 @@ describe("CodexStderrLineFramer", () => {
     const framer = new CodexStderrLineFramer();
     expect(framer.push(Buffer.from("final warning"))).toEqual([]);
     expect(framer.finish()).toEqual(["final warning"]);
+  });
+});
+
+describe("CodexStderrRecordFramer", () => {
+  it("frames continuation lines with their tracing header", () => {
+    const framer = new CodexStderrRecordFramer();
+    const first = "2026-09-18T01:45:27Z ERROR codex_core::tools::router: apply_patch failed";
+    const second = "2026-09-18T01:45:28Z INFO codex_core::runtime: recovered";
+    expect(framer.pushLine(first)).toEqual([]);
+    expect(framer.pushLine("const tabId = identity.tabId;")).toEqual([]);
+    expect(framer.pushLine(second)).toEqual([`${first}\nconst tabId = identity.tabId;`]);
+    expect(framer.flush()).toBe(second);
+  });
+
+  it("debug-logs one multiline apply_patch record without emitting a provider warning", () => {
+    const manager = new CodexAppServerManager();
+    const providerEvents: ProviderEvent[] = [];
+    manager.on("event", (event) => providerEvents.push(event));
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+    try {
+      const framer = new CodexStderrRecordFramer();
+      framer.pushLine(
+        "2026-09-18T01:45:27Z ERROR codex_core::tools::router: error=apply_patch verification failed",
+      );
+      framer.pushLine("ipcMain.removeHandler(IPC.appRuntime.tabSetRoute);");
+      framer.pushLine("}");
+      framer.pushLine("const tabId = identity.tabId;");
+      const record = framer.flush();
+      expect(record).toBeDefined();
+
+      const internals = manager as unknown as {
+        handleCodexStderrRecord: (context: unknown, record: string) => void;
+      };
+      internals.handleCodexStderrRecord(
+        { session: { threadId: asThreadId("thread-codex-stderr-record") } },
+        record!,
+      );
+
+      expect(providerEvents).toEqual([]);
+      expect(debug).toHaveBeenCalledOnce();
+      expect(debug.mock.calls[0]?.[0]).toContain("apply_patch verification failed");
+      expect(debug.mock.calls[0]?.[0]).toContain(
+        "ipcMain.removeHandler(IPC.appRuntime.tabSetRoute);",
+      );
+    } finally {
+      debug.mockRestore();
+    }
   });
 });
 
@@ -1295,7 +1374,6 @@ describe("Codex MCP startup diagnostics", () => {
       session: { threadId: asThreadId("thread-mcp-startup-failure") },
       mcpStartupStatuses: new Map(),
       reportedMcpStartupFailures: new Set<string>(),
-      deferredMcpTransportWarnings: [] as string[],
     };
     const internals = manager as unknown as {
       refreshComputerUseCapabilityHealth: (
@@ -1305,11 +1383,9 @@ describe("Codex MCP startup diagnostics", () => {
     };
 
     await internals.refreshComputerUseCapabilityHealth(context, "provider-thread");
-    context.deferredMcpTransportWarnings.push("raw transport warning from the same failure");
     await internals.refreshComputerUseCapabilityHealth(context, "provider-thread");
 
     expect(sendRequest).toHaveBeenCalledTimes(2);
-    expect(context.deferredMcpTransportWarnings).toEqual([]);
     expect(events).toEqual([
       expect.objectContaining({
         kind: "error",
@@ -4665,7 +4741,7 @@ describe("handleServerNotification error normalization", () => {
     );
   });
 
-  it("normalizes duplicate tool argument errors on runtime error notifications", () => {
+  it("keeps untyped runtime tool-attempt errors out of session state", () => {
     const { manager, context, updateSession } = createCollabNotificationHarness();
 
     (
@@ -4684,16 +4760,10 @@ describe("handleServerNotification error normalization", () => {
       },
     });
 
-    expect(updateSession).toHaveBeenCalledWith(
-      context,
-      expect.objectContaining({
-        status: "error",
-        lastError: "Tool call failed because the same argument was sent twice (yield_time_ms).",
-      }),
-    );
+    expect(updateSession).not.toHaveBeenCalled();
   });
 
-  it("does not promote non-fatal tool runtime errors to session lastError", () => {
+  it("does not promote an unlisted tool runtime error to session lastError", () => {
     const { manager, context, updateSession } = createCollabNotificationHarness();
 
     (
@@ -4705,8 +4775,7 @@ describe("handleServerNotification error normalization", () => {
       params: {
         threadId: "provider_parent",
         error: {
-          message:
-            "write_stdin failed: stdin is closed for this session; rerun exec_command with tty=true to keep stdin open",
+          message: "previously unseen tool transport failure",
         },
         willRetry: false,
       },

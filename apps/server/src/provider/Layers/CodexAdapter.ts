@@ -79,7 +79,7 @@ import {
   isCodexGeneratedImageItemType,
   sanitizeNestedCodexGeneratedImagePayloads,
 } from "../../codexGeneratedImages.ts";
-import { isNonFatalCodexErrorMessage } from "../../codexErrorClassification.ts";
+import { isCodexToolAttemptFailure } from "../../codexErrorClassification.ts";
 import { ServerConfig } from "../../config.ts";
 import { makeRuntimeTaskListItem } from "../runtimeTaskList.ts";
 import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
@@ -304,16 +304,22 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-// Keep manager-emitted stderr lines visible without escalating them into a fatal thread error.
-function providerErrorMapsToWarning(event: ProviderEvent): boolean {
-  return (
-    event.kind === "error" &&
-    (event.method === "process/stderr" ||
-      event.method === "mcpServer/startupFailed" ||
-      (event.method === "error" &&
-        typeof event.message === "string" &&
-        isNonFatalCodexErrorMessage(event.message)))
-  );
+const CODEX_ACTIONABLE_WARNING_CLASSES = {
+  providerRetry: "provider-retry",
+  mcpStartupFailure: "mcp-startup-failure",
+  windowsWorldWritable: "windows-world-writable",
+  windowsSandboxSetupFailure: "windows-sandbox-setup-failure",
+} as const;
+
+type CodexActionableWarningClass =
+  (typeof CODEX_ACTIONABLE_WARNING_CLASSES)[keyof typeof CODEX_ACTIONABLE_WARNING_CLASSES];
+
+function codexProviderErrorWarningClass(
+  event: ProviderEvent,
+): CodexActionableWarningClass | undefined {
+  return event.kind === "error" && event.method === "mcpServer/startupFailed"
+    ? CODEX_ACTIONABLE_WARNING_CLASSES.mcpStartupFailure
+    : undefined;
 }
 
 function normalizeCodexTokenUsage(value: unknown): ThreadTokenUsageSnapshot | undefined {
@@ -960,14 +966,17 @@ function mapToRuntimeEvents(
     if (!event.message) {
       return [];
     }
-    const treatAsWarning = providerErrorMapsToWarning(event);
+    if (event.method === "process/stderr") {
+      return [];
+    }
+    const warningClass = codexProviderErrorWarningClass(event);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
-        type: treatAsWarning ? "runtime.warning" : "runtime.error",
+        type: warningClass ? "runtime.warning" : "runtime.error",
         payload: {
           message: event.message,
-          ...(!treatAsWarning ? { class: "provider_error" as const } : {}),
+          ...(!warningClass ? { class: "provider_error" as const } : {}),
           ...(event.payload !== undefined ? { detail: event.payload } : {}),
         },
       },
@@ -1593,14 +1602,17 @@ function mapToRuntimeEvents(
     const message =
       asString(asObject(payload?.error)?.message) ?? event.message ?? "Provider runtime error";
     const willRetry = payload?.willRetry === true;
-    const treatAsWarning = willRetry || isNonFatalCodexErrorMessage(message);
+    if (isCodexToolAttemptFailure({ method: event.method, payload: event.payload })) {
+      return [];
+    }
+    const warningClass = willRetry ? CODEX_ACTIONABLE_WARNING_CLASSES.providerRetry : undefined;
     return [
       {
-        type: treatAsWarning ? "runtime.warning" : "runtime.error",
+        type: warningClass ? "runtime.warning" : "runtime.error",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
           message,
-          ...(!treatAsWarning ? { class: "provider_error" as const } : {}),
+          ...(!warningClass ? { class: "provider_error" as const } : {}),
           ...(event.payload !== undefined ? { detail: event.payload } : {}),
         },
       },
@@ -1639,6 +1651,8 @@ function mapToRuntimeEvents(
       ...(success === false
         ? [
             {
+              // A failed sandbox setup requires the user to repair their local
+              // configuration before protected commands can run.
               type: "runtime.warning" as const,
               ...runtimeEventBase(event, canonicalThreadId),
               payload: {
