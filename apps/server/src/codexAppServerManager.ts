@@ -51,7 +51,7 @@ import { PENKRA_AGENT_GATEWAY_TOKEN_ENV } from "./agentGateway/mcpInjection.ts";
 import { PENKRA_HOST_POLICY } from "./agentGateway/harnessPolicy.ts";
 import type { AgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
 import type { AgentGatewayNativeToolSurface } from "./agentGateway/Services/AgentGatewayToolBridge.ts";
-import { isNonFatalCodexErrorMessage } from "./codexErrorClassification.ts";
+import { isCodexToolAttemptFailure } from "./codexErrorClassification.ts";
 import { buildCodexProcessEnv } from "./codexProcessEnv.ts";
 import {
   assertCodexWorkingDirectoryExists,
@@ -198,8 +198,8 @@ interface CodexSessionContext {
   mcpStartupStatuses: Map<string, McpStartupStatusEntry>;
   reportedMcpStartupFailures: Set<string>;
   stderrLineFramer: CodexStderrLineFramer;
-  deferredMcpTransportWarnings: string[];
-  deferredMcpTransportWarningTimer?: NodeJS.Timeout;
+  stderrRecordFramer: CodexStderrRecordFramer;
+  stderrRecordFlushTimer?: NodeJS.Timeout;
   computerUseHealth?: ComputerUseCapabilityHealth;
   taskCompleteFallback?:
     | {
@@ -364,17 +364,13 @@ const CODEX_VERSION_CHECK_CACHE_TTL_MS = 10 * 60 * 1000;
 const ANSI_ESCAPE_CHAR = String.fromCharCode(27);
 const ANSI_ESCAPE_REGEX = new RegExp(`${ANSI_ESCAPE_CHAR}\\[[0-9;]*m`, "g");
 const CODEX_STDERR_LOG_REGEX =
-  /^\d{4}-\d{2}-\d{2}T\S+\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+\S+:\s+(.*)$/;
-const BENIGN_ERROR_LOG_SNIPPETS = [
-  "state db missing rollout path for thread",
-  "state db record_discrepancy: find_thread_path_by_id_str_in_subdir, falling_back",
-];
+  /^\d{4}-\d{2}-\d{2}T\S+\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+(\S+):\s+(.*)$/;
 const BENIGN_PROCESS_OUTPUT_REGEXES = [/^(?:\^C)?Token usage:/i];
 const CODEX_DISCOVERY_SESSION_IDLE_MS = 10 * 60 * 1000;
 const CODEX_PENDING_SETTLE_DEADLINE_MS = 2_000;
 const CODEX_STDERR_TAIL_MAX_BYTES = 64 * 1024;
 const CODEX_STDOUT_END_GRACE_MS = 100;
-const CODEX_MCP_TRANSPORT_STATUS_GRACE_MS = 5_000;
+const CODEX_STDERR_RECORD_IDLE_FLUSH_MS = 50;
 
 export class CodexStderrLineFramer {
   private readonly decoder = new StringDecoder("utf8");
@@ -393,11 +389,35 @@ export class CodexStderrLineFramer {
   }
 }
 
-export function isCodexMcpTransportWorkerFailure(line: string): boolean {
-  return (
-    line.includes("rmcp::transport::worker") &&
-    line.includes("worker quit with fatal: Transport channel closed")
-  );
+function isCodexStderrLogHeader(line: string): boolean {
+  return CODEX_STDERR_LOG_REGEX.test(normalizeCodexProcessLine(line));
+}
+
+export class CodexStderrRecordFramer {
+  private lines: string[] = [];
+
+  pushLine(line: string): string[] {
+    if (isCodexStderrLogHeader(line) && this.lines.length > 0) {
+      const completed = this.flush();
+      this.lines.push(line);
+      return completed ? [completed] : [];
+    }
+    this.lines.push(line);
+    return [];
+  }
+
+  flush(): string | undefined {
+    if (this.lines.length === 0) {
+      return undefined;
+    }
+    const record = this.lines.join("\n");
+    this.lines = [];
+    return record;
+  }
+
+  hasPendingRecord(): boolean {
+    return this.lines.length > 0;
+  }
 }
 
 function redactCodexProcessOutput(value: string): string {
@@ -772,26 +792,39 @@ export function parseCodexUserInputQuestions(
   return parsedQuestions.length > 0 ? parsedQuestions : undefined;
 }
 
-export function classifyCodexStderrLine(rawLine: string): { message: string } | null {
-  if (isIgnorableCodexProcessLine(rawLine)) {
+export interface CodexStderrRecordClassification {
+  readonly category: "tool-attempt-failure" | "provider-error" | "provider-trace" | "unstructured";
+  readonly level?: "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR";
+  readonly target?: string;
+  readonly record: string;
+}
+
+export function classifyCodexStderrRecord(
+  rawRecord: string,
+): CodexStderrRecordClassification | null {
+  const record = rawRecord.replaceAll(ANSI_ESCAPE_REGEX, "").trim();
+  if (!record) {
     return null;
   }
-  const line = normalizeCodexProcessLine(rawLine);
-
-  const match = line.match(CODEX_STDERR_LOG_REGEX);
-  if (match) {
-    const level = match[1];
-    if (level && level !== "ERROR") {
-      return null;
-    }
-
-    const isBenignError = BENIGN_ERROR_LOG_SNIPPETS.some((snippet) => line.includes(snippet));
-    if (isBenignError) {
-      return null;
-    }
+  const header = record.split(/\r?\n/u, 1)[0] ?? "";
+  const match = header.match(CODEX_STDERR_LOG_REGEX);
+  if (!match) {
+    return { category: "unstructured", record };
   }
 
-  return { message: normalizeCodexUserVisibleErrorMessage(line) };
+  const level = match[1] as CodexStderrRecordClassification["level"];
+  const target = match[2];
+  return {
+    category:
+      target === "codex_core::tools::router"
+        ? "tool-attempt-failure"
+        : level === "ERROR"
+          ? "provider-error"
+          : "provider-trace",
+    ...(level ? { level } : {}),
+    ...(target ? { target } : {}),
+    record,
+  };
 }
 
 export function resumeCodexThreadWithoutHistoryReplay(input: {
@@ -1157,7 +1190,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         mcpStartupStatuses: new Map(),
         reportedMcpStartupFailures: new Set(),
         stderrLineFramer: new CodexStderrLineFramer(),
-        deferredMcpTransportWarnings: [],
+        stderrRecordFramer: new CodexStderrRecordFramer(),
         nextRequestId: 1,
         stopping: false,
       };
@@ -1937,7 +1970,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         mcpStartupStatuses: new Map(),
         reportedMcpStartupFailures: new Set(),
         stderrLineFramer: new CodexStderrLineFramer(),
-        deferredMcpTransportWarnings: [],
+        stderrRecordFramer: new CodexStderrRecordFramer(),
         nextRequestId: 1,
         stopping: false,
       };
@@ -2498,7 +2531,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const inventory: McpToolInventoryEntry[] = [];
     const seenCursors = new Set<string>();
     let cursor: string | null = null;
-    let observedNamedFailure = false;
 
     do {
       const response: Record<string, unknown> = await this.sendRequest<Record<string, unknown>>(
@@ -2530,7 +2562,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           context.reportedMcpStartupFailures.delete(name);
         }
         if (failureDetail) {
-          observedNamedFailure = true;
           this.reportMcpStartupFailure(context, name, failureDetail);
         }
       }
@@ -2541,12 +2572,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (nextCursor) seenCursors.add(nextCursor);
       cursor = nextCursor;
     } while (cursor !== null);
-
-    if (observedNamedFailure) {
-      this.discardDeferredMcpTransportWarnings(context);
-    } else {
-      this.flushDeferredMcpTransportWarning(context);
-    }
 
     const health = classifyComputerUseCapability({
       inventory,
@@ -2831,7 +2856,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       mcpStartupStatuses: new Map(),
       reportedMcpStartupFailures: new Set(),
       stderrLineFramer: new CodexStderrLineFramer(),
-      deferredMcpTransportWarnings: [],
+      stderrRecordFramer: new CodexStderrRecordFramer(),
       nextRequestId: 1,
       stopping: false,
       discovery: true,
@@ -2990,23 +3015,28 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         return;
       }
       for (const rawLine of context.stderrLineFramer.push(chunk)) {
-        this.handleCodexStderrLine(context, rawLine);
+        this.ingestCodexStderrLine(context, rawLine);
       }
+      this.scheduleCodexStderrRecordFlush(context);
     });
     context.child.stderr.once("end", () => {
       for (const rawLine of context.stderrLineFramer.finish()) {
-        this.handleCodexStderrLine(context, rawLine);
+        this.ingestCodexStderrLine(context, rawLine);
       }
+      this.flushCodexStderrRecord(context);
     });
 
-    context.child.on("error", (error) => this.handleTransportFailure(context, error));
+    context.child.on("error", (error) => {
+      this.flushCodexStderrRecord(context);
+      this.handleTransportFailure(context, error);
+    });
 
     context.child.on("exit", (code, signal) => {
       if (context.stopping) {
         return;
       }
 
-      this.discardDeferredMcpTransportWarnings(context);
+      this.flushCodexStderrRecord(context);
 
       if (context.stdoutEndTimer) {
         clearTimeout(context.stdoutEndTimer);
@@ -3090,24 +3120,49 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     });
   }
 
-  private handleCodexStderrLine(context: CodexSessionContext, rawLine: string): void {
-    const classified = classifyCodexStderrLine(rawLine);
-    if (!classified) return;
-    if (isCodexMcpTransportWorkerFailure(rawLine)) {
-      const deferredWarnings = (context.deferredMcpTransportWarnings ??= []);
-      if (deferredWarnings.length === 0) {
-        deferredWarnings.push(classified.message);
-      }
-      if (!context.deferredMcpTransportWarningTimer) {
-        context.deferredMcpTransportWarningTimer = setTimeout(() => {
-          delete context.deferredMcpTransportWarningTimer;
-          this.flushDeferredMcpTransportWarning(context);
-        }, CODEX_MCP_TRANSPORT_STATUS_GRACE_MS);
-        context.deferredMcpTransportWarningTimer.unref();
-      }
+  private ingestCodexStderrLine(context: CodexSessionContext, rawLine: string): void {
+    for (const record of context.stderrRecordFramer.pushLine(rawLine)) {
+      this.handleCodexStderrRecord(context, record);
+    }
+  }
+
+  private scheduleCodexStderrRecordFlush(context: CodexSessionContext): void {
+    if (!context.stderrRecordFramer.hasPendingRecord()) {
       return;
     }
-    this.emitErrorEvent(context, "process/stderr", classified.message);
+    if (context.stderrRecordFlushTimer) {
+      clearTimeout(context.stderrRecordFlushTimer);
+    }
+    context.stderrRecordFlushTimer = setTimeout(() => {
+      delete context.stderrRecordFlushTimer;
+      this.flushCodexStderrRecord(context);
+    }, CODEX_STDERR_RECORD_IDLE_FLUSH_MS);
+    context.stderrRecordFlushTimer.unref();
+  }
+
+  private flushCodexStderrRecord(context: CodexSessionContext): void {
+    if (context.stderrRecordFlushTimer) {
+      clearTimeout(context.stderrRecordFlushTimer);
+      delete context.stderrRecordFlushTimer;
+    }
+    const record = context.stderrRecordFramer.flush();
+    if (record !== undefined && !context.stopping) {
+      this.handleCodexStderrRecord(context, record);
+    }
+  }
+
+  private handleCodexStderrRecord(context: CodexSessionContext, rawRecord: string): void {
+    const classified = classifyCodexStderrRecord(rawRecord);
+    if (!classified) {
+      return;
+    }
+    log.debug("ignored Codex stderr record", {
+      threadId: context.session.threadId,
+      category: classified.category,
+      level: classified.level,
+      target: classified.target,
+      record: redactCodexProcessOutput(classified.record),
+    });
   }
 
   private reportMcpStartupFailure(
@@ -3117,7 +3172,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   ): void {
     if (context.reportedMcpStartupFailures.has(name)) return;
     context.reportedMcpStartupFailures.add(name);
-    this.discardDeferredMcpTransportWarnings(context);
     log.warn("Codex MCP server failed to start", {
       threadId: context.session.threadId,
       serverName: name,
@@ -3128,27 +3182,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       "mcpServer/startupFailed",
       `MCP server “${name}” failed to start. Its tools are unavailable for this session.`,
     );
-  }
-
-  private flushDeferredMcpTransportWarning(context: CodexSessionContext): void {
-    if (context.deferredMcpTransportWarningTimer) {
-      clearTimeout(context.deferredMcpTransportWarningTimer);
-      delete context.deferredMcpTransportWarningTimer;
-    }
-    const deferredWarnings = (context.deferredMcpTransportWarnings ??= []);
-    const warning = deferredWarnings.shift();
-    deferredWarnings.length = 0;
-    if (warning && !context.stopping) {
-      this.emitErrorEvent(context, "process/stderr", warning);
-    }
-  }
-
-  private discardDeferredMcpTransportWarnings(context: CodexSessionContext): void {
-    if (context.deferredMcpTransportWarningTimer) {
-      clearTimeout(context.deferredMcpTransportWarningTimer);
-      delete context.deferredMcpTransportWarningTimer;
-    }
-    (context.deferredMcpTransportWarnings ??= []).length = 0;
   }
 
   private handleStdoutLine(context: CodexSessionContext, line: string): void {
@@ -3517,8 +3550,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const message =
         rawMessage !== undefined ? normalizeCodexUserVisibleErrorMessage(rawMessage) : undefined;
       const willRetry = this.readBoolean(notification.params, "willRetry");
-      const isNonFatalWarning =
-        message !== undefined && !willRetry && isNonFatalCodexErrorMessage(message);
+      const isToolAttemptFailure = isCodexToolAttemptFailure({
+        method: notification.method,
+        payload: notification.params,
+      });
 
       if (willRetry) {
         // Only a live turn may restore "running"; otherwise a retryable error
@@ -3532,7 +3567,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         return;
       }
 
-      if (isNonFatalWarning) {
+      if (isToolAttemptFailure) {
+        log.debug("ignored Codex tool-attempt failure", {
+          threadId: context.session.threadId,
+          message,
+        });
         return;
       }
 
