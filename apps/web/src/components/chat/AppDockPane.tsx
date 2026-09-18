@@ -1,290 +1,135 @@
 // FILE: AppDockPane.tsx
-// Purpose: Mirrors one host-owned isolated App renderer into its right-dock tab viewport.
+// Purpose: Presents one main-owned App view in the right dock.
 // Layer: Chat right-dock App surface
 
 import { IconPackage } from "@tabler/icons-react";
-import {
-  APP_RUNTIME_BRIDGE_PROTOCOL_VERSION,
-  APP_RUNTIME_CONNECT_MESSAGE,
-  type AppRuntimeFrameMessage,
-  type AppRuntimeHostMessage,
-} from "@penkra/contracts";
-import { deriveBrowserUserAgentForUrl } from "@penkra/shared/browserSession";
-import type { AppBrowserSessionState } from "@penkra/sdk";
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DesktopAppTabPresentation } from "@penkra/contracts";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
+import { appDockBoundsForWidth } from "../ui/sidebar";
 import { PanelStateMessage } from "./PanelStateMessage";
-
-// Electron treats `allowpopups` as a boolean-by-presence webview attribute, but React removes a
-// lowercase custom attribute when given `true`. Keep the type expected by React's webview
-// declaration while passing the string value React will actually serialize.
-const ALLOW_WEBVIEW_POPUPS_ATTRIBUTE = "true" as unknown as boolean;
 
 export function AppDockPane(props: {
   tabId: string;
   rendererId: number;
   deckId: string;
   threadId: string;
-  status: "loading" | "ready" | "crashed" | null;
+  status: "unloaded" | "loading" | "ready" | "crashed" | null;
   visible: boolean;
+  animateEntrance: boolean;
+  animationStartedAtEpochMs: number | null;
   appName: string | null;
   iconDataUrl?: string | null;
-  documentUrl: string;
 }) {
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const frameConnectionRef = useRef<{
-    port: MessagePort;
-    removeHostMessage: () => void;
-  } | null>(null);
-  const [browserState, setBrowserState] = useState<AppBrowserSessionState | null>(null);
-  const [browserSurface, setBrowserSurface] = useState<BrowserSurface | null>(null);
-  const [browserSurfacePresented, setBrowserSurfacePresented] = useState(false);
-  const browserSurfacePartition = browserSurface?.partition;
-  const [simulatorSurface, setSimulatorSurface] = useState<SurfaceBounds | null>(null);
-  const [simulatorFrame, setSimulatorFrame] = useState<string | null>(null);
-  const browserPage = useMemo(
-    () => browserState?.pages.find((page) => page.id === browserState.activePageId) ?? null,
-    [browserState],
-  );
-  const browserUserAgent = useMemo(
-    () =>
-      deriveBrowserUserAgentForUrl(
-        typeof navigator === "undefined" ? "Mozilla/5.0" : navigator.userAgent,
-        browserPage?.url ?? "about:blank",
-      ),
-    [browserPage?.url],
-  );
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const wasVisibleRef = useRef(false);
+  const [presentation, setPresentation] = useState<DesktopAppTabPresentation | null>(null);
+  const present = useCallback(() => {
+    const bridge = window.desktopBridge?.appTabs;
+    const wrapper = rootRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
+    if (!bridge || !wrapper) return;
+    const width = Number.parseFloat(getComputedStyle(wrapper).getPropertyValue("--sidebar-width"));
+    if (!Number.isFinite(width)) return;
+    void bridge.present({
+      tabId: props.tabId,
+      deckId: props.deckId,
+      threadId: props.threadId,
+      animate: props.animateEntrance,
+      ...(props.animationStartedAtEpochMs === null
+        ? {}
+        : { animationStartedAtEpochMs: props.animationStartedAtEpochMs }),
+      bounds: appDockBoundsForWidth(width),
+    });
+  }, [
+    props.animateEntrance,
+    props.animationStartedAtEpochMs,
+    props.deckId,
+    props.tabId,
+    props.threadId,
+  ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
-    const reportActiveState = () => {
-      const active = props.visible && document.visibilityState === "visible";
-      void bridge.setActive({
-        tabId: props.tabId,
-        rendererId: props.rendererId,
-        active,
-        deckId: props.deckId,
-        threadId: props.threadId,
-      });
-    };
-    reportActiveState();
-    document.addEventListener("visibilitychange", reportActiveState);
-    return () => {
-      document.removeEventListener("visibilitychange", reportActiveState);
-      void bridge.setActive({
-        tabId: props.tabId,
-        rendererId: props.rendererId,
-        active: false,
-        deckId: props.deckId,
-        threadId: props.threadId,
-      });
-    };
-  }, [props.deckId, props.rendererId, props.tabId, props.threadId, props.visible]);
+    return bridge.onPresentation((next) => {
+      if (next.tabId === props.tabId) setPresentation(next);
+    });
+  }, [props.tabId]);
 
-  const disconnectFrame = useCallback(() => {
-    const connection = frameConnectionRef.current;
-    frameConnectionRef.current = null;
-    connection?.removeHostMessage();
-    connection?.port.close();
-  }, []);
+  useLayoutEffect(() => {
+    const bridge = window.desktopBridge?.appTabs;
+    if (!bridge) return;
+    if (!props.visible || props.status === "crashed" || document.visibilityState !== "visible") {
+      void bridge.hide({ tabId: props.tabId, animate: wasVisibleRef.current && !props.visible });
+      wasVisibleRef.current = false;
+      return;
+    }
+    wasVisibleRef.current = true;
+    present();
+  }, [
+    props.animateEntrance,
+    props.animationStartedAtEpochMs,
+    props.deckId,
+    props.status,
+    props.tabId,
+    props.threadId,
+    props.visible,
+    present,
+  ]);
 
-  const connectFrame = useCallback(
-    (iframe: HTMLIFrameElement) => {
-      const bridge = window.desktopBridge?.appTabs;
-      if (!bridge || !props.documentUrl) return;
-      disconnectFrame();
-      const channel = new MessageChannel();
-      const port = channel.port1;
-      port.onmessage = (event: MessageEvent<AppRuntimeFrameMessage>) => {
-        const message = event.data;
-        if (message.type === "ready") {
-          void bridge.frameReady({ tabId: props.tabId, rendererId: props.rendererId });
-        } else if (message.type === "renderer-message") {
-          void bridge.frameMessage({
-            tabId: props.tabId,
-            rendererId: props.rendererId,
-            message: message.message,
-          });
-        } else if (message.type === "call") {
-          void bridge
-            .frameCall({
-              tabId: props.tabId,
-              rendererId: props.rendererId,
-              deckId: props.deckId,
-              threadId: props.threadId,
-              method: message.method,
-              ...(message.input === undefined ? {} : { input: message.input }),
-            })
-            .then(
-              (result) =>
-                port.postMessage({
-                  type: "call-result",
-                  id: message.id,
-                  result,
-                } satisfies AppRuntimeHostMessage),
-              (error: unknown) =>
-                port.postMessage({
-                  type: "call-error",
-                  id: message.id,
-                  code:
-                    error && typeof error === "object" && "code" in error
-                      ? String(error.code)
-                      : "RUNTIME_ERROR",
-                  message: error instanceof Error ? error.message : String(error),
-                } satisfies AppRuntimeHostMessage),
-            );
-        }
-      };
-      port.start();
-      const removeHostMessage = bridge.onFrameHostMessage((input) => {
-        if (input.tabId !== props.tabId || input.rendererId !== props.rendererId) return;
-        if (input.delivery.kind === "event" && input.delivery.name === "browser.state") {
-          setBrowserState(input.delivery.payload as AppBrowserSessionState);
-        }
-        if (input.delivery.kind === "event" && input.delivery.name === "browser.surface") {
-          const surface = parseBrowserSurface(input.delivery.payload);
-          if (surface) setBrowserSurface(surface);
-          setBrowserSurfacePresented(surface !== null);
-        }
-        if (input.delivery.kind === "event" && input.delivery.name === "simulator.surface") {
-          setSimulatorSurface(
-            isSurfaceBounds(input.delivery.payload) ? input.delivery.payload : null,
-          );
-        }
-        if (input.delivery.kind === "event" && input.delivery.name === "simulator.frame") {
-          const frame = input.delivery.payload as { dataUrl?: unknown } | null;
-          if (typeof frame?.dataUrl === "string") setSimulatorFrame(frame.dataUrl);
-        }
-        port.postMessage(
-          input.delivery.kind === "host-message"
-            ? ({
-                type: "host-message",
-                message: input.delivery.message,
-              } satisfies AppRuntimeHostMessage)
-            : ({
-                type: "event",
-                name: input.delivery.name,
-                payload: input.delivery.payload,
-              } satisfies AppRuntimeHostMessage),
-        );
-      });
-      frameConnectionRef.current = { port, removeHostMessage };
-      iframe.contentWindow?.postMessage(
-        {
-          type: APP_RUNTIME_CONNECT_MESSAGE,
-          protocolVersion: APP_RUNTIME_BRIDGE_PROTOCOL_VERSION,
-        },
-        "*",
-        [channel.port2],
-      );
+  useLayoutEffect(
+    () => () => {
+      void window.desktopBridge?.appTabs?.hide({ tabId: props.tabId }).catch(() => undefined);
     },
-    [
-      disconnectFrame,
-      props.deckId,
-      props.documentUrl,
-      props.rendererId,
-      props.tabId,
-      props.threadId,
-    ],
+    [props.tabId],
   );
 
-  useEffect(() => disconnectFrame, [connectFrame, disconnectFrame]);
-
   return (
-    <div className="relative h-full min-h-0 w-full overflow-hidden">
-      {props.documentUrl ? (
-        <iframe
-          key={props.rendererId}
-          ref={iframeRef}
-          data-app-tab-id={props.tabId}
-          name={`penkra-app-tab:${props.tabId}`}
-          className="h-full min-h-0 w-full border-0 bg-background"
-          hidden={props.status === "crashed"}
-          sandbox="allow-forms allow-modals allow-same-origin allow-scripts"
-          src={props.documentUrl}
-          title={props.appName ?? "App"}
-          onLoad={(event) => connectFrame(event.currentTarget)}
-        />
-      ) : null}
-      {browserSurface?.owned && browserSurfacePartition
-        ? browserState?.pages.map((page) => {
-            const isActive = page.id === browserPage?.id;
-            const isPresented =
-              props.visible && browserSurfacePresented && isActive && !page.lastError;
-            const surfaceStyle: CSSProperties = {
-              top: browserSurface.insets.top,
-              right: browserSurface.insets.right,
-              bottom: browserSurface.insets.bottom,
-              left: browserSurface.insets.left,
-              visibility: isPresented ? "visible" : "hidden",
-            };
-            if (page.presentation === "host") {
-              return (
-                <HostedBrowserNativePage
-                  active={isPresented}
-                  key={page.id}
-                  pageId={page.id}
-                  rendererId={props.rendererId}
-                  rendererSurfaceActive={props.visible && browserSurfacePresented}
-                  style={surfaceStyle}
-                  tabId={props.tabId}
-                />
-              );
-            }
-            return page.url === "about:blank" ? null : (
-              <HostedBrowserWebview
-                initialUrl={page.url}
-                key={page.id}
-                pageId={page.id}
-                partition={browserSurfacePartition}
-                rendererId={props.rendererId}
-                tabId={props.tabId}
-                useragent={browserUserAgent}
-                // Presentation is independent from lifetime: hidden App tabs and inactive
-                // Browser pages keep their live guest so auth and transient page state survive.
-                style={surfaceStyle}
-              />
-            );
-          })
-        : null}
-      {props.visible && browserSurfacePresented && browserSurface && !browserSurface.owned ? (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background px-6">
-          <PanelStateMessage>
-            <div className="flex flex-col items-center gap-3 text-center">
-              <span>The Browser is active in another Penkra window.</span>
-              <button
-                className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted"
-                onClick={() => {
-                  window.focus();
-                  void window.desktopBridge?.appTabs?.setActive({
-                    tabId: props.tabId,
-                    rendererId: props.rendererId,
-                    active: true,
-                    deckId: props.deckId,
-                    threadId: props.threadId,
-                  });
-                }}
-                type="button"
-              >
-                Open here
-              </button>
-            </div>
-          </PanelStateMessage>
-        </div>
-      ) : null}
-      {props.visible && simulatorSurface && simulatorFrame ? (
-        <img
-          alt="Live simulator display"
-          className="pointer-events-none absolute z-10 bg-black object-contain"
-          src={simulatorFrame}
-          style={{
-            left: simulatorSurface.x,
-            top: simulatorSurface.y,
-            width: simulatorSurface.width,
-            height: simulatorSurface.height,
-          }}
-        />
+    <div
+      ref={rootRef}
+      className="relative h-full min-h-0 w-full overflow-hidden"
+      data-app-tab-id={props.visible ? props.tabId : undefined}
+      data-app-deck-id={props.visible ? props.deckId : undefined}
+      data-app-thread-id={props.visible ? props.threadId : undefined}
+    >
+      {props.visible && presentation?.mode === "replica" ? (
+        <button
+          aria-label={`Activate ${props.appName ?? "App"} in this window`}
+          className="absolute inset-0 z-10 block h-full w-full cursor-pointer overflow-hidden border-0 bg-background p-0 text-left"
+          data-app-tab-replica={props.tabId}
+          onClick={present}
+          type="button"
+        >
+          {presentation.appFrameDataUrl ? (
+            <img
+              alt=""
+              className="absolute inset-x-0 top-0 w-full object-fill"
+              draggable={false}
+              src={presentation.appFrameDataUrl}
+              style={{
+                height: presentation.pageFrameDataUrl
+                  ? presentation.pageTop ?? 0
+                  : "100%",
+              }}
+            />
+          ) : null}
+          {presentation.pageFrameDataUrl ? (
+            <img
+              alt=""
+              className="absolute inset-x-0 w-full object-fill"
+              draggable={false}
+              src={presentation.pageFrameDataUrl}
+              style={{
+                top: presentation.pageTop ?? 0,
+                height: `calc(100% - ${presentation.pageTop ?? 0}px)`,
+              }}
+            />
+          ) : null}
+          <span className="absolute inset-0 bg-background/45" />
+          <span className="absolute inset-0 flex items-center justify-center text-sm font-medium text-foreground/80">
+            Click to use {props.appName ?? "this App"} in this window
+          </span>
+        </button>
       ) : null}
       {props.status === "crashed" ? (
         <PanelStateMessage>
@@ -311,235 +156,5 @@ export function AppDockPane(props: {
         </div>
       ) : null}
     </div>
-  );
-}
-
-function HostedBrowserNativePage(props: {
-  active: boolean;
-  pageId: string;
-  rendererId: number;
-  rendererSurfaceActive: boolean;
-  style: CSSProperties;
-  tabId: string;
-}) {
-  const surfaceRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const bridge = window.desktopBridge?.appTabs;
-    const surface = surfaceRef.current;
-    if (!bridge || !surface) return;
-    let scheduledFrame: number | null = null;
-    let stopped = false;
-    let rejectedAttempts = 0;
-
-    const publish = () => {
-      scheduledFrame = null;
-      const rect = props.active ? surface.getBoundingClientRect() : null;
-      const bounds =
-        rect && rect.width > 0 && rect.height > 0
-          ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
-          : null;
-      void bridge
-        .browserHostedPageBounds({
-          tabId: props.tabId,
-          rendererId: props.rendererId,
-          pageId: props.pageId,
-          bounds,
-          rendererSurfaceActive: props.rendererSurfaceActive,
-        })
-        .then((applied) => {
-          if (stopped || bounds === null || applied !== false) {
-            rejectedAttempts = 0;
-            return;
-          }
-          // Frame readiness, Browser-session creation, and the first React measurement cross
-          // independent IPC/event queues. Retry only when desktop explicitly rejects that exact
-          // page handoff; a successful acknowledgement or a legacy undefined response stops it.
-          if (rejectedAttempts >= 7) return;
-          rejectedAttempts += 1;
-          schedule();
-        })
-        .catch(() => undefined);
-    };
-    const schedule = () => {
-      if (scheduledFrame !== null) return;
-      scheduledFrame = window.requestAnimationFrame(publish);
-    };
-
-    const resizeObserver = new ResizeObserver(schedule);
-    resizeObserver.observe(surface);
-    window.addEventListener("resize", schedule);
-    window.addEventListener("scroll", schedule, true);
-    schedule();
-    return () => {
-      stopped = true;
-      if (scheduledFrame !== null) window.cancelAnimationFrame(scheduledFrame);
-      resizeObserver.disconnect();
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("scroll", schedule, true);
-      void bridge.browserHostedPageBounds({
-        tabId: props.tabId,
-        rendererId: props.rendererId,
-        pageId: props.pageId,
-        bounds: null,
-        rendererSurfaceActive: props.rendererSurfaceActive,
-      });
-    };
-  }, [props.active, props.pageId, props.rendererId, props.rendererSurfaceActive, props.tabId]);
-
-  return (
-    <div
-      aria-hidden="true"
-      className="pointer-events-none absolute z-10 bg-background"
-      data-hosted-browser-page-id={props.pageId}
-      ref={surfaceRef}
-      style={props.style}
-    />
-  );
-}
-
-function HostedBrowserWebview(props: {
-  initialUrl: string;
-  pageId: string;
-  partition: string;
-  rendererId: number;
-  tabId: string;
-  useragent: string;
-  style: CSSProperties;
-}) {
-  const webviewRef = useRef<BrowserWebviewElement | null>(null);
-  // `src` bootstraps a new guest only. Once mounted, explicit Browser commands own navigation.
-  // Reflecting did-navigate state back into this attribute calls loadURL again, which turns a
-  // redirect chain (especially a Cloudflare challenge) into an abort/retry request storm.
-  const bootstrapUrl = useRef(props.initialUrl).current;
-  useEffect(() => {
-    const bridge = window.desktopBridge?.appTabs;
-    const webview = webviewRef.current;
-    if (!bridge || !webview) return;
-    let attachedWebContentsId: number | null = null;
-    const didFailLoad = (event: Event) => {
-      const failure = event as BrowserWebviewDidFailLoadEvent;
-      void bridge.browserWebviewDidFailLoad({
-        tabId: props.tabId,
-        rendererId: props.rendererId,
-        pageId: props.pageId,
-        errorCode: failure.errorCode,
-        errorDescription: failure.errorDescription,
-        validatedUrl: failure.validatedURL,
-        isMainFrame: failure.isMainFrame,
-      });
-    };
-    const attach = () => {
-      if (typeof webview.getWebContentsId !== "function") return;
-      let webContentsId: number;
-      try {
-        // Electron exposes the method before the guest is ready, but throws until the element is
-        // attached and has emitted dom-ready. The initial effect must wait for that event; a later
-        // renderer-generation effect can immediately adopt an already-ready retained guest.
-        webContentsId = webview.getWebContentsId();
-      } catch {
-        return;
-      }
-      if (!Number.isInteger(webContentsId) || webContentsId <= 0) return;
-      attachedWebContentsId = webContentsId;
-      void bridge.browserWebviewAttach({
-        tabId: props.tabId,
-        rendererId: props.rendererId,
-        pageId: props.pageId,
-        webContentsId,
-      });
-    };
-    webview.addEventListener("dom-ready", attach);
-    webview.addEventListener("did-fail-load", didFailLoad);
-    window.addEventListener("focus", attach);
-    // A renderer-generation change intentionally preserves this keyed webview. Its dom-ready
-    // event has already fired, so the successor effect must adopt the existing guest immediately
-    // after the retired effect queues its generation-tolerant detach.
-    attach();
-    return () => {
-      webview.removeEventListener("dom-ready", attach);
-      webview.removeEventListener("did-fail-load", didFailLoad);
-      window.removeEventListener("focus", attach);
-      if (attachedWebContentsId !== null) {
-        void bridge.browserWebviewDetach({
-          tabId: props.tabId,
-          rendererId: props.rendererId,
-          pageId: props.pageId,
-          webContentsId: attachedWebContentsId,
-        });
-      }
-    };
-  }, [props.pageId, props.partition, props.rendererId, props.tabId]);
-
-  return (
-    <webview
-      allowpopups={ALLOW_WEBVIEW_POPUPS_ATTRIBUTE}
-      ref={webviewRef}
-      className="absolute z-10 flex bg-background"
-      partition={props.partition}
-      src={bootstrapUrl}
-      useragent={props.useragent}
-      style={props.style}
-    />
-  );
-}
-
-interface BrowserWebviewElement extends HTMLElement {
-  getWebContentsId(): number;
-}
-
-interface BrowserWebviewDidFailLoadEvent extends Event {
-  errorCode: number;
-  errorDescription: string;
-  validatedURL: string;
-  isMainFrame: boolean;
-}
-
-interface BrowserSurface {
-  insets: { top: number; right: number; bottom: number; left: number };
-  partition: string;
-  owned: boolean;
-}
-
-interface SurfaceBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-function parseBrowserSurface(value: unknown): BrowserSurface | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  if (typeof record.partition !== "string" || !isSurfaceInsets(record.insets)) return null;
-  return {
-    insets: record.insets,
-    partition: record.partition,
-    // Desktop versions predating multi-window ownership sent no marker. Treat those payloads as
-    // owned so a web renderer upgraded ahead of its host keeps the established single-window UI.
-    owned: typeof record.owned === "boolean" ? record.owned : true,
-  };
-}
-
-function isSurfaceInsets(value: unknown): value is BrowserSurface["insets"] {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    ["top", "right", "bottom", "left"].every((key) => {
-      const candidate = (value as Record<string, unknown>)[key];
-      return typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0;
-    })
-  );
-}
-
-function isSurfaceBounds(value: unknown): value is SurfaceBounds {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    ["x", "y", "width", "height"].every(
-      (key) => typeof (value as Record<string, unknown>)[key] === "number",
-    )
   );
 }

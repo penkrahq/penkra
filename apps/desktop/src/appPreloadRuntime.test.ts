@@ -12,6 +12,7 @@ function fixture() {
   let hostListener: ((message: unknown) => void) | null = null;
   const ready = vi.fn();
   const tabSetRoute = vi.fn(async () => undefined);
+  const tabOpenSibling = vi.fn(async () => ({ tabId: "tab-sibling" }));
   let browserStateListener: ((state: import("@penkra/sdk").AppBrowserSessionState) => void) | null =
     null;
   let simulatorStateListener:
@@ -20,9 +21,7 @@ function fixture() {
   const browserCall = vi.fn(async () => ({
     version: 1,
     open: true,
-    activePageId: "page-1",
-    pages: [],
-    extensionActions: [],
+    page: null,
     lastError: null,
   }));
   const simulatorCall = vi.fn(async () => ({
@@ -76,6 +75,7 @@ function fixture() {
     },
     ready,
     tabSetRoute,
+    tabOpenSibling,
     tabGetContext: vi.fn(),
     queryPermission: vi.fn(async (name) => ({
       name,
@@ -143,6 +143,7 @@ function fixture() {
     sent,
     ready,
     tabSetRoute,
+    tabOpenSibling,
     browserCall,
     simulatorCall,
     calls,
@@ -166,6 +167,19 @@ describe("AppPreloadRuntime", () => {
     expect(test.tabSetRoute).toHaveBeenCalledWith({
       route: "/document",
       state: { documentId: "doc-1" },
+    });
+  });
+
+  it("opens a sibling App tab through the preload transport", async () => {
+    const test = fixture();
+
+    await expect(
+      test.runtime.api.tab.openSibling({ route: "/", state: { url: "https://example.com" } }),
+    ).resolves.toEqual({ tabId: "tab-sibling" });
+
+    expect(test.tabOpenSibling).toHaveBeenCalledWith({
+      route: "/",
+      state: { url: "https://example.com" },
     });
   });
 
@@ -203,6 +217,8 @@ describe("AppPreloadRuntime", () => {
       pageId: "page-1",
       url: "https://penkra.com",
     });
+    await test.runtime.api.browser.setToolbarHeight(84);
+    expect(test.browserCall).toHaveBeenCalledWith("setToolbarHeight", 84);
     expect(test.browserCall).toHaveBeenCalledWith("navigate", {
       pageId: "page-1",
       url: "https://penkra.com",

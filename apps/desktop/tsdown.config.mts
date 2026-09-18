@@ -54,14 +54,6 @@ export default defineConfig([
   },
   {
     ...shared,
-    entry: ["src/appFrameRuntime.ts"],
-    format: "iife",
-    platform: "browser",
-    outputOptions: { codeSplitting: false },
-    noExternal: (id) => id.startsWith("@penkra/"),
-  },
-  {
-    ...shared,
     entry: ["src/simulatorLicenseReviewPreload.ts"],
     outputOptions: { codeSplitting: false },
   },

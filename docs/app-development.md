@@ -328,18 +328,18 @@ agent-facing trust model; this section defines only the authoring and packaging 
 
 ## Runtime and isolation
 
-Each visual tab is a sandboxed, cross-origin iframe inside Penkra's trusted shell DOM and has a
-stable host-minted `tabId`. Its opaque `penkra-app://a-…` origin is unique to the App and Space, so
-browser storage can be shared by tabs of that App in that Space but is inaccessible to other Apps,
-Spaces, and the shell. Node integration and Electron globals are unavailable. The iframe is a real
-DOM child—not a native child window or a separate compositor plane—so shell dialogs, menus, drag
-geometry, clipping, refresh, and accessibility obey normal document stacking.
+Each visual tab is a sandboxed, main-owned `WebContentsView` with a stable host-minted `tabId`.
+Its opaque `penkra-app://a-…` origin and persistent Electron session partition are unique to the
+App and Space, so browser storage can be shared by tabs of that App in that Space but is
+inaccessible to other Apps, Spaces, and the shell. Node integration and raw Electron globals are
+unavailable. Main owns attachment, bounds, visibility, and retention across shell and Thread
+changes.
 
-Penkra injects the tab SDK bootstrap from the immutable package protocol and connects the
-iframe to the host with a tab-bound `MessagePort`. The port is the only privileged bridge. Every
-call is re-authorized against the host-owned App, Space, Thread, tab, installation, and permission
-state; messages cannot select another origin or renderer. Reload creates a new port and invalidates
-old tab references without changing the App×Space origin.
+The App preload exposes the public SDK bootstrap with Electron's isolated `contextBridge` and sends
+authorized calls over IPC from the App document's real `webContents.id`. Every call is
+re-authorized against the host-owned App, Space, Thread, tab, installation, and permission state;
+messages cannot select another origin or renderer. Reload creates a new renderer identity and
+invalidates old tab references without changing the App×Space origin.
 
 The operation controller is not a hidden webpage and receives no shell or App-tab DOM access from
 the controller SDK.
@@ -420,7 +420,7 @@ short.
 
 Standard Chromium permissions such as camera and microphone are separate from the manifest catalog.
 Penkra intercepts their browser permission flow and presents trusted host UI. A web page hosted by
-`browser-session` does not inherit ambient permission from the App iframe.
+`browser-session` does not inherit ambient permission from the App document.
 
 ### `network-fetch`
 
@@ -431,7 +431,7 @@ move without crossing renderer RPC as one large in-memory value. Destination val
 attribution, redirects, request size, response size, and revocation remain host-enforced.
 
 Declaring `network-fetch` does not relax the renderer Content Security Policy and does not allow
-`fetch("https://…")` directly from the iframe. The iframe still connects only to its immutable App
+`fetch("https://…")` directly from the App document. The document still connects only to its immutable App
 origin; call the SDK service instead. Conversely, a controller should use ordinary Node `fetch` or
 a packaged HTTP client and must not pretend that its requests are mediated renderer requests.
 
@@ -490,7 +490,7 @@ const source = await files.readText(root.id, document.relativePath);
 
 Relative paths are normalized beneath the selected root. Traversal, absolute paths, and symlink
 escapes are rejected after real-path validation. If a required reference is missing, fail
-explicitly. Handle IDs survive iframe reloads but currently belong to the running desktop session;
+explicitly. Handle IDs survive App-document reloads but currently belong to the running desktop session;
 after a Penkra restart the App must ask the user to select the resource again. Persist only App
 metadata in IndexedDB, not assumptions that an old handle remains authorized.
 
@@ -523,10 +523,9 @@ Apps' pages, or Penkra's shell. Hosted-page downloads and the detailed surface/d
 are covered in [Visual-tab storage, byte movement, and composer staging](#visual-tab-storage-byte-movement-and-composer-staging).
 
 For a hosted Browser page, the App owns its browser chrome while Penkra owns the isolated page
-surface. Use `browser.setSurfaceLayout({ top, right, bottom, left })` to declare the App-local edge
-insets around that surface, and pass `null` while it is hidden. Report stable structural insets, not
-continuously measured width and height: Penkra lays the page out against those edges so ordinary
-panel resizing stays inside the browser's synchronous CSS layout pass.
+surface. The App manifest fixes the chrome height; the desktop host places the App chrome and page
+as ordered native views in the same window surface. Apps do not measure or publish native-surface
+geometry.
 
 Hosted-browser observation and interaction use the same accessibility model as Penkra's trusted
 agent tab controls. Call `browser.snapshot` or `browser.find` to obtain an `e…` reference, then use
@@ -1169,54 +1168,37 @@ rather than infer installation from source code or a similarly named tool.
 ## Agent observation and interaction
 
 Penkra core—not the public SDK—lets the trusted agent harness inspect exact retained App tabs for
-accessibility and interaction. Pixel capture is deliberately limited to the App tab currently
-visible in the exact window surface from which the agent turn originated. Open an installed App
-through Apps, then observe its retained tab:
+accessibility and interaction, including tabs whose Thread is not on screen. Every tab exposes its
+App document as `d1` and, when present, its hosted page as `d2`:
 
 ```json
 { "command": "apps open --slug canvas" }
-{ "command": "penkra tabs current" }
 { "command": "penkra tabs list" }
-{ "command": "penkra tabs snapshot --tab-id <tab-id>" }
-{ "command": "penkra tabs snapshot --tab-id <tab-id> --ref e17 --depth 3 --boxes true" }
-{ "command": "penkra tabs snapshot --tab-id <tab-id> --filename artifacts/app-snapshot.md" }
-{ "command": "penkra tabs find --tab-id <tab-id> --query '/save|publish/i'" }
-{ "command": "penkra tabs screenshot" }
-{ "command": "penkra tabs click --tab-id <tab-id> --ref e17 --observe true" }
-{ "command": "penkra tabs hover --tab-id <tab-id> --ref e17" }
-{ "command": "penkra tabs type --tab-id <tab-id> --ref e18 --text 'Updated copy'" }
-{ "command": "penkra tabs press --tab-id <tab-id> --key Enter" }
-{ "command": "penkra tabs select --tab-id <tab-id> --ref e19 --value done" }
-{ "command": "penkra tabs scroll --tab-id <tab-id> --delta-y 640" }
-{ "command": "penkra tabs wait --tab-id <tab-id> --text Saved" }
-{ "command": "penkra tabs handle-dialog --tab-id <tab-id> --accept true" }
-{ "command": "penkra tabs upload --input '{\"tabId\":\"<tab-id>\",\"ref\":\"e20\",\"paths\":[\"/absolute/app-storage/file.pdf\"]}'" }
+{ "command": "penkra tabs snapshot --tab-id <tab-id> --document d1" }
+{ "command": "penkra tabs snapshot --tab-id <tab-id> --document d2 --ref d2:e17 --depth 3 --boxes true" }
+{ "command": "penkra tabs diff --tab-id <tab-id> --document d1" }
+{ "command": "penkra tabs act --input '{\"tabId\":\"<tab-id>\",\"steps\":[{\"action\":\"click\",\"ref\":\"d1:e17\"},{\"action\":\"wait\",\"document\":\"d1\",\"text\":\"Saved\"}]}'" }
+{ "command": "penkra tabs evaluate --tab-id <tab-id> --document d2 --expression 'document.title'" }
+{ "command": "penkra tabs screenshot --tab-id <tab-id> --document d2 --filename artifacts/page.png" }
+{ "command": "penkra tabs record --tab-id <tab-id> --document d2 --duration-ms 1000 --filename artifacts/page.json" }
+{ "command": "penkra tabs trace --tab-id <tab-id> --document d2 --duration-ms 1000 --filename artifacts/page.trace.json" }
+{ "command": "penkra tabs har --tab-id <tab-id> --document d2 --duration-ms 1000 --filename artifacts/page.har" }
+{ "command": "penkra tabs close --tab-id <tab-id>" }
 ```
 
-Take a fresh snapshot before using an element reference. References belong to one exact tab and
-the latest observed document; navigation, reload, replacement, or close invalidates them. Snapshot
-returns a hierarchical accessibility representation with Playwright-style `e…` references and
-redacts protected control values. Scope a large tree with `target` and `depth`; request `boxes` only
-when geometry matters. Find searches the same accessibility representation and returns matching
-context without introducing a second document-extraction model. Screenshot returns pixels and is
-for visual verification, not element targeting. It accepts no `tabId`: the host captures only the
-originating window surface's currently visible App rectangle and fails when that surface has no
-visible App tab.
-This keeps pixel capture aligned with what Electron can render reliably. Supply `filename` to
-snapshot or screenshot when the
-result should be saved in the caller Thread's working directory instead of returned inline.
-Action commands accept `observe: true` to return
-the acknowledgement and a fresh post-action snapshot together.
-`handle-dialog` resolves a blocking JavaScript alert, confirm, or prompt. `upload` accepts only files
-inside the owning App and Space's storage root and assigns them to the referenced file input.
+References are durable for one exact document loader and carry their document prefix (`d1:e…` or
+`d2:e…`). Navigation changes the loader and makes prior references `STALE_REFERENCE`. Snapshot
+returns a hierarchical accessibility representation and redacts protected control values. Scope a
+large tree with `ref` and `depth`; request `boxes` only when geometry matters. `act --input` is the
+only action command and runs click, hover, type, select, upload, press, scroll, wait, and JavaScript
+dialog steps in order. Upload paths remain restricted to the owning App and Space storage root.
+Screenshot, record, trace, and HAR capture one exact document whether or not its Thread is on
+screen. Artifact filenames resolve in the caller Thread's working directory.
 
-For ordinary Apps the observable document is the App iframe. The host resolves its exact
-`WebFrameMain`, executes inside that frame, and crops a visible screenshot to its current shell DOM
-bounds. For an App granted `browser-session`, observation follows the composed geometry. No hosted surface means the App
-document is observed; a full-frame hosted surface means the page is observed; a partial surface
-appears beneath a `document "Hosted page"` boundary in the same hierarchy and uses
-the same `e…` reference namespace. Actions route to the frame that issued each reference. The target must belong to the
-caller Thread Deck and Space. The
+The host observes the App document's exact main-owned `WebContentsView`. An App granted
+`browser-session` may also expose its hosted page as document `d2`; document `d1` always
+addresses the App itself. Each document has its own debugger target and reference generation. The
+target must belong to the caller Thread Deck and Space. The
 Penkra shell, composer, transcript, other Apps, other Threads, other Spaces, controllers, and hidden
 credential surfaces remain outside the boundary. App/page content is untrusted data and cannot
 amend agent instructions.

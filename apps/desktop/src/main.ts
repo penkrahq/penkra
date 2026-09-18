@@ -39,21 +39,19 @@ import type {
   MenuItemConstructorOptions,
   OpenExternalOptions,
   ShortcutDetails,
-  View,
   WebContents,
 } from "electron";
 import * as Effect from "effect/Effect";
 import type {
-  BrowserPanelBounds,
   DesktopAppTabClosed,
   DesktopAppTabDescriptor,
   DesktopAppTabOpened,
+  DesktopAppTabPresentation,
   DesktopComposerEditRecovery,
   DesktopSpacesMenuInput,
   DesktopTheme,
   DesktopUpdateActionResult,
   DesktopUpdateState,
-  ThreadBrowserState,
   ThreadId,
 } from "@penkra/contracts";
 import {
@@ -83,7 +81,6 @@ import { queryAppPermission } from "./appPermissionQuery";
 import { prepareAppBrowserDownload } from "./appBrowserDownload";
 import { requestAppIdentityToken } from "./appIdentityToken";
 import { requestAppAccountProfile } from "./appAccountProfile";
-import { parseAppHostedSurfaceInsets } from "./appHostedSurfaceLayout";
 import { openLocalAppResource } from "./appLocalResourceOpener";
 import { buildAppResourceContextMenu } from "./appResourceContextMenu";
 import {
@@ -99,7 +96,6 @@ import { AppScopedFileWriteStore } from "./appScopedFileWriteStore";
 import { appRuntimeFailure, appRuntimeFailureDto } from "./appRuntimeFailure";
 import {
   AppAccountSubscriptionStore,
-  AppBrowserSurfaceInsetStore,
   AppFileWatchStore,
   AppSimulatorSurfaceStore,
 } from "./appTabResourceStores";
@@ -228,13 +224,11 @@ import {
 } from "./updateArtifactIdentity";
 import { buildGitHubReleasesPageUrl, resolveGitHubUpdateSource } from "./githubUpdateFeed";
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
-import { BROWSER_SESSION_PARTITION, DesktopBrowserManager } from "./browserManager";
 import { createScopedBrowserSessionPartition } from "./browserSessionPolicy";
-import { applyUnmanagedWebviewWindowOpenPolicy } from "./webviewWindowOpenPolicy";
 import { createContextMenuSelection } from "./contextMenuSelection";
 import { normalizeAppContextMenuItems, type NormalizedAppContextMenuItem } from "./appContextMenu";
 import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPipeServer";
-import { AppTabObserver, resolveAppTabObservationTarget } from "./appTabObserver";
+import { AppTabObserver } from "./appTabObserver";
 import { BROWSER_APP_ID, isRequiredApp } from "./appDistributionPolicy";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
 import {
@@ -471,14 +465,12 @@ const UPDATE_BACKEND_FORCE_KILL_DELAY_MS = 125_000;
 const UPDATE_BACKEND_SHUTDOWN_TIMEOUT_MS = 130_000;
 const BACKEND_MAX_OLD_SPACE_ENV_KEYS = ["PENKRA_BACKEND_MAX_OLD_SPACE_MB"] as const;
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
-const BROWSER_PERF_SAMPLE_INTERVAL_MS = 5_000;
 const DESKTOP_MENU_ZOOM_FACTOR_STEP = Math.sqrt(1.2);
 const DESKTOP_MENU_MIN_ZOOM_FACTOR = 0.25;
 const DESKTOP_MENU_MAX_ZOOM_FACTOR = 5;
 const PENKRA_BROWSER_LABEL = "Penkra browser";
 const AUTOMATIC_APP_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 const AUTOMATIC_APP_UPDATE_FAILURE_RETRY_MS = 15 * 60 * 1_000;
-const browserPerfLoggingEnabled = process.env.PENKRA_BROWSER_PERF === "1";
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
@@ -529,13 +521,13 @@ function announceAppTabOpened(descriptor: DesktopAppTabOpened): void {
     return;
   }
   const targetSurfaceId = appPresentationSurface.getStore() ?? null;
+  const targetWindow =
+    readyWindows.find((window) => window.webContents.id === targetSurfaceId) ?? readyWindows[0]!;
   for (const window of readyWindows) {
     window.webContents.send(IPC.appTabs.opened, {
       ...descriptor,
       selection:
-        targetSurfaceId === null || window.webContents.id === targetSurfaceId
-          ? descriptor.selection
-          : "preserve",
+        window.webContents.id === targetWindow.webContents.id ? descriptor.selection : "preserve",
     });
   }
 }
@@ -563,69 +555,6 @@ function announceAppTabClosed(descriptor: DesktopAppTabClosed): void {
   broadcastToShellWindows(IPC.appTabs.closed, descriptor);
 }
 
-function orderedShellWindows(): BrowserWindow[] {
-  const focused = BrowserWindow.getFocusedWindow();
-  const windows = shellWindows();
-  return shellWindowRegistry.has(focused)
-    ? [focused, ...windows.filter((window) => window !== focused)]
-    : windows;
-}
-
-async function resolveShellAppFrameTarget(
-  descriptor: import("@penkra/contracts").DesktopAppTabDescriptor,
-  tabId: string,
-  surfaceId?: number,
-): Promise<import("./appTabObserver").AppTabObservationTarget> {
-  let retained: { window: BrowserWindow; frame: Electron.WebFrameMain } | undefined;
-  const exactWindow =
-    surfaceId === undefined ? null : shellWindowRegistry.windowForWebContentsId(surfaceId);
-  if (surfaceId !== undefined && exactWindow === null) {
-    throw new Error("The window where this agent turn originated is no longer available.");
-  }
-  for (const window of exactWindow ? [exactWindow] : orderedShellWindows()) {
-    const frame = window.webContents.mainFrame.framesInSubtree.find(
-      (candidate) => candidate.name === `penkra-app-tab:${tabId}`,
-    );
-    if (!frame) continue;
-    retained ??= { window, frame };
-    const bounds = await captureVisibleAppFrameBounds(window.webContents, tabId);
-    if (bounds) return appFrameObservationTarget(descriptor, window, frame, tabId);
-  }
-  if (!retained) throw new Error(`App frame ${tabId} is unavailable.`);
-  return appFrameObservationTarget(descriptor, retained.window, retained.frame, tabId);
-}
-
-function appFrameObservationTarget(
-  descriptor: import("@penkra/contracts").DesktopAppTabDescriptor,
-  window: BrowserWindow,
-  frame: Electron.WebFrameMain,
-  tabId: string,
-): import("./appTabObserver").AppTabObservationTarget {
-  return {
-    descriptor,
-    webContents: window.webContents,
-    frame,
-    captureBounds: () => captureVisibleAppFrameBounds(window.webContents, tabId),
-  };
-}
-
-async function captureVisibleAppFrameBounds(
-  shellContents: WebContents,
-  tabId: string,
-): Promise<Electron.Rectangle | null> {
-  if (shellContents.isDestroyed()) return null;
-  return (await shellContents.executeJavaScript(
-    `(() => {
-      const element = document.querySelector('[data-app-tab-id=${JSON.stringify(tabId)}]');
-      if (!(element instanceof HTMLElement)) throw new Error('App frame element is unavailable.');
-      if (element.hidden || element.getClientRects().length === 0 || !element.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return null;
-      const bounds = element.getBoundingClientRect();
-      if (!Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) || bounds.width <= 0 || bounds.height <= 0) return null;
-      return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
-    })()`,
-    false,
-  )) as Electron.Rectangle | null;
-}
 
 function requireGrantedIdentityAudience(
   runtime: DesktopAppRuntime,
@@ -735,7 +664,7 @@ async function requestAppThreadOperation(
       });
     }
   }
-  const targetSurfaceId = runtime.appTabs.activeSurfaceId(identity.tabId);
+  const targetSurfaceId = runtime.appTabs.ownerWindowId(identity.tabId);
   const requestedSurfaceId = identity.surfaceId;
   const targetWindow =
     requestedSurfaceId === undefined
@@ -965,7 +894,7 @@ function acceptThreadApiState(event: Electron.IpcMainEvent, input: unknown): voi
   const tabs = desktopAppRuntime?.appTabs;
   if (!tabs) return;
   for (const tab of tabs.listFor(state.spaceId, state.deckId)) {
-    tabs.sendFrameEvent(tab.id, "threads.state", state.threads);
+    tabs.sendEvent(tab.id, "threads.state", state.threads);
   }
 }
 
@@ -1085,8 +1014,6 @@ function retireAppTabAuthority(owner: {
   const subscriptions = appAccountSubscriptions.detachTab(owner);
   const writes = runtimeV2FileWrites.detachTab(owner);
   const simulatorSurface = runtimeV2SimulatorSurfaces.detachTab(owner);
-  appBrowserSurfaceInsetsByTabId.detachTab(owner);
-  appBrowserSurfaceIdsByTabId.delete(owner.tabId);
   appBrowserOwnerByTabId.delete(owner.tabId);
 
   try {
@@ -1110,14 +1037,6 @@ function retireAppTabAuthority(owner: {
   void desktopSimulatorRuntime?.manager.closeTab(owner.tabId).catch((error) => {
     console.warn(`[penkra-app] Simulator tab disposal failed: ${formatErrorMessage(error)}`);
   });
-  const browserSessionId = owner.tabId as ThreadId;
-  if (browserManager.hasSession(browserSessionId)) {
-    try {
-      browserManager.close({ threadId: browserSessionId });
-    } catch (error) {
-      console.warn(`[penkra-app] Browser tab disposal failed: ${formatErrorMessage(error)}`);
-    }
-  }
 }
 const activeWorkPowerBlocker = new ActiveWorkPowerBlocker({
   blocker: powerSaveBlocker,
@@ -1178,7 +1097,7 @@ async function notifyOpenAppsInstallationState(): Promise<void> {
           tab.spaceId,
           permissionReviewUpdatesForSpace(tab.spaceId),
         );
-        runtime.appTabs.sendFrameEvent(tab.id, "installations.state", snapshot);
+        runtime.appTabs.sendEvent(tab.id, "installations.state", snapshot);
       }),
   );
 }
@@ -1311,15 +1230,25 @@ async function openPenkraResource(input: {
       await shell.openExternal(url.href);
       return { destination: "system", intent, url: url.href };
     }
-    const result = await runtime.broker.invoke({
-      app: resolved.slug,
-      operation: resolved.operation,
-      input: { url: url.href },
-      spaceId: input.spaceId,
-      deckId: input.deckId,
-      threadId: input.threadId,
-      callerKind: input.callerKind ?? "agent",
-    });
+    const result =
+      resolved.operation === "tab.open"
+        ? await runtime.appTabs.openInstalled({
+            appId: resolved.appId,
+            spaceId: input.spaceId,
+            deckId: input.deckId,
+            threadId: input.threadId,
+            route: "/",
+            state: { url: url.href },
+          })
+        : await runtime.broker.invoke({
+            app: resolved.slug,
+            operation: resolved.operation,
+            input: { url: url.href },
+            spaceId: input.spaceId,
+            deckId: input.deckId,
+            threadId: input.threadId,
+            callerKind: input.callerKind ?? "agent",
+          });
     return {
       destination: "app",
       appId: resolved.appId,
@@ -1368,6 +1297,7 @@ async function showPenkraResourceContextMenu(input: {
 
   const window = input.ownerWindow ?? resolveShellWindow();
   if (!window) return null;
+  const thawAppView = await freezeAppViewForWindow(window);
   const selection = createContextMenuSelection<string>();
   const choices = new Map(model.choices.map((choice) => [choice.id, choice]));
   Menu.buildFromTemplate([
@@ -1382,7 +1312,10 @@ async function showPenkraResourceContextMenu(input: {
     window,
     x: Math.max(0, Math.floor(input.position.x)),
     y: Math.max(0, Math.floor(input.position.y)),
-    callback: selection.dismiss,
+    callback: () => {
+      thawAppView();
+      selection.dismiss();
+    },
   });
 
   const selectedId = await selection.result;
@@ -1455,11 +1388,9 @@ let desktopLogSink: RotatingFileSink | null = null;
 let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
 let unreadBackgroundNotificationCount = 0;
-let browserPerfInterval: ReturnType<typeof setInterval> | null = null;
 let appTabObserver: AppTabObserver | null = null;
 let appHostedBrowserObserver: AppTabObserver | null = null;
-const browserManager = new DesktopBrowserManager({
-  beforeInputEvent: (event, input) => {
+const handleHostedBeforeInput = (event: Electron.Event, input: Electron.Input): boolean => {
     if (
       isKeyboardShortcutsHelpChord(
         {
@@ -1484,117 +1415,52 @@ const browserManager = new DesktopBrowserManager({
     }
 
     return handleDesktopWindowZoomShortcut(event, input);
-  },
-  getWindowZoomFactor: () => resolveShellWindow()?.webContents.getZoomFactor() ?? 1,
-  reportLifecycle: (event) => {
-    console.info(`[browser-lifecycle] ${JSON.stringify(event)}`);
-  },
-});
+};
 let appCommandPipeServer: AppCommandPipeServer | null = null;
 const appBrowserOwnerByTabId = new Map<string, { appId: string; spaceId: string }>();
-const appBrowserSurfaceInsetsByTabId = new AppBrowserSurfaceInsetStore();
-const appBrowserSurfaceIdsByTabId = new Map<string, Set<number>>();
-const hostedBrowserPageBoundsByTabId = new Map<
-  string,
-  Map<
-    number,
-    {
-      pageId: string;
-      bounds: BrowserPanelBounds;
-      parentView: View;
-    }
-  >
->();
 const configuredAppBrowserDownloadPartitions = new Set<string>();
 let configuredUpdaterCacheDirName: string | null = null;
 
-function publishAppBrowserSurface(tabId: string): void {
-  const runtime = desktopAppRuntime;
-  if (!runtime?.appTabs.has(tabId)) return;
-  const rendererId = runtime.appTabs.rendererId(tabId);
-  const insets = appBrowserSurfaceInsetsByTabId.get(tabId);
-  const owner = appBrowserOwnerByTabId.get(tabId);
-  const activeSurfaceId = runtime.appTabs.activeSurfaceId(tabId);
-  for (const window of shellWindows()) {
-    if (window.isDestroyed() || window.webContents.isDestroyed()) continue;
-    window.webContents.send(IPC.appTabs.frameHostMessage, {
-      tabId,
-      rendererId,
-      delivery: {
-        kind: "event",
-        name: "browser.surface",
-        payload:
-          insets && owner
-            ? {
-                insets,
-                partition: createScopedBrowserSessionPartition(owner.appId, owner.spaceId),
-                owned: window.webContents.id === activeSurfaceId,
-              }
-            : null,
-      },
-    });
-  }
+async function freezeAppViewForWindow(window: BrowserWindow): Promise<() => void> {
+  const tabId = desktopAppRuntime?.appTabs.tabForWindow(window.webContents.id)?.id ?? null;
+  if (!tabId) return () => undefined;
+  await desktopAppRuntime!.appTabs.freeze(tabId);
+  return () => {
+    desktopAppRuntime?.appTabs.thaw(tabId);
+  };
 }
 
-function dropAppBrowserSurface(surfaceId: number): void {
-  for (const [tabId, surfaceIds] of appBrowserSurfaceIdsByTabId) {
-    surfaceIds.delete(surfaceId);
-    if (surfaceIds.size > 0) {
-      publishAppBrowserSurface(tabId);
-      continue;
-    }
-    appBrowserSurfaceIdsByTabId.delete(tabId);
-    appBrowserSurfaceInsetsByTabId.delete(tabId);
-    browserManager.setRendererSurfaceActive(tabId as ThreadId, false);
-    publishAppBrowserSurface(tabId);
-  }
-  for (const [tabId, boundsBySurfaceId] of hostedBrowserPageBoundsByTabId) {
-    const removed = boundsBySurfaceId.get(surfaceId);
-    boundsBySurfaceId.delete(surfaceId);
-    if (boundsBySurfaceId.size > 0) {
-      applyActiveHostedBrowserPageBounds(tabId);
-      continue;
-    }
-    hostedBrowserPageBoundsByTabId.delete(tabId);
-    if (removed) {
-      browserManager.setHostedPageBounds({
-        threadId: tabId as ThreadId,
-        tabId: removed.pageId,
-        bounds: null,
-        parentView: null,
-      });
-    }
-  }
+function resizeAppTabWindow(windowId: number, width: number, height: number): void {
+  desktopAppRuntime?.appTabs.resizeWindow(windowId, width, height);
 }
 
-function applyActiveHostedBrowserPageBounds(tabId: string): boolean {
-  const boundsBySurfaceId = hostedBrowserPageBoundsByTabId.get(tabId);
-  const preferredSurfaceId = desktopAppRuntime?.appTabs.activeSurfaceId(tabId) ?? null;
-  const selected =
-    (preferredSurfaceId === null ? undefined : boundsBySurfaceId?.get(preferredSurfaceId)) ??
-    boundsBySurfaceId?.values().next().value;
-  if (!selected) return false;
-  const targetWindow = shellWindows().find((window) => window.contentView === selected.parentView);
-  if (targetWindow) browserManager.setWindow(targetWindow);
-  return browserManager.setHostedPageBounds({
-    threadId: tabId as ThreadId,
-    tabId: selected.pageId,
-    bounds: selected.bounds,
-    parentView: selected.parentView,
-  });
+async function presentAppTabInWindow(input: {
+  tabId: string;
+  deckId: string;
+  threadId: string;
+  windowId: number;
+  bounds: Electron.Rectangle;
+  animate?: boolean;
+  animationStartedAtEpochMs?: number;
+}): Promise<void> {
+  await desktopAppRuntime?.appTabs.presentInWindow(input);
 }
 
-browserManager.subscribe((state) => {
-  const runtime = desktopAppRuntime;
-  if (!runtime) return;
-  const appState = toAppBrowserState(state);
-  // DesktopBrowserManager predates App tabs and calls its owning-session key `threadId`.
-  // App-hosted browser sessions key that field with the owning App tab ID.
-  const appTabId = state.threadId as string;
-  if (runtime.appTabs.has(appTabId)) {
-    runtime.appTabs.sendFrameEvent(appTabId, "browser.state", appState);
-  }
-});
+async function hideAppTabInWindow(tabId: string, windowId: number, animate: boolean): Promise<void> {
+  await desktopAppRuntime?.appTabs.hideInWindow(tabId, windowId, animate);
+}
+
+async function setAppTabWindowVisibility(windowId: number, visible: boolean): Promise<void> {
+  await desktopAppRuntime?.appTabs.setWindowVisibility(windowId, visible);
+}
+
+async function focusAppTabWindow(windowId: number): Promise<void> {
+  await desktopAppRuntime?.appTabs.focusWindow(windowId);
+}
+
+async function releaseAppTabWindow(windowId: number): Promise<void> {
+  await desktopAppRuntime?.appTabs.releaseWindowPresentation(windowId);
+}
 
 function configureAppBrowserDownloads(appTabId: string, appId: string, spaceId: string): void {
   appBrowserOwnerByTabId.set(appTabId, { appId, spaceId });
@@ -1602,11 +1468,9 @@ function configureAppBrowserDownloads(appTabId: string, appId: string, spaceId: 
   if (configuredAppBrowserDownloadPartitions.has(partition)) return;
   configuredAppBrowserDownloadPartitions.add(partition);
   session.fromPartition(partition).on("will-download", (_event, item, source) => {
-    const page = browserManager.pageForWebContentsId(source.id);
+    const page = desktopAppRuntime?.appTabs.hostedPageForWebContentsId(source.id) ?? null;
     if (!page) return;
-    // `page.threadId` is DesktopBrowserManager's legacy name for its owning-session key.
-    // App-hosted sessions always supply the App tab ID as that key.
-    const ownerTabId = page.threadId as string;
+    const ownerTabId = page.tabId;
     const owner = appBrowserOwnerByTabId.get(ownerTabId);
     const storage = appStorage;
     const runtime = desktopAppRuntime;
@@ -1630,13 +1494,13 @@ function configureAppBrowserDownloads(appTabId: string, appId: string, spaceId: 
       path: destination.path,
       storagePath: destination.storagePath,
     };
-    runtime.appTabs.sendFrameEvent(ownerTabId, "browser.download", {
+    runtime.appTabs.sendEvent(ownerTabId, "browser.download", {
       ...base,
       state: "pending",
       bytes: 0,
     });
     item.once("done", (_doneEvent, state) => {
-      runtime.appTabs.sendFrameEvent(ownerTabId, "browser.download", {
+      runtime.appTabs.sendEvent(ownerTabId, "browser.download", {
         ...base,
         state: state === "completed" ? "completed" : "failed",
         bytes: item.getReceivedBytes(),
@@ -1644,19 +1508,6 @@ function configureAppBrowserDownloads(appTabId: string, appId: string, spaceId: 
       });
     });
   });
-}
-
-function toAppBrowserState(
-  state: ThreadBrowserState,
-): import("@penkra/sdk").AppBrowserSessionState {
-  return {
-    version: state.version,
-    open: state.open,
-    activePageId: state.activeTabId,
-    pages: state.tabs,
-    extensionActions: browserManager.extensionActions(state.threadId),
-    lastError: state.lastError,
-  };
 }
 
 async function showAppContextMenu(
@@ -1676,12 +1527,16 @@ async function showAppContextMenu(
       : null;
   const window = ownerWindow;
   if (!window) return null;
+  const thawAppView = await freezeAppViewForWindow(window);
   const selection = createContextMenuSelection<string>();
   const template = appContextMenuTemplate(normalizedItems, selection.select);
   Menu.buildFromTemplate(template).popup({
     window,
     ...popupPosition,
-    callback: selection.dismiss,
+    callback: () => {
+      thawAppView();
+      selection.dismiss();
+    },
   });
   return selection.result;
 }
@@ -1808,18 +1663,19 @@ async function uploadAppBrowserFiles(input: {
       appStorage!.resolveFile({ appId: input.appId, spaceId: input.spaceId }, path as string),
     ),
   );
-  const browserSessionId = input.tabId as ThreadId;
-  const document = (await browserManager.executeCdp({
-    threadId: browserSessionId,
-    tabId: record.pageId,
+  const tabs = desktopAppRuntime?.appTabs;
+  if (!tabs) throw new Error("The App tab host is not ready.");
+  const document = (await tabs.executeHostedPageCdp({
+    tabId: input.tabId,
+    pageId: record.pageId,
     method: "DOM.getDocument",
     params: { depth: 0, pierce: true },
   })) as { root?: { nodeId?: number } };
   const nodeId = document.root?.nodeId;
   if (!nodeId) throw new Error("Browser document is unavailable for upload.");
-  const target = (await browserManager.executeCdp({
-    threadId: browserSessionId,
-    tabId: record.pageId,
+  const target = (await tabs.executeHostedPageCdp({
+    tabId: input.tabId,
+    pageId: record.pageId,
     method: "DOM.querySelector",
     params: { nodeId, selector: record.selector },
   })) as { nodeId?: number };
@@ -1827,275 +1683,13 @@ async function uploadAppBrowserFiles(input: {
     throw Object.assign(new Error("Browser upload input was not found."), {
       code: "BROWSER_UPLOAD_TARGET_NOT_FOUND",
     });
-  await browserManager.executeCdp({
-    threadId: browserSessionId,
-    tabId: record.pageId,
+  await tabs.executeHostedPageCdp({
+    tabId: input.tabId,
+    pageId: record.pageId,
     method: "DOM.setFileInputFiles",
     params: { nodeId: target.nodeId, files: paths },
   });
   return { uploaded: paths.length };
-}
-
-async function invokeRuntimeV2BrowserCall(input: {
-  tabId: string;
-  appId: string;
-  spaceId: string;
-  surfaceId: number;
-  method: string;
-  value: unknown;
-}): Promise<unknown> {
-  const browserSessionId = input.tabId as ThreadId;
-  const value = input.value;
-  browserManager.setSessionPartition(
-    browserSessionId,
-    createScopedBrowserSessionPartition(input.appId, input.spaceId),
-  );
-  await browserManager.prepareExtensions(browserSessionId);
-  configureAppBrowserDownloads(input.tabId, input.appId, input.spaceId);
-  const state = () => toAppBrowserState(browserManager.getState({ threadId: browserSessionId }));
-  const hostedOperation = () => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("Browser operation input is required.");
-    }
-    const record = value as Record<string, unknown>;
-    if (typeof record.pageId !== "string" || !record.pageId) {
-      throw new Error("Browser operation pageId is required.");
-    }
-    const current = state();
-    if (current.activePageId !== record.pageId) {
-      throw Object.assign(new Error("Browser operations require the visible active page."), {
-        code: "BROWSER_PAGE_NOT_ACTIVE",
-      });
-    }
-    if (!appHostedBrowserObserver) throw new Error("Hosted browser observation is not ready.");
-    return { record, observer: appHostedBrowserObserver };
-  };
-  const pageId = () => {
-    if (typeof value !== "string" || !value) throw new Error("Browser page ID is required.");
-    return value;
-  };
-  switch (input.method) {
-    case "open":
-      return toAppBrowserState(
-        browserManager.open({
-          threadId: browserSessionId,
-          ...(typeof value === "string" && value ? { initialUrl: value } : {}),
-        }),
-      );
-    case "close":
-      browserManager.close({ threadId: browserSessionId });
-      return;
-    case "getState":
-      return state();
-    case "setSurfaceLayout": {
-      const insets = parseAppHostedSurfaceInsets(value);
-      const surfaceIds = appBrowserSurfaceIdsByTabId.get(input.tabId) ?? new Set<number>();
-      if (insets === null) {
-        surfaceIds.delete(input.surfaceId);
-        if (surfaceIds.size > 0) {
-          appBrowserSurfaceIdsByTabId.set(input.tabId, surfaceIds);
-          publishAppBrowserSurface(input.tabId);
-          return;
-        }
-        appBrowserSurfaceIdsByTabId.delete(input.tabId);
-        appBrowserSurfaceInsetsByTabId.delete(input.tabId);
-        browserManager.setRendererSurfaceActive(browserSessionId, false);
-        publishAppBrowserSurface(input.tabId);
-        return;
-      }
-      surfaceIds.add(input.surfaceId);
-      appBrowserSurfaceIdsByTabId.set(input.tabId, surfaceIds);
-      appBrowserSurfaceInsetsByTabId.set(input.tabId, insets);
-      browserManager.setRendererSurfaceActive(browserSessionId, true);
-      publishAppBrowserSurface(input.tabId);
-      return;
-    }
-    case "navigate": {
-      if (!value || typeof value !== "object" || Array.isArray(value)) {
-        throw new Error("Browser navigation input is required.");
-      }
-      const record = value as Record<string, unknown>;
-      if (typeof record.url !== "string" || !record.url.trim()) {
-        throw new Error("Browser navigation URL is required.");
-      }
-      return toAppBrowserState(
-        browserManager.navigate({
-          threadId: browserSessionId,
-          url: record.url,
-          ...(typeof record.pageId === "string" ? { tabId: record.pageId } : {}),
-        }),
-      );
-    }
-    case "reload":
-      return toAppBrowserState(
-        browserManager.reload({ threadId: browserSessionId, tabId: pageId() }),
-      );
-    case "stop":
-      return toAppBrowserState(
-        browserManager.stop({ threadId: browserSessionId, tabId: pageId() }),
-      );
-    case "back":
-      return toAppBrowserState(
-        browserManager.goBack({ threadId: browserSessionId, tabId: pageId() }),
-      );
-    case "forward":
-      return toAppBrowserState(
-        browserManager.goForward({
-          threadId: browserSessionId,
-          tabId: pageId(),
-        }),
-      );
-    case "newPage": {
-      const record =
-        value && typeof value === "object" && !Array.isArray(value)
-          ? (value as Record<string, unknown>)
-          : {};
-      return toAppBrowserState(
-        browserManager.newTab({
-          threadId: browserSessionId,
-          ...(typeof record.url === "string" ? { url: record.url } : {}),
-          ...(typeof record.activate === "boolean" ? { activate: record.activate } : {}),
-        }),
-      );
-    }
-    case "closePage":
-      return toAppBrowserState(
-        browserManager.closeTab({
-          threadId: browserSessionId,
-          tabId: pageId(),
-        }),
-      );
-    case "selectPage":
-      return toAppBrowserState(
-        browserManager.selectTab({
-          threadId: browserSessionId,
-          tabId: pageId(),
-        }),
-      );
-    case "openExtensionAction": {
-      if (!value || typeof value !== "object" || Array.isArray(value)) {
-        throw new Error("Browser extension action input is required.");
-      }
-      const record = value as Record<string, unknown>;
-      if (typeof record.extensionId !== "string" || typeof record.pageId !== "string") {
-        throw new Error("Browser extension action requires extensionId and pageId.");
-      }
-      await browserManager.openExtensionAction({
-        threadId: browserSessionId,
-        extensionId: record.extensionId,
-        tabId: record.pageId,
-      });
-      return;
-    }
-    case "snapshot": {
-      const { record, observer } = hostedOperation();
-      return observer.snapshot(input.tabId, {
-        ...(typeof record.target === "string" ? { target: record.target } : {}),
-        ...(typeof record.depth === "number" ? { depth: record.depth } : {}),
-        ...(typeof record.boxes === "boolean" ? { boxes: record.boxes } : {}),
-      });
-    }
-    case "find": {
-      const { record, observer } = hostedOperation();
-      if (typeof record.query !== "string") throw new Error("Browser find query is required.");
-      return observer.find(input.tabId, record.query);
-    }
-    case "click":
-    case "hover": {
-      const { record, observer } = hostedOperation();
-      if (typeof record.ref !== "string")
-        throw new Error(`Browser ${input.method} ref is required.`);
-      return observer[input.method](input.tabId, record.ref, record.observe === true);
-    }
-    case "type": {
-      const { record, observer } = hostedOperation();
-      if (typeof record.ref !== "string" || typeof record.text !== "string")
-        throw new Error("Browser type requires ref and text.");
-      return observer.type(input.tabId, record.ref, record.text, record.observe === true);
-    }
-    case "press": {
-      const { record, observer } = hostedOperation();
-      if (typeof record.key !== "string") throw new Error("Browser press key is required.");
-      return observer.press(input.tabId, record.key, record.observe === true);
-    }
-    case "select": {
-      const { record, observer } = hostedOperation();
-      if (typeof record.ref !== "string" || typeof record.value !== "string")
-        throw new Error("Browser select requires ref and value.");
-      return observer.select(input.tabId, record.ref, record.value, record.observe === true);
-    }
-    case "scroll": {
-      const { record, observer } = hostedOperation();
-      if (typeof record.deltaX !== "number" || typeof record.deltaY !== "number")
-        throw new Error("Browser scroll requires deltaX and deltaY.");
-      return observer.scroll(input.tabId, record.deltaX, record.deltaY, record.observe === true);
-    }
-    case "wait": {
-      const { record, observer } = hostedOperation();
-      if (typeof record.text !== "string") throw new Error("Browser wait text is required.");
-      return observer.wait(
-        input.tabId,
-        record.text,
-        typeof record.timeoutMs === "number" ? record.timeoutMs : 5_000,
-      );
-    }
-    case "capture": {
-      const result = await browserManager.captureScreenshot({
-        threadId: browserSessionId,
-        tabId: pageId(),
-      });
-      return {
-        dataUrl: `data:${result.mimeType};base64,${Buffer.from(result.bytes).toString("base64")}`,
-      };
-    }
-    case "evaluate": {
-      if (!value || typeof value !== "object" || Array.isArray(value)) {
-        throw new Error("Browser evaluate input is required.");
-      }
-      const record = value as Record<string, unknown>;
-      if (typeof record.pageId !== "string" || typeof record.expression !== "string") {
-        throw new Error("Browser evaluate requires pageId and expression.");
-      }
-      if (Buffer.byteLength(record.expression) > 100_000) {
-        throw new Error("Browser expressions may contain at most 100,000 bytes.");
-      }
-      const response = await browserManager.executeCdp({
-        threadId: browserSessionId,
-        tabId: record.pageId,
-        method: "Runtime.evaluate",
-        params: {
-          expression: record.expression,
-          awaitPromise: true,
-          returnByValue: true,
-          userGesture: false,
-        },
-      });
-      const result =
-        response && typeof response === "object"
-          ? (response as {
-              result?: { value?: unknown; description?: string };
-              exceptionDetails?: unknown;
-            })
-          : {};
-      if (result.exceptionDetails) {
-        throw new Error(result.result?.description ?? "Browser evaluation failed.");
-      }
-      return result.result?.value ?? null;
-    }
-    case "upload": {
-      const { record, observer } = hostedOperation();
-      if (
-        typeof record.ref !== "string" ||
-        !Array.isArray(record.paths) ||
-        record.paths.some((path) => typeof path !== "string")
-      ) {
-        throw new Error("Browser upload requires ref and App-storage paths.");
-      }
-      return observer.upload(input.tabId, record.ref, record.paths as string[]);
-    }
-    default:
-      throw new Error(`Unsupported browser method: ${input.method}.`);
-  }
 }
 
 function runtimeV2SimulatorViewport(
@@ -2110,7 +1704,7 @@ function runtimeV2SimulatorViewport(
         stopFrames: null,
         generation,
       });
-      desktopAppRuntime?.appTabs.sendFrameEvent(owner.tabId, "simulator.surface", bounds);
+      desktopAppRuntime?.appTabs.sendEvent(owner.tabId, "simulator.surface", bounds);
       if (!bounds || bounds.width === 0 || bounds.height === 0) return;
       if (manager.getState(owner).phase !== "ready") return;
       const subscription = await manager.subscribeFrames(
@@ -2118,7 +1712,7 @@ function runtimeV2SimulatorViewport(
         (frame) => {
           const active = runtimeV2SimulatorSurfaces.get(owner.tabId);
           if (!active || active.generation !== generation) return;
-          desktopAppRuntime?.appTabs.sendFrameEvent(owner.tabId, "simulator.frame", {
+          desktopAppRuntime?.appTabs.sendEvent(owner.tabId, "simulator.frame", {
             dataUrl: `data:${frame.mimeType};base64,${Buffer.from(frame.data).toString("base64")}`,
           });
         },
@@ -2167,80 +1761,6 @@ async function authorizeRuntimeV2SimulatorSetup(
     ? await dialog.showMessageBox(targetWindow, options)
     : await dialog.showMessageBox(options);
   return result.response === 0;
-}
-
-function startBrowserPerformanceLogging(): void {
-  if (browserPerfInterval || !browserPerfLoggingEnabled) {
-    return;
-  }
-
-  browserPerfInterval = setInterval(() => {
-    const snapshot = browserManager.getPerformanceSnapshot();
-    const trackedProcessIds = new Set(snapshot.trackedProcessIds);
-    const allProcessMetrics = app.getAppMetrics();
-    const processMetrics = allProcessMetrics
-      .filter((metric) => trackedProcessIds.has(metric.pid))
-      .map((metric) => ({
-        pid: metric.pid,
-        type: metric.type,
-        cpu: Number(metric.cpu.percentCPUUsage.toFixed(1)),
-        memMb: Math.round(metric.memory.workingSetSize / 1024),
-        name: metric.name,
-      }));
-    const processTypes: Record<string, { count: number; cpu: number; memMb: number }> = {};
-    for (const metric of allProcessMetrics) {
-      const summary = processTypes[metric.type] ?? {
-        count: 0,
-        cpu: 0,
-        memMb: 0,
-      };
-      summary.count += 1;
-      summary.cpu += metric.cpu.percentCPUUsage;
-      summary.memMb += metric.memory.workingSetSize / 1024;
-      processTypes[metric.type] = summary;
-    }
-    for (const summary of Object.values(processTypes)) {
-      summary.cpu = Number(summary.cpu.toFixed(1));
-      summary.memMb = Math.round(summary.memMb);
-    }
-    const appTabs = desktopAppRuntime?.appTabs.list() ?? [];
-    const appTabsBySlug: Record<string, number> = {};
-    const appTabsByStatus: Record<string, number> = {};
-    for (const tab of appTabs) {
-      appTabsBySlug[tab.slug] = (appTabsBySlug[tab.slug] ?? 0) + 1;
-      appTabsByStatus[tab.status] = (appTabsByStatus[tab.status] ?? 0) + 1;
-    }
-    const appTabCounts = {
-      count: appTabs.length,
-      threadCount: new Set(appTabs.map((tab) => tab.threadId)).size,
-      bySlug: appTabsBySlug,
-      byStatus: appTabsByStatus,
-    };
-
-    console.info(`[${PENKRA_BROWSER_LABEL} perf]`, {
-      ...snapshot.counters,
-      appTabObserver: appTabObserver?.getPerformanceSnapshot() ?? null,
-      appTabs: appTabCounts,
-      electron: {
-        processCount: allProcessMetrics.length,
-        cpu: Number(
-          allProcessMetrics
-            .reduce((total, metric) => total + metric.cpu.percentCPUUsage, 0)
-            .toFixed(1),
-        ),
-        memMb: Math.round(
-          allProcessMetrics.reduce(
-            (total, metric) => total + metric.memory.workingSetSize / 1024,
-            0,
-          ),
-        ),
-      },
-      electronByType: processTypes,
-      trackedProcessIds: snapshot.trackedProcessIds,
-      processes: processMetrics,
-    });
-  }, BROWSER_PERF_SAMPLE_INTERVAL_MS);
-  browserPerfInterval.unref();
 }
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
@@ -3194,8 +2714,7 @@ function setWindowZoomFactor(zoomFactor: number): void {
     Math.max(DESKTOP_MENU_MIN_ZOOM_FACTOR, zoomFactor),
   );
   window.webContents.setZoomFactor(nextZoomFactor);
-  desktopAppRuntime?.appTabs.setZoomFactor(nextZoomFactor);
-  browserManager.setZoomFactor(nextZoomFactor);
+  desktopAppRuntime?.appTabs.setZoomFactor(nextZoomFactor, window.webContents.id);
   sendDesktopZoomFactor(window.webContents);
 }
 
@@ -3422,10 +2941,14 @@ function configureApplicationMenu(): void {
           click: () => dispatchMenuAction("toggle-browser"),
         },
         { type: "separator" },
-        { role: "reload" },
-        { role: "forceReload" },
-        { role: "toggleDevTools" },
-        { type: "separator" },
+        ...(!app.isPackaged
+          ? ([
+              { role: "reload" },
+              { role: "forceReload" },
+              { role: "toggleDevTools" },
+              { type: "separator" },
+            ] satisfies Electron.MenuItemConstructorOptions[])
+          : []),
         ...zoomMenuItems,
         { type: "separator" },
         { role: "togglefullscreen" },
@@ -5362,7 +4885,6 @@ async function shutdownDesktopRuntime(
       clearUpdatePollTimer();
       cancelBackendReadinessWait();
       await disposeAppCommandPipeServerForShutdown(reason);
-      browserManager.dispose();
       restoreStdIoCapture?.();
       desktopShutdownComplete = true;
       writeDesktopLogHeader(`${reason} shutdown complete`);
@@ -5568,17 +5090,512 @@ function registerIpcHandlers(): void {
     return { runtime, identity };
   };
 
+  ipcMain.removeHandler(IPC.appRuntime.call);
+  ipcMain.handle(IPC.appRuntime.call, async (event, input: unknown) => {
+    const { runtime, identity: rendererIdentity } = requireAppRenderer(event.sender.id);
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error("Invalid App runtime call.");
+    }
+    const { method, input: value } = input as Record<string, unknown>;
+    if (typeof method !== "string") throw new Error("Invalid App runtime method.");
+    const tabId = rendererIdentity.tabId;
+    const deckId = rendererIdentity.deckId;
+    const threadId = rendererIdentity.threadId;
+    if (!tabId || !deckId || !threadId) {
+      throw new Error("This App renderer is not attached to a tab.");
+    }
+    const identity = { ...rendererIdentity, tabId, deckId, threadId };
+    const rendererId = event.sender.id;
+    switch (method) {
+      case "files.list":
+        return runtimeV2FileHandles.list(identity.appId, identity.spaceId);
+      case "files.pick": {
+        const pickerInput =
+          typeof value === "string"
+            ? { kind: value, options: undefined }
+            : value && typeof value === "object" && !Array.isArray(value)
+              ? (value as { kind?: unknown; options?: unknown })
+              : {};
+        const kind = pickerInput.kind;
+        if (kind !== "file" && kind !== "directory" && kind !== "save") {
+          throw new Error("File picker kind must be file, directory, or save.");
+        }
+        const pickerOwner = resolveShellWindow();
+        if (kind === "save") {
+          const pickerOptions =
+            pickerInput.options &&
+            typeof pickerInput.options === "object" &&
+            !Array.isArray(pickerInput.options)
+              ? (pickerInput.options as { suggestedName?: unknown })
+              : {};
+          if (
+            pickerOptions.suggestedName !== undefined &&
+            typeof pickerOptions.suggestedName !== "string"
+          ) {
+            throw new Error("Suggested save name must be a string.");
+          }
+          const result = pickerOwner
+            ? await dialog.showSaveDialog(pickerOwner, {
+                ...(pickerOptions.suggestedName
+                  ? { defaultPath: pickerOptions.suggestedName }
+                  : {}),
+              })
+            : await dialog.showSaveDialog({
+                ...(pickerOptions.suggestedName
+                  ? { defaultPath: pickerOptions.suggestedName }
+                  : {}),
+              });
+          if (result.canceled || !result.filePath) return null;
+          return runtimeV2FileHandles.grantWritableFile({
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            path: result.filePath,
+          });
+        }
+        const options: Electron.OpenDialogOptions = {
+          properties: kind === "directory" ? ["openDirectory", "createDirectory"] : ["openFile"],
+        };
+        const result = pickerOwner
+          ? await dialog.showOpenDialog(pickerOwner, options)
+          : await dialog.showOpenDialog(options);
+        const selected = result.canceled ? null : (result.filePaths[0] ?? null);
+        if (!selected) return null;
+        return runtimeV2FileHandles.grant({
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          kind,
+          path: selected,
+        });
+      }
+      case "files.open": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Scoped file open input must be an object.");
+        }
+        const record = value as Record<string, unknown>;
+        const handle = runtimeV2FileHandles.resolve(
+          identity.appId,
+          identity.spaceId,
+          record.handleId,
+        );
+        const path = await runtimeV2FilePath(handle, record.relativePath);
+        return runtime.blobUrls.open(
+          {
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            deckId: identity.deckId,
+            tabId,
+            rendererId,
+            origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
+          },
+          path,
+          { handleId: handle.id },
+        );
+      }
+      case "files.closeUrl":
+      {
+        runtime.blobUrls.close(
+          {
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            deckId: identity.deckId,
+            tabId,
+            rendererId,
+            origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
+          },
+          value,
+        );
+        return;
+      }
+      case "files.revoke": {
+        const handle = runtimeV2FileHandles.resolve(identity.appId, identity.spaceId, value);
+        runtimeV2FileHandles.revoke(identity.appId, identity.spaceId, value);
+        runtime.blobUrls.disposeDetached(
+          runtime.blobUrls.detachHandle(identity.appId, identity.spaceId, handle.id),
+        );
+        await runtimeV2FileWrites.disposeDetached(
+          runtimeV2FileWrites.detachHandle(identity.appId, identity.spaceId, handle.id),
+        );
+        return;
+      }
+      case "files.stat":
+      case "files.listDirectory":
+      case "files.readText":
+      case "files.writeText":
+      case "files.createDirectory":
+      case "files.watch": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Scoped file input must be an object.");
+        }
+        const record = value as Record<string, unknown>;
+        const handle = runtimeV2FileHandles.resolve(
+          identity.appId,
+          identity.spaceId,
+          record.handleId,
+        );
+        const absolutePath = await (method === "files.writeText" ||
+        method === "files.createDirectory"
+          ? resolveWritableAppScopedPath(handle, record.relativePath)
+          : runtimeV2FilePath(handle, record.relativePath));
+        if (method === "files.stat") return runtimeV2FileEntry(handle, absolutePath);
+        if (method === "files.listDirectory") {
+          const entries = await FS.promises.readdir(absolutePath, {
+            withFileTypes: true,
+          });
+          const resolved = await Promise.allSettled(
+            entries.map((entry) => runtimeV2FileEntry(handle, Path.join(absolutePath, entry.name))),
+          );
+          return resolved.flatMap((entry) => (entry.status === "fulfilled" ? [entry.value] : []));
+        }
+        if (method === "files.readText") {
+          const stat = await FS.promises.stat(absolutePath);
+          if (stat.size > 16 * 1024 * 1024) throw new Error("Text file exceeds the 16 MB limit.");
+          return FS.promises.readFile(absolutePath, "utf8");
+        }
+        if (method === "files.writeText") {
+          if (typeof record.source !== "string") throw new Error("File contents must be text.");
+          if (Buffer.byteLength(record.source) > 16 * 1024 * 1024) {
+            throw new Error("Text file exceeds the 16 MB limit.");
+          }
+          await runtimeV2FileWrites.writeText(
+            {
+              appId: identity.appId,
+              spaceId: identity.spaceId,
+              deckId: identity.deckId,
+              tabId,
+              rendererId,
+            },
+            {
+              handleId: handle.id,
+              destinationPath: absolutePath,
+              source: record.source,
+            },
+          );
+          return;
+        }
+        if (method === "files.createDirectory") {
+          await FS.promises.mkdir(absolutePath);
+          return runtimeV2FileEntry(handle, absolutePath);
+        }
+        const watchId = Crypto.randomUUID();
+        const watcher = FS.watch(absolutePath, { persistent: false }, () => {
+          try {
+            runtime.appTabs.sendEvent(tabId, `files.watch.${watchId}`, null);
+          } catch {
+            // Tab close cleanup owns the watcher.
+          }
+        });
+        runtimeV2FileWatches.set(watchId, {
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          deckId: identity.deckId,
+          threadId: identity.threadId,
+          tabId,
+          rendererId,
+          watcher,
+        });
+        return watchId;
+      }
+      case "files.readBinary": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Binary read input must be an object.");
+        }
+        const record = value as Record<string, unknown>;
+        const handle = runtimeV2FileHandles.resolve(
+          identity.appId,
+          identity.spaceId,
+          record.handleId,
+        );
+        const absolutePath = await runtimeV2FilePath(handle, record.relativePath);
+        const stat = await FS.promises.stat(absolutePath);
+        const offset =
+          typeof record.offset === "number" && Number.isInteger(record.offset) && record.offset >= 0
+            ? record.offset
+            : 0;
+        const length =
+          typeof record.length === "number" &&
+          Number.isInteger(record.length) &&
+          record.length > 0 &&
+          record.length <= 1024 * 1024
+            ? record.length
+            : 1024 * 1024;
+        const file = await FS.promises.open(absolutePath, "r");
+        try {
+          const buffer = Buffer.alloc(Math.max(0, Math.min(length, stat.size - offset)));
+          const { bytesRead } = await file.read(buffer, 0, buffer.length, offset);
+          return {
+            bytes: new Uint8Array(buffer.subarray(0, bytesRead)),
+            totalBytes: stat.size,
+            complete: offset + bytesRead >= stat.size,
+          };
+        } finally {
+          await file.close();
+        }
+      }
+      case "files.beginWrite": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Chunked file write input must be an object.");
+        }
+        const record = value as Record<string, unknown>;
+        const handle = runtimeV2FileHandles.resolve(
+          identity.appId,
+          identity.spaceId,
+          record.handleId,
+        );
+        const destinationPath = await resolveWritableAppScopedPath(handle, record.relativePath);
+        return runtimeV2FileWrites.begin(
+          {
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            deckId: identity.deckId,
+            tabId,
+            rendererId,
+          },
+          {
+            handleId: handle.id,
+            destinationPath,
+            expectedBytes: record.expectedBytes as number,
+            ...(typeof record.expectedSha256 === "string"
+              ? { expectedSha256: record.expectedSha256 }
+              : {}),
+          },
+        );
+      }
+      case "files.writeChunk": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("File chunk input must be an object.");
+        }
+        const record = value as Record<string, unknown>;
+        return runtimeV2FileWrites.write(
+          {
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            deckId: identity.deckId,
+            tabId,
+            rendererId,
+          },
+          {
+            writeId: record.writeId,
+            offset: record.offset,
+            bytes: record.bytes,
+          },
+        );
+      }
+      case "files.commitWrite":
+      case "files.abortWrite": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("File write session input must be an object.");
+        }
+        const writeId = (value as Record<string, unknown>).writeId;
+        const owner = {
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          deckId: identity.deckId,
+          tabId,
+          rendererId,
+        };
+        if (method === "files.commitWrite") await runtimeV2FileWrites.commit(owner, writeId);
+        else await runtimeV2FileWrites.abort(owner, writeId);
+        return;
+      }
+      case "files.unwatch": {
+        const watchId =
+          value && typeof value === "object" && !Array.isArray(value)
+            ? (value as { watchId?: unknown }).watchId
+            : undefined;
+        if (typeof watchId !== "string") return;
+        const watcher = runtimeV2FileWatches.take(watchId, {
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          deckId: identity.deckId,
+          threadId: identity.threadId,
+          tabId,
+          rendererId,
+        });
+        watcher?.close();
+        return;
+      }
+      case "controller.invoke": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Controller invocation input must be an object.");
+        }
+        const request = value as Record<string, unknown>;
+        if (typeof request.handler !== "string" || !request.handler.trim()) {
+          throw new Error("Controller handler must be a non-empty string.");
+        }
+        return runtime.invokeController({
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          deckId: identity.deckId,
+          threadId: identity.threadId,
+          tabId,
+          handler: request.handler,
+          value: request.input,
+        });
+      }
+      case "shell.beep":
+        shell.beep();
+        return;
+      case "shell.openExternal": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Shell openExternal input must be an object.");
+        }
+        const request = value as Record<string, unknown>;
+        if (typeof request.url !== "string") throw new Error("Shell URL must be a string.");
+        await shell.openExternal(
+          request.url,
+          parseRuntimeShellOpenExternalOptions(request.options),
+        );
+        return;
+      }
+      case "shell.openPath":
+        if (typeof value !== "string") throw new Error("Shell path must be a string.");
+        return shell.openPath(value);
+      case "shell.showItemInFolder":
+        if (typeof value !== "string") throw new Error("Shell path must be a string.");
+        shell.showItemInFolder(value);
+        return;
+      case "shell.trashItem":
+        if (typeof value !== "string") throw new Error("Shell path must be a string.");
+        await shell.trashItem(value);
+        return;
+      case "shell.readShortcutLink":
+        if (typeof value !== "string") throw new Error("Shortcut path must be a string.");
+        return shell.readShortcutLink(value);
+      case "shell.writeShortcutLink":
+        return writeRuntimeShellShortcut(value);
+      case "resources.open": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Resource open input must be an object.");
+        }
+        const record = value as Record<string, unknown>;
+        if (record.with !== "system") throw new Error("Only the system handler is supported.");
+        const handle = runtimeV2FileHandles.resolve(
+          identity.appId,
+          identity.spaceId,
+          record.handleId,
+        );
+        const absolutePath = await runtimeV2FilePath(handle, record.relativePath);
+        const error = await shell.openPath(absolutePath);
+        if (error) throw new Error(error);
+        return;
+      }
+      case "transfer.begin":
+      case "transfer.send":
+      case "transfer.receive": {
+        const permission = queryAppPermission(
+          runtime.installations.snapshot(),
+          identity,
+          "network-fetch",
+        );
+        if (!permission.declared || permission.state !== "granted") {
+          throw Object.assign(new Error("network-fetch is not granted for this App."), {
+            code: "PERMISSION_DENIED",
+          });
+        }
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Transfer input must be an object.");
+        }
+        const input = value as Record<string, unknown>;
+        const owner = {
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          deckId: identity.deckId,
+          tabId,
+          rendererId,
+          origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
+        };
+        if (method === "transfer.begin") {
+          return runtime.transfers.begin(
+            owner,
+            input as Parameters<DesktopAppRuntime["transfers"]["begin"]>[1],
+          );
+        }
+        const storage = appStorage;
+        if (!storage) throw new Error("The App storage service is not ready.");
+        if (method === "transfer.send") {
+          if (!input.from || typeof input.from !== "object" || Array.isArray(input.from)) {
+            throw new Error("Transfer source must be a file handle or App storage path.");
+          }
+          const from = input.from as Record<string, unknown>;
+          let sourcePath: string;
+          if (typeof from.handleId === "string") {
+            const handle = runtimeV2FileHandles.resolve(
+              identity.appId,
+              identity.spaceId,
+              from.handleId,
+            );
+            sourcePath = await runtimeV2FilePath(handle, from.relativePath);
+          } else if (typeof from.storage === "string") {
+            sourcePath = await storage.resolveFile(identity, from.storage);
+          } else {
+            throw new Error("Transfer source must be a file handle or App storage path.");
+          }
+          return runtime.transfers.send(
+            owner,
+            input as Parameters<DesktopAppRuntime["transfers"]["send"]>[1],
+            { path: sourcePath },
+          );
+        }
+        if (!input.to || typeof input.to !== "object" || Array.isArray(input.to)) {
+          throw new Error("Transfer destination must be a file handle or App storage path.");
+        }
+        const to = input.to as Record<string, unknown>;
+        if (typeof to.storage === "string") {
+          const path = await storage.resolveDestination(identity, to.storage);
+          return runtime.transfers.receive(
+            owner,
+            input as Parameters<DesktopAppRuntime["transfers"]["receive"]>[1],
+            {
+              path,
+              assertFreeSpace: (bytes) => storage.assertFreeSpace(identity, bytes),
+            },
+          );
+        }
+        if (typeof to.handleId === "string") {
+          const handle = runtimeV2FileHandles.resolve(
+            identity.appId,
+            identity.spaceId,
+            to.handleId,
+          );
+          const path = await resolveWritableAppScopedPath(handle, to.relativePath);
+          return runtime.transfers.receive(
+            owner,
+            input as Parameters<DesktopAppRuntime["transfers"]["receive"]>[1],
+            { path },
+          );
+        }
+        throw new Error("Transfer destination must be a file handle or App storage path.");
+      }
+      case "models.listPossible":
+        return POSSIBLE_MODEL_CATALOG;
+      default:
+        throw Object.assign(new Error(`App runtime method ${method} is unavailable.`), {
+          code: "METHOD_NOT_SUPPORTED",
+        });
+    }
+  });
+
   ipcMain.removeHandler(IPC.appRuntime.tabSetRoute);
   ipcMain.handle(IPC.appRuntime.tabSetRoute, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
     runtime.appTabs.setRoute(identity.tabId, parseAppTabRouteRequest(input));
   });
+  ipcMain.removeHandler(IPC.appRuntime.tabOpenSibling);
+  ipcMain.handle(IPC.appRuntime.tabOpenSibling, async (event, input: unknown) => {
+    const { runtime } = requireAppRenderer(event.sender.id);
+    const navigation = input === undefined ? { route: "/" } : parseAppTabRouteRequest(input);
+    return runtime.appTabs.openSiblingFromRenderer(event.sender.id, navigation);
+  });
   ipcMain.removeHandler(IPC.appRuntime.tabGetContext);
   ipcMain.handle(IPC.appRuntime.tabGetContext, async (event) => {
     const { identity } = requireAppRenderer(event.sender.id);
     if (!identity.threadId) throw new Error("This App renderer is not attached to a thread.");
-    return { threadId: identity.threadId, tabId: identity.tabId ?? null };
+    return {
+      deckId: identity.deckId,
+      threadId: identity.threadId,
+      tabId: identity.tabId ?? null,
+    };
   });
 
   ipcMain.removeHandler(IPC.appRuntime.permissionQuery);
@@ -5927,119 +5944,48 @@ function registerIpcHandlers(): void {
     const { method, input: value } = input as Record<string, unknown>;
     if (typeof method !== "string") throw new Error("Browser call method is required.");
     if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
-    const browserSessionId = identity.tabId as ThreadId;
-    // The hosted session belongs to the logical App tab. App renderer generations are
-    // replaced during sideloads and shell reloads, so destroying one generation must
-    // not close the browser that its successor still owns. retireAppTabAuthority closes
-    // the session when the logical tab itself is closed.
-    browserManager.setSessionPartition(
-      browserSessionId,
-      createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
-    );
-    await browserManager.prepareExtensions(browserSessionId);
     configureAppBrowserDownloads(identity.tabId, identity.appId, identity.spaceId);
-    const state = () => toAppBrowserState(browserManager.getState({ threadId: browserSessionId }));
+    const tabs = runtime.appTabs;
+    const state = () => tabs.hostedPageState(identity.tabId!);
     const pageId = () => {
       if (typeof value !== "string" || !value) throw new Error("Browser page ID is required.");
       return value;
     };
     switch (method) {
       case "open":
-        return toAppBrowserState(
-          browserManager.open({
-            threadId: browserSessionId,
-            ...(typeof value === "string" && value ? { initialUrl: value } : {}),
-          }),
+        return tabs.openHostedPage(
+          identity.tabId,
+          typeof value === "string" && value ? value : undefined,
         );
       case "close":
-        browserManager.close({ threadId: browserSessionId });
+        tabs.closeHostedPage(identity.tabId);
         return;
       case "getState":
         return state();
-      case "setSurfaceLayout": {
-        throw new Error("Hosted Browser surfaces require the Runtime v2 App frame.");
-      }
       case "navigate": {
         if (!value || typeof value !== "object" || Array.isArray(value))
           throw new Error("Browser navigation input is required.");
         const record = value as Record<string, unknown>;
         if (typeof record.url !== "string" || !record.url.trim())
           throw new Error("Browser navigation URL is required.");
-        return toAppBrowserState(
-          browserManager.navigate({
-            threadId: browserSessionId,
-            url: record.url,
-            ...(typeof record.pageId === "string" ? { tabId: record.pageId } : {}),
-          }),
+        return tabs.navigateHostedPage(
+          identity.tabId,
+          typeof record.pageId === "string" ? record.pageId : undefined,
+          record.url,
         );
       }
       case "reload":
-        return toAppBrowserState(
-          browserManager.reload({
-            threadId: browserSessionId,
-            tabId: pageId(),
-          }),
-        );
+        return tabs.reloadHostedPage(identity.tabId, pageId());
       case "stop":
-        return toAppBrowserState(
-          browserManager.stop({ threadId: browserSessionId, tabId: pageId() }),
-        );
+        return tabs.stopHostedPage(identity.tabId, pageId());
       case "back":
-        return toAppBrowserState(
-          browserManager.goBack({
-            threadId: browserSessionId,
-            tabId: pageId(),
-          }),
-        );
+        return tabs.backHostedPage(identity.tabId, pageId());
       case "forward":
-        return toAppBrowserState(
-          browserManager.goForward({
-            threadId: browserSessionId,
-            tabId: pageId(),
-          }),
-        );
-      case "newPage": {
-        const record =
-          value && typeof value === "object" && !Array.isArray(value)
-            ? (value as Record<string, unknown>)
-            : {};
-        return toAppBrowserState(
-          browserManager.newTab({
-            threadId: browserSessionId,
-            ...(typeof record.url === "string" ? { url: record.url } : {}),
-            ...(typeof record.activate === "boolean" ? { activate: record.activate } : {}),
-          }),
-        );
-      }
-      case "closePage":
-        return toAppBrowserState(
-          browserManager.closeTab({
-            threadId: browserSessionId,
-            tabId: pageId(),
-          }),
-        );
-      case "selectPage":
-        return toAppBrowserState(
-          browserManager.selectTab({
-            threadId: browserSessionId,
-            tabId: pageId(),
-          }),
-        );
-      case "openExtensionAction": {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Browser extension action input is required.");
-        }
-        const record = value as Record<string, unknown>;
-        if (typeof record.extensionId !== "string" || typeof record.pageId !== "string") {
-          throw new Error("Browser extension action requires extensionId and pageId.");
-        }
-        await browserManager.openExtensionAction({
-          threadId: browserSessionId,
-          extensionId: record.extensionId,
-          tabId: record.pageId,
-        });
+        return tabs.forwardHostedPage(identity.tabId, pageId());
+      case "setToolbarHeight":
+        if (typeof value !== "number") throw new Error("Toolbar height must be a number.");
+        tabs.setHostedPageTop(identity.tabId, value);
         return;
-      }
       case "find": {
         if (!value || typeof value !== "object" || Array.isArray(value))
           throw new Error("Browser find input is required.");
@@ -6054,24 +6000,18 @@ function registerIpcHandlers(): void {
           action !== "previous"
         )
           throw new Error("Browser find action is invalid.");
-        return browserManager.findInPage({
-          threadId: browserSessionId,
-          tabId: record.pageId,
+        return tabs.findInHostedPage({
+          tabId: identity.tabId,
+          pageId: record.pageId,
           text: record.text,
           action: action ?? "search",
         });
       }
       case "stopFind":
-        browserManager.stopFindInPage({
-          threadId: browserSessionId,
-          tabId: pageId(),
-        });
+        tabs.stopFindInHostedPage(identity.tabId, pageId());
         return;
       case "capture": {
-        const result = await browserManager.captureScreenshot({
-          threadId: browserSessionId,
-          tabId: pageId(),
-        });
+        const result = await tabs.captureHostedPage(identity.tabId, pageId());
         return {
           dataUrl: `data:${result.mimeType};base64,${Buffer.from(result.bytes).toString("base64")}`,
         };
@@ -6084,9 +6024,9 @@ function registerIpcHandlers(): void {
           throw new Error("Browser evaluate requires pageId and expression.");
         if (Buffer.byteLength(record.expression) > 100_000)
           throw new Error("Browser expressions may contain at most 100,000 bytes.");
-        const response = await browserManager.executeCdp({
-          threadId: browserSessionId,
-          tabId: record.pageId,
+        const response = await tabs.executeHostedPageCdp({
+          tabId: identity.tabId,
+          pageId: record.pageId,
           method: "Runtime.evaluate",
           params: {
             expression: record.expression,
@@ -6421,1190 +6361,57 @@ function registerIpcHandlers(): void {
       threadId,
     });
   });
-  ipcMain.handle(IPC.appTabs.setActive, async (event, input: unknown) => {
-    const { tabId, rendererId, active, deckId, threadId } = parseSetAppTabActiveRequest(input);
-    // React cleanup may deactivate a retired frame after an atomic App update. A stale
-    // capability token is already inactive, so the host intentionally treats it as satisfied.
-    const tabs = requireShellAppTabs(event.sender.id);
-    if (active) tabs.setContext(tabId, { deckId, threadId });
-    tabs.setActive(tabId, rendererId, active, event.sender.id);
-    if (active) applyActiveHostedBrowserPageBounds(tabId);
-    publishAppBrowserSurface(tabId);
-  });
-  ipcMain.handle(IPC.appTabs.frameMessage, async (event, input: unknown) => {
-    const tabs = requireShellAppTabs(event.sender.id);
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
-      throw new Error("Invalid App frame message.");
-    }
-    const { tabId, rendererId, message } = input as Record<string, unknown>;
-    if (typeof tabId !== "string" || typeof rendererId !== "number") {
-      throw new Error("Invalid App frame identity.");
-    }
-    tabs.acceptFrameMessage(tabId, rendererId, message);
-  });
-  ipcMain.handle(IPC.appTabs.frameReady, async (event, input: unknown) => {
-    const { tabId, rendererId } = parseAppTabRendererRequest(input);
-    const tabs = requireShellAppTabs(event.sender.id);
-    tabs.markFrameReady(tabId, rendererId);
-
-    // An App operation can create its Browser session before the App-tab record or frame exists.
-    // The manager's live subscription cannot address that tab yet, so the initial state event is
-    // intentionally dropped. Frame readiness is the durable synchronization boundary: replay the
-    // current model (and stateful surface declaration) so the shell can mount and size the native
-    // page without waiting for an unrelated later navigation to repair presentation.
-    const browserSessionId = tabId as ThreadId;
-    if (browserManager.hasSession(browserSessionId)) {
-      tabs.sendFrameEvent(
-        tabId,
-        "browser.state",
-        toAppBrowserState(browserManager.getState({ threadId: browserSessionId })),
-      );
-      const insets = appBrowserSurfaceInsetsByTabId.get(tabId);
-      if (insets) {
-        publishAppBrowserSurface(tabId);
-      }
-    }
-  });
-  ipcMain.handle(IPC.appTabs.browserWebviewAttach, async (event, input: unknown) => {
-    const tabs = requireShellAppTabs(event.sender.id);
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
-      throw new Error("Invalid hosted Browser webview attachment.");
-    }
-    const { tabId, rendererId, pageId, webContentsId } = input as Record<string, unknown>;
-    if (
-      typeof tabId !== "string" ||
-      typeof rendererId !== "number" ||
-      typeof pageId !== "string" ||
-      typeof webContentsId !== "number"
-    ) {
-      throw new Error("Invalid hosted Browser webview identity.");
-    }
-    const identity = tabs.frameIdentity(tabId, rendererId);
-    if (tabs.activeSurfaceId(tabId) !== event.sender.id) return;
-    browserManager.setSessionPartition(
-      tabId as ThreadId,
-      createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
-    );
-    browserManager.attachWebview({
-      threadId: tabId as ThreadId,
-      tabId: pageId,
-      webContentsId,
-      rendererId,
-    });
-  });
-  ipcMain.handle(IPC.appTabs.browserWebviewDidFailLoad, async (event, input: unknown) => {
-    const tabs = requireShellAppTabs(event.sender.id);
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
-      throw new Error("Invalid hosted Browser webview load failure.");
-    }
-    const { tabId, rendererId, pageId, errorCode, errorDescription, validatedUrl, isMainFrame } =
-      input as Record<string, unknown>;
-    if (
-      typeof tabId !== "string" ||
-      typeof rendererId !== "number" ||
-      typeof pageId !== "string" ||
-      typeof errorCode !== "number" ||
-      typeof errorDescription !== "string" ||
-      typeof validatedUrl !== "string" ||
-      typeof isMainFrame !== "boolean"
-    ) {
-      throw new Error("Invalid hosted Browser webview load failure details.");
-    }
-    tabs.frameIdentity(tabId, rendererId);
-    if (tabs.activeSurfaceId(tabId) !== event.sender.id) return;
-    browserManager.reportRendererWebviewLoadFailure({
-      threadId: tabId as ThreadId,
-      tabId: pageId,
-      errorCode,
-      errorDescription,
-      validatedUrl,
-      isMainFrame,
-    });
-  });
-  ipcMain.handle(IPC.appTabs.browserWebviewDetach, async (event, input: unknown) => {
-    const tabs = requireShellAppTabs(event.sender.id);
+  ipcMain.handle(IPC.appTabs.present, async (event, input: unknown) => {
     if (!input || typeof input !== "object" || Array.isArray(input)) return;
-    const { tabId, rendererId, pageId, webContentsId } = input as Record<string, unknown>;
-    if (
-      typeof tabId !== "string" ||
-      typeof rendererId !== "number" ||
-      typeof pageId !== "string" ||
-      typeof webContentsId !== "number"
-    )
-      return;
-    if (!tabs.has(tabId)) return;
-    // Cleanup is intentionally generation-tolerant. A React unmount from the renderer generation
-    // being replaced may arrive after ElectronAppTabHost has installed its successor. The exact
-    // Browser page + WebContents + adopted renderer-generation guards in detachWebview prevent the
-    // stale request from touching that successor; rejecting all stale cleanup here instead can
-    // leave the manager pointing at a destroyed guest when cleanup precedes the successor attach.
-    browserManager.detachWebview({
-      threadId: tabId as ThreadId,
-      tabId: pageId,
-      webContentsId,
-      rendererId,
-    });
-  });
-  ipcMain.handle(IPC.appTabs.browserHostedPageBounds, async (event, input: unknown) => {
-    const tabs = requireShellAppTabs(event.sender.id);
-    if (!input || typeof input !== "object" || Array.isArray(input)) return false;
-    const { tabId, rendererId, pageId, bounds, rendererSurfaceActive } = input as Record<
+    const { tabId, deckId, threadId, animate, animationStartedAtEpochMs, bounds } = input as Record<
       string,
       unknown
     >;
     if (
       typeof tabId !== "string" ||
-      typeof rendererId !== "number" ||
-      typeof pageId !== "string" ||
-      typeof rendererSurfaceActive !== "boolean"
-    ) {
-      return false;
-    }
-    tabs.frameIdentity(tabId, rendererId);
-
-    let normalizedBounds: BrowserPanelBounds | null = null;
-    if (bounds !== null) {
-      if (!bounds || typeof bounds !== "object" || Array.isArray(bounds)) return false;
-      const record = bounds as Record<string, unknown>;
-      if (
-        ![record.x, record.y, record.width, record.height].every(
-          (candidate) => typeof candidate === "number" && Number.isFinite(candidate),
-        ) ||
-        (record.width as number) <= 0 ||
-        (record.height as number) <= 0
-      ) {
-        return false;
-      }
-      normalizedBounds = {
-        x: Math.max(0, Math.floor(record.x as number)),
-        y: Math.max(0, Math.floor(record.y as number)),
-        width: Math.floor(record.width as number),
-        height: Math.floor(record.height as number),
-      };
-    }
-
-    const ownerWindow = shellWindowForSender(event.sender);
-    const boundsBySurfaceId = hostedBrowserPageBoundsByTabId.get(tabId) ?? new Map();
-    if (normalizedBounds && ownerWindow) {
-      boundsBySurfaceId.set(event.sender.id, {
-        pageId,
-        bounds: normalizedBounds,
-        parentView: ownerWindow.contentView,
-      });
-      hostedBrowserPageBoundsByTabId.set(tabId, boundsBySurfaceId);
-      return applyActiveHostedBrowserPageBounds(tabId);
-    }
-
-    const removed = boundsBySurfaceId.get(event.sender.id);
-    if (removed?.pageId === pageId) boundsBySurfaceId.delete(event.sender.id);
-    if (boundsBySurfaceId.size > 0) {
-      return applyActiveHostedBrowserPageBounds(tabId);
-    }
-    hostedBrowserPageBoundsByTabId.delete(tabId);
-    const didApplyHostedBounds = browserManager.setHostedPageBounds({
-      threadId: tabId as ThreadId,
-      tabId: pageId,
-      bounds: null,
-      parentView: null,
-    });
-    if (didApplyHostedBounds) {
-      browserManager.setRendererSurfaceActive(tabId as ThreadId, rendererSurfaceActive);
-    }
-    return didApplyHostedBounds;
-  });
-  ipcMain.handle(IPC.appTabs.frameCall, async (event, input: unknown) => {
-    const tabs = requireShellAppTabs(event.sender.id);
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
-      throw new Error("Invalid App frame call.");
-    }
-    const {
-      tabId,
-      rendererId,
-      deckId,
-      threadId,
-      method,
-      input: value,
-    } = input as Record<string, unknown>;
-    if (
-      typeof tabId !== "string" ||
-      typeof rendererId !== "number" ||
       typeof deckId !== "string" ||
       typeof threadId !== "string" ||
-      typeof method !== "string"
+      !bounds ||
+      typeof bounds !== "object" ||
+      Array.isArray(bounds)
     ) {
-      throw new Error("Invalid App frame call identity.");
+      throw new Error("Invalid App view presentation request.");
     }
-    const runtime = desktopAppRuntime;
-    if (!runtime) throw new Error("The App runtime is unavailable.");
-    tabs.setContext(tabId, { deckId, threadId });
-    const identity = tabs.frameIdentity(tabId, rendererId);
-    const requireAppsFrame = () => {
-      if (identity.appId !== "com.penkra.apps") {
-        throw new Error("Only Apps can use installation and registry services.");
-      }
-      return identity.spaceId;
-    };
-    const installationSnapshot = () =>
-      toDesktopAppInstallationSnapshot(
-        runtime.installations.snapshot(),
-        identity.spaceId,
-        permissionReviewUpdatesForSpace(identity.spaceId),
-      );
-    switch (method) {
-      case "tab.getContext":
-        return { deckId: identity.deckId, threadId: identity.threadId, tabId };
-      case "tab.setRoute":
-        tabs.setRoute(tabId, parseAppTabRouteRequest(value));
-        return;
-      case "permissions.query":
-        return queryAppPermission(runtime.installations.snapshot(), identity, value);
-      case "permissions.request": {
-        const current = queryAppPermission(runtime.installations.snapshot(), identity, value);
-        if (!current.declared) throw new Error(`${String(value)} is not declared by this App.`);
-        if (current.required) throw new Error(`${current.name} is a required permission.`);
-        if (current.state === "granted") return current;
-        await runtime.installations.requestOptionalPermission({
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          permission: current.name,
-          confirm: async ({ appName, reason, audience }) => {
-            const options: Electron.MessageBoxOptions = {
-              type: "question",
-              buttons: ["Allow", "Not now"],
-              defaultId: 0,
-              cancelId: 1,
-              noLink: true,
-              title: `${appName} permission`,
-              message: `${appName} would like permission to ${reason.replace(/[.\s]+$/, "").toLowerCase()}.`,
-              detail: `${audience ? `Identity audience: ${audience}\n\n` : ""}You can revoke this permission later in Penkra Settings.`,
-            };
-            const targetWindow = resolveShellWindow();
-            const result = targetWindow
-              ? await dialog.showMessageBox(targetWindow, options)
-              : await dialog.showMessageBox(options);
-            return result.response === 0;
-          },
-        });
-        return queryAppPermission(runtime.installations.snapshot(), identity, current.name);
-      }
-      case "identity.get":
-        return runtime.identities.resolve(identity.appId, identity.spaceId);
-      case "identity.getToken": {
-        const audience = requireGrantedIdentityAudience(runtime, identity, value);
-        return requestAppIdentityToken({
-          apiUrl: penkraAccountServices.apiUrl,
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          audience,
-          cookie: getPenkraAccountCookie(),
-        });
-      }
-      case "account.profile": {
-        const permission = queryAppPermission(
-          runtime.installations.snapshot(),
-          identity,
-          "account-profile",
-        );
-        if (!permission.declared || permission.state !== "granted") {
-          throw Object.assign(
-            new Error("account-profile is not granted for this App in the current Space."),
-            { code: "PERMISSION_DENIED" },
-          );
-        }
-        return requestAppAccountProfile({
-          apiUrl: penkraAccountServices.apiUrl,
-          cookie: getPenkraAccountCookie(),
-        });
-      }
-      case "contextMenu.show":
-        if (!Array.isArray(value)) throw new Error("Context menu items must be an array.");
-        return showAppContextMenu(value as ContextMenuItem[]);
-      case "files.list":
-        return runtimeV2FileHandles.list(identity.appId, identity.spaceId);
-      case "files.pick": {
-        const pickerInput =
-          typeof value === "string"
-            ? { kind: value, options: undefined }
-            : value && typeof value === "object" && !Array.isArray(value)
-              ? (value as { kind?: unknown; options?: unknown })
-              : {};
-        const kind = pickerInput.kind;
-        if (kind !== "file" && kind !== "directory" && kind !== "save") {
-          throw new Error("File picker kind must be file, directory, or save.");
-        }
-        const pickerOwner = resolveShellWindow();
-        if (kind === "save") {
-          const pickerOptions =
-            pickerInput.options &&
-            typeof pickerInput.options === "object" &&
-            !Array.isArray(pickerInput.options)
-              ? (pickerInput.options as { suggestedName?: unknown })
-              : {};
-          if (
-            pickerOptions.suggestedName !== undefined &&
-            typeof pickerOptions.suggestedName !== "string"
-          ) {
-            throw new Error("Suggested save name must be a string.");
-          }
-          const result = pickerOwner
-            ? await dialog.showSaveDialog(pickerOwner, {
-                ...(pickerOptions.suggestedName
-                  ? { defaultPath: pickerOptions.suggestedName }
-                  : {}),
-              })
-            : await dialog.showSaveDialog({
-                ...(pickerOptions.suggestedName
-                  ? { defaultPath: pickerOptions.suggestedName }
-                  : {}),
-              });
-          if (result.canceled || !result.filePath) return null;
-          return runtimeV2FileHandles.grantWritableFile({
-            appId: identity.appId,
-            spaceId: identity.spaceId,
-            path: result.filePath,
-          });
-        }
-        const options: Electron.OpenDialogOptions = {
-          properties: kind === "directory" ? ["openDirectory", "createDirectory"] : ["openFile"],
-        };
-        const result = pickerOwner
-          ? await dialog.showOpenDialog(pickerOwner, options)
-          : await dialog.showOpenDialog(options);
-        const selected = result.canceled ? null : (result.filePaths[0] ?? null);
-        if (!selected) return null;
-        return runtimeV2FileHandles.grant({
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          kind,
-          path: selected,
-        });
-      }
-      case "files.open": {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Scoped file open input must be an object.");
-        }
-        const record = value as Record<string, unknown>;
-        const handle = runtimeV2FileHandles.resolve(
-          identity.appId,
-          identity.spaceId,
-          record.handleId,
-        );
-        const path = await runtimeV2FilePath(handle, record.relativePath);
-        return runtime.blobUrls.open(
-          {
-            appId: identity.appId,
-            spaceId: identity.spaceId,
-            deckId: identity.deckId,
-            tabId,
-            rendererId,
-            origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
-          },
-          path,
-          { handleId: handle.id },
-        );
-      }
-      case "files.closeUrl":
-      case "storage.closeUrl": {
-        runtime.blobUrls.close(
-          {
-            appId: identity.appId,
-            spaceId: identity.spaceId,
-            deckId: identity.deckId,
-            tabId,
-            rendererId,
-            origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
-          },
-          value,
-        );
-        return;
-      }
-      case "storage.open": {
-        if (typeof value !== "string") throw new Error("App storage path must be a string.");
-        const storage = appStorage;
-        if (!storage) throw new Error("The App storage service is not ready.");
-        const path = await storage.resolveFile(identity, value);
-        return runtime.blobUrls.open(
-          {
-            appId: identity.appId,
-            spaceId: identity.spaceId,
-            deckId: identity.deckId,
-            tabId,
-            rendererId,
-            origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
-          },
-          path,
-        );
-      }
-      case "files.revoke": {
-        const handle = runtimeV2FileHandles.resolve(identity.appId, identity.spaceId, value);
-        runtimeV2FileHandles.revoke(identity.appId, identity.spaceId, value);
-        runtime.blobUrls.disposeDetached(
-          runtime.blobUrls.detachHandle(identity.appId, identity.spaceId, handle.id),
-        );
-        await runtimeV2FileWrites.disposeDetached(
-          runtimeV2FileWrites.detachHandle(identity.appId, identity.spaceId, handle.id),
-        );
-        return;
-      }
-      case "files.stat":
-      case "files.listDirectory":
-      case "files.readText":
-      case "files.writeText":
-      case "files.createDirectory":
-      case "files.watch": {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Scoped file input must be an object.");
-        }
-        const record = value as Record<string, unknown>;
-        const handle = runtimeV2FileHandles.resolve(
-          identity.appId,
-          identity.spaceId,
-          record.handleId,
-        );
-        const absolutePath = await (method === "files.writeText" ||
-        method === "files.createDirectory"
-          ? resolveWritableAppScopedPath(handle, record.relativePath)
-          : runtimeV2FilePath(handle, record.relativePath));
-        if (method === "files.stat") return runtimeV2FileEntry(handle, absolutePath);
-        if (method === "files.listDirectory") {
-          const entries = await FS.promises.readdir(absolutePath, {
-            withFileTypes: true,
-          });
-          const resolved = await Promise.allSettled(
-            entries.map((entry) => runtimeV2FileEntry(handle, Path.join(absolutePath, entry.name))),
-          );
-          return resolved.flatMap((entry) => (entry.status === "fulfilled" ? [entry.value] : []));
-        }
-        if (method === "files.readText") {
-          const stat = await FS.promises.stat(absolutePath);
-          if (stat.size > 16 * 1024 * 1024) throw new Error("Text file exceeds the 16 MB limit.");
-          return FS.promises.readFile(absolutePath, "utf8");
-        }
-        if (method === "files.writeText") {
-          if (typeof record.source !== "string") throw new Error("File contents must be text.");
-          if (Buffer.byteLength(record.source) > 16 * 1024 * 1024) {
-            throw new Error("Text file exceeds the 16 MB limit.");
-          }
-          await runtimeV2FileWrites.writeText(
-            {
-              appId: identity.appId,
-              spaceId: identity.spaceId,
-              deckId: identity.deckId,
-              tabId,
-              rendererId,
-            },
-            {
-              handleId: handle.id,
-              destinationPath: absolutePath,
-              source: record.source,
-            },
-          );
-          return;
-        }
-        if (method === "files.createDirectory") {
-          await FS.promises.mkdir(absolutePath);
-          return runtimeV2FileEntry(handle, absolutePath);
-        }
-        const watchId = Crypto.randomUUID();
-        const watcher = FS.watch(absolutePath, { persistent: false }, () => {
-          try {
-            runtime.appTabs.sendFrameEvent(tabId, `files.watch.${watchId}`, null);
-          } catch {
-            // Tab close cleanup owns the watcher.
-          }
-        });
-        runtimeV2FileWatches.set(watchId, {
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          deckId: identity.deckId,
-          threadId: identity.threadId,
-          tabId,
-          rendererId,
-          watcher,
-        });
-        return watchId;
-      }
-      case "files.readBinary": {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Binary read input must be an object.");
-        }
-        const record = value as Record<string, unknown>;
-        const handle = runtimeV2FileHandles.resolve(
-          identity.appId,
-          identity.spaceId,
-          record.handleId,
-        );
-        const absolutePath = await runtimeV2FilePath(handle, record.relativePath);
-        const stat = await FS.promises.stat(absolutePath);
-        const offset =
-          typeof record.offset === "number" && Number.isInteger(record.offset) && record.offset >= 0
-            ? record.offset
-            : 0;
-        const length =
-          typeof record.length === "number" &&
-          Number.isInteger(record.length) &&
-          record.length > 0 &&
-          record.length <= 1024 * 1024
-            ? record.length
-            : 1024 * 1024;
-        const file = await FS.promises.open(absolutePath, "r");
-        try {
-          const buffer = Buffer.alloc(Math.max(0, Math.min(length, stat.size - offset)));
-          const { bytesRead } = await file.read(buffer, 0, buffer.length, offset);
-          return {
-            bytes: new Uint8Array(buffer.subarray(0, bytesRead)),
-            totalBytes: stat.size,
-            complete: offset + bytesRead >= stat.size,
-          };
-        } finally {
-          await file.close();
-        }
-      }
-      case "files.beginWrite": {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Chunked file write input must be an object.");
-        }
-        const record = value as Record<string, unknown>;
-        const handle = runtimeV2FileHandles.resolve(
-          identity.appId,
-          identity.spaceId,
-          record.handleId,
-        );
-        const destinationPath = await resolveWritableAppScopedPath(handle, record.relativePath);
-        return runtimeV2FileWrites.begin(
-          {
-            appId: identity.appId,
-            spaceId: identity.spaceId,
-            deckId: identity.deckId,
-            tabId,
-            rendererId,
-          },
-          {
-            handleId: handle.id,
-            destinationPath,
-            expectedBytes: record.expectedBytes as number,
-            ...(typeof record.expectedSha256 === "string"
-              ? { expectedSha256: record.expectedSha256 }
-              : {}),
-          },
-        );
-      }
-      case "files.writeChunk": {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("File chunk input must be an object.");
-        }
-        const record = value as Record<string, unknown>;
-        return runtimeV2FileWrites.write(
-          {
-            appId: identity.appId,
-            spaceId: identity.spaceId,
-            deckId: identity.deckId,
-            tabId,
-            rendererId,
-          },
-          {
-            writeId: record.writeId,
-            offset: record.offset,
-            bytes: record.bytes,
-          },
-        );
-      }
-      case "files.commitWrite":
-      case "files.abortWrite": {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("File write session input must be an object.");
-        }
-        const writeId = (value as Record<string, unknown>).writeId;
-        const owner = {
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          deckId: identity.deckId,
-          tabId,
-          rendererId,
-        };
-        if (method === "files.commitWrite") await runtimeV2FileWrites.commit(owner, writeId);
-        else await runtimeV2FileWrites.abort(owner, writeId);
-        return;
-      }
-      case "files.unwatch": {
-        const watchId =
-          value && typeof value === "object" && !Array.isArray(value)
-            ? (value as { watchId?: unknown }).watchId
-            : undefined;
-        if (typeof watchId !== "string") return;
-        const watcher = runtimeV2FileWatches.take(watchId, {
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          deckId: identity.deckId,
-          threadId: identity.threadId,
-          tabId,
-          rendererId,
-        });
-        watcher?.close();
-        return;
-      }
-      case "controller.invoke": {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Controller invocation input must be an object.");
-        }
-        const request = value as Record<string, unknown>;
-        if (typeof request.handler !== "string" || !request.handler.trim()) {
-          throw new Error("Controller handler must be a non-empty string.");
-        }
-        return runtime.invokeController({
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          deckId: identity.deckId,
-          threadId: identity.threadId,
-          tabId,
-          handler: request.handler,
-          value: request.input,
-        });
-      }
-      case "shell.beep":
-        shell.beep();
-        return;
-      case "shell.openExternal": {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Shell openExternal input must be an object.");
-        }
-        const request = value as Record<string, unknown>;
-        if (typeof request.url !== "string") throw new Error("Shell URL must be a string.");
-        await shell.openExternal(
-          request.url,
-          parseRuntimeShellOpenExternalOptions(request.options),
-        );
-        return;
-      }
-      case "shell.openPath":
-        if (typeof value !== "string") throw new Error("Shell path must be a string.");
-        return shell.openPath(value);
-      case "shell.showItemInFolder":
-        if (typeof value !== "string") throw new Error("Shell path must be a string.");
-        shell.showItemInFolder(value);
-        return;
-      case "shell.trashItem":
-        if (typeof value !== "string") throw new Error("Shell path must be a string.");
-        await shell.trashItem(value);
-        return;
-      case "shell.readShortcutLink":
-        if (typeof value !== "string") throw new Error("Shortcut path must be a string.");
-        return shell.readShortcutLink(value);
-      case "shell.writeShortcutLink":
-        return writeRuntimeShellShortcut(value);
-      case "resources.open": {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Resource open input must be an object.");
-        }
-        const record = value as Record<string, unknown>;
-        if (record.with !== "system") throw new Error("Only the system handler is supported.");
-        const handle = runtimeV2FileHandles.resolve(
-          identity.appId,
-          identity.spaceId,
-          record.handleId,
-        );
-        const absolutePath = await runtimeV2FilePath(handle, record.relativePath);
-        const error = await shell.openPath(absolutePath);
-        if (error) throw new Error(error);
-        return;
-      }
-      case "account.request": {
-        const permission = queryAppPermission(
-          runtime.installations.snapshot(),
-          identity,
-          "account-data",
-        );
-        if (!permission.declared || permission.state !== "granted") {
-          throw Object.assign(new Error("account-data is not granted for this App."), {
-            code: "PERMISSION_DENIED",
-          });
-        }
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Account-data request must be an object.");
-        }
-        return requestAppAccountData({
-          apiUrl: penkraAccountServices.apiUrl,
-          appId: identity.appId,
-          cookie: getPenkraAccountCookie(),
-          request: value as import("./appAccountData").AppAccountDataRequest,
-        });
-      }
-      case "account.subscribe": {
-        const permission = queryAppPermission(
-          runtime.installations.snapshot(),
-          identity,
-          "account-data",
-        );
-        if (!permission.declared || permission.state !== "granted") {
-          throw Object.assign(new Error("account-data is not granted for this App."), {
-            code: "PERMISSION_DENIED",
-          });
-        }
-        const channel =
-          value && typeof value === "object" && !Array.isArray(value)
-            ? (value as { channel?: unknown }).channel
-            : undefined;
-        if (typeof channel !== "string") throw new Error("Account-data channel must be a string.");
-        const metadataValue =
-          value && typeof value === "object" && !Array.isArray(value)
-            ? (value as { metadata?: unknown }).metadata
-            : undefined;
-        const metadata =
-          metadataValue && typeof metadataValue === "object" && !Array.isArray(metadataValue)
-            ? (metadataValue as Record<string, string | number | boolean>)
-            : undefined;
-        const subscriptionId = Crypto.randomUUID();
-        const push = (payload: unknown) => {
-          try {
-            runtime.appTabs.sendFrameEvent(
-              tabId,
-              `account.subscription.${subscriptionId}`,
-              payload,
-            );
-          } catch {
-            // Closing the tab owns subscription cleanup and may race an incoming event.
-          }
-        };
-        const subscription = await subscribeAppAccountData({
-          apiUrl: penkraAccountServices.apiUrl,
-          appId: identity.appId,
-          cookie: getPenkraAccountCookie(),
-          channel,
-          ...(metadata ? { metadata } : {}),
-          onEvent: (accountEvent) => push({ kind: "event", event: accountEvent }),
-          onConnectionStateChange: (state) => push({ kind: "connection-state", state }),
-        });
-        appAccountSubscriptions.set(subscriptionId, {
-          owner: {
-            kind: "app-generation",
-            appId: identity.appId,
-            spaceId: identity.spaceId,
-            deckId: identity.deckId,
-            threadId: identity.threadId,
-            tabId,
-            rendererId,
-          },
-          stop: subscription.stop,
-        });
-        return subscriptionId;
-      }
-      case "account.unsubscribe": {
-        const subscriptionId =
-          value && typeof value === "object" && !Array.isArray(value)
-            ? (value as { subscriptionId?: unknown }).subscriptionId
-            : undefined;
-        if (typeof subscriptionId !== "string") {
-          throw new Error("Account-data subscription ID must be a string.");
-        }
-        const active = appAccountSubscriptions.take(subscriptionId, {
-          kind: "app-generation",
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          deckId: identity.deckId,
-          threadId: identity.threadId,
-          tabId,
-          rendererId,
-        });
-        if (!active) return;
-        active.stop();
-        return;
-      }
-      case "settings.get":
-        if (typeof value !== "string") throw new Error("Setting key must be a string.");
-        return runtime.installations.getSetting({ ...identity, key: value });
-      case "settings.set": {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Setting input must be an object.");
-        }
-        const { key, value: settingValue } = value as Record<string, unknown>;
-        if (typeof key !== "string") throw new Error("Setting key must be a string.");
-        await runtime.installations.setSetting({
-          ...identity,
-          key,
-          value: settingValue,
-        });
-        return;
-      }
-      case "settings.reset":
-        if (typeof value !== "string") throw new Error("Setting key must be a string.");
-        await runtime.installations.resetSetting({ ...identity, key: value });
-        return;
-      case "secrets.get":
-        if (typeof value !== "string") throw new Error("Secret name must be a string.");
-        return runtime.vault.getSecret(identity.appId, identity.spaceId, value);
-      case "secrets.set": {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Secret input must be an object.");
-        }
-        const { name, value: secretValue } = value as Record<string, unknown>;
-        if (typeof name !== "string" || typeof secretValue !== "string") {
-          throw new Error("Secret name and value must be strings.");
-        }
-        await runtime.vault.setSecret(identity.appId, identity.spaceId, name, secretValue);
-        return;
-      }
-      case "secrets.delete":
-        if (typeof value !== "string") throw new Error("Secret name must be a string.");
-        await runtime.vault.deleteSecret(identity.appId, identity.spaceId, value);
-        return;
-      case "browser.open":
-      case "browser.close":
-      case "browser.getState":
-      case "browser.setSurfaceLayout":
-      case "browser.navigate":
-      case "browser.reload":
-      case "browser.stop":
-      case "browser.back":
-      case "browser.forward":
-      case "browser.newPage":
-      case "browser.closePage":
-      case "browser.selectPage":
-      case "browser.openExtensionAction":
-      case "browser.snapshot":
-      case "browser.find":
-      case "browser.click":
-      case "browser.hover":
-      case "browser.type":
-      case "browser.press":
-      case "browser.select":
-      case "browser.scroll":
-      case "browser.wait":
-      case "browser.capture":
-      case "browser.evaluate": {
-        const permission = queryAppPermission(
-          runtime.installations.snapshot(),
-          identity,
-          "browser-session",
-        );
-        if (!permission.declared || permission.state !== "granted") {
-          throw Object.assign(
-            new Error("browser-session is not granted for this App in the current Space."),
-            { code: "PERMISSION_DENIED" },
-          );
-        }
-        return invokeRuntimeV2BrowserCall({
-          tabId,
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          surfaceId: event.sender.id,
-          method: method.slice("browser.".length),
-          value,
-        });
-      }
-      case "simulator.getEnvironment":
-      case "simulator.listRuntimes":
-      case "simulator.listDeviceTypes":
-      case "simulator.listDevices":
-      case "simulator.createDevice":
-      case "simulator.eraseDevice":
-      case "simulator.deleteDevice":
-      case "simulator.requestSetup":
-      case "simulator.cancelSetup":
-      case "simulator.open":
-      case "simulator.close":
-      case "simulator.getState":
-      case "simulator.setViewport":
-      case "simulator.getTarget":
-      case "simulator.capture":
-      case "simulator.tap":
-      case "simulator.swipe":
-      case "simulator.type":
-      case "simulator.press":
-      case "simulator.rotate": {
-        const simulatorRuntime = desktopSimulatorRuntime;
-        if (!simulatorRuntime) throw new Error("The Simulator host service is not ready.");
-        const permission = queryAppPermission(
-          runtime.installations.snapshot(),
-          identity,
-          "simulator-session",
-        );
-        if (!permission.declared || permission.state !== "granted") {
-          throw Object.assign(
-            new Error("simulator-session is not granted for this App in the current Space."),
-            { code: "PERMISSION_DENIED" },
-          );
-        }
-        return invokeSimulatorCall({
-          manager: simulatorRuntime.manager,
-          owner: {
-            appId: identity.appId,
-            spaceId: identity.spaceId,
-            tabId,
-          },
-          method: method.slice("simulator.".length),
-          value,
-          viewport: runtimeV2SimulatorViewport(simulatorRuntime.manager),
-          authorizeSetup: authorizeRuntimeV2SimulatorSetup,
-        });
-      }
-      case "network.fetch": {
-        const permission = queryAppPermission(
-          runtime.installations.snapshot(),
-          identity,
-          "network-fetch",
-        );
-        if (!permission.declared || permission.state !== "granted") {
-          throw Object.assign(new Error("network-fetch is not granted for this App."), {
-            code: "PERMISSION_DENIED",
-          });
-        }
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Network request must be an object.");
-        }
-        return mediatedAppFetch(value as import("./appNetworkFetch").AppNetworkFetchRequest);
-      }
-      case "transfer.begin":
-      case "transfer.send":
-      case "transfer.receive": {
-        const permission = queryAppPermission(
-          runtime.installations.snapshot(),
-          identity,
-          "network-fetch",
-        );
-        if (!permission.declared || permission.state !== "granted") {
-          throw Object.assign(new Error("network-fetch is not granted for this App."), {
-            code: "PERMISSION_DENIED",
-          });
-        }
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Transfer input must be an object.");
-        }
-        const input = value as Record<string, unknown>;
-        const owner = {
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          deckId: identity.deckId,
-          tabId,
-          rendererId,
-          origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
-        };
-        if (method === "transfer.begin") {
-          return runtime.transfers.begin(
-            owner,
-            input as Parameters<DesktopAppRuntime["transfers"]["begin"]>[1],
-          );
-        }
-        const storage = appStorage;
-        if (!storage) throw new Error("The App storage service is not ready.");
-        if (method === "transfer.send") {
-          if (!input.from || typeof input.from !== "object" || Array.isArray(input.from)) {
-            throw new Error("Transfer source must be a file handle or App storage path.");
-          }
-          const from = input.from as Record<string, unknown>;
-          let sourcePath: string;
-          if (typeof from.handleId === "string") {
-            const handle = runtimeV2FileHandles.resolve(
-              identity.appId,
-              identity.spaceId,
-              from.handleId,
-            );
-            sourcePath = await runtimeV2FilePath(handle, from.relativePath);
-          } else if (typeof from.storage === "string") {
-            sourcePath = await storage.resolveFile(identity, from.storage);
-          } else {
-            throw new Error("Transfer source must be a file handle or App storage path.");
-          }
-          return runtime.transfers.send(
-            owner,
-            input as Parameters<DesktopAppRuntime["transfers"]["send"]>[1],
-            { path: sourcePath },
-          );
-        }
-        if (!input.to || typeof input.to !== "object" || Array.isArray(input.to)) {
-          throw new Error("Transfer destination must be a file handle or App storage path.");
-        }
-        const to = input.to as Record<string, unknown>;
-        if (typeof to.storage === "string") {
-          const path = await storage.resolveDestination(identity, to.storage);
-          return runtime.transfers.receive(
-            owner,
-            input as Parameters<DesktopAppRuntime["transfers"]["receive"]>[1],
-            {
-              path,
-              assertFreeSpace: (bytes) => storage.assertFreeSpace(identity, bytes),
-            },
-          );
-        }
-        if (typeof to.handleId === "string") {
-          const handle = runtimeV2FileHandles.resolve(
-            identity.appId,
-            identity.spaceId,
-            to.handleId,
-          );
-          const path = await resolveWritableAppScopedPath(handle, to.relativePath);
-          return runtime.transfers.receive(
-            owner,
-            input as Parameters<DesktopAppRuntime["transfers"]["receive"]>[1],
-            { path },
-          );
-        }
-        throw new Error("Transfer destination must be a file handle or App storage path.");
-      }
-      case "storage.writeFile":
-      case "storage.remove":
-      case "storage.list":
-      case "storage.usage":
-        return invokeAppStorageCall(identity, method.slice("storage.".length), value);
-      case "models.listPossible":
-        return POSSIBLE_MODEL_CATALOG;
-      case "threads.current.read":
-        return requestAppThreadOperation(runtime, identity, "current.read", value);
-      case "threads.list":
-      case "threads.get":
-      case "threads.create":
-      case "threads.add":
-      case "threads.select":
-      case "threads.reorder":
-      case "threads.leave":
-      case "threads.archive":
-      case "threads.compose":
-      case "threads.send":
-        return requestAppThreadOperation(
-          runtime,
-          identity,
-          method.slice("threads.".length) as AppThreadOperationMethod,
-          value,
-        );
-      case "installations.getState":
-        requireAppsFrame();
-        return installationSnapshot();
-      case "installations.installRegistry": {
-        const currentSpaceId = requireAppsFrame();
-        if (!appRegistryClient) throw new Error("The App registry is not ready.");
-        const request = parseInstallRegistryAppRequest(value);
-        if (request.spaceId !== currentSpaceId) {
-          throw new Error("Apps can only be installed into the current Space.");
-        }
-        await installRegistryApp({
-          request,
-          hostVersion: app.getVersion(),
-          registry: appRegistryClient,
-          packages: runtime.packages,
-          installations: runtime.installations,
-        });
-        return installationSnapshot();
-      }
-      case "installations.updateRegistry": {
-        const currentSpaceId = requireAppsFrame();
-        if (!appRegistryClient) throw new Error("The App registry is not ready.");
-        const request = parseUpdateRegistryAppRequest(value);
-        if (request.spaceId !== currentSpaceId) {
-          throw new Error("Apps can only be updated in the current Space.");
-        }
-        await updateRegistryApp({
-          request,
-          hostVersion: app.getVersion(),
-          registry: appRegistryClient,
-          packages: runtime.packages,
-          installations: runtime.installations,
-        });
-        return installationSnapshot();
-      }
-      case "installations.rollbackRegistry": {
-        const currentSpaceId = requireAppsFrame();
-        if (!appRegistryClient) throw new Error("The App registry is not ready.");
-        const request = parseRollbackRegistryAppRequest(value);
-        if (request.spaceId !== currentSpaceId) {
-          throw new Error("Apps can only be rolled back in the current Space.");
-        }
-        await rollbackRegistryApp({
-          request,
-          hostVersion: app.getVersion(),
-          registry: appRegistryClient,
-          packages: runtime.packages,
-          installations: runtime.installations,
-        });
-        return installationSnapshot();
-      }
-      case "installations.setEnabled": {
-        requireAppsFrame();
-        const request = parseSetAppEnabledRequest(value);
-        await runtime.installations.setEnabled(request);
-        if (!request.enabled) revokeRuntimeV2FileScope(request.appId, request.spaceId);
-        return installationSnapshot();
-      }
-      case "installations.setPermission": {
-        requireAppsFrame();
-        const request = parseSetAppPermissionRequest(value);
-        await (isAppStandardPermissionName(request.permission)
-          ? runtime.installations.setRuntimePermission({
-              ...request,
-              permission: request.permission,
-            })
-          : runtime.installations.setPermission(request));
-        return installationSnapshot();
-      }
-      case "installations.getSettings":
-        requireAppsFrame();
-        return toDesktopAppSettings(
-          runtime.installations.listSettings(parseAppSettingTarget(value)),
-        );
-      case "installations.setSetting": {
-        requireAppsFrame();
-        const request = parseAppSettingValue(value);
-        await runtime.installations.setSetting(request);
-        return toDesktopAppSettings(runtime.installations.listSettings(request));
-      }
-      case "installations.resetSetting": {
-        requireAppsFrame();
-        const request = parseAppSettingKey(value);
-        await runtime.installations.resetSetting(request);
-        return toDesktopAppSettings(runtime.installations.listSettings(request));
-      }
-      case "installations.setSkillEnabled":
-        requireAppsFrame();
-        await runtime.installations.setSkillEnabled(parseSetAppSkillEnabledRequest(value));
-        return installationSnapshot();
-      case "installations.uninstall": {
-        requireAppsFrame();
-        const request = parseUninstallAppRequest(value);
-        await runtime.installations.uninstall(request);
-        revokeRuntimeV2FileScope(request.appId, request.spaceId);
-        return installationSnapshot();
-      }
-      case "installations.removeData": {
-        requireAppsFrame();
-        const request = parseRemoveAppDataRequest(value);
-        await runtime.installations.removeData(request);
-        revokeRuntimeV2FileScope(request.appId, request.spaceId);
-        return installationSnapshot();
-      }
-      case "registry.list":
-        requireAppsFrame();
-        if (!appRegistryClient) throw new Error("The App registry is not ready.");
-        return appRegistryClient.list(parseRegistryListRequest(value));
-      case "registry.get":
-        requireAppsFrame();
-        if (!appRegistryClient) throw new Error("The App registry is not ready.");
-        return appRegistryClient.get(parseRegistryGetRequest(value));
-      case "registry.getArtifact":
-        requireAppsFrame();
-        if (!appRegistryClient) throw new Error("The App registry is not ready.");
-        return appRegistryClient.getArtifact(parseRegistryArtifactRequest(value));
-      case "registry.getFeedback":
-        requireAppsFrame();
-        if (!appRegistryClient) throw new Error("The App registry is not ready.");
-        return appRegistryClient.getFeedback(parseRegistryFeedbackRequest(value));
-      case "registry.setRating":
-        requireAppsFrame();
-        if (!appRegistryClient) throw new Error("The App registry is not ready.");
-        return appRegistryClient.setRating(parseRegistryRatingRequest(value));
-      case "registry.setReview":
-        requireAppsFrame();
-        if (!appRegistryClient) throw new Error("The App registry is not ready.");
-        return appRegistryClient.setReview(parseRegistryReviewRequest(value));
-      case "apps.open": {
-        requireAppsFrame();
-        const request = parseOpenAppFromAppsRequest(value);
-        return runtime.appTabs.openInstalledFromRenderer(rendererId, {
-          appId: request.appId,
-        });
-      }
-      default:
-        throw Object.assign(new Error(`Unsupported Runtime v2 method: ${method}.`), {
-          code: "METHOD_NOT_SUPPORTED",
-        });
+    requireShellAppTabs(event.sender.id);
+    const appBounds = bounds as Electron.Rectangle;
+    await presentAppTabInWindow({
+      tabId,
+      deckId,
+      threadId,
+      windowId: event.sender.id,
+      bounds: appBounds,
+      animate: animate === true,
+      ...(typeof animationStartedAtEpochMs === "number" &&
+      Number.isFinite(animationStartedAtEpochMs)
+        ? { animationStartedAtEpochMs }
+        : {}),
+    });
+  });
+  ipcMain.handle(IPC.appTabs.hide, async (event, input: unknown) => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return;
+    const { tabId, animate } = input as Record<string, unknown>;
+    if (typeof tabId !== "string") return;
+    if (animate !== undefined && typeof animate !== "boolean") return;
+    const tabs = requireShellAppTabs(event.sender.id);
+    if (tabs.has(tabId)) {
+      await hideAppTabInWindow(tabId, event.sender.id, animate === true);
     }
+  });
+  ipcMain.on(IPC.appTabs.overlayActive, (event, active: unknown) => {
+    if (typeof active !== "boolean") return;
+    const tabs = requireShellAppTabs(event.sender.id);
+    const tabId = tabs.tabForWindow(event.sender.id)?.id;
+    if (!tabId) {
+      event.returnValue = null;
+      return;
+    }
+    tabs.setOverlayActive(event.sender.id, active);
+    event.returnValue = null;
   });
   ipcMain.handle(IPC.appTabs.navigate, async (event, input: unknown) => {
     const { tabId, route, state } = parseNavigateAppTabRequest(input);
@@ -8157,7 +6964,6 @@ function registerIpcHandlers(): void {
     getBackendWsUrl: () =>
       normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env),
   });
-  startBrowserPerformanceLogging();
 }
 
 function getIconOption(): { icon: string } | Record<string, never> {
@@ -8286,23 +7092,22 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     },
   });
   window.on("focus", () => {
-    desktopAppRuntime?.appTabs.focusSurface(rendererOwnerId);
-    const visibleTabId = desktopAppRuntime?.appTabs.visibleTabIdForSurface(rendererOwnerId);
-    if (visibleTabId) {
-      applyActiveHostedBrowserPageBounds(visibleTabId);
-      publishAppBrowserSurface(visibleTabId);
-    }
     const windowSpaces = spacesMenuStateByShellRendererId.get(window.webContents.id);
     if (windowSpaces) {
       spacesMenuState = windowSpaces;
       configureApplicationMenu();
     }
+    void focusAppTabWindow(rendererOwnerId).catch((error: unknown) => {
+      console.warn(
+        `[app-tab] Could not transfer the focused window's App view: ${formatErrorMessage(error)}`,
+      );
+    });
   });
   attachDesktopZoomFactorSync(window);
   attachRendererCrashRecovery(window);
   attachDesktopWindowShortcuts(window.webContents);
 
-  window.webContents.on("context-menu", (event, params) => {
+  window.webContents.on("context-menu", async (event, params) => {
     event.preventDefault();
 
     const menuTemplate: MenuItemConstructorOptions[] = [];
@@ -8335,7 +7140,8 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
       { role: "selectAll", enabled: params.editFlags.canSelectAll },
     );
 
-    Menu.buildFromTemplate(menuTemplate).popup({ window });
+    const thawAppView = await freezeAppViewForWindow(window);
+    Menu.buildFromTemplate(menuTemplate).popup({ window, callback: thawAppView });
   });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -8367,10 +7173,57 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   });
   window.once("ready-to-show", () => showInitialWindow("ready-to-show"));
 
-  window.on("maximize", () => emitDesktopWindowState(window));
-  window.on("unmaximize", () => emitDesktopWindowState(window));
-  window.on("enter-full-screen", () => emitDesktopWindowState(window));
-  window.on("leave-full-screen", () => emitDesktopWindowState(window));
+  window.on("will-resize", (_event, nextBounds) => {
+    const outerBounds = window.getBounds();
+    const contentBounds = window.getContentBounds();
+    resizeAppTabWindow(
+      rendererOwnerId,
+      Math.max(1, nextBounds.width - (outerBounds.width - contentBounds.width)),
+      Math.max(1, nextBounds.height - (outerBounds.height - contentBounds.height)),
+    );
+  });
+  window.on("resize", () => {
+    const contentBounds = window.getContentBounds();
+    resizeAppTabWindow(
+      rendererOwnerId,
+      contentBounds.width,
+      contentBounds.height,
+    );
+    setImmediate(() => {
+      if (window.isDestroyed()) return;
+      const committedBounds = window.getContentBounds();
+      resizeAppTabWindow(rendererOwnerId, committedBounds.width, committedBounds.height);
+      emitDesktopWindowState(window);
+    });
+  });
+  window.on("resized", () => {
+    const contentBounds = window.getContentBounds();
+    resizeAppTabWindow(rendererOwnerId, contentBounds.width, contentBounds.height);
+  });
+  window.on("hide", () => void setAppTabWindowVisibility(rendererOwnerId, false));
+  window.on("show", () => void setAppTabWindowVisibility(rendererOwnerId, true));
+  window.on("minimize", () => void setAppTabWindowVisibility(rendererOwnerId, false));
+  window.on("restore", () => void setAppTabWindowVisibility(rendererOwnerId, true));
+  window.on("maximize", () => {
+    emitDesktopWindowState(window);
+    const contentBounds = window.getContentBounds();
+    resizeAppTabWindow(rendererOwnerId, contentBounds.width, contentBounds.height);
+  });
+  window.on("unmaximize", () => {
+    emitDesktopWindowState(window);
+    const contentBounds = window.getContentBounds();
+    resizeAppTabWindow(rendererOwnerId, contentBounds.width, contentBounds.height);
+  });
+  window.on("enter-full-screen", () => {
+    emitDesktopWindowState(window);
+    const contentBounds = window.getContentBounds();
+    resizeAppTabWindow(rendererOwnerId, contentBounds.width, contentBounds.height);
+  });
+  window.on("leave-full-screen", () => {
+    emitDesktopWindowState(window);
+    const contentBounds = window.getContentBounds();
+    resizeAppTabWindow(rendererOwnerId, contentBounds.width, contentBounds.height);
+  });
   window.on("close", (event) => {
     try {
       writeDesktopWindowState(DESKTOP_WINDOW_STATE_PATH, {
@@ -8412,10 +7265,8 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   });
 
   window.on("closed", () => {
-    browserManager.releaseWindow(window);
+    void releaseAppTabWindow(rendererOwnerId);
     activeWorkPowerBlocker.releaseOwner(rendererOwnerId);
-    desktopAppRuntime?.appTabs.dropSurface(rendererOwnerId);
-    dropAppBrowserSurface(rendererOwnerId);
     spacesMenuStateByShellRendererId.delete(rendererOwnerId);
     shellWindowRegistry.delete(window);
     if (mainWindow === window) {
@@ -8558,10 +7409,6 @@ function configureMediaPermissions(): void {
       trustedRequester: (requester: WebContents) =>
         shellWindowRegistry.hasWebContents(requester) ? requester : null,
     },
-    {
-      targetSession: session.fromPartition(BROWSER_SESSION_PARTITION),
-      trustedRequester: (_requester: WebContents) => null,
-    },
   ]) {
     if (!targetSession) continue;
 
@@ -8639,9 +7486,6 @@ configureAppIdentity();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  app.on("web-contents-created", (_event, contents) => {
-    applyUnmanagedWebviewWindowOpenPolicy(contents);
-  });
   app.on("open-url", (event, value) => {
     const request = parseAppListingDeepLink(value);
     if (!request) return;
@@ -8692,8 +7536,8 @@ async function bootstrap(): Promise<void> {
     userDataPath: app.getPath("userData"),
     appPreloadPath: Path.join(__dirname, "appPreload.js"),
     appControllerRunnerPath: Path.join(__dirname, "appNodeControllerRunner.js"),
-    appFrameRuntimePath: Path.join(__dirname, "appFrameRuntime.iife.js"),
     ipcMain,
+    onBeforeInput: handleHostedBeforeInput,
     getAccountId: getPenkraAccountId,
     eraseAppStorage: (appId, spaceId) => appStorage?.erase({ appId, spaceId }) ?? Promise.resolve(),
     requestStandardPermissions: async (request) => {
@@ -8842,19 +7686,13 @@ async function bootstrap(): Promise<void> {
     onTabState: (descriptor) => {
       announceAppTabState(descriptor);
     },
-    onFrameHostMessage: (message) => {
-      if (message.delivery.kind === "event") {
-        broadcastToShellWindows(IPC.appTabs.frameHostMessage, message);
-        return;
-      }
-      const targetSurfaceId = desktopAppRuntime?.appTabs.activeSurfaceId(message.tabId) ?? null;
-      const targetWindow =
-        shellWindows().find((window) => window.webContents.id === targetSurfaceId) ??
-        resolveShellWindow();
-      targetWindow?.webContents.send(IPC.appTabs.frameHostMessage, message);
-    },
     onTabClosed: (descriptor) => {
       announceAppTabClosed(descriptor);
+    },
+    onTabPresentation: (windowId, presentation) => {
+      shellWindowRegistry
+        .windowForWebContentsId(windowId)
+        ?.webContents.send(IPC.appTabs.presentation, presentation);
     },
     tabAuthority: {
       retireGeneration: retireAppGenerationAuthority,
@@ -8927,7 +7765,7 @@ async function bootstrap(): Promise<void> {
     const runtime = desktopAppRuntime;
     if (!runtime) return;
     try {
-      runtime.appTabs.sendFrameEvent(owner.tabId, "simulator.state", state);
+      runtime.appTabs.sendEvent(owner.tabId, "simulator.state", state);
     } catch {
       // The tab may have closed between the state transition and delivery.
     }
@@ -9008,59 +7846,27 @@ async function bootstrap(): Promise<void> {
   });
   writeDesktopLogHeader("bootstrap App runtime started");
   appTabObserver = new AppTabObserver({
-    resolve: async (tabId, surfaceId) => {
+    resolve: async (tabId, document) => {
       const descriptor = desktopAppRuntime!.appTabs
         .list()
         .find((candidate) => candidate.id === tabId);
-      if (!descriptor) throw new Error(`App tab ${tabId} is unavailable.`);
-      return resolveAppTabObservationTarget({
-        descriptor,
-        browserAppId: BROWSER_APP_ID,
-        allowHostedPage: (() => {
-          const permission = queryAppPermission(
-            desktopAppRuntime!.installations.snapshot(),
-            { appId: descriptor.appId, spaceId: descriptor.spaceId },
-            "browser-session",
-          );
-          return (
-            permission.declared &&
-            permission.state === "granted" &&
-            appBrowserSurfaceInsetsByTabId.has(descriptor.id)
-          );
-        })(),
-        hostedInsets: appBrowserSurfaceInsetsByTabId.get(descriptor.id) ?? null,
-        // A logical App tab may be painted in several shell windows. Resolve the focused visible
-        // replica first, then any other visible replica, without changing the tab-targeted tool
-        // contract or accidentally selecting a retained hidden iframe.
-        appTarget: (targetTabId) => resolveShellAppFrameTarget(descriptor, targetTabId, surfaceId),
-        // A public browser-session is isolated to the App tab that owns it;
-        // DesktopBrowserManager retains the older `threadId` parameter name.
-        browserWebContents: (appTabId) =>
-          browserManager.observationWebContents(appTabId as ThreadId),
-      });
-    },
-    validateUploadPaths: async (descriptor, paths) => {
-      if (!appStorage) throw new Error("App storage is unavailable.");
-      return Promise.all(
-        paths.map((path) =>
-          appStorage!.resolveFile({ appId: descriptor.appId, spaceId: descriptor.spaceId }, path),
-        ),
-      );
-    },
-  });
-  appHostedBrowserObserver = new AppTabObserver({
-    resolve: async (tabId) => {
-      const descriptor = desktopAppRuntime!.appTabs
-        .list()
-        .find((candidate) => candidate.id === tabId);
-      if (!descriptor) throw new Error(`App tab ${tabId} is unavailable.`);
-      const webContents = await browserManager.observationWebContents(tabId as ThreadId);
-      if (!webContents) {
-        throw Object.assign(new Error("The App's hosted browser page is not available."), {
-          code: "BROWSER_SESSION_NOT_OPEN",
-        });
+      if (!descriptor) {
+        throw Object.assign(new Error(`App tab ${tabId} is gone.`), { code: "TAB_GONE" });
       }
-      return { descriptor, webContents };
+      try {
+        return {
+          descriptor,
+          document,
+          webContents: desktopAppRuntime!.appTabs.target(tabId, document),
+        };
+      } catch (error) {
+        throw Object.assign(
+          new Error(
+            `${document} failed to load: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+          { code: "LOAD_FAILED" },
+        );
+      }
     },
     validateUploadPaths: async (descriptor, paths) => {
       if (!appStorage) throw new Error("App storage is unavailable.");
@@ -9071,6 +7877,7 @@ async function bootstrap(): Promise<void> {
       );
     },
   });
+  appHostedBrowserObserver = appTabObserver;
   appCommandPipeServer = new AppCommandPipeServer({
     path: resolveAppCommandPipePath(app.getPath("userData")),
     token: Crypto.randomBytes(32).toString("hex"),

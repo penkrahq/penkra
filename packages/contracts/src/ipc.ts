@@ -261,12 +261,6 @@ export interface BrowserNavigateInput {
   url: string;
 }
 
-export interface BrowserNewTabInput {
-  threadId: ThreadId;
-  url?: string;
-  activate?: boolean;
-}
-
 export interface BrowserPanelBounds {
   x: number;
   y: number;
@@ -277,15 +271,6 @@ export interface BrowserPanelBounds {
 export interface BrowserSetPanelBoundsInput {
   threadId: ThreadId;
   bounds: BrowserPanelBounds | null;
-  surface?: "native" | "renderer";
-}
-
-export interface BrowserAttachWebviewInput extends BrowserTabInput {
-  webContentsId: number;
-}
-
-export interface BrowserDetachWebviewInput extends BrowserTabInput {
-  webContentsId: number;
 }
 
 export interface BrowserCaptureScreenshotResult {
@@ -322,9 +307,6 @@ export interface BrowserControlMethods {
   close: (input: BrowserThreadInput) => Promise<ThreadBrowserState>;
   hide: (input: BrowserThreadInput) => Promise<void>;
   getState: (input: BrowserThreadInput) => Promise<ThreadBrowserState>;
-  setPanelBounds: (input: BrowserSetPanelBoundsInput) => Promise<void>;
-  attachWebview: (input: BrowserAttachWebviewInput) => Promise<ThreadBrowserState>;
-  detachWebview: (input: BrowserDetachWebviewInput) => Promise<void>;
   copyLink: (input: BrowserTabInput) => Promise<void>;
   copyScreenshotToClipboard: (input: BrowserTabInput) => Promise<void>;
   captureScreenshot: (input: BrowserTabInput) => Promise<BrowserCaptureScreenshotResult>;
@@ -335,9 +317,6 @@ export interface BrowserControlMethods {
   reload: (input: BrowserTabInput) => Promise<ThreadBrowserState>;
   goBack: (input: BrowserTabInput) => Promise<ThreadBrowserState>;
   goForward: (input: BrowserTabInput) => Promise<ThreadBrowserState>;
-  newTab: (input: BrowserNewTabInput) => Promise<ThreadBrowserState>;
-  closeTab: (input: BrowserTabInput) => Promise<ThreadBrowserState>;
-  selectTab: (input: BrowserTabInput) => Promise<ThreadBrowserState>;
   openDevTools: (input: BrowserTabInput) => Promise<void>;
   onState: (listener: (state: ThreadBrowserState) => void) => () => void;
 }
@@ -629,9 +608,8 @@ export interface DesktopAppRegistryBridge {
 export interface DesktopAppTabDescriptor {
   id: string;
   /**
-   * Host-minted identity for one execution generation of this logical tab.
-   * The field keeps its historical rendererId name, but Runtime v2 visual tabs are DOM iframes,
-   * not Electron WebContents. A package update preserves `id` and replaces `rendererId`.
+   * Electron WebContents identity for one execution generation of this logical tab.
+   * A package update preserves `id` and replaces `rendererId`.
    */
   rendererId: number;
   appId: string;
@@ -647,8 +625,6 @@ export interface DesktopAppTabDescriptor {
   /** JSON-compatible App navigation state paired with `route` for exact reconstruction. */
   state?: unknown;
   status: "loading" | "ready" | "crashed";
-  /** Runtime v2 document URL on the host-minted opaque App×Space origin. */
-  documentUrl: string;
 }
 
 /** Selection intent belongs to the event, never the retained tab descriptor. */
@@ -656,18 +632,19 @@ export interface DesktopAppTabOpened extends DesktopAppTabDescriptor {
   selection: "activate" | "preserve";
 }
 
-export interface DesktopAppFrameHostMessage {
-  tabId: string;
-  rendererId: number;
-  delivery:
-    | { kind: "host-message"; message: unknown }
-    | { kind: "event"; name: string; payload: unknown };
-}
-
 export interface DesktopAppTabClosed {
   id: string;
   deckId: string;
   threadId: string;
+}
+
+export interface DesktopAppTabPresentation {
+  tabId: string;
+  mode: "live" | "replica" | "hidden";
+  ownerWindowId: number | null;
+  appFrameDataUrl?: string;
+  pageFrameDataUrl?: string;
+  pageTop?: number;
 }
 
 export interface DesktopAppTabsBridge {
@@ -683,59 +660,24 @@ export interface DesktopAppTabsBridge {
     route: string;
     state?: unknown;
   }) => Promise<DesktopAppTabDescriptor>;
-  setActive: (input: {
+  present: (input: {
     tabId: string;
-    rendererId: number;
-    active: boolean;
     deckId: string;
     threadId: string;
+    animate?: boolean;
+    animationStartedAtEpochMs?: number;
+    bounds: { x: number; y: number; width: number; height: number };
   }) => Promise<void>;
+  hide: (input: { tabId: string; animate?: boolean }) => Promise<void>;
+  overlayActive: (active: boolean) => void;
   setContext: (input: { tabId: string; deckId: string; threadId: string }) => Promise<void>;
-  frameCall: (input: {
-    tabId: string;
-    rendererId: number;
-    deckId: string;
-    threadId: string;
-    method: string;
-    input?: unknown;
-  }) => Promise<unknown>;
-  frameMessage: (input: { tabId: string; rendererId: number; message: unknown }) => Promise<void>;
-  frameReady: (input: { tabId: string; rendererId: number }) => Promise<void>;
-  browserWebviewAttach: (input: {
-    tabId: string;
-    rendererId: number;
-    pageId: string;
-    webContentsId: number;
-  }) => Promise<void>;
-  browserWebviewDidFailLoad: (input: {
-    tabId: string;
-    rendererId: number;
-    pageId: string;
-    errorCode: number;
-    errorDescription: string;
-    validatedUrl: string;
-    isMainFrame: boolean;
-  }) => Promise<void>;
-  browserWebviewDetach: (input: {
-    tabId: string;
-    rendererId: number;
-    pageId: string;
-    webContentsId: number;
-  }) => Promise<void>;
-  browserHostedPageBounds: (input: {
-    tabId: string;
-    rendererId: number;
-    pageId: string;
-    bounds: BrowserPanelBounds | null;
-    rendererSurfaceActive: boolean;
-  }) => Promise<boolean>;
   navigate: (input: { tabId: string; route: string; state?: unknown }) => Promise<void>;
   close: (input: { tabId: string }) => Promise<void>;
   onListingRequested: (listener: (input: { appId: string }) => void) => () => void;
   onOpened: (listener: (tab: DesktopAppTabOpened) => void) => () => void;
   onState: (listener: (tab: DesktopAppTabDescriptor) => void) => () => void;
   onClosed: (listener: (tab: DesktopAppTabClosed) => void) => () => void;
-  onFrameHostMessage: (listener: (message: DesktopAppFrameHostMessage) => void) => () => void;
+  onPresentation: (listener: (presentation: DesktopAppTabPresentation) => void) => () => void;
 }
 
 export interface DesktopResourceOpenInput {

@@ -22,6 +22,7 @@ import {
   SIDEBAR_OFFCANVAS_MOTION_SUPPRESSED_CLASS,
   SidebarProvider,
   SidebarRail,
+  publishNativeAppBoundsForWidth,
 } from "../ui/sidebar";
 import { CHAT_BACKGROUND_CLASS_NAME } from "./composerPickerStyles";
 import { CHAT_SURFACE_HEADER_ROW_CLASS_NAME } from "./chatHeaderControls";
@@ -39,8 +40,6 @@ export const RIGHT_DOCK_DEFAULT_WIDTH = "max(28rem, calc(50vw - 8rem))";
 
 interface RightDockProps {
   state: RightDockDeckState;
-  /** All live App panes retained by the chat route, including panes owned by inactive Threads. */
-  retainedPanes?: ReadonlyArray<RightDockPane>;
   minWidth: number;
   contentMinWidth?: number;
   defaultWidth: string;
@@ -50,7 +49,14 @@ interface RightDockProps {
   onOpenChange: (open: boolean) => void;
   onResize?: (width: number) => void;
   motionKey?: string;
-  renderPane: (pane: RightDockPane, context: { isVisible: boolean }) => ReactNode;
+  renderPane: (
+    pane: RightDockPane,
+    context: {
+      isVisible: boolean;
+      animateEntrance: boolean;
+      animationStartedAtEpochMs: number | null;
+    },
+  ) => ReactNode;
 }
 
 function RightDockTab(props: {
@@ -66,6 +72,7 @@ function RightDockTab(props: {
       active={props.active}
       title={props.label}
       icon={props.icon ?? resolveRightDockPaneIcon(props.pane)}
+      className={props.pane.appStatus === "unloaded" ? "opacity-50" : undefined}
       onClick={props.onSelect}
       onClose={props.onClose}
     >
@@ -77,7 +84,6 @@ function RightDockTab(props: {
 export function RightDock(props: RightDockProps) {
   const registerFindSurface = useOptionalFind()?.register;
   const activePane = resolveActivePane(props.state);
-  const retainedPanes = props.retainedPanes ?? (activePane ? [activePane] : []);
   // The dock is the right-most surface when open, so its header sits under the
   // fixed Windows caption cluster — reserve the same gutter the chat header uses.
   const desktopTopBarWindowControlsGutterClassName =
@@ -102,6 +108,27 @@ export function RightDock(props: RightDockProps) {
     );
   }, [props.state.open, registerFindSurface]);
   const minWidth = props.minWidth;
+  const previousOpenRef = useRef(props.state.open);
+  const openingThisRender = props.state.open && !previousOpenRef.current;
+  const openingStartedAtRef = useRef<number | null>(null);
+  if (openingThisRender) openingStartedAtRef.current = Date.now();
+  const [openingMotion, setOpeningMotion] = useState(false);
+  useEffect(() => {
+    const wasOpen = previousOpenRef.current;
+    previousOpenRef.current = props.state.open;
+    if (!props.state.open) {
+      setOpeningMotion(false);
+      openingStartedAtRef.current = null;
+      return;
+    }
+    if (wasOpen) return;
+    setOpeningMotion(true);
+    const timer = window.setTimeout(() => {
+      setOpeningMotion(false);
+      openingStartedAtRef.current = null;
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [props.state.open]);
   useLayoutEffect(() => {
     if (!props.state.open) {
       return;
@@ -113,30 +140,31 @@ export function RightDock(props: RightDockProps) {
     }
     let resizeFrameId: number | null = null;
     const applyAvailableWidth = () => {
-      const shellWidth = shell.getBoundingClientRect().width;
+      const shellWidth = wrapper.parentElement?.clientWidth ?? window.innerWidth;
       const preferredWidth = props.state.width ?? Math.round(shellWidth / 2);
       const maximumWidth = Math.max(minWidth, shellWidth - (props.contentMinWidth ?? 0));
       const nextWidth = Math.max(minWidth, Math.min(preferredWidth, maximumWidth));
       if (nextWidth > 0) {
+        publishNativeAppBoundsForWidth(wrapper, nextWidth);
         wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
       }
     };
-
-    applyAvailableWidth();
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-
-    const resizeObserver = new ResizeObserver(() => {
+    const scheduleAvailableWidth = () => {
       if (resizeFrameId !== null) return;
       resizeFrameId = window.requestAnimationFrame(() => {
         resizeFrameId = null;
         applyAvailableWidth();
       });
-    });
-    resizeObserver.observe(shell);
+    };
+
+    applyAvailableWidth();
+    window.addEventListener("resize", scheduleAvailableWidth);
+    const removeWindowStateListener = window.desktopBridge?.windowControls?.onState(() =>
+      scheduleAvailableWidth(),
+    );
     return () => {
-      resizeObserver.disconnect();
+      window.removeEventListener("resize", scheduleAvailableWidth);
+      removeWindowStateListener?.();
       if (resizeFrameId !== null) {
         window.cancelAnimationFrame(resizeFrameId);
       }
@@ -230,25 +258,15 @@ export function RightDock(props: RightDockProps) {
             </div>
           </div>
           <div className="relative min-h-0 flex-1">
-            {retainedPanes.map((pane) => {
-              const isVisible = props.state.open && pane.id === activePane?.id;
-              return (
-                <div
-                  key={pane.id}
-                  aria-hidden={!isVisible}
-                  className={cn(
-                    "absolute inset-0 flex min-h-0 w-full",
-                    // Retained App renderers stay mounted and composited so switching tabs cannot
-                    // reveal a stale same-App frame. Zero opacity preserves the retained frame's
-                    // layout for exact tab-scoped semantic observation. aria-hidden keeps the
-                    // inactive pane out of the shell's user-facing accessibility tree.
-                    !isVisible && "pointer-events-none opacity-0",
-                  )}
-                >
-                  {props.renderPane(pane, { isVisible })}
-                </div>
-              );
-            })}
+            {activePane ? (
+              <div className="absolute inset-0 flex min-h-0 w-full">
+                {props.renderPane(activePane, {
+                  isVisible: props.state.open,
+                  animateEntrance: openingThisRender || openingMotion,
+                  animationStartedAtEpochMs: openingStartedAtRef.current,
+                })}
+              </div>
+            ) : null}
           </div>
         </div>
         <SidebarRail />

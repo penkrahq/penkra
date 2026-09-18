@@ -19,6 +19,9 @@ export interface AppPreloadTransport {
   onHostMessage(listener: (message: unknown) => void): () => void;
   ready(): void;
   tabSetRoute(input: import("@penkra/sdk").AppTabNavigationInput): Promise<void>;
+  tabOpenSibling(
+    input?: import("@penkra/sdk").AppTabNavigationInput,
+  ): Promise<{ tabId: string }>;
   tabGetContext(): Promise<{
     deckId: string;
     threadId: string;
@@ -257,8 +260,8 @@ export class AppPreloadRuntime {
           >,
         onState: (listener) => this.#transport.onBrowserState(listener),
         onDownload: (listener) => this.#transport.onBrowserDownload(listener),
-        setSurfaceLayout: (insets) =>
-          this.#transport.browserCall("setSurfaceLayout", insets) as Promise<void>,
+        setToolbarHeight: (height) =>
+          this.#transport.browserCall("setToolbarHeight", height) as Promise<void>,
         navigate: (input) =>
           this.#transport.browserCall("navigate", input) as Promise<
             import("@penkra/sdk").AppBrowserSessionState
@@ -279,20 +282,6 @@ export class AppPreloadRuntime {
           this.#transport.browserCall("forward", pageId) as Promise<
             import("@penkra/sdk").AppBrowserSessionState
           >,
-        newPage: (input) =>
-          this.#transport.browserCall("newPage", input) as Promise<
-            import("@penkra/sdk").AppBrowserSessionState
-          >,
-        closePage: (pageId) =>
-          this.#transport.browserCall("closePage", pageId) as Promise<
-            import("@penkra/sdk").AppBrowserSessionState
-          >,
-        selectPage: (pageId) =>
-          this.#transport.browserCall("selectPage", pageId) as Promise<
-            import("@penkra/sdk").AppBrowserSessionState
-          >,
-        openExtensionAction: (input) =>
-          this.#transport.browserCall("openExtensionAction", input) as Promise<void>,
         snapshot: (input) => this.#transport.browserCall("snapshot", input),
         find: (input) => this.#transport.browserCall("find", input),
         click: (input) => this.#transport.browserCall("click", input),
@@ -400,6 +389,7 @@ export class AppPreloadRuntime {
       tab: {
         getContext: () => this.#transport.tabGetContext(),
         setRoute: (input) => this.#transport.tabSetRoute(input),
+        openSibling: (input) => this.#transport.tabOpenSibling(input),
         onVisibilityChange: (listener) => {
           if (typeof listener !== "function") {
             throw new TypeError("Visibility listener must be a function.");

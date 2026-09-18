@@ -3,6 +3,7 @@ import type {
   DesktopAppTabClosed,
   DesktopAppTabDescriptor,
   DesktopAppTabOpened,
+  DesktopAppTabPresentation,
   DesktopBridge,
 } from "@penkra/contracts";
 import { createBufferedPreloadEvent } from "./bufferedPreloadEvent";
@@ -14,12 +15,17 @@ const IPC = DESKTOP_IPC_CHANNELS;
 const appTabOpened = createBufferedPreloadEvent<DesktopAppTabOpened>();
 const appTabState = createBufferedPreloadEvent<DesktopAppTabDescriptor>();
 const appTabClosed = createBufferedPreloadEvent<DesktopAppTabClosed>();
+const appTabPresentation = createBufferedPreloadEvent<DesktopAppTabPresentation>();
 
 ipcRenderer.on(IPC.appTabs.opened, (_event, tab: DesktopAppTabOpened) => appTabOpened.publish(tab));
 ipcRenderer.on(IPC.appTabs.state, (_event, tab: DesktopAppTabDescriptor) =>
   appTabState.publish(tab),
 );
 ipcRenderer.on(IPC.appTabs.closed, (_event, tab: DesktopAppTabClosed) => appTabClosed.publish(tab));
+ipcRenderer.on(
+  IPC.appTabs.presentation,
+  (_event, presentation: DesktopAppTabPresentation) => appTabPresentation.publish(presentation),
+);
 
 function getDesktopWsUrl(): string | null {
   try {
@@ -228,17 +234,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     list: () => ipcRenderer.invoke(IPC.appTabs.list),
     consumeListingRequest: () => ipcRenderer.invoke(IPC.appTabs.consumeListingRequest),
     open: (input) => ipcRenderer.invoke(IPC.appTabs.open, input),
-    setActive: (input) => ipcRenderer.invoke(IPC.appTabs.setActive, input),
+    present: (input) => ipcRenderer.invoke(IPC.appTabs.present, input),
+    hide: (input) => ipcRenderer.invoke(IPC.appTabs.hide, input),
+    overlayActive: (active) => ipcRenderer.sendSync(IPC.appTabs.overlayActive, active),
     setContext: (input) => ipcRenderer.invoke(IPC.appTabs.setContext, input),
-    frameCall: (input) => ipcRenderer.invoke(IPC.appTabs.frameCall, input),
-    frameMessage: (input) => ipcRenderer.invoke(IPC.appTabs.frameMessage, input),
-    frameReady: (input) => ipcRenderer.invoke(IPC.appTabs.frameReady, input),
-    browserWebviewAttach: (input) => ipcRenderer.invoke(IPC.appTabs.browserWebviewAttach, input),
-    browserWebviewDidFailLoad: (input) =>
-      ipcRenderer.invoke(IPC.appTabs.browserWebviewDidFailLoad, input),
-    browserWebviewDetach: (input) => ipcRenderer.invoke(IPC.appTabs.browserWebviewDetach, input),
-    browserHostedPageBounds: (input) =>
-      ipcRenderer.invoke(IPC.appTabs.browserHostedPageBounds, input),
     navigate: (input) => ipcRenderer.invoke(IPC.appTabs.navigate, input),
     close: (input) => ipcRenderer.invoke(IPC.appTabs.close, input),
     onListingRequested: (listener) => {
@@ -256,13 +255,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     onClosed: (listener) => {
       return appTabClosed.subscribe(listener);
     },
-    onFrameHostMessage: (listener) => {
-      const wrapped = (
-        _event: Electron.IpcRendererEvent,
-        message: Parameters<typeof listener>[0],
-      ) => listener(message);
-      ipcRenderer.on(IPC.appTabs.frameHostMessage, wrapped);
-      return () => ipcRenderer.removeListener(IPC.appTabs.frameHostMessage, wrapped);
+    onPresentation: (listener) => {
+      return appTabPresentation.subscribe(listener);
     },
   },
   resources: {

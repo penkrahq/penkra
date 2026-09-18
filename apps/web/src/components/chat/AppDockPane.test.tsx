@@ -4,44 +4,41 @@ import { describe, expect, it } from "vitest";
 import { AppDockPane } from "./AppDockPane";
 
 describe("AppDockPane", () => {
-  it("renders one sandboxed App frame and the selected icon while loading", () => {
+  it("renders loading chrome without an iframe or webview", () => {
     const html = renderToStaticMarkup(
       <AppDockPane
         deckId="deck-1"
         threadId="thread-1"
         appName="Figma"
         iconDataUrl="data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="
-        rendererId={-1}
-        documentUrl="penkra-app://a-test/app.html"
+        rendererId={12}
         status="loading"
         tabId="tab-1"
-        visible={true}
+        visible
+        animateEntrance={false}
+        animationStartedAtEpochMs={null}
       />,
     );
-
     expect(html).toContain('aria-label="Loading Figma"');
-    expect(html).toContain('sandbox="allow-forms allow-modals allow-same-origin allow-scripts"');
     expect(html).toContain('data-app-tab-id="tab-1"');
-    expect(html).toContain('name="penkra-app-tab:tab-1"');
-    expect(html).toContain("data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=");
-    expect(html).not.toContain("Loading App");
+    expect(html).not.toContain("iframe");
+    expect(html).not.toContain("webview");
   });
 
-  it("keeps a retained non-visible App frame rendered for tab-scoped semantic access", () => {
+  it("does not publish an inactive tab as the visible native surface", () => {
     const html = renderToStaticMarkup(
       <AppDockPane
         deckId="deck-1"
         threadId="thread-1"
         appName="Canvas"
-        rendererId={7}
-        documentUrl="penkra-app://canvas/app.html"
+        rendererId={17}
         status="ready"
         tabId="canvas-tab"
         visible={false}
+        animateEntrance={false}
+        animationStartedAtEpochMs={null}
       />,
     );
-
-    expect(html).toContain('data-app-tab-id="canvas-tab"');
-    expect(html).not.toContain(' hidden=""');
+    expect(html).not.toContain("data-app-tab-id");
   });
 });

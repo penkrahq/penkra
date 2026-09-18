@@ -373,5 +373,16 @@ describe("validateAppManifest", () => {
     expect(result.issues).toEqual(
       expect.arrayContaining([expect.objectContaining({ path: "contributions.handlers[0]" })]),
     );
+
+    expect(
+      validateAppManifest({
+        ...validManifest,
+        entrypoints: { tab: "app.html" },
+        operations: [],
+        contributions: {
+          handlers: [{ intent: "open-url", operation: "tab.open", schemes: ["https"] }],
+        },
+      }).ok,
+    ).toBe(true);
   });
 });

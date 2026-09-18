@@ -4,6 +4,7 @@ import { Dialog as CommandDialogPrimitive } from "@base-ui/react/dialog";
 import { SearchIcon } from "~/lib/icons";
 import type * as React from "react";
 import { cn } from "~/lib/utils";
+import { NativeAppOverlayBoundary } from "./native-app-overlay";
 import {
   Autocomplete,
   AutocompleteCollection,
@@ -55,6 +56,7 @@ function CommandDialogViewport({ className, ...props }: CommandDialogPrimitive.V
 function CommandDialogPopup({ className, children, ...props }: CommandDialogPrimitive.Popup.Props) {
   return (
     <CommandDialogPortal>
+      <NativeAppOverlayBoundary />
       <CommandDialogBackdrop />
       <CommandDialogViewport>
         <CommandDialogPrimitive.Popup

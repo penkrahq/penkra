@@ -17,30 +17,32 @@ function pane(id: string, name: string): RightDockPane {
   };
 }
 
-describe("RightDock retained App surfaces", () => {
-  it("keeps inactive and other-Thread App surfaces mounted while showing only the active pane", () => {
+describe("RightDock App surface", () => {
+  it("renders only the selected pane while main retains inactive App views", () => {
     const canvas = pane("canvas-tab", "Canvas");
     const browser = pane("browser-tab", "Browser");
     const html = renderToStaticMarkup(
       <RightDock
         state={{ open: true, panes: [canvas], activePaneId: canvas.id, width: null }}
-        retainedPanes={[canvas, browser]}
         minWidth={320}
         defaultWidth="50vw"
         shouldAcceptWidth={() => true}
         onSelectPane={vi.fn()}
         onClosePane={vi.fn()}
         onOpenChange={vi.fn()}
-        renderPane={(retainedPane, { isVisible }) => (
-          <div data-retained-app={retainedPane.id} data-visible={String(isVisible)} />
+        renderPane={(selectedPane, { isVisible, animateEntrance }) => (
+          <div
+            data-rendered-app={selectedPane.id}
+            data-visible={String(isVisible)}
+            data-animate-entrance={String(animateEntrance)}
+          />
         )}
       />,
     );
 
-    expect(html).toContain('data-retained-app="canvas-tab" data-visible="true"');
-    expect(html).toContain('data-retained-app="browser-tab" data-visible="false"');
-    expect(html).toContain('aria-hidden="true"');
-    expect(html).toContain("pointer-events-none opacity-0");
+    expect(html).toContain('data-rendered-app="canvas-tab" data-visible="true"');
+    expect(html).toContain('data-animate-entrance="false"');
+    expect(html).not.toContain('data-rendered-app="browser-tab"');
     expect(html).not.toContain("pointer-events-none invisible");
     expect(html).not.toContain(' hidden=""');
   });

@@ -5,8 +5,6 @@
 import {
   app,
   session,
-  type BrowserWindow,
-  type BrowserWindowConstructorOptions,
   type WebContents,
 } from "electron";
 import { createHash } from "node:crypto";
@@ -18,8 +16,6 @@ import {
   deriveVanillaChromeUserAgent,
 } from "@penkra/shared/browserSession";
 import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
-
-export const BROWSER_SESSION_PARTITION = "persist:penkra-browser";
 
 export function createScopedBrowserSessionPartition(appId: string, spaceId: string): string {
   const digest = createHash("sha256").update(`${appId}\0${spaceId}`).digest("hex").slice(0, 32);
@@ -69,7 +65,7 @@ export class BrowserSessionPolicy {
     return deriveBrowserUserAgentForUrl(this.resolveUserAgent(), url);
   }
 
-  ensureConfigured(partition = BROWSER_SESSION_PARTITION): void {
+  ensureConfigured(partition: string): void {
     if (this.configuredPartitions.has(partition)) {
       return;
     }
@@ -115,27 +111,4 @@ export class BrowserSessionPolicy {
     return userAgent;
   }
 
-  buildOAuthPopupWindowOptions(
-    parent: BrowserWindow | null,
-    partition = BROWSER_SESSION_PARTITION,
-  ): BrowserWindowConstructorOptions {
-    return {
-      width: 480,
-      height: 640,
-      resizable: true,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
-      autoHideMenuBar: true,
-      skipTaskbar: true,
-      title: "Sign in",
-      ...(parent ? { parent } : {}),
-      webPreferences: {
-        partition,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-      },
-    };
-  }
 }

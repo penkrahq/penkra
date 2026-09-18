@@ -12,8 +12,7 @@
     "start": "bun run scripts/start-electron.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests --silent=passed-only",
-    "smoke-test": "node scripts/smoke-test.mjs",
-    "probe:hosted-surface-resize": "node scripts/hosted-surface-resize-probe.mjs"
+    "smoke-test": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@better-auth/electron": "1.6.25",
