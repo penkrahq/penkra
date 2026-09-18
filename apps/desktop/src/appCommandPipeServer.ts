@@ -107,11 +107,13 @@ interface AppTabObserverBridge {
       document?: "d1" | "d2";
       depth?: number;
       boxes?: boolean;
+      interactive?: boolean;
+      compact?: boolean;
       outputPath?: string;
     },
   ): Promise<unknown>;
   diff(tabId: string, document?: "d1" | "d2"): Promise<unknown>;
-  act(tabId: string, steps: ReadonlyArray<import("./appTabObserver").AppTabActStep>): Promise<unknown>;
+  act(tabId: string, steps: ReadonlyArray<import("./appTabObserver").AppTabActStep>, human?: boolean): Promise<unknown>;
   evaluate(tabId: string, document: "d1" | "d2", expression: string): Promise<unknown>;
   screenshot(tabId: string, document?: "d1" | "d2", outputPath?: string): Promise<unknown>;
   record(tabId: string, document: "d1" | "d2", durationMs: number, outputPath: string): Promise<unknown>;
@@ -437,7 +439,11 @@ export class AppCommandPipeServer {
           ok: true,
           id: request.id,
           result: await this.#observe(params, () =>
-            this.#observer.act(this.#tab(params).id, appTabActSteps(params.steps)),
+            this.#observer.act(
+              this.#tab(params).id,
+              appTabActSteps(params.steps),
+              optionalBoolean(params.human, "human") ?? false,
+            ),
           ),
         };
       case "tabs.evaluate":
@@ -1133,18 +1139,24 @@ function observationOptions(params: Record<string, unknown>): {
   target?: string;
   depth?: number;
   boxes?: boolean;
+  interactive?: boolean;
+  compact?: boolean;
   outputPath?: string;
 } {
   const target = optionalString(params.target, "target");
   const document = observationDocument(params);
   const depth = optionalNumber(params.depth, "depth");
   const boxes = optionalBoolean(params.boxes, "boxes");
+  const interactive = optionalBoolean(params.interactive, "interactive");
+  const compact = optionalBoolean(params.compact, "compact");
   const outputPath = optionalString(params.outputPath, "outputPath");
   return {
     document,
     ...(target === null ? {} : { target }),
     ...(depth === null ? {} : { depth }),
     ...(boxes === null ? {} : { boxes }),
+    ...(interactive === null ? {} : { interactive }),
+    ...(compact === null ? {} : { compact }),
     ...(outputPath === null ? {} : { outputPath }),
   };
 }
@@ -1167,7 +1179,7 @@ function appTabActSteps(
     }
     const step = raw as Record<string, unknown>;
     const action = requiredString(step.action, `steps[${index}].action`);
-    if (action === "click" || action === "hover") {
+    if (action === "click" || action === "hover" || action === "highlight") {
       return { action, ref: requiredString(step.ref, `steps[${index}].ref`) };
     }
     if (action === "type") {

@@ -560,23 +560,13 @@ describe("penkra_exec_command discovery", () => {
 
     await executePenkraExecCommand(command("penkra", "tabs", "list"), context, {}, bridge);
     await executePenkraExecCommand(
-      command("penkra", "tabs", "snapshot", "--tab-id", "tab-A"),
+      command("penkra", "tabs", "snapshot", "--tab-id", "tab-A", "--document", "d1"),
       context,
       {},
       bridge,
     );
     await executePenkraExecCommand(
-      command(
-        "penkra",
-        "tabs",
-        "type",
-        "--tab-id",
-        "tab-A",
-        "--ref",
-        "e7",
-        "--text",
-        "'Updated copy'",
-      ),
+      { command: 'penkra tabs act --input \'{"tabId":"tab-A","steps":[{"action":"type","ref":"d1:e7","text":"Updated copy"}]}\'' },
       context,
       {},
       bridge,
@@ -586,11 +576,11 @@ describe("penkra_exec_command discovery", () => {
       { method: "tabs.list", params: context },
       {
         method: "tabs.snapshot",
-        params: { ...context, tabId: "tab-A" },
+        params: { ...context, tabId: "tab-A", document: "d1" },
       },
       {
-        method: "tabs.type",
-        params: { ...context, tabId: "tab-A", target: "e7", text: "Updated copy" },
+        method: "tabs.act",
+        params: { ...context, tabId: "tab-A", steps: [{ action: "type", ref: "d1:e7", text: "Updated copy" }] },
       },
     ]);
   });
@@ -607,16 +597,18 @@ describe("penkra_exec_command discovery", () => {
     expect(help).toContain("`penkra tabs list`");
     expect(help).toContain("`penkra tabs snapshot`");
     expect(help).toContain("`penkra tabs screenshot`");
+    expect(help).toContain("`penkra tabs act`");
+    expect(help).not.toContain("`penkra tabs click`");
 
-    const clickHelp = await executePenkraExecCommand(
-      command("penkra", "tabs", "click", "--help"),
+    const actHelp = await executePenkraExecCommand(
+      command("penkra", "tabs", "act", "--help"),
       context,
       {},
       async () => [],
     );
-    expect(clickHelp).toContain("How to use this operation");
-    expect(clickHelp).toContain("penkra tabs click --tab-id <tab-id> --ref e17");
-    expect(clickHelp).toContain('"ref"');
+    expect(actHelp).toContain("How to use this operation");
+    expect(actHelp).toContain("penkra tabs act --input");
+    expect(actHelp).toContain("d1:e3");
   });
 
   it("exposes explicit Thread Deck operations and receipt-bound background sends", async () => {
@@ -751,7 +743,7 @@ describe("penkra_exec_command discovery", () => {
     ]);
   });
 
-  it("parses scoped snapshots, observed actions, dialogs, and App-storage uploads", async () => {
+  it("parses scoped snapshots and unified action steps", async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     const bridge = async (method: string, params: unknown) => {
       calls.push({ method, params });
@@ -764,11 +756,17 @@ describe("penkra_exec_command discovery", () => {
         "snapshot",
         "--tab-id",
         "tab-A",
+        "--document",
+        "d1",
         "--ref",
-        "e3",
+        "d1:e3",
         "--depth",
         "2",
         "--boxes",
+        "true",
+        "--interactive",
+        "true",
+        "--compact",
         "true",
       ),
       context,
@@ -776,29 +774,7 @@ describe("penkra_exec_command discovery", () => {
       bridge,
     );
     await executePenkraExecCommand(
-      command("penkra", "tabs", "click", "--tab-id", "tab-A", "--ref", "e1", "--observe", "true"),
-      context,
-      {},
-      bridge,
-    );
-    await executePenkraExecCommand(
-      command("penkra", "tabs", "handle-dialog", "--tab-id", "tab-A", "--accept", "false"),
-      context,
-      {},
-      bridge,
-    );
-    await executePenkraExecCommand(
-      command(
-        "penkra",
-        "tabs",
-        "upload",
-        "--tab-id",
-        "tab-A",
-        "--ref",
-        "e2",
-        "--input",
-        '\'{"paths":["/app/report.pdf"]}\'',
-      ),
+      { command: 'penkra tabs act --input \'{"tabId":"tab-A","steps":[{"action":"click","ref":"d1:e1"},{"action":"highlight","ref":"d1:e1"},{"action":"dialog","accept":false},{"action":"upload","ref":"d1:e2","paths":["/app/report.pdf"]}]}\' --human true' },
       context,
       {},
       bridge,
@@ -806,16 +782,16 @@ describe("penkra_exec_command discovery", () => {
     expect(calls).toEqual([
       {
         method: "tabs.snapshot",
-        params: { ...context, tabId: "tab-A", target: "e3", depth: 2, boxes: true },
+        params: { ...context, tabId: "tab-A", document: "d1", target: "d1:e3", depth: 2, boxes: true, interactive: true, compact: true },
       },
       {
-        method: "tabs.click",
-        params: { ...context, tabId: "tab-A", target: "e1", observe: true },
-      },
-      { method: "tabs.handle-dialog", params: { ...context, tabId: "tab-A", accept: false } },
-      {
-        method: "tabs.upload",
-        params: { ...context, tabId: "tab-A", target: "e2", paths: ["/app/report.pdf"] },
+        method: "tabs.act",
+        params: { ...context, tabId: "tab-A", human: true, steps: [
+          { action: "click", ref: "d1:e1" },
+          { action: "highlight", ref: "d1:e1" },
+          { action: "dialog", accept: false },
+          { action: "upload", ref: "d1:e2", paths: ["/app/report.pdf"] },
+        ] },
       },
     ]);
   });
@@ -829,6 +805,8 @@ describe("penkra_exec_command discovery", () => {
         "snapshot",
         "--tab-id",
         "tab-A",
+        "--document",
+        "d1",
         "--filename",
         "artifacts/canvas.md",
       ),
@@ -842,6 +820,7 @@ describe("penkra_exec_command discovery", () => {
       {
         ...context,
         tabId: "tab-A",
+        document: "d1",
         outputPath: "/workspace/artifacts/canvas.md",
       },
       {},

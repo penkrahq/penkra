@@ -170,7 +170,7 @@ describe("AppTabObserver", () => {
       defaultPrompt: "",
     });
 
-    await expect(observer.snapshot("tab-1")).rejects.toMatchObject({ code: "DIALOG_OPEN" });
+    await expect(observer.snapshot("tab-1")).rejects.toThrow("A browser JavaScript confirm dialog is open");
     await expect(observer.handleDialog("tab-1", false)).resolves.toMatchObject({
       accepted: false,
       dialog: { type: "confirm", message: "Delete this record?" },
@@ -188,8 +188,90 @@ describe("AppTabObserver", () => {
     await expect(observer.snapshot("tab-1")).resolves.toMatchObject({
       tabId: "tab-1",
       app: "canvas",
-      snapshot: '- button "Save" [ref=d1:e1]\n- textbox "Password" value="[redacted]" [ref=d1:e2]',
+      snapshot: expect.stringContaining('- button "Save" [ref=d1:e1]\n- textbox "Password" value="[redacted]" [ref=d1:e2]'),
+      refs: {
+        "d1:e1": { role: "button", name: "Save" },
+        "d1:e2": { role: "textbox", name: "Password" },
+      },
+      removedRefs: [],
     });
+  });
+
+  it("supports interactive compact snapshots and reports refs removed since the prior snapshot", async () => {
+    const { contents, sendCommand } = makeContents();
+    let includeSave = true;
+    sendCommand.mockImplementation(async (method: string) => {
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { loaderId: "loader-1" } } };
+      if (method === "Accessibility.getFullAXTree")
+        return {
+          nodes: [
+            { nodeId: "root", childIds: includeSave ? ["save", "text"] : ["text"], role: { value: "RootWebArea" }, name: { value: "Canvas" } },
+            ...(includeSave ? [{ nodeId: "save", parentId: "root", backendDOMNodeId: 7, role: { value: "button" }, name: { value: "Save" } }] : []),
+            { nodeId: "text", parentId: "root", role: { value: "StaticText" }, name: { value: "Noise" } },
+          ],
+        };
+      return {};
+    });
+    const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
+
+    await expect(observer.snapshot("tab-1", { interactive: true, compact: true })).resolves.toMatchObject({
+      snapshot: expect.stringContaining('- button "Save" [ref=d1:e1]'),
+      removedRefs: [],
+    });
+    includeSave = false;
+    await expect(observer.snapshot("tab-1", { interactive: true, compact: true })).resolves.toMatchObject({
+      snapshot: expect.stringContaining("(no interactive elements)"),
+      removedRefs: ["d1:e1"],
+    });
+  });
+
+  it("resolves snapshot boxes in parallel", async () => {
+    const { contents, sendCommand } = makeContents();
+    let active = 0;
+    let maximum = 0;
+    sendCommand.mockImplementation(async (method: string) => {
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { loaderId: "loader-1" } } };
+      if (method === "Accessibility.getFullAXTree")
+        return { nodes: [1, 2, 3].map((id) => ({ backendDOMNodeId: id, role: { value: "button" }, name: { value: `Button ${id}` } })) };
+      if (method === "DOM.getBoxModel") {
+        active += 1;
+        maximum = Math.max(maximum, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active -= 1;
+        return { model: { border: [0, 0, 10, 0, 10, 10, 0, 10] } };
+      }
+      return {};
+    });
+    const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
+    await observer.snapshot("tab-1", { boxes: true });
+    expect(maximum).toBe(3);
+  });
+
+  it("installs the cursor overlay, glides, ripples, and highlights through CDP", async () => {
+    const { contents, sendCommand } = makeContents();
+    sendCommand.mockImplementation(async (method: string) => {
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { loaderId: "loader-1" } } };
+      if (method === "Accessibility.getFullAXTree")
+        return { nodes: [{ backendDOMNodeId: 7, role: { value: "button" }, name: { value: "Save" } }] };
+      if (method === "DOM.getBoxModel") return { model: { content: [10, 10, 30, 10, 30, 30, 10, 30] } };
+      if (method === "DOM.resolveNode") return { object: { objectId: "button-1" } };
+      return {};
+    });
+    const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
+    await observer.snapshot("tab-1");
+    await observer.act("tab-1", [
+      { action: "hover", ref: "d1:e1" },
+      { action: "click", ref: "d1:e1" },
+      { action: "highlight", ref: "d1:e1" },
+    ], true);
+
+    expect(sendCommand.mock.calls.some(([method]) => method === "Page.addScriptToEvaluateOnNewDocument")).toBe(true);
+    expect(sendCommand.mock.calls.filter(([method]) => method === "Input.dispatchMouseEvent").length).toBeGreaterThan(25);
+    expect(
+      sendCommand.mock.calls.some(
+        (call) => call[0] === "Runtime.callFunctionOn" && JSON.stringify(call).includes("outline"),
+      ),
+    ).toBe(true);
   });
 
   it("serializes concurrent snapshots for one tab so reference generations cannot interleave", async () => {
@@ -217,8 +299,8 @@ describe("AppTabObserver", () => {
     ]);
 
     expect(maximumConcurrentTrees).toBe(1);
-    expect(first).toMatchObject({ snapshot: '- button "Save" [ref=d1:e1]' });
-    expect(second).toMatchObject({ snapshot: '- button "Save" [ref=d1:e1]' });
+    expect(first).toMatchObject({ snapshot: expect.stringContaining('- button "Save" [ref=d1:e1]') });
+    expect(second).toMatchObject({ snapshot: expect.stringContaining('- button "Save" [ref=d1:e1]') });
   });
 
   it("writes a complete snapshot to the requested artifact path", async () => {
@@ -291,10 +373,10 @@ describe("AppTabObserver", () => {
     });
 
     await expect(observer.snapshot("tab-1", { depth: 1, boxes: true })).resolves.toMatchObject({
-      snapshot: '- document "Canvas"\n  - button "Save" [ref=d1:e1] [box=10,20,100,40]',
+      snapshot: expect.stringContaining('- document "Canvas"\n  - button "Save" [ref=d1:e1] [box=10,20,100,40]'),
     });
     await expect(observer.snapshot("tab-1", { target: "d1:e1" })).resolves.toMatchObject({
-      snapshot: '- button "Save" [ref=d1:e1]',
+      snapshot: expect.stringContaining('- button "Save" [ref=d1:e1]'),
     });
   });
 
@@ -329,7 +411,7 @@ describe("AppTabObserver", () => {
     });
 
     await expect(observer.snapshot("tab-1", { boxes: true })).resolves.toMatchObject({
-      snapshot: '- button "Visible" [ref=d1:e1] [box=0,0,80,30]\n- option "Collapsed option" [ref=d1:e2]',
+      snapshot: expect.stringContaining('- button "Visible" [ref=d1:e1] [box=0,0,80,30]\n- option "Collapsed option" [ref=d1:e2]'),
     });
   });
 
