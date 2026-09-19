@@ -42,6 +42,39 @@ function installBridge() {
 }
 
 describe("AppDockPane native view controller", () => {
+  it("presents from rendered geometry when deck re-entry precedes pixel width publication", async () => {
+    const bridge = installBridge();
+    const screen = await render(
+      <div
+        data-slot="sidebar-wrapper"
+        style={
+          {
+            "--sidebar-width": "max(28rem, calc(50vw - 8rem))",
+            width: 500,
+          } as CSSProperties
+        }
+      >
+        <AppDockPane
+          deckId="returning-deck"
+          threadId="returning-thread"
+          appName="Apps"
+          rendererId={101}
+          status="ready"
+          tabId="returning-tab"
+          visible
+          animateEntrance={false}
+          animationStartedAtEpochMs={null}
+        />
+      </div>,
+    );
+
+    await vi.waitFor(() => expect(bridge.present).toHaveBeenCalledOnce());
+    screen.container
+      .querySelector<HTMLElement>("[data-slot='sidebar-wrapper']")!
+      .style.setProperty("--sidebar-width", "500px");
+    expect(bridge.present).toHaveBeenCalledOnce();
+  });
+
   it("presents the main-owned view without rendering an iframe or webview", async () => {
     const bridge = installBridge();
     const screen = await render(
@@ -86,7 +119,10 @@ describe("AppDockPane native view controller", () => {
       />,
     );
     await vi.waitFor(() =>
-      expect(bridge.hide).toHaveBeenCalledWith({ tabId: "stable-tab", animate: false }),
+      expect(bridge.hide).toHaveBeenCalledWith({
+        tabId: "stable-tab",
+        animate: false,
+      }),
     );
   });
 

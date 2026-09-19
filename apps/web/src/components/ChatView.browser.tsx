@@ -1793,6 +1793,7 @@ async function dragWithPointerFrames(
   targetYRatio = 0.5,
   beforeFinish?: () => void | Promise<void>,
   finish: "drop" | "cancel" = "drop",
+  afterPress?: () => void | Promise<void>,
 ): Promise<void> {
   const sourceRect = source.getBoundingClientRect();
   const targetRect = target.getBoundingClientRect();
@@ -1834,6 +1835,7 @@ async function dragWithPointerFrames(
   try {
     dispatch(source, "pointerdown", start.x, start.y);
     await nextFrame();
+    await afterPress?.();
     for (const progress of [0.35, 0.7, 1]) {
       dispatch(
         document,
@@ -1855,6 +1857,25 @@ async function dragWithPointerFrames(
     body.setPointerCapture = setPointerCapture;
     body.releasePointerCapture = releasePointerCapture;
   }
+}
+
+function pointerTargetAt(element: Element, xRatio: number, yRatio: number): Element {
+  const rect = element.getBoundingClientRect();
+  const x = rect.left + rect.width * xRatio;
+  const y = rect.top + rect.height * yRatio;
+  return {
+    getBoundingClientRect: () => ({
+      top: y,
+      bottom: y,
+      height: 0,
+      left: x,
+      right: x,
+      width: 0,
+      x,
+      y,
+      toJSON: () => undefined,
+    }),
+  } as Element;
 }
 
 async function setViewport(viewport: ViewportSpec): Promise<void> {
@@ -2608,6 +2629,34 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
 
     try {
+      const pointerProbe = page.getByTitle(otherTitle, { exact: true }).elements()[0]!;
+      const pointerProbeText = pointerProbe.querySelector("span.truncate")!;
+      await dragWithPointerFrames(
+        pointerProbeText,
+        pointerTargetAt(pointerProbeText, 0.75, 0.5),
+        0.5,
+        () => {
+          expect(document.querySelector("[data-thread-deck-drag-source='true']")).toBeNull();
+          expect(document.querySelector("[data-thread-deck-drag-overlay='true']")).toBeNull();
+          expect(pointerProbe.getAttribute("aria-pressed")).toBe("true");
+        },
+        "drop",
+        () => {
+          expect(pointerProbe.getAttribute("aria-pressed")).toBe("true");
+          expect(document.querySelector("[data-thread-deck-drag-overlay='true']")).toBeNull();
+        },
+      );
+      const pointerProbeRect = pointerProbe.getBoundingClientRect();
+      await dragWithPointerFrames(
+        pointerProbe,
+        pointerTargetAt(pointerProbe, 1 + 1 / pointerProbeRect.width, 0.5),
+        0.5,
+        () => {
+          expect(document.querySelector("[data-thread-deck-drag-source='true']")).toBeNull();
+          expect(document.querySelector("[data-thread-deck-drag-overlay='true']")).toBeNull();
+        },
+      );
+
       const targets = [
         { id: OTHER_THREAD_ID, title: otherTitle },
         { id: THREAD_ID, title: THREAD_TITLE },
@@ -9113,6 +9162,20 @@ describe("ChatView timeline estimator parity (full app)", () => {
       ),
     });
     try {
+      const pointerProbe = page
+        .getByRole("button", { name: otherThreadTitle, exact: true })
+        .elements()
+        .find((element) => element.hasAttribute("data-thread-item"))!;
+      await dragWithPointerFrames(
+        pointerProbe,
+        pointerTargetAt(pointerProbe, 0.75, 0.5),
+        0.5,
+        () => {
+          expect(document.querySelector('[data-sidebar-drag-overlay="true"]')).toBeNull();
+          expect(document.querySelector("[data-sidebar-drop-preview]")).toBeNull();
+        },
+      );
+
       const targets = [
         { id: OTHER_THREAD_ID, title: otherThreadTitle },
         { id: THREAD_ID, title: THREAD_TITLE },
