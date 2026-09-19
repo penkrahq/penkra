@@ -15,14 +15,11 @@ export function usePreloadRouteChunks() {
 
   useEffect(() => {
     const preload = () => {
-      router.preloadRoute({ to: "/settings" }).catch(() => {
-        // Preloading is best-effort; navigation falls back to loading on demand.
-      });
-      // The param value is irrelevant: the route has no loader, so preloading
-      // only fetches and evaluates the chunk shared by every thread id.
-      router.preloadRoute({ to: "/$threadId", params: { threadId: "chunk-preload" } }).catch(() => {
-        // Preloading is best-effort; navigation falls back to loading on demand.
-      });
+      // Warm only the code-split components. `preloadRoute()` also constructs
+      // route matches, which makes a synthetic thread param participate in
+      // navigation state and can race a real activation.
+      void router.loadRouteChunk(router.routesById["/_chat/settings"]);
+      void router.loadRouteChunk(router.routesById["/_chat/$threadId"]);
     };
 
     if (typeof requestIdleCallback === "function") {

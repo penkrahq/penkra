@@ -4,7 +4,7 @@ import { useDragDropMonitor, useDragOperation, useDroppable } from "@dnd-kit/rea
 import type { DragOverEvent } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type PointerEvent, type ReactNode } from "react";
 
 import {
   SurfaceTabChip,
@@ -37,6 +37,8 @@ import type { Thread } from "~/types";
 import { useVoiceSessionCoordinatorStore } from "~/voiceSessionCoordinator";
 import { CentralIcon } from "~/lib/central-icons";
 import { cn } from "~/lib/utils";
+import { useThreadDetailPrewarm } from "~/threadDetailPrewarm";
+import { isPrimaryThreadActivationIntent } from "~/threadActivation.logic";
 import { readSidebarDndData, SIDEBAR_THREAD_DRAG_TYPES } from "~/components/sidebar/SidebarDnd";
 import {
   DECK_THREAD_DRAG_TYPE,
@@ -188,6 +190,16 @@ export function ThreadDeckBar(props: {
     activeSpaceId === draggedSpaceId,
   );
   const [deckDropPreview, setDeckDropPreview] = useState<DeckDropPreview | null>(null);
+  const [optimisticActiveThreadId, setOptimisticActiveThreadId] = useState<ThreadId | null>(null);
+  const { prewarmThreadDetail } = useThreadDetailPrewarm();
+
+  const primeThreadActivation = (event: PointerEvent<HTMLButtonElement>, threadId: ThreadId) => {
+    if (!isPrimaryThreadActivationIntent(event)) {
+      return;
+    }
+    prewarmThreadDetail(threadId);
+    setOptimisticActiveThreadId(threadId);
+  };
 
   const updateDeckDropPreview = ({ operation }: Pick<DragOverEvent, "operation">) => {
     const source = readDeckThreadDndData(operation.source?.data);
@@ -230,6 +242,7 @@ export function ThreadDeckBar(props: {
     },
     onDragEnd(event) {
       setDeckDropPreview(null);
+      setOptimisticActiveThreadId(null);
       const deckSource = readDeckThreadDndData(event.operation.source?.data);
       const deckTarget = readDeckThreadDndData(event.operation.target?.data);
       if (
@@ -384,11 +397,15 @@ export function ThreadDeckBar(props: {
   ]);
 
   const activate = async (threadId: ThreadId | null): Promise<void> => {
-    if (threadId) {
-      await navigate({ to: "/$threadId", params: { threadId } });
-      return;
+    try {
+      if (threadId) {
+        await navigate({ to: "/$threadId", params: { threadId } });
+        return;
+      }
+      await navigate({ to: "/" });
+    } finally {
+      setOptimisticActiveThreadId((current) => (current === threadId ? null : current));
     }
-    await navigate({ to: "/" });
   };
 
   const archive = async (threadId: ThreadId) => {
@@ -450,8 +467,9 @@ export function ThreadDeckBar(props: {
         role="tablist"
       >
         {tabs.map((tab, index) => {
-          const active = tab.id === props.activeThread.id;
-          const previousActive = tabs[index - 1]?.id === props.activeThread.id;
+          const visualActiveThreadId = optimisticActiveThreadId ?? props.activeThread.id;
+          const active = tab.id === visualActiveThreadId;
+          const previousActive = tabs[index - 1]?.id === visualActiveThreadId;
           return (
             <div key={tab.id} className="flex shrink-0 items-center">
               {index > 0 ? (
@@ -486,6 +504,8 @@ export function ThreadDeckBar(props: {
                   closeLabel={`Archive ${tab.title}`}
                   onClose={() => void archive(tab.id)}
                   onSelect={() => activate(tab.id)}
+                  onSelectPointerCancel={() => setOptimisticActiveThreadId(null)}
+                  onSelectPointerDown={(event) => primeThreadActivation(event, tab.id)}
                 />
               </SortableDeckThread>
             </div>

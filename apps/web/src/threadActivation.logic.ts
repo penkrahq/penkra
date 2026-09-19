@@ -15,6 +15,21 @@ export type ThreadCommandActivation =
   | { kind: "single"; threadId: ThreadId }
   | { kind: "split"; threadId: ThreadId; splitViewId: SplitViewId; paneId: PaneId };
 
+type PointerActivationIntent = {
+  altKey: boolean;
+  button: number;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+};
+
+/** Shared press policy for thread controls that combine activation with drag or selection. */
+export function isPrimaryThreadActivationIntent(intent: PointerActivationIntent): boolean {
+  return (
+    intent.button === 0 && !intent.altKey && !intent.ctrlKey && !intent.metaKey && !intent.shiftKey
+  );
+}
+
 /**
  * Decide what a sidebar/search/keyboard activation should do for a thread.
  *
