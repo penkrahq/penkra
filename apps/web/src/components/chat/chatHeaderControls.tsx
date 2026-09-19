@@ -252,7 +252,7 @@ export function SurfaceTabChip({
       {onSelect ? (
         <button
           type="button"
-          className={cn("flex min-w-0 items-center gap-1.5 text-left", labelClassName)}
+          className="-mr-2.5 flex min-w-0 self-stretch items-center pr-2.5 text-left"
           title={title}
           aria-pressed={active}
           onPointerCancel={onSelectPointerCancel}
@@ -262,9 +262,11 @@ export function SurfaceTabChip({
             onSelect();
           }}
         >
-          {leading}
-          <span className="truncate">{label}</span>
-          {trailing}
+          <span className={cn("flex min-w-0 items-center gap-1.5", labelClassName)}>
+            {leading}
+            <span className="truncate">{label}</span>
+            {trailing}
+          </span>
         </button>
       ) : (
         // Non-selectable chips (a lone tab that cannot switch to anything) render the
