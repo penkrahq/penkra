@@ -68,6 +68,7 @@ writeFileSync(sentinel, "preserve-native-upgrade-state");
 const evidence = { platform, previousVersion, candidateVersion, stages: [] };
 let application;
 let server;
+let completed = false;
 const sha = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
 function run(command, args, cwd = root) {
   const result = spawnSync(command, args, { cwd, env, encoding: "utf8", timeout: 180_000 });
@@ -218,6 +219,7 @@ try {
     `${JSON.stringify(evidence, null, 2)}\n`,
   );
   console.log(JSON.stringify(evidence));
+  completed = true;
 } catch (error) {
   console.error("[native-upgrade] failed", error);
   if (platform === "linux") {
@@ -263,4 +265,8 @@ try {
     }
   }
   removePackagedDesktopSmokeRoot(root);
+  // Electron can leave Playwright's debugger transport referenced after the
+  // updated process has already exited. All evidence and cleanup are complete;
+  // end this disposable CI verifier rather than consuming the job timeout.
+  if (completed) process.exit(0);
 }
