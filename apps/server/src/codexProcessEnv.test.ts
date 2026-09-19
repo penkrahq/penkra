@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
+  disableCodexGoals,
   enableOfficialComputerUseRoutes,
   enableDefaultModeRequestUserInput,
   linkOrCopyCodexOverlayEntry,
@@ -71,6 +72,13 @@ describe("prioritizeCodexOverlayEntries", () => {
 });
 
 describe("Codex provider configuration", () => {
+  it("disables Goals in Penkra's managed Codex profile", () => {
+    expect(disableCodexGoals('model = "gpt-5"')).toContain("[features]\ngoals = false");
+    expect(
+      disableCodexGoals(["[features]", "goals = true", "web_search = true"].join("\n")),
+    ).toContain(["[features]", "goals = false", "web_search = true"].join("\n"));
+  });
+
   it("enables request_user_input in Default mode", () => {
     expect(enableDefaultModeRequestUserInput('model = "gpt-5"')).toContain(
       "[features]\ndefault_mode_request_user_input = true",
@@ -168,6 +176,7 @@ describe("Codex provider configuration", () => {
       expect(config).toContain("[mcp_servers.penkra]");
       expect(config).toContain('url = "http://127.0.0.1:4321/mcp"');
       expect(config).toContain("default_mode_request_user_input = true");
+      expect(config).toContain("goals = false");
       expect(config).not.toContain("https://stale.example.test/mcp");
       expect(config).toContain('exclude = ["PENKRA_AGENT_GATEWAY_TOKEN"]');
 

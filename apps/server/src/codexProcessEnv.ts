@@ -150,6 +150,16 @@ export function enableDefaultModeRequestUserInput(config: string): string {
 }
 
 /**
+ * Penkra does not yet expose Codex's persistent Goal lifecycle controls.
+ * Keep Goals disabled in the managed overlay until the host can project and
+ * control their active, paused, resumed, and cleared states. The user's source
+ * `config.toml` remains unchanged.
+ */
+export function disableCodexGoals(config: string): string {
+  return setTomlTableBoolean(config, "[features]", "goals", false, true);
+}
+
+/**
  * ChatGPT can leave a disabled legacy top-level server named `computer-use`.
  * That name masks the enabled plugin-owned server in app-server inventory, so
  * omit only the disabled legacy definition from Penkra's effective profile.
@@ -190,9 +200,11 @@ export function removeDisabledLegacyComputerUseServer(config: string): string {
 }
 
 function prepareEffectiveCodexConfig(config: string): string {
-  return enableDefaultModeRequestUserInput(
-    enableOfficialComputerUseRoutes(
-      removeDisabledLegacyComputerUseServer(removeReservedPenkraMcpServer(config)),
+  return disableCodexGoals(
+    enableDefaultModeRequestUserInput(
+      enableOfficialComputerUseRoutes(
+        removeDisabledLegacyComputerUseServer(removeReservedPenkraMcpServer(config)),
+      ),
     ),
   );
 }
