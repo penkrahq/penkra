@@ -70,6 +70,7 @@ import {
 } from "../keybindings";
 import { useLatestProjectStore } from "../latestProjectStore";
 import { deferThreadReadAcknowledgementIfActive } from "../threadReadAcknowledgement";
+import { isPrimaryThreadActivationIntent } from "../threadActivation.logic";
 import {
   resolveCurrentProjectTargetId,
   resolveLatestProjectTargetIdWithFallback,
@@ -1249,7 +1250,7 @@ export default function Sidebar() {
 
   const primeThreadActivation = useCallback(
     (event: ReactPointerEvent<HTMLElement>, threadId: ThreadId) => {
-      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      if (!isPrimaryThreadActivationIntent(event)) {
         return;
       }
       prewarmThreadDetailForIntent(threadId);

@@ -45,6 +45,14 @@ describe("SurfaceTabChip selection", () => {
 
     const selectButton = document.querySelector<HTMLButtonElement>('button[aria-pressed="true"]');
     expect(selectButton).not.toBeNull();
+    const chip = selectButton?.closest<HTMLElement>(".group\\/dock-tab");
+    expect(chip).not.toBeNull();
+    const chipRect = chip!.getBoundingClientRect();
+    const trailingHitTarget = document.elementFromPoint(
+      chipRect.right - 1,
+      chipRect.top + chipRect.height / 2,
+    );
+    expect(trailingHitTarget?.closest("button[aria-pressed]")).toBe(selectButton);
     selectButton?.click();
     expect(onSelect).toHaveBeenCalledOnce();
   });

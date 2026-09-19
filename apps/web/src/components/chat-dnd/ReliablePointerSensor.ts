@@ -1,6 +1,7 @@
 // FILE: ReliablePointerSensor.ts
 // Purpose: Completes interrupted pointer drags using standard browser lifecycle signals.
 
+import { ActivationConstraint } from "@dnd-kit/abstract";
 import {
   PointerActivationConstraints,
   PointerSensor,
@@ -13,13 +14,81 @@ type PointerActivationConstraintSet = Exclude<
   (...args: never[]) => unknown
 >;
 
+interface SemanticDropTargetConstraintOptions {
+  readonly sourceElement: Element;
+}
+
+/**
+ * Keeps a primary mouse press a click until it reaches another actual drop
+ * target. Leaving the source by a pixel is not drag intent; crossing into a
+ * sibling row/tab or another drop zone is.
+ */
+class SemanticDropTargetConstraint extends ActivationConstraint<
+  PointerEvent,
+  SemanticDropTargetConstraintOptions
+> {
+  private armed = false;
+
+  override onEvent(event: PointerEvent): void {
+    switch (event.type) {
+      case "pointerdown":
+        this.armed = true;
+        break;
+      case "pointermove": {
+        if (!this.armed) return;
+        const { sourceElement } = this.options;
+        const targets = sourceElement.ownerDocument.querySelectorAll<HTMLElement>(
+          "[data-shell-dnd-activation-target='true']",
+        );
+        for (const target of targets) {
+          if (
+            target === sourceElement ||
+            sourceElement.contains(target) ||
+            target.contains(sourceElement)
+          ) {
+            continue;
+          }
+          const bounds = target.getBoundingClientRect();
+          if (
+            event.clientX >= bounds.left &&
+            event.clientX <= bounds.right &&
+            event.clientY >= bounds.top &&
+            event.clientY <= bounds.bottom
+          ) {
+            this.activate(event);
+            break;
+          }
+        }
+        break;
+      }
+      case "pointercancel":
+      case "pointerup":
+        this.abort();
+        break;
+    }
+  }
+
+  override abort(): void {
+    this.armed = false;
+  }
+}
+
 class ReliablePointerSensorImplementation extends PointerSensor {
   private terminalListeners: AbortController | undefined;
 
-  protected override activationConstraints(event: PointerEvent): PointerActivationConstraintSet {
-    return event.pointerType === "touch"
-      ? [new PointerActivationConstraints.Delay({ value: 250, tolerance: 5 })]
-      : [new PointerActivationConstraints.Distance({ value: 5 })];
+  protected override activationConstraints(
+    event: PointerEvent,
+    source: Draggable,
+  ): PointerActivationConstraintSet {
+    if (event.pointerType === "touch") {
+      return [new PointerActivationConstraints.Delay({ value: 250, tolerance: 5 })];
+    }
+    if (event.pointerType === "mouse") {
+      if (source.element) {
+        return [new SemanticDropTargetConstraint({ sourceElement: source.element })];
+      }
+    }
+    return [new PointerActivationConstraints.Distance({ value: 5 })];
   }
 
   protected override handleStart(source: Draggable, event: PointerEvent) {

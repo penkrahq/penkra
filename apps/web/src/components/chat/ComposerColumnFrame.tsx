@@ -9,9 +9,7 @@ import {
   createContext,
   memo,
   useContext,
-  useLayoutEffect,
   useMemo,
-  useRef,
   useState,
   type HTMLAttributes,
   type ReactNode,
@@ -25,10 +23,10 @@ import {
 } from "./composerPickerStyles";
 
 export interface ComposerOverlayCollisionBoundary {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
 }
 
 const ComposerColumnFrameContext = createContext<{
@@ -59,40 +57,30 @@ export const ComposerColumnFrame = function ComposerColumnFrame({
   children,
   className,
 }: ComposerColumnFrameProps) {
-  const frameRef = useRef<HTMLDivElement>(null);
-  const [collisionBoundary, setCollisionBoundary] =
-    useState<ComposerOverlayCollisionBoundary | null>(null);
-
-  useLayoutEffect(() => {
-    const frame = frameRef.current;
-    if (!frame) return;
-    const measure = () => {
-      const rect = frame.getBoundingClientRect();
-      const next = { x: rect.left, y: 0, width: rect.width, height: window.innerHeight };
-      setCollisionBoundary((current) =>
-        current &&
-        current.x === next.x &&
-        current.width === next.width &&
-        current.height === next.height
-          ? current
-          : next,
-      );
+  const [frame, setFrame] = useState<HTMLDivElement | null>(null);
+  const collisionBoundary = useMemo<ComposerOverlayCollisionBoundary | null>(() => {
+    if (!frame) return null;
+    return {
+      get x() {
+        return frame.getBoundingClientRect().left;
+      },
+      get y() {
+        return 0;
+      },
+      get width() {
+        return frame.getBoundingClientRect().width;
+      },
+      get height() {
+        return window.innerHeight;
+      },
     };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(frame);
-    window.addEventListener("resize", measure);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, []);
+  }, [frame]);
   const contextValue = useMemo(() => ({ collisionBoundary }), [collisionBoundary]);
 
   return (
     <ComposerColumnFrameContext.Provider value={contextValue}>
       <div
-        ref={frameRef}
+        ref={setFrame}
         className={cn(COMPOSER_COLUMN_FRAME_CLASS_NAME, className)}
         data-composer-column-frame
       >
