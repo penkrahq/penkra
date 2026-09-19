@@ -238,7 +238,16 @@ try {
   await terminateProcessesInsideRoot(root);
   if (server) {
     server.closeAllConnections();
-    await new Promise((resolveClose) => server.close(resolveClose));
+    const closed = await Promise.race([
+      new Promise((resolveClose) =>
+        server.close(() => resolveClose(true)).once("error", () => resolveClose(false)),
+      ),
+      delay(5_000).then(() => false),
+    ]);
+    if (!closed) {
+      console.warn("[native-upgrade] update feed did not close after all connections closed");
+      server.unref();
+    }
   }
   removePackagedDesktopSmokeRoot(root);
 }
