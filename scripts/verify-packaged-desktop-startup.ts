@@ -416,7 +416,9 @@ export function removePackagedDesktopSmokeRoot(root: string): void {
   rmSync(root, {
     recursive: true,
     force: true,
-    maxRetries: process.platform === "win32" ? 20 : 0,
+    // Electron descendants can finish their last profile write just after the
+    // ownership sweep on every desktop platform.
+    maxRetries: 20,
     retryDelay: 250,
   });
 }
