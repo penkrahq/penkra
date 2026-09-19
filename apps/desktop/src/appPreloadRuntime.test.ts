@@ -225,13 +225,30 @@ describe("AppPreloadRuntime", () => {
     });
     expect(state.open).toBe(true);
     await test.runtime.api.browser.snapshot({ pageId: "page-1", depth: 4 });
-    await test.runtime.api.browser.find({ pageId: "page-1", query: "Continue" });
+    await test.runtime.api.browser.find({
+      pageId: "page-1",
+      text: "Continue",
+      action: "search",
+    });
+    await test.runtime.api.browser.stopFind("page-1");
+    await test.runtime.api.browser.listExtensionActions();
+    await test.runtime.api.browser.openExtensionAction({
+      extensionId: "dark-reader",
+      pageId: "page-1",
+    });
     await test.runtime.api.browser.click({ pageId: "page-1", ref: "e7" });
     await test.runtime.api.browser.type({ pageId: "page-1", ref: "e8", text: "Hello" });
     expect(test.browserCall).toHaveBeenCalledWith("snapshot", { pageId: "page-1", depth: 4 });
     expect(test.browserCall).toHaveBeenCalledWith("find", {
       pageId: "page-1",
-      query: "Continue",
+      text: "Continue",
+      action: "search",
+    });
+    expect(test.browserCall).toHaveBeenCalledWith("stopFind", "page-1");
+    expect(test.browserCall).toHaveBeenCalledWith("listExtensionActions");
+    expect(test.browserCall).toHaveBeenCalledWith("openExtensionAction", {
+      extensionId: "dark-reader",
+      pageId: "page-1",
     });
     expect(test.browserCall).toHaveBeenCalledWith("click", { pageId: "page-1", ref: "e7" });
     expect(test.browserCall).toHaveBeenCalledWith("type", {

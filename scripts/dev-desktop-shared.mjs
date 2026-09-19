@@ -31,12 +31,11 @@ async function stop(signal = "SIGTERM") {
   );
 }
 
-const renderer = start(
-  ["run", "dev", "--", "--host", "127.0.0.1", "--port", "5733", "--strictPort"],
-  resolve(repoRoot, "apps/web"),
-);
-const desktopBundle = start(["run", "dev:bundle"], resolve(repoRoot, "apps/desktop"));
-const serverBundle = start(["run", "dev:bundle"], resolve(repoRoot, "apps/server"));
+function waitForExit(child) {
+  return new Promise((resolveExit) => {
+    child.once("exit", (code, signal) => resolveExit(signal ? 1 : (code ?? 0)));
+  });
+}
 
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.once(signal, () => {
@@ -46,13 +45,31 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   });
 }
 
-const exitCode = await Promise.race(
-  [renderer, desktopBundle, serverBundle].map(
-    (child) =>
-      new Promise((resolveExit) => {
-        child.once("exit", (code, signal) => resolveExit(signal ? 1 : (code ?? 0)));
-      }),
-  ),
-);
-await stop();
-process.exitCode = exitCode;
+// The desktop and server bundles import the workspace SDK through its package
+// exports, which point at dist. Build that dependency before either consumer
+// starts, then keep it current for the lifetime of the shared Dev pipeline.
+const sdkDirectory = resolve(repoRoot, "packages/sdk");
+console.log("[penkra-dev-shared] Building the App SDK prerequisite.");
+const sdkBuild = start(["run", "build"], sdkDirectory);
+const sdkBuildExitCode = await waitForExit(sdkBuild);
+if (sdkBuildExitCode !== 0) {
+  console.error(`[penkra-dev-shared] App SDK build failed with exit code ${sdkBuildExitCode}.`);
+  await stop();
+  process.exitCode = sdkBuildExitCode;
+} else {
+  console.log("[penkra-dev-shared] App SDK ready; starting shared watch services.");
+  const sdkBundle = start(["run", "dev:bundle"], sdkDirectory);
+
+  const renderer = start(
+    ["run", "dev", "--", "--host", "127.0.0.1", "--port", "5733", "--strictPort"],
+    resolve(repoRoot, "apps/web"),
+  );
+  const desktopBundle = start(["run", "dev:bundle"], resolve(repoRoot, "apps/desktop"));
+  const serverBundle = start(["run", "dev:bundle"], resolve(repoRoot, "apps/server"));
+
+  const exitCode = await Promise.race(
+    [sdkBundle, renderer, desktopBundle, serverBundle].map(waitForExit),
+  );
+  await stop();
+  process.exitCode = exitCode;
+}

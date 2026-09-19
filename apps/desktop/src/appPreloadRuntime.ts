@@ -280,8 +280,15 @@ export class AppPreloadRuntime {
           this.#transport.browserCall("forward", pageId) as Promise<
             import("@penkra/sdk").AppBrowserSessionState
           >,
+        listExtensionActions: () =>
+          this.#transport.browserCall("listExtensionActions") as Promise<
+            ReadonlyArray<import("@penkra/sdk").AppBrowserExtensionAction>
+          >,
+        openExtensionAction: (input) =>
+          this.#transport.browserCall("openExtensionAction", input) as Promise<void>,
         snapshot: (input) => this.#transport.browserCall("snapshot", input),
         find: (input) => this.#transport.browserCall("find", input),
+        stopFind: (pageId) => this.#transport.browserCall("stopFind", pageId) as Promise<void>,
         click: (input) => this.#transport.browserCall("click", input),
         hover: (input) => this.#transport.browserCall("hover", input),
         type: (input) => this.#transport.browserCall("type", input),
