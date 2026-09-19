@@ -460,6 +460,7 @@ export function SortableSidebarNode(props: {
       )}
       data-sidebar-dnd-source={sortable.isDragSource ? "true" : undefined}
       data-sidebar-dnd-target={sortable.isDropTarget ? "true" : undefined}
+      data-shell-dnd-activation-target="true"
     >
       <SidebarDropFeedbackFrame data={props.data}>{props.children}</SidebarDropFeedbackFrame>
     </div>
@@ -549,6 +550,7 @@ export function SidebarContainerDropTarget(props: {
       ref={droppable.ref}
       className={cn("relative", props.className)}
       data-sidebar-container-target={droppable.isDropTarget ? "true" : undefined}
+      data-shell-dnd-activation-target="true"
     >
       {droppable.isDropTarget ? (
         <span

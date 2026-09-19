@@ -14,36 +14,50 @@ type PointerActivationConstraintSet = Exclude<
   (...args: never[]) => unknown
 >;
 
-interface ElementBoundaryConstraintOptions {
-  readonly element: Element;
+interface SemanticDropTargetConstraintOptions {
+  readonly sourceElement: Element;
 }
 
 /**
- * Keeps a primary mouse press a click until the pointer leaves the exact
- * control it pressed. This lets clickable tabs and rows double as sortable
- * handles without turning ordinary hand jitter into a drag preview.
+ * Keeps a primary mouse press a click until it reaches another actual drop
+ * target. Leaving the source by a pixel is not drag intent; crossing into a
+ * sibling row/tab or another drop zone is.
  */
-class ElementBoundaryConstraint extends ActivationConstraint<
+class SemanticDropTargetConstraint extends ActivationConstraint<
   PointerEvent,
-  ElementBoundaryConstraintOptions
+  SemanticDropTargetConstraintOptions
 > {
-  private bounds: DOMRect | undefined;
+  private armed = false;
 
   override onEvent(event: PointerEvent): void {
     switch (event.type) {
       case "pointerdown":
-        this.bounds = this.options.element.getBoundingClientRect();
+        this.armed = true;
         break;
       case "pointermove": {
-        const bounds = this.bounds;
-        if (!bounds) return;
-        if (
-          event.clientX < bounds.left ||
-          event.clientX > bounds.right ||
-          event.clientY < bounds.top ||
-          event.clientY > bounds.bottom
-        ) {
-          this.activate(event);
+        if (!this.armed) return;
+        const { sourceElement } = this.options;
+        const targets = sourceElement.ownerDocument.querySelectorAll<HTMLElement>(
+          "[data-shell-dnd-activation-target='true']",
+        );
+        for (const target of targets) {
+          if (
+            target === sourceElement ||
+            sourceElement.contains(target) ||
+            target.contains(sourceElement)
+          ) {
+            continue;
+          }
+          const bounds = target.getBoundingClientRect();
+          if (
+            event.clientX >= bounds.left &&
+            event.clientX <= bounds.right &&
+            event.clientY >= bounds.top &&
+            event.clientY <= bounds.bottom
+          ) {
+            this.activate(event);
+            break;
+          }
         }
         break;
       }
@@ -55,7 +69,7 @@ class ElementBoundaryConstraint extends ActivationConstraint<
   }
 
   override abort(): void {
-    this.bounds = undefined;
+    this.armed = false;
   }
 }
 
@@ -70,9 +84,8 @@ class ReliablePointerSensorImplementation extends PointerSensor {
       return [new PointerActivationConstraints.Delay({ value: 250, tolerance: 5 })];
     }
     if (event.pointerType === "mouse") {
-      const element = source.handle ?? source.element;
-      if (element) {
-        return [new ElementBoundaryConstraint({ element })];
+      if (source.element) {
+        return [new SemanticDropTargetConstraint({ sourceElement: source.element })];
       }
     }
     return [new PointerActivationConstraints.Distance({ value: 5 })];
