@@ -125,6 +125,7 @@ describe("AppCommandPipeServer", () => {
     };
     const snapshot = vi.fn(async () => ({ snapshot: "" }));
     const screenshot = vi.fn(async () => ({ kind: "image" }));
+    const act = vi.fn(async () => ({ steps: [] }));
     const observedSurfaceIds: Array<number | null> = [];
     const runOnSurface = async <T>(surfaceId: number | null, operation: () => Promise<T>) => {
       observedSurfaceIds.push(surfaceId);
@@ -154,7 +155,7 @@ describe("AppCommandPipeServer", () => {
         runOnSurface,
         snapshot,
         diff: vi.fn(async () => ({ added: [], removed: [] })),
-        act: vi.fn(async () => ({ steps: [] })),
+        act,
         evaluate: vi.fn(async () => ({ value: null })),
         screenshot,
         record: vi.fn(async () => ({})),
@@ -357,6 +358,31 @@ describe("AppCommandPipeServer", () => {
       result: { snapshot: "" },
     });
     expect(snapshot).toHaveBeenCalledTimes(2);
+
+    await expect(
+      send(path, {
+        id: "request-act",
+        token: "secret",
+        method: "tabs.act",
+        params: {
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-1",
+          tabId: "tab-other-thread",
+          steps: [{ action: "press", document: "d1", key: "Escape" }],
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-act",
+      result: { steps: [] },
+    });
+    expect(act).toHaveBeenCalledWith(
+      "tab-other-thread",
+      [{ action: "press", document: "d1", key: "Escape" }],
+      false,
+      "thread-1",
+    );
 
     await expect(
       send(path, {

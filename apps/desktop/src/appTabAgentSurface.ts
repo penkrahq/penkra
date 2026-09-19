@@ -62,10 +62,17 @@ export const AGENT_CURSOR_SOURCE = `(() => {
   });
   listen('DOMContentLoaded', mount);
   mount();
+  globalThis.__agentBrowserRecordingCursorHide = () => {
+    if (pointer) {
+      pointer.style.display = 'none';
+      pointer.classList.remove('pressed');
+    }
+  };
   globalThis.__agentBrowserRecordingCursorCleanup = () => {
     disposed = true;
     removers.forEach(remove => remove());
     host?.remove();
+    delete globalThis.__agentBrowserRecordingCursorHide;
     delete globalThis.__agentBrowserRecordingCursorCleanup;
   };
 })();`;

@@ -113,7 +113,12 @@ interface AppTabObserverBridge {
     },
   ): Promise<unknown>;
   diff(tabId: string, document?: "d1" | "d2"): Promise<unknown>;
-  act(tabId: string, steps: ReadonlyArray<import("./appTabObserver").AppTabActStep>, human?: boolean): Promise<unknown>;
+  act(
+    tabId: string,
+    steps: ReadonlyArray<import("./appTabObserver").AppTabActStep>,
+    human?: boolean,
+    ownerThreadId?: string,
+  ): Promise<unknown>;
   evaluate(tabId: string, document: "d1" | "d2", expression: string): Promise<unknown>;
   screenshot(tabId: string, document?: "d1" | "d2", outputPath?: string): Promise<unknown>;
   record(tabId: string, document: "d1" | "d2", durationMs: number, outputPath: string): Promise<unknown>;
@@ -443,6 +448,7 @@ export class AppCommandPipeServer {
               this.#tab(params).id,
               appTabActSteps(params.steps),
               optionalBoolean(params.human, "human") ?? false,
+              this.#scope(params).threadId,
             ),
           ),
         };

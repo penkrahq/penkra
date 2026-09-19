@@ -1390,6 +1390,7 @@ let restoreStdIoCapture: (() => void) | null = null;
 let unreadBackgroundNotificationCount = 0;
 let appTabObserver: AppTabObserver | null = null;
 let appHostedBrowserObserver: AppTabObserver | null = null;
+let latestAgentCursorActivitySequence: number | null = null;
 const handleHostedBeforeInput = (event: Electron.Event, input: Electron.Input): boolean => {
     if (
       isKeyboardShortcutsHelpChord(
@@ -6959,6 +6960,14 @@ function registerIpcHandlers(): void {
       activeThreadIds: activeWorkState.activeThreadIds ?? [],
       ...snapshotState,
     });
+    if (
+      activeWorkState.snapshotSequence === undefined ||
+      latestAgentCursorActivitySequence === null ||
+      activeWorkState.snapshotSequence >= latestAgentCursorActivitySequence
+    ) {
+      latestAgentCursorActivitySequence = activeWorkState.snapshotSequence ?? null;
+      appTabObserver?.setActiveTurnThreadIds(activeWorkState.activeThreadIds ?? []);
+    }
   });
   registerDesktopVoiceTranscriptionHandler({
     getBackendWsUrl: () =>
