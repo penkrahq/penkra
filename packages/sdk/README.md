@@ -105,3 +105,5 @@ An App with `browser-session` can observe and interact with its own hosted page 
 `browser.snapshot`, `find`, `click`, `hover`, `type`, `press`, `select`, `scroll`, `wait`, and
 `upload`. Snapshot and find issue short-lived `e…` references; ref-based calls must use a reference
 from the latest observed document. Navigation, reload, replacement, and close invalidate it.
+Host-provided extension actions are available through `browser.listExtensionActions()` and
+`browser.openExtensionAction(...)` in that same App and Space scoped session.

@@ -518,9 +518,15 @@ and live sessions owned by the calling App and Space.
 
 `browser-session` creates a host-owned, isolated browser page for the calling App and Space. The App
 may navigate, observe, interact with, and lay out only pages created inside its own session. It does
-not gain access to the operator's ordinary browser profile, cookies, extensions, history, other
+not gain access to the operator's ordinary browser profile, cookies, user-installed extensions, history, other
 Apps' pages, or Penkra's shell. Hosted-page downloads and the detailed surface/download lifecycle
 are covered in [Visual-tab storage, byte movement, and composer staging](#visual-tab-storage-byte-movement-and-composer-staging).
+
+Penkra may provide built-in extension actions inside the same isolated session. Call
+`browser.listExtensionActions()` to discover the available actions and
+`browser.openExtensionAction({ extensionId, pageId })` to show one for the App's current hosted
+page. Availability and extension settings are scoped by App and Space; Apps choose whether and
+where to present these actions in their own chrome.
 
 For a hosted Browser page, the App owns its browser chrome while Penkra owns the isolated page
 surface. The App manifest fixes the chrome height; the desktop host places the App chrome and page
