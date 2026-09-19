@@ -21,40 +21,45 @@ const descriptor: DesktopAppTabDescriptor = {
   status: "ready",
 };
 
-function makeContents() {
+function makeContents(contentsId = 12) {
   let destroyed = false;
   let loaderId = "loader-1";
   const listeners = new Map<string, () => void>();
   const listenerSets = new Map<string, Set<() => void>>();
   const debuggerListeners = new Map<string, (...args: unknown[]) => void>();
-  const sendCommand = vi.fn(async (method: string): Promise<unknown> => {
-    if (method === "Page.getFrameTree") {
-      return { frameTree: { frame: { loaderId } } };
-    }
-    if (method === "Accessibility.getFullAXTree") {
-      return {
-        nodes: [
-          {
-            backendDOMNodeId: 7,
-            role: { value: "button" },
-            name: { value: "Save" },
-            properties: [{ name: "focusable", value: { value: true } }],
-          },
-          {
-            backendDOMNodeId: 8,
-            role: { value: "textbox" },
-            name: { value: "Password" },
-            value: { value: "••••••" },
-            properties: [{ name: "protected", value: { value: true } }],
-          },
-        ],
-      };
-    }
-    if (method === "DOM.getBoxModel") {
-      return { model: { content: [0, 0, 100, 0, 100, 40, 0, 40] } };
-    }
-    return {};
-  });
+  const sendCommand = vi.fn(
+    async (method: string, _params?: Record<string, unknown>): Promise<unknown> => {
+      if (method === "Page.getFrameTree") {
+        return { frameTree: { frame: { id: `frame-${contentsId}`, loaderId } } };
+      }
+      if (method === "Page.addScriptToEvaluateOnNewDocument")
+        return { identifier: `cursor-script-${contentsId}` };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: contentsId * 10 };
+      if (method === "Accessibility.getFullAXTree") {
+        return {
+          nodes: [
+            {
+              backendDOMNodeId: 7,
+              role: { value: "button" },
+              name: { value: "Save" },
+              properties: [{ name: "focusable", value: { value: true } }],
+            },
+            {
+              backendDOMNodeId: 8,
+              role: { value: "textbox" },
+              name: { value: "Password" },
+              value: { value: "••••••" },
+              properties: [{ name: "protected", value: { value: true } }],
+            },
+          ],
+        };
+      }
+      if (method === "DOM.getBoxModel") {
+        return { model: { content: [0, 0, 100, 0, 100, 40, 0, 40] } };
+      }
+      return {};
+    },
+  );
   const debuggerApi = {
     isAttached: () => true,
     attach: vi.fn(),
@@ -68,7 +73,7 @@ function makeContents() {
   const contents = {
     get id() {
       if (destroyed) throw new TypeError("Object has been destroyed");
-      return 12;
+      return contentsId;
     },
     get debugger() {
       if (destroyed) throw new TypeError("Object has been destroyed");
@@ -250,7 +255,11 @@ describe("AppTabObserver", () => {
   it("installs the cursor overlay, glides, ripples, and highlights through CDP", async () => {
     const { contents, sendCommand } = makeContents();
     sendCommand.mockImplementation(async (method: string) => {
-      if (method === "Page.getFrameTree") return { frameTree: { frame: { loaderId: "loader-1" } } };
+      if (method === "Page.getFrameTree")
+        return { frameTree: { frame: { id: "frame-12", loaderId: "loader-1" } } };
+      if (method === "Page.addScriptToEvaluateOnNewDocument")
+        return { identifier: "cursor-script-12" };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 120 };
       if (method === "Accessibility.getFullAXTree")
         return { nodes: [{ backendDOMNodeId: 7, role: { value: "button" }, name: { value: "Save" } }] };
       if (method === "DOM.getBoxModel") return { model: { content: [10, 10, 30, 10, 30, 30, 10, 30] } };
@@ -270,6 +279,75 @@ describe("AppTabObserver", () => {
     expect(
       sendCommand.mock.calls.some(
         (call) => call[0] === "Runtime.callFunctionOn" && JSON.stringify(call).includes("outline"),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps only the active document cursor visible until the owning turn completes", async () => {
+    const d1 = makeContents(21);
+    const d2 = makeContents(22);
+    const observer = new AppTabObserver({
+      resolve: (_tabId, document) => ({
+        descriptor,
+        document,
+        webContents: document === "d1" ? d1.contents : d2.contents,
+      }),
+    });
+
+    await observer.snapshot("tab-1", { document: "d1" });
+    await observer.snapshot("tab-1", { document: "d2" });
+    observer.setActiveTurnThreadIds(["thread-1"]);
+    await observer.act(
+      "tab-1",
+      [
+        { action: "hover", ref: "d1:e1" },
+        { action: "hover", ref: "d2:e1" },
+      ],
+      true,
+      "thread-1",
+    );
+
+    const evaluatedExpressions = (sendCommand: typeof d1.sendCommand) =>
+      sendCommand.mock.calls
+        .filter(([method]) => method === "Runtime.evaluate")
+        .map(([, params]) => (params as { expression?: string } | undefined)?.expression);
+    expect(evaluatedExpressions(d1.sendCommand)).toContain(
+      "globalThis.__agentBrowserRecordingCursorHide?.()",
+    );
+    expect(evaluatedExpressions(d1.sendCommand)).not.toContain(
+      "globalThis.__agentBrowserRecordingCursorCleanup?.()",
+    );
+    expect(evaluatedExpressions(d2.sendCommand)).not.toContain(
+      "globalThis.__agentBrowserRecordingCursorCleanup?.()",
+    );
+    observer.setActiveTurnThreadIds([]);
+    await vi.waitFor(() => {
+      expect(evaluatedExpressions(d1.sendCommand)).toContain(
+        "globalThis.__agentBrowserRecordingCursorCleanup?.()",
+      );
+      expect(evaluatedExpressions(d2.sendCommand)).toContain(
+        "globalThis.__agentBrowserRecordingCursorCleanup?.()",
+      );
+    });
+    expect(
+      d1.sendCommand.mock.calls.some(
+        ([method, params]) =>
+          method === "Page.removeScriptToEvaluateOnNewDocument" &&
+          (params as { identifier?: unknown } | undefined)?.identifier === "cursor-script-21",
+      ),
+    ).toBe(true);
+    expect(
+      d2.sendCommand.mock.calls.some(
+        ([method, params]) =>
+          method === "Page.removeScriptToEvaluateOnNewDocument" &&
+          (params as { identifier?: unknown } | undefined)?.identifier === "cursor-script-22",
+      ),
+    ).toBe(true);
+    expect(
+      d1.sendCommand.mock.calls.some(
+        ([method, params]) =>
+          method === "Page.addScriptToEvaluateOnNewDocument" &&
+          typeof (params as { worldName?: unknown } | undefined)?.worldName === "string",
       ),
     ).toBe(true);
   });

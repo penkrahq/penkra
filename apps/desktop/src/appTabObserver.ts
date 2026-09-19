@@ -96,6 +96,16 @@ interface PendingJavaScriptDialog {
   target: AppTabObservationTarget;
 }
 
+interface CursorInstallation {
+  destroyedListener: () => void;
+  instanceId: string;
+  ownerThreadId: string | null;
+  ownerThreadWasActive: boolean;
+  scriptId: string | null;
+  target: AppTabObservationTarget;
+  worldName: string;
+}
+
 interface AppTabSnapshotOptions {
   document?: AppTabDocument;
   target?: string;
@@ -170,9 +180,12 @@ export class AppTabObserver {
   readonly #dialogTabsByContents = new Map<number, Set<string>>();
   readonly #dialogListeners = new Set<number>();
   readonly #pendingDialogs = new Map<string, PendingJavaScriptDialog>();
-  readonly #cursorScripts = new Set<string>();
+  readonly #cursorInstallations = new Map<string, CursorInstallation>();
   readonly #cursorLoaders = new Map<string, string>();
   readonly #cursorPositions = new Map<string, { x: number; y: number }>();
+  readonly #activeTurnThreadIds = new Set<string>();
+  readonly #cursorOwnerThread = new AsyncLocalStorage<string | undefined>();
+  #activeCursorKey: string | null = null;
   readonly #perfCounters = {
     snapshotCalls: 0,
     snapshotTotalMs: 0,
@@ -191,6 +204,21 @@ export class AppTabObserver {
 
   runOnSurface<T>(surfaceId: number | null, operation: () => Promise<T>): Promise<T> {
     return this.#surface.run(surfaceId ?? undefined, operation);
+  }
+
+  setActiveTurnThreadIds(threadIds: ReadonlyArray<string>): void {
+    this.#activeTurnThreadIds.clear();
+    for (const threadId of threadIds) this.#activeTurnThreadIds.add(threadId);
+    for (const [key, installation] of this.#cursorInstallations) {
+      const ownerThreadId = installation.ownerThreadId;
+      if (!ownerThreadId) continue;
+      if (this.#activeTurnThreadIds.has(ownerThreadId)) {
+        installation.ownerThreadWasActive = true;
+        continue;
+      }
+      if (!installation.ownerThreadWasActive) continue;
+      void this.#removeCursor(key, installation, "turn-complete");
+    }
   }
 
   getPerformanceSnapshot(): AppTabObserverPerformanceSnapshot {
@@ -216,6 +244,7 @@ export class AppTabObserver {
       tabIds.delete(tabId);
       if (tabIds.size === 0) this.#dialogTabsByContents.delete(contentsId);
     }
+    void this.#removeCursorsForTab(tabId, "tab-invalidated");
   }
 
   async snapshot(tabId: string, options: AppTabSnapshotOptions = {}): Promise<unknown> {
@@ -462,53 +491,60 @@ export class AppTabObserver {
     };
   }
 
-  async act(tabId: string, steps: ReadonlyArray<AppTabActStep>, human = false): Promise<unknown> {
-    const results: unknown[] = [];
-    for (const step of steps) {
-      switch (step.action) {
-        case "click":
-          results.push(await this.click(tabId, step.ref, false, human));
-          break;
-        case "hover":
-          results.push(await this.hover(tabId, step.ref, false, human));
-          break;
-        case "highlight":
-          results.push(await this.highlight(tabId, step.ref));
-          break;
-        case "type":
-          results.push(await this.type(tabId, step.ref, step.text, false, human));
-          break;
-        case "select":
-          results.push(await this.select(tabId, step.ref, step.value));
-          break;
-        case "upload":
-          results.push(await this.upload(tabId, step.ref, step.paths));
-          break;
-        case "press":
-          results.push(await this.press(tabId, step.key, false, step.document));
-          break;
-        case "scroll":
-          results.push(
-            await this.scroll(
-              tabId,
-              step.deltaX ?? 0,
-              step.deltaY ?? 0,
-              false,
-              step.document,
-            ),
-          );
-          break;
-        case "wait":
-          results.push(
-            await this.wait(tabId, step.text, step.timeoutMs ?? 10_000, step.document),
-          );
-          break;
-        case "dialog":
-          results.push(await this.handleDialog(tabId, step.accept, step.text));
-          break;
+  async act(
+    tabId: string,
+    steps: ReadonlyArray<AppTabActStep>,
+    human = false,
+    ownerThreadId?: string,
+  ): Promise<unknown> {
+    return this.#cursorOwnerThread.run(ownerThreadId, async () => {
+      const results: unknown[] = [];
+      for (const step of steps) {
+        switch (step.action) {
+          case "click":
+            results.push(await this.click(tabId, step.ref, false, human));
+            break;
+          case "hover":
+            results.push(await this.hover(tabId, step.ref, false, human));
+            break;
+          case "highlight":
+            results.push(await this.highlight(tabId, step.ref));
+            break;
+          case "type":
+            results.push(await this.type(tabId, step.ref, step.text, false, human));
+            break;
+          case "select":
+            results.push(await this.select(tabId, step.ref, step.value));
+            break;
+          case "upload":
+            results.push(await this.upload(tabId, step.ref, step.paths));
+            break;
+          case "press":
+            results.push(await this.press(tabId, step.key, false, step.document));
+            break;
+          case "scroll":
+            results.push(
+              await this.scroll(
+                tabId,
+                step.deltaX ?? 0,
+                step.deltaY ?? 0,
+                false,
+                step.document,
+              ),
+            );
+            break;
+          case "wait":
+            results.push(
+              await this.wait(tabId, step.text, step.timeoutMs ?? 10_000, step.document),
+            );
+            break;
+          case "dialog":
+            results.push(await this.handleDialog(tabId, step.accept, step.text));
+            break;
+        }
       }
-    }
-    return { tabId, inputMode: human ? "human" : "smooth", steps: results };
+      return { tabId, inputMode: human ? "human" : "smooth", steps: results };
+    });
   }
 
   async screenshot(
@@ -600,6 +636,7 @@ export class AppTabObserver {
         () => undefined,
       );
       ffmpeg.stdin?.end();
+      await this.#removeCursorsForTab(tabId, "record-complete");
     }
     const exitCode = await completion;
     if (frames === 0) throw observerError("SCREENSHOT_NEVER_PAINTED", `${document} never painted.`);
@@ -1111,23 +1148,154 @@ export class AppTabObserver {
   async #ensureCursor(target: AppTabObservationTarget): Promise<void> {
     const key = observationTargetKey(target);
     const loaderId = await this.#loaderId(target);
-    if (!this.#cursorScripts.has(key)) {
-      await this.#cdp(
-        target.webContents,
-        "Page.addScriptToEvaluateOnNewDocument",
-        { source: AGENT_CURSOR_SOURCE },
-        target.cdpSessionId,
+    if (!this.#cursorInstallations.has(key)) {
+      const instanceId = randomUUID();
+      const worldName = `penkra-agent-cursor-${instanceId}`;
+      const response = asRecord(
+        await this.#cdp(
+          target.webContents,
+          "Page.addScriptToEvaluateOnNewDocument",
+          { source: AGENT_CURSOR_SOURCE, worldName, runImmediately: true },
+          target.cdpSessionId,
+        ),
       );
-      this.#cursorScripts.add(key);
+      let installation: CursorInstallation;
+      const destroyedListener = () => {
+        if (this.#cursorInstallations.get(key) !== installation) return;
+        this.#forgetCursor(key, installation, "web-contents-destroyed");
+      };
+      installation = {
+        destroyedListener,
+        instanceId,
+        ownerThreadId: null,
+        ownerThreadWasActive: false,
+        scriptId: typeof response.identifier === "string" ? response.identifier : null,
+        target,
+        worldName,
+      };
+      this.#cursorInstallations.set(key, installation);
+      this.#cursorLog("installed", key, installation, { loaderId });
+      target.webContents.once("destroyed", destroyedListener);
     }
     if (this.#cursorLoaders.get(key) === loaderId) return;
-    await this.#cdp(
+    this.#cursorLoaders.set(key, loaderId);
+    this.#cursorLog("loader-ready", key, this.#cursorInstallations.get(key), { loaderId });
+  }
+
+  async #hideActiveCursor(reason: string): Promise<void> {
+    const key = this.#activeCursorKey;
+    if (!key) return;
+    const installation = this.#cursorInstallations.get(key);
+    this.#activeCursorKey = null;
+    if (!installation || installation.target.webContents.isDestroyed()) return;
+    try {
+      await this.#evaluateCursor(
+        installation,
+        "globalThis.__agentBrowserRecordingCursorHide?.()",
+      );
+      this.#cursorLog("hidden", key, installation, { reason });
+    } catch (error) {
+      this.#cursorLog("hide-failed", key, installation, {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async #removeCursor(
+    key: string,
+    installation: CursorInstallation,
+    reason: string,
+  ): Promise<void> {
+    if (!installation.target.webContents.isDestroyed()) {
+      await this.#evaluateCursor(
+        installation,
+        "globalThis.__agentBrowserRecordingCursorCleanup?.()",
+      ).catch(() => undefined);
+      if (installation.scriptId) {
+        await this.#cdp(
+          installation.target.webContents,
+          "Page.removeScriptToEvaluateOnNewDocument",
+          { identifier: installation.scriptId },
+          installation.target.cdpSessionId,
+        ).catch(() => undefined);
+      }
+    }
+    this.#forgetCursor(key, installation, reason);
+  }
+
+  async #removeCursorsForTab(tabId: string, reason: string): Promise<void> {
+    const removals: Array<Promise<void>> = [];
+    for (const [key, installation] of this.#cursorInstallations) {
+      if (installation.target.descriptor.id !== tabId) continue;
+      removals.push(this.#removeCursor(key, installation, reason));
+    }
+    await Promise.all(removals);
+  }
+
+  async #evaluateCursor(installation: CursorInstallation, expression: string): Promise<unknown> {
+    const target = installation.target;
+    const frameTree = asRecord(
+      await this.#cdp(target.webContents, "Page.getFrameTree", undefined, target.cdpSessionId),
+    );
+    const frame = asRecord(asRecord(frameTree.frameTree).frame);
+    if (typeof frame.id !== "string" || !frame.id) {
+      throw observerError("LOAD_FAILED", `${target.document} has no cursor frame.`);
+    }
+    const isolatedWorld = asRecord(
+      await this.#cdp(
+        target.webContents,
+        "Page.createIsolatedWorld",
+        { frameId: frame.id, worldName: installation.worldName },
+        target.cdpSessionId,
+      ),
+    );
+    if (typeof isolatedWorld.executionContextId !== "number") {
+      throw observerError("LOAD_FAILED", `${target.document} has no cursor execution context.`);
+    }
+    return this.#cdp(
       target.webContents,
       "Runtime.evaluate",
-      { expression: AGENT_CURSOR_SOURCE, awaitPromise: true },
+      {
+        contextId: isolatedWorld.executionContextId,
+        expression,
+        awaitPromise: true,
+      },
       target.cdpSessionId,
     );
-    this.#cursorLoaders.set(key, loaderId);
+  }
+
+  #forgetCursor(key: string, installation: CursorInstallation, reason: string): void {
+    if (this.#cursorInstallations.get(key) !== installation) return;
+    this.#cursorInstallations.delete(key);
+    if (!installation.target.webContents.isDestroyed()) {
+      installation.target.webContents.removeListener("destroyed", installation.destroyedListener);
+    }
+    this.#cursorLoaders.delete(key);
+    this.#cursorPositions.delete(key);
+    if (this.#activeCursorKey === key) this.#activeCursorKey = null;
+    this.#cursorLog("removed", key, installation, { reason });
+  }
+
+  #cursorLog(
+    event: string,
+    key: string,
+    installation: CursorInstallation | undefined,
+    detail: Record<string, unknown> = {},
+  ): void {
+    console.info(
+      `[app-tab-agent-cursor] ${JSON.stringify({
+        event,
+        instanceId: installation?.instanceId ?? null,
+        tabId: installation?.target.descriptor.id ?? null,
+        document: installation?.target.document ?? null,
+        webContentsId: safeWebContentsId(installation?.target.webContents),
+        targetKey: key,
+        ownerThreadId: installation?.ownerThreadId ?? null,
+        ownerThreadWasActive: installation?.ownerThreadWasActive ?? false,
+        ...detail,
+      })}`,
+    );
   }
 
   async #moveCursor(
@@ -1137,29 +1305,52 @@ export class AppTabObserver {
   ): Promise<void> {
     await this.#ensureCursor(target);
     const key = observationTargetKey(target);
+    if (this.#activeCursorKey && this.#activeCursorKey !== key) {
+      await this.#hideActiveCursor("target-switch");
+    }
+    this.#activeCursorKey = key;
+    const installation = this.#cursorInstallations.get(key);
+    const ownerThreadId = this.#cursorOwnerThread.getStore() ?? null;
+    if (installation && ownerThreadId) {
+      installation.ownerThreadId = ownerThreadId;
+      installation.ownerThreadWasActive ||= this.#activeTurnThreadIds.has(ownerThreadId);
+    }
     const start = this.#cursorPositions.get(key) ?? { x: 12, y: 12 };
     const steps = human ? 24 : 12;
     const duration = human ? 360 : 180;
     const dx = destination.x - start.x;
     const dy = destination.y - start.y;
+    this.#cursorLog("move-started", key, installation, {
+      from: start,
+      to: destination,
+      steps,
+      durationMs: duration,
+      inputMode: human ? "human" : "smooth",
+    });
     for (let index = 1; index <= steps; index += 1) {
       const progress = index / steps;
       const eased = progress * progress * (3 - 2 * progress);
       const bend = human ? Math.sin(Math.PI * progress) * Math.min(24, Math.hypot(dx, dy) / 12) : 0;
       const length = Math.hypot(dx, dy) || 1;
+      const x = start.x + dx * eased + (-dy / length) * bend;
+      const y = start.y + dy * eased + (dx / length) * bend;
       await this.#cdp(
         target.webContents,
         "Input.dispatchMouseEvent",
         {
           type: "mouseMoved",
-          x: start.x + dx * eased + (-dy / length) * bend,
-          y: start.y + dy * eased + (dx / length) * bend,
+          x,
+          y,
         },
         target.cdpSessionId,
       );
+      if (index === 1) {
+        this.#cursorLog("shown", key, installation, { at: { x, y } });
+      }
       await delay(duration / steps);
     }
     this.#cursorPositions.set(key, destination);
+    this.#cursorLog("move-completed", key, installation, { at: destination });
   }
 
   #state(tabId: string, target: AppTabObservationTarget, loaderId: string): TabSnapshotState {
@@ -1502,6 +1693,15 @@ function escapeRegExp(value: string): string {
 
 function observationTargetKey(target: AppTabObservationTarget): string {
   return `${target.document}:${target.webContents.id}:${target.cdpSessionId ?? "top"}`;
+}
+
+function safeWebContentsId(contents: WebContents | undefined): number | null {
+  if (!contents || contents.isDestroyed()) return null;
+  try {
+    return contents.id;
+  } catch {
+    return null;
+  }
 }
 
 function referenceDocument(reference: string): AppTabDocument {
