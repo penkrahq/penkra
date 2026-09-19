@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { ProviderModelPicker } from "./ProviderModelPicker";
+import { ComposerColumnFrame } from "./ComposerColumnFrame";
 import type { ProviderModelOption } from "../../providerModelOptions";
 
 const MODEL_OPTIONS_BY_PROVIDER = {
@@ -145,6 +146,62 @@ describe("ProviderModelPicker", () => {
       });
     } finally {
       await mounted.cleanup();
+    }
+  });
+
+  it("stays anchored after the composer moves without changing width", async () => {
+    await page.viewport(1280, 800);
+    const host = document.createElement("div");
+    Object.assign(host.style, {
+      left: "560px",
+      position: "absolute",
+      top: "100px",
+      width: "592px",
+    });
+    document.body.append(host);
+    const screen = await render(
+      <ComposerColumnFrame>
+        <div style={{ paddingLeft: 20 }}>
+          <ProviderModelPicker
+            provider="claudeAgent"
+            model="claude-opus-4-6"
+            lockedProvider={null}
+            modelOptionsByProvider={MODEL_OPTIONS_BY_PROVIDER}
+            onProviderModelChange={vi.fn()}
+          />
+        </div>
+      </ComposerColumnFrame>,
+      { container: host },
+    );
+
+    try {
+      const trigger = page.getByRole("button");
+      await trigger.click();
+      await expect.element(page.getByRole("menu")).toBeInTheDocument();
+      await trigger.click();
+      await vi.waitFor(() => expect(document.querySelector("[role='menu']")).toBeNull());
+
+      host.style.left = "100px";
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await trigger.click();
+
+      await vi.waitFor(() => {
+        const triggerElement = host.querySelector<HTMLElement>("button");
+        const popupPositioner = document.querySelector<HTMLElement>(
+          "[data-slot='menu-positioner']",
+        );
+        expect(triggerElement).not.toBeNull();
+        expect(popupPositioner).not.toBeNull();
+        expect(
+          Math.abs(
+            popupPositioner!.getBoundingClientRect().left -
+              triggerElement!.getBoundingClientRect().left,
+          ),
+        ).toBeLessThan(2);
+      });
+    } finally {
+      await screen.unmount();
+      host.remove();
     }
   });
 
