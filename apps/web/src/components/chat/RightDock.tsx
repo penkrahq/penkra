@@ -161,11 +161,18 @@ export function RightDock(props: RightDockProps) {
     };
 
     applyAvailableWidth();
+    // The dock's available width can change without a BrowserWindow resize:
+    // switching shell layouts, changing the left rail, and leaving fullscreen
+    // all resize this parent. Observe that element so the CSS dock and the
+    // native App bounds are reconciled in the same frame.
+    const resizeObserver = new ResizeObserver(scheduleAvailableWidth);
+    resizeObserver.observe(shell);
     window.addEventListener("resize", scheduleAvailableWidth);
     const removeWindowStateListener = window.desktopBridge?.windowControls?.onState(() =>
       scheduleAvailableWidth(),
     );
     return () => {
+      resizeObserver.disconnect();
       window.removeEventListener("resize", scheduleAvailableWidth);
       removeWindowStateListener?.();
       if (resizeFrameId !== null) {
