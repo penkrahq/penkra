@@ -10,15 +10,32 @@ import { APP_RUNTIME_IPC_CHANNELS } from "./ipcChannels";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { PENKRA_APP_ID_ARGUMENT_PREFIX } from "./appRuntimePolicy";
 
+const onRuntimeEvent = (name: string, listener: (payload: unknown) => void): (() => void) => {
+  const wrapped = (_event: Electron.IpcRendererEvent, event: unknown) => {
+    if (event && typeof event === "object" && (event as { name?: unknown }).name === name) {
+      listener((event as { payload?: unknown }).payload);
+    }
+  };
+  ipcRenderer.on(APP_RUNTIME_IPC_CHANNELS.event, wrapped);
+  return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.event, wrapped);
+};
+
 const runtime = new AppPreloadRuntime({
+  call: (method, input) =>
+    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.call, {
+      method,
+      ...(input === undefined ? {} : { input }),
+    }),
   send: (message) => ipcRenderer.send(APP_RUNTIME_IPC_CHANNELS.rendererMessage, message),
   onHostMessage: (listener) => {
     const wrapped = (_event: Electron.IpcRendererEvent, message: unknown) => listener(message);
     ipcRenderer.on(APP_RUNTIME_IPC_CHANNELS.hostMessage, wrapped);
     return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.hostMessage, wrapped);
   },
+  onEvent: onRuntimeEvent,
   ready: () => ipcRenderer.send(APP_RUNTIME_IPC_CHANNELS.ready),
   tabSetRoute: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.tabSetRoute, input),
+  tabOpenSibling: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.tabOpenSibling, input),
   tabGetContext: () => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.tabGetContext),
   queryPermission: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.permissionQuery, name),
   requestPermission: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.permissionRequest, name),
@@ -64,35 +81,23 @@ const runtime = new AppPreloadRuntime({
   secretDelete: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.secretDelete, name),
   browserCall: (method, input) =>
     ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.browserCall, { method, input }),
-  onBrowserState: (listener) => {
-    const wrapped = (
-      _event: Electron.IpcRendererEvent,
-      state: import("@penkra/sdk").AppBrowserSessionState,
-    ) => listener(state);
-    ipcRenderer.on(APP_RUNTIME_IPC_CHANNELS.browserState, wrapped);
-    return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.browserState, wrapped);
-  },
-  onBrowserDownload: (listener) => {
-    const wrapped = (
-      _event: Electron.IpcRendererEvent,
-      download: import("@penkra/sdk").AppBrowserDownloadEvent,
-    ) => listener(download);
-    ipcRenderer.on(APP_RUNTIME_IPC_CHANNELS.browserDownload, wrapped);
-    return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.browserDownload, wrapped);
-  },
+  onBrowserState: (listener) =>
+    onRuntimeEvent("browser.state", (state) =>
+      listener(state as import("@penkra/sdk").AppBrowserSessionState),
+    ),
+  onBrowserDownload: (listener) =>
+    onRuntimeEvent("browser.download", (download) =>
+      listener(download as import("@penkra/sdk").AppBrowserDownloadEvent),
+    ),
   simulatorCall: (method, input) =>
     ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.simulatorCall, {
       method,
       input,
     }),
-  onSimulatorState: (listener) => {
-    const wrapped = (
-      _event: Electron.IpcRendererEvent,
-      state: import("@penkra/sdk").AppSimulatorSessionState,
-    ) => listener(state);
-    ipcRenderer.on(APP_RUNTIME_IPC_CHANNELS.simulatorState, wrapped);
-    return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.simulatorState, wrapped);
-  },
+  onSimulatorState: (listener) =>
+    onRuntimeEvent("simulator.state", (state) =>
+      listener(state as import("@penkra/sdk").AppSimulatorSessionState),
+    ),
   networkFetch: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.networkFetch, input),
   storageCall: (method, input) =>
     ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.storageCall, { method, input }),

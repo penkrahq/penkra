@@ -372,6 +372,7 @@ export default function Sidebar() {
   const threadsHydrated = useStore((store) => store.threadsHydrated);
   const sidebarThreadSummaryById = useStore((store) => store.sidebarThreadSummaryById);
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
+  const moveSidebarItemLocally = useStore((store) => store.moveSidebarItemLocally);
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
   const persistThreadVisit = useCallback((threadId: ThreadId, lastVisitedAt: string) => {
@@ -1990,9 +1991,11 @@ export default function Sidebar() {
       item: SidebarItemReference;
       target: SidebarItemParent;
       position: SidebarItemMovePosition;
+      orderedDestinationItems: ReadonlyArray<SidebarItemReference>;
     }) => {
       const api = readNativeApi();
       if (!api) return false;
+      moveSidebarItemLocally(input.item, input.target, input.orderedDestinationItems);
       try {
         await moveSidebarItem({
           api,
@@ -2002,6 +2005,13 @@ export default function Sidebar() {
         });
         return true;
       } catch (error) {
+        try {
+          const snapshot = await api.orchestration.getShellSnapshot();
+          syncServerShellSnapshot(snapshot);
+        } catch {
+          // Keep the proposed order until a later authoritative shell update;
+          // a blind rollback can undo a command that committed remotely.
+        }
         toastManager.add({
           type: "error",
           title: "Unable to move sidebar item",
@@ -2010,7 +2020,7 @@ export default function Sidebar() {
         return false;
       }
     },
-    [],
+    [moveSidebarItemLocally, syncServerShellSnapshot],
   );
   const sidebarDropIntentRef = useRef<SidebarDropIntent | null>(null);
   const handleSidebarDragOver = useCallback(
@@ -2177,6 +2187,14 @@ export default function Sidebar() {
         requestedIndex,
         isPinned: isSidebarItemPinned,
       });
+      const insertionIndex = resolveSidebarInsertionIndex({
+        item: sourceData.item,
+        destinationItems,
+        requestedIndex,
+        isPinned: isSidebarItemPinned,
+      });
+      const orderedDestinationItems = [...destinationItems];
+      orderedDestinationItems.splice(insertionIndex, 0, sourceData.item);
 
       // A pointer gesture must finish independently of persistence. Suspending the
       // dnd-kit operation here kept the source row and drag overlay mounted until
@@ -2188,6 +2206,7 @@ export default function Sidebar() {
         item: sourceData.item,
         target,
         position,
+        orderedDestinationItems,
       });
     },
     [

@@ -1,15 +1,22 @@
 import { ThreadId, type ProviderKind } from "@penkra/contracts";
+import { OptimisticSortingPlugin } from "@dnd-kit/dom/sortable";
 import { useDragDropMonitor, useDragOperation, useDroppable } from "@dnd-kit/react";
+import type { DragOverEvent } from "@dnd-kit/react";
+import { useSortable } from "@dnd-kit/react/sortable";
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 
-import { SurfaceTabChip } from "~/components/chat/chatHeaderControls";
+import {
+  SurfaceTabChip,
+  SURFACE_TAB_DIVIDER_CLASS_NAME,
+} from "~/components/chat/chatHeaderControls";
 import {
   WorkStatusShared,
   type WorkStatus,
 } from "~/components/left-rail/work-status-shared/WorkStatusShared";
 import { ThreadIdentityShared } from "~/components/middle-panel/thread-identity-shared/ThreadIdentityShared";
 import { IconButton } from "~/components/ui/icon-button";
+import { toastManager } from "~/components/ui/toast";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { useComposerSendActivityThreadIds } from "~/composerSendPreflight";
 import {
@@ -31,8 +38,93 @@ import { useVoiceSessionCoordinatorStore } from "~/voiceSessionCoordinator";
 import { CentralIcon } from "~/lib/central-icons";
 import { cn } from "~/lib/utils";
 import { readSidebarDndData, SIDEBAR_THREAD_DRAG_TYPES } from "~/components/sidebar/SidebarDnd";
+import {
+  DECK_THREAD_DRAG_TYPE,
+  type DeckThreadDndData,
+  readDeckThreadDndData,
+} from "./ThreadDeckDnd";
 
-const DECK_THREAD_DRAG_TYPE = "application/x-penkra-thread-deck-thread";
+type DeckDropPlacement = "before" | "after";
+
+interface DeckDropPreview {
+  readonly targetThreadId: ThreadId;
+  readonly placement: DeckDropPlacement;
+  readonly gapWidth: number;
+}
+
+function SortableDeckThread(props: {
+  readonly children: ReactNode;
+  readonly deckId: string;
+  readonly index: number;
+  readonly tab: DeckTab;
+  readonly dropPreview: DeckDropPreview | null;
+}) {
+  const data: DeckThreadDndData = {
+    type: "thread-deck-tab",
+    deckId: props.deckId,
+    threadId: props.tab.id,
+    preview: {
+      title: props.tab.title,
+      harness: props.tab.harness,
+      pinned: props.tab.pinned,
+      workStatus: props.tab.workStatus,
+    },
+  };
+  const sortable = useSortable({
+    id: `thread-deck-tab:${props.deckId}:${props.tab.id}`,
+    index: props.index,
+    group: `thread-deck:${props.deckId}`,
+    type: DECK_THREAD_DRAG_TYPE,
+    accept: [DECK_THREAD_DRAG_TYPE],
+    data,
+    // The normalized store owns visible order. Disable dnd-kit's transient DOM
+    // transform so drop can move directly from preview to the local projection.
+    plugins: (defaults) => defaults.filter((plugin) => plugin !== OptimisticSortingPlugin),
+  });
+  const dropPlacement =
+    props.dropPreview?.targetThreadId === props.tab.id ? props.dropPreview.placement : null;
+  const gapWidth = dropPlacement ? (props.dropPreview?.gapWidth ?? 0) : 0;
+  const sortableRef = sortable.ref;
+  const sortableHandleRef = sortable.handleRef;
+  const setNodeRef = useCallback(
+    (element: Element | null) => {
+      sortableRef(element);
+      sortableHandleRef(element?.querySelector("button[aria-pressed]") ?? element);
+    },
+    [sortableHandleRef, sortableRef],
+  );
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "relative transition-[padding] duration-150 [transition-timing-function:ease] motion-reduce:transition-none",
+        sortable.isDragging && "z-20 opacity-35",
+        sortable.isDropTarget && "z-10",
+      )}
+      data-thread-deck-drag-source={sortable.isDragSource ? "true" : undefined}
+      data-thread-deck-drag-target={sortable.isDropTarget ? "true" : undefined}
+      data-thread-deck-drop-preview={dropPlacement ?? undefined}
+      style={
+        dropPlacement === "before"
+          ? { paddingLeft: gapWidth }
+          : dropPlacement === "after"
+            ? { paddingRight: gapWidth }
+            : undefined
+      }
+    >
+      {dropPlacement ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute top-1/2 z-30 h-6 w-0.5 -translate-y-1/2 rounded-full bg-[var(--color-border-focus)]"
+          data-thread-deck-drop-indicator={dropPlacement}
+          style={dropPlacement === "before" ? { left: gapWidth / 2 } : { right: gapWidth / 2 }}
+        />
+      ) : null}
+      {props.children}
+    </div>
+  );
+}
 
 interface DeckTab {
   readonly id: ThreadId;
@@ -47,6 +139,8 @@ interface DeckTab {
 
 export function ThreadDeckBar(props: {
   activeThread: Thread;
+  activeComposerProvider: ProviderKind;
+  defaultComposerProvider: ProviderKind;
   leftRailCollapsed: boolean;
   onRestoreLeftRail: () => void;
   className?: string;
@@ -59,6 +153,7 @@ export function ThreadDeckBar(props: {
   const threadTurnStateById = useStore((state) => state.threadTurnStateById ?? {});
   const sidebarThreadSummaryById = useStore((state) => state.sidebarThreadSummaryById);
   const draftThreadsByThreadId = useComposerDraftStore((state) => state.draftThreadsByThreadId);
+  const composerDraftsByThreadId = useComposerDraftStore((state) => state.draftsByThreadId);
   const localSendOwnerThreadIds = useComposerSendActivityThreadIds();
   const clearDraftThread = useComposerDraftStore((state) => state.clearDraftThread);
   const recordingThreadId = useVoiceSessionCoordinatorStore(
@@ -92,9 +187,95 @@ export function ThreadDeckBar(props: {
     activeSpaceId !== null &&
     activeSpaceId === draggedSpaceId,
   );
+  const [deckDropPreview, setDeckDropPreview] = useState<DeckDropPreview | null>(null);
+
+  const updateDeckDropPreview = ({ operation }: Pick<DragOverEvent, "operation">) => {
+    const source = readDeckThreadDndData(operation.source?.data);
+    const target = readDeckThreadDndData(operation.target?.data);
+    if (!source || !target || source.deckId !== deckId || target.deckId !== deckId) {
+      setDeckDropPreview(null);
+      return;
+    }
+    if (source.threadId === target.threadId) {
+      setDeckDropPreview(null);
+      return;
+    }
+    const sourceIndex = tabs.findIndex((tab) => tab.id === source.threadId);
+    const targetIndex = tabs.findIndex((tab) => tab.id === target.threadId);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      setDeckDropPreview(null);
+      return;
+    }
+    const measuredWidth = operation.source?.element?.getBoundingClientRect().width ?? 0;
+    const next: DeckDropPreview = {
+      targetThreadId: target.threadId,
+      placement: sourceIndex < targetIndex ? "after" : "before",
+      gapWidth: measuredWidth,
+    };
+    setDeckDropPreview((current) =>
+      current?.targetThreadId === next.targetThreadId &&
+      current.placement === next.placement &&
+      current.gapWidth === next.gapWidth
+        ? current
+        : next,
+    );
+  };
 
   useDragDropMonitor({
+    onDragMove(event) {
+      updateDeckDropPreview(event);
+    },
+    onDragOver(event) {
+      updateDeckDropPreview(event);
+    },
     onDragEnd(event) {
+      setDeckDropPreview(null);
+      const deckSource = readDeckThreadDndData(event.operation.source?.data);
+      const deckTarget = readDeckThreadDndData(event.operation.target?.data);
+      if (
+        !event.canceled &&
+        deckSource?.deckId === deckId &&
+        deckTarget?.deckId === deckId &&
+        deckSource.threadId !== deckTarget.threadId
+      ) {
+        const sourceIndex = tabs.findIndex((tab) => tab.id === deckSource.threadId);
+        const targetIndex = tabs.findIndex((tab) => tab.id === deckTarget.threadId);
+        if (sourceIndex >= 0 && targetIndex >= 0) {
+          const api = readNativeApi();
+          if (!api) return;
+          const orderedThreadIds = tabs.map((tab) => tab.id);
+          const [movedThreadId] = orderedThreadIds.splice(sourceIndex, 1);
+          if (!movedThreadId) return;
+          orderedThreadIds.splice(targetIndex, 0, movedThreadId);
+          useStore.getState().reorderDeckLocally(deckId, orderedThreadIds);
+          void api.orchestration
+            .dispatchCommand({
+              type: "thread.deck.move",
+              commandId: newCommandId(),
+              threadId: deckSource.threadId,
+              deckId,
+              position: {
+                type: sourceIndex < targetIndex ? "after" : "before",
+                threadId: deckTarget.threadId,
+              },
+            })
+            .catch(async (error) => {
+              try {
+                const snapshot = await api.orchestration.getShellSnapshot();
+                useStore.getState().syncServerShellSnapshot(snapshot);
+              } catch {
+                // Keep the proposed order until the shell stream/snapshot can
+                // reconcile it; a blind rollback can undo a committed command.
+              }
+              toastManager.add({
+                type: "error",
+                title: "Unable to confirm thread order",
+                description: error instanceof Error ? error.message : "Try again.",
+              });
+            });
+        }
+        return;
+      }
       const source = readSidebarDndData(event.operation.source?.data);
       if (
         event.canceled ||
@@ -172,7 +353,13 @@ export function ThreadDeckBar(props: {
           id: ThreadId.makeUnsafe(threadId),
           folderId: draft.folderId,
           title: "New thread",
-          harness: "codex",
+          // An unsent thread has no durable provider identity yet. Its tab
+          // follows the provider that its composer will use for the first turn.
+          harness:
+            composerDraftsByThreadId[ThreadId.makeUnsafe(threadId)]?.activeProvider ??
+            (threadId === props.activeThread.id
+              ? props.activeComposerProvider
+              : props.defaultComposerProvider),
           pinned: false,
           workStatus: threadId === recordingThreadId ? "recording" : "idle",
           createdAt: draft.createdAt,
@@ -184,12 +371,16 @@ export function ThreadDeckBar(props: {
   }, [
     deckId,
     decks,
+    composerDraftsByThreadId,
     draftThreadsByThreadId,
     localSendOwnerThreadIds,
     recordingThreadId,
     sidebarThreadSummaryById,
     threadShellById,
     threadTurnStateById,
+    props.activeComposerProvider,
+    props.activeThread.id,
+    props.defaultComposerProvider,
   ]);
 
   const activate = async (threadId: ThreadId | null): Promise<void> => {
@@ -220,21 +411,6 @@ export function ThreadDeckBar(props: {
           threadId: removedThreadId,
         });
       },
-    });
-  };
-
-  const reorder = async (event: React.DragEvent<HTMLDivElement>, targetThreadId: ThreadId) => {
-    event.preventDefault();
-    const sourceThreadId = event.dataTransfer.getData(DECK_THREAD_DRAG_TYPE);
-    if (!sourceThreadId || sourceThreadId === targetThreadId) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const position = event.clientX < bounds.left + bounds.width / 2 ? "before" : "after";
-    await readNativeApi()?.orchestration.dispatchCommand({
-      type: "thread.deck.move",
-      commandId: newCommandId(),
-      threadId: ThreadId.makeUnsafe(sourceThreadId),
-      deckId,
-      position: { type: position, threadId: targetThreadId },
     });
   };
 
@@ -282,23 +458,17 @@ export function ThreadDeckBar(props: {
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "mx-0.5 h-4 w-px bg-[var(--app-surface-divider)]",
+                    SURFACE_TAB_DIVIDER_CLASS_NAME,
                     (active || previousActive) && "invisible",
                   )}
                   data-slot="thread-deck-divider"
                 />
               ) : null}
-              <div
-                draggable
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData(DECK_THREAD_DRAG_TYPE, tab.id);
-                }}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
-                }}
-                onDrop={(event) => void reorder(event, tab.id)}
+              <SortableDeckThread
+                deckId={deckId}
+                dropPreview={deckDropPreview}
+                index={index}
+                tab={tab}
               >
                 <SurfaceTabChip
                   active={active}
@@ -317,7 +487,7 @@ export function ThreadDeckBar(props: {
                   onClose={() => void archive(tab.id)}
                   onSelect={() => activate(tab.id)}
                 />
-              </div>
+              </SortableDeckThread>
             </div>
           );
         })}

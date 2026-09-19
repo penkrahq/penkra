@@ -1,4 +1,3 @@
-import type { BrowserWindow } from "electron";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const electronMocks = vi.hoisted(() => ({
@@ -27,11 +26,9 @@ vi.mock("electron", () => ({
   },
 }));
 
-import {
-  BROWSER_SESSION_PARTITION,
-  BrowserSessionPolicy,
-  createScopedBrowserSessionPartition,
-} from "./browserSessionPolicy";
+import { BrowserSessionPolicy, createScopedBrowserSessionPartition } from "./browserSessionPolicy";
+
+const TEST_PARTITION = createScopedBrowserSessionPartition("com.penkra.browser", "test-space");
 
 describe("BrowserSessionPolicy", () => {
   beforeEach(() => {
@@ -49,11 +46,11 @@ describe("BrowserSessionPolicy", () => {
   it("configures the persistent partition only once", () => {
     const policy = new BrowserSessionPolicy();
 
-    policy.ensureConfigured();
-    policy.ensureConfigured();
+    policy.ensureConfigured(TEST_PARTITION);
+    policy.ensureConfigured(TEST_PARTITION);
 
     expect(electronMocks.fromPartition).toHaveBeenCalledOnce();
-    expect(electronMocks.fromPartition).toHaveBeenCalledWith(BROWSER_SESSION_PARTITION);
+    expect(electronMocks.fromPartition).toHaveBeenCalledWith(TEST_PARTITION);
     expect(electronMocks.partitionSetUserAgent).toHaveBeenCalledOnce();
     expect(electronMocks.onBeforeSendHeaders).toHaveBeenCalledOnce();
   });
@@ -73,7 +70,7 @@ describe("BrowserSessionPolicy", () => {
 
   it("replaces identity headers case-insensitively while retaining the Penkra product token", () => {
     const policy = new BrowserSessionPolicy();
-    policy.ensureConfigured();
+    policy.ensureConfigured(TEST_PARTITION);
     const listener = electronMocks.headerListener.current;
     expect(listener).not.toBeNull();
     if (!listener) return;
@@ -105,7 +102,7 @@ describe("BrowserSessionPolicy", () => {
 
   it("strips the Penkra token only for the exact WhatsApp compatibility host", () => {
     const policy = new BrowserSessionPolicy();
-    policy.ensureConfigured();
+    policy.ensureConfigured(TEST_PARTITION);
     const listener = electronMocks.headerListener.current;
     expect(listener).not.toBeNull();
     if (!listener) return;
@@ -139,28 +136,12 @@ describe("BrowserSessionPolicy", () => {
     });
     const policy = new BrowserSessionPolicy();
 
-    policy.ensureConfigured();
-    policy.ensureConfigured();
+    policy.ensureConfigured(TEST_PARTITION);
+    policy.ensureConfigured(TEST_PARTITION);
 
     expect(electronMocks.fromPartition).toHaveBeenCalledTimes(2);
     expect(electronMocks.partitionSetUserAgent).toHaveBeenCalledOnce();
     expect(electronMocks.onBeforeSendHeaders).toHaveBeenCalledOnce();
-  });
-
-  it("builds hardened popup options with an optional parent", () => {
-    const policy = new BrowserSessionPolicy();
-    const parent = {} as BrowserWindow;
-
-    expect(policy.buildOAuthPopupWindowOptions(parent)).toMatchObject({
-      parent,
-      webPreferences: {
-        partition: BROWSER_SESSION_PARTITION,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-      },
-    });
-    expect(policy.buildOAuthPopupWindowOptions(null)).not.toHaveProperty("parent");
   });
 
   it("applies the same derived identity to the partition, tabs, and popups", () => {
@@ -168,7 +149,7 @@ describe("BrowserSessionPolicy", () => {
     const firstContents = { setUserAgent: vi.fn() };
     const secondContents = { setUserAgent: vi.fn() };
 
-    policy.ensureConfigured();
+    policy.ensureConfigured(TEST_PARTITION);
     policy.applyUserAgent(firstContents);
     policy.applyUserAgent(secondContents);
 

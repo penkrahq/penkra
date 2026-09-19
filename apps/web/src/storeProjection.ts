@@ -8,7 +8,10 @@ import {
   type OrchestrationShellSnapshot,
   type OrchestrationShellStreamEvent,
   type OrchestrationSpaceShell,
+  type SidebarItemParent,
+  type SidebarItemReference,
   type OrchestrationGetThreadTurnsPageResult,
+  type ThreadDeckId,
   type ThreadId,
 } from "@penkra/contracts";
 import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
@@ -63,6 +66,111 @@ import type {
 
 type ReadModelThread = OrchestrationReadModel["threads"][number];
 export type ProjectMatchPolicy = "id-only";
+
+/** Applies a validated same-deck order immediately while the matching server
+ * command is in flight. The authoritative event/snapshot later writes through
+ * the same normalized deck + thread-shell fields. */
+export function reorderDeckLocally(
+  state: AppState,
+  deckId: ThreadDeckId,
+  orderedThreadIds: ReadonlyArray<ThreadId>,
+): AppState {
+  const deck = state.decks.find((candidate) => candidate.id === deckId);
+  if (!deck || deck.threadIds.length !== orderedThreadIds.length) return state;
+  const currentIds = new Set(deck.threadIds);
+  const orderedIds = new Set(orderedThreadIds);
+  if (
+    orderedIds.size !== currentIds.size ||
+    orderedThreadIds.some((threadId) => !currentIds.has(threadId))
+  ) {
+    return state;
+  }
+  if (deck.threadIds.every((threadId, index) => threadId === orderedThreadIds[index])) return state;
+
+  const orderByThreadId = new Map(orderedThreadIds.map((threadId, index) => [threadId, index]));
+  return {
+    ...state,
+    decks: state.decks.map((candidate) =>
+      candidate.id === deckId ? { ...candidate, threadIds: [...orderedThreadIds] } : candidate,
+    ),
+    threadShellById: Object.fromEntries(
+      Object.entries(state.threadShellById ?? {}).map(([threadId, shell]) => {
+        const deckSortOrder = orderByThreadId.get(shell.id);
+        return [threadId, deckSortOrder === undefined ? shell : { ...shell, deckSortOrder }];
+      }),
+    ),
+    sidebarThreadSummaryById: Object.fromEntries(
+      Object.entries(state.sidebarThreadSummaryById).map(([threadId, summary]) => {
+        const deckSortOrder = orderByThreadId.get(summary.id);
+        return [threadId, deckSortOrder === undefined ? summary : { ...summary, deckSortOrder }];
+      }),
+    ),
+  };
+}
+
+/** Projects one resolved sidebar drop before persistence. Callers provide the
+ * exact destination order produced by the same pinned-boundary resolver used
+ * for the command, so the optimistic and authoritative layouts share intent. */
+export function moveSidebarItemLocally(
+  state: AppState,
+  item: SidebarItemReference,
+  target: SidebarItemParent,
+  orderedDestinationItems: ReadonlyArray<SidebarItemReference>,
+): AppState {
+  if (
+    !orderedDestinationItems.some(
+      (candidate) => candidate.kind === item.kind && candidate.id === item.id,
+    ) ||
+    orderedDestinationItems.some((candidate) => candidate.kind !== item.kind)
+  ) {
+    return state;
+  }
+  const orderById = new Map(
+    orderedDestinationItems.map((candidate, index) => [candidate.id, index]),
+  );
+  if (item.kind === "folder") {
+    if (target.kind !== "space") return state;
+    return {
+      ...state,
+      folders: state.folders.map((folder) => {
+        const sidebarSortOrder = orderById.get(folder.id);
+        if (sidebarSortOrder === undefined && folder.id !== item.id) return folder;
+        return {
+          ...folder,
+          ...(folder.id === item.id ? { spaceId: target.spaceId } : {}),
+          ...(sidebarSortOrder === undefined ? {} : { sidebarSortOrder }),
+        };
+      }),
+    };
+  }
+  if (target.kind !== "folder") return state;
+  const updateThreadPosition = <T extends { id: ThreadId; folderId: Project["id"] }>(
+    thread: T,
+  ): T => {
+    const sidebarSortOrder = orderById.get(thread.id);
+    if (sidebarSortOrder === undefined && thread.id !== item.id) return thread;
+    return {
+      ...thread,
+      ...(thread.id === item.id ? { folderId: target.folderId } : {}),
+      ...(sidebarSortOrder === undefined ? {} : { sidebarSortOrder }),
+    };
+  };
+  return {
+    ...state,
+    threadShellById: Object.fromEntries(
+      Object.entries(state.threadShellById ?? {}).map(([threadId, shell]) => [
+        threadId,
+        updateThreadPosition(shell),
+      ]),
+    ),
+    sidebarThreadSummaryById: Object.fromEntries(
+      Object.entries(state.sidebarThreadSummaryById).map(([threadId, summary]) => [
+        threadId,
+        updateThreadPosition(summary),
+      ]),
+    ),
+  };
+}
 
 function toThreadShell(thread: Thread): ThreadShell {
   return {

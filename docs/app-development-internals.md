@@ -119,36 +119,23 @@ installation remains active, and contributor changes use the explicit runtime-sa
 
 ## Hosted Browser surface geometry
 
-### Rejected native App-surface model
+### Native App surfaces
 
-Penkra 0.11.0 replaced main-process-positioned `WebContentsView` App tabs with sandboxed DOM
-iframes. Do not restore the former native App surface merely to obtain a separate `WebContents`.
-It makes the shell's DOM panel and the App's independently composited native content follow
-different layout clocks: changing the panel and calling `setBounds` can expose an edge, present
-stale guest width, or visibly settle after the shell during continuous resizing. It also cannot
-represent one logical tab in multiple shell windows with one view because an Electron
-`WebContents` may be presented by only one `WebContentsView` at a time.
+Every visual App runs in a sandboxed, main-owned `WebContentsView` using its App×Space session and
+the App preload IPC bridge. The shell renderer owns only tab-strip metadata. It publishes the dock
+rectangle before applying splitter CSS width; main owns attachment, bounds, visibility, window
+resize, and fullscreen updates.
 
-The retained `native-view-resize-probe.cjs` isolates the native resize behavior. The paired
-`hosted-surface-resize-probe.mjs` and child probe exercise the current DOM-owned layout, including
-deliberately delayed child rendering, rapid and paced resize cases, divider lag, edge exposure, and
-shell-overlay ordering. Any future proposal for a native App surface starts as a new architecture
-decision and must first reproduce those controls while also proving same-App failure containment,
-App×Space storage, multi-window replicas, focus and input routing, observation, hosted Browser
-composition, crash recovery, and exact lifecycle cleanup. Renderer isolation alone is not enough.
+A hosted Browser page is an ordered `WebContentsView` beside the App document under the same
+main-owned window surface. Its fixed chrome offset is App metadata, while all remaining geometry
+is derived in main. The views do not overlap because Electron 44 on macOS can composite a nested
+`WebContentsView` behind its parent document. App documents never create a `<webview>`
+or publish measured viewport dimensions. Hidden-thread views stay alive and remain directly
+addressable by the observer through their own `webContents`.
 
-The Browser App iframe owns browser chrome; AppDock owns the isolated Electron `<webview>`. Keep
-the guest element in the trusted shell DOM so App packages cannot create Electron guests directly
-and shell overlays remain above the entire App frame. Do not position it with dimensions reported
-on every resize. That introduces a delayed loop through the App frame's `ResizeObserver`,
-MessagePort, shell IPC, main process, host event delivery, and React.
-
-The public `browser.setSurfaceLayout` call reports App-local `top`, `right`, `bottom`, and `left`
-insets only when those structural edges change. AppDock applies all four as CSS constraints to an
-absolutely positioned, flex-displayed `<webview>`. Consequently, resizing AppDock changes the
-iframe and Browser guest in the same shell layout transaction without another capability call.
-Tests must assert edge equality after host-only width changes; checking only the App iframe width
-does not cover the Browser guest.
+Native views sit above shell DOM. Dialogs, command surfaces, sheets, menus, and popovers therefore
+freeze the selected App view while their shell overlay is present and thaw it when the overlay
+closes. One logical App view has one owner window at a time.
 
 ## Contributor verification
 

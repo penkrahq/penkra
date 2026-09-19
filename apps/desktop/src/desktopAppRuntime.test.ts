@@ -12,6 +12,7 @@ const electron = vi.hoisted(() => ({
 
 vi.mock("electron", () => ({
   app: { getAppMetrics: vi.fn(() => []) },
+  BrowserWindow: { fromId: vi.fn(() => null) },
   safeStorage: {
     isEncryptionAvailable: vi.fn(() => true),
     encryptString: vi.fn((value: string) => Buffer.from(value)),
@@ -58,7 +59,6 @@ describe("desktop App runtime composition", () => {
       userDataPath: root,
       appPreloadPath: "/trusted/appPreload.js",
       appControllerRunnerPath: "/trusted/appNodeControllerRunner.js",
-      appFrameRuntimePath: "/trusted/appFrameRuntime.iife.js",
       ipcMain: ipcMain as never,
       onTabOpened: () => undefined,
       onTabState: () => undefined,

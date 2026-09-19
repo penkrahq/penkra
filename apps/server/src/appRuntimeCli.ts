@@ -100,24 +100,96 @@ interface HostOperationDeclaration {
 const TAB_ID = {
   type: "string",
   minLength: 1,
-  description: "Exact retained App tab ID returned by penkra tabs current or penkra tabs list.",
+  description: "Exact retained App tab ID returned by penkra tabs list.",
+} as const;
+const DOCUMENT = {
+  type: "string",
+  enum: ["d1", "d2"],
+  description: "d1 addresses the App document; d2 addresses its hosted page, when present.",
 } as const;
 const REF = {
   type: "string",
-  pattern: "^e[0-9]+$",
-  description: "Element reference returned by the latest snapshot or find call for this tab.",
+  pattern: "^d[12]:e[0-9]+$",
+  description: "Durable document reference returned by snapshot for the current loader.",
 } as const;
 const GENERIC_RESULT_SCHEMA = { type: "object" } as const;
 
+const ACT_STEP = {
+  oneOf: [
+    {
+      type: "object",
+      properties: { action: { enum: ["click", "hover", "highlight"] }, ref: REF },
+      required: ["action", "ref"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: { action: { const: "type" }, ref: REF, text: { type: "string" } },
+      required: ["action", "ref", "text"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: { action: { const: "select" }, ref: REF, value: { type: "string" } },
+      required: ["action", "ref", "value"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        action: { const: "upload" },
+        ref: REF,
+        paths: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+      },
+      required: ["action", "ref", "paths"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        action: { const: "press" },
+        document: DOCUMENT,
+        key: { type: "string", minLength: 1 },
+      },
+      required: ["action", "document", "key"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        action: { const: "scroll" },
+        document: DOCUMENT,
+        deltaX: { type: "number" },
+        deltaY: { type: "number" },
+      },
+      required: ["action", "document"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        action: { const: "wait" },
+        document: DOCUMENT,
+        text: { type: "string", minLength: 1 },
+        timeoutMs: { type: "number", minimum: 0 },
+      },
+      required: ["action", "document", "text"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        action: { const: "dialog" },
+        accept: { type: "boolean" },
+        text: { type: "string" },
+      },
+      required: ["action", "accept"],
+      additionalProperties: false,
+    },
+  ],
+} as const;
+
 const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
-  current: {
-    command: "penkra tabs current",
-    summary: "Return the App tab currently visible in the caller's exact window surface.",
-    instructions: "Use this when the user's request points at the App surface currently on screen.",
-    input: { type: "object", properties: {}, additionalProperties: false },
-    output: GENERIC_RESULT_SCHEMA,
-    examples: [{ name: "Read the visible App tab", command: "penkra tabs current" }],
-  },
   list: {
     command: "penkra tabs list",
     summary: "List retained App tabs in the caller's Thread Deck and Space.",
@@ -127,191 +199,151 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
     output: GENERIC_RESULT_SCHEMA,
     examples: [{ name: "List retained App tabs", command: "penkra tabs list" }],
   },
+  close: {
+    command: "penkra tabs close",
+    summary: "Close one retained App tab in every Penkra window.",
+    instructions: "Closing a tab destroys its App and hosted-page documents.",
+    input: {
+      type: "object",
+      properties: { tabId: TAB_ID },
+      required: ["tabId"],
+      additionalProperties: false,
+    },
+    output: GENERIC_RESULT_SCHEMA,
+    examples: [{ name: "Close a retained tab", command: "penkra tabs close --tab-id <tab-id>" }],
+  },
   snapshot: {
     command: "penkra tabs snapshot",
     summary: "Capture the current accessibility snapshot of one exact retained App tab.",
     instructions:
-      "Take a fresh snapshot before acting on an element reference. References belong to the latest observed document generation and are invalidated when the page changes. Use ref and depth to scope a large tree; filename writes the complete snapshot to the caller Thread workspace.",
+      "References remain valid for the document's current loader and become stale after navigation. Choose d1 for the App document or d2 for its hosted page.",
     input: {
       type: "object",
       properties: {
         tabId: TAB_ID,
+        document: DOCUMENT,
         ref: REF,
         depth: { type: "number", minimum: 0 },
         boxes: { type: "boolean" },
+        interactive: { type: "boolean" },
+        compact: { type: "boolean" },
         filename: { type: "string", minLength: 1 },
       },
-      required: ["tabId"],
+      required: ["tabId", "document"],
       additionalProperties: false,
     },
     output: GENERIC_RESULT_SCHEMA,
     examples: [
       {
         name: "Observe one retained tab",
-        command: "penkra tabs snapshot --tab-id <tab-id> --depth 3 --boxes true",
+        command:
+          "penkra tabs snapshot --tab-id <tab-id> --document d1 --interactive true --compact true",
       },
     ],
   },
-  find: {
-    command: "penkra tabs find",
-    summary: "Search a fresh tab snapshot for literal text or a regular expression.",
-    instructions:
-      "Find searches accessibility-snapshot text in this exact tab, not raw HTML, CSS selectors, page source, or other tabs. Its returned references belong to the fresh snapshot it takes.",
+  diff: {
+    command: "penkra tabs diff",
+    summary: "Snapshot one document and report lines added or removed since its prior snapshot.",
+    instructions: "Diff is loader-aware and addresses d1 and d2 independently.",
     input: {
       type: "object",
-      properties: { tabId: TAB_ID, query: { type: "string", minLength: 1 } },
-      required: ["tabId", "query"],
+      properties: { tabId: TAB_ID, document: DOCUMENT },
+      required: ["tabId", "document"],
+      additionalProperties: false,
+    },
+    output: GENERIC_RESULT_SCHEMA,
+    examples: [
+      { name: "Read changes", command: "penkra tabs diff --tab-id <tab-id> --document d2" },
+    ],
+  },
+  act: {
+    command: "penkra tabs act",
+    summary: "Run an ordered sequence of actions against d1 and d2.",
+    instructions:
+      "Act accepts steps through --input. Element actions use d1:/d2: references from snapshot; --human true uses an eased visible cursor path.",
+    input: {
+      type: "object",
+      properties: {
+        tabId: TAB_ID,
+        human: { type: "boolean" },
+        steps: { type: "array", minItems: 1, items: ACT_STEP },
+      },
+      required: ["tabId", "steps"],
       additionalProperties: false,
     },
     output: GENERIC_RESULT_SCHEMA,
     examples: [
       {
-        name: "Find save or publish controls",
-        command: "penkra tabs find --tab-id <tab-id> --query '/save|publish/i'",
+        name: "Click and wait",
+        command:
+          'penkra tabs act --input \'{"tabId":"<tab-id>","steps":[{"action":"click","ref":"d1:e3"},{"action":"wait","document":"d1","text":"Saved"}]}\'',
+      },
+    ],
+  },
+  evaluate: {
+    command: "penkra tabs evaluate",
+    summary: "Evaluate JavaScript in one App-tab document.",
+    instructions: "The expression runs in exactly d1 or d2 and returns its serializable value.",
+    input: {
+      type: "object",
+      properties: { tabId: TAB_ID, document: DOCUMENT, expression: { type: "string" } },
+      required: ["tabId", "document", "expression"],
+      additionalProperties: false,
+    },
+    output: GENERIC_RESULT_SCHEMA,
+    examples: [
+      {
+        name: "Read the title",
+        command:
+          "penkra tabs evaluate --tab-id <tab-id> --document d1 --expression 'document.title'",
       },
     ],
   },
   screenshot: {
     command: "penkra tabs screenshot",
-    summary: "Capture the App tab currently visible in the caller's exact window surface.",
-    instructions:
-      "Screenshot is intentionally visibility-bound and accepts no tab ID. Use a retained tab's semantic operations or snapshot for work that must continue after the user switches tabs.",
+    summary: "Capture one exact App-tab document, including a background tab.",
+    instructions: "Choose d1 or d2. filename writes a PNG to the caller Thread workspace.",
     input: {
       type: "object",
-      properties: { filename: { type: "string", minLength: 1 } },
-      additionalProperties: false,
-    },
-    output: GENERIC_RESULT_SCHEMA,
-    examples: [{ name: "Capture the visible App tab", command: "penkra tabs screenshot" }],
-  },
-  click: tabReferenceOperation(
-    "click",
-    "Click an element returned by the latest snapshot or find call.",
-    "A reference must come from the latest observation of this exact tab. If the page changed, snapshot again instead of retrying a stale reference.",
-    {},
-    [],
-    "penkra tabs click --tab-id <tab-id> --ref e17 --observe true",
-  ),
-  hover: tabReferenceOperation(
-    "hover",
-    "Hover an element returned by the latest snapshot or find call.",
-    "Use hover only when pointer state exposes information or controls needed for the task.",
-    {},
-    [],
-    "penkra tabs hover --tab-id <tab-id> --ref e17 --observe true",
-  ),
-  type: tabReferenceOperation(
-    "type",
-    "Replace the editable value of an element from the latest snapshot.",
-    "Type targets an editable element reference; snapshot again after page-changing input before using another reference.",
-    { text: { type: "string" } },
-    ["text"],
-    "penkra tabs type --tab-id <tab-id> --ref e17 --text 'New value' --observe true",
-  ),
-  press: {
-    command: "penkra tabs press",
-    summary: "Send one key press to an exact retained App tab.",
-    instructions:
-      "Use standard key names and combinations such as Enter, Escape, or Meta+K. This acts on the tab's current focus.",
-    input: {
-      type: "object",
-      properties: {
-        tabId: TAB_ID,
-        key: { type: "string", minLength: 1 },
-        observe: { type: "boolean" },
-      },
-      required: ["tabId", "key"],
+      properties: { tabId: TAB_ID, document: DOCUMENT, filename: { type: "string", minLength: 1 } },
+      required: ["tabId", "document"],
       additionalProperties: false,
     },
     output: GENERIC_RESULT_SCHEMA,
     examples: [
       {
-        name: "Submit the focused control",
-        command: "penkra tabs press --tab-id <tab-id> --key Enter --observe true",
+        name: "Capture d2",
+        command: "penkra tabs screenshot --tab-id <tab-id> --document d2 --filename page.png",
       },
     ],
   },
-  select: tabReferenceOperation(
-    "select",
-    "Select a value in a tab control returned by the latest snapshot.",
-    "Use the control's exact option value, not a guessed display label.",
-    { value: { type: "string" } },
-    ["value"],
-    "penkra tabs select --tab-id <tab-id> --ref e17 --value active --observe true",
-  ),
-  scroll: {
-    command: "penkra tabs scroll",
-    summary: "Scroll an exact retained App tab by a horizontal or vertical delta.",
-    instructions:
-      "Positive deltaY scrolls down; negative deltaY scrolls up. Observe after scrolling when subsequent actions depend on newly visible content.",
-    input: {
-      type: "object",
-      properties: {
-        tabId: TAB_ID,
-        deltaX: { type: "number" },
-        deltaY: { type: "number" },
-        observe: { type: "boolean" },
-      },
-      required: ["tabId"],
-      additionalProperties: false,
-    },
-    output: GENERIC_RESULT_SCHEMA,
-    examples: [
+  ...Object.fromEntries(
+    (["record", "trace", "har"] as const).map((action) => [
+      action,
       {
-        name: "Scroll down and observe",
-        command: "penkra tabs scroll --tab-id <tab-id> --delta-y 640 --observe true",
+        command: `penkra tabs ${action}`,
+        summary: `${action === "record" ? "Record a playable WebM or MP4 video" : action === "trace" ? "Capture a Chromium trace" : "Capture a HAR"} for one document.`,
+        instructions: "The artifact is written to the caller Thread workspace.",
+        input: {
+          type: "object",
+          properties: {
+            tabId: TAB_ID,
+            document: DOCUMENT,
+            durationMs: { type: "number", minimum: 0 },
+            filename: { type: "string", minLength: 1 },
+          },
+          required: ["tabId", "document", "filename"],
+          additionalProperties: false,
+        },
+        output: GENERIC_RESULT_SCHEMA,
+        examples: [
+          {
+            name: `Capture ${action}`,
+            command: `penkra tabs ${action} --tab-id <tab-id> --document d2 --duration-ms 1000 --filename page.${action === "record" ? "webm" : action === "trace" ? "trace.json" : "har"}`,
+          },
+        ],
       },
-    ],
-  },
-  wait: {
-    command: "penkra tabs wait",
-    summary: "Wait for exact text to appear in one retained App tab.",
-    instructions:
-      "Wait is for an expected asynchronous page state. A timeout reports that the text was not observed; it is not evidence that an earlier action failed to commit.",
-    input: {
-      type: "object",
-      properties: {
-        tabId: TAB_ID,
-        text: { type: "string", minLength: 1 },
-        timeoutMs: { type: "number", minimum: 0 },
-      },
-      required: ["tabId", "text"],
-      additionalProperties: false,
-    },
-    output: GENERIC_RESULT_SCHEMA,
-    examples: [
-      {
-        name: "Wait for a saved state",
-        command: "penkra tabs wait --tab-id <tab-id> --text 'Saved' --timeout-ms 10000",
-      },
-    ],
-  },
-  "handle-dialog": {
-    command: "penkra tabs handle-dialog",
-    summary: "Accept or dismiss a browser JavaScript dialog reported for one exact tab.",
-    instructions:
-      "Use only for alert, confirm, prompt, or beforeunload dialogs reported by a tab operation. HTML elements, including elements with role dialog, remain ordinary page content: observe them and use normal element actions.",
-    input: {
-      type: "object",
-      properties: { tabId: TAB_ID, accept: { type: "boolean" }, text: { type: "string" } },
-      required: ["tabId", "accept"],
-      additionalProperties: false,
-    },
-    output: GENERIC_RESULT_SCHEMA,
-    examples: [
-      {
-        name: "Accept a reported confirmation",
-        command: "penkra tabs handle-dialog --tab-id <tab-id> --accept true",
-      },
-    ],
-  },
-  upload: tabReferenceOperation(
-    "upload",
-    "Upload absolute local file paths through a file-input element from the latest snapshot.",
-    "Use only files already placed within the authorized workspace or App-storage boundary. The ref must identify a file input in the latest observation.",
-    { paths: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } } },
-    ["paths"],
-    'penkra tabs upload --input \'{"tabId":"<tab-id>","ref":"e20","paths":["/absolute/file.pdf"]}\'',
+    ]),
   ),
 };
 
@@ -472,34 +504,6 @@ const THREAD_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
   },
 };
 
-function tabReferenceOperation(
-  action: string,
-  summary: string,
-  instructions: string,
-  properties: Readonly<Record<string, unknown>>,
-  required: ReadonlyArray<string>,
-  example: string,
-): HostOperationDeclaration {
-  return {
-    command: `penkra tabs ${action}`,
-    summary,
-    instructions,
-    input: {
-      type: "object",
-      properties: { tabId: TAB_ID, ref: REF, ...properties, observe: { type: "boolean" } },
-      required: ["tabId", "ref", ...required],
-      additionalProperties: false,
-    },
-    output: GENERIC_RESULT_SCHEMA,
-    examples: [
-      {
-        name: `${action[0]!.toUpperCase()}${action.slice(1)} a freshly observed element`,
-        command: example,
-      },
-    ],
-  };
-}
-
 const OPEN_OPERATION: HostOperationDeclaration = {
   command: "penkra open",
   summary: "Open one local path or URL through an eligible installed App or the operating system.",
@@ -639,6 +643,9 @@ export async function executePenkraExecCommand(
           ...declaration,
           parentHelp: "Run penkra tabs --help for Tabs operating instructions.",
         });
+      }
+      if (action === "act" && parsed.input === undefined) {
+        throw new Error("penkra tabs act requires --input JSON.");
       }
       const supplied = parseOperationInput(declaration.input, parsed.input, {
         ...parsed.named,

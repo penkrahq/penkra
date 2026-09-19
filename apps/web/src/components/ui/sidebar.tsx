@@ -20,6 +20,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { Schema } from "effect";
+import { CHAT_SURFACE_HEADER_HEIGHT_PX } from "@penkra/shared/desktopChrome";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -27,6 +28,33 @@ const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "calc(100vw - var(--spacing(3)))";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
+const NATIVE_APP_SPLITTER_CLEARANCE_PX = 1;
+
+export function appDockBoundsForWidth(dockWidth: number) {
+  const x = Math.ceil(window.innerWidth - dockWidth + NATIVE_APP_SPLITTER_CLEARANCE_PX);
+  const y = CHAT_SURFACE_HEADER_HEIGHT_PX;
+  return {
+    x: Math.max(0, x),
+    y,
+    width: Math.max(1, Math.floor(window.innerWidth - x)),
+    height: Math.max(1, Math.floor(window.innerHeight - y)),
+  };
+}
+
+export function publishNativeAppBoundsForWidth(wrapper: HTMLElement, dockWidth: number): boolean {
+  const surface = wrapper.querySelector<HTMLElement>("[data-app-tab-id]");
+  const bridge = window.desktopBridge?.appTabs;
+  if (!surface || !bridge) return false;
+  const tabId = surface.dataset.appTabId;
+  if (!tabId) return false;
+  void bridge.present({
+    tabId,
+    deckId: surface.dataset.appDeckId ?? "",
+    threadId: surface.dataset.appThreadId ?? "",
+    bounds: appDockBoundsForWidth(dockWidth),
+  });
+  return true;
+}
 
 /**
  * Soft "drawer" easing for the offcanvas open/close slide, overriding the shell's
@@ -483,6 +511,7 @@ function SidebarRail({
 
     const acceptedWidth =
       typeof accepted === "number" ? clampSidebarWidth(accepted, resolvedResizable) : nextWidth;
+    publishNativeAppBoundsForWidth(activeResizeState.wrapper, acceptedWidth);
     activeResizeState.wrapper.style.setProperty("--sidebar-width", `${acceptedWidth}px`);
     activeResizeState.width = acceptedWidth;
   }, [resolvedResizable]);
@@ -536,7 +565,15 @@ function SidebarRail({
         return;
       }
 
-      const startWidth = sidebarContainer.getBoundingClientRect().width;
+      const nativeAppSurface = wrapper.querySelector("[data-app-tab-id]") !== null;
+      const nativeAppCssWidth = Number.parseFloat(
+        window.getComputedStyle(wrapper).getPropertyValue("--sidebar-width"),
+      );
+      const startWidth = nativeAppSurface
+        ? Number.isFinite(nativeAppCssWidth)
+          ? nativeAppCssWidth
+          : window.innerWidth / 2
+        : sidebarContainer.getBoundingClientRect().width;
       const initialWidth = clampSidebarWidth(startWidth, resolvedResizable);
       const transitionTargets = [
         sidebarRoot.querySelector<HTMLElement>("[data-slot='sidebar-gap']"),

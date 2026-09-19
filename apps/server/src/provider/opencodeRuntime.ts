@@ -984,6 +984,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
 
         const stdoutRef = yield* Ref.make("");
         const stderrRef = yield* Ref.make("");
+        const serverReadyRef = yield* Ref.make(false);
         const readyDeferred = yield* Deferred.make<string, OpenCodeRuntimeError>();
 
         const setReadyFromStdoutChunk = (chunk: string) =>
@@ -991,7 +992,10 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
             Effect.flatMap((nextStdout) => {
               const parsed = parseServerUrlFromOutput(nextStdout, cliSpec.serverReadyPrefix);
               return parsed
-                ? Deferred.succeed(readyDeferred, parsed).pipe(Effect.ignore)
+                ? Effect.gen(function* () {
+                    yield* Ref.set(serverReadyRef, true);
+                    yield* Deferred.succeed(readyDeferred, parsed).pipe(Effect.ignore);
+                  })
                 : Effect.void;
             }),
           );
@@ -1004,7 +1008,19 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
         );
         const stderrFiber = yield* child.stderr.pipe(
           Stream.decodeText(),
-          Stream.runForEach((chunk) => Ref.update(stderrRef, (stderr) => `${stderr}${chunk}`)),
+          Stream.splitLines,
+          Stream.runForEach((record) =>
+            Effect.gen(function* () {
+              if (yield* Ref.get(serverReadyRef)) {
+                yield* Effect.logDebug(`${cliSpec.displayName} server stderr`, {
+                  binaryPath: input.binaryPath,
+                  record: redactStartupOutput(record),
+                });
+                return;
+              }
+              yield* Ref.update(stderrRef, (stderr) => `${stderr}${record}\n`);
+            }),
+          ),
           Effect.ignore,
           Effect.forkIn(runtimeScope),
         );
@@ -1051,9 +1067,9 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
         );
 
         yield* Fiber.interrupt(stdoutFiber).pipe(Effect.ignore);
-        yield* Fiber.interrupt(stderrFiber).pipe(Effect.ignore);
 
         if (Exit.isFailure(readyExit)) {
+          yield* Fiber.interrupt(stderrFiber).pipe(Effect.ignore);
           yield* Fiber.interrupt(exitFiber).pipe(Effect.ignore);
           const squashed = Cause.squash(readyExit.cause);
           return yield* ensureRuntimeError(
@@ -1068,6 +1084,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
 
         const readyOption = readyExit.value;
         if (Option.isNone(readyOption)) {
+          yield* Fiber.interrupt(stderrFiber).pipe(Effect.ignore);
           yield* Fiber.interrupt(exitFiber).pipe(Effect.ignore);
           const stdout = yield* Ref.get(stdoutRef);
           const stderr = yield* Ref.get(stderrRef);

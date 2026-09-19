@@ -743,13 +743,14 @@ function validateHandlerContributions(
         intents.push({ name: candidate.intent, path: `${path}.intent` });
         if (
           requireString(candidate.operation, `${path}.operation`, issues) &&
-          !operationKeys.has(candidate.operation)
+          !operationKeys.has(candidate.operation) &&
+          !(candidate.intent === "open-url" && candidate.operation === "tab.open")
         ) {
           issue(
             issues,
             `${path}.operation`,
             "invalid-format",
-            "handler operation must reference a declared operation key.",
+            "handler operation must reference a declared operation key or the open-url tab.open primitive.",
           );
         }
         if (candidate.intent === "open-url") {

@@ -14,6 +14,7 @@ import {
   composerPickerMenuShellClassName,
   resolveComposerPickerSize,
 } from "./composerPickerSize";
+import { useComposerOverlayCollisionBoundary } from "./ComposerColumnFrame";
 
 type ComposerPickerMenuProps = Omit<ComponentProps<typeof Menu>, "modal">;
 
@@ -42,8 +43,12 @@ export function ComposerPickerMenuPopup({
 }: ComposerPickerMenuPopupProps) {
   const fixedWidth = fixedWidthProp ?? false;
   const resolvedSize = resolveComposerPickerSize(size);
+  const collisionBoundary = useComposerOverlayCollisionBoundary();
   return (
     <MenuPopupBase
+      collisionBoundary={collisionBoundary ?? undefined}
+      collisionPadding={8}
+      nativeAppOverlay={false}
       surface="composer"
       pickerSize={resolvedSize}
       className={cn(
@@ -72,10 +77,13 @@ export function ComposerPickerSelectPopup({
   const align = alignProp ?? "end";
   const alignItemWithTrigger = alignItemWithTriggerProp ?? false;
   const resolvedSize = resolveComposerPickerSize(size);
+  const collisionBoundary = useComposerOverlayCollisionBoundary();
   return (
     <SelectPopup
       align={align}
       alignItemWithTrigger={alignItemWithTrigger}
+      collisionBoundary={collisionBoundary ?? undefined}
+      collisionPadding={8}
       surface="composer"
       shellClassName={composerPickerMenuShellClassName(resolvedSize)}
       className={className}
@@ -100,8 +108,12 @@ export function ComposerPickerMenuSubPopup({
 }: ComposerPickerMenuSubPopupProps) {
   const fixedWidth = fixedWidthProp ?? false;
   const resolvedSize = resolveComposerPickerSize(size);
+  const collisionBoundary = useComposerOverlayCollisionBoundary();
   return (
     <MenuSubPopup
+      collisionBoundary={collisionBoundary ?? undefined}
+      collisionPadding={8}
+      nativeAppOverlay={false}
       surface="composer"
       pickerSize={resolvedSize}
       className={cn(

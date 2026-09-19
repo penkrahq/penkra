@@ -22,7 +22,8 @@ import {
   updatePaneInState,
 } from "./rightDockStore.logic";
 
-const RIGHT_DOCK_STORAGE_KEY = "penkra:app-tabs-by-deck:v2";
+const RIGHT_DOCK_STORAGE_KEY = "penkra:app-tabs-by-deck:v3";
+const PREVIOUS_RIGHT_DOCK_STORAGE_KEY = "penkra:app-tabs-by-deck:v2";
 const LEGACY_RIGHT_DOCK_STORAGE_KEY = "penkra:app-tabs-by-thread:v1";
 
 interface RightDockStore {
@@ -113,12 +114,8 @@ export const useRightDockStore = create<RightDockStore>()(
               ? {
                   ...state,
                   panes: state.panes.map(
-                    ({
-                      appDocumentUrl: _appDocumentUrl,
-                      appIconDataUrl: _appIconDataUrl,
-                      appRendererId: _appRendererId,
-                      ...pane
-                    }) => pane,
+                    ({ appDocumentUrl: _appDocumentUrl, appRendererId: _appRendererId, ...pane }) =>
+                      pane,
                   ),
                 }
               : state,
@@ -138,6 +135,21 @@ export const useRightDockStore = create<RightDockStore>()(
 export function migrateLegacyRightDockStorage(
   deckIdByThreadId: ReadonlyMap<ThreadId, ThreadDeckId>,
 ): void {
+  const previous = localStorage.getItem(PREVIOUS_RIGHT_DOCK_STORAGE_KEY);
+  if (previous && !localStorage.getItem(RIGHT_DOCK_STORAGE_KEY)) {
+    try {
+      const parsed = JSON.parse(previous) as { state?: { dockStateByDeckId?: unknown } };
+      useRightDockStore.setState((store) => ({
+        dockStateByDeckId: {
+          ...sanitizeRightDockStateByDeckId(parsed.state?.dockStateByDeckId),
+          ...store.dockStateByDeckId,
+        },
+      }));
+    } catch {
+      // Invalid prior state is discarded below.
+    }
+  }
+  localStorage.removeItem(PREVIOUS_RIGHT_DOCK_STORAGE_KEY);
   const serialized = localStorage.getItem(LEGACY_RIGHT_DOCK_STORAGE_KEY);
   if (!serialized) return;
 

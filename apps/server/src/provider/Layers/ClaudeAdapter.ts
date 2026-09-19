@@ -121,8 +121,6 @@ import {
   type ComputerUseCapabilityHealth,
 } from "../computerUseCapability.ts";
 import {
-  CLAUDE_CONTEXT_WINDOW_MAX_TOKENS,
-  decideClaudeContextUsageWarnings,
   maxClaudeContextWindowFromModelUsage,
   mergeClaudeTokenUsageSnapshot,
   normalizeClaudeTokenUsage,
@@ -177,6 +175,35 @@ import {
 
 const PROVIDER = "claudeAgent" as const;
 const CLAUDE_COMMAND_DISCOVERY_THREAD_ID = ThreadId.makeUnsafe("claude:command-discovery");
+
+// Claude CLI 0.3.206+ emits this event, but SDK 0.3.207 omits it from SDKMessage.
+// Keep the wire extension narrow until the SDK publishes its own declaration.
+interface ClaudeCommandLifecycleMessage {
+  readonly type: "command_lifecycle";
+  readonly command_uuid: string;
+  readonly state: "queued" | "started" | "completed" | "cancelled" | "discarded";
+  readonly uuid: string;
+  readonly session_id: string;
+}
+
+type ClaudeRuntimeMessage = SDKMessage | ClaudeCommandLifecycleMessage;
+
+const CLAUDE_ACTIONABLE_WARNING_CLASSES = {
+  apiRetry: "api-retry",
+} as const;
+
+type ClaudeActionableWarningClass =
+  (typeof CLAUDE_ACTIONABLE_WARNING_CLASSES)[keyof typeof CLAUDE_ACTIONABLE_WARNING_CLASSES];
+
+function claudeActionableWarningMessage(
+  warningClass: ClaudeActionableWarningClass,
+  message: string,
+): string {
+  switch (warningClass) {
+    case CLAUDE_ACTIONABLE_WARNING_CLASSES.apiRetry:
+      return message;
+  }
+}
 type ClaudeTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
 type ClaudeToolResultStreamKind = Extract<
   RuntimeContentStreamKind,
@@ -347,13 +374,7 @@ interface ClaudeSessionContext {
   // fallback). Tracks the in-flight turn only; turn completion restores the
   // user-selected model via setModel so the fallback cannot pin later turns.
   rerouteOriginalApiModelId: string | undefined;
-  // Context-size warnings already emitted for this session (once per threshold).
-  readonly emittedContextUsageWarnings: Set<string>;
   stopped: boolean;
-  // Unrecognized SDK message kinds already surfaced as a runtime warning. Newer
-  // Claude SDKs stream high-frequency telemetry (e.g. `thinking_tokens`); de-duping
-  // here keeps a single unknown kind from flooding the conversation timeline.
-  readonly warnedUnhandledSdkKinds: Set<string>;
   // Live Task tool spawns keyed by tool_use_id. Each run owns a scoped context
   // whose events carry `subagentRefs`, so ingestion routes them to the child thread.
   readonly subagentRuns: Map<string, ClaudeSubagentRun>;
@@ -398,7 +419,7 @@ interface ClaudeSessionContext {
   };
 }
 
-interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
+interface ClaudeQueryRuntime extends AsyncIterable<ClaudeRuntimeMessage> {
   readonly interrupt: () => Promise<void>;
   readonly stopTask: (taskId: string) => Promise<void>;
   readonly backgroundTasks: (toolUseId?: string) => Promise<boolean>;
@@ -547,7 +568,7 @@ function isSyntheticClaudeThreadId(value: string): boolean {
 
 // Claude hook system messages can carry transient session ids; only durable
 // conversation messages should advance the resumable provider cursor.
-function hasDurableClaudeSessionId(message: SDKMessage): boolean {
+function hasDurableClaudeSessionId(message: ClaudeRuntimeMessage): boolean {
   if (message.type !== "system") {
     return true;
   }
@@ -1424,7 +1445,7 @@ function sdkMessageSubtype(value: unknown): string | undefined {
   return typeof record.subtype === "string" ? record.subtype : undefined;
 }
 
-function sdkNativeMethod(message: SDKMessage): string {
+function sdkNativeMethod(message: ClaudeRuntimeMessage): string {
   const subtype = sdkMessageSubtype(message);
   if (subtype) {
     return `claude/${message.type}/${subtype}`;
@@ -1447,7 +1468,7 @@ function sdkNativeMethod(message: SDKMessage): string {
   return `claude/${message.type}`;
 }
 
-function sdkNativeItemId(message: SDKMessage): string | undefined {
+function sdkNativeItemId(message: ClaudeRuntimeMessage): string | undefined {
   if (message.type === "assistant") {
     const maybeId = (message.message as { id?: unknown }).id;
     if (typeof maybeId === "string") {
@@ -1473,7 +1494,7 @@ function sdkNativeItemId(message: SDKMessage): string | undefined {
   return undefined;
 }
 
-function parentToolUseId(message: SDKMessage): string | undefined {
+function parentToolUseId(message: ClaudeRuntimeMessage): string | undefined {
   if (
     message.type !== "assistant" &&
     message.type !== "user" &&
@@ -1501,7 +1522,7 @@ function isRecognizedSubagentToolUseId(context: ClaudeSessionContext, toolUseId:
 
 function recognizedSubagentParentToolUseId(
   context: ClaudeSessionContext,
-  message: SDKMessage,
+  message: ClaudeRuntimeMessage,
 ): string | undefined {
   const toolUseId = parentToolUseId(message);
   return toolUseId && isRecognizedSubagentToolUseId(context, toolUseId) ? toolUseId : undefined;
@@ -1805,7 +1826,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
     const logNativeSdkMessage = (
       context: ClaudeSessionContext,
-      message: SDKMessage,
+      message: ClaudeRuntimeMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         if (!nativeEventLogger) {
@@ -2105,7 +2126,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
     const ensureThreadId = (
       context: ClaudeSessionContext,
-      message: SDKMessage,
+      message: ClaudeRuntimeMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         if (typeof message.session_id !== "string" || message.session_id.length === 0) {
@@ -2169,8 +2190,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         });
       });
 
-    const emitRuntimeWarning = (
+    const emitActionableRuntimeWarning = (
       context: ClaudeSessionContext,
+      warningClass: ClaudeActionableWarningClass,
       message: string,
       detail?: unknown,
     ): Effect.Effect<void> =>
@@ -2185,36 +2207,22 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           threadId: context.session.threadId,
           ...(turnState ? { turnId: asCanonicalTurnId(turnState.turnId) } : {}),
           payload: {
-            message,
+            message: claudeActionableWarningMessage(warningClass, message),
             ...(detail !== undefined ? { detail } : {}),
           },
           providerRefs: nativeProviderRefs(context),
         });
       });
 
-    // Warn once per session per threshold when the logical prompt is large. Cache
-    // reads still count toward context size, but are materially cheaper than fresh
-    // input, so the warning names both instead of equating all tokens with cost.
-    const maybeEmitContextUsageWarning = (
+    const debugIgnoredSdkMessage = (
       context: ClaudeSessionContext,
-      rawUsage: Record<string, unknown>,
+      kind: string,
+      message: unknown,
     ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const warnings = decideClaudeContextUsageWarnings(
-          rawUsage,
-          claudeEffectiveContextBudget(context),
-          context.emittedContextUsageWarnings,
-        );
-        if (!warnings) {
-          return;
-        }
-
-        context.emittedContextUsageWarnings.add(warnings.first.key);
-        yield* emitRuntimeWarning(context, warnings.first.message);
-        if (warnings.second) {
-          context.emittedContextUsageWarnings.add(warnings.second.key);
-          yield* emitRuntimeWarning(context, warnings.second.message);
-        }
+      Effect.logDebug("Claude ignored SDK message", {
+        threadId: context.session.threadId,
+        kind,
+        message,
       });
 
     const readClaudeContextUsage = (
@@ -2241,24 +2249,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         Effect.catch(() => Effect.succeed(undefined)),
       );
     };
-
-    // Surfaces each distinct unrecognized SDK message kind at most once per session.
-    // Without this, high-frequency telemetry the adapter doesn't model (notably the
-    // `thinking_tokens` system subtype streamed on every reasoning tick) turns into a
-    // "Runtime warning" timeline entry per message and floods the conversation.
-    const warnUnhandledSdkKind = (
-      context: ClaudeSessionContext,
-      kind: string,
-      message: string,
-      detail: unknown,
-    ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        if (context.warnedUnhandledSdkKinds.has(kind)) {
-          return;
-        }
-        context.warnedUnhandledSdkKinds.add(kind);
-        yield* emitRuntimeWarning(context, message, detail);
-      });
 
     // Normalizes Claude TodoWrite tool calls into the shared runtime task-list event.
     const emitTodoTasksUpdated = (
@@ -2608,9 +2598,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           lastThreadStartedId: undefined,
           activeCompaction: undefined,
           rerouteOriginalApiModelId: undefined,
-          emittedContextUsageWarnings: new Set(),
           stopped: false,
-          warnedUnhandledSdkKinds: context.warnedUnhandledSdkKinds,
           subagentRuns: new Map(),
           pendingSubagentSteers: new Map(),
           pendingSubagentStops: new Set(),
@@ -3246,7 +3234,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         // this reflects the actual prompt + output size for this single API call.
         const perCallUsage = (message.message as { usage?: unknown } | undefined)?.usage;
         if (perCallUsage) {
-          yield* maybeEmitContextUsageWarning(context, perCallUsage as Record<string, unknown>);
           const normalizedPerCallUsage = normalizeClaudeTokenUsage(
             perCallUsage as Record<string, unknown>,
             claudeEffectiveContextBudget(context),
@@ -3464,9 +3451,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
         // Benign high-frequency telemetry we intentionally don't project. `thinking_tokens`
         // streams on every reasoning tick while extended thinking is active. Short-circuit
-        // before allocating an event stamp so it can't flood the timeline (or churn
-        // allocations) with "Runtime warning" entries.
         if (message.subtype === "thinking_tokens") {
+          yield* debugIgnoredSdkMessage(context, "system:thinking_tokens", message);
           return;
         }
 
@@ -3602,6 +3588,14 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
 
         switch (message.subtype) {
+          case "api_retry":
+            yield* emitActionableRuntimeWarning(
+              context,
+              CLAUDE_ACTIONABLE_WARNING_CLASSES.apiRetry,
+              `Claude API request failed and will retry (attempt ${message.attempt} of ${message.max_retries}).`,
+              message,
+            );
+            return;
           case "init":
             yield* offerRuntimeEvent(context, {
               ...base,
@@ -3917,34 +3911,45 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             return;
           case "background_tasks_changed": {
             // REPLACE semantics: the payload is the full live background set.
-            // Announce only newly backgrounded work with a one-line notice;
-            // removals settle through their own task lifecycle events.
+            // Project newly backgrounded tasks as task state, not warnings.
             const tasks = Array.isArray(message.tasks) ? message.tasks : [];
             const added = tasks.filter((task) => !context.knownBackgroundTaskIds.has(task.task_id));
             context.knownBackgroundTaskIds.clear();
             for (const task of tasks) {
               context.knownBackgroundTaskIds.add(task.task_id);
             }
-            if (added.length === 0) {
-              return;
+            for (const task of added) {
+              const taskStamp = yield* makeEventStamp();
+              yield* offerRuntimeEvent(context, {
+                ...base,
+                eventId: taskStamp.eventId,
+                createdAt: taskStamp.createdAt,
+                type: "task.updated",
+                payload: {
+                  taskId: RuntimeTaskId.makeUnsafe(task.task_id),
+                  isBackgrounded: true,
+                },
+              });
             }
-            const labels = added.map((task) =>
-              task.description.trim().length > 0 ? task.description.trim() : task.task_type,
-            );
-            const notice =
-              added.length === 1
-                ? labels[0]!
-                : `${added.length} tasks: ${labels.join(", ")}`.slice(0, 200);
-            yield* emitRuntimeWarning(context, notice, message);
             return;
           }
+          case "control_request_progress":
+          case "model_refusal_no_fallback":
+          case "local_command_output":
+          case "plugin_install":
+          case "session_state_changed":
+          case "worker_shutting_down":
+          case "commands_changed":
+          case "notification":
+          case "memory_recall":
+          case "elicitation_complete":
+          case "permission_denied":
+          case "mirror_error":
+          case "informational":
+            yield* debugIgnoredSdkMessage(context, `system:${message.subtype}`, message);
+            return;
           default:
-            yield* warnUnhandledSdkKind(
-              context,
-              `system:${message.subtype}`,
-              `Unhandled Claude system message subtype '${message.subtype}'.`,
-              message,
-            );
+            yield* debugIgnoredSdkMessage(context, `system:${message.subtype}`, message);
             return;
         }
       });
@@ -4025,10 +4030,19 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
     const handleSdkMessage = (
       context: ClaudeSessionContext,
-      message: SDKMessage,
+      message: ClaudeRuntimeMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         yield* logNativeSdkMessage(context, message);
+
+        if (
+          message.type === "command_lifecycle" ||
+          message.type === "prompt_suggestion" ||
+          message.type === "conversation_reset"
+        ) {
+          yield* debugIgnoredSdkMessage(context, `type:${message.type}`, message);
+          return;
+        }
 
         // Claude also sets parent_tool_use_id on async Bash progress, so route only
         // ids already recognized as Task/Agent tools onto child threads.
@@ -4082,10 +4096,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             yield* handleSdkTelemetryMessage(context, message);
             return;
           default:
-            yield* warnUnhandledSdkKind(
+            yield* debugIgnoredSdkMessage(
               context,
-              `type:${message.type}`,
-              `Unhandled Claude SDK message type '${message.type}'.`,
+              `type:${sdkMessageType(message) ?? "unknown"}`,
               message,
             );
             return;
@@ -5015,9 +5028,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             lastThreadStartedId: undefined,
             activeCompaction: undefined,
             rerouteOriginalApiModelId: undefined,
-            emittedContextUsageWarnings: new Set(),
             stopped: false,
-            warnedUnhandledSdkKinds: new Set(),
             subagentRuns: new Map(),
             pendingSubagentSteers,
             pendingSubagentStops,
@@ -5083,14 +5094,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               },
               providerRefs: {},
             });
-
-            if (context.currentAutoCompactWindow === CLAUDE_CONTEXT_WINDOW_MAX_TOKENS["1m"]) {
-              context.emittedContextUsageWarnings.add("one-million-window");
-              yield* emitRuntimeWarning(
-                context,
-                "Claude's auto-compact budget is set to the model's 1M limit for this thread. Long conversations can consume usage limits much faster; switch Auto-compact to 200k unless the larger working context is intentional.",
-              );
-            }
 
             const streamFiber = Effect.runFork(runSdkStream(context));
             context.streamFiber = streamFiber;
@@ -5253,8 +5256,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           });
           context.currentAutoCompactWindow = requestedAutoCompactWindow;
           context.lastKnownAutoCompactThreshold = requestedAutoCompactWindow;
-          context.emittedContextUsageWarnings.delete("near-window");
-          context.emittedContextUsageWarnings.delete("large-prompt");
 
           const configuredWindow =
             requestedAutoCompactWindow !== undefined

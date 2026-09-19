@@ -129,6 +129,27 @@ const OPENCODE_MAX_RELATED_SESSIONS = 256;
 const OPENCODE_ABORT_IDLE_POLL_INTERVAL_MS = 50;
 const OPENCODE_ABORT_IDLE_MAX_POLLS = 40;
 
+const OPENCODE_ACTIONABLE_WARNING_CLASSES = {
+  permissionPolicyFailure: "permission-policy-failure",
+  providerRetry: "provider-retry",
+  eventStreamReconnect: "event-stream-reconnect",
+} as const;
+
+type OpenCodeActionableWarningClass =
+  (typeof OPENCODE_ACTIONABLE_WARNING_CLASSES)[keyof typeof OPENCODE_ACTIONABLE_WARNING_CLASSES];
+
+function openCodeActionableWarningMessage(
+  warningClass: OpenCodeActionableWarningClass,
+  message: string,
+): string {
+  switch (warningClass) {
+    case OPENCODE_ACTIONABLE_WARNING_CLASSES.permissionPolicyFailure:
+    case OPENCODE_ACTIONABLE_WARNING_CLASSES.providerRetry:
+    case OPENCODE_ACTIONABLE_WARNING_CLASSES.eventStreamReconnect:
+      return message;
+  }
+}
+
 type OpenCodeSubscribedEvent =
   Awaited<ReturnType<OpencodeClient["event"]["subscribe"]>> extends {
     readonly stream: AsyncIterable<infer TEvent>;
@@ -2425,7 +2446,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   }),
                   type: "runtime.warning",
                   payload: {
-                    message: `${adapterConfig.displayName} could not apply its permission policy.`,
+                    message: openCodeActionableWarningMessage(
+                      OPENCODE_ACTIONABLE_WARNING_CLASSES.permissionPolicyFailure,
+                      `${adapterConfig.displayName} could not apply its permission policy.`,
+                    ),
                     detail,
                   },
                 });
@@ -2567,7 +2591,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 }),
                 type: "runtime.warning",
                 payload: {
-                  message: event.properties.status.message,
+                  message: openCodeActionableWarningMessage(
+                    OPENCODE_ACTIONABLE_WARNING_CLASSES.providerRetry,
+                    event.properties.status.message,
+                  ),
                   detail: event.properties.status,
                 },
               });
@@ -2962,7 +2989,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               }),
               type: "runtime.warning",
               payload: {
-                message: event.properties.error.message,
+                message: openCodeActionableWarningMessage(
+                  OPENCODE_ACTIONABLE_WARNING_CLASSES.providerRetry,
+                  event.properties.error.message,
+                ),
                 detail: event.properties,
               },
             });
@@ -3044,6 +3074,14 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
 
           default:
+            yield* Effect.logDebug(`${adapterConfig.displayName} ignored SDK event`, {
+              threadId: context.session.threadId,
+              eventType:
+                typeof (event as { readonly type?: unknown }).type === "string"
+                  ? (event as { readonly type: string }).type
+                  : "unknown",
+              event,
+            });
             break;
         }
       });
@@ -3303,7 +3341,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               ...buildEventBase({ threadId: context.session.threadId }),
               type: "runtime.warning",
               payload: {
-                message: `${adapterConfig.displayName} event stream disconnected; reconnecting.`,
+                message: openCodeActionableWarningMessage(
+                  OPENCODE_ACTIONABLE_WARNING_CLASSES.eventStreamReconnect,
+                  `${adapterConfig.displayName} event stream disconnected; reconnecting.`,
+                ),
                 detail,
               },
             });

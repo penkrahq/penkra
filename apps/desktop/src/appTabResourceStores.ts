@@ -4,7 +4,7 @@
 
 import type * as FS from "node:fs";
 
-import type { AppTabGenerationOwner, AppTabLogicalOwner } from "./electronAppTabHost";
+import type { AppTabGenerationOwner, AppTabLogicalOwner } from "./appTabViewHost";
 
 const detachedFileWatchesBrand: unique symbol = Symbol("DetachedFileWatches");
 const detachedAccountSubscriptionsBrand: unique symbol = Symbol("DetachedAccountSubscriptions");

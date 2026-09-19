@@ -17,7 +17,7 @@ export interface RightDockPane {
   appDocumentUrl?: string;
   appRoute: string;
   appState?: unknown;
-  appStatus: "loading" | "ready" | "crashed";
+  appStatus: "unloaded" | "loading" | "ready" | "crashed";
 }
 
 export interface RightDockDeckState {
@@ -40,7 +40,7 @@ export interface OpenPaneInput {
   appDocumentUrl?: string;
   appRoute: string;
   appState?: unknown;
-  appStatus: "loading" | "ready" | "crashed";
+  appStatus: "unloaded" | "loading" | "ready" | "crashed";
 }
 
 export function createDefaultRightDockState(): RightDockDeckState {
@@ -56,7 +56,10 @@ function parsePersistedAppPane(value: unknown): RightDockPane | null {
     typeof value.appSlug !== "string" ||
     typeof value.appName !== "string" ||
     typeof value.appRoute !== "string" ||
-    (value.appStatus !== "loading" && value.appStatus !== "ready" && value.appStatus !== "crashed")
+    (value.appStatus !== "unloaded" &&
+      value.appStatus !== "loading" &&
+      value.appStatus !== "ready" &&
+      value.appStatus !== "crashed")
   ) {
     return null;
   }
@@ -67,9 +70,12 @@ function parsePersistedAppPane(value: unknown): RightDockPane | null {
     appSpaceId: value.appSpaceId,
     appSlug: value.appSlug,
     appName: value.appName,
+    ...(typeof value.appIconDataUrl === "string" || value.appIconDataUrl === null
+      ? { appIconDataUrl: value.appIconDataUrl }
+      : {}),
     appRoute: value.appRoute,
     ...(value.appState === undefined ? {} : { appState: value.appState }),
-    appStatus: value.appStatus,
+    appStatus: "unloaded",
   };
 }
 

@@ -10,7 +10,6 @@ import { app, BrowserWindow, ipcMain, protocol } from "electron";
 import { startDesktopAppRuntime } from "./desktopAppRuntime";
 import { bootstrapDevelopmentSideload } from "./developmentAppSideload";
 import { PENKRA_APP_SCHEME } from "./appRuntimePolicy";
-import { resolveAppTestHandshake } from "./appTestHostHandshake";
 import { withAppTestPhaseTimeout } from "./appTestHostPhases";
 import { createAppTestHostDiagnosticWriter } from "./appTestHostDiagnostics";
 
@@ -46,7 +45,6 @@ void runHostPhase("electron-ready", () => app.whenReady())
         userDataPath: profilePath,
         appPreloadPath: Path.join(__dirname, "appPreload.js"),
         appControllerRunnerPath: Path.join(__dirname, "appNodeControllerRunner.js"),
-        appFrameRuntimePath: Path.join(__dirname, "appFrameRuntime.iife.js"),
         ipcMain,
         onTabOpened: () => undefined,
         onTabState: () => undefined,
@@ -107,8 +105,7 @@ void runHostPhase("electron-ready", () => app.whenReady())
           route: "/",
         }),
       );
-      await connectTestFrame(window, openedTab.documentUrl);
-      runtime.appTabs.markFrameReady(openedTab.id, openedTab.rendererId);
+      runtime.appTabs.present(openedTab.id, window.id, { x: 0, y: 0, width: 800, height: 600 });
       const tab = runtime.appTabs.list().find((candidate) => candidate.id === openedTab.id);
       if (!tab || tab.status !== "ready") throw new Error("The App tab did not reach ready state.");
       const diagnostics = await runHostPhase("diagnostics-read", () =>
@@ -165,88 +162,6 @@ function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required.`);
   return Path.resolve(value);
-}
-
-async function connectTestFrame(window: BrowserWindow, documentUrl: string): Promise<void> {
-  await runHostPhase("test-shell-load", () =>
-    window.loadURL(
-      "data:text/html,<!doctype html><meta charset=utf-8><title>App test host</title>",
-    ),
-  );
-  await runHostPhase("frame-injection", () =>
-    window.webContents.executeJavaScript(
-      `(() => {
-      window.__penkraAppTestReady = false;
-      const frame = document.createElement('iframe');
-      frame.setAttribute('sandbox', 'allow-forms allow-modals allow-same-origin allow-scripts');
-      frame.src = ${JSON.stringify(documentUrl)};
-      frame.addEventListener('load', () => {
-        const channel = new MessageChannel();
-        channel.port1.onmessage = (event) => {
-          if (event.data?.type === 'ready') window.__penkraAppTestReady = true;
-        };
-        channel.port1.start();
-        frame.contentWindow.postMessage(
-          { type: 'penkra:runtime-connect', protocolVersion: 2 },
-          '*',
-          [channel.port2],
-        );
-      });
-      document.body.append(frame);
-    })()`,
-      true,
-    ),
-  );
-  const handshake = await resolveAppTestHandshake(() =>
-    runHostPhase("runtime-handshake", async () => {
-      while (true) {
-        if (
-          await window.webContents.executeJavaScript("window.__penkraAppTestReady === true", true)
-        ) {
-          return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-    }),
-  );
-  if (handshake === "ready") return;
-  const documentState = await runHostPhase(
-    "handshake-document-diagnostics",
-    () =>
-      window.webContents.executeJavaScript(
-        `({
-        ready: window.__penkraAppTestReady,
-        frame: document.querySelector('iframe')?.src ?? null,
-        body: document.body.innerText,
-      })`,
-        true,
-      ),
-    2_000,
-  ).catch((error) => ({ executeError: String(error) }));
-  const frames = await runHostPhase(
-    "handshake-frame-diagnostics",
-    () =>
-      Promise.all(
-        window.webContents.mainFrame.framesInSubtree.map(async (frame) => ({
-          url: frame.url,
-          state: await frame
-            .executeJavaScript(
-              `({
-            readyState: document.readyState,
-            title: document.title,
-            hasRuntime: typeof globalThis.penkra === 'object',
-            scripts: [...document.scripts].map((script) => script.src),
-          })`,
-              true,
-            )
-            .catch((error) => ({ executeError: String(error) })),
-        })),
-      ),
-    2_000,
-  ).catch((error) => [{ url: documentUrl, state: { diagnosticsError: String(error) } }]);
-  throw new Error(
-    `The Runtime v2 App frame did not connect within 10 seconds. ${JSON.stringify({ documentState, frames })}`,
-  );
 }
 
 async function runHostPhase<T>(

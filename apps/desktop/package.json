@@ -1,6 +1,6 @@
 {
   "name": "@penkra/desktop",
-  "version": "0.12.13",
+  "version": "0.13.0",
   "private": true,
   "main": "dist-electron/entry.js",
   "scripts": {
@@ -12,8 +12,7 @@
     "start": "bun run scripts/start-electron.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests --silent=passed-only",
-    "smoke-test": "node scripts/smoke-test.mjs",
-    "probe:hosted-surface-resize": "node scripts/hosted-surface-resize-probe.mjs"
+    "smoke-test": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@better-auth/electron": "1.6.25",
@@ -24,7 +23,7 @@
     "better-auth": "1.6.25",
     "conf": "15.0.2",
     "effect": "catalog:",
-    "electron": "40.10.6",
+    "electron": "44.4.1",
     "electron-updater": "^6.6.2",
     "semver": "7.7.4",
     "socket.io-client": "^4.8.3",

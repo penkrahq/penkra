@@ -10,12 +10,7 @@ const desktopDir = resolve(__dirname, "..");
 const require = createRequire(import.meta.url);
 const electronBin = require("electron");
 const mainJs = resolve(desktopDir, "dist-electron/entry.js");
-const preloadFiles = [
-  "preload.js",
-  "appPreload.js",
-  "appFrameRuntime.iife.js",
-  "simulatorLicenseReviewPreload.js",
-];
+const preloadFiles = ["preload.js", "appPreload.js", "simulatorLicenseReviewPreload.js"];
 
 for (const preloadFile of preloadFiles) {
   const preloadPath = resolve(desktopDir, "dist-electron", preloadFile);
