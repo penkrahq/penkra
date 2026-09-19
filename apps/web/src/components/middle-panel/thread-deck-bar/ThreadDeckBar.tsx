@@ -107,6 +107,7 @@ function SortableDeckThread(props: {
       data-thread-deck-drag-source={sortable.isDragSource ? "true" : undefined}
       data-thread-deck-drag-target={sortable.isDropTarget ? "true" : undefined}
       data-thread-deck-drop-preview={dropPlacement ?? undefined}
+      data-shell-dnd-activation-target="true"
       style={
         dropPlacement === "before"
           ? { paddingLeft: gapWidth }
@@ -443,6 +444,7 @@ export function ThreadDeckBar(props: {
         props.className,
       )}
       data-thread-deck-id={deckId}
+      data-shell-dnd-activation-target="true"
     >
       {canAddDraggedThread ? (
         <div

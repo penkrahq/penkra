@@ -1793,6 +1793,7 @@ async function dragWithPointerFrames(
   targetYRatio = 0.5,
   beforeFinish?: () => void | Promise<void>,
   finish: "drop" | "cancel" = "drop",
+  afterPress?: () => void | Promise<void>,
 ): Promise<void> {
   const sourceRect = source.getBoundingClientRect();
   const targetRect = target.getBoundingClientRect();
@@ -1834,6 +1835,7 @@ async function dragWithPointerFrames(
   try {
     dispatch(source, "pointerdown", start.x, start.y);
     await nextFrame();
+    await afterPress?.();
     for (const progress of [0.35, 0.7, 1]) {
       dispatch(
         document,
@@ -2628,14 +2630,30 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       const pointerProbe = page.getByTitle(otherTitle, { exact: true }).elements()[0]!;
+      const pointerProbeText = pointerProbe.querySelector("span.truncate")!;
       await dragWithPointerFrames(
-        pointerProbe,
-        pointerTargetAt(pointerProbe, 0.75, 0.5),
+        pointerProbeText,
+        pointerTargetAt(pointerProbeText, 0.75, 0.5),
         0.5,
         () => {
           expect(document.querySelector("[data-thread-deck-drag-source='true']")).toBeNull();
           expect(document.querySelector("[data-thread-deck-drag-overlay='true']")).toBeNull();
           expect(pointerProbe.getAttribute("aria-pressed")).toBe("true");
+        },
+        "drop",
+        () => {
+          expect(pointerProbe.getAttribute("aria-pressed")).toBe("true");
+          expect(document.querySelector("[data-thread-deck-drag-overlay='true']")).toBeNull();
+        },
+      );
+      const pointerProbeRect = pointerProbe.getBoundingClientRect();
+      await dragWithPointerFrames(
+        pointerProbe,
+        pointerTargetAt(pointerProbe, 1 + 1 / pointerProbeRect.width, 0.5),
+        0.5,
+        () => {
+          expect(document.querySelector("[data-thread-deck-drag-source='true']")).toBeNull();
+          expect(document.querySelector("[data-thread-deck-drag-overlay='true']")).toBeNull();
         },
       );
 
