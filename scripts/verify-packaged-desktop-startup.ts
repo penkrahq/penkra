@@ -472,18 +472,20 @@ async function terminateMacApplication(executablePath: string): Promise<void> {
       .filter((pid) => Number.isInteger(pid) && pid > 1);
   };
   for (const signal of ["SIGTERM", "SIGKILL"] as const) {
-    const pids = findPids();
-    if (pids.length === 0) return;
-    for (const pid of pids) {
-      try {
-        process.kill(pid, signal);
-      } catch {
-        // A process may exit between discovery and signalling.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const pids = findPids();
+      if (pids.length === 0) return;
+      for (const pid of pids) {
+        try {
+          process.kill(pid, signal);
+        } catch {
+          // A process may exit between discovery and signalling.
+        }
       }
+      await new Promise((resolveDelay) =>
+        setTimeout(resolveDelay, signal === "SIGTERM" ? 100 : 250),
+      );
     }
-    await new Promise((resolveDelay) =>
-      setTimeout(resolveDelay, signal === "SIGTERM" ? 1_000 : 250),
-    );
   }
 }
 
