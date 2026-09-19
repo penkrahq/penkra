@@ -13,6 +13,7 @@ import {
   type BrowserWindowConstructorOptions,
 } from "electron";
 import type {
+  AppBrowserExtensionAction,
   AppBrowserPage,
   AppBrowserSessionState,
   AppTabHandle,
@@ -26,6 +27,7 @@ import type {
 } from "@penkra/contracts";
 
 import type { AppInstallationService } from "./appInstallationService";
+import { AppBrowserExtensions } from "./appBrowserExtensions";
 import { resolveInstalledAppIconDataUrl } from "./appIconDataUrl";
 import { getInstalledAppPackage, type InstalledAppPackage } from "./appInstallationState";
 import type {
@@ -246,6 +248,7 @@ export class AppTabViewHost implements AppTabHost {
   readonly #replicaFrameByTabId = new Map<string, AppTabReplicaFrame>();
   readonly #overlayDepthByWindowId = new Map<number, number>();
   readonly #browserSessionPolicy = new BrowserSessionPolicy();
+  readonly #browserExtensions = new AppBrowserExtensions();
   readonly #onPresentation: (windowId: number, state: DesktopAppTabPresentation) => void;
   #selectionSequence = 0;
   #themeCss = "";
@@ -979,6 +982,7 @@ export class AppTabViewHost implements AppTabHost {
   async openHostedPage(tabId: string, initialUrl?: string): Promise<AppBrowserSessionState> {
     const record = this.#require(tabId);
     if (!record.page) {
+      await this.#browserExtensions.list(this.#browserPartition(record));
       record.page = this.#createHostedPage(record, normalizeBrowserUrlInput(initialUrl));
       this.#attachPage(record);
       this.#layoutApp(record);
@@ -1045,6 +1049,27 @@ export class AppTabViewHost implements AppTabHost {
     const contents = this.#requireHostedPage(this.#require(tabId), pageId).view.webContents;
     if (canHostedPageGoForward(contents)) contents.goForward();
     return this.hostedPageState(tabId);
+  }
+
+  listHostedPageExtensionActions(tabId: string): Promise<ReadonlyArray<AppBrowserExtensionAction>> {
+    const record = this.#require(tabId);
+    return this.#browserExtensions.list(this.#browserPartition(record));
+  }
+
+  async openHostedPageExtensionAction(input: {
+    tabId: string;
+    pageId: string;
+    extensionId: string;
+  }): Promise<void> {
+    const record = this.#require(input.tabId);
+    const page = this.#requireHostedPage(record, input.pageId);
+    const parent = record.ownerWindowId === null ? null : this.#windowById(record.ownerWindowId);
+    await this.#browserExtensions.open({
+      partition: this.#browserPartition(record),
+      extensionId: input.extensionId,
+      target: page.view.webContents,
+      parent,
+    });
   }
 
   async findInHostedPage(input: {
@@ -1412,6 +1437,7 @@ export class AppTabViewHost implements AppTabHost {
 
   closeAll(reason: OperationCancellationCode = "host-stopped"): void {
     for (const tabId of [...this.#records.keys()]) this.close(tabId, reason);
+    this.#browserExtensions.closeAllPopups();
   }
 
   closeForAppSpace(
@@ -1680,10 +1706,7 @@ export class AppTabViewHost implements AppTabHost {
     url: string,
     chromiumWebContents?: WebContents,
   ): HostedPage {
-    const partition = createScopedBrowserSessionPartition(
-      record.descriptor.appId,
-      record.descriptor.spaceId,
-    );
+    const partition = this.#browserPartition(record);
     this.#browserSessionPolicy.ensureConfigured(partition);
     const view = chromiumWebContents
       ? new WebContentsView({ webContents: chromiumWebContents })
@@ -1720,6 +1743,10 @@ export class AppTabViewHost implements AppTabHost {
     };
     this.#configureHostedPage(record, page);
     return page;
+  }
+
+  #browserPartition(record: AppTabRecord): string {
+    return createScopedBrowserSessionPartition(record.descriptor.appId, record.descriptor.spaceId);
   }
 
   #configureHostedPage(record: AppTabRecord, page: HostedPage): void {
@@ -1862,6 +1889,10 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   #disposeHostedPage(record: AppTabRecord, page: HostedPage, close = true): void {
+    this.#browserExtensions.closePopupForTarget(
+      this.#browserPartition(record),
+      page.view.webContents.id,
+    );
     const window = record.ownerWindowId === null ? null : this.#windowById(record.ownerWindowId);
     if (window && !window.isDestroyed()) {
       try {

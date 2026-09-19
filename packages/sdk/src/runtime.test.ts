@@ -4,6 +4,7 @@ import {
   identity,
   files,
   account,
+  browser,
   permissions,
   models,
   settings,
@@ -31,8 +32,11 @@ function createBrowserMock(): PenkraTabRuntimeApi["browser"] {
     stop: vi.fn(),
     back: vi.fn(),
     forward: vi.fn(),
+    listExtensionActions: vi.fn(),
+    openExtensionAction: vi.fn(),
     snapshot: vi.fn(),
     find: vi.fn(),
+    stopFind: vi.fn(),
     click: vi.fn(),
     hover: vi.fn(),
     type: vi.fn(),
@@ -209,6 +213,8 @@ describe("framework-neutral App runtime exports", () => {
     await files.open("handle-1", "movie.mp4");
     await transfer.begin({ url: "https://uploads.example/files" });
     await models.listPossible();
+    await browser.listExtensionActions();
+    await browser.openExtensionAction({ extensionId: "dark-reader", pageId: "page-1" });
     await threads.compose({
       threadId: "thread-linked",
       text: "Pause playbooks://run/run-1",
@@ -227,6 +233,11 @@ describe("framework-neutral App runtime exports", () => {
       url: "https://uploads.example/files",
     });
     expect(runtime.models.listPossible).toHaveBeenCalledOnce();
+    expect(runtime.browser.listExtensionActions).toHaveBeenCalledOnce();
+    expect(runtime.browser.openExtensionAction).toHaveBeenCalledWith({
+      extensionId: "dark-reader",
+      pageId: "page-1",
+    });
     expect(runtime.threads.compose).toHaveBeenCalledWith({
       threadId: "thread-linked",
       text: "Pause playbooks://run/run-1",

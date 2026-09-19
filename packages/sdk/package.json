@@ -53,6 +53,7 @@
   },
   "scripts": {
     "build": "tsdown src/index.ts src/react.ts src/tab.ts src/controller.ts --format esm,cjs --dts --clean",
+    "dev:bundle": "tsdown src/index.ts src/react.ts src/tab.ts src/controller.ts --format esm,cjs --dts --watch --no-clean",
     "prepack": "bun run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

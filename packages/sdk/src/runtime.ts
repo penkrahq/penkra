@@ -136,6 +136,12 @@ export interface AppBrowserPage {
   lastError: string | null;
 }
 
+export interface AppBrowserExtensionAction {
+  id: string;
+  name: string;
+  iconDataUrl: string;
+}
+
 export interface AppBrowserSessionState {
   version: number;
   open: boolean;
@@ -471,13 +477,20 @@ export interface PenkraTabRuntimeApi {
     stop(pageId: string): Promise<AppBrowserSessionState>;
     back(pageId: string): Promise<AppBrowserSessionState>;
     forward(pageId: string): Promise<AppBrowserSessionState>;
+    listExtensionActions(): Promise<ReadonlyArray<AppBrowserExtensionAction>>;
+    openExtensionAction(input: { extensionId: string; pageId: string }): Promise<void>;
     snapshot(input: {
       pageId: string;
       target?: string;
       depth?: number;
       boxes?: boolean;
     }): Promise<unknown>;
-    find(input: { pageId: string; query: string }): Promise<unknown>;
+    find(input: {
+      pageId: string;
+      text: string;
+      action?: "search" | "next" | "previous";
+    }): Promise<unknown>;
+    stopFind(pageId: string): Promise<void>;
     click(input: { pageId: string; ref: string; observe?: boolean }): Promise<unknown>;
     hover(input: { pageId: string; ref: string; observe?: boolean }): Promise<unknown>;
     type(input: { pageId: string; ref: string; text: string; observe?: boolean }): Promise<unknown>;
@@ -746,8 +759,11 @@ export const browser: PenkraTabRuntimeApi["browser"] = {
   stop: (pageId) => runtime().browser.stop(pageId),
   back: (pageId) => runtime().browser.back(pageId),
   forward: (pageId) => runtime().browser.forward(pageId),
+  listExtensionActions: () => runtime().browser.listExtensionActions(),
+  openExtensionAction: (input) => runtime().browser.openExtensionAction(input),
   snapshot: (input) => runtime().browser.snapshot(input),
   find: (input) => runtime().browser.find(input),
+  stopFind: (pageId) => runtime().browser.stopFind(pageId),
   click: (input) => runtime().browser.click(input),
   hover: (input) => runtime().browser.hover(input),
   type: (input) => runtime().browser.type(input),
