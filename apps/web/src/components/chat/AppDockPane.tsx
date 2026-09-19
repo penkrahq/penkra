@@ -28,8 +28,24 @@ export function AppDockPane(props: {
     const bridge = window.desktopBridge?.appTabs;
     const wrapper = rootRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
     if (!bridge || !wrapper) return;
-    const width = Number.parseFloat(getComputedStyle(wrapper).getPropertyValue("--sidebar-width"));
-    if (!Number.isFinite(width)) return;
+    const width = wrapper.getBoundingClientRect().width;
+    if (!Number.isFinite(width) || width <= 0) {
+      console.warn("[app-tab-presentation] renderer-present-skipped", {
+        tabId: props.tabId,
+        deckId: props.deckId,
+        threadId: props.threadId,
+        reason: "invalid-rendered-width",
+        width,
+      });
+      return;
+    }
+    console.info("[app-tab-presentation] renderer-present-requested", {
+      tabId: props.tabId,
+      deckId: props.deckId,
+      threadId: props.threadId,
+      width,
+      animate: props.animateEntrance,
+    });
     void bridge.present({
       tabId: props.tabId,
       deckId: props.deckId,
@@ -60,7 +76,10 @@ export function AppDockPane(props: {
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
     if (!props.visible || props.status === "crashed" || document.visibilityState !== "visible") {
-      void bridge.hide({ tabId: props.tabId, animate: wasVisibleRef.current && !props.visible });
+      void bridge.hide({
+        tabId: props.tabId,
+        animate: wasVisibleRef.current && !props.visible,
+      });
       wasVisibleRef.current = false;
       return;
     }

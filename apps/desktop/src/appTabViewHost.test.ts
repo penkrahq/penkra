@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   dockTransitionProgress,
   resizedAppTabBounds,
+  shouldApplyAppTabHide,
   shouldKeepPresentationAnimation,
   shouldPresentAppView,
 } from "./appTabViewHost";
@@ -36,6 +37,18 @@ describe("AppTabViewHost presentation states", () => {
     ["thread-not-on-screen", { threadOnScreen: false }, false],
   ] as const)("resolves %s", (_name, patch, expected) => {
     expect(shouldPresentAppView({ ...visible, ...patch })).toBe(expected);
+  });
+});
+
+describe("shouldApplyAppTabHide", () => {
+  it("rejects an asynchronous hide superseded by a newer presentation", () => {
+    expect(shouldApplyAppTabHide({ selectedAt: 12, visible: true }, 11)).toBe(false);
+    expect(shouldApplyAppTabHide({ selectedAt: 12, visible: false }, 11)).toBe(false);
+  });
+
+  it("applies the hide while its exact presentation remains inactive", () => {
+    expect(shouldApplyAppTabHide({ selectedAt: 11, visible: false }, 11)).toBe(true);
+    expect(shouldApplyAppTabHide(undefined, null)).toBe(true);
   });
 });
 
