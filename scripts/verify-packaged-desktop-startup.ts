@@ -549,7 +549,16 @@ export async function terminateProcessesInsideRoot(root: string): Promise<void> 
     return result.stdout
       .split(/\s+/)
       .map(Number)
-      .filter((pid) => Number.isInteger(pid) && pid > 1 && pid !== process.pid);
+      .filter((pid) => Number.isInteger(pid) && pid > 1 && pid !== process.pid)
+      .filter((pid) => {
+        const processState = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], {
+          encoding: "utf8",
+          shell: false,
+        });
+        // SIGKILL can leave an already-exited child awaiting parent reaping.
+        // A zombie has no executable work left to clean up.
+        return !processState.stdout.trimStart().startsWith("Z");
+      });
   };
   for (const signal of ["SIGTERM", "SIGKILL"] as const) {
     const pids = findPids();
