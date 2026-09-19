@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+## 0.13.0 - 2026-09-19
+
+### Added
+
+- Rebuilt App tabs as native Electron views. Canvas, Explorer, Browser, and installed Apps now
+  retain their document state independently of the shell renderer and remain available to the
+  agent surface as `d1` (App document) and `d2` (hosted page) targets.
+- Added durable native App-tab observation and interaction, including snapshots, actions,
+  screenshots, recordings, diffs, stale-reference reporting, and visible agent cursor feedback.
+- Added immediate, optimistic ordering for thread-deck tabs and sidebar items, with authoritative
+  reconciliation when the server confirms the move.
+
+### Changed
+
+- Upgraded the desktop runtime to Electron 44.
+- Moved right-dock native App geometry, visibility, fullscreen handling, and window ownership into
+  the main process so hosted surfaces follow dock resizing and tab selection directly.
+- Made Browser App presentation and cross-window ownership explicit: the owning window holds the
+  live view while the other window receives a replica until ownership transfers.
+- Kept composer-local menus within the composer column. They no longer freeze a Browser/App view
+  merely because a picker opens next to it.
+
+### Fixed
+
+- Fixed stale, duplicate, and prematurely disappearing agent cursors across page loads, target
+  changes, completed turns, recordings, and destroyed App views.
+- Fixed deck tabs, dock-tab dividers, and draft provider badges shifting or falling out of sync
+  during pointer interactions.
+
 ## 0.12.0 - 2026-09-04
 
 ### Added
