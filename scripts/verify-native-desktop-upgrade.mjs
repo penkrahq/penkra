@@ -86,6 +86,19 @@ async function until(check, description, timeout = 120_000) {
   }
   throw new Error(`Timed out: ${description}`);
 }
+async function readApplicationVersion() {
+  let lastError;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      return await application.evaluate(({ app }) => app.getVersion());
+    } catch (error) {
+      lastError = error;
+      if (!String(error).includes("Execution context was destroyed")) throw error;
+      await delay(250);
+    }
+  }
+  throw lastError;
+}
 async function launch(executablePath, version, launchEnv = env) {
   const logPath = resolvePackagedDesktopSmokeLogPath(stateRoot);
   const logOffset = existsSync(logPath) ? readFileSync(logPath, "utf8").length : 0;
@@ -101,7 +114,7 @@ async function launch(executablePath, version, launchEnv = env) {
     .on("exit", (code, signal) =>
       console.log(`[native-upgrade] initial process exited: ${code}, ${signal}`),
     );
-  assert.equal(await application.evaluate(({ app }) => app.getVersion()), version);
+  assert.equal(await readApplicationVersion(), version);
   const page = await application.firstWindow();
   await page.waitForFunction(() => Boolean(window.desktopBridge), null, { timeout: 60_000 });
   await until(() => {
