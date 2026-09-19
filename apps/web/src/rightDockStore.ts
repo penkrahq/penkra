@@ -114,11 +114,8 @@ export const useRightDockStore = create<RightDockStore>()(
               ? {
                   ...state,
                   panes: state.panes.map(
-                    ({
-                      appDocumentUrl: _appDocumentUrl,
-                      appRendererId: _appRendererId,
-                      ...pane
-                    }) => pane,
+                    ({ appDocumentUrl: _appDocumentUrl, appRendererId: _appRendererId, ...pane }) =>
+                      pane,
                   ),
                 }
               : state,

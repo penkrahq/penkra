@@ -555,7 +555,6 @@ function announceAppTabClosed(descriptor: DesktopAppTabClosed): void {
   broadcastToShellWindows(IPC.appTabs.closed, descriptor);
 }
 
-
 function requireGrantedIdentityAudience(
   runtime: DesktopAppRuntime,
   identity: { appId: string; spaceId: string },
@@ -1392,30 +1391,30 @@ let appTabObserver: AppTabObserver | null = null;
 let appHostedBrowserObserver: AppTabObserver | null = null;
 let latestAgentCursorActivitySequence: number | null = null;
 const handleHostedBeforeInput = (event: Electron.Event, input: Electron.Input): boolean => {
-    if (
-      isKeyboardShortcutsHelpChord(
-        {
-          type: input.type,
-          key: input.key,
-          code: input.code,
-          meta: input.meta,
-          ctrl: input.control,
-          shift: input.shift,
-          alt: input.alt,
-          repeat: input.isAutoRepeat,
-        },
-        {
-          isMac: desktopPlatform.platform === "darwin",
-          isWindows: desktopPlatform.platform === "win32",
-        },
-      )
-    ) {
-      event.preventDefault();
-      dispatchMenuAction("show-shortcuts");
-      return true;
-    }
+  if (
+    isKeyboardShortcutsHelpChord(
+      {
+        type: input.type,
+        key: input.key,
+        code: input.code,
+        meta: input.meta,
+        ctrl: input.control,
+        shift: input.shift,
+        alt: input.alt,
+        repeat: input.isAutoRepeat,
+      },
+      {
+        isMac: desktopPlatform.platform === "darwin",
+        isWindows: desktopPlatform.platform === "win32",
+      },
+    )
+  ) {
+    event.preventDefault();
+    dispatchMenuAction("show-shortcuts");
+    return true;
+  }
 
-    return handleDesktopWindowZoomShortcut(event, input);
+  return handleDesktopWindowZoomShortcut(event, input);
 };
 let appCommandPipeServer: AppCommandPipeServer | null = null;
 const appBrowserOwnerByTabId = new Map<string, { appId: string; spaceId: string }>();
@@ -1447,7 +1446,11 @@ async function presentAppTabInWindow(input: {
   await desktopAppRuntime?.appTabs.presentInWindow(input);
 }
 
-async function hideAppTabInWindow(tabId: string, windowId: number, animate: boolean): Promise<void> {
+async function hideAppTabInWindow(
+  tabId: string,
+  windowId: number,
+  animate: boolean,
+): Promise<void> {
   await desktopAppRuntime?.appTabs.hideInWindow(tabId, windowId, animate);
 }
 
@@ -5192,8 +5195,7 @@ function registerIpcHandlers(): void {
           { handleId: handle.id },
         );
       }
-      case "files.closeUrl":
-      {
+      case "files.closeUrl": {
         runtime.blobUrls.close(
           {
             appId: identity.appId,
@@ -7193,11 +7195,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   });
   window.on("resize", () => {
     const contentBounds = window.getContentBounds();
-    resizeAppTabWindow(
-      rendererOwnerId,
-      contentBounds.width,
-      contentBounds.height,
-    );
+    resizeAppTabWindow(rendererOwnerId, contentBounds.width, contentBounds.height);
     setImmediate(() => {
       if (window.isDestroyed()) return;
       const committedBounds = window.getContentBounds();

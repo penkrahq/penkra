@@ -145,9 +145,7 @@ describe("AppDockPane native view controller", () => {
       pageTop: 46,
     });
     await vi.waitFor(() =>
-      expect(
-        screen.container.querySelector("[data-app-tab-replica='shared-tab']"),
-      ).not.toBeNull(),
+      expect(screen.container.querySelector("[data-app-tab-replica='shared-tab']")).not.toBeNull(),
     );
     screen.container
       .querySelector<HTMLButtonElement>("[data-app-tab-replica='shared-tab']")!

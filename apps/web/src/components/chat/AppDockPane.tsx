@@ -107,9 +107,7 @@ export function AppDockPane(props: {
               draggable={false}
               src={presentation.appFrameDataUrl}
               style={{
-                height: presentation.pageFrameDataUrl
-                  ? presentation.pageTop ?? 0
-                  : "100%",
+                height: presentation.pageFrameDataUrl ? (presentation.pageTop ?? 0) : "100%",
               }}
             />
           ) : null}

@@ -22,9 +22,8 @@ ipcRenderer.on(IPC.appTabs.state, (_event, tab: DesktopAppTabDescriptor) =>
   appTabState.publish(tab),
 );
 ipcRenderer.on(IPC.appTabs.closed, (_event, tab: DesktopAppTabClosed) => appTabClosed.publish(tab));
-ipcRenderer.on(
-  IPC.appTabs.presentation,
-  (_event, presentation: DesktopAppTabPresentation) => appTabPresentation.publish(presentation),
+ipcRenderer.on(IPC.appTabs.presentation, (_event, presentation: DesktopAppTabPresentation) =>
+  appTabPresentation.publish(presentation),
 );
 
 function getDesktopWsUrl(): string | null {

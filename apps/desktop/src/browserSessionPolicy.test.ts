@@ -26,10 +26,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-import {
-  BrowserSessionPolicy,
-  createScopedBrowserSessionPartition,
-} from "./browserSessionPolicy";
+import { BrowserSessionPolicy, createScopedBrowserSessionPartition } from "./browserSessionPolicy";
 
 const TEST_PARTITION = createScopedBrowserSessionPartition("com.penkra.browser", "test-space");
 

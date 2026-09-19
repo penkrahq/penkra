@@ -566,7 +566,10 @@ describe("penkra_exec_command discovery", () => {
       bridge,
     );
     await executePenkraExecCommand(
-      { command: 'penkra tabs act --input \'{"tabId":"tab-A","steps":[{"action":"type","ref":"d1:e7","text":"Updated copy"}]}\'' },
+      {
+        command:
+          'penkra tabs act --input \'{"tabId":"tab-A","steps":[{"action":"type","ref":"d1:e7","text":"Updated copy"}]}\'',
+      },
       context,
       {},
       bridge,
@@ -580,7 +583,11 @@ describe("penkra_exec_command discovery", () => {
       },
       {
         method: "tabs.act",
-        params: { ...context, tabId: "tab-A", steps: [{ action: "type", ref: "d1:e7", text: "Updated copy" }] },
+        params: {
+          ...context,
+          tabId: "tab-A",
+          steps: [{ action: "type", ref: "d1:e7", text: "Updated copy" }],
+        },
       },
     ]);
   });
@@ -774,7 +781,10 @@ describe("penkra_exec_command discovery", () => {
       bridge,
     );
     await executePenkraExecCommand(
-      { command: 'penkra tabs act --input \'{"tabId":"tab-A","steps":[{"action":"click","ref":"d1:e1"},{"action":"highlight","ref":"d1:e1"},{"action":"dialog","accept":false},{"action":"upload","ref":"d1:e2","paths":["/app/report.pdf"]}]}\' --human true' },
+      {
+        command:
+          'penkra tabs act --input \'{"tabId":"tab-A","steps":[{"action":"click","ref":"d1:e1"},{"action":"highlight","ref":"d1:e1"},{"action":"dialog","accept":false},{"action":"upload","ref":"d1:e2","paths":["/app/report.pdf"]}]}\' --human true',
+      },
       context,
       {},
       bridge,
@@ -782,16 +792,30 @@ describe("penkra_exec_command discovery", () => {
     expect(calls).toEqual([
       {
         method: "tabs.snapshot",
-        params: { ...context, tabId: "tab-A", document: "d1", target: "d1:e3", depth: 2, boxes: true, interactive: true, compact: true },
+        params: {
+          ...context,
+          tabId: "tab-A",
+          document: "d1",
+          target: "d1:e3",
+          depth: 2,
+          boxes: true,
+          interactive: true,
+          compact: true,
+        },
       },
       {
         method: "tabs.act",
-        params: { ...context, tabId: "tab-A", human: true, steps: [
-          { action: "click", ref: "d1:e1" },
-          { action: "highlight", ref: "d1:e1" },
-          { action: "dialog", accept: false },
-          { action: "upload", ref: "d1:e2", paths: ["/app/report.pdf"] },
-        ] },
+        params: {
+          ...context,
+          tabId: "tab-A",
+          human: true,
+          steps: [
+            { action: "click", ref: "d1:e1" },
+            { action: "highlight", ref: "d1:e1" },
+            { action: "dialog", accept: false },
+            { action: "upload", ref: "d1:e2", paths: ["/app/report.pdf"] },
+          ],
+        },
       },
     ]);
   });

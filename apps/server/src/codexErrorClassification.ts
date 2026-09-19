@@ -12,9 +12,7 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-export function isCodexToolAttemptFailure(
-  notification: CodexErrorNotificationShape,
-): boolean {
+export function isCodexToolAttemptFailure(notification: CodexErrorNotificationShape): boolean {
   if (notification.method !== "error") return false;
   const payload = asObject(notification.payload);
   if (payload?.willRetry === true) return false;

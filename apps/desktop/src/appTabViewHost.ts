@@ -235,10 +235,7 @@ export class AppTabViewHost implements AppTabHost {
   readonly #resolveIconDataUrl: typeof resolveInstalledAppIconDataUrl;
   readonly #diagnostics: ProtectedPublisher<AppRuntimeDiagnosticInput>;
   readonly #records = new Map<string, AppTabRecord>();
-  readonly #presentationsByTabId = new Map<
-    string,
-    Map<number, AppTabWindowPresentation>
-  >();
+  readonly #presentationsByTabId = new Map<string, Map<number, AppTabWindowPresentation>>();
   readonly #replicaFrameByTabId = new Map<string, AppTabReplicaFrame>();
   readonly #overlayDepthByWindowId = new Map<number, number>();
   readonly #browserSessionPolicy = new BrowserSessionPolicy();
@@ -523,12 +520,11 @@ export class AppTabViewHost implements AppTabHost {
 
     for (const other of this.#records.values()) {
       if (other === record) continue;
-      const presentation = this.#presentationsByTabId
-        .get(other.descriptor.id)
-        ?.get(input.windowId);
+      const presentation = this.#presentationsByTabId.get(other.descriptor.id)?.get(input.windowId);
       if (!presentation?.visible) continue;
       presentation.visible = false;
-      if (other.ownerWindowId === input.windowId) this.hide(other.descriptor.id, false, input.windowId);
+      if (other.ownerWindowId === input.windowId)
+        this.hide(other.descriptor.id, false, input.windowId);
       this.#emitPresentation(other.descriptor.id);
     }
 
@@ -536,7 +532,9 @@ export class AppTabViewHost implements AppTabHost {
       try {
         this.#replicaFrameByTabId.set(input.tabId, await this.captureReplica(input.tabId));
       } catch (error) {
-        console.warn(`[app-tab] Could not capture replica for ${input.tabId}: ${safeErrorMessage(error)}`);
+        console.warn(
+          `[app-tab] Could not capture replica for ${input.tabId}: ${safeErrorMessage(error)}`,
+        );
       }
     }
     let presentations = this.#presentationsByTabId.get(input.tabId);
@@ -733,10 +731,7 @@ export class AppTabViewHost implements AppTabHost {
     record.bounds = normalizedBounds;
     const contentBounds = targetWindow.getContentBounds();
     record.dockWidth = record.bounds.width;
-    record.rightInset = Math.max(
-      0,
-      contentBounds.width - record.bounds.x - record.bounds.width,
-    );
+    record.rightInset = Math.max(0, contentBounds.width - record.bounds.x - record.bounds.width);
     record.bottom = Math.max(0, contentBounds.height - record.bounds.y - record.bounds.height);
     record.visibleRequested = true;
     record.ownerWindowVisible = targetWindow.isVisible() && !targetWindow.isMinimized();
@@ -805,9 +800,7 @@ export class AppTabViewHost implements AppTabHost {
     record.lastFrame = appFrame;
     return {
       appFrameDataUrl: appFrame.toDataURL(),
-      ...(pageFrame && !pageFrame.isEmpty()
-        ? { pageFrameDataUrl: pageFrame.toDataURL() }
-        : {}),
+      ...(pageFrame && !pageFrame.isEmpty() ? { pageFrameDataUrl: pageFrame.toDataURL() } : {}),
       pageTop: record.pageTop,
     };
   }
@@ -984,10 +977,8 @@ export class AppTabViewHost implements AppTabHost {
     text: string;
     action: "search" | "next" | "previous";
   }): Promise<{ activeMatchOrdinal: number; matches: number }> {
-    const contents = this.#requireHostedPage(
-      this.#require(input.tabId),
-      input.pageId,
-    ).view.webContents;
+    const contents = this.#requireHostedPage(this.#require(input.tabId), input.pageId).view
+      .webContents;
     return await new Promise((resolve) => {
       let requestId = -1;
       let settled = false;
@@ -1075,9 +1066,9 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   tabForWindow(windowId: number): DesktopAppTabDescriptor | null {
-    const owned = [...this.#records.values()].reverse().filter(
-      (record) => record.ownerWindowId === windowId,
-    );
+    const owned = [...this.#records.values()]
+      .reverse()
+      .filter((record) => record.ownerWindowId === windowId);
     return (owned.find((record) => record.visibleRequested) ?? owned[0])?.descriptor ?? null;
   }
 
@@ -1085,17 +1076,15 @@ export class AppTabViewHost implements AppTabHost {
     for (const record of this.#records.values()) {
       if (record.ownerWindowId !== windowId) continue;
       const next = resizedAppTabBounds({
-          bounds: record.bounds,
-          dockWidth: record.dockWidth,
-          rightInset: record.rightInset,
-          bottom: record.bottom,
-          width,
-          height,
-        });
+        bounds: record.bounds,
+        dockWidth: record.dockWidth,
+        rightInset: record.rightInset,
+        bottom: record.bottom,
+        width,
+        height,
+      });
       this.setBounds(record.descriptor.id, next);
-      const presentation = this.#presentationsByTabId
-        .get(record.descriptor.id)
-        ?.get(windowId);
+      const presentation = this.#presentationsByTabId.get(record.descriptor.id)?.get(windowId);
       if (presentation) presentation.bounds = next;
     }
   }
@@ -1135,9 +1124,7 @@ export class AppTabViewHost implements AppTabHost {
   async applyTypography(css: string): Promise<void> {
     this.#typographyCss = css;
     await Promise.all(
-      [...this.#records.values()].map((record) =>
-        this.#applyCss(record, "typographyCssKey", css),
-      ),
+      [...this.#records.values()].map((record) => this.#applyCss(record, "typographyCssKey", css)),
     );
   }
 
@@ -1709,8 +1696,7 @@ export class AppTabViewHost implements AppTabHost {
       () => contents.removeListener("did-fail-load", didFailLoad),
     );
     contents.setWindowOpenHandler((details) => {
-      const isWeb =
-        details.url === BROWSER_BLANK_URL || /^https?:\/\//i.test(details.url.trim());
+      const isWeb = details.url === BROWSER_BLANK_URL || /^https?:\/\//i.test(details.url.trim());
       if (!isWeb) return { action: "deny" };
       const kind = classifyBrowserWindowOpen(details);
       if (kind === "tab" && details.postBody === undefined) {
@@ -1721,9 +1707,11 @@ export class AppTabViewHost implements AppTabHost {
         action: "allow",
         outlivesOpener: true,
         createWindow: (options: BrowserWindowConstructorOptions) => {
-          const popupContents = (options as BrowserWindowConstructorOptions & {
-            webContents?: WebContents;
-          }).webContents;
+          const popupContents = (
+            options as BrowserWindowConstructorOptions & {
+              webContents?: WebContents;
+            }
+          ).webContents;
           if (!popupContents) throw new Error("Chromium did not provide popup WebContents.");
           return this.#adoptHostedPopup(record, page, details.url, popupContents).view.webContents;
         },
@@ -1904,10 +1892,12 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   #shouldShowPage(record: AppTabRecord): boolean {
-    return !!record.page &&
+    return (
+      !!record.page &&
       record.pageTop > 0 &&
       record.page.state.url !== BROWSER_BLANK_URL &&
-      record.page.state.lastError === null;
+      record.page.state.lastError === null
+    );
   }
 
   #detach(record: AppTabRecord): void {
@@ -1951,9 +1941,10 @@ export class AppTabViewHost implements AppTabHost {
   #layoutApp(record: AppTabRecord, sourceBounds: Rectangle = record.bounds): void {
     const bounds = {
       ...sourceBounds,
-      height: record.page && record.pageTop > 0 && record.page.state.url !== BROWSER_BLANK_URL
-        ? Math.min(sourceBounds.height, record.pageTop)
-        : sourceBounds.height,
+      height:
+        record.page && record.pageTop > 0 && record.page.state.url !== BROWSER_BLANK_URL
+          ? Math.min(sourceBounds.height, record.pageTop)
+          : sourceBounds.height,
     };
     record.appView.setBounds(bounds);
   }

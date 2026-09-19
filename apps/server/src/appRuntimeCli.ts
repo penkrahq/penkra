@@ -236,7 +236,8 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
     examples: [
       {
         name: "Observe one retained tab",
-        command: "penkra tabs snapshot --tab-id <tab-id> --document d1 --interactive true --compact true",
+        command:
+          "penkra tabs snapshot --tab-id <tab-id> --document d1 --interactive true --compact true",
       },
     ],
   },
@@ -258,7 +259,8 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
   act: {
     command: "penkra tabs act",
     summary: "Run an ordered sequence of actions against d1 and d2.",
-    instructions: "Act accepts steps through --input. Element actions use d1:/d2: references from snapshot; --human true uses an eased visible cursor path.",
+    instructions:
+      "Act accepts steps through --input. Element actions use d1:/d2: references from snapshot; --human true uses an eased visible cursor path.",
     input: {
       type: "object",
       properties: {
@@ -273,7 +275,8 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
     examples: [
       {
         name: "Click and wait",
-        command: "penkra tabs act --input '{\"tabId\":\"<tab-id>\",\"steps\":[{\"action\":\"click\",\"ref\":\"d1:e3\"},{\"action\":\"wait\",\"document\":\"d1\",\"text\":\"Saved\"}]}'",
+        command:
+          'penkra tabs act --input \'{"tabId":"<tab-id>","steps":[{"action":"click","ref":"d1:e3"},{"action":"wait","document":"d1","text":"Saved"}]}\'',
       },
     ],
   },
@@ -288,7 +291,13 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
       additionalProperties: false,
     },
     output: GENERIC_RESULT_SCHEMA,
-    examples: [{ name: "Read the title", command: "penkra tabs evaluate --tab-id <tab-id> --document d1 --expression 'document.title'" }],
+    examples: [
+      {
+        name: "Read the title",
+        command:
+          "penkra tabs evaluate --tab-id <tab-id> --document d1 --expression 'document.title'",
+      },
+    ],
   },
   screenshot: {
     command: "penkra tabs screenshot",
@@ -301,7 +310,12 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
       additionalProperties: false,
     },
     output: GENERIC_RESULT_SCHEMA,
-    examples: [{ name: "Capture d2", command: "penkra tabs screenshot --tab-id <tab-id> --document d2 --filename page.png" }],
+    examples: [
+      {
+        name: "Capture d2",
+        command: "penkra tabs screenshot --tab-id <tab-id> --document d2 --filename page.png",
+      },
+    ],
   },
   ...Object.fromEntries(
     (["record", "trace", "har"] as const).map((action) => [
@@ -322,7 +336,12 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
           additionalProperties: false,
         },
         output: GENERIC_RESULT_SCHEMA,
-        examples: [{ name: `Capture ${action}`, command: `penkra tabs ${action} --tab-id <tab-id> --document d2 --duration-ms 1000 --filename page.${action === "record" ? "webm" : action === "trace" ? "trace.json" : "har"}` }],
+        examples: [
+          {
+            name: `Capture ${action}`,
+            command: `penkra tabs ${action} --tab-id <tab-id> --document d2 --duration-ms 1000 --filename page.${action === "record" ? "webm" : action === "trace" ? "trace.json" : "har"}`,
+          },
+        ],
       },
     ]),
   ),

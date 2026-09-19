@@ -292,10 +292,13 @@ export class AppTabObserver {
         .sort(referenceOrder);
       state.lastSnapshotReferences = appTree.references;
       const refs = Object.fromEntries(
-        [...appTree.references].sort(referenceOrder).map((reference) => [reference, {
-          role: referenceRole(rawSnapshot, reference),
-          name: referenceName(rawSnapshot, reference),
-        }]),
+        [...appTree.references].sort(referenceOrder).map((reference) => [
+          reference,
+          {
+            role: referenceRole(rawSnapshot, reference),
+            name: referenceName(rawSnapshot, reference),
+          },
+        ]),
       );
       const url = target.webContents.getURL();
       const snapshot = boundPageContent(rawSnapshot, url);
@@ -337,9 +340,7 @@ export class AppTabObserver {
         backendNodeId === undefined
           ? "Accessibility.getFullAXTree"
           : "Accessibility.getPartialAXTree",
-        backendNodeId === undefined
-          ? undefined
-          : { backendNodeId, fetchRelatives: false },
+        backendNodeId === undefined ? undefined : { backendNodeId, fetchRelatives: false },
         protocol.target.cdpSessionId,
       ),
     );
@@ -356,7 +357,10 @@ export class AppTabObserver {
     await Promise.all(
       rawNodes.map(async (raw) => {
         if (raw.ignored === true) return;
-        rendered.set(raw, await this.#snapshotLine(protocol.target, raw, state, includeBoxes, references));
+        rendered.set(
+          raw,
+          await this.#snapshotLine(protocol.target, raw, state, includeBoxes, references),
+        );
       }),
     );
     const visited = new Set<CdpAxNode>();
@@ -524,13 +528,7 @@ export class AppTabObserver {
             break;
           case "scroll":
             results.push(
-              await this.scroll(
-                tabId,
-                step.deltaX ?? 0,
-                step.deltaY ?? 0,
-                false,
-                step.document,
-              ),
+              await this.scroll(tabId, step.deltaX ?? 0, step.deltaY ?? 0, false, step.document),
             );
             break;
           case "wait":
@@ -565,7 +563,9 @@ export class AppTabObserver {
         return { tabId, document, filename: outputPath, mimeType: "image/png" };
       }
       if (bytes.byteLength > MAX_INLINE_SCREENSHOT_BYTES) {
-        throw new Error("The PNG does not fit in the inline tool transport. Supply filename to save it instead.");
+        throw new Error(
+          "The PNG does not fit in the inline tool transport. Supply filename to save it instead.",
+        );
       }
       return {
         tabId,
@@ -592,9 +592,13 @@ export class AppTabObserver {
       throw new Error("Recording filename must end in .webm or .mp4.");
     await mkdir(dirname(outputPath), { recursive: true });
     await this.#ensureCursor(target);
-    const ffmpeg = spawn(resolveFfmpegExecutable(), recordingFfmpegArguments(outputPath, extension), {
-      stdio: ["pipe", "ignore", "pipe"],
-    });
+    const ffmpeg = spawn(
+      resolveFfmpegExecutable(),
+      recordingFfmpegArguments(outputPath, extension),
+      {
+        stdio: ["pipe", "ignore", "pipe"],
+      },
+    );
     const completion = new Promise<number | null>((resolve, reject) => {
       ffmpeg.once("error", reject);
       ffmpeg.once("close", resolve);
@@ -603,7 +607,12 @@ export class AppTabObserver {
     ffmpeg.stderr?.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
     let latest: Buffer | null = null;
     let frames = 0;
-    const listener = (_event: Electron.Event, method: string, params: unknown, sessionId?: string) => {
+    const listener = (
+      _event: Electron.Event,
+      method: string,
+      params: unknown,
+      sessionId?: string,
+    ) => {
       if (method !== "Page.screencastFrame" || !isRecord(params)) return;
       if (target.cdpSessionId !== undefined && sessionId !== target.cdpSessionId) return;
       if (typeof params.data === "string") latest = Buffer.from(params.data, "base64");
@@ -632,15 +641,19 @@ export class AppTabObserver {
       }
     } finally {
       target.webContents.debugger.removeListener("message", listener);
-      await this.#cdp(target.webContents, "Page.stopScreencast", undefined, target.cdpSessionId).catch(
-        () => undefined,
-      );
+      await this.#cdp(
+        target.webContents,
+        "Page.stopScreencast",
+        undefined,
+        target.cdpSessionId,
+      ).catch(() => undefined);
       ffmpeg.stdin?.end();
       await this.#removeCursorsForTab(tabId, "record-complete");
     }
     const exitCode = await completion;
     if (frames === 0) throw observerError("SCREENSHOT_NEVER_PAINTED", `${document} never painted.`);
-    if (exitCode !== 0) throw new Error(`ffmpeg failed: ${stderr.trim().split("\n").slice(-3).join(" ")}`);
+    if (exitCode !== 0)
+      throw new Error(`ffmpeg failed: ${stderr.trim().split("\n").slice(-3).join(" ")}`);
     return { tabId, document, filename: outputPath, durationMs: Date.now() - startedAt, frames };
   }
 
@@ -686,7 +699,11 @@ export class AppTabObserver {
     const duration = boundedDuration(durationMs);
     const requests = new Map<
       string,
-      { startedDateTime: string; request?: Record<string, unknown>; response?: Record<string, unknown> }
+      {
+        startedDateTime: string;
+        request?: Record<string, unknown>;
+        response?: Record<string, unknown>;
+      }
     >();
     const listener = (
       _event: Electron.Event,
@@ -753,10 +770,7 @@ export class AppTabObserver {
             bounds.width <= 0 ||
             bounds.height <= 0))
       ) {
-        throw observerError(
-          "SCREENSHOT_NEVER_PAINTED",
-          `${target.document} never painted.`,
-        );
+        throw observerError("SCREENSHOT_NEVER_PAINTED", `${target.document} never painted.`);
       }
       let image;
       try {
@@ -926,12 +940,7 @@ export class AppTabObserver {
       { type: "keyUp", ...released },
       target.cdpSessionId,
     );
-    return this.#actionResult(
-      tabId,
-      { tabId, key: normalized, pressed: true },
-      observe,
-      document,
-    );
+    return this.#actionResult(tabId, { tabId, key: normalized, pressed: true }, observe, document);
   }
 
   async select(tabId: string, reference: string, value: string, observe = false): Promise<unknown> {
@@ -975,12 +984,7 @@ export class AppTabObserver {
       `window.scrollBy(${JSON.stringify(deltaX)}, ${JSON.stringify(deltaY)})`,
       true,
     );
-    return this.#actionResult(
-      tabId,
-      { tabId, deltaX, deltaY, scrolled: true },
-      observe,
-      document,
-    );
+    return this.#actionResult(tabId, { tabId, deltaX, deltaY, scrolled: true }, observe, document);
   }
 
   async handleDialog(tabId: string, accept: boolean, text?: string): Promise<unknown> {
@@ -1008,8 +1012,7 @@ export class AppTabObserver {
   }
 
   async upload(tabId: string, reference: string, paths: ReadonlyArray<string>): Promise<unknown> {
-    if (paths.length === 0)
-      throw new Error("At least one path is required.");
+    if (paths.length === 0) throw new Error("At least one path is required.");
     const { target, node } = await this.#referencedTarget(tabId, reference);
     const validatedPaths = this.#resolver.validateUploadPaths
       ? await this.#resolver.validateUploadPaths(target.descriptor, paths)
@@ -1066,20 +1069,27 @@ export class AppTabObserver {
   ): Promise<AppTabObservationTarget> {
     const existingDialog = this.#pendingDialogs.get(tabId);
     if (existingDialog && !allowDialog) {
-      throw new Error(`A browser JavaScript ${existingDialog.type} dialog is open: ${JSON.stringify(bounded(existingDialog.message))}. Handle it with a dialog step in penkra tabs act before continuing.`);
+      throw new Error(
+        `A browser JavaScript ${existingDialog.type} dialog is open: ${JSON.stringify(bounded(existingDialog.message))}. Handle it with a dialog step in penkra tabs act before continuing.`,
+      );
     }
     const surfaceId = this.#surface.getStore();
     const resolved = await (surfaceId === undefined
       ? this.#resolver.resolve(tabId, document)
       : this.#resolver.resolve(tabId, document, surfaceId));
-    const target: AppTabObservationTarget = { ...resolved, document: resolved.document ?? document };
+    const target: AppTabObservationTarget = {
+      ...resolved,
+      document: resolved.document ?? document,
+    };
     if (target.webContents.isDestroyed())
       throw observerError("TAB_GONE", `App tab ${tabId} is gone.`);
     if (existingDialog) return target;
     await this.#observeDialogs(tabId, target);
     const pending = this.#pendingDialogs.get(tabId);
     if (pending && !allowDialog) {
-      throw new Error(`A browser JavaScript ${pending.type} dialog is open: ${JSON.stringify(bounded(pending.message))}. Handle it with a dialog step in penkra tabs act before continuing.`);
+      throw new Error(
+        `A browser JavaScript ${pending.type} dialog is open: ${JSON.stringify(bounded(pending.message))}. Handle it with a dialog step in penkra tabs act before continuing.`,
+      );
     }
     return target;
   }
@@ -1189,10 +1199,7 @@ export class AppTabObserver {
     this.#activeCursorKey = null;
     if (!installation || installation.target.webContents.isDestroyed()) return;
     try {
-      await this.#evaluateCursor(
-        installation,
-        "globalThis.__agentBrowserRecordingCursorHide?.()",
-      );
+      await this.#evaluateCursor(installation, "globalThis.__agentBrowserRecordingCursorHide?.()");
       this.#cursorLog("hidden", key, installation, { reason });
     } catch (error) {
       this.#cursorLog("hide-failed", key, installation, {
@@ -1358,7 +1365,8 @@ export class AppTabObserver {
     const targetKey = observationTargetKey(target);
     const stateKey = `${tabId}:${target.document}`;
     const existing = this.#states.get(stateKey);
-    if (existing?.observedTargetKey === targetKey && existing.loaderId === loaderId) return existing;
+    if (existing?.observedTargetKey === targetKey && existing.loaderId === loaderId)
+      return existing;
     existing?.dispose();
     const cleanups: Array<() => void> = [];
     const state: TabSnapshotState = {
@@ -1418,10 +1426,7 @@ export class AppTabObserver {
   #reference(state: TabSnapshotState, reference: string): SnapshotReference {
     const node = state.references.get(reference);
     if (!node || node.loaderId !== state.loaderId) {
-      throw observerError(
-        "STALE_REFERENCE",
-        `Reference ${reference} is stale.`,
-      );
+      throw observerError("STALE_REFERENCE", `Reference ${reference} is stale.`);
     }
     return node;
   }
@@ -1507,12 +1512,7 @@ export class AppTabObserver {
 
   async #loaderId(target: AppTabObservationTarget): Promise<string> {
     const response = asRecord(
-      await this.#cdp(
-        target.webContents,
-        "Page.getFrameTree",
-        undefined,
-        target.cdpSessionId,
-      ),
+      await this.#cdp(target.webContents, "Page.getFrameTree", undefined, target.cdpSessionId),
     );
     const frame = asRecord(asRecord(response.frameTree).frame);
     if (typeof frame.loaderId !== "string" || !frame.loaderId) {
@@ -1633,7 +1633,10 @@ async function compositePng(
   const width = baseSize.width - left - right;
   const height = baseSize.height - top - bottom;
   if (width <= 0 || height <= 0) {
-    throw observerError("SCREENSHOT_NEVER_PAINTED", "The hosted-page rectangle is outside the App capture.");
+    throw observerError(
+      "SCREENSHOT_NEVER_PAINTED",
+      "The hosted-page rectangle is outside the App capture.",
+    );
   }
   const overlayImage = nativeImage.createFromBuffer(overlay.bytes).resize({ width, height });
   const baseBitmap = Buffer.from(baseImage.toBitmap());
@@ -1674,14 +1677,15 @@ function roundBoxNumber(value: number): number {
 }
 
 function compileFindPattern(query: string): RegExp {
-  if (!query)
-    throw new Error("Find requires text or a regular expression.");
+  if (!query) throw new Error("Find requires text or a regular expression.");
   if (query.startsWith("/") && query.lastIndexOf("/") > 0) {
     const closingSlash = query.lastIndexOf("/");
     try {
       return new RegExp(query.slice(1, closingSlash), query.slice(closingSlash + 1));
     } catch (error) {
-      throw new Error(error instanceof Error ? error.message : "The regular expression is invalid.");
+      throw new Error(
+        error instanceof Error ? error.message : "The regular expression is invalid.",
+      );
     }
   }
   return new RegExp(escapeRegExp(query), "i");
@@ -1772,10 +1776,11 @@ function recordingFfmpegArguments(outputPath: string, extension: string): string
 function resolveFfmpegExecutable(): string {
   const executable = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
   const candidates = [
-    ...(process.env.PATH ?? "").split(delimiter).filter(Boolean).map((directory) => join(directory, executable)),
-    ...(process.platform === "darwin"
-      ? ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"]
-      : []),
+    ...(process.env.PATH ?? "")
+      .split(delimiter)
+      .filter(Boolean)
+      .map((directory) => join(directory, executable)),
+    ...(process.platform === "darwin" ? ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"] : []),
   ];
   const resolved = candidates.find((candidate) => existsSync(candidate));
   if (!resolved) throw new Error("ffmpeg is required to record App tab video.");
