@@ -149,6 +149,11 @@ export const DOCK_TAB_CHIP_CLASS_NAME = cn(
   "inline-flex min-w-0 items-center pr-2.5",
 );
 
+/** Reserved separator between neighboring tabs. The node remains in layout
+ * when hidden beside the active tab so selection never shifts the tab row. */
+export const SURFACE_TAB_DIVIDER_CLASS_NAME =
+  "mx-0.5 h-4 w-px shrink-0 bg-[var(--app-surface-divider)]";
+
 /** Icon slot for dock tabs — bare larger icon at rest; on hover a circular disc + X appears.
  *  Color is muted while the tab (not the close button) is hovered and brightens to full
  *  foreground on direct hover of the close button so the X reads as interactive. */

@@ -63,6 +63,9 @@ function MenuPopupBase({
   alignOffset,
   side = "bottom",
   anchor,
+  collisionBoundary,
+  collisionPadding,
+  nativeAppOverlay = true,
   ...props
 }: MenuPrimitive.Popup.Props & {
   align?: MenuPrimitive.Positioner.Props["align"];
@@ -70,6 +73,9 @@ function MenuPopupBase({
   alignOffset?: MenuPrimitive.Positioner.Props["alignOffset"];
   side?: MenuPrimitive.Positioner.Props["side"];
   anchor?: MenuPrimitive.Positioner.Props["anchor"];
+  collisionBoundary?: MenuPrimitive.Positioner.Props["collisionBoundary"];
+  collisionPadding?: MenuPrimitive.Positioner.Props["collisionPadding"];
+  nativeAppOverlay?: boolean;
   surface?: "bare" | "default" | "composer";
   pickerSize?: "small" | "normal" | undefined;
 }) {
@@ -85,11 +91,13 @@ function MenuPopupBase({
 
   return (
     <MenuPrimitive.Portal>
-      <NativeAppOverlayBoundary />
+      {nativeAppOverlay ? <NativeAppOverlayBoundary /> : null}
       <MenuPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}
         anchor={anchor}
+        collisionBoundary={collisionBoundary}
+        collisionPadding={collisionPadding}
         className={cn(
           "z-50",
           isComposerSurface || isBareSurface ? undefined : "min-w-32",
@@ -433,11 +441,17 @@ function MenuSubPopup({
   sideOffset = 0,
   alignOffset,
   align = "start",
+  collisionBoundary,
+  collisionPadding,
+  nativeAppOverlay,
   ...props
 }: MenuPrimitive.Popup.Props & {
   align?: MenuPrimitive.Positioner.Props["align"];
   sideOffset?: MenuPrimitive.Positioner.Props["sideOffset"];
   alignOffset?: MenuPrimitive.Positioner.Props["alignOffset"];
+  collisionBoundary?: MenuPrimitive.Positioner.Props["collisionBoundary"];
+  collisionPadding?: MenuPrimitive.Positioner.Props["collisionPadding"];
+  nativeAppOverlay?: boolean;
   surface?: "default" | "composer";
   pickerSize?: "small" | "normal";
 }) {
@@ -448,8 +462,11 @@ function MenuSubPopup({
       align={align}
       alignOffset={alignOffset ?? defaultAlignOffset}
       className={className}
+      collisionBoundary={collisionBoundary}
+      collisionPadding={collisionPadding}
       data-slot="menu-sub-content"
       pickerSize={pickerSize}
+      {...(nativeAppOverlay === undefined ? {} : { nativeAppOverlay })}
       side="inline-end"
       sideOffset={sideOffset}
       surface={surface}

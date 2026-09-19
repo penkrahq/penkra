@@ -8,6 +8,7 @@ import {
   MessageId,
   FolderId,
   SpaceId,
+  ThreadDeckId,
   ThreadId,
   TurnId,
   singletonThreadDeckId,
@@ -37,6 +38,96 @@ import { createSidebarTreeThreadsSelector } from "./storeSelectors";
 import { resolveThreadStatusPill } from "./components/Sidebar.logic";
 
 describe("store event reducer", () => {
+  it("projects raw deck reorder and cross-deck move events into deck and thread shell order", () => {
+    const spaceId = SpaceId.makeUnsafe("space-test");
+    const sourceDeckId = ThreadDeckId.makeUnsafe("deck-source");
+    const destinationDeckId = ThreadDeckId.makeUnsafe("deck-destination");
+    const firstId = ThreadId.makeUnsafe("deck-first");
+    const secondId = ThreadId.makeUnsafe("deck-second");
+    const thirdId = ThreadId.makeUnsafe("deck-third");
+    const first = makeThread({ id: firstId, deckId: sourceDeckId, deckSortOrder: 0 });
+    const second = makeThread({ id: secondId, deckId: sourceDeckId, deckSortOrder: 1 });
+    const third = makeThread({ id: thirdId, deckId: destinationDeckId, deckSortOrder: 0 });
+    const firstState = makeState(first);
+    const secondState = makeState(second);
+    const thirdState = makeState(third);
+    const initial: AppState = {
+      ...firstState,
+      decks: [
+        {
+          id: sourceDeckId,
+          spaceId,
+          threadIds: [firstId, secondId],
+          createdAt: "2026-09-17T00:00:00.000Z",
+          updatedAt: "2026-09-17T00:00:00.000Z",
+        },
+        {
+          id: destinationDeckId,
+          spaceId,
+          threadIds: [thirdId],
+          createdAt: "2026-09-17T00:00:00.000Z",
+          updatedAt: "2026-09-17T00:00:00.000Z",
+        },
+      ],
+      threadIds: [firstId, secondId, thirdId],
+      threadShellById: {
+        [firstId]: firstState.threadShellById?.[firstId]!,
+        [secondId]: secondState.threadShellById?.[secondId]!,
+        [thirdId]: thirdState.threadShellById?.[thirdId]!,
+      },
+    };
+
+    const reordered = applyOrchestrationEvents(initial, [
+      makeDomainEvent(
+        "thread.deck-reordered",
+        {
+          deckId: sourceDeckId,
+          spaceId,
+          threadIds: [secondId, firstId],
+          updatedAt: "2026-09-17T00:00:01.000Z",
+        },
+        { sequence: 1, aggregateKind: "deck", aggregateId: sourceDeckId },
+      ),
+    ]);
+    expect(reordered.decks.find((deck) => deck.id === sourceDeckId)?.threadIds).toEqual([
+      secondId,
+      firstId,
+    ]);
+    expect(reordered.threadShellById?.[secondId]).toMatchObject({
+      deckId: sourceDeckId,
+      deckSortOrder: 0,
+    });
+    expect(reordered.threadShellById?.[firstId]).toMatchObject({
+      deckId: sourceDeckId,
+      deckSortOrder: 1,
+    });
+
+    const moved = applyOrchestrationEvents(reordered, [
+      makeDomainEvent(
+        "thread.deck-moved",
+        {
+          threadId: firstId,
+          sourceDeckId,
+          destinationDeckId,
+          spaceId,
+          sourceThreadIds: [secondId],
+          destinationThreadIds: [thirdId, firstId],
+          updatedAt: "2026-09-17T00:00:02.000Z",
+        },
+        { sequence: 2, aggregateKind: "deck", aggregateId: destinationDeckId },
+      ),
+    ]);
+    expect(moved.decks.find((deck) => deck.id === sourceDeckId)?.threadIds).toEqual([secondId]);
+    expect(moved.decks.find((deck) => deck.id === destinationDeckId)?.threadIds).toEqual([
+      thirdId,
+      firstId,
+    ]);
+    expect(moved.threadShellById?.[firstId]).toMatchObject({
+      deckId: destinationDeckId,
+      deckSortOrder: 1,
+    });
+  });
+
   it("registers six external creations in the sidebar without a snapshot or opened detail", () => {
     const initial = makeState(makeThread());
     const folderId = FolderId.makeUnsafe("project-1");

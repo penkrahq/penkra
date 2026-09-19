@@ -20,6 +20,7 @@ vi.mock("~/nativeApi", () => ({
 }));
 
 import { ComposerConnectionControl } from "./ComposerConnectionControl";
+import { ComposerColumnFrame } from "./ComposerColumnFrame";
 
 const timestamp = "2026-08-18T12:00:00.000Z";
 const connections: ProviderConnection[] = [
@@ -76,10 +77,13 @@ const connections: ProviderConnection[] = [
 function Harness() {
   const [selected, setSelected] = useState<ProviderConnectionId | null>(connections[0]!.id);
   return (
-    <ComposerConnectionControl
-      provider="claudeAgent"
-      connections={connections}
-      authenticationMethods={[
+    <div className="w-[420px]">
+      <ComposerColumnFrame>
+        <div className="flex justify-end">
+          <ComposerConnectionControl
+            provider="claudeAgent"
+            connections={connections}
+            authenticationMethods={[
         {
           harness: "claudeAgent",
           authenticationTargetId: "anthropic-first-party",
@@ -99,16 +103,24 @@ function Harness() {
           secretPlaceholder: "Anthropic API key",
           internalProviderIds: [null],
         },
-      ]}
-      anonymousRoutes={[]}
-      selectedConnectionId={selected}
-      onConnectionChange={setSelected}
-    />
+            ]}
+            anonymousRoutes={[]}
+            selectedConnectionId={selected}
+            onConnectionChange={setSelected}
+          />
+        </div>
+      </ComposerColumnFrame>
+    </div>
   );
 }
 
 describe("ComposerConnectionControl", () => {
   it("loads account usage on open, switches to a key, and opens the provider dashboard", async () => {
+    const overlayActive = vi.fn();
+    Object.defineProperty(window, "desktopBridge", {
+      configurable: true,
+      value: { appTabs: { overlayActive } },
+    });
     nativeApi.listProviderUsage.mockResolvedValue([
       {
         provider: "claudeAgent",
@@ -163,6 +175,14 @@ describe("ComposerConnectionControl", () => {
         provider: "claudeAgent",
         connectionIds: connections.map((connection) => connection.id),
       });
+      const popup = document.querySelector<HTMLElement>("[data-slot='menu-popup']");
+      const frame = document.querySelector<HTMLElement>("[data-composer-column-frame]");
+      expect(popup).not.toBeNull();
+      expect(frame).not.toBeNull();
+      expect(popup!.getBoundingClientRect().right).toBeLessThanOrEqual(
+        frame!.getBoundingClientRect().right + 1,
+      );
+      expect(overlayActive).not.toHaveBeenCalled();
 
       await expect.element(page.getByText("Session", { exact: true })).toBeVisible();
       await expect.element(page.getByText("62%", { exact: true })).toBeVisible();

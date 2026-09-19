@@ -2563,6 +2563,112 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(deckDrafts[0]![0]).toBe(draftThreadId);
         expect(mounted.router.state.location.pathname).toBe(`/${draftThreadId}`);
       });
+
+      const draftTab = () =>
+        Array.from(
+          document.querySelectorAll<HTMLButtonElement>(
+            `[data-thread-deck-id='${DECK_ID}'] button[aria-pressed]`,
+          ),
+        ).find((button) => button.title === "New thread");
+      const draftTabChip = () => draftTab()?.parentElement ?? null;
+      expect(draftTabChip()?.querySelector("[data-provider='codex']")).not.toBeNull();
+
+      useComposerDraftStore.getState().setModelSelection(draftThreadId as ThreadId, {
+        provider: "claudeAgent",
+        model: "claude-opus-4-6",
+      });
+      await vi.waitFor(() => {
+        expect(draftTabChip()?.querySelector("[data-provider='claudeAgent']")).not.toBeNull();
+        expect(draftTabChip()?.querySelector("[data-provider='codex']")).toBeNull();
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("switches deck tabs repeatedly through pointer clicks without native drag arbitration", async () => {
+    const otherTitle = "Pointer deck target";
+    const extendedSnapshot = addThreadToExistingDeck(
+      createSnapshotForTargetUser({
+        targetMessageId: "msg-user-thread-deck-pointer" as MessageId,
+        targetText: "thread deck pointer switching",
+      }),
+      OTHER_THREAD_ID,
+      { title: otherTitle },
+    );
+    const snapshot = markThreadsAsHavingCompletedTurns(
+      {
+        ...extendedSnapshot,
+        decks: extendedSnapshot.decks.map((deck) =>
+          deck.id === DECK_ID ? { ...deck, threadIds: [THREAD_ID, OTHER_THREAD_ID] } : deck,
+        ),
+      },
+      [THREAD_ID, OTHER_THREAD_ID],
+    );
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+
+    try {
+      const targets = [
+        { id: OTHER_THREAD_ID, title: otherTitle },
+        { id: THREAD_ID, title: THREAD_TITLE },
+      ] as const;
+
+      for (let index = 0; index < 8; index += 1) {
+        const target = targets[index % targets.length]!;
+        const button = page.getByTitle(target.title, { exact: true });
+        const element = button.elements()[0];
+        expect(element).toBeDefined();
+        expect(element!.closest("[draggable='true']")).toBeNull();
+        await button.click();
+
+        await vi.waitFor(
+          () => {
+            expect(mounted.router.state.location.pathname).toBe(`/${target.id}`);
+            expect(document.querySelector("[data-thread-deck-drag-source='true']")).toBeNull();
+          },
+          { timeout: 8_000, interval: 16 },
+        );
+      }
+
+      const source = page.getByTitle(otherTitle, { exact: true }).elements()[0]!;
+      const target = page.getByTitle(THREAD_TITLE, { exact: true }).elements()[0]!;
+      await dragWithPointerFrames(source, target, 0.5, async () => {
+        await vi.waitFor(() => {
+          expect(document.querySelector("[data-thread-deck-drag-source='true']")).not.toBeNull();
+          expect(document.querySelector("[data-thread-deck-drag-overlay='true']")).not.toBeNull();
+          const dropPreview = document.querySelector<HTMLElement>(
+            "[data-thread-deck-drop-preview='before']",
+          );
+          expect(dropPreview).not.toBeNull();
+          expect(Number.parseFloat(getComputedStyle(dropPreview!).paddingLeft)).toBeGreaterThan(0);
+          expect(
+            dropPreview?.querySelector("[data-thread-deck-drop-indicator='before']"),
+          ).not.toBeNull();
+        });
+      });
+      await vi.waitFor(
+        () => {
+          expect(document.querySelector("[data-thread-deck-drag-overlay='true']")).toBeNull();
+          expect(document.querySelector("[data-thread-deck-drop-preview]")).toBeNull();
+          expect(
+            Array.from(
+              document.querySelectorAll<HTMLButtonElement>(
+                `[data-thread-deck-id='${DECK_ID}'] button[aria-pressed]`,
+              ),
+            ).map((button) => button.title),
+          ).toEqual([otherTitle, THREAD_TITLE]);
+          const moveCommands = wsRequests
+            .map(readDispatchedCommand)
+            .filter((command) => command?.type === "thread.deck.move");
+          expect(moveCommands).toHaveLength(1);
+          expect(moveCommands[0]).toMatchObject({
+            threadId: OTHER_THREAD_ID,
+            deckId: DECK_ID,
+            position: { type: "before", threadId: THREAD_ID },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
     } finally {
       await mounted.cleanup();
     }

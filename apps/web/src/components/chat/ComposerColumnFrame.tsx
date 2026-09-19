@@ -9,6 +9,10 @@ import {
   createContext,
   memo,
   useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
   type HTMLAttributes,
   type ReactNode,
   type Ref,
@@ -20,16 +24,29 @@ import {
   COMPOSER_STACKED_HEADER_FRAME_CLASS_NAME,
 } from "./composerPickerStyles";
 
-const ComposerColumnFrameContext = createContext(false);
+export interface ComposerOverlayCollisionBoundary {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const ComposerColumnFrameContext = createContext<{
+  collisionBoundary: ComposerOverlayCollisionBoundary | null;
+} | null>(null);
 
 function useComposerColumnFrameContext(componentName: string) {
-  const insideComposerColumnFrame = useContext(ComposerColumnFrameContext);
-  if (import.meta.env.DEV && !insideComposerColumnFrame) {
+  const context = useContext(ComposerColumnFrameContext);
+  if (import.meta.env.DEV && !context) {
     console.warn(
       `${componentName} must render inside ComposerColumnFrame so stacked activity stays aligned to the composer input width.`,
     );
   }
-  return insideComposerColumnFrame;
+  return context;
+}
+
+export function useComposerOverlayCollisionBoundary() {
+  return useContext(ComposerColumnFrameContext)?.collisionBoundary ?? null;
 }
 
 interface ComposerColumnFrameProps {
@@ -42,9 +59,45 @@ export const ComposerColumnFrame = function ComposerColumnFrame({
   children,
   className,
 }: ComposerColumnFrameProps) {
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [collisionBoundary, setCollisionBoundary] =
+    useState<ComposerOverlayCollisionBoundary | null>(null);
+
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const measure = () => {
+      const rect = frame.getBoundingClientRect();
+      const next = { x: rect.left, y: 0, width: rect.width, height: window.innerHeight };
+      setCollisionBoundary((current) =>
+        current &&
+        current.x === next.x &&
+        current.width === next.width &&
+        current.height === next.height
+          ? current
+          : next,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(frame);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+  const contextValue = useMemo(() => ({ collisionBoundary }), [collisionBoundary]);
+
   return (
-    <ComposerColumnFrameContext.Provider value={true}>
-      <div className={cn(COMPOSER_COLUMN_FRAME_CLASS_NAME, className)}>{children}</div>
+    <ComposerColumnFrameContext.Provider value={contextValue}>
+      <div
+        ref={frameRef}
+        className={cn(COMPOSER_COLUMN_FRAME_CLASS_NAME, className)}
+        data-composer-column-frame
+      >
+        {children}
+      </div>
     </ComposerColumnFrameContext.Provider>
   );
 };
