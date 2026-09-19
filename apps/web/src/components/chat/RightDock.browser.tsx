@@ -49,6 +49,30 @@ function dock(
 }
 
 describe("RightDock Thread width", () => {
+  it("reserves App-tab dividers and hides the lines beside the active tab", async () => {
+    await page.viewport(1280, 800);
+    const panes = [
+      pane,
+      { ...pane, id: "canvas-tab", appName: "Canvas" },
+      { ...pane, id: "browser-tab", appName: "Browser" },
+    ];
+    const view = await render(
+      dock({ open: true, panes, activePaneId: "canvas-tab", width: 560 }, "thread-a"),
+    );
+
+    const dividers = () => [
+      ...document.querySelectorAll<HTMLElement>("[data-slot='right-dock-tab-divider']"),
+    ];
+    expect(dividers()).toHaveLength(2);
+    expect(dividers().every((divider) => divider.classList.contains("invisible"))).toBe(true);
+    expect(dividers().every((divider) => divider.getBoundingClientRect().width === 1)).toBe(true);
+
+    await view.rerender(dock({ open: true, panes, activePaneId: pane.id, width: 560 }, "thread-a"));
+    expect(dividers()).toHaveLength(2);
+    expect(dividers()[0]?.classList.contains("invisible")).toBe(true);
+    expect(dividers()[1]?.classList.contains("invisible")).toBe(false);
+  });
+
   it("reapplies each Thread width and gives a new Thread the standard default", async () => {
     await page.viewport(1280, 800);
     const view = await render(

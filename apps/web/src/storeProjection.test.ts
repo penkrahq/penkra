@@ -21,6 +21,7 @@ import {
   evictThreadDetailFromClientState,
   markThreadDetailKnownEmptyInClientState,
   markThreadDetailSyncFailedInClientState,
+  moveSidebarItemLocally,
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
   syncServerShellSnapshot,
@@ -48,6 +49,56 @@ import { resolveSidebarWorkStatus, resolveThreadStatusPill } from "./components/
 import { deriveTimelineEntries, deriveWorkLogEntries } from "./workLog";
 
 describe("store projection", () => {
+  it("projects a resolved sidebar thread move before authority confirms it", () => {
+    const sourceFolderId = FolderId.makeUnsafe("project-1");
+    const targetFolderId = FolderId.makeUnsafe("project-2");
+    const retainedId = ThreadId.makeUnsafe("sidebar-retained");
+    const movedId = ThreadId.makeUnsafe("sidebar-moved");
+    const targetId = ThreadId.makeUnsafe("sidebar-target");
+    const retainedState = makeState(
+      makeThread({ id: retainedId, folderId: sourceFolderId, sidebarSortOrder: 0 }),
+    );
+    const movedState = makeState(
+      makeThread({ id: movedId, folderId: sourceFolderId, sidebarSortOrder: 1 }),
+    );
+    const targetState = makeState(
+      makeThread({ id: targetId, folderId: targetFolderId, sidebarSortOrder: 0 }),
+    );
+    const initial: AppState = {
+      ...retainedState,
+      folders: [makeProject({ id: sourceFolderId }), makeProject({ id: targetFolderId })],
+      threadIds: [retainedId, movedId, targetId],
+      threadShellById: {
+        [retainedId]: retainedState.threadShellById?.[retainedId]!,
+        [movedId]: movedState.threadShellById?.[movedId]!,
+        [targetId]: targetState.threadShellById?.[targetId]!,
+      },
+    };
+
+    const next = moveSidebarItemLocally(
+      initial,
+      { kind: "thread", id: movedId },
+      { kind: "folder", folderId: targetFolderId },
+      [
+        { kind: "thread", id: targetId },
+        { kind: "thread", id: movedId },
+      ],
+    );
+
+    expect(next.threadShellById?.[retainedId]).toMatchObject({
+      folderId: sourceFolderId,
+      sidebarSortOrder: 0,
+    });
+    expect(next.threadShellById?.[targetId]).toMatchObject({
+      folderId: targetFolderId,
+      sidebarSortOrder: 0,
+    });
+    expect(next.threadShellById?.[movedId]).toMatchObject({
+      folderId: targetFolderId,
+      sidebarSortOrder: 1,
+    });
+  });
+
   it("orders a promoted queued message by delivery causality during full hydration", () => {
     const threadId = ThreadId.makeUnsafe("thread-queue-hydration-order");
     const firstTurnId = TurnId.makeUnsafe("turn-hydration-first");

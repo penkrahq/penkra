@@ -6,12 +6,17 @@ import { DragDropProvider, DragOverlay, useDragOperation } from "@dnd-kit/react"
 import type { ReactNode } from "react";
 
 import { readSidebarDndData, SidebarDragPreview } from "../sidebar/SidebarDnd";
+import {
+  readDeckThreadDndData,
+  ThreadDeckDragPreview,
+} from "../middle-panel/thread-deck-bar/ThreadDeckDnd";
 import { ReliablePointerSensor } from "./ReliablePointerSensor";
 
 function ShellDragOverlay() {
   const { source } = useDragOperation();
   const data = readSidebarDndData(source?.data);
   const preview = data?.type === "space" || data?.type === "item" ? data.preview : null;
+  const deckData = readDeckThreadDndData(source?.data);
 
   return (
     <DragOverlay dropAnimation={null}>
@@ -21,6 +26,13 @@ function ShellDragOverlay() {
           data-sidebar-drag-overlay="true"
         >
           <SidebarDragPreview preview={preview} />
+        </div>
+      ) : deckData ? (
+        <div
+          className="pointer-events-none rounded-lg border border-[var(--color-border-focus)] bg-[var(--color-background-elevated-primary-opaque)] shadow-xl"
+          data-thread-deck-drag-overlay="true"
+        >
+          <ThreadDeckDragPreview preview={deckData.preview} />
         </div>
       ) : null}
     </DragOverlay>

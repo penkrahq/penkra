@@ -532,6 +532,28 @@ function applyOrchestrationEvent(
         },
       });
     }
+    case "thread.deck-moved":
+      return applyShellEvent(state, {
+        kind: "deck-layout-updated",
+        sequence: event.sequence,
+        sourceDeckId: event.payload.sourceDeckId,
+        destinationDeckId: event.payload.destinationDeckId,
+        spaceId: event.payload.spaceId,
+        sourceThreadIds: event.payload.sourceThreadIds,
+        destinationThreadIds: event.payload.destinationThreadIds,
+        updatedAt: event.payload.updatedAt,
+      });
+    case "thread.deck-reordered":
+      return applyShellEvent(state, {
+        kind: "deck-layout-updated",
+        sequence: event.sequence,
+        sourceDeckId: event.payload.deckId,
+        destinationDeckId: event.payload.deckId,
+        spaceId: event.payload.spaceId,
+        sourceThreadIds: event.payload.threadIds,
+        destinationThreadIds: event.payload.threadIds,
+        updatedAt: event.payload.updatedAt,
+      });
     case "space.created":
       return upsertSpace(state, {
         id: event.payload.spaceId,

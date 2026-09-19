@@ -25,7 +25,10 @@ import {
   publishNativeAppBoundsForWidth,
 } from "../ui/sidebar";
 import { CHAT_BACKGROUND_CLASS_NAME } from "./composerPickerStyles";
-import { CHAT_SURFACE_HEADER_ROW_CLASS_NAME } from "./chatHeaderControls";
+import {
+  CHAT_SURFACE_HEADER_ROW_CLASS_NAME,
+  SURFACE_TAB_DIVIDER_CLASS_NAME,
+} from "./chatHeaderControls";
 import { resolveRightDockPaneIcon, resolveRightDockPaneLabel } from "./rightDockPaneMeta";
 import { useDesktopTopBarWindowControlsGutterClassName } from "~/hooks/useDesktopTopBarGutter";
 import { useOptionalFind } from "../find/FindProvider";
@@ -241,20 +244,36 @@ export function RightDock(props: RightDockProps) {
             )}
           >
             <div
-              className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              className="flex min-w-0 flex-1 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               data-pencil-component="x1igca"
               role="tablist"
             >
-              {props.state.panes.map((pane) => (
-                <RightDockTab
-                  key={pane.id}
-                  pane={pane}
-                  label={resolveRightDockPaneLabel(pane)}
-                  active={pane.id === props.state.activePaneId}
-                  onSelect={() => props.onSelectPane(pane.id)}
-                  onClose={() => props.onClosePane(pane.id)}
-                />
-              ))}
+              {props.state.panes.map((pane, index) => {
+                const active = pane.id === props.state.activePaneId;
+                const previousActive =
+                  props.state.panes[index - 1]?.id === props.state.activePaneId;
+                return (
+                  <div key={pane.id} className="flex shrink-0 items-center">
+                    {index > 0 ? (
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          SURFACE_TAB_DIVIDER_CLASS_NAME,
+                          (active || previousActive) && "invisible",
+                        )}
+                        data-slot="right-dock-tab-divider"
+                      />
+                    ) : null}
+                    <RightDockTab
+                      pane={pane}
+                      label={resolveRightDockPaneLabel(pane)}
+                      active={active}
+                      onSelect={() => props.onSelectPane(pane.id)}
+                      onClose={() => props.onClosePane(pane.id)}
+                    />
+                  </div>
+                );
+              })}
             </div>
           </div>
           <div className="relative min-h-0 flex-1">
