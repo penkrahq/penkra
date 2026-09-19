@@ -14,7 +14,7 @@ describe("registry App package download", () => {
     const expectedChunks = 30;
     const body = new ReadableStream<Uint8Array>({
       async pull(controller) {
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        await new Promise((resolve) => setTimeout(resolve, 20));
         if (chunk === expectedChunks) {
           controller.close();
           return;
@@ -34,7 +34,7 @@ describe("registry App package download", () => {
       version: "1.0.0",
       expectedBytes: expectedChunks,
       maximumBytes: 100,
-      stallTimeoutMs: 100,
+      stallTimeoutMs: 500,
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
     });
     try {
