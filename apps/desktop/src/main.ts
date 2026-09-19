@@ -5985,6 +5985,23 @@ function registerIpcHandlers(): void {
         return tabs.backHostedPage(identity.tabId, pageId());
       case "forward":
         return tabs.forwardHostedPage(identity.tabId, pageId());
+      case "listExtensionActions":
+        return await tabs.listHostedPageExtensionActions(identity.tabId);
+      case "openExtensionAction": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Browser extension action input is required.");
+        }
+        const record = value as Record<string, unknown>;
+        if (typeof record.extensionId !== "string" || typeof record.pageId !== "string") {
+          throw new Error("Browser extension action requires extensionId and pageId.");
+        }
+        await tabs.openHostedPageExtensionAction({
+          tabId: identity.tabId,
+          extensionId: record.extensionId,
+          pageId: record.pageId,
+        });
+        return;
+      }
       case "setToolbarHeight":
         if (typeof value !== "number") throw new Error("Toolbar height must be a number.");
         tabs.setHostedPageTop(identity.tabId, value);
