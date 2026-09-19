@@ -9240,7 +9240,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
       await waitForLayout();
 
-      await dragWithPointerFrames(source, target, 0.25, async () => {
+      // Target the upper edge, rather than the midpoint-adjacent quarter: the
+      // gesture starts only after entering a semantic drop target.
+      await dragWithPointerFrames(source, target, 0.05, async () => {
         await vi.waitFor(
           () => {
             const targetWrapper = target.closest<HTMLElement>("[data-sidebar-drop-preview]");
