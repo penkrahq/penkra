@@ -1,9 +1,8 @@
 // FILE: panelResize.ts
 // Purpose: Pure DOM helpers for chat/split panel resizing — the drag overlay that
-//          keeps pointer events in the React layer over Electron <webview>s, the
-//          cross-surface "overlay changed" sync event, and the composer width
-//          feasibility probe. Extracted from the chat route so the route file holds
-//          orchestration, not low-level DOM measurement.
+//          keeps pointer events in the React layer over native App views and the
+//          composer width feasibility probe. Extracted from the chat route so the
+//          route file holds orchestration, not low-level DOM measurement.
 // Layer: Web panel layout utilities
 
 import { SINGLE_CHAT_PANE_SCOPE_ID } from "./chatPaneScope";
@@ -15,11 +14,6 @@ import { findNearestMeasurableAncestor } from "./domLayout";
 // lets the right dock and split panes resize across a much wider range before the probe
 // stops the drag, while the overflow checks still prevent the composer from clipping.
 const COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX = 160;
-
-// Broadcast when the resize overlay is added/removed so embedded surfaces (e.g.
-// hosted native surfaces can re-sync their bounds. Shared so the event name has
-// a single source of truth across chat and App-tab routes.
-export const PANEL_RESIZE_OVERLAY_SYNC_EVENT = "penkra:panel-resize-overlay-sync";
 
 // Probe whether the composer can render at `nextWidth` without overflowing its
 // viewport or violating its minimum control width. Applies the width, measures,
@@ -84,7 +78,7 @@ function findComposerForm(paneScopeId: string): HTMLElement | null {
   return null;
 }
 
-// Electron <webview> can swallow pointermove during drag; this keeps resizing in the React layer.
+// Native App views can receive pointer input above the shell; this keeps resizing in React.
 export function createPanelResizeOverlay(): HTMLDivElement {
   const overlay = document.createElement("div");
   overlay.setAttribute("data-panel-resize-overlay", "true");
@@ -94,11 +88,9 @@ export function createPanelResizeOverlay(): HTMLDivElement {
   overlay.style.cursor = "col-resize";
   overlay.style.background = "transparent";
   document.body.append(overlay);
-  window.dispatchEvent(new Event(PANEL_RESIZE_OVERLAY_SYNC_EVENT));
   return overlay;
 }
 
 export function removePanelResizeOverlay(overlay: HTMLDivElement): void {
   overlay.remove();
-  window.dispatchEvent(new Event(PANEL_RESIZE_OVERLAY_SYNC_EVENT));
 }

@@ -1,12 +1,26 @@
 // FILE: codexErrorClassification.ts
-// Purpose: Centralizes Codex runtime error classification shared across manager and adapter layers.
-// Exports: helpers for non-fatal Codex error messages that should remain warnings
+// Purpose: Classifies Codex error notifications by protocol shape rather than message text.
 
-const NON_FATAL_CODEX_ERROR_SNIPPETS = [
-  "write_stdin failed: stdin is closed for this session",
-] as const;
+type CodexErrorNotificationShape = {
+  readonly method?: unknown;
+  readonly payload?: unknown;
+};
 
-export function isNonFatalCodexErrorMessage(message: string): boolean {
-  const normalized = message.trim().toLowerCase();
-  return NON_FATAL_CODEX_ERROR_SNIPPETS.some((snippet) => normalized.includes(snippet));
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+export function isCodexToolAttemptFailure(notification: CodexErrorNotificationShape): boolean {
+  if (notification.method !== "error") return false;
+  const payload = asObject(notification.payload);
+  if (payload?.willRetry === true) return false;
+  const error = asObject(payload?.error);
+  if (!error) return false;
+
+  // Codex provider/transport failures carry a typed codexErrorInfo variant.
+  // Untyped terminal notifications on the error method are failures of the
+  // current tool attempt and are diagnostic-only.
+  return error.codexErrorInfo === undefined || error.codexErrorInfo === null;
 }

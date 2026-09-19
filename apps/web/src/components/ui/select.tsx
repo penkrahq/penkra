@@ -135,6 +135,8 @@ function SelectPopup({
   alignOffset: alignOffsetProp,
   alignItemWithTrigger: alignItemWithTriggerProp,
   anchor,
+  collisionBoundary,
+  collisionPadding,
   surface,
   ...props
 }: SelectPrimitive.Popup.Props & {
@@ -144,6 +146,8 @@ function SelectPopup({
   alignOffset?: SelectPrimitive.Positioner.Props["alignOffset"];
   alignItemWithTrigger?: SelectPrimitive.Positioner.Props["alignItemWithTrigger"];
   anchor?: SelectPrimitive.Positioner.Props["anchor"];
+  collisionBoundary?: SelectPrimitive.Positioner.Props["collisionBoundary"];
+  collisionPadding?: SelectPrimitive.Positioner.Props["collisionPadding"];
   surface: SelectPopupSurface;
   /** Size/shell classes applied to the composer picker viewport wrapper. */
   shellClassName?: string;
@@ -183,6 +187,8 @@ function SelectPopup({
           alignItemWithTrigger={alignItemWithTrigger}
           alignOffset={alignOffset}
           anchor={anchor}
+          collisionBoundary={collisionBoundary}
+          collisionPadding={collisionPadding}
           className="z-50 select-none"
           data-slot="select-positioner"
           side={side}

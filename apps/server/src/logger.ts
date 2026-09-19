@@ -1,6 +1,6 @@
 import util from "node:util";
 
-type LogLevel = "info" | "warn" | "error" | "event";
+type LogLevel = "debug" | "info" | "warn" | "error" | "event";
 
 type LogContext = Record<string, unknown>;
 
@@ -14,6 +14,7 @@ const ANSI = {
 } as const;
 
 const LEVEL_LABEL: Record<LogLevel, string> = {
+  debug: "DEBUG",
   info: "INFO",
   warn: "WARN",
   error: "ERROR",
@@ -21,6 +22,7 @@ const LEVEL_LABEL: Record<LogLevel, string> = {
 };
 
 const LEVEL_COLOR: Record<LogLevel, string> = {
+  debug: ANSI.dim,
   info: ANSI.cyan,
   warn: ANSI.yellow,
   error: ANSI.red,
@@ -82,11 +84,18 @@ function write(level: LogLevel, scope: string, message: string, context?: LogCon
     console.error(line);
     return;
   }
+  if (level === "debug") {
+    console.debug(line);
+    return;
+  }
   console.log(line);
 }
 
 export function createLogger(scope: string) {
   return {
+    debug(message: string, context?: LogContext) {
+      write("debug", scope, message, context);
+    },
     info(message: string, context?: LogContext) {
       write("info", scope, message, context);
     },

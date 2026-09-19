@@ -136,18 +136,10 @@ export interface AppBrowserPage {
   lastError: string | null;
 }
 
-export interface AppBrowserExtensionAction {
-  id: string;
-  name: string;
-  iconDataUrl: string;
-}
-
 export interface AppBrowserSessionState {
   version: number;
   open: boolean;
-  activePageId: string | null;
-  pages: ReadonlyArray<AppBrowserPage>;
-  extensionActions: ReadonlyArray<AppBrowserExtensionAction>;
+  page: AppBrowserPage | null;
   lastError: string | null;
 }
 
@@ -167,14 +159,6 @@ export interface AppBrowserDownloadEvent {
   storagePath: string;
   bytes: number;
   error?: string;
-}
-
-/** Stable App-local edges for a host-owned surface that fills the remaining viewport. */
-export interface AppHostedSurfaceInsets {
-  top: number;
-  right: number;
-  bottom: number;
-  left: number;
 }
 
 export type AppOperationHandler<Input = unknown, Result = unknown> = (
@@ -481,16 +465,12 @@ export interface PenkraTabRuntimeApi {
     getState(): Promise<AppBrowserSessionState>;
     onState(listener: (state: AppBrowserSessionState) => void): () => void;
     onDownload(listener: (event: AppBrowserDownloadEvent) => void): () => void;
-    setSurfaceLayout(insets: AppHostedSurfaceInsets | null): Promise<void>;
+    setToolbarHeight(height: number): Promise<void>;
     navigate(input: { pageId?: string; url: string }): Promise<AppBrowserSessionState>;
     reload(pageId: string): Promise<AppBrowserSessionState>;
     stop(pageId: string): Promise<AppBrowserSessionState>;
     back(pageId: string): Promise<AppBrowserSessionState>;
     forward(pageId: string): Promise<AppBrowserSessionState>;
-    newPage(input?: { url?: string; activate?: boolean }): Promise<AppBrowserSessionState>;
-    closePage(pageId: string): Promise<AppBrowserSessionState>;
-    selectPage(pageId: string): Promise<AppBrowserSessionState>;
-    openExtensionAction(input: { extensionId: string; pageId: string }): Promise<void>;
     snapshot(input: {
       pageId: string;
       target?: string;
@@ -611,6 +591,8 @@ export interface PenkraTabRuntimeApi {
     }>;
     /** Record the App's current route so the host can restore it after reloads and updates. */
     setRoute(input: AppTabNavigationInput): Promise<void>;
+    /** Open another tab for this App in the same Space and Thread Deck. */
+    openSibling(input?: AppTabNavigationInput): Promise<{ tabId: string }>;
     /** Pause expensive visual work while the tab is retained but not visible. */
     onVisibilityChange(listener: (visibility: AppTabVisibility) => void): () => void;
     handle<Input = unknown, Result = unknown>(
@@ -758,16 +740,12 @@ export const browser: PenkraTabRuntimeApi["browser"] = {
   getState: () => runtime().browser.getState(),
   onState: (listener) => runtime().browser.onState(listener),
   onDownload: (listener) => runtime().browser.onDownload(listener),
-  setSurfaceLayout: (insets) => runtime().browser.setSurfaceLayout(insets),
+  setToolbarHeight: (height) => runtime().browser.setToolbarHeight(height),
   navigate: (input) => runtime().browser.navigate(input),
   reload: (pageId) => runtime().browser.reload(pageId),
   stop: (pageId) => runtime().browser.stop(pageId),
   back: (pageId) => runtime().browser.back(pageId),
   forward: (pageId) => runtime().browser.forward(pageId),
-  newPage: (input) => runtime().browser.newPage(input),
-  closePage: (pageId) => runtime().browser.closePage(pageId),
-  selectPage: (pageId) => runtime().browser.selectPage(pageId),
-  openExtensionAction: (input) => runtime().browser.openExtensionAction(input),
   snapshot: (input) => runtime().browser.snapshot(input),
   find: (input) => runtime().browser.find(input),
   click: (input) => runtime().browser.click(input),
@@ -846,6 +824,7 @@ export const network: PenkraTabRuntimeApi["network"] = {
 export const tab: PenkraTabRuntimeApi["tab"] = {
   getContext: () => runtime().tab.getContext(),
   setRoute: (input) => runtime().tab.setRoute(input),
+  openSibling: (input) => runtime().tab.openSibling(input),
   onVisibilityChange: (listener) => runtime().tab.onVisibilityChange(listener),
   handle: (operation, handler) => runtime().tab.handle(operation, handler),
   onNavigate: (handler) => runtime().tab.onNavigate(handler),

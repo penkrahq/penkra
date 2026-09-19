@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   claudePromptTokensFromRawUsage,
-  decideClaudeContextUsageWarnings,
   maxClaudeContextWindowFromModelUsage,
   mergeClaudeTokenUsageSnapshot,
   normalizeClaudeTokenUsage,
@@ -183,82 +182,5 @@ describe("Claude context selection", () => {
     } as unknown as Record<string, ModelUsage>;
 
     expect(maxClaudeContextWindowFromModelUsage(modelUsage)).toBe(1_000_000);
-  });
-});
-
-describe("Claude context warning decisions", () => {
-  it.each([
-    {
-      name: "does nothing for a small prompt",
-      rawUsage: { input_tokens: 1_000 },
-      contextBudget: 200_000,
-      emitted: [],
-      keys: [],
-    },
-    {
-      name: "warns for a large mostly-uncached request",
-      rawUsage: {
-        input_tokens: 5_000,
-        cache_creation_input_tokens: 55_000,
-        cache_read_input_tokens: 1_000,
-      },
-      contextBudget: 200_000,
-      emitted: [],
-      keys: ["uncached-ingestion"],
-    },
-    {
-      name: "warns near the 200k auto-compact threshold",
-      rawUsage: { input_tokens: 2, cache_read_input_tokens: 170_000 },
-      contextBudget: 200_000,
-      emitted: [],
-      keys: ["near-window"],
-    },
-    {
-      name: "uses the large-prompt warning below the 1m threshold",
-      rawUsage: { input_tokens: 2, cache_read_input_tokens: 320_000 },
-      contextBudget: 1_000_000,
-      emitted: [],
-      keys: ["large-prompt"],
-    },
-    {
-      name: "preserves warning order when two policies match",
-      rawUsage: { input_tokens: 190_000 },
-      contextBudget: 200_000,
-      emitted: [],
-      keys: ["uncached-ingestion", "near-window"],
-    },
-    {
-      name: "does not repeat warnings already emitted by the session",
-      rawUsage: { input_tokens: 190_000 },
-      contextBudget: 200_000,
-      emitted: ["uncached-ingestion", "near-window", "large-prompt"],
-      keys: [],
-    },
-  ])("$name", ({ rawUsage, contextBudget, emitted, keys }) => {
-    const decisions = decideClaudeContextUsageWarnings(rawUsage, contextBudget, new Set(emitted));
-    const actualKeys = decisions
-      ? [decisions.first.key, ...(decisions.second ? [decisions.second.key] : [])]
-      : [];
-
-    expect(actualKeys).toEqual(keys);
-  });
-
-  it("defers the large-prompt warning until a later call after near-window is de-duplicated", () => {
-    const rawUsage = { input_tokens: 220_000 };
-    const firstCall = decideClaudeContextUsageWarnings(rawUsage, 200_000, new Set());
-    expect([firstCall?.first.key, firstCall?.second?.key]).toEqual([
-      "uncached-ingestion",
-      "near-window",
-    ]);
-
-    const secondCall = decideClaudeContextUsageWarnings(
-      rawUsage,
-      200_000,
-      new Set(["uncached-ingestion", "near-window"]),
-    );
-    expect(secondCall).toMatchObject({
-      first: { key: "large-prompt" },
-    });
-    expect(secondCall?.second).toBeUndefined();
   });
 });

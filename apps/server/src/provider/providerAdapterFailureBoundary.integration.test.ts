@@ -100,6 +100,7 @@ class ControlledCodexManager extends CodexAppServerManager {
     createdAt: "2026-09-07T10:01:02.000Z",
     error: {
       message: "Authentication required",
+      codexErrorInfo: "unauthorized",
       additionalDetails: "controlled JSON-RPC authentication fixture during turn/steer",
     },
     willRetry: false,
@@ -745,6 +746,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         createdAt: "2026-09-07T10:00:02.000Z",
         error: {
           message: "Authentication required",
+          codexErrorInfo: "unauthorized",
           additionalDetails: "controlled JSON-RPC authentication fixture",
         },
         willRetry: false,
@@ -808,6 +810,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         detail: {
           error: {
             message: "Authentication required",
+            codexErrorInfo: "unauthorized",
             additionalDetails: "controlled JSON-RPC authentication fixture",
           },
           willRetry: false,
@@ -995,6 +998,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         detail: {
           error: {
             message: "Authentication required",
+            codexErrorInfo: "unauthorized",
             additionalDetails: "controlled JSON-RPC authentication fixture during turn/steer",
           },
           willRetry: false,

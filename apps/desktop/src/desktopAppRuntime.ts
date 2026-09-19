@@ -3,18 +3,18 @@
 // Layer: Desktop main-process bootstrap
 
 import {
+  BrowserWindow,
   safeStorage,
-  session,
   shell,
   type IpcMain,
   type OpenExternalOptions,
   type ShortcutDetails,
 } from "electron";
 import type {
-  DesktopAppFrameHostMessage,
   DesktopAppTabClosed,
   DesktopAppTabDescriptor,
   DesktopAppTabOpened,
+  DesktopAppTabPresentation,
 } from "@penkra/contracts";
 
 import { AppControllerHost } from "./appControllerHost";
@@ -42,16 +42,11 @@ import { AppRuntimeLifecycle } from "./appRuntimeLifecycle";
 import { AppSessionManager } from "./appSessionManager";
 import { AppRuntimeDiagnostics, resolveAppRuntimeDiagnosticsPath } from "./appRuntimeDiagnostics";
 import { AppIdentityService } from "./appIdentityService";
-import { AppFrameDocumentRegistry } from "./appFrameDocumentRegistry";
 import { AppDataVault } from "./appDataVault";
 import { ProviderCredentialVault } from "./providerCredentialVault";
 import { DeferredAppTabHost } from "./deferredAppTabHost";
 import { ElectronAppControllerProcessFactory } from "./electronAppControllerProcess";
-import {
-  ElectronAppTabHost,
-  type AppTabAuthority,
-  type AppUpdateTabSnapshot,
-} from "./electronAppTabHost";
+import { AppTabViewHost, type AppTabAuthority, type AppUpdateTabSnapshot } from "./appTabViewHost";
 import {
   AppUpdateJournal,
   resolveAppUpdateJournalPath,
@@ -72,7 +67,7 @@ export interface DesktopAppRuntime {
   readonly intents: AppIntentRouter;
   readonly openWith: AppOpenWithPreferenceStore;
   readonly tabs: DeferredAppTabHost;
-  readonly appTabs: ElectronAppTabHost;
+  readonly appTabs: AppTabViewHost;
   readonly diagnostics: AppRuntimeDiagnostics;
   readonly identities: AppIdentityService;
   readonly vault: AppDataVault;
@@ -114,12 +109,12 @@ export async function startDesktopAppRuntime(input: {
   userDataPath: string;
   appPreloadPath: string;
   appControllerRunnerPath: string;
-  appFrameRuntimePath: string;
   ipcMain: Pick<IpcMain, "on" | "removeListener">;
+  onBeforeInput?: (event: Electron.Event, input: Electron.Input) => void;
   onTabOpened: (descriptor: DesktopAppTabOpened) => void;
   onTabState: (descriptor: DesktopAppTabDescriptor) => void;
-  onFrameHostMessage?: (input: DesktopAppFrameHostMessage) => void;
   onTabClosed: (descriptor: DesktopAppTabClosed) => void;
+  onTabPresentation?: (windowId: number, state: DesktopAppTabPresentation) => void;
   tabAuthority?: AppTabAuthority;
   onInvalidRendererMessage?: (error: Error, senderId: number) => void;
   assertAppAllowed?: (app: import("./appInstallationState").InstalledAppPackage) => Promise<void>;
@@ -176,26 +171,16 @@ export async function startDesktopAppRuntime(input: {
   );
   const tabs = new DeferredAppTabHost();
   const blobUrls = new AppBlobUrlRegistry();
-  let appTabs!: ElectronAppTabHost;
+  let appTabs!: AppTabViewHost;
   const transfers = new AppTransferService({
     emitProgress: (owner, event) => {
       try {
-        appTabs.sendFrameEvent(owner.tabId, "transfer.progress", event);
+        appTabs.sendEvent(owner.tabId, "transfer.progress", event);
       } catch {
         // Closing tabs revoke outstanding transfer authority.
       }
     },
   });
-  const frameDocuments = new AppFrameDocumentRegistry({
-    protocol: session.defaultSession.protocol,
-    runtimeScriptPath: input.appFrameRuntimePath,
-    resolveOrigin: (appId, spaceId) => identities.resolveOrigin(appId, spaceId),
-    protocolResources: ({ origin }) => ({
-      blobUrls,
-      transferHandler: (request) => transfers.handleEndpoint(origin, request),
-    }),
-  });
-  await frameDocuments.start();
   const rpc = new AppRendererRpcHost();
   const ipcBridge = new AppRendererIpcBridge({
     ipcMain: input.ipcMain,
@@ -389,19 +374,20 @@ export async function startDesktopAppRuntime(input: {
         ),
     },
   });
-  appTabs = new ElectronAppTabHost({
+  appTabs = new AppTabViewHost({
     installations,
     sessions,
-    frameDocuments,
     broker,
     rpc,
     ipcBridge,
+    preloadPath: input.appPreloadPath,
+    windowById: (rendererId) =>
+      BrowserWindow.getAllWindows().find((window) => window.webContents.id === rendererId) ?? null,
+    ...(input.onBeforeInput === undefined ? {} : { onBeforeInput: input.onBeforeInput }),
     onOpened: input.onTabOpened,
     onState: input.onTabState,
-    ...(input.onFrameHostMessage === undefined
-      ? {}
-      : { onFrameHostMessage: input.onFrameHostMessage }),
     onClosed: input.onTabClosed,
+    ...(input.onTabPresentation === undefined ? {} : { onPresentation: input.onTabPresentation }),
     onDiagnostic: recordDiagnostic,
     registerRendererIdentity,
     authority: {
@@ -576,7 +562,6 @@ export async function startDesktopAppRuntime(input: {
         blobUrls.clear();
         transfers.clear();
         await lifecycle.shutdown();
-        await frameDocuments.dispose();
       } finally {
         ipcBridge.dispose();
         rpc.stop();

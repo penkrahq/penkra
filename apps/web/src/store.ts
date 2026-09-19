@@ -10,7 +10,10 @@ import {
   type OrchestrationShellSnapshot,
   type OrchestrationShellStreamEvent,
   type OrchestrationGetThreadTurnsPageResult,
+  type SidebarItemParent,
+  type SidebarItemReference,
   type SpaceId,
+  type ThreadDeckId,
   type ThreadId,
 } from "@penkra/contracts";
 import { Debouncer } from "@tanstack/react-pacer";
@@ -24,8 +27,10 @@ import {
   evictThreadDetailFromClientState,
   markThreadDetailKnownEmptyInClientState,
   markThreadDetailSyncFailedInClientState,
+  moveSidebarItemLocally,
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
+  reorderDeckLocally,
   syncServerReadModel,
   syncServerShellSnapshot,
   syncServerThreadDetail,
@@ -53,8 +58,10 @@ export {
   evictThreadDetailFromClientState,
   markThreadDetailKnownEmptyInClientState,
   markThreadDetailSyncFailedInClientState,
+  moveSidebarItemLocally,
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
+  reorderDeckLocally,
   syncServerReadModel,
   syncServerShellSnapshot,
   syncServerThreadDetail,
@@ -240,6 +247,12 @@ interface AppStore extends AppState {
   collapseFoldersExcept: (activeFolderId: Project["id"] | null) => void;
   reorderFolders: (draggedFolderId: Project["id"], targetFolderId: Project["id"]) => void;
   reorderSpacesLocally: (orderedSpaceIds: ReadonlyArray<SpaceId>) => void;
+  reorderDeckLocally: (deckId: ThreadDeckId, orderedThreadIds: ReadonlyArray<ThreadId>) => void;
+  moveSidebarItemLocally: (
+    item: SidebarItemReference,
+    target: SidebarItemParent,
+    orderedDestinationItems: ReadonlyArray<SidebarItemReference>,
+  ) => void;
   renameProjectLocally: (folderId: Project["id"], name: string | null) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
   setThreadWorkspace: (threadId: ThreadId, patch: ThreadWorkspacePatch) => void;
@@ -305,6 +318,10 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => reorderFolders(state, draggedFolderId, targetFolderId)),
   reorderSpacesLocally: (orderedSpaceIds) =>
     set((state) => applySpaceOrder(state, orderedSpaceIds)),
+  reorderDeckLocally: (deckId, orderedThreadIds) =>
+    set((state) => reorderDeckLocally(state, deckId, orderedThreadIds)),
+  moveSidebarItemLocally: (item, target, orderedDestinationItems) =>
+    set((state) => moveSidebarItemLocally(state, item, target, orderedDestinationItems)),
   renameProjectLocally: (folderId, name) => {
     set((state) => renameProjectLocally(state, folderId, name));
     persistAppStateNow();

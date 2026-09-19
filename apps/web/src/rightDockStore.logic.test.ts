@@ -107,6 +107,7 @@ describe("persisted App tabs", () => {
           appSpaceId: "space-1",
           appSlug: "explorer",
           appName: "Explorer",
+          appIconDataUrl: "data:image/svg+xml,explorer",
           appRoute: "/",
           appState: { documentId: "doc-1", viewport: { x: 20, y: 40 } },
           appStatus: "ready",
@@ -119,6 +120,8 @@ describe("persisted App tabs", () => {
       documentId: "doc-1",
       viewport: { x: 20, y: 40 },
     });
+    expect(state.panes[0]?.appStatus).toBe("unloaded");
+    expect(state.panes[0]?.appIconDataUrl).toBe("data:image/svg+xml,explorer");
     expect(state.activePaneId).toBe("valid");
     expect(state.open).toBe(true);
     expect(state.width).toBeNull();

@@ -2233,13 +2233,12 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("announces newly backgrounded tasks once with a background notice", () => {
+  it.effect("projects newly backgrounded tasks without runtime warnings", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
-      const warningsFiber = yield* adapter.streamEvents.pipe(
-        Stream.filter((event) => event.type === "runtime.warning"),
-        Stream.take(3),
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "task.progress"),
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -2285,28 +2284,30 @@ describe("ClaudeAdapterLive", () => {
         session_id: "sdk-session-bg",
         uuid: "bg-change-3",
       } as unknown as SDKMessage);
-      // Sentinel unknown subtype closes the collection window; its warning
-      // arriving third proves the removal produced no notice.
+      // Sentinel closes the collection window after the removal-only update.
       harness.query.emit({
         type: "system",
-        subtype: "totally_unknown_subtype",
+        subtype: "task_progress",
+        task_id: "bg-sentinel",
+        description: "sentinel",
+        usage: { total_tokens: 1, tool_uses: 0, duration_ms: 1 },
         session_id: "sdk-session-bg",
         uuid: "bg-sentinel",
       } as unknown as SDKMessage);
 
-      const warnings = Array.from(yield* Fiber.join(warningsFiber));
+      const events = Array.from(yield* Fiber.join(eventsFiber));
       assert.deepEqual(
-        warnings.map((event) => (event.type === "runtime.warning" ? event.payload.message : "")),
-        ["sleep 120", "beta", "Unhandled Claude system message subtype 'totally_unknown_subtype'."],
+        events.flatMap((event) =>
+          event.type === "task.updated" && event.payload.isBackgrounded
+            ? [event.payload.taskId]
+            : [],
+        ),
+        ["bg-1", "bg-2"],
       );
-      const firstNotice = warnings[0];
-      assert.equal(firstNotice?.type, "runtime.warning");
-      if (firstNotice?.type === "runtime.warning") {
-        // The SDK message rides on detail so ingestion can tell background
-        // notices apart from plain runtime warnings.
-        const detail = firstNotice.payload.detail as Record<string, unknown>;
-        assert.equal(detail.subtype, "background_tasks_changed");
-      }
+      assert.equal(
+        events.some((event) => event.type === "runtime.warning"),
+        false,
+      );
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -4819,99 +4820,154 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
-  it.effect(
-    "suppresses thinking_tokens/task_updated telemetry and de-dupes each unknown Claude subtype once",
-    () => {
-      const harness = makeHarness();
-      return Effect.gen(function* () {
-        const adapter = yield* ClaudeAdapter;
+  it.effect("debug-logs known passive and unknown Claude messages without runtime warnings", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
 
-        const runtimeEventsFiber = yield* adapter.streamEvents.pipe(
-          Stream.takeUntil((event) => event.type === "task.progress"),
-          Stream.runCollect,
-          Effect.forkChild,
-        );
+      const runtimeEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "task.progress"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
 
-        yield* adapter.startSession({
-          threadId: THREAD_ID,
-          provider: "claudeAgent",
-          runtimeMode: "full-access",
-        });
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
 
-        // High-frequency reasoning telemetry — must never reach the timeline.
-        for (let i = 0; i < 3; i += 1) {
-          harness.query.emit({
-            type: "system",
-            subtype: "thinking_tokens",
-            estimated_tokens: 50 * (i + 1),
-            estimated_tokens_delta: 50,
-            session_id: "sdk-session-thinking",
-            uuid: `thinking-${i}`,
-          } as unknown as SDKMessage);
-        }
-
-        // Incremental task patches we intentionally drop — must not warn either.
-        for (let i = 0; i < 3; i += 1) {
-          harness.query.emit({
-            type: "system",
-            subtype: "task_updated",
-            session_id: "sdk-session-task-updated",
-            uuid: `task-updated-${i}`,
-          } as unknown as SDKMessage);
-        }
-
-        // Two distinct unknown subtypes, each emitted twice — each must surface
-        // exactly one warning (per-kind de-dup), so two warnings in total.
-        for (const subtype of ["future_unknown_subtype", "another_unknown_subtype"]) {
-          for (let i = 0; i < 2; i += 1) {
-            harness.query.emit({
-              type: "system",
-              subtype,
-              session_id: `sdk-session-${subtype}`,
-              uuid: `${subtype}-${i}`,
-            } as unknown as SDKMessage);
-          }
-        }
-
-        // Sentinel that produces a real event so the collector terminates.
+      // High-frequency reasoning telemetry — must never reach the timeline.
+      for (let i = 0; i < 3; i += 1) {
         harness.query.emit({
           type: "system",
-          subtype: "task_progress",
-          task_id: "task-sentinel",
-          description: "sentinel",
-          usage: { total_tokens: 1, tool_uses: 0, duration_ms: 1 },
-          session_id: "sdk-session-sentinel",
-          uuid: "task-progress-sentinel",
+          subtype: "thinking_tokens",
+          estimated_tokens: 50 * (i + 1),
+          estimated_tokens_delta: 50,
+          session_id: "sdk-session-thinking",
+          uuid: `thinking-${i}`,
         } as unknown as SDKMessage);
+      }
 
-        const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
-        const warningMessages = runtimeEvents.flatMap((event) =>
-          event.type === "runtime.warning" ? [event.payload.message] : [],
-        );
+      // Incremental task patches we intentionally drop — must not warn either.
+      for (let i = 0; i < 3; i += 1) {
+        harness.query.emit({
+          type: "system",
+          subtype: "task_updated",
+          session_id: "sdk-session-task-updated",
+          uuid: `task-updated-${i}`,
+        } as unknown as SDKMessage);
+      }
 
-        assert.equal(warningMessages.length, 2);
-        assert.equal(
-          warningMessages.some((message) => message.includes("thinking_tokens")),
-          false,
-        );
-        assert.equal(
-          warningMessages.some((message) => message.includes("task_updated")),
-          false,
-        );
-        assert.equal(
-          warningMessages.some((message) => message.includes("future_unknown_subtype")),
-          true,
-        );
-        assert.equal(
-          warningMessages.some((message) => message.includes("another_unknown_subtype")),
-          true,
-        );
-      }).pipe(
-        Effect.provideService(Random.Random, makeDeterministicRandomService()),
-        Effect.provide(harness.layer),
+      for (const message of [
+        {
+          type: "command_lifecycle",
+          command_uuid: "command-1",
+          state: "completed",
+          session_id: "sdk-session-command",
+          uuid: "command-1",
+        },
+        {
+          type: "prompt_suggestion",
+          suggestion: "Continue?",
+          session_id: "sdk-session-suggestion",
+          uuid: "suggestion-1",
+        },
+        {
+          type: "conversation_reset",
+          new_conversation_id: "00000000-0000-4000-8000-000000000123",
+          session_id: "sdk-session-reset",
+          uuid: "reset-1",
+        },
+        {
+          type: "future_unknown_top_level",
+          session_id: "sdk-session-unknown",
+          uuid: "unknown-top-level-1",
+        },
+      ]) {
+        harness.query.emit(message as unknown as SDKMessage);
+      }
+
+      for (const subtype of ["future_unknown_subtype", "another_unknown_subtype"]) {
+        for (let i = 0; i < 2; i += 1) {
+          harness.query.emit({
+            type: "system",
+            subtype,
+            session_id: `sdk-session-${subtype}`,
+            uuid: `${subtype}-${i}`,
+          } as unknown as SDKMessage);
+        }
+      }
+
+      // Sentinel that produces a real event so the collector terminates.
+      harness.query.emit({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "task-sentinel",
+        description: "sentinel",
+        usage: { total_tokens: 1, tool_uses: 0, duration_ms: 1 },
+        session_id: "sdk-session-sentinel",
+        uuid: "task-progress-sentinel",
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const warningMessages = runtimeEvents.flatMap((event) =>
+        event.type === "runtime.warning" ? [event.payload.message] : [],
       );
-    },
-  );
+
+      assert.deepEqual(warningMessages, []);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("emits one actionable warning for a Claude API retry", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "task.progress"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+      harness.query.emit({
+        type: "system",
+        subtype: "api_retry",
+        attempt: 1,
+        max_retries: 3,
+        retry_delay_ms: 1_000,
+        error_status: 429,
+        error: "rate_limit",
+        session_id: "sdk-session-retry",
+        uuid: "retry-1",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "retry-sentinel",
+        description: "sentinel",
+        usage: { total_tokens: 1, tool_uses: 0, duration_ms: 1 },
+        session_id: "sdk-session-retry",
+        uuid: "retry-sentinel",
+      } as unknown as SDKMessage);
+
+      const warnings = Array.from(yield* Fiber.join(eventsFiber)).filter(
+        (event) => event.type === "runtime.warning",
+      );
+      assert.equal(warnings.length, 1);
+      assert.ok(warnings[0]?.payload.message.includes("attempt 1 of 3"));
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
 
   it.effect("maps Claude TodoWrite tool input into shared turn plan updates", () => {
     const harness = makeHarness();
@@ -7284,7 +7340,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
-  it.effect("warns once when a turn ingests a large uncached prompt", () => {
+  it.effect("accounts for threshold-sized prompts without any token heuristic warnings", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -7299,6 +7355,11 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         threadId: THREAD_ID,
         provider: "claudeAgent",
         runtimeMode: "full-access",
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+          options: { autoCompactWindow: "1m" },
+        },
       });
       yield* adapter.sendTurn({
         threadId: session.threadId,
@@ -7306,23 +7367,29 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         attachments: [],
       });
 
-      // Synthetic low-cache-ratio result: ~60k of 61k prompt tokens uncached.
-      const uncachedUsage = {
-        input_tokens: 5_000,
-        cache_creation_input_tokens: 55_000,
-        cache_read_input_tokens: 1_000,
-        output_tokens: 10,
-      };
-      for (let i = 0; i < 2; i += 1) {
+      const thresholdUsages = [
+        // Former uncached-ingestion threshold.
+        {
+          input_tokens: 5_000,
+          cache_creation_input_tokens: 55_000,
+          cache_read_input_tokens: 1_000,
+          output_tokens: 10,
+        },
+        // Former large-prompt threshold for a 1M session.
+        { input_tokens: 2, cache_read_input_tokens: 320_000, output_tokens: 5 },
+        // Former near-window threshold for a 1M session.
+        { input_tokens: 2, cache_read_input_tokens: 900_000, output_tokens: 5 },
+      ];
+      for (const [index, usage] of thresholdUsages.entries()) {
         harness.query.emit({
           type: "assistant",
           session_id: "sdk-session-uncached",
-          uuid: `assistant-uncached-${i}`,
+          uuid: `assistant-usage-${index}`,
           parent_tool_use_id: null,
           message: {
-            id: `assistant-message-uncached-${i}`,
+            id: `assistant-message-usage-${index}`,
             content: [{ type: "text", text: "working" }],
-            usage: uncachedUsage,
+            usage,
           },
         } as unknown as SDKMessage);
       }
@@ -7339,10 +7406,8 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       const warningMessages = runtimeEvents.flatMap((event) =>
         event.type === "runtime.warning" ? [event.payload.message] : [],
       );
-      // Emitted once per session even though two responses crossed the bar.
-      assert.equal(warningMessages.length, 1);
-      assert.ok(warningMessages[0]?.includes("uncached prompt tokens"));
-      assert.ok(warningMessages[0]?.includes("resume"));
+      assert.deepEqual(warningMessages, []);
+      assert.ok(runtimeEvents.some((event) => event.type === "thread.token-usage.updated"));
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -7404,37 +7469,6 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       assert.equal(configuredEvent._tag, "Some");
       if (configuredEvent._tag === "Some" && configuredEvent.value.type === "session.configured") {
         assert.equal(configuredEvent.value.payload.config.autoCompactWindow, 200_000);
-      }
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("warns immediately when a thread starts with the 1M auto-compact budget", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-      const warningFiber = yield* Stream.filter(
-        adapter.streamEvents,
-        (event) => event.type === "runtime.warning" && event.payload.message.includes("1M limit"),
-      ).pipe(Stream.runHead, Effect.forkChild);
-
-      yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "full-access",
-        modelSelection: {
-          provider: "claudeAgent",
-          model: "claude-opus-4-8",
-          options: { autoCompactWindow: "1m" },
-        },
-      });
-
-      const warning = yield* Fiber.join(warningFiber);
-      assert.equal(warning._tag, "Some");
-      if (warning._tag === "Some" && warning.value.type === "runtime.warning") {
-        assert.ok(warning.value.payload.message.includes("switch Auto-compact to 200k"));
       }
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
@@ -7912,130 +7946,6 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(layer),
-    );
-  });
-
-  it.effect("warns once when the per-request prompt nears the context window", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-
-      const warningsFiber = yield* Stream.filter(
-        adapter.streamEvents,
-        (event) => event.type === "runtime.warning",
-      ).pipe(Stream.take(1), Stream.runCollect, Effect.forkChild);
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "full-access",
-      });
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "hello",
-        attachments: [],
-      });
-
-      const bigUsageAssistant = (uuid: string) =>
-        ({
-          type: "assistant",
-          session_id: "sdk-session-context",
-          uuid,
-          parent_tool_use_id: null,
-          message: {
-            id: `assistant-${uuid}`,
-            content: [{ type: "text", text: "working" }],
-            usage: {
-              input_tokens: 2,
-              cache_read_input_tokens: 170_000,
-              output_tokens: 5,
-            },
-          },
-        }) as unknown as SDKMessage;
-
-      harness.query.emit(bigUsageAssistant("ctx-1"));
-      harness.query.emit(bigUsageAssistant("ctx-2"));
-      harness.query.emit({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        errors: [],
-        session_id: "sdk-session-context",
-        uuid: "result-ctx",
-      } as unknown as SDKMessage);
-
-      const warnings = Array.from(yield* Fiber.join(warningsFiber));
-      assert.equal(warnings.length, 1);
-      const warning = warnings[0];
-      assert.equal(warning?.type, "runtime.warning");
-      if (warning?.type === "runtime.warning") {
-        assert.ok(warning.payload.message.includes("80%"));
-      }
-
-      // The second oversized request must not emit another warning; the turn
-      // completed without a second runtime.warning in the stream.
-      const thread = yield* adapter.readThread(session.threadId);
-      assert.ok(thread.turns.length >= 1);
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("warns about large prompts past 200k on a 1M session", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-
-      const warningsFiber = yield* Stream.filter(
-        adapter.streamEvents,
-        (event) => event.type === "runtime.warning" && event.payload.message.includes("processing"),
-      ).pipe(Stream.take(1), Stream.runCollect, Effect.forkChild);
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "full-access",
-        modelSelection: {
-          provider: "claudeAgent",
-          model: "claude-opus-4-6",
-          options: { autoCompactWindow: "1m" },
-        },
-      });
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "hello",
-        attachments: [],
-      });
-
-      harness.query.emit({
-        type: "assistant",
-        session_id: "sdk-session-1m",
-        uuid: "assistant-1m",
-        parent_tool_use_id: null,
-        message: {
-          id: "assistant-message-1m",
-          content: [{ type: "text", text: "working" }],
-          usage: {
-            input_tokens: 2,
-            cache_read_input_tokens: 320_000,
-            output_tokens: 5,
-          },
-        },
-      } as unknown as SDKMessage);
-
-      const warnings = Array.from(yield* Fiber.join(warningsFiber));
-      assert.equal(warnings.length, 1);
-      const warning = warnings[0];
-      assert.equal(warning?.type, "runtime.warning");
-      if (warning?.type === "runtime.warning") {
-        assert.ok(warning.payload.message.includes("logical prompt tokens per request"));
-        assert.ok(warning.payload.message.includes("cached reads cost less"));
-        assert.ok(!warning.payload.message.includes("premium"));
-      }
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
     );
   });
 

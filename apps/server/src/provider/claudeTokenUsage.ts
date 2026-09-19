@@ -13,24 +13,6 @@ export const CLAUDE_CONTEXT_WINDOW_MAX_TOKENS = {
   "1m": 1_000_000,
 } as const;
 
-const CLAUDE_DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
-const CLAUDE_CONTEXT_WARNING_RATIO = 0.8;
-const CLAUDE_UNCACHED_INGESTION_WARNING_TOKENS = 50_000;
-const CLAUDE_LOW_CACHE_RATIO_MIN_PROMPT_TOKENS = 20_000;
-const CLAUDE_LOW_CACHE_READ_RATIO = 0.2;
-
-export type ClaudeContextUsageWarningKey = "uncached-ingestion" | "near-window" | "large-prompt";
-
-export interface ClaudeContextUsageWarning {
-  readonly key: ClaudeContextUsageWarningKey;
-  readonly message: string;
-}
-
-export interface ClaudeContextUsageWarningDecisions {
-  readonly first: ClaudeContextUsageWarning;
-  readonly second?: ClaudeContextUsageWarning;
-}
-
 export function maxClaudeContextWindowFromModelUsage(
   modelUsage: Record<string, ModelUsage> | undefined,
 ): number | undefined {
@@ -58,10 +40,6 @@ export function claudePromptTokensFromRawUsage(usage: Record<string, unknown>): 
     finiteClaudeTokenCountOrZero(usage.cache_creation_input_tokens) +
     finiteClaudeTokenCountOrZero(usage.cache_read_input_tokens)
   );
-}
-
-function formatApproxTokens(tokens: number): string {
-  return tokens >= 1_000 ? `~${Math.round(tokens / 1_000)}k` : String(Math.round(tokens));
 }
 
 export function resolveClaudeEffectiveContextBudget(
@@ -235,58 +213,4 @@ export function snapshotFromClaudeContextUsage(
     ...(outputTokens > 0 ? { outputTokens, lastOutputTokens: outputTokens } : {}),
     compactsAutomatically: usage.isAutoCompactEnabled,
   };
-}
-
-export function decideClaudeContextUsageWarnings(
-  rawUsage: Record<string, unknown>,
-  contextBudget: number | undefined,
-  emittedWarnings: ReadonlySet<string>,
-): ClaudeContextUsageWarningDecisions | undefined {
-  const promptTokens = claudePromptTokensFromRawUsage(rawUsage);
-  if (promptTokens <= 0) {
-    return undefined;
-  }
-
-  const cachedReadTokens = finiteClaudeTokenCountOrZero(rawUsage.cache_read_input_tokens);
-  const uncachedTokens = Math.max(0, promptTokens - cachedReadTokens);
-  const composition =
-    cachedReadTokens > 0
-      ? ` (${formatApproxTokens(cachedReadTokens)} cached reads, ${formatApproxTokens(uncachedTokens)} new/cache-write)`
-      : "";
-  const cacheReadRatio = cachedReadTokens / promptTokens;
-  let first: ClaudeContextUsageWarning | undefined;
-
-  if (
-    (uncachedTokens > CLAUDE_UNCACHED_INGESTION_WARNING_TOKENS ||
-      (promptTokens > CLAUDE_LOW_CACHE_RATIO_MIN_PROMPT_TOKENS &&
-        cacheReadRatio < CLAUDE_LOW_CACHE_READ_RATIO)) &&
-    !emittedWarnings.has("uncached-ingestion")
-  ) {
-    first = {
-      key: "uncached-ingestion",
-      message: `Claude ingested ${formatApproxTokens(uncachedTokens)} uncached prompt tokens in one request (${Math.round(cacheReadRatio * 100)}% cache reads). This usually means a fresh session, a session restart replaying history via resume, or a first turn over a large context; uncached input consumes usage limits fastest.`,
-    };
-  }
-
-  const effectiveContextBudget = contextBudget ?? CLAUDE_DEFAULT_CONTEXT_WINDOW_TOKENS;
-  if (
-    promptTokens > effectiveContextBudget * CLAUDE_CONTEXT_WARNING_RATIO &&
-    !emittedWarnings.has("near-window")
-  ) {
-    const warning: ClaudeContextUsageWarning = {
-      key: "near-window",
-      message: `Claude context is above 80% of the ${Math.round(effectiveContextBudget / 1_000)}k auto-compact budget (${formatApproxTokens(promptTokens)} logical prompt tokens${composition}). Consider compacting or starting a fresh thread; cached reads cost less than fresh input.`,
-    };
-    return first ? { first, second: warning } : { first: warning };
-  }
-
-  if (promptTokens > CLAUDE_DEFAULT_CONTEXT_WINDOW_TOKENS && !emittedWarnings.has("large-prompt")) {
-    const warning: ClaudeContextUsageWarning = {
-      key: "large-prompt",
-      message: `Claude is processing ${formatApproxTokens(promptTokens)} logical prompt tokens per request${composition}. Large active contexts can consume usage faster; cached reads cost less than fresh input.`,
-    };
-    return first ? { first, second: warning } : { first: warning };
-  }
-
-  return first ? { first } : undefined;
 }

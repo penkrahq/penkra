@@ -9595,6 +9595,8 @@ export default function ChatView({
       {surfaceMode === "single" ? (
         <ThreadDeckBar
           activeThread={activeThread}
+          activeComposerProvider={selectedProvider}
+          defaultComposerProvider={settings.defaultProvider}
           className={cn(
             isElectron && "drag-region",
             desktopTopBarTrafficLightGutterClassName,

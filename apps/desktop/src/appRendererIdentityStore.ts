@@ -2,7 +2,7 @@
 // Purpose: Owns exact renderer-generation identity authority for Runtime v2 Apps.
 // Layer: Trusted desktop App capability boundary
 
-import type { AppTabGenerationOwner } from "./electronAppTabHost";
+import type { AppTabGenerationOwner } from "./appTabViewHost";
 
 export interface AppRendererIdentity {
   appId: string;

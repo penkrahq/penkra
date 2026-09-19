@@ -48,20 +48,16 @@ type Request = {
     | "skills.list"
     | "core.open"
     | "operations.invoke"
-    | "tabs.current"
     | "tabs.list"
+    | "tabs.close"
     | "tabs.snapshot"
-    | "tabs.find"
+    | "tabs.diff"
+    | "tabs.act"
+    | "tabs.evaluate"
     | "tabs.screenshot"
-    | "tabs.click"
-    | "tabs.hover"
-    | "tabs.type"
-    | "tabs.press"
-    | "tabs.select"
-    | "tabs.scroll"
-    | "tabs.wait"
-    | "tabs.handle-dialog"
-    | "tabs.upload"
+    | "tabs.record"
+    | "tabs.trace"
+    | "tabs.har"
     | "threads.current.read"
     | "threads.list"
     | "threads.get"
@@ -108,22 +104,41 @@ interface AppTabObserverBridge {
     tabId: string,
     options?: {
       target?: string;
+      document?: "d1" | "d2";
       depth?: number;
       boxes?: boolean;
+      interactive?: boolean;
+      compact?: boolean;
       outputPath?: string;
     },
   ): Promise<unknown>;
-  find(tabId: string, query: string): Promise<unknown>;
-  screenshot(tabId: string, outputPath?: string): Promise<unknown>;
-  click(tabId: string, reference: string, observe?: boolean): Promise<unknown>;
-  hover(tabId: string, reference: string, observe?: boolean): Promise<unknown>;
-  type(tabId: string, reference: string, text: string, observe?: boolean): Promise<unknown>;
-  press(tabId: string, key: string, observe?: boolean): Promise<unknown>;
-  select(tabId: string, reference: string, value: string, observe?: boolean): Promise<unknown>;
-  scroll(tabId: string, deltaX: number, deltaY: number, observe?: boolean): Promise<unknown>;
-  wait(tabId: string, text: string, timeoutMs: number): Promise<unknown>;
-  handleDialog(tabId: string, accept: boolean, text?: string): Promise<unknown>;
-  upload(tabId: string, reference: string, paths: ReadonlyArray<string>): Promise<unknown>;
+  diff(tabId: string, document?: "d1" | "d2"): Promise<unknown>;
+  act(
+    tabId: string,
+    steps: ReadonlyArray<import("./appTabObserver").AppTabActStep>,
+    human?: boolean,
+    ownerThreadId?: string,
+  ): Promise<unknown>;
+  evaluate(tabId: string, document: "d1" | "d2", expression: string): Promise<unknown>;
+  screenshot(tabId: string, document?: "d1" | "d2", outputPath?: string): Promise<unknown>;
+  record(
+    tabId: string,
+    document: "d1" | "d2",
+    durationMs: number,
+    outputPath: string,
+  ): Promise<unknown>;
+  trace(
+    tabId: string,
+    document: "d1" | "d2",
+    durationMs: number,
+    outputPath: string,
+  ): Promise<unknown>;
+  har(
+    tabId: string,
+    document: "d1" | "d2",
+    durationMs: number,
+    outputPath: string,
+  ): Promise<unknown>;
 }
 
 export function resolveAppCommandPipePath(_userDataPath: string): string {
@@ -145,6 +160,7 @@ export class AppCommandPipeServer {
   readonly #tabs: {
     list(): ReadonlyArray<DesktopAppTabDescriptor>;
     current(): DesktopAppTabDescriptor | null;
+    close(tabId: string): void | Promise<void>;
     currentFor?(
       spaceId: string,
       deckId: string,
@@ -202,6 +218,7 @@ export class AppCommandPipeServer {
     tabs: {
       list(): ReadonlyArray<DesktopAppTabDescriptor>;
       current(): DesktopAppTabDescriptor | null;
+      close(tabId: string): void | Promise<void>;
       currentFor?(
         spaceId: string,
         deckId: string,
@@ -416,12 +433,11 @@ export class AppCommandPipeServer {
         return { ok: true, id: request.id, result: {} };
       case "tabs.list":
         return { ok: true, id: request.id, result: this.#scopedTabs(params) };
-      case "tabs.current":
-        return {
-          ok: true,
-          id: request.id,
-          result: this.#scopedCurrentTab(params),
-        };
+      case "tabs.close": {
+        const tab = this.#tab(params);
+        await this.#tabs.close(tab.id);
+        return { ok: true, id: request.id, result: { tabId: tab.id, closed: true } };
+      }
       case "tabs.snapshot":
         return {
           ok: true,
@@ -430,141 +446,63 @@ export class AppCommandPipeServer {
             this.#observer.snapshot(this.#tab(params).id, observationOptions(params)),
           ),
         };
-      case "tabs.find":
+      case "tabs.diff":
         return {
           ok: true,
           id: request.id,
           result: await this.#observe(params, () =>
-            this.#observer.find(this.#tab(params).id, requiredString(params.query, "query")),
+            this.#observer.diff(this.#tab(params).id, observationDocument(params)),
           ),
         };
-      case "tabs.screenshot": {
-        const tab = this.#scopedCurrentTab(params);
-        if (!tab) {
-          throw new Error(
-            "The caller Thread Deck does not currently own the visible App tab. Open or focus its App tab before taking a screenshot.",
-          );
-        }
-        assertAppTabAgentAddressable(tab);
+      case "tabs.act":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observe(params, () =>
+            this.#observer.act(
+              this.#tab(params).id,
+              appTabActSteps(params.steps),
+              optionalBoolean(params.human, "human") ?? false,
+              this.#scope(params).threadId,
+            ),
+          ),
+        };
+      case "tabs.evaluate":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observe(params, () =>
+            this.#observer.evaluate(
+              this.#tab(params).id,
+              observationDocument(params),
+              requiredStringAllowEmpty(params.expression, "expression"),
+            ),
+          ),
+        };
+      case "tabs.screenshot":
         return {
           ok: true,
           id: request.id,
           result: await this.#observe(params, () =>
             this.#observer.screenshot(
-              tab.id,
+              this.#tab(params).id,
+              observationDocument(params),
               optionalString(params.outputPath, "outputPath") ?? undefined,
             ),
           ),
         };
-      }
-      case "tabs.click":
+      case "tabs.record":
+      case "tabs.trace":
+      case "tabs.har":
         return {
           ok: true,
           id: request.id,
           result: await this.#observe(params, () =>
-            this.#observer.click(
+            this.#observer[request.method.slice("tabs.".length) as "record" | "trace" | "har"](
               this.#tab(params).id,
-              requiredString(params.target, "target"),
-              optionalBoolean(params.observe, "observe") ?? false,
-            ),
-          ),
-        };
-      case "tabs.hover":
-        return {
-          ok: true,
-          id: request.id,
-          result: await this.#observe(params, () =>
-            this.#observer.hover(
-              this.#tab(params).id,
-              requiredString(params.target, "target"),
-              optionalBoolean(params.observe, "observe") ?? false,
-            ),
-          ),
-        };
-      case "tabs.type":
-        return {
-          ok: true,
-          id: request.id,
-          result: await this.#observe(params, () =>
-            this.#observer.type(
-              this.#tab(params).id,
-              requiredString(params.target, "target"),
-              requiredStringAllowEmpty(params.text, "text"),
-              optionalBoolean(params.observe, "observe") ?? false,
-            ),
-          ),
-        };
-      case "tabs.press":
-        return {
-          ok: true,
-          id: request.id,
-          result: await this.#observe(params, () =>
-            this.#observer.press(
-              this.#tab(params).id,
-              requiredString(params.key, "key"),
-              optionalBoolean(params.observe, "observe") ?? false,
-            ),
-          ),
-        };
-      case "tabs.select":
-        return {
-          ok: true,
-          id: request.id,
-          result: await this.#observe(params, () =>
-            this.#observer.select(
-              this.#tab(params).id,
-              requiredString(params.target, "target"),
-              requiredStringAllowEmpty(params.value, "value"),
-              optionalBoolean(params.observe, "observe") ?? false,
-            ),
-          ),
-        };
-      case "tabs.scroll":
-        return {
-          ok: true,
-          id: request.id,
-          result: await this.#observe(params, () =>
-            this.#observer.scroll(
-              this.#tab(params).id,
-              optionalNumber(params.deltaX, "deltaX") ?? 0,
-              optionalNumber(params.deltaY, "deltaY") ?? 0,
-              optionalBoolean(params.observe, "observe") ?? false,
-            ),
-          ),
-        };
-      case "tabs.handle-dialog":
-        return {
-          ok: true,
-          id: request.id,
-          result: await this.#observe(params, () =>
-            this.#observer.handleDialog(
-              this.#tab(params).id,
-              optionalBoolean(params.accept, "accept") ?? true,
-              optionalString(params.text, "text") ?? undefined,
-            ),
-          ),
-        };
-      case "tabs.upload":
-        return {
-          ok: true,
-          id: request.id,
-          result: await this.#observe(params, () =>
-            this.#observer.upload(
-              this.#tab(params).id,
-              requiredString(params.target, "target"),
-              requiredStringArray(params.paths, "paths"),
-            ),
-          ),
-        };
-      case "tabs.wait":
-        return {
-          ok: true,
-          id: request.id,
-          result: await this.#observe(params, () =>
-            this.#observer.wait(
-              this.#tab(params).id,
-              requiredString(params.text, "text"),
-              optionalNumber(params.timeoutMs, "timeoutMs") ?? 10_000,
+              observationDocument(params),
+              optionalNumber(params.durationMs, "durationMs") ?? 1_000,
+              requiredString(params.outputPath, "outputPath"),
             ),
           ),
         };
@@ -951,7 +889,6 @@ export class AppCommandPipeServer {
           threadId: explicitThreadId,
           route: "/",
           status: "ready",
-          documentUrl: "",
         }
       );
     }
@@ -1026,7 +963,12 @@ export class AppCommandPipeServer {
   #tab(params: Record<string, unknown>): DesktopAppTabDescriptor {
     const tabId = requiredString(params.tabId, "tabId");
     const tab = this.#scopedTabs(params).find((candidate) => candidate.id === tabId);
-    if (!tab) throw new Error(`App tab ${tabId} is not open in the caller Thread Deck and Space.`);
+    if (!tab) {
+      throw Object.assign(
+        new Error(`App tab ${tabId} is gone from the caller Thread Deck and Space.`),
+        { code: "TAB_GONE" },
+      );
+    }
     assertAppTabAgentAddressable(tab);
     return tab;
   }
@@ -1214,21 +1156,111 @@ function optionalString(value: unknown, name: string): string | null {
 }
 
 function observationOptions(params: Record<string, unknown>): {
+  document?: "d1" | "d2";
   target?: string;
   depth?: number;
   boxes?: boolean;
+  interactive?: boolean;
+  compact?: boolean;
   outputPath?: string;
 } {
   const target = optionalString(params.target, "target");
+  const document = observationDocument(params);
   const depth = optionalNumber(params.depth, "depth");
   const boxes = optionalBoolean(params.boxes, "boxes");
+  const interactive = optionalBoolean(params.interactive, "interactive");
+  const compact = optionalBoolean(params.compact, "compact");
   const outputPath = optionalString(params.outputPath, "outputPath");
   return {
+    document,
     ...(target === null ? {} : { target }),
     ...(depth === null ? {} : { depth }),
     ...(boxes === null ? {} : { boxes }),
+    ...(interactive === null ? {} : { interactive }),
+    ...(compact === null ? {} : { compact }),
     ...(outputPath === null ? {} : { outputPath }),
   };
+}
+
+function observationDocument(params: Record<string, unknown>): "d1" | "d2" {
+  const value = params.document ?? "d1";
+  if (value !== "d1" && value !== "d2") throw new Error("document must be d1 or d2.");
+  return value;
+}
+
+function appTabActSteps(value: unknown): ReadonlyArray<import("./appTabObserver").AppTabActStep> {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("steps must be a non-empty array.");
+  }
+  return value.map((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error(`steps[${index}] must be an object.`);
+    }
+    const step = raw as Record<string, unknown>;
+    const action = requiredString(step.action, `steps[${index}].action`);
+    if (action === "click" || action === "hover" || action === "highlight") {
+      return { action, ref: requiredString(step.ref, `steps[${index}].ref`) };
+    }
+    if (action === "type") {
+      return {
+        action,
+        ref: requiredString(step.ref, `steps[${index}].ref`),
+        text: requiredStringAllowEmpty(step.text, `steps[${index}].text`),
+      };
+    }
+    if (action === "select") {
+      return {
+        action,
+        ref: requiredString(step.ref, `steps[${index}].ref`),
+        value: requiredStringAllowEmpty(step.value, `steps[${index}].value`),
+      };
+    }
+    if (action === "upload") {
+      return {
+        action,
+        ref: requiredString(step.ref, `steps[${index}].ref`),
+        paths: requiredStringArray(step.paths, `steps[${index}].paths`),
+      };
+    }
+    if (action === "press") {
+      return {
+        action,
+        document: observationDocument(step),
+        key: requiredString(step.key, `steps[${index}].key`),
+      };
+    }
+    if (action === "scroll") {
+      return {
+        action,
+        document: observationDocument(step),
+        ...(optionalNumber(step.deltaX, `steps[${index}].deltaX`) === null
+          ? {}
+          : { deltaX: optionalNumber(step.deltaX, `steps[${index}].deltaX`)! }),
+        ...(optionalNumber(step.deltaY, `steps[${index}].deltaY`) === null
+          ? {}
+          : { deltaY: optionalNumber(step.deltaY, `steps[${index}].deltaY`)! }),
+      };
+    }
+    if (action === "wait") {
+      const timeoutMs = optionalNumber(step.timeoutMs, `steps[${index}].timeoutMs`);
+      return {
+        action,
+        document: observationDocument(step),
+        text: requiredString(step.text, `steps[${index}].text`),
+        ...(timeoutMs === null ? {} : { timeoutMs }),
+      };
+    }
+    if (action === "dialog") {
+      const accept = optionalBoolean(step.accept, `steps[${index}].accept`);
+      const text = optionalString(step.text, `steps[${index}].text`);
+      return {
+        action,
+        accept: accept ?? true,
+        ...(text === null ? {} : { text }),
+      };
+    }
+    throw new Error(`steps[${index}].action is unsupported.`);
+  });
 }
 
 function toError(value: unknown): Error {

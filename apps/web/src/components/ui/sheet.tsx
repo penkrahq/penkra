@@ -5,6 +5,7 @@ import { XIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { ScrollArea } from "~/components/ui/scroll-area";
+import { NativeAppOverlayBoundary } from "./native-app-overlay";
 
 const Sheet = SheetPrimitive.Root;
 
@@ -78,6 +79,7 @@ function SheetPopup({
   const variant = variantProp ?? "default";
   return (
     <SheetPortal keepMounted={keepMounted}>
+      <NativeAppOverlayBoundary />
       <SheetBackdrop />
       <SheetViewport side={side} variant={variant}>
         <SheetPrimitive.Popup
