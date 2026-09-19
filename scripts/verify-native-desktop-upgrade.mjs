@@ -230,10 +230,12 @@ try {
   throw error;
 } finally {
   // A disconnected inspector can leave Playwright.close pending indefinitely.
+  // Give its controller a bounded chance to release its descendants before
+  // process-root cleanup inspects the disposable runner.
+  if (application) await Promise.race([application.close().catch(() => {}), delay(5_000)]);
   // Stop exact-profile owners before removing any state, including extracted relaunches.
   if (platform === "linux") await stopNativeUpgradeProcesses(join(stateRoot, "user-data"));
   await terminateProcessesInsideRoot(root);
-  if (application) await Promise.race([application.close().catch(() => {}), delay(5_000)]);
   if (server) {
     server.closeAllConnections();
     await new Promise((resolveClose) => server.close(resolveClose));
