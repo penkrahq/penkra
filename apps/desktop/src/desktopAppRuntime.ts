@@ -46,11 +46,7 @@ import { AppDataVault } from "./appDataVault";
 import { ProviderCredentialVault } from "./providerCredentialVault";
 import { DeferredAppTabHost } from "./deferredAppTabHost";
 import { ElectronAppControllerProcessFactory } from "./electronAppControllerProcess";
-import {
-  AppTabViewHost,
-  type AppTabAuthority,
-  type AppUpdateTabSnapshot,
-} from "./appTabViewHost";
+import { AppTabViewHost, type AppTabAuthority, type AppUpdateTabSnapshot } from "./appTabViewHost";
 import {
   AppUpdateJournal,
   resolveAppUpdateJournalPath,
@@ -391,9 +387,7 @@ export async function startDesktopAppRuntime(input: {
     onOpened: input.onTabOpened,
     onState: input.onTabState,
     onClosed: input.onTabClosed,
-    ...(input.onTabPresentation === undefined
-      ? {}
-      : { onPresentation: input.onTabPresentation }),
+    ...(input.onTabPresentation === undefined ? {} : { onPresentation: input.onTabPresentation }),
     onDiagnostic: recordDiagnostic,
     registerRendererIdentity,
     authority: {

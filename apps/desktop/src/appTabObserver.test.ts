@@ -175,7 +175,9 @@ describe("AppTabObserver", () => {
       defaultPrompt: "",
     });
 
-    await expect(observer.snapshot("tab-1")).rejects.toThrow("A browser JavaScript confirm dialog is open");
+    await expect(observer.snapshot("tab-1")).rejects.toThrow(
+      "A browser JavaScript confirm dialog is open",
+    );
     await expect(observer.handleDialog("tab-1", false)).resolves.toMatchObject({
       accepted: false,
       dialog: { type: "confirm", message: "Delete this record?" },
@@ -193,7 +195,9 @@ describe("AppTabObserver", () => {
     await expect(observer.snapshot("tab-1")).resolves.toMatchObject({
       tabId: "tab-1",
       app: "canvas",
-      snapshot: expect.stringContaining('- button "Save" [ref=d1:e1]\n- textbox "Password" value="[redacted]" [ref=d1:e2]'),
+      snapshot: expect.stringContaining(
+        '- button "Save" [ref=d1:e1]\n- textbox "Password" value="[redacted]" [ref=d1:e2]',
+      ),
       refs: {
         "d1:e1": { role: "button", name: "Save" },
         "d1:e2": { role: "textbox", name: "Password" },
@@ -210,21 +214,45 @@ describe("AppTabObserver", () => {
       if (method === "Accessibility.getFullAXTree")
         return {
           nodes: [
-            { nodeId: "root", childIds: includeSave ? ["save", "text"] : ["text"], role: { value: "RootWebArea" }, name: { value: "Canvas" } },
-            ...(includeSave ? [{ nodeId: "save", parentId: "root", backendDOMNodeId: 7, role: { value: "button" }, name: { value: "Save" } }] : []),
-            { nodeId: "text", parentId: "root", role: { value: "StaticText" }, name: { value: "Noise" } },
+            {
+              nodeId: "root",
+              childIds: includeSave ? ["save", "text"] : ["text"],
+              role: { value: "RootWebArea" },
+              name: { value: "Canvas" },
+            },
+            ...(includeSave
+              ? [
+                  {
+                    nodeId: "save",
+                    parentId: "root",
+                    backendDOMNodeId: 7,
+                    role: { value: "button" },
+                    name: { value: "Save" },
+                  },
+                ]
+              : []),
+            {
+              nodeId: "text",
+              parentId: "root",
+              role: { value: "StaticText" },
+              name: { value: "Noise" },
+            },
           ],
         };
       return {};
     });
     const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
 
-    await expect(observer.snapshot("tab-1", { interactive: true, compact: true })).resolves.toMatchObject({
+    await expect(
+      observer.snapshot("tab-1", { interactive: true, compact: true }),
+    ).resolves.toMatchObject({
       snapshot: expect.stringContaining('- button "Save" [ref=d1:e1]'),
       removedRefs: [],
     });
     includeSave = false;
-    await expect(observer.snapshot("tab-1", { interactive: true, compact: true })).resolves.toMatchObject({
+    await expect(
+      observer.snapshot("tab-1", { interactive: true, compact: true }),
+    ).resolves.toMatchObject({
       snapshot: expect.stringContaining("(no interactive elements)"),
       removedRefs: ["d1:e1"],
     });
@@ -237,7 +265,13 @@ describe("AppTabObserver", () => {
     sendCommand.mockImplementation(async (method: string) => {
       if (method === "Page.getFrameTree") return { frameTree: { frame: { loaderId: "loader-1" } } };
       if (method === "Accessibility.getFullAXTree")
-        return { nodes: [1, 2, 3].map((id) => ({ backendDOMNodeId: id, role: { value: "button" }, name: { value: `Button ${id}` } })) };
+        return {
+          nodes: [1, 2, 3].map((id) => ({
+            backendDOMNodeId: id,
+            role: { value: "button" },
+            name: { value: `Button ${id}` },
+          })),
+        };
       if (method === "DOM.getBoxModel") {
         active += 1;
         maximum = Math.max(maximum, active);
@@ -261,21 +295,32 @@ describe("AppTabObserver", () => {
         return { identifier: "cursor-script-12" };
       if (method === "Page.createIsolatedWorld") return { executionContextId: 120 };
       if (method === "Accessibility.getFullAXTree")
-        return { nodes: [{ backendDOMNodeId: 7, role: { value: "button" }, name: { value: "Save" } }] };
-      if (method === "DOM.getBoxModel") return { model: { content: [10, 10, 30, 10, 30, 30, 10, 30] } };
+        return {
+          nodes: [{ backendDOMNodeId: 7, role: { value: "button" }, name: { value: "Save" } }],
+        };
+      if (method === "DOM.getBoxModel")
+        return { model: { content: [10, 10, 30, 10, 30, 30, 10, 30] } };
       if (method === "DOM.resolveNode") return { object: { objectId: "button-1" } };
       return {};
     });
     const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
     await observer.snapshot("tab-1");
-    await observer.act("tab-1", [
-      { action: "hover", ref: "d1:e1" },
-      { action: "click", ref: "d1:e1" },
-      { action: "highlight", ref: "d1:e1" },
-    ], true);
+    await observer.act(
+      "tab-1",
+      [
+        { action: "hover", ref: "d1:e1" },
+        { action: "click", ref: "d1:e1" },
+        { action: "highlight", ref: "d1:e1" },
+      ],
+      true,
+    );
 
-    expect(sendCommand.mock.calls.some(([method]) => method === "Page.addScriptToEvaluateOnNewDocument")).toBe(true);
-    expect(sendCommand.mock.calls.filter(([method]) => method === "Input.dispatchMouseEvent").length).toBeGreaterThan(25);
+    expect(
+      sendCommand.mock.calls.some(([method]) => method === "Page.addScriptToEvaluateOnNewDocument"),
+    ).toBe(true);
+    expect(
+      sendCommand.mock.calls.filter(([method]) => method === "Input.dispatchMouseEvent").length,
+    ).toBeGreaterThan(25);
     expect(
       sendCommand.mock.calls.some(
         (call) => call[0] === "Runtime.callFunctionOn" && JSON.stringify(call).includes("outline"),
@@ -377,8 +422,12 @@ describe("AppTabObserver", () => {
     ]);
 
     expect(maximumConcurrentTrees).toBe(1);
-    expect(first).toMatchObject({ snapshot: expect.stringContaining('- button "Save" [ref=d1:e1]') });
-    expect(second).toMatchObject({ snapshot: expect.stringContaining('- button "Save" [ref=d1:e1]') });
+    expect(first).toMatchObject({
+      snapshot: expect.stringContaining('- button "Save" [ref=d1:e1]'),
+    });
+    expect(second).toMatchObject({
+      snapshot: expect.stringContaining('- button "Save" [ref=d1:e1]'),
+    });
   });
 
   it("writes a complete snapshot to the requested artifact path", async () => {
@@ -451,7 +500,9 @@ describe("AppTabObserver", () => {
     });
 
     await expect(observer.snapshot("tab-1", { depth: 1, boxes: true })).resolves.toMatchObject({
-      snapshot: expect.stringContaining('- document "Canvas"\n  - button "Save" [ref=d1:e1] [box=10,20,100,40]'),
+      snapshot: expect.stringContaining(
+        '- document "Canvas"\n  - button "Save" [ref=d1:e1] [box=10,20,100,40]',
+      ),
     });
     await expect(observer.snapshot("tab-1", { target: "d1:e1" })).resolves.toMatchObject({
       snapshot: expect.stringContaining('- button "Save" [ref=d1:e1]'),
@@ -489,7 +540,9 @@ describe("AppTabObserver", () => {
     });
 
     await expect(observer.snapshot("tab-1", { boxes: true })).resolves.toMatchObject({
-      snapshot: expect.stringContaining('- button "Visible" [ref=d1:e1] [box=0,0,80,30]\n- option "Collapsed option" [ref=d1:e2]'),
+      snapshot: expect.stringContaining(
+        '- button "Visible" [ref=d1:e1] [box=0,0,80,30]\n- option "Collapsed option" [ref=d1:e2]',
+      ),
     });
   });
 

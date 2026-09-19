@@ -121,9 +121,24 @@ interface AppTabObserverBridge {
   ): Promise<unknown>;
   evaluate(tabId: string, document: "d1" | "d2", expression: string): Promise<unknown>;
   screenshot(tabId: string, document?: "d1" | "d2", outputPath?: string): Promise<unknown>;
-  record(tabId: string, document: "d1" | "d2", durationMs: number, outputPath: string): Promise<unknown>;
-  trace(tabId: string, document: "d1" | "d2", durationMs: number, outputPath: string): Promise<unknown>;
-  har(tabId: string, document: "d1" | "d2", durationMs: number, outputPath: string): Promise<unknown>;
+  record(
+    tabId: string,
+    document: "d1" | "d2",
+    durationMs: number,
+    outputPath: string,
+  ): Promise<unknown>;
+  trace(
+    tabId: string,
+    document: "d1" | "d2",
+    durationMs: number,
+    outputPath: string,
+  ): Promise<unknown>;
+  har(
+    tabId: string,
+    document: "d1" | "d2",
+    durationMs: number,
+    outputPath: string,
+  ): Promise<unknown>;
 }
 
 export function resolveAppCommandPipePath(_userDataPath: string): string {
@@ -1173,9 +1188,7 @@ function observationDocument(params: Record<string, unknown>): "d1" | "d2" {
   return value;
 }
 
-function appTabActSteps(
-  value: unknown,
-): ReadonlyArray<import("./appTabObserver").AppTabActStep> {
+function appTabActSteps(value: unknown): ReadonlyArray<import("./appTabObserver").AppTabActStep> {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error("steps must be a non-empty array.");
   }

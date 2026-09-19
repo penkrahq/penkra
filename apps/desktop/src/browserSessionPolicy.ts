@@ -2,11 +2,7 @@
 // Purpose: Owns the persistent Electron browser session identity and popup security policy.
 // Layer: Desktop browser infrastructure
 
-import {
-  app,
-  session,
-  type WebContents,
-} from "electron";
+import { app, session, type WebContents } from "electron";
 import { createHash } from "node:crypto";
 import {
   buildAcceptLanguageHeader,
@@ -110,5 +106,4 @@ export class BrowserSessionPolicy {
     webContents.setUserAgent(userAgent);
     return userAgent;
   }
-
 }

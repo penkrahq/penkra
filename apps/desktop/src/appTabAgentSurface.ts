@@ -143,8 +143,9 @@ function myers(left: string[], right: string[]): Edit[] {
     for (let diagonal = -distance; diagonal <= distance; diagonal += 2) {
       let x =
         diagonal === -distance ||
-        (diagonal !== distance && (frontier.get(diagonal - 1) ?? -1) < (frontier.get(diagonal + 1) ?? -1))
-          ? frontier.get(diagonal + 1) ?? 0
+        (diagonal !== distance &&
+          (frontier.get(diagonal - 1) ?? -1) < (frontier.get(diagonal + 1) ?? -1))
+          ? (frontier.get(diagonal + 1) ?? 0)
           : (frontier.get(diagonal - 1) ?? 0) + 1;
       let y = x - diagonal;
       while (x < left.length && y < right.length && left[x] === right[y]) {
@@ -159,7 +160,12 @@ function myers(left: string[], right: string[]): Edit[] {
   return [];
 }
 
-function backtrack(trace: Map<number, number>[], left: string[], right: string[], distance: number): Edit[] {
+function backtrack(
+  trace: Map<number, number>[],
+  left: string[],
+  right: string[],
+  distance: number,
+): Edit[] {
   let x = left.length;
   let y = right.length;
   const edits: Edit[] = [];
@@ -195,7 +201,11 @@ function unified(edits: Edit[]): string {
   if (changed.length === 0) return "";
   const included = new Set<number>();
   for (const index of changed)
-    for (let cursor = Math.max(0, index - 3); cursor <= Math.min(edits.length - 1, index + 3); cursor += 1)
+    for (
+      let cursor = Math.max(0, index - 3);
+      cursor <= Math.min(edits.length - 1, index + 3);
+      cursor += 1
+    )
       included.add(cursor);
   const lines = ["--- before", "+++ after"];
   let cursor = 0;

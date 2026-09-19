@@ -176,11 +176,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
   const loadAppPane = useCallback(
     (pane: RightDockPane) => {
       const bridge = window.desktopBridge?.appTabs;
-      if (
-        pane.appStatus !== "unloaded" ||
-        !bridge ||
-        loadingAppPaneIdsRef.current.has(pane.id)
-      ) {
+      if (pane.appStatus !== "unloaded" || !bridge || loadingAppPaneIdsRef.current.has(pane.id)) {
         return;
       }
       loadingAppPaneIdsRef.current.add(pane.id);

@@ -84,25 +84,25 @@ function Harness() {
             provider="claudeAgent"
             connections={connections}
             authenticationMethods={[
-        {
-          harness: "claudeAgent",
-          authenticationTargetId: "anthropic-first-party",
-          authenticationMethodId: "claude-account",
-          kind: "managed-login",
-          label: "Sign in",
-          groupLabel: "Claude Auth",
-          internalProviderIds: [null],
-        },
-        {
-          harness: "claudeAgent",
-          authenticationTargetId: "anthropic-first-party",
-          authenticationMethodId: "api-key",
-          kind: "static-secret",
-          label: "API key",
-          groupLabel: "Claude API",
-          secretPlaceholder: "Anthropic API key",
-          internalProviderIds: [null],
-        },
+              {
+                harness: "claudeAgent",
+                authenticationTargetId: "anthropic-first-party",
+                authenticationMethodId: "claude-account",
+                kind: "managed-login",
+                label: "Sign in",
+                groupLabel: "Claude Auth",
+                internalProviderIds: [null],
+              },
+              {
+                harness: "claudeAgent",
+                authenticationTargetId: "anthropic-first-party",
+                authenticationMethodId: "api-key",
+                kind: "static-secret",
+                label: "API key",
+                groupLabel: "Claude API",
+                secretPlaceholder: "Anthropic API key",
+                internalProviderIds: [null],
+              },
             ]}
             anonymousRoutes={[]}
             selectedConnectionId={selected}

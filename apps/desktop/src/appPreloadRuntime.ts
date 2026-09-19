@@ -19,9 +19,7 @@ export interface AppPreloadTransport {
   onHostMessage(listener: (message: unknown) => void): () => void;
   ready(): void;
   tabSetRoute(input: import("@penkra/sdk").AppTabNavigationInput): Promise<void>;
-  tabOpenSibling(
-    input?: import("@penkra/sdk").AppTabNavigationInput,
-  ): Promise<{ tabId: string }>;
+  tabOpenSibling(input?: import("@penkra/sdk").AppTabNavigationInput): Promise<{ tabId: string }>;
   tabGetContext(): Promise<{
     deckId: string;
     threadId: string;
