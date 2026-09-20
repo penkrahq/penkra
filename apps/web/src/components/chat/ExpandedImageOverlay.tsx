@@ -1,5 +1,5 @@
 // FILE: ExpandedImageOverlay.tsx
-// Purpose: Shared fullscreen image preview overlay.
+// Purpose: Shared image preview overlay for the primary workspace, below the right App dock.
 // Layer: Chat and composer UI component
 // Exports: ExpandedImageOverlay
 
@@ -25,7 +25,8 @@ export function ExpandedImageOverlay({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-6 [-webkit-app-region:no-drag]"
+      className="fixed inset-y-0 left-0 right-[var(--right-dock-overlay-inset,0px)] z-50 flex items-center justify-center bg-black/75 px-4 py-6 [-webkit-app-region:no-drag]"
+      data-expanded-image-overlay
       role="dialog"
       aria-modal="true"
       aria-label="Expanded image preview"
