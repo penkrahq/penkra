@@ -60,4 +60,74 @@ describe("ExpandedImageOverlay", () => {
       await screen.unmount();
     }
   });
+
+  it("covers the left rail and chat while leaving the right dock interactive", async () => {
+    const screen = await render(
+      <div
+        className="fixed inset-0 flex [--right-dock-overlay-inset:160px]"
+        data-chat-surface-shell
+      >
+        <aside className="w-[160px]" data-testid="left-panel" />
+        <main className="relative h-full min-w-0 flex-1" data-testid="center-panel">
+          <ExpandedImageOverlay
+            expandedImage={{
+              images: [{ src: "data:image/png;base64,center", name: "Center image" }],
+              index: 0,
+            }}
+            onClose={vi.fn()}
+            onNavigate={vi.fn()}
+          />
+        </main>
+        <aside
+          className="h-full w-[160px] bg-background"
+          data-right-dock-root
+          data-testid="right-panel"
+        />
+      </div>,
+    );
+
+    try {
+      const left = document.querySelector<HTMLElement>('[data-testid="left-panel"]');
+      const right = document.querySelector<HTMLElement>('[data-testid="right-panel"]');
+      const overlay = document.querySelector<HTMLElement>(
+        '[role="dialog"][aria-label="Expanded image preview"]',
+      );
+      expect(left).not.toBeNull();
+      expect(right).not.toBeNull();
+      expect(overlay).not.toBeNull();
+
+      const overlayBounds = overlay!.getBoundingClientRect();
+      expect(overlayBounds.left).toBe(0);
+      expect(overlayBounds.top).toBe(0);
+      expect(overlayBounds.right).toBe(right!.getBoundingClientRect().left);
+      expect(overlayBounds.width).toBe(window.innerWidth - right!.getBoundingClientRect().width);
+      expect(overlayBounds.height).toBe(window.innerHeight);
+
+      const imageFrame = overlay!.querySelector<HTMLElement>(":scope > div");
+      expect(imageFrame).not.toBeNull();
+      const imageFrameBounds = imageFrame!.getBoundingClientRect();
+      expect(imageFrameBounds.left + imageFrameBounds.width / 2).toBeCloseTo(
+        overlayBounds.left + overlayBounds.width / 2,
+        1,
+      );
+
+      const leftBounds = left!.getBoundingClientRect();
+      const leftHit = document.elementFromPoint(
+        leftBounds.left + leftBounds.width / 2,
+        leftBounds.height / 2,
+      );
+      expect(leftHit).not.toBeNull();
+      expect(overlay!.contains(leftHit)).toBe(true);
+
+      const rightBounds = right!.getBoundingClientRect();
+      expect(
+        document.elementFromPoint(
+          rightBounds.left + rightBounds.width / 2,
+          rightBounds.top + rightBounds.height / 2,
+        ),
+      ).toBe(right);
+    } finally {
+      await screen.unmount();
+    }
+  });
 });

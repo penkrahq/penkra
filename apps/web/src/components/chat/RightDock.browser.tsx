@@ -79,17 +79,26 @@ describe("RightDock Thread width", () => {
       dock({ open: true, panes: [pane], activePaneId: pane.id, width: 560 }, "thread-a"),
     );
     const wrapper = document.querySelector<HTMLElement>("[data-slot='sidebar-wrapper']");
+    const shell = wrapper?.parentElement;
     expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("560px");
+    expect(shell?.style.getPropertyValue("--right-dock-overlay-inset")).toBe("560px");
 
     await view.rerender(
       dock({ open: true, panes: [pane], activePaneId: pane.id, width: 740 }, "thread-b"),
     );
     expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("740px");
+    expect(shell?.style.getPropertyValue("--right-dock-overlay-inset")).toBe("740px");
 
     await view.rerender(
       dock({ open: true, panes: [pane], activePaneId: pane.id, width: null }, "thread-new"),
     );
     expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("600px");
+    expect(shell?.style.getPropertyValue("--right-dock-overlay-inset")).toBe("600px");
+
+    await view.rerender(
+      dock({ open: false, panes: [pane], activePaneId: pane.id, width: null }, "thread-new"),
+    );
+    expect(shell?.style.getPropertyValue("--right-dock-overlay-inset")).toBe("0px");
   });
 
   it("reconciles the rendered dock width when its parent shell shrinks", async () => {

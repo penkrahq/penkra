@@ -481,6 +481,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME,
           "relative",
         )}
+        data-chat-surface-shell
         onContextMenuCapture={(event) => {
           if (
             !showThreadResourceContextMenu({
