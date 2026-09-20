@@ -133,13 +133,14 @@ export function RightDock(props: RightDockProps) {
     return () => window.clearTimeout(timer);
   }, [props.state.open]);
   useLayoutEffect(() => {
-    if (!props.state.open) {
-      return;
-    }
     const wrapper = contentRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
     const shell = wrapper?.parentElement;
     if (!wrapper || !shell) {
       return;
+    }
+    if (!props.state.open) {
+      shell.style.setProperty("--right-dock-overlay-inset", "0px");
+      return () => shell.style.removeProperty("--right-dock-overlay-inset");
     }
     let resizeFrameId: number | null = null;
     const applyAvailableWidth = () => {
@@ -150,6 +151,7 @@ export function RightDock(props: RightDockProps) {
       if (nextWidth > 0) {
         publishNativeAppBoundsForWidth(wrapper, nextWidth);
         wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
+        shell.style.setProperty("--right-dock-overlay-inset", `${nextWidth}px`);
       }
     };
     const scheduleAvailableWidth = () => {
@@ -178,6 +180,7 @@ export function RightDock(props: RightDockProps) {
       if (resizeFrameId !== null) {
         window.cancelAnimationFrame(resizeFrameId);
       }
+      shell.style.removeProperty("--right-dock-overlay-inset");
     };
   }, [props.contentMinWidth, props.motionKey, props.state.open, props.state.width, minWidth]);
   // Motion allowance keyed to the current motionKey: a key change (reposition/
@@ -214,6 +217,7 @@ export function RightDock(props: RightDockProps) {
       open={props.state.open}
       onOpenChange={props.onOpenChange}
       className="w-auto min-h-0 flex-none bg-transparent"
+      data-right-dock-root
       style={{ "--sidebar-width": props.defaultWidth } as CSSProperties}
     >
       <Sidebar
