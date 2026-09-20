@@ -11092,7 +11092,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("does not expose plan mode or plan details in the composer", async () => {
+  it("does not expose plan mode or runtime permission selection in the composer", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -11105,6 +11105,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await page.getByLabelText("Attach files").click();
       expect(document.body.textContent).not.toContain("Plan mode");
       expect(document.body.textContent).not.toContain("Plan details");
+      expect(document.querySelector('[data-pencil-action="access"]')).toBeNull();
+      expect(document.querySelector('[aria-label="Full access permissions"]')).toBeNull();
+      expect(document.body.textContent).not.toContain("Default permissions");
       expect(document.querySelector('[aria-label="Show plan details sidebar"]')).toBeNull();
     } finally {
       await mounted.cleanup();

@@ -245,7 +245,6 @@ import {
   useComposerCommandMenuItems,
 } from "../hooks/useComposerCommandMenuItems";
 import { useProviderModelCatalog } from "../hooks/useProviderModelCatalog";
-import { RuntimeUsageControls } from "./RuntimeUsageControls";
 import { PenkraMark } from "./foundations/penkra-mark-shared/PenkraMark";
 import {
   formatShortcutLabel,
@@ -4546,47 +4545,6 @@ export default function ChatView({
       }
     },
     [activeProject, persistProjectScripts],
-  );
-
-  const handleRuntimeModeChange = useCallback(
-    (mode: RuntimeMode) => {
-      if (mode === runtimeMode) return;
-      setComposerDraftRuntimeMode(threadId, mode);
-      if (isLocalDraftThread) {
-        setDraftThreadContext(threadId, { runtimeMode: mode });
-      }
-      if (serverThread) {
-        const api = readNativeApi();
-        if (api) {
-          void api.orchestration
-            .dispatchCommand({
-              type: "thread.runtime-mode.set",
-              commandId: newCommandId(),
-              threadId,
-              runtimeMode: mode,
-              createdAt: new Date().toISOString(),
-            })
-            .catch((error) => {
-              toastManager.add({
-                type: "error",
-                title: "Could not update access mode",
-                description:
-                  error instanceof Error ? error.message : "An unexpected error occurred.",
-              });
-            });
-        }
-      }
-      scheduleComposerFocus();
-    },
-    [
-      isLocalDraftThread,
-      runtimeMode,
-      scheduleComposerFocus,
-      serverThread,
-      setComposerDraftRuntimeMode,
-      setDraftThreadContext,
-      threadId,
-    ],
   );
 
   const persistThreadSettingsForNextTurn = useCallback(
@@ -9134,17 +9092,9 @@ export default function ChatView({
     isEmpty: timelineEntries.length === 0,
   });
 
-  const runtimeUsageControlsProps = {
-    runtimeMode,
-    onRuntimeModeChange: handleRuntimeModeChange,
-    contextWindow: runtimeUsageContextWindow,
-    cumulativeCostUsd: activeCumulativeCostUsd,
-    activeContextWindowLabel: contextWindowSelectionStatus.activeLabel,
-    pendingContextWindowLabel: contextWindowSelectionStatus.pendingSelectedLabel,
-  };
   // Pencil's narrow variants hide lower-priority actions in place. Controls
   // never relocate into the removed legacy toolbar row below the composer.
-  const renderComposerLeadingControls = (options: { iconOnly: boolean }) => (
+  const renderComposerLeadingControls = () => (
     <>
       <span className="inline-flex shrink-0" data-pencil-action="attach">
         <ComposerExtrasMenu
@@ -9154,15 +9104,6 @@ export default function ChatView({
           onToggleFastMode={toggleFastMode}
         />
       </span>
-      {!isVoiceRecording && !isVoiceTranscribing ? (
-        <span className="inline-flex shrink-0 @max-[390px]:hidden" data-pencil-action="access">
-          <RuntimeUsageControls
-            {...runtimeUsageControlsProps}
-            className="shrink-0"
-            hideLabel={options.iconOnly}
-          />
-        </span>
-      ) : null}
     </>
   );
   const idleComposerVoiceControl =
@@ -9435,9 +9376,7 @@ export default function ChatView({
                   className={cn("@container", COMPOSER_FOOTER_ROW_CLASS_NAME)}
                 >
                   <ComposerFooterActions
-                    applicationLeading={renderComposerLeadingControls({
-                      iconOnly: false,
-                    })}
+                    applicationLeading={renderComposerLeadingControls()}
                     applicationTrailingExpands={isVoiceRecording || isVoiceTranscribing}
                     applicationTrailing={
                       <>
