@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 
 import { IconActionTooltip } from "~/components/foundations/icon-action-tooltip/IconActionTooltip";
 
-import { AccessPillTrigger } from "../access-pill-trigger/AccessPillTrigger";
 import { ButtonSend } from "../button-send/ButtonSend";
 import { HarnessSelectorShared } from "../harness-selector-shared/HarnessSelectorShared";
 
@@ -12,7 +11,6 @@ export interface ComposerActionsProps {
   applicationTrailing?: ReactNode;
   applicationTrailingExpands?: boolean;
   disabled?: boolean;
-  onAccess?: () => void;
   onAttach?: () => void;
   onMode?: () => void;
   onVoice?: () => void;
@@ -25,7 +23,6 @@ export function ComposerActions({
   applicationTrailing,
   applicationTrailingExpands = false,
   disabled = false,
-  onAccess,
   onAttach,
   onMode,
   onVoice,
@@ -70,7 +67,6 @@ export function ComposerActions({
       >
         <IconPlus />
       </IconActionTooltip>
-      <AccessPillTrigger onClick={onAccess} />
       <span className="min-w-2 flex-1" />
       {showHarness ? <HarnessSelectorShared /> : null}
       <IconActionTooltip
