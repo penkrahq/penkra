@@ -565,6 +565,7 @@ export interface DesktopAppTabsBridge {
     bounds: { x: number; y: number; width: number; height: number };
   }) => Promise<void>;
   hide: (input: { tabId: string; animate?: boolean }) => Promise<void>;
+  trace: (input: { event: string; tabId?: string; details?: Record<string, unknown> }) => void;
   overlayActive: (active: boolean) => void;
   setContext: (input: { tabId: string; deckId: string; threadId: string }) => Promise<void>;
   navigate: (input: { tabId: string; route: string; state?: unknown }) => Promise<void>;
