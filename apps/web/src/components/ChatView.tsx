@@ -483,7 +483,7 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerSlashCommands } from "../hooks/useComposerSlashCommands";
 import { useFeatureFlags } from "../featureFlags";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
-import { buildModelSelection, buildNextProviderOptions } from "../providerModelOptions";
+import { buildModelSelection } from "../providerModelOptions";
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
@@ -8313,29 +8313,6 @@ export default function ChatView({
   const ComposerFooterActions = useSplitComposerPickerControls
     ? ComposerActionsEmptyThread
     : ComposerActions;
-  const toggleFastMode = useCallback(() => {
-    if (!composerTraitSelection.caps.supportsFastMode) {
-      scheduleComposerFocus();
-      return;
-    }
-    setComposerDraftProviderModelOptions(
-      threadId,
-      selectedProvider,
-      buildNextProviderOptions(selectedProvider, selectedProviderModelOptions, {
-        fastMode: !composerTraitSelection.fastModeEnabled,
-      }),
-      { persistSticky: true },
-    );
-    scheduleComposerFocus();
-  }, [
-    composerTraitSelection.caps.supportsFastMode,
-    composerTraitSelection.fastModeEnabled,
-    scheduleComposerFocus,
-    selectedProvider,
-    selectedProviderModelOptions,
-    setComposerDraftProviderModelOptions,
-    threadId,
-  ]);
   const handleResetWorkspaceToHome = useCallback(() => {
     if (!isLocalDraftThread) return;
     setDraftThreadContext(threadId, { workingDirectory: null });
@@ -9110,12 +9087,7 @@ export default function ChatView({
   const renderComposerLeadingControls = () => (
     <>
       <span className="inline-flex shrink-0" data-pencil-action="attach">
-        <ComposerExtrasMenu
-          supportsFastMode={composerTraitSelection.caps.supportsFastMode}
-          fastModeEnabled={composerTraitSelection.fastModeEnabled}
-          onAddAttachments={addComposerAttachments}
-          onToggleFastMode={toggleFastMode}
-        />
+        <ComposerExtrasMenu onAddAttachments={addComposerAttachments} />
       </span>
     </>
   );
