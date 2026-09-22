@@ -3747,10 +3747,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(document.querySelector('[data-pencil-component="BtaMG"]')).not.toBeNull();
         expect(document.querySelector('[data-pencil-component="chpd8"]')).not.toBeNull();
         expect(document.querySelector('[data-pencil-component="N4buaG"]')).not.toBeNull();
-        const accessIcon = document.querySelector<SVGSVGElement>('[data-pencil-node="Bo845"]');
-        expect(accessIcon).not.toBeNull();
-        expect(accessIcon?.querySelector('[data-pencil-node="z9iYLc"]')).not.toBeNull();
-        expect(accessIcon?.getAttribute("viewBox")).toBe("0 0 13.99993896484375 14");
+        expect(document.querySelector('[aria-label="Full access permissions"]')).toBeNull();
       });
     } finally {
       await mounted.cleanup();
