@@ -2,7 +2,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { findNativeUpgradeProcesses } from "./native-upgrade-processes";
+import {
+  findNativeUpgradeProcesses,
+  stopProcessesUntilQuiescent,
+} from "./native-upgrade-processes";
 
 it("selects only exact inherited profile markers, including relocated executables", () => {
   const root = mkdtempSync(join(tmpdir(), "native-upgrade-proc-"));
@@ -22,4 +25,21 @@ it("selects only exact inherited profile markers, including relocated executable
   } finally {
     rmSync(root, { recursive: true });
   }
+});
+
+it("stops an owner that appears after the first owner exits", async () => {
+  const observations = [[11], [], [12], [], [], [], [], []];
+  const signalled: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+
+  await stopProcessesUntilQuiescent({
+    findProcesses: () => observations.shift() ?? [],
+    signalProcess: (pid, signal) => signalled.push({ pid, signal }),
+    wait: async () => undefined,
+  });
+
+  expect(signalled).toEqual([
+    { pid: 11, signal: "SIGTERM" },
+    { pid: 12, signal: "SIGTERM" },
+  ]);
+  expect(observations).toEqual([]);
 });
