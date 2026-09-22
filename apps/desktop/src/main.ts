@@ -1296,7 +1296,6 @@ async function showPenkraResourceContextMenu(input: {
 
   const window = input.ownerWindow ?? resolveShellWindow();
   if (!window) return null;
-  const thawAppView = await freezeAppViewForWindow(window);
   const selection = createContextMenuSelection<string>();
   const choices = new Map(model.choices.map((choice) => [choice.id, choice]));
   Menu.buildFromTemplate([
@@ -1312,7 +1311,6 @@ async function showPenkraResourceContextMenu(input: {
     x: Math.max(0, Math.floor(input.position.x)),
     y: Math.max(0, Math.floor(input.position.y)),
     callback: () => {
-      thawAppView();
       selection.dismiss();
     },
   });
@@ -1420,14 +1418,33 @@ let appCommandPipeServer: AppCommandPipeServer | null = null;
 const appBrowserOwnerByTabId = new Map<string, { appId: string; spaceId: string }>();
 const configuredAppBrowserDownloadPartitions = new Set<string>();
 let configuredUpdaterCacheDirName: string | null = null;
+let appTabDiagnosticSequence = 0;
 
-async function freezeAppViewForWindow(window: BrowserWindow): Promise<() => void> {
-  const tabId = desktopAppRuntime?.appTabs.tabForWindow(window.webContents.id)?.id ?? null;
-  if (!tabId) return () => undefined;
-  await desktopAppRuntime!.appTabs.freeze(tabId);
-  return () => {
-    desktopAppRuntime?.appTabs.thaw(tabId);
+function traceAppTab(event: string, details: Record<string, unknown> = {}): void {
+  console.info("[app-tab-diagnostic]", {
+    ...details,
+    sequence: ++appTabDiagnosticSequence,
+    monotonicMs: Math.round(performance.now()),
+    event,
+  });
+}
+
+function traceAppTabWindow(window: BrowserWindow, event: string): void {
+  const details = {
+    browserWindowId: window.id,
+    rendererId: window.webContents.id,
+    isVisible: window.isVisible(),
+    isMinimized: window.isMinimized(),
+    isFocused: window.isFocused(),
   };
+  void window.webContents
+    .executeJavaScript(
+      "({ visibilityState: document.visibilityState, hasFocus: document.hasFocus() })",
+    )
+    .then((rendererState: unknown) => traceAppTab(event, { ...details, rendererState }))
+    .catch((error: unknown) =>
+      traceAppTab(event, { ...details, rendererStateError: formatErrorMessage(error) }),
+    );
 }
 
 function resizeAppTabWindow(windowId: number, width: number, height: number): void {
@@ -1531,14 +1548,12 @@ async function showAppContextMenu(
       : null;
   const window = ownerWindow;
   if (!window) return null;
-  const thawAppView = await freezeAppViewForWindow(window);
   const selection = createContextMenuSelection<string>();
   const template = appContextMenuTemplate(normalizedItems, selection.select);
   Menu.buildFromTemplate(template).popup({
     window,
     ...popupPosition,
     callback: () => {
-      thawAppView();
       selection.dismiss();
     },
   });
@@ -6351,6 +6366,24 @@ function registerIpcHandlers(): void {
       ipcMain.removeHandler(channel);
     }
   }
+  ipcMain.removeAllListeners(IPC.appTabs.trace);
+  ipcMain.on(IPC.appTabs.trace, (event, input: unknown) => {
+    if (!isShellRendererId(event.sender.id)) return;
+    if (!input || typeof input !== "object" || Array.isArray(input)) return;
+    const { event: traceEvent, tabId, details } = input as Record<string, unknown>;
+    if (typeof traceEvent !== "string" || !traceEvent || traceEvent.length > 120) return;
+    if (tabId !== undefined && typeof tabId !== "string") return;
+    if (
+      details !== undefined &&
+      (!details || typeof details !== "object" || Array.isArray(details))
+    )
+      return;
+    traceAppTab(traceEvent, {
+      ...((details as Record<string, unknown> | undefined) ?? {}),
+      rendererId: event.sender.id,
+      ...(typeof tabId === "string" ? { tabId } : {}),
+    });
+  });
   ipcMain.handle(IPC.appTabs.consumeListingRequest, async (event) => {
     requireShellAppTabs(event.sender.id);
     const request = pendingAppListingRequest;
@@ -6399,6 +6432,14 @@ function registerIpcHandlers(): void {
     }
     requireShellAppTabs(event.sender.id);
     const appBounds = bounds as Electron.Rectangle;
+    traceAppTab("shell-present-ipc", {
+      tabId,
+      rendererId: event.sender.id,
+      deckId,
+      threadId,
+      animate: animate === true,
+      bounds: appBounds,
+    });
     await presentAppTabInWindow({
       tabId,
       deckId,
@@ -6419,6 +6460,11 @@ function registerIpcHandlers(): void {
     if (animate !== undefined && typeof animate !== "boolean") return;
     const tabs = requireShellAppTabs(event.sender.id);
     if (tabs.has(tabId)) {
+      traceAppTab("shell-hide-ipc", {
+        tabId,
+        rendererId: event.sender.id,
+        animate: animate === true,
+      });
       await hideAppTabInWindow(tabId, event.sender.id, animate === true);
     }
   });
@@ -7120,6 +7166,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     },
   });
   window.on("focus", () => {
+    traceAppTabWindow(window, "shell-window-focus");
     const windowSpaces = spacesMenuStateByShellRendererId.get(window.webContents.id);
     if (windowSpaces) {
       spacesMenuState = windowSpaces;
@@ -7131,11 +7178,12 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
       );
     });
   });
+  window.on("blur", () => traceAppTabWindow(window, "shell-window-blur"));
   attachDesktopZoomFactorSync(window);
   attachRendererCrashRecovery(window);
   attachDesktopWindowShortcuts(window.webContents);
 
-  window.webContents.on("context-menu", async (event, params) => {
+  window.webContents.on("context-menu", (event, params) => {
     event.preventDefault();
 
     const menuTemplate: MenuItemConstructorOptions[] = [];
@@ -7168,8 +7216,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
       { role: "selectAll", enabled: params.editFlags.canSelectAll },
     );
 
-    const thawAppView = await freezeAppViewForWindow(window);
-    Menu.buildFromTemplate(menuTemplate).popup({ window, callback: thawAppView });
+    Menu.buildFromTemplate(menuTemplate).popup({ window });
   });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -7224,10 +7271,22 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     const contentBounds = window.getContentBounds();
     resizeAppTabWindow(rendererOwnerId, contentBounds.width, contentBounds.height);
   });
-  window.on("hide", () => void setAppTabWindowVisibility(rendererOwnerId, false));
-  window.on("show", () => void setAppTabWindowVisibility(rendererOwnerId, true));
-  window.on("minimize", () => void setAppTabWindowVisibility(rendererOwnerId, false));
-  window.on("restore", () => void setAppTabWindowVisibility(rendererOwnerId, true));
+  window.on("hide", () => {
+    traceAppTabWindow(window, "shell-window-hide");
+    void setAppTabWindowVisibility(rendererOwnerId, false);
+  });
+  window.on("show", () => {
+    traceAppTabWindow(window, "shell-window-show");
+    void setAppTabWindowVisibility(rendererOwnerId, true);
+  });
+  window.on("minimize", () => {
+    traceAppTabWindow(window, "shell-window-minimize");
+    void setAppTabWindowVisibility(rendererOwnerId, false);
+  });
+  window.on("restore", () => {
+    traceAppTabWindow(window, "shell-window-restore");
+    void setAppTabWindowVisibility(rendererOwnerId, true);
+  });
   window.on("maximize", () => {
     emitDesktopWindowState(window);
     const contentBounds = window.getContentBounds();

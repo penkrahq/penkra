@@ -2,11 +2,59 @@ import { describe, expect, it } from "vitest";
 
 import {
   dockTransitionProgress,
+  resolveAppTabPresentationMode,
   resizedAppTabBounds,
   shouldApplyAppTabHide,
+  shouldKeepNativeAppViewVisible,
   shouldKeepPresentationAnimation,
   shouldPresentAppView,
 } from "./appTabViewHost";
+
+describe("resolveAppTabPresentationMode", () => {
+  it("uses the captured replica while the owner window is hidden", () => {
+    expect(
+      resolveAppTabPresentationMode({
+        ownsWindow: true,
+        presentationVisible: true,
+        windowVisible: false,
+        hasReplica: true,
+      }),
+    ).toBe("replica");
+  });
+
+  it("keeps a selected owner live while its window is visible", () => {
+    expect(
+      resolveAppTabPresentationMode({
+        ownsWindow: true,
+        presentationVisible: true,
+        windowVisible: true,
+        hasReplica: true,
+      }),
+    ).toBe("live");
+  });
+
+  it("hides an inactive presentation even when a replica exists", () => {
+    expect(
+      resolveAppTabPresentationMode({
+        ownsWindow: true,
+        presentationVisible: false,
+        windowVisible: false,
+        hasReplica: true,
+      }),
+    ).toBe("hidden");
+  });
+});
+
+describe("shouldKeepNativeAppViewVisible", () => {
+  it("keeps a selected native view composited with its hidden parent window", () => {
+    expect(shouldKeepNativeAppViewVisible({ visibleRequested: true, freezeDepth: 0 })).toBe(true);
+  });
+
+  it("hides deselected and frozen native views", () => {
+    expect(shouldKeepNativeAppViewVisible({ visibleRequested: false, freezeDepth: 0 })).toBe(false);
+    expect(shouldKeepNativeAppViewVisible({ visibleRequested: true, freezeDepth: 1 })).toBe(false);
+  });
+});
 
 describe("dockTransitionProgress", () => {
   it("matches the shell dock cubic-bezier checkpoints", () => {
