@@ -8,11 +8,17 @@ import type { DesktopAppTabPresentation } from "@penkra/contracts";
 import { AppDockPane } from "./AppDockPane";
 
 const originalBridge = Object.getOwnPropertyDescriptor(window, "desktopBridge");
+const originalVisibilityState = Object.getOwnPropertyDescriptor(document, "visibilityState");
 
 afterEach(() => {
   document.body.innerHTML = "";
   if (originalBridge) Object.defineProperty(window, "desktopBridge", originalBridge);
   else Reflect.deleteProperty(window, "desktopBridge");
+  if (originalVisibilityState) {
+    Object.defineProperty(document, "visibilityState", originalVisibilityState);
+  } else {
+    Reflect.deleteProperty(document, "visibilityState");
+  }
 });
 
 function installBridge() {
@@ -25,6 +31,7 @@ function installBridge() {
       appTabs: {
         present,
         hide,
+        trace: vi.fn(async () => undefined),
         onPresentation: (listener: (value: DesktopAppTabPresentation) => void) => {
           presentationListener = listener;
           return () => {
@@ -126,6 +133,30 @@ describe("AppDockPane native view controller", () => {
     );
   });
 
+  it("hides the main-owned view when the App renderer crashes", async () => {
+    const bridge = installBridge();
+    await render(
+      <AppDockPane
+        deckId="deck-1"
+        threadId="thread-1"
+        appName="Canvas"
+        rendererId={101}
+        status="crashed"
+        tabId="crashed-tab"
+        visible
+        animateEntrance={false}
+        animationStartedAtEpochMs={null}
+      />,
+    );
+    await vi.waitFor(() =>
+      expect(bridge.hide).toHaveBeenCalledWith({
+        tabId: "crashed-tab",
+        animate: false,
+      }),
+    );
+    expect(bridge.present).not.toHaveBeenCalled();
+  });
+
   it("starts presenting while the App document is still loading", async () => {
     const bridge = installBridge();
     await render(
@@ -152,6 +183,32 @@ describe("AppDockPane native view controller", () => {
         }),
       ),
     );
+  });
+
+  it("preserves presentation intent when the shell document is hidden", async () => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    const bridge = installBridge();
+    await render(
+      <div data-slot="sidebar-wrapper" style={{ "--sidebar-width": "500px" } as CSSProperties}>
+        <AppDockPane
+          deckId="deck-1"
+          threadId="thread-1"
+          appName="Browser"
+          rendererId={101}
+          status="ready"
+          tabId="hidden-window-tab"
+          visible
+          animateEntrance={false}
+          animationStartedAtEpochMs={null}
+        />
+      </div>,
+    );
+
+    await vi.waitFor(() => expect(bridge.present).toHaveBeenCalledOnce());
+    expect(bridge.hide).not.toHaveBeenCalled();
   });
 
   it("shows a dimmed last-frame replica and transfers ownership when clicked", async () => {

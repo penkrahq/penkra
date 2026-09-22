@@ -235,6 +235,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     open: (input) => ipcRenderer.invoke(IPC.appTabs.open, input),
     present: (input) => ipcRenderer.invoke(IPC.appTabs.present, input),
     hide: (input) => ipcRenderer.invoke(IPC.appTabs.hide, input),
+    trace: (input) => ipcRenderer.send(IPC.appTabs.trace, input),
     overlayActive: (active) => ipcRenderer.sendSync(IPC.appTabs.overlayActive, active),
     setContext: (input) => ipcRenderer.invoke(IPC.appTabs.setContext, input),
     navigate: (input) => ipcRenderer.invoke(IPC.appTabs.navigate, input),

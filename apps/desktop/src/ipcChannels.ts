@@ -138,6 +138,7 @@ export const DESKTOP_IPC_CHANNELS = {
     state: "desktop:app-tabs-state",
     closed: "desktop:app-tabs-closed",
     presentation: "desktop:app-tabs-presentation",
+    trace: "desktop:app-tabs-trace",
     list: "desktop:app-tabs-list",
     open: "desktop:app-tabs-open",
     openFromApps: "desktop:app-tabs-open-from-apps",
