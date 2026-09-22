@@ -24,27 +24,42 @@ export function AppDockPane(props: {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const wasVisibleRef = useRef(false);
   const [presentation, setPresentation] = useState<DesktopAppTabPresentation | null>(null);
+  const trace = useCallback(
+    (event: string, details: Record<string, unknown> = {}) => {
+      window.desktopBridge?.appTabs?.trace({
+        event,
+        tabId: props.tabId,
+        details: {
+          rendererMonotonicMs: Math.round(performance.now()),
+          documentVisibility: document.visibilityState,
+          documentHasFocus: document.hasFocus(),
+          deckId: props.deckId,
+          threadId: props.threadId,
+          ...details,
+        },
+      });
+    },
+    [props.deckId, props.tabId, props.threadId],
+  );
   const present = useCallback(() => {
     const bridge = window.desktopBridge?.appTabs;
     const wrapper = rootRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
-    if (!bridge || !wrapper) return;
-    const width = wrapper.getBoundingClientRect().width;
-    if (!Number.isFinite(width) || width <= 0) {
-      console.warn("[app-tab-presentation] renderer-present-skipped", {
-        tabId: props.tabId,
-        deckId: props.deckId,
-        threadId: props.threadId,
-        reason: "invalid-rendered-width",
-        width,
+    if (!bridge || !wrapper) {
+      trace("renderer-present-skipped", {
+        reason: bridge ? "missing-sidebar-wrapper" : "missing-desktop-bridge",
       });
       return;
     }
-    console.info("[app-tab-presentation] renderer-present-requested", {
-      tabId: props.tabId,
-      deckId: props.deckId,
-      threadId: props.threadId,
+    const width = wrapper.getBoundingClientRect().width;
+    if (!Number.isFinite(width) || width <= 0) {
+      trace("renderer-present-skipped", { reason: "invalid-rendered-width", width });
+      return;
+    }
+    trace("renderer-present-requested", {
       width,
       animate: props.animateEntrance,
+      status: props.status,
+      paneVisible: props.visible,
     });
     void bridge.present({
       tabId: props.tabId,
@@ -62,20 +77,59 @@ export function AppDockPane(props: {
     props.deckId,
     props.tabId,
     props.threadId,
+    props.status,
+    props.visible,
+    trace,
   ]);
+
+  useLayoutEffect(() => {
+    trace("renderer-pane-mounted", { status: props.status, paneVisible: props.visible });
+    const onVisibilityChange = () => trace("renderer-document-visibility-changed");
+    const onFocus = () => trace("renderer-window-focused");
+    const onBlur = () => trace("renderer-window-blurred");
+    const onPageShow = (event: PageTransitionEvent) =>
+      trace("renderer-page-shown", { persisted: event.persisted });
+    const onPageHide = (event: PageTransitionEvent) =>
+      trace("renderer-page-hidden", { persisted: event.persisted });
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      trace("renderer-pane-unmounted", { status: props.status, paneVisible: props.visible });
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, [props.status, props.visible, trace]);
 
   useLayoutEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
     return bridge.onPresentation((next) => {
-      if (next.tabId === props.tabId) setPresentation(next);
+      if (next.tabId === props.tabId) {
+        trace("renderer-presentation-received", {
+          mode: next.mode,
+          ownerWindowId: next.ownerWindowId,
+        });
+        setPresentation(next);
+      }
     });
-  }, [props.tabId]);
+  }, [props.tabId, trace]);
 
   useLayoutEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
-    if (!props.visible || props.status === "crashed" || document.visibilityState !== "visible") {
+    if (!props.visible || props.status === "crashed") {
+      trace("renderer-hide-requested", {
+        reason: !props.visible ? "pane-not-visible" : "app-crashed",
+        status: props.status,
+        paneVisible: props.visible,
+        animate: wasVisibleRef.current && !props.visible,
+      });
       void bridge.hide({
         tabId: props.tabId,
         animate: wasVisibleRef.current && !props.visible,
@@ -94,13 +148,15 @@ export function AppDockPane(props: {
     props.threadId,
     props.visible,
     present,
+    trace,
   ]);
 
   useLayoutEffect(
     () => () => {
+      trace("renderer-cleanup-hide-requested");
       void window.desktopBridge?.appTabs?.hide({ tabId: props.tabId }).catch(() => undefined);
     },
-    [props.tabId],
+    [props.tabId, trace],
   );
 
   return (

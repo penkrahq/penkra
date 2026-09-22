@@ -164,6 +164,24 @@ export interface AppTabReplicaFrame {
   pageTop: number;
 }
 
+export function resolveAppTabPresentationMode(input: {
+  ownsWindow: boolean;
+  presentationVisible: boolean;
+  windowVisible: boolean;
+  hasReplica: boolean;
+}): DesktopAppTabPresentation["mode"] {
+  if (input.ownsWindow && input.presentationVisible && input.windowVisible) return "live";
+  if (input.presentationVisible && input.hasReplica) return "replica";
+  return "hidden";
+}
+
+export function shouldKeepNativeAppViewVisible(input: {
+  visibleRequested: boolean;
+  freezeDepth: number;
+}): boolean {
+  return input.visibleRequested && input.freezeDepth === 0;
+}
+
 export function shouldPresentAppView(input: {
   selected: boolean;
   attached: boolean;
@@ -214,6 +232,17 @@ export function resizedAppTabBounds(input: {
     width,
     height: Math.max(1, input.height - input.bottom - input.bounds.y),
   };
+}
+
+let appTabHostTraceSequence = 0;
+
+function traceAppTabHost(event: string, details: Record<string, unknown> = {}): void {
+  console.info("[app-tab-host]", {
+    ...details,
+    sequence: ++appTabHostTraceSequence,
+    monotonicMs: Math.round(performance.now()),
+    event,
+  });
 }
 
 export class AppTabViewHost implements AppTabHost {
@@ -522,7 +551,23 @@ export class AppTabViewHost implements AppTabHost {
   }): Promise<void> {
     const record = this.#require(input.tabId);
     const window = this.#windowById(input.windowId);
-    if (!window || window.isDestroyed()) return;
+    traceAppTabHost("present-started", {
+      tabId: input.tabId,
+      windowId: input.windowId,
+      deckId: input.deckId,
+      threadId: input.threadId,
+      ownerWindowId: record.ownerWindowId,
+      freezeDepth: record.freezeDepth,
+      appViewVisible: record.appView.getVisible(),
+    });
+    if (!window || window.isDestroyed()) {
+      traceAppTabHost("present-skipped", {
+        tabId: input.tabId,
+        windowId: input.windowId,
+        reason: "window-unavailable",
+      });
+      return;
+    }
     const content = window.getContentBounds();
     const width = Math.max(1, Math.min(Math.round(input.bounds.width), content.width));
     const y = Math.max(0, Math.min(Math.round(input.bounds.y), content.height - 1));
@@ -576,19 +621,24 @@ export class AppTabViewHost implements AppTabHost {
       input.animate === true,
       input.animationStartedAtEpochMs,
     );
-    console.info("[app-tab-presentation] host-presented", {
+    traceAppTabHost("present-applied", {
       tabId: input.tabId,
       deckId: input.deckId,
       threadId: input.threadId,
       windowId: input.windowId,
+      ownerWindowId: record.ownerWindowId,
+      selectedAt: presentations.get(input.windowId)?.selectedAt ?? null,
       bounds,
       animate: input.animate === true,
+      windowVisible: window.isVisible(),
+      windowMinimized: window.isMinimized(),
       appViewVisible: record.appView.getVisible(),
       appViewIndex: window.contentView.children.indexOf(record.appView),
       childViewCount: window.contentView.children.length,
-      appViewUrl: record.appView.webContents.getURL(),
+      hostedPageVisible: record.page?.view.getVisible() ?? false,
       appViewLoading: record.appView.webContents.isLoading(),
       appViewCrashed: record.appView.webContents.isCrashed(),
+      hostedPageLoading: record.page?.view.webContents.isLoading() ?? false,
     });
     this.#emitPresentation(input.tabId);
   }
@@ -598,26 +648,36 @@ export class AppTabViewHost implements AppTabHost {
     const presentation = this.#presentationsByTabId.get(tabId)?.get(windowId);
     const selectedAt = presentation?.selectedAt ?? null;
     if (presentation) presentation.visible = false;
-    console.info("[app-tab-presentation] host-hide-requested", {
+    traceAppTabHost("hide-requested", {
       tabId,
       windowId,
       ownerWindowId: record.ownerWindowId,
       hadPresentation: presentation !== undefined,
       selectedAt,
       animate,
+      appViewVisible: record.appView.getVisible(),
     });
     if (record.ownerWindowId !== windowId) {
+      traceAppTabHost("hide-skipped", { tabId, windowId, reason: "owner-window-mismatch" });
       this.#emitPresentation(tabId);
       return;
     }
+    traceAppTabHost("hide-replica-capture-started", { tabId, windowId, selectedAt });
     try {
       this.#replicaFrameByTabId.set(tabId, await this.captureReplica(tabId));
-    } catch {
+      traceAppTabHost("hide-replica-capture-completed", { tabId, windowId, selectedAt });
+    } catch (error) {
+      traceAppTabHost("hide-replica-capture-failed", {
+        tabId,
+        windowId,
+        selectedAt,
+        error: safeErrorMessage(error),
+      });
       // A hidden/closing surface may no longer be paintable.
     }
     const currentPresentation = this.#presentationsByTabId.get(tabId)?.get(windowId);
     if (!shouldApplyAppTabHide(currentPresentation, selectedAt)) {
-      console.info("[app-tab-presentation] host-hide-superseded", {
+      traceAppTabHost("hide-superseded", {
         tabId,
         windowId,
         requestedSelectedAt: selectedAt,
@@ -628,11 +688,12 @@ export class AppTabViewHost implements AppTabHost {
       return;
     }
     this.hide(tabId, animate, windowId);
-    console.info("[app-tab-presentation] host-hide-applied", {
+    traceAppTabHost("hide-applied", {
       tabId,
       windowId,
       selectedAt,
       animate,
+      appViewVisible: record.appView.getVisible(),
     });
     const fallback = this.#latestVisiblePresentation(tabId, windowId);
     if (fallback) {
@@ -650,16 +711,32 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   async setWindowVisibility(windowId: number, visible: boolean): Promise<void> {
+    traceAppTabHost("window-visibility-started", { windowId, visible });
     for (const [tabId, presentations] of this.#presentationsByTabId) {
       const presentation = presentations.get(windowId);
       if (!presentation) continue;
       presentation.windowVisible = visible;
       const record = this.#records.get(tabId);
       if (!record) continue;
+      traceAppTabHost("window-visibility-tab", {
+        tabId,
+        windowId,
+        visible,
+        presentationVisible: presentation.visible,
+        ownerWindowId: record.ownerWindowId,
+        appViewVisible: record.appView.getVisible(),
+      });
       if (!visible && record.ownerWindowId === windowId) {
+        traceAppTabHost("window-hide-replica-capture-started", { tabId, windowId });
         try {
           this.#replicaFrameByTabId.set(tabId, await this.captureReplica(tabId));
-        } catch {
+          traceAppTabHost("window-hide-replica-capture-completed", { tabId, windowId });
+        } catch (error) {
+          traceAppTabHost("window-hide-replica-capture-failed", {
+            tabId,
+            windowId,
+            error: safeErrorMessage(error),
+          });
           // The window can become hidden before Chromium produces a frame.
         }
         const fallback = this.#latestVisiblePresentation(tabId, windowId);
@@ -689,6 +766,7 @@ export class AppTabViewHost implements AppTabHost {
     }
     if (visible) this.showWindow(windowId);
     else this.hideWindow(windowId);
+    traceAppTabHost("window-visibility-completed", { windowId, visible });
   }
 
   async focusWindow(windowId: number): Promise<void> {
@@ -738,7 +816,7 @@ export class AppTabViewHost implements AppTabHost {
     const tabId = this.tabForWindow(windowId)?.id;
     if (!tabId) return;
     const depth = this.#overlayDepthByWindowId.get(windowId) ?? 0;
-    console.info("[app-tab-presentation] overlay-state", {
+    traceAppTabHost("overlay-state", {
       tabId,
       windowId,
       active,
@@ -816,7 +894,7 @@ export class AppTabViewHost implements AppTabHost {
     } else {
       this.#layoutApp(record);
       this.#layoutPage(record);
-      record.appView.setVisible(record.freezeDepth === 0 && record.ownerWindowVisible);
+      record.appView.setVisible(shouldKeepNativeAppViewVisible(record));
     }
     this.#lastVisibleTabId = tabId;
     this.#sendEvent(record, "lifecycle.visibility", { active: true });
@@ -824,7 +902,23 @@ export class AppTabViewHost implements AppTabHost {
 
   hide(tabId: string, animate = false, windowId?: number): void {
     const record = this.#require(tabId);
-    if (windowId !== undefined && record.ownerWindowId !== windowId) return;
+    if (windowId !== undefined && record.ownerWindowId !== windowId) {
+      traceAppTabHost("low-level-hide-skipped", {
+        tabId,
+        windowId,
+        ownerWindowId: record.ownerWindowId,
+        reason: "owner-window-mismatch",
+      });
+      return;
+    }
+    traceAppTabHost("low-level-hide-started", {
+      tabId,
+      windowId: record.ownerWindowId,
+      animate,
+      freezeDepth: record.freezeDepth,
+      visibleRequested: record.visibleRequested,
+      appViewVisible: record.appView.getVisible(),
+    });
     this.#stopAnimation(record);
     const window = record.ownerWindowId === null ? null : this.#windowById(record.ownerWindowId);
     if (
@@ -856,6 +950,13 @@ export class AppTabViewHost implements AppTabHost {
     if (this.#lastVisibleTabId === tabId) this.#lastVisibleTabId = null;
     this.#sendEvent(record, "lifecycle.visibility", { active: false });
     if (window && !window.isDestroyed()) window.webContents.focus();
+    traceAppTabHost("low-level-hide-completed", {
+      tabId,
+      windowId: record.ownerWindowId,
+      animate,
+      appViewVisible: record.appView.getVisible(),
+      hostedPageVisible: record.page?.view.getVisible() ?? false,
+    });
   }
 
   async captureReplica(tabId: string): Promise<AppTabReplicaFrame> {
@@ -886,16 +987,17 @@ export class AppTabViewHost implements AppTabHost {
   async freeze(tabId: string): Promise<NativeImage> {
     const record = this.#require(tabId);
     record.freezeDepth += 1;
-    console.info("[app-tab-presentation] host-freeze", {
-      tabId,
-      freezeDepth: record.freezeDepth,
-      visibleRequested: record.visibleRequested,
-    });
     if (record.freezeDepth > 1 && record.lastFrame) return record.lastFrame;
     // Native sibling views always composite above the shell renderer. Hide before the
     // asynchronous capture so a renderer-owned menu/dialog cannot be clipped for a frame.
     record.appView.setVisible(false);
     record.page?.view.setVisible(false);
+    traceAppTabHost("freeze-hidden", {
+      tabId,
+      windowId: record.ownerWindowId,
+      freezeDepth: record.freezeDepth,
+      visibleRequested: record.visibleRequested,
+    });
     const frame = await record.appView.webContents.capturePage();
     if (record.freezeDepth === 0) return frame;
     record.lastFrame = frame;
@@ -905,16 +1007,20 @@ export class AppTabViewHost implements AppTabHost {
   thaw(tabId: string): void {
     const record = this.#require(tabId);
     record.freezeDepth = Math.max(0, record.freezeDepth - 1);
-    console.info("[app-tab-presentation] host-thaw", {
-      tabId,
-      freezeDepth: record.freezeDepth,
-      visibleRequested: record.visibleRequested,
-    });
     if (record.freezeDepth > 0) return;
-    const visible = record.visibleRequested && record.ownerWindowVisible;
+    const visible = shouldKeepNativeAppViewVisible(record);
     record.appView.setVisible(visible);
     record.page?.view.setVisible(visible && this.#shouldShowPage(record));
     record.lastFrame = null;
+    traceAppTabHost("thaw-visibility-applied", {
+      tabId,
+      windowId: record.ownerWindowId,
+      freezeDepth: record.freezeDepth,
+      visibleRequested: record.visibleRequested,
+      visible,
+      appViewVisible: record.appView.getVisible(),
+      hostedPageVisible: record.page?.view.getVisible() ?? false,
+    });
   }
 
   target(tabId: string, document: "d1" | "d2"): WebContents {
@@ -981,6 +1087,11 @@ export class AppTabViewHost implements AppTabHost {
 
   async openHostedPage(tabId: string, initialUrl?: string): Promise<AppBrowserSessionState> {
     const record = this.#require(tabId);
+    traceAppTabHost("browser-open-requested", {
+      tabId,
+      pageId: record.page?.id ?? null,
+      hasInitialUrl: Boolean(initialUrl?.trim()),
+    });
     if (!record.page) {
       await this.#browserExtensions.list(this.#browserPartition(record));
       record.page = this.#createHostedPage(record, normalizeBrowserUrlInput(initialUrl));
@@ -1015,6 +1126,10 @@ export class AppTabViewHost implements AppTabHost {
     if (!record.page) await this.openHostedPage(tabId);
     const page = this.#requireHostedPage(record, pageId);
     const nextUrl = normalizeBrowserUrlInput(url);
+    traceAppTabHost("browser-navigate-requested", {
+      tabId,
+      pageId: page.id,
+    });
     page.state = {
       ...page.state,
       url: nextUrl,
@@ -1030,7 +1145,12 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   reloadHostedPage(tabId: string, pageId: string): AppBrowserSessionState {
-    this.#requireHostedPage(this.#require(tabId), pageId).view.webContents.reload();
+    const page = this.#requireHostedPage(this.#require(tabId), pageId);
+    traceAppTabHost("browser-reload-requested", {
+      tabId,
+      pageId,
+    });
+    page.view.webContents.reload();
     return this.hostedPageState(tabId);
   }
 
@@ -1199,8 +1319,17 @@ export class AppTabViewHost implements AppTabHost {
     for (const record of this.#records.values()) {
       if (record.ownerWindowId !== windowId) continue;
       record.ownerWindowVisible = false;
-      record.appView.setVisible(false);
-      record.page?.view.setVisible(false);
+      const visible = shouldKeepNativeAppViewVisible(record);
+      record.appView.setVisible(visible);
+      record.page?.view.setVisible(visible && this.#shouldShowPage(record));
+      traceAppTabHost("window-hide-applied", {
+        tabId: record.descriptor.id,
+        windowId,
+        visibleRequested: record.visibleRequested,
+        freezeDepth: record.freezeDepth,
+        appViewVisible: record.appView.getVisible(),
+        hostedPageVisible: record.page?.view.getVisible() ?? false,
+      });
     }
   }
 
@@ -1208,9 +1337,17 @@ export class AppTabViewHost implements AppTabHost {
     for (const record of this.#records.values()) {
       if (record.ownerWindowId !== windowId) continue;
       record.ownerWindowVisible = true;
-      const visible = record.visibleRequested && record.freezeDepth === 0;
+      const visible = shouldKeepNativeAppViewVisible(record);
       record.appView.setVisible(visible);
       record.page?.view.setVisible(visible && this.#shouldShowPage(record));
+      traceAppTabHost("window-show-applied", {
+        tabId: record.descriptor.id,
+        windowId,
+        visibleRequested: record.visibleRequested,
+        freezeDepth: record.freezeDepth,
+        appViewVisible: record.appView.getVisible(),
+        hostedPageVisible: record.page?.view.getVisible() ?? false,
+      });
     }
   }
 
@@ -1390,6 +1527,12 @@ export class AppTabViewHost implements AppTabHost {
   close(tabId: string, reason: OperationCancellationCode = "tab-closed"): void {
     const record = this.#records.get(tabId);
     if (!record) return;
+    traceAppTabHost("tab-close-started", {
+      tabId,
+      reason,
+      rendererId: record.rendererId,
+      ownerWindowId: record.ownerWindowId,
+    });
     if (this.#lastVisibleTabId === tabId) this.#lastVisibleTabId = null;
     this.#records.delete(tabId);
     this.#detach(record);
@@ -1563,15 +1706,42 @@ export class AppTabViewHost implements AppTabHost {
         typographyCssKey: null,
       };
       this.#records.set(id, record);
+      traceAppTabHost("app-renderer-created", {
+        tabId: id,
+        rendererId,
+        appId: input.app.appId,
+        spaceId: input.spaceId,
+        deckId: input.deckId,
+        threadId: input.threadId,
+      });
       contents.setWindowOpenHandler(() => ({ action: "deny" }));
       contents.on("before-input-event", (event, keyboardInput) =>
         this.#onBeforeInput(event, keyboardInput),
       );
       contents.on("will-navigate", (event) => {
+        traceAppTabHost("app-renderer-will-navigate", {
+          tabId: id,
+          rendererId,
+        });
         if (decideAppSpaceNavigation(activeSession.origin, event.url).action === "deny") {
           event.preventDefault();
         }
       });
+      contents.on("did-start-loading", () =>
+        traceAppTabHost("app-renderer-load-started", { tabId: id, rendererId }),
+      );
+      contents.on("did-stop-loading", () =>
+        traceAppTabHost("app-renderer-load-stopped", {
+          tabId: id,
+          rendererId,
+        }),
+      );
+      contents.on("did-navigate", () =>
+        traceAppTabHost("app-renderer-navigated", {
+          tabId: id,
+          rendererId,
+        }),
+      );
       contents.on("preload-error", (_event, preloadPath, error) => {
         console.error(
           `[penkra-app] App preload failed for ${input.app.appId} in Space ${input.spaceId} at ${preloadPath}: ${error.message}`,
@@ -1590,6 +1760,7 @@ export class AppTabViewHost implements AppTabHost {
         });
       });
       contents.once("destroyed", () => {
+        traceAppTabHost("app-renderer-destroyed", { tabId: id, rendererId });
         if (this.#records.has(id)) this.close(id, "host-stopped");
       });
       rollback.commit();
@@ -1606,7 +1777,16 @@ export class AppTabViewHost implements AppTabHost {
         tabId: id,
       });
       const ready = this.#ipcBridge.waitForReady(rendererId);
+      traceAppTabHost("app-renderer-initial-load-requested", {
+        tabId: id,
+        rendererId,
+      });
       await Promise.all([contents.loadURL(documentUrl), ready]);
+      traceAppTabHost("app-renderer-ready", {
+        tabId: id,
+        rendererId,
+        durationMs: Math.round(performance.now() - openedAt),
+      });
       record.descriptor = { ...record.descriptor, status: "ready" };
       if (this.#themeCss) await this.#applyCss(record, "themeCssKey", this.#themeCss);
       if (this.#typographyCss) {
@@ -1622,6 +1802,11 @@ export class AppTabViewHost implements AppTabHost {
       });
       return endpoint;
     } catch (error) {
+      traceAppTabHost("app-renderer-create-failed", {
+        tabId: id,
+        rendererId,
+        error: safeErrorMessage(error),
+      });
       if (this.#records.has(id)) this.close(id, "host-stopped");
       return rollback.fail(`App tab ${id} could not be created.`, error);
     }
@@ -1755,13 +1940,39 @@ export class AppTabViewHost implements AppTabHost {
     const beforeInput = (event: Electron.Event, input: Electron.Input) =>
       this.#onBeforeInput(event, input);
     const didStartLoading = () => {
+      traceAppTabHost("hosted-page-load-started", {
+        tabId: record.descriptor.id,
+        pageId: page.id,
+        rendererId: contents.id,
+      });
       page.state = { ...page.state, isLoading: true, lastError: null };
       this.#hostedPageChanged(record);
     };
     const didStopLoading = () => {
+      traceAppTabHost("hosted-page-load-stopped", {
+        tabId: record.descriptor.id,
+        pageId: page.id,
+        rendererId: contents.id,
+      });
       this.#syncHostedPage(record, page);
     };
-    const didNavigate = () => this.#syncHostedPage(record, page);
+    const didNavigate = () => {
+      traceAppTabHost("hosted-page-navigated", {
+        tabId: record.descriptor.id,
+        pageId: page.id,
+        rendererId: contents.id,
+      });
+      this.#syncHostedPage(record, page);
+    };
+    const didNavigateInPage = (_event: Electron.Event, _url: string, isMainFrame: boolean) => {
+      traceAppTabHost("hosted-page-navigated-in-page", {
+        tabId: record.descriptor.id,
+        pageId: page.id,
+        rendererId: contents.id,
+        isMainFrame,
+      });
+      this.#syncHostedPage(record, page);
+    };
     const pageTitleUpdated = (event: Electron.Event, title: string) => {
       event.preventDefault();
       page.state = {
@@ -1785,6 +1996,13 @@ export class AppTabViewHost implements AppTabHost {
       isMainFrame: boolean,
     ) => {
       if (!isMainFrame || code === -3) return;
+      traceAppTabHost("hosted-page-load-failed", {
+        tabId: record.descriptor.id,
+        pageId: page.id,
+        rendererId: contents.id,
+        code,
+        description,
+      });
       page.state = {
         ...page.state,
         url: validatedUrl || page.state.url,
@@ -1797,7 +2015,7 @@ export class AppTabViewHost implements AppTabHost {
     contents.on("did-start-loading", didStartLoading);
     contents.on("did-stop-loading", didStopLoading);
     contents.on("did-navigate", didNavigate);
-    contents.on("did-navigate-in-page", didNavigate);
+    contents.on("did-navigate-in-page", didNavigateInPage);
     contents.on("page-title-updated", pageTitleUpdated);
     contents.on("page-favicon-updated", pageFaviconUpdated);
     contents.on("did-fail-load", didFailLoad);
@@ -1806,7 +2024,7 @@ export class AppTabViewHost implements AppTabHost {
       () => contents.removeListener("did-start-loading", didStartLoading),
       () => contents.removeListener("did-stop-loading", didStopLoading),
       () => contents.removeListener("did-navigate", didNavigate),
-      () => contents.removeListener("did-navigate-in-page", didNavigate),
+      () => contents.removeListener("did-navigate-in-page", didNavigateInPage),
       () => contents.removeListener("page-title-updated", pageTitleUpdated),
       () => contents.removeListener("page-favicon-updated", pageFaviconUpdated),
       () => contents.removeListener("did-fail-load", didFailLoad),
@@ -1915,16 +2133,50 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   async #loadHostedPage(record: AppTabRecord, page: HostedPage, url: string): Promise<void> {
+    traceAppTabHost("hosted-page-load-queued", {
+      tabId: record.descriptor.id,
+      pageId: page.id,
+      rendererId: page.view.webContents.id,
+      hadPendingLoad: page.pendingLoad !== null,
+    });
     const previous = page.pendingLoad ?? Promise.resolve();
     const load = previous
       .catch(() => undefined)
       .then(async () => {
-        if (record.page !== page || page.view.webContents.isDestroyed()) return;
+        if (record.page !== page || page.view.webContents.isDestroyed()) {
+          traceAppTabHost("hosted-page-load-skipped", {
+            tabId: record.descriptor.id,
+            pageId: page.id,
+            reason: record.page !== page ? "page-replaced" : "renderer-destroyed",
+          });
+          return;
+        }
+        traceAppTabHost("hosted-page-load-requested", {
+          tabId: record.descriptor.id,
+          pageId: page.id,
+          rendererId: page.view.webContents.id,
+        });
         this.#browserSessionPolicy.applyUserAgent(page.view.webContents, url);
         try {
           await page.view.webContents.loadURL(url);
+          traceAppTabHost("hosted-page-load-resolved", {
+            tabId: record.descriptor.id,
+            pageId: page.id,
+            rendererId: page.view.webContents.id,
+          });
         } catch (error) {
-          if (error instanceof Error && /ERR_ABORTED|\(-3\)/i.test(error.message)) return;
+          if (error instanceof Error && /ERR_ABORTED|\(-3\)/i.test(error.message)) {
+            traceAppTabHost("hosted-page-load-aborted", {
+              tabId: record.descriptor.id,
+              pageId: page.id,
+            });
+            return;
+          }
+          traceAppTabHost("hosted-page-load-rejected", {
+            tabId: record.descriptor.id,
+            pageId: page.id,
+            error: safeErrorMessage(error),
+          });
           page.state = {
             ...page.state,
             isLoading: false,
@@ -2003,9 +2255,15 @@ export class AppTabViewHost implements AppTabHost {
     const presentations = this.#presentationsByTabId.get(tabId);
     for (const [windowId, presentation] of presentations ?? []) {
       let state: DesktopAppTabPresentation;
-      if (record.ownerWindowId === windowId && presentation.visible) {
+      const mode = resolveAppTabPresentationMode({
+        ownsWindow: record.ownerWindowId === windowId,
+        presentationVisible: presentation.visible,
+        windowVisible: presentation.windowVisible,
+        hasReplica: frame !== undefined,
+      });
+      if (mode === "live") {
         state = { tabId, mode: "live", ownerWindowId: windowId };
-      } else if (presentation.visible && frame) {
+      } else if (mode === "replica" && frame) {
         state = {
           tabId,
           mode: "replica",
@@ -2059,10 +2317,7 @@ export class AppTabViewHost implements AppTabHost {
     };
     record.page.view.setBounds(bounds);
     record.page.view.setVisible(
-      record.visibleRequested &&
-        record.ownerWindowVisible &&
-        record.freezeDepth === 0 &&
-        this.#shouldShowPage(record),
+      record.visibleRequested && record.freezeDepth === 0 && this.#shouldShowPage(record),
     );
   }
 

@@ -154,7 +154,7 @@ import {
   type PendingStartRecoveryRestoration,
 } from "../lib/pendingStartRecoveryRegistry";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
-import { useComposerDropzone } from "../hooks/useComposerDropzone";
+import { splitComposerDropzoneFiles, useComposerDropzone } from "../hooks/useComposerDropzone";
 import { useChatRouteSearch } from "../hooks/useChatRouteSearch";
 import {
   buildTranscriptAutoFollowSignal,
@@ -245,7 +245,6 @@ import {
   useComposerCommandMenuItems,
 } from "../hooks/useComposerCommandMenuItems";
 import { useProviderModelCatalog } from "../hooks/useProviderModelCatalog";
-import { RuntimeUsageControls } from "./RuntimeUsageControls";
 import { PenkraMark } from "./foundations/penkra-mark-shared/PenkraMark";
 import {
   formatShortcutLabel,
@@ -484,7 +483,7 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerSlashCommands } from "../hooks/useComposerSlashCommands";
 import { useFeatureFlags } from "../featureFlags";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
-import { buildModelSelection, buildNextProviderOptions } from "../providerModelOptions";
+import { buildModelSelection } from "../providerModelOptions";
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
@@ -4548,47 +4547,6 @@ export default function ChatView({
     [activeProject, persistProjectScripts],
   );
 
-  const handleRuntimeModeChange = useCallback(
-    (mode: RuntimeMode) => {
-      if (mode === runtimeMode) return;
-      setComposerDraftRuntimeMode(threadId, mode);
-      if (isLocalDraftThread) {
-        setDraftThreadContext(threadId, { runtimeMode: mode });
-      }
-      if (serverThread) {
-        const api = readNativeApi();
-        if (api) {
-          void api.orchestration
-            .dispatchCommand({
-              type: "thread.runtime-mode.set",
-              commandId: newCommandId(),
-              threadId,
-              runtimeMode: mode,
-              createdAt: new Date().toISOString(),
-            })
-            .catch((error) => {
-              toastManager.add({
-                type: "error",
-                title: "Could not update access mode",
-                description:
-                  error instanceof Error ? error.message : "An unexpected error occurred.",
-              });
-            });
-        }
-      }
-      scheduleComposerFocus();
-    },
-    [
-      isLocalDraftThread,
-      runtimeMode,
-      scheduleComposerFocus,
-      serverThread,
-      setComposerDraftRuntimeMode,
-      setDraftThreadContext,
-      threadId,
-    ],
-  );
-
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: { threadId: ThreadId; createdAt: string; runtimeMode: RuntimeMode }) => {
       if (!serverThread) {
@@ -6090,6 +6048,19 @@ export default function ChatView({
       setThreadError(activeThreadId, error);
     },
     [activeThreadId, addComposerFilesToDraft, pendingUserInputs.length, setThreadError],
+  );
+
+  const addComposerAttachments = useCallback(
+    (files: readonly File[]) => {
+      const splitFiles = splitComposerDropzoneFiles(files);
+      if (splitFiles.imageFiles.length > 0) {
+        addComposerImages(splitFiles.imageFiles);
+      }
+      if (splitFiles.genericFiles.length > 0) {
+        addComposerFiles(splitFiles.genericFiles);
+      }
+    },
+    [addComposerFiles, addComposerImages],
   );
 
   const removeComposerFile = (fileId: string) => {
@@ -8342,29 +8313,6 @@ export default function ChatView({
   const ComposerFooterActions = useSplitComposerPickerControls
     ? ComposerActionsEmptyThread
     : ComposerActions;
-  const toggleFastMode = useCallback(() => {
-    if (!composerTraitSelection.caps.supportsFastMode) {
-      scheduleComposerFocus();
-      return;
-    }
-    setComposerDraftProviderModelOptions(
-      threadId,
-      selectedProvider,
-      buildNextProviderOptions(selectedProvider, selectedProviderModelOptions, {
-        fastMode: !composerTraitSelection.fastModeEnabled,
-      }),
-      { persistSticky: true },
-    );
-    scheduleComposerFocus();
-  }, [
-    composerTraitSelection.caps.supportsFastMode,
-    composerTraitSelection.fastModeEnabled,
-    scheduleComposerFocus,
-    selectedProvider,
-    selectedProviderModelOptions,
-    setComposerDraftProviderModelOptions,
-    threadId,
-  ]);
   const handleResetWorkspaceToHome = useCallback(() => {
     if (!isLocalDraftThread) return;
     setDraftThreadContext(threadId, { workingDirectory: null });
@@ -9134,35 +9082,13 @@ export default function ChatView({
     isEmpty: timelineEntries.length === 0,
   });
 
-  const runtimeUsageControlsProps = {
-    runtimeMode,
-    onRuntimeModeChange: handleRuntimeModeChange,
-    contextWindow: runtimeUsageContextWindow,
-    cumulativeCostUsd: activeCumulativeCostUsd,
-    activeContextWindowLabel: contextWindowSelectionStatus.activeLabel,
-    pendingContextWindowLabel: contextWindowSelectionStatus.pendingSelectedLabel,
-  };
   // Pencil's narrow variants hide lower-priority actions in place. Controls
   // never relocate into the removed legacy toolbar row below the composer.
-  const renderComposerLeadingControls = (options: { iconOnly: boolean }) => (
+  const renderComposerLeadingControls = () => (
     <>
       <span className="inline-flex shrink-0" data-pencil-action="attach">
-        <ComposerExtrasMenu
-          supportsFastMode={composerTraitSelection.caps.supportsFastMode}
-          fastModeEnabled={composerTraitSelection.fastModeEnabled}
-          onAddPhotos={addComposerImages}
-          onToggleFastMode={toggleFastMode}
-        />
+        <ComposerExtrasMenu onAddAttachments={addComposerAttachments} />
       </span>
-      {!isVoiceRecording && !isVoiceTranscribing ? (
-        <span className="inline-flex shrink-0 @max-[390px]:hidden" data-pencil-action="access">
-          <RuntimeUsageControls
-            {...runtimeUsageControlsProps}
-            className="shrink-0"
-            hideLabel={options.iconOnly}
-          />
-        </span>
-      ) : null}
     </>
   );
   const idleComposerVoiceControl =
@@ -9435,9 +9361,7 @@ export default function ChatView({
                   className={cn("@container", COMPOSER_FOOTER_ROW_CLASS_NAME)}
                 >
                   <ComposerFooterActions
-                    applicationLeading={renderComposerLeadingControls({
-                      iconOnly: false,
-                    })}
+                    applicationLeading={renderComposerLeadingControls()}
                     applicationTrailingExpands={isVoiceRecording || isVoiceTranscribing}
                     applicationTrailing={
                       <>

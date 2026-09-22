@@ -1,43 +1,25 @@
 // FILE: ComposerExtrasMenu.tsx
-// Purpose: Hosts the composer `+` menu for attachments and optional speed controls.
+// Purpose: Opens the composer file picker directly from the `+` attachment button.
 // Layer: Chat composer presentation
-// Depends on: shared menu primitives, icon buttons, and caller-owned composer state callbacks.
+// Depends on: shared button and tooltip primitives plus caller-owned attachment state.
 
-import { useId, useRef, useState, type ChangeEvent } from "react";
+import { useId, useRef, type ChangeEvent } from "react";
 
-import { PaperclipIcon, PlusIcon } from "~/lib/icons";
-import {
-  ComposerPickerMenu,
-  ComposerPickerMenuPopup,
-  ComposerPickerMenuSubPopup,
-} from "./ComposerPickerMenuPopup";
+import { PlusIcon } from "~/lib/icons";
 import { Button } from "../ui/button";
-import {
-  MenuItem,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuSeparator,
-  MenuSub,
-  MenuSubTrigger,
-  MenuTrigger,
-} from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
-  supportsFastMode: boolean;
-  fastModeEnabled: boolean;
-  onAddPhotos: (files: File[]) => void;
-  onToggleFastMode: () => void;
+  onAddAttachments: (files: File[]) => void;
 }) {
   const inputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
 
-  // Reset the hidden input so selecting the same image twice still emits a change event.
+  // Reset the hidden input so selecting the same files twice still emits a change event.
   const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     if (files.length > 0) {
-      props.onAddPhotos(files);
+      props.onAddAttachments(files);
     }
     event.target.value = "";
   };
@@ -47,67 +29,30 @@ export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
       <input
         id={inputId}
         ref={fileInputRef}
-        data-testid="composer-photo-input"
+        data-testid="composer-file-input"
         type="file"
-        accept="image/*"
         multiple
         tabIndex={-1}
         className="sr-only"
         onChange={handleFileInputChange}
       />
-      <ComposerPickerMenu open={menuOpen} onOpenChange={setMenuOpen}>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <MenuTrigger
-                render={
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    className="!size-[26px] shrink-0 rounded-full p-0 sm:!size-[26px]"
-                    aria-label="Attach files"
-                  />
-                }
-              />
-            }
-          >
-            <PlusIcon aria-hidden="true" className="size-4" />
-          </TooltipTrigger>
-          {!menuOpen ? <TooltipPopup side="top">Attach files</TooltipPopup> : null}
-        </Tooltip>
-        <ComposerPickerMenuPopup align="start">
-          <MenuItem
-            onClick={() => {
-              fileInputRef.current?.click();
-            }}
-          >
-            <PaperclipIcon className="size-4 shrink-0" />
-            Add image
-          </MenuItem>
-
-          {props.supportsFastMode ? (
-            <>
-              <MenuSeparator />
-              <MenuSub>
-                <MenuSubTrigger>Fast</MenuSubTrigger>
-                <ComposerPickerMenuSubPopup>
-                  <MenuRadioGroup
-                    value={props.fastModeEnabled ? "fast" : "normal"}
-                    onValueChange={(value) => {
-                      const shouldEnableFast = value === "fast";
-                      if (shouldEnableFast === props.fastModeEnabled) return;
-                      props.onToggleFastMode();
-                    }}
-                  >
-                    <MenuRadioItem value="normal">Default</MenuRadioItem>
-                    <MenuRadioItem value="fast">Fast</MenuRadioItem>
-                  </MenuRadioGroup>
-                </ComposerPickerMenuSubPopup>
-              </MenuSub>
-            </>
-          ) : null}
-        </ComposerPickerMenuPopup>
-      </ComposerPickerMenu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="!size-[26px] shrink-0 rounded-full p-0 sm:!size-[26px]"
+              aria-label="Attach files"
+              onClick={() => fileInputRef.current?.click()}
+            />
+          }
+        >
+          <PlusIcon aria-hidden="true" className="size-4" />
+        </TooltipTrigger>
+        <TooltipPopup side="top">Attach files</TooltipPopup>
+      </Tooltip>
     </>
   );
 };
