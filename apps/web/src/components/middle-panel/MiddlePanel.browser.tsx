@@ -115,6 +115,15 @@ describe("Pencil middle panel", () => {
       .toBeVisible();
   });
 
+  it("does not expose runtime permission selection in the composer", async () => {
+    await render(<ComposerDefault aria-label="Message" />);
+
+    await expect.element(page.getByText("Full access", { exact: true })).not.toBeInTheDocument();
+    await expect
+      .element(page.getByText("Default permissions", { exact: true }))
+      .not.toBeInTheDocument();
+  });
+
   it("renders every approved send-control state from the shared component", async () => {
     await render(
       <div>

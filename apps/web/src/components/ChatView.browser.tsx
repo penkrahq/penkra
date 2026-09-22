@@ -3747,10 +3747,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(document.querySelector('[data-pencil-component="BtaMG"]')).not.toBeNull();
         expect(document.querySelector('[data-pencil-component="chpd8"]')).not.toBeNull();
         expect(document.querySelector('[data-pencil-component="N4buaG"]')).not.toBeNull();
-        const accessIcon = document.querySelector<SVGSVGElement>('[data-pencil-node="Bo845"]');
-        expect(accessIcon).not.toBeNull();
-        expect(accessIcon?.querySelector('[data-pencil-node="z9iYLc"]')).not.toBeNull();
-        expect(accessIcon?.getAttribute("viewBox")).toBe("0 0 13.99993896484375 14");
+        expect(document.querySelector('[aria-label="Full access permissions"]')).toBeNull();
       });
     } finally {
       await mounted.cleanup();
@@ -11092,7 +11089,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("does not expose plan mode or plan details in the composer", async () => {
+  it("does not expose plan mode or runtime permission selection in the composer", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -11105,6 +11102,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await page.getByLabelText("Attach files").click();
       expect(document.body.textContent).not.toContain("Plan mode");
       expect(document.body.textContent).not.toContain("Plan details");
+      expect(document.querySelector('[data-pencil-action="access"]')).toBeNull();
+      expect(document.querySelector('[aria-label="Full access permissions"]')).toBeNull();
+      expect(document.body.textContent).not.toContain("Default permissions");
       expect(document.querySelector('[aria-label="Show plan details sidebar"]')).toBeNull();
     } finally {
       await mounted.cleanup();

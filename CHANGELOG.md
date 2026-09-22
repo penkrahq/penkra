@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.13.1 - 2026-09-21
+
+### Changed
+
+- Simplified the composer attachment control: the plus button now opens the system file picker
+  directly, accepts multiple supported file types, and no longer presents a redundant attachment
+  submenu.
+- Removed the temporary runtime-permission selector from the composer while preserving the current
+  runtime permission behavior.
+
+### Fixed
+
+- Kept native App views attached through parent-window hiding, restoring, and focus changes so an
+  App panel does not return blank after switching windows or Threads.
+- Kept native App views visible behind system context menus instead of hiding and reconstructing
+  them around each menu interaction.
+- Confined the expanded-image overlay to the shell content area beside the App dock, preserving the
+  dock while centering the viewed image in the covered region.
+
 ## 0.13.0 - 2026-09-19
 
 ### Added
