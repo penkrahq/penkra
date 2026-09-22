@@ -154,7 +154,7 @@ import {
   type PendingStartRecoveryRestoration,
 } from "../lib/pendingStartRecoveryRegistry";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
-import { useComposerDropzone } from "../hooks/useComposerDropzone";
+import { splitComposerDropzoneFiles, useComposerDropzone } from "../hooks/useComposerDropzone";
 import { useChatRouteSearch } from "../hooks/useChatRouteSearch";
 import {
   buildTranscriptAutoFollowSignal,
@@ -6050,6 +6050,19 @@ export default function ChatView({
     [activeThreadId, addComposerFilesToDraft, pendingUserInputs.length, setThreadError],
   );
 
+  const addComposerAttachments = useCallback(
+    (files: readonly File[]) => {
+      const splitFiles = splitComposerDropzoneFiles(files);
+      if (splitFiles.imageFiles.length > 0) {
+        addComposerImages(splitFiles.imageFiles);
+      }
+      if (splitFiles.genericFiles.length > 0) {
+        addComposerFiles(splitFiles.genericFiles);
+      }
+    },
+    [addComposerFiles, addComposerImages],
+  );
+
   const removeComposerFile = (fileId: string) => {
     discardPromptHistoryNavigationForComposerMutation();
     removeComposerDraftFile(threadId, fileId);
@@ -9100,7 +9113,7 @@ export default function ChatView({
         <ComposerExtrasMenu
           supportsFastMode={composerTraitSelection.caps.supportsFastMode}
           fastModeEnabled={composerTraitSelection.fastModeEnabled}
-          onAddPhotos={addComposerImages}
+          onAddAttachments={addComposerAttachments}
           onToggleFastMode={toggleFastMode}
         />
       </span>
