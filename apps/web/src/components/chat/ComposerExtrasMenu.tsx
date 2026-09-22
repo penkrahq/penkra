@@ -26,18 +26,18 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
   supportsFastMode: boolean;
   fastModeEnabled: boolean;
-  onAddPhotos: (files: File[]) => void;
+  onAddAttachments: (files: File[]) => void;
   onToggleFastMode: () => void;
 }) {
   const inputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Reset the hidden input so selecting the same image twice still emits a change event.
+  // Reset the hidden input so selecting the same files twice still emits a change event.
   const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     if (files.length > 0) {
-      props.onAddPhotos(files);
+      props.onAddAttachments(files);
     }
     event.target.value = "";
   };
@@ -47,9 +47,8 @@ export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
       <input
         id={inputId}
         ref={fileInputRef}
-        data-testid="composer-photo-input"
+        data-testid="composer-file-input"
         type="file"
-        accept="image/*"
         multiple
         tabIndex={-1}
         className="sr-only"
@@ -82,7 +81,7 @@ export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
             }}
           >
             <PaperclipIcon className="size-4 shrink-0" />
-            Add image
+            Add files
           </MenuItem>
 
           {props.supportsFastMode ? (
