@@ -264,7 +264,25 @@ try {
       server.unref();
     }
   }
-  removePackagedDesktopSmokeRoot(root);
+  try {
+    removePackagedDesktopSmokeRoot(root);
+  } catch (error) {
+    const remainingOwners =
+      platform === "linux" ? findNativeUpgradeProcesses(join(stateRoot, "user-data")) : [];
+    console.warn("[native-upgrade] cleanup collided with late profile activity", {
+      root,
+      remainingOwners,
+      error,
+    });
+    if (platform !== "linux" || error?.code !== "ENOTEMPTY") throw error;
+
+    // The updater can detach a replacement after the first ownership sweep.
+    // An ENOTEMPTY result is direct evidence of that race, so resolve ownership
+    // again before making one final, diagnostic-preserving removal attempt.
+    await stopNativeUpgradeProcesses(join(stateRoot, "user-data"));
+    await terminateProcessesInsideRoot(root);
+    removePackagedDesktopSmokeRoot(root);
+  }
   // Electron can leave Playwright's debugger transport referenced after the
   // updated process has already exited. All evidence and cleanup are complete;
   // end this disposable CI verifier rather than consuming the job timeout.
