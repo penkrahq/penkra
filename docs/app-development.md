@@ -922,7 +922,8 @@ is scoped to that operation result; durable files belong in App storage. The tru
 validates the content blocks and validates
 `structuredContent` against the manifest output schema before anything reaches the caller.
 
-When an invocation includes `tabId`, `context.tab` addresses exactly that validated App tab. Use
+When an invocation includes `tabId`, `context.tab` addresses exactly that validated App tab in
+the invoking Space and Thread Deck. Switching the active Thread does not change tab ownership. Use
 `context.tab.invoke` for an in-place UI function and `context.tab.navigate` to change its App route.
 Call `context.tab.close()` to close that same validated, App-owned tab; do not retain a handle across
 invocations. Resolve the target again from each invocation so ownership and liveness are rechecked.
@@ -930,7 +931,7 @@ Without a target, use `context.tabs.open`. Use `ForResult` variants only when an
 waits for a person. Cancellation includes tab close, timeout, disable, uninstall, and host shutdown.
 
 Use `context.apps.open({ slug })` when an App operation needs to open another enabled App in the
-same Space and invoking Thread. The slug must come from the installed App catalog.
+same Space and invoking Thread Deck. The slug must come from the installed App catalog.
 
 Inside the visual App, `tab.setRoute` records App-owned navigation without causing a second
 navigation event. Penkra uses that latest recorded route and state when it recreates the tab.

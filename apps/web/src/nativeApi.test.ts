@@ -8,6 +8,32 @@ afterEach(() => {
 });
 
 describe("readNativeApi turn origin binding", () => {
+  it("keeps turn-origin binding on repeated native API reads", async () => {
+    const bindTurnOrigin = vi.fn();
+    const dispatchCommand = vi.fn(async () => ({ sequence: 7 }));
+    vi.stubGlobal("window", {
+      nativeApi: { orchestration: { dispatchCommand } },
+      desktopBridge: { threadApi: { bindTurnOrigin, unbindTurnOrigin: vi.fn() } },
+    });
+
+    readNativeApi();
+    await readNativeApi()!.orchestration.dispatchCommand({
+      type: "thread.turn.start",
+      commandId: CommandId.makeUnsafe("queued-command"),
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      message: {
+        messageId: MessageId.makeUnsafe("queued-message"),
+        role: "user",
+        text: "Queued follow-up",
+        attachments: [],
+      },
+      runtimeMode: "full-access",
+      createdAt: "2026-09-22T00:00:00.000Z",
+    });
+
+    expect(bindTurnOrigin).toHaveBeenCalledWith({ turnId: "turn:queued-command" });
+  });
+
   it("binds the renderer window to the server-derived turn identity before dispatch", async () => {
     const bindTurnOrigin = vi.fn();
     const unbindTurnOrigin = vi.fn();

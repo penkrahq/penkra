@@ -50,6 +50,7 @@ import { pinActionLabel } from "~/lib/pin";
 import { Button } from "../ui/button";
 import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLabel";
 import { PenkraThreadCreationCard } from "./PenkraThreadCreationCard";
+import { PresentedMediaRow } from "./PresentedMediaRow";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { FileEntryIcon } from "./FileEntryIcon";
 import { InlineMentionChip } from "./InlineMentionChip";
@@ -1045,6 +1046,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         data-message-id={row.kind === "message" ? row.message.id : undefined}
         data-message-role={row.kind === "message" ? row.message.role : undefined}
       >
+        {row.kind === "media" && (
+          <PresentedMediaRow
+            items={row.entries.flatMap((entry) =>
+              entry.presentedMedia ? [entry.presentedMedia] : [],
+            )}
+            onImageExpand={onImageExpand}
+          />
+        )}
         {row.kind === "work" &&
           (() => {
             const groupId = row.id;
