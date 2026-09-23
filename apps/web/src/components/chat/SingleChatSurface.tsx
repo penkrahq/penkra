@@ -32,7 +32,7 @@ import { cn, isWindowsPlatform } from "~/lib/utils";
 import { useAppInstallationSnapshot } from "~/appInstallationStore";
 import { AppDockPane } from "./AppDockPane";
 import {
-  createAppTabRestoreRequest,
+  restoreAppTab,
   isAppPaneInSpace,
   isAppTabOutsideDeckSpace,
   shouldMountAppDockPane,
@@ -184,8 +184,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
       }
       loadingAppPaneIdsRef.current.add(pane.id);
       updatePane(deckId, pane.id, { appStatus: "loading" });
-      void bridge
-        .open(createAppTabRestoreRequest(pane, deckId, props.threadId))
+      void restoreAppTab(pane, deckId, props.threadId, bridge)
         .then((tab) => {
           setConfirmedAppPaneIds((current) => new Set(current).add(tab.id));
           openPane(deckId, appPaneFromTab(tab));
