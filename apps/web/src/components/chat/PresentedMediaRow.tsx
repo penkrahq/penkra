@@ -55,13 +55,19 @@ function PresentedImageGallery({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const index = Math.min(selectedIndex, items.length - 1);
   const selected = items[index]!;
-  const images = items.map((item) => ({ src: mediaUrl(item.attachmentId), name: item.name }));
+  const images = items.map((item) => ({
+    src: mediaUrl(item.attachmentId),
+    name: item.name,
+  }));
   const arrowClassName =
     "absolute top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-background/85 opacity-0 shadow-sm transition-opacity pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-background focus-visible:pointer-events-auto focus-visible:opacity-100 motion-reduce:transition-none";
 
   return (
-    <figure className="my-2 w-full max-w-2xl" data-presented-gallery-id={selected.presentationId}>
-      <div className="grid grid-cols-[minmax(0,1fr)_3.5rem] gap-2">
+    <figure
+      className="my-2 w-[calc(100%-3rem)] max-w-xl"
+      data-presented-gallery-id={selected.presentationId}
+    >
+      <div className="grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-2">
         <div className="group relative min-w-0 overflow-hidden rounded-xl border border-border bg-muted/20">
           <button
             type="button"
