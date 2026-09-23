@@ -141,6 +141,7 @@ let attachmentUploadFailureStatus: number | null = null;
 let emitDomainEvent: ((event: OrchestrationEvent) => void) | null = null;
 let emitSyncDomainEvent: ((event: OrchestrationEvent) => void) | null = null;
 let providerConnectionsResponseGate: Promise<void> | null = null;
+let providerThreadBindingResponseGate: Promise<void> | null = null;
 let providerConnectionsReleasedResponses = 0;
 const fixtureSocketClients = new Set<{ close: () => void }>();
 let fixtureSocketConnectionCount = 0;
@@ -1733,6 +1734,12 @@ const worker = setupWorker(
         });
         return;
       }
+      if (method === WS_METHODS.providerGetThreadBinding && providerThreadBindingResponseGate) {
+        void providerThreadBindingResponseGate.then(() => {
+          sendEffectRpcExit(client, parsed.request.id, resolveWsRpc(requestBody));
+        });
+        return;
+      }
       sendEffectRpcExit(client, parsed.request.id, resolveWsRpc(requestBody));
     });
   }),
@@ -2409,6 +2416,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     emitDomainEvent = null;
     emitSyncDomainEvent = null;
     providerConnectionsResponseGate = null;
+    providerThreadBindingResponseGate = null;
     providerConnectionsReleasedResponses = 0;
     fixtureSocketConnectionCount = 0;
     fixtureSocketClients.clear();
@@ -4479,6 +4487,58 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect.element(page.getByText("Connection", { exact: true })).not.toBeInTheDocument();
     } finally {
       await mounted.cleanup();
+    }
+  });
+
+  it("sends on the original started Thread after switching away while its binding loads", async () => {
+    let releaseBinding!: () => void;
+    providerThreadBindingResponseGate = new Promise<void>((resolve) => {
+      releaseBinding = resolve;
+    });
+    const snapshot = addThreadToSnapshot(
+      createSnapshotForTargetUser({
+        targetMessageId: "msg-user-binding-switch" as MessageId,
+        targetText: "already started",
+      }),
+      OTHER_THREAD_ID,
+    );
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const restoreNativeApi = installDeterministicSendNativeApi();
+
+    try {
+      const prompt = "send while switching threads";
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
+      const composerForm = await waitForElement(
+        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
+        "Unable to find composer form.",
+      );
+      composerForm.requestSubmit();
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: OTHER_THREAD_ID },
+      });
+      await vi.waitFor(() =>
+        expect(mounted.router.state.location.pathname).toBe(`/${OTHER_THREAD_ID}`),
+      );
+      releaseBinding();
+      providerThreadBindingResponseGate = null;
+
+      await vi.waitFor(() => {
+        const commands = wsRequests
+          .map(readDispatchedCommand)
+          .filter((command) => command?.type === "thread.turn.start");
+        expect(commands).toHaveLength(1);
+        expect(commands[0]).toMatchObject({
+          threadId: THREAD_ID,
+          connectionId: TEST_CONNECTION_ID,
+          message: { text: prompt },
+        });
+      });
+    } finally {
+      releaseBinding();
+      providerThreadBindingResponseGate = null;
+      await mounted.cleanup();
+      restoreNativeApi();
     }
   });
 

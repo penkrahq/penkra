@@ -89,6 +89,37 @@ export function parseAppTabRouteRequest(input: unknown): {
   };
 }
 
+export function parseAppTabPresentationRequest(input: unknown): {
+  title?: string;
+  icon?: "hosted-page" | { dataUrl: string };
+} {
+  const value = record(input);
+  if (value.title !== undefined && (typeof value.title !== "string" || !value.title.trim())) {
+    throw new Error("Invalid App tab presentation title.");
+  }
+  const icon = value.icon;
+  const iconDataUrl =
+    icon && typeof icon === "object" && !Array.isArray(icon)
+      ? (icon as Record<string, unknown>).dataUrl
+      : undefined;
+  if (
+    icon !== undefined &&
+    icon !== "hosted-page" &&
+    (typeof iconDataUrl !== "string" ||
+      !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(iconDataUrl) ||
+      Buffer.from(iconDataUrl.slice(iconDataUrl.indexOf(",") + 1), "base64").byteLength >
+        256 * 1024)
+  ) {
+    throw new Error("Invalid App tab presentation icon.");
+  }
+  return {
+    ...(value.title === undefined ? {} : { title: (value.title as string).trim() }),
+    ...(icon === undefined
+      ? {}
+      : { icon: icon === "hosted-page" ? icon : { dataUrl: iconDataUrl as string } }),
+  };
+}
+
 export function parseNavigateAppTabRequest(input: unknown): {
   tabId: string;
   route: string;

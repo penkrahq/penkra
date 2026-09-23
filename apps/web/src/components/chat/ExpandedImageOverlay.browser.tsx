@@ -130,4 +130,39 @@ describe("ExpandedImageOverlay", () => {
       await screen.unmount();
     }
   });
+
+  it.each([
+    ["wide", 2400, 800],
+    ["tall", 800, 2400],
+  ])("fits a %s image and its caption inside the overlay", async (_shape, width, height) => {
+    const src = `data:image/svg+xml,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"/>`,
+    )}`;
+    const screen = await render(
+      <div className="fixed inset-0 [--right-dock-overlay-inset:40vw]">
+        <ExpandedImageOverlay
+          expandedImage={{ images: [{ src, name: `${_shape} image` }], index: 0 }}
+          onClose={vi.fn()}
+          onNavigate={vi.fn()}
+        />
+      </div>,
+    );
+
+    try {
+      const overlay = document.querySelector<HTMLElement>("[data-expanded-image-overlay]")!;
+      const image = page.getByRole("img", { name: `${_shape} image` });
+      await expect.element(image).toBeVisible();
+      const imageBounds = image.element().getBoundingClientRect();
+      const captionBounds = document
+        .querySelector<HTMLElement>("[data-expanded-image-overlay] p")!
+        .getBoundingClientRect();
+      const overlayBounds = overlay.getBoundingClientRect();
+      expect(imageBounds.left).toBeGreaterThanOrEqual(overlayBounds.left);
+      expect(imageBounds.right).toBeLessThanOrEqual(overlayBounds.right);
+      expect(imageBounds.top).toBeGreaterThanOrEqual(overlayBounds.top);
+      expect(captionBounds.bottom).toBeLessThanOrEqual(overlayBounds.bottom);
+    } finally {
+      await screen.unmount();
+    }
+  });
 });

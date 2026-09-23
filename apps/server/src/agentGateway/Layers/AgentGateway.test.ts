@@ -166,6 +166,7 @@ interface GatewayHarness {
     readonly providerTurnIds?: ReadonlyArray<string>;
   }) => void;
   readonly setProviderStatuses: (statuses: ReadonlyArray<ServerProviderStatus>) => void;
+  readonly setProviderRuntimeOpenTurns: (turns: ReadonlyArray<ProviderRuntimeOpenTurn>) => void;
   readonly callTool: (input: {
     readonly token: string;
     readonly name: string;
@@ -254,6 +255,7 @@ function makeHarnessLayer(
   } = {},
 ) {
   const dispatched: Array<OrchestrationCommand> = [];
+  let providerRuntimeOpenTurns = options.providerRuntimeOpenTurns ?? [];
   const creationAdmissions = new Map<string, AgentGatewayCreationAdmission>();
   const creationAdmissionsLayer = Layer.succeed(AgentGatewayCreationAdmissionRepository, {
     get: (operationId: string) =>
@@ -676,9 +678,7 @@ function makeHarnessLayer(
         if (options.clearProviderRuntimeOpenTurnsAfterRead && providerRuntimeOpenTurnReads > 1) {
           return [];
         }
-        return (options.providerRuntimeOpenTurns ?? []).filter(
-          (turn) => turn.threadId === threadId,
-        );
+        return providerRuntimeOpenTurns.filter((turn) => turn.threadId === threadId);
       }),
   } as unknown as (typeof ProviderRuntimeEventRepository)["Service"]);
 
@@ -1000,6 +1000,9 @@ function makeHarnessLayer(
       },
       setProviderStatuses: (statuses) => {
         providerStatuses = statuses;
+      },
+      setProviderRuntimeOpenTurns: (turns) => {
+        providerRuntimeOpenTurns = turns;
       },
       callTool,
       postRaw,
@@ -2787,6 +2790,69 @@ describe("AgentGateway", () => {
           },
         });
         assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      }).pipe(Effect.provide(gatewayLayer));
+    },
+  );
+
+  it.effect(
+    "rejects the first write until an initial provider turn reaches the open-turn ledger",
+    () => {
+      const turnId = "provider-turn-initial-gap";
+      const parent = makeThreadShell("thread-parent", {
+        latestTurn: null,
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-parent"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: TurnId.makeUnsafe(turnId),
+          lastError: null,
+          updatedAt: NOW,
+        },
+      });
+      const { gatewayLayer, makeHarness } = makeHarnessLayer([
+        parent,
+        ...baseThreads.filter((thread) => thread.id !== "thread-parent"),
+      ]);
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const context = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_context",
+          args: {},
+        });
+        assert.equal(
+          (toolResultJson(context.result).caller as { turnId?: unknown } | undefined)?.turnId,
+          null,
+        );
+
+        const response = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_create_thread",
+          args: {
+            requestId: "initial-session-only-gap",
+            prompt: "probe active authority",
+            target: { provider: "codex", model: "gpt-5.5" },
+          },
+        });
+        assert.isTrue(isToolError(response.result));
+        assert.include(toolErrorText(response.result), "no caller turn was active");
+        assert.lengthOf(harness.dispatched, 0);
+
+        harness.setProviderRuntimeOpenTurns([
+          { threadId: "thread-parent", turnId, firstSequence: 1, updatedAt: NOW },
+        ]);
+        const retry = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_create_thread",
+          args: {
+            requestId: "initial-session-only-gap",
+            prompt: "probe active authority",
+            target: { provider: "codex", model: "gpt-5.5" },
+          },
+        });
+        assert.isFalse(isToolError(retry.result), toolErrorText(retry.result));
+        assert.isAbove(harness.dispatched.length, 0);
       }).pipe(Effect.provide(gatewayLayer));
     },
   );

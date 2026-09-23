@@ -2854,6 +2854,7 @@ const make = Effect.gen(function* () {
         decision: event.payload.decision,
       })
       .pipe(
+        Effect.asVoid,
         Effect.catchCause((cause) => {
           const unknownPendingRequest = isUnknownPendingInteractionError(cause);
           return appendInteractionResponseFailure(event, {
@@ -2867,7 +2868,6 @@ const make = Effect.gen(function* () {
               : {}),
           });
         }),
-        Effect.asVoid,
       );
   });
 
@@ -2891,6 +2891,7 @@ const make = Effect.gen(function* () {
         answers: event.payload.answers,
       })
       .pipe(
+        Effect.asVoid,
         Effect.catchCause((cause) => {
           const unknownPendingRequest = isUnknownPendingInteractionError(cause);
           return appendInteractionResponseFailure(event, {
@@ -2904,7 +2905,6 @@ const make = Effect.gen(function* () {
               : {}),
           });
         }),
-        Effect.asVoid,
       );
   });
 

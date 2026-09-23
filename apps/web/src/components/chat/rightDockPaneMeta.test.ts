@@ -25,4 +25,19 @@ describe("App tab metadata", () => {
     expect(icon.type).toBe("img");
     expect(icon.props.src).toBe(pane.appIconDataUrl);
   });
+
+  it("uses App-owned presentation and falls back after reset", () => {
+    const presented = {
+      ...pane,
+      appPresentationTitle: "Project document",
+      appPresentationIconUrl: "https://example.com/favicon.ico",
+    };
+    expect(resolveRightDockPaneLabel(presented)).toBe("Project document");
+    const icon = resolveRightDockPaneIcon(presented);
+    if (!isValidElement<{ src?: string }>(icon)) throw new Error("Expected icon image");
+    expect(icon.props.src).toBe("https://example.com/favicon.ico");
+    expect(resolveRightDockPaneLabel({ ...presented, appPresentationTitle: null })).toBe(
+      "Explorer",
+    );
+  });
 });

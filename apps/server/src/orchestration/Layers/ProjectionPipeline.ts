@@ -530,7 +530,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         }
 
         case "thread.updated": {
-          return yield* updateThreadProjection(event.payload.threadId, (thread) => {
+          yield* updateThreadProjection(event.payload.threadId, (thread) => {
             return {
               ...thread,
               ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
@@ -566,6 +566,17 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               updatedAt: event.payload.updatedAt,
             };
           });
+          if (event.payload.lastOpenedAt !== undefined) {
+            yield* sql`
+              INSERT OR IGNORE INTO retention_active_days (day_utc, first_seen_at)
+              VALUES (${event.occurredAt.slice(0, 10)}, ${event.occurredAt})
+            `.pipe(
+              Effect.mapError(
+                toPersistenceSqlError("ProjectionPipeline.recordRetentionActiveDay:query"),
+              ),
+            );
+          }
+          return;
         }
 
         case "thread.pinned-message-added":
@@ -775,11 +786,27 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         case "thread.archived": {
           const archivedAt =
             event.payload.archivedAt ?? event.payload.updatedAt ?? event.occurredAt;
-          return yield* updateThreadProjection(event.payload.threadId, (thread) => ({
+          yield* updateThreadProjection(event.payload.threadId, (thread) => ({
             ...thread,
             archivedAt,
+            ...(event.payload.restoredFromRetention ? { deletedAt: null } : {}),
             updatedAt: event.payload.updatedAt ?? archivedAt,
           }));
+          if (event.payload.restoredFromRetention) {
+            yield* sql`
+              INSERT INTO projection_thread_decks (deck_id, space_id, created_at, updated_at)
+              SELECT t.deck_id, f.space_id, t.created_at, ${archivedAt}
+              FROM projection_threads t
+              JOIN projection_folders f ON f.folder_id = t.folder_id
+              WHERE t.thread_id = ${event.payload.threadId}
+              ON CONFLICT(deck_id) DO UPDATE SET updated_at = excluded.updated_at
+            `.pipe(
+              Effect.mapError(
+                toPersistenceSqlError("ProjectionPipeline.restoreRetentionDeck:query"),
+              ),
+            );
+          }
+          return;
         }
 
         case "thread.unarchived":

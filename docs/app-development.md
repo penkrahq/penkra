@@ -883,6 +883,14 @@ async function openDocument(documentId) {
 Call `tab.setRoute(...)` when navigation originates inside the App, such as clicking a document in
 its own library. This records the current App route in the host so Penkra can restore the same view
 after an App update or host restart; it does not navigate the App or call `tab.onNavigate` again.
+
+An App may replace its tab label with `tab.setPresentation({ title: document.title })` and return
+to its manifest name and icon with `tab.resetPresentation()`. Browser Apps may request the favicon
+of their own hosted page with `tab.setPresentation({ title: page.title, icon: "hosted-page" })`.
+The host owns the favicon URL; the App cannot supply an arbitrary icon URL. Presentation overrides
+are runtime state, so Apps should reissue them when restoring their route.
+For an App-owned icon, pass `icon: { dataUrl: "data:image/png;base64,..." }` instead. The host
+accepts PNG, JPEG, or WebP data up to 256 KiB and rejects external icon URLs.
 Use `tab.onNavigate(...)` only to receive navigation initiated by Penkra, an operation, or another
 App, and do not record that same route again from the handler. Ordinary navigation completes for
 its caller once this handler is registered and invoked; it does not wait for asynchronous data

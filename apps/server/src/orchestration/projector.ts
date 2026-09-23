@@ -708,10 +708,43 @@ export function projectEvent(
       return decodeForEvent(ThreadArchivedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
           const archivedAt = payload.archivedAt ?? payload.updatedAt ?? event.occurredAt;
+          const recovered = payload.restoredFromRetention
+            ? nextBase.threads.find((thread) => thread.id === payload.threadId)
+            : undefined;
+          const existingDeck = recovered
+            ? nextBase.decks.find((deck) => deck.id === recovered.deckId)
+            : undefined;
+          const folder = recovered
+            ? nextBase.folders.find((entry) => entry.id === recovered.folderId)
+            : undefined;
           return {
             ...nextBase,
+            decks:
+              recovered && folder
+                ? existingDeck
+                  ? nextBase.decks.map((deck) =>
+                      deck.id === recovered.deckId
+                        ? {
+                            ...deck,
+                            threadIds: [...new Set([...deck.threadIds, recovered.id])],
+                            updatedAt: archivedAt,
+                          }
+                        : deck,
+                    )
+                  : [
+                      ...nextBase.decks,
+                      {
+                        id: recovered.deckId,
+                        spaceId: folder.spaceId,
+                        threadIds: [recovered.id],
+                        createdAt: recovered.createdAt,
+                        updatedAt: archivedAt,
+                      },
+                    ]
+                : nextBase.decks,
             threads: updateThread(nextBase.threads, payload.threadId, {
               archivedAt,
+              ...(payload.restoredFromRetention ? { deletedAt: null } : {}),
               updatedAt: payload.updatedAt ?? archivedAt,
             }),
           };

@@ -25,7 +25,7 @@ export function ExpandedImageOverlay({
 
   return (
     <div
-      className="fixed inset-y-0 left-0 right-[var(--right-dock-overlay-inset,0px)] z-50 flex items-center justify-center bg-black/75 px-4 py-6 [-webkit-app-region:no-drag]"
+      className="fixed inset-y-0 left-0 right-[var(--right-dock-overlay-inset,0px)] z-50 flex items-center justify-center overflow-hidden bg-black/75 px-4 py-6 [-webkit-app-region:no-drag]"
       data-expanded-image-overlay
       role="dialog"
       aria-modal="true"
@@ -49,7 +49,7 @@ export function ExpandedImageOverlay({
           <ChevronLeftIcon className="size-5" />
         </Button>
       ) : null}
-      <div className="relative isolate z-10 max-h-[92vh] max-w-[92vw]">
+      <div className="relative isolate z-10 flex min-h-0 min-w-0 max-h-full max-w-full flex-col items-center">
         <Button
           type="button"
           size="icon-xs"
@@ -63,10 +63,10 @@ export function ExpandedImageOverlay({
         <img
           src={expandedImageItem.src}
           alt={expandedImageItem.name}
-          className="max-h-[86vh] max-w-[92vw] select-none rounded-lg border border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)] object-contain shadow-2xl"
+          className="min-h-0 min-w-0 max-h-full max-w-full select-none rounded-lg border border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)] object-contain shadow-2xl"
           draggable={false}
         />
-        <p className="mt-2 max-w-[92vw] truncate text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/80">
+        <p className="mt-2 max-w-full shrink-0 truncate text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/80">
           {expandedImageItem.name}
           {expandedImage.images.length > 1
             ? ` (${expandedImage.index + 1}/${expandedImage.images.length})`

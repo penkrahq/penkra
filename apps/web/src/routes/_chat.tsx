@@ -63,7 +63,8 @@ function ThreadRetentionMaintenanceToast() {
         return;
       }
 
-      const { state, deletedCount, totalCount, error } = event.payload;
+      const { state, archivedCount, deletedCount, recoveredCount, totalCount, error } =
+        event.payload;
       const eventMs = Date.parse(event.payload.at);
       const isStaleEvent = Number.isFinite(eventMs)
         ? Date.now() - eventMs > MAINTENANCE_EVENT_STALE_MS
@@ -75,7 +76,7 @@ function ThreadRetentionMaintenanceToast() {
       if (state === "started") {
         toastIdRef.current = toastManager.add({
           type: "loading",
-          title: "Hiding old chats...",
+          title: "Maintaining inactive chats...",
           description: "Preparing background maintenance.",
           timeout: 0,
           data: { allowCrossThreadVisibility: true },
@@ -88,18 +89,18 @@ function ThreadRetentionMaintenanceToast() {
           toastIdRef.current ??
           toastManager.add({
             type: "loading",
-            title: "Hiding old chats...",
+            title: "Maintaining inactive chats...",
             timeout: 0,
             data: { allowCrossThreadVisibility: true },
           });
         toastIdRef.current = toastId;
         toastManager.update(toastId, {
           type: "loading",
-          title: "Hiding old chats...",
+          title: "Maintaining inactive chats...",
           description:
             totalCount && totalCount > 0
-              ? `${deletedCount ?? 0} of ${totalCount} chats hidden.`
-              : `${deletedCount ?? 0} chats hidden.`,
+              ? `${(archivedCount ?? 0) + (deletedCount ?? 0) + (recoveredCount ?? 0)} of ${totalCount} chats processed.`
+              : `${archivedCount ?? 0} archived, ${recoveredCount ?? 0} recovered, ${deletedCount ?? 0} queued for permanent deletion.`,
           timeout: 0,
           data: { allowCrossThreadVisibility: true },
         });
@@ -113,7 +114,7 @@ function ThreadRetentionMaintenanceToast() {
           toastManager.update(toastId, {
             type: "warning",
             title: "Chat maintenance paused",
-            description: error ?? "Old chats will be retried later.",
+            description: error ?? "Inactive chats will be retried later.",
             timeout: 6000,
             data: { allowCrossThreadVisibility: true },
           });
@@ -122,7 +123,7 @@ function ThreadRetentionMaintenanceToast() {
         toastManager.add({
           type: "warning",
           title: "Chat maintenance paused",
-          description: error ?? "Old chats will be retried later.",
+          description: error ?? "Inactive chats will be retried later.",
           timeout: 6000,
           data: { allowCrossThreadVisibility: true },
         });
@@ -134,11 +135,8 @@ function ThreadRetentionMaintenanceToast() {
       if (!toastId) return;
       toastManager.update(toastId, {
         type: "success",
-        title: "Old chats hidden",
-        description:
-          deletedCount && deletedCount > 0
-            ? `${deletedCount} old chats hidden from the app.`
-            : "No old chats needed hiding.",
+        title: "Chat maintenance complete",
+        description: `${archivedCount ?? 0} archived, ${recoveredCount ?? 0} recovered into Archive, ${deletedCount ?? 0} queued for permanent deletion.`,
         timeout: 3500,
         data: { allowCrossThreadVisibility: true },
       });

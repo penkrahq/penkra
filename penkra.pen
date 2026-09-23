@@ -2930,7 +2930,7 @@
               "type": "frame",
               "id": "nPp6o",
               "name": "Footer",
-              "width": "fill_container",
+              "width": 440,
               "height": 26,
               "stroke": "$color-border",
               "strokeWidth": {
@@ -10706,7 +10706,8 @@
           "y": 3800,
           "name": "Thread Deck Tab / Shared",
           "theme": {
-            "state": "default"
+            "state": "default",
+            "work-status": "idle"
           },
           "reusable": true,
           "fill": "$tab-bg",
@@ -10723,7 +10724,7 @@
               "id": "D2Vvc",
               "x": 0,
               "y": 0,
-              "name": "Close Button",
+              "name": "Archive Button",
               "theme": {
                 "close-state": "default"
               },
@@ -10738,10 +10739,10 @@
                 {
                   "type": "icon",
                   "id": "t1XUA",
-                  "name": "Close Icon",
+                  "name": "Archive Icon",
                   "width": 12,
                   "height": 12,
-                  "icon": "x",
+                  "icon": "archive",
                   "library": "lucide",
                   "fill": "$row-text"
                 }
@@ -10757,7 +10758,18 @@
               "theme": {
                 "harness": "codex",
                 "pin-state": "unpinned"
-              }
+              },
+              "enabled": "$deck-thread-identity-visible"
+            },
+            {
+              "id": "M0kLl3",
+              "type": "ref",
+              "ref": "AML75",
+              "name": "Work Status",
+              "theme": {},
+              "enabled": "$deck-thread-status-visible",
+              "width": 14,
+              "height": 14
             },
             {
               "type": "text",
@@ -11380,6 +11392,27 @@
                   "content": "Apps"
                 }
               }
+            },
+            {
+              "type": "frame",
+              "id": "gwWv2",
+              "x": 81.8,
+              "y": 13,
+              "name": "Panel Tab Divider — Files Review",
+              "enabled": false,
+              "width": 1,
+              "height": 20,
+              "fill": "$panel-divider"
+            },
+            {
+              "type": "frame",
+              "id": "t7qbe",
+              "x": 172.7,
+              "y": 13,
+              "name": "Panel Tab Divider — Review Apps",
+              "width": 1,
+              "height": 20,
+              "fill": "$panel-divider"
             }
           ]
         },
@@ -11953,6 +11986,17 @@
                   }
                 },
                 {
+                  "type": "frame",
+                  "id": "jc1be",
+                  "x": 0,
+                  "y": 0,
+                  "name": "Panel Tab Divider — Files Review",
+                  "enabled": false,
+                  "width": 1,
+                  "height": 20,
+                  "fill": "$panel-divider"
+                },
+                {
                   "id": "w6JYDF",
                   "type": "ref",
                   "ref": "nyAGp",
@@ -11968,6 +12012,14 @@
                       "content": "Review"
                     }
                   }
+                },
+                {
+                  "type": "frame",
+                  "id": "J9lDR",
+                  "name": "Panel Tab Divider — Review Apps",
+                  "width": 1,
+                  "height": 20,
+                  "fill": "$panel-divider"
                 },
                 {
                   "id": "rnyF3",
@@ -23254,7 +23306,7 @@
               "slot": [
                 "j0ETwz"
               ],
-              "width": "fill_container",
+              "width": 608,
               "layout": "vertical",
               "gap": 8,
               "children": [
@@ -25910,7 +25962,7 @@
         "mode": "dark"
       },
       "width": 19700,
-      "height": 11580,
+      "height": 13000,
       "layout": "none",
       "children": [
         {
@@ -26663,10 +26715,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -26855,10 +26913,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -27024,10 +27088,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -27137,10 +27207,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -27355,10 +27431,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -27579,6 +27661,11 @@
               "height": 900,
               "theme": {
                 "mode": "dark"
+              },
+              "descendants": {
+                "J9lDR": {
+                  "enabled": true
+                }
               }
             },
             {
@@ -27666,6 +27753,11 @@
               "height": 900,
               "theme": {
                 "mode": "dark"
+              },
+              "descendants": {
+                "J9lDR": {
+                  "enabled": true
+                }
               }
             },
             {
@@ -27738,11 +27830,6 @@
                     "state": "default"
                   }
                 },
-                "ISa9R/bqXWl": {
-                  "theme": {
-                    "state": "open"
-                  }
-                },
                 "ISa9R/CnM59": {
                   "content": "Do something"
                 },
@@ -27805,10 +27892,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -28451,10 +28544,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -29040,7 +29139,7 @@
                   "id": "S8SZ7",
                   "name": "Bottom / Connection Selected for Next Message",
                   "width": 760,
-                  "height": "fit_content(0)",
+                  "height": 0,
                   "fill": "#00000000",
                   "layout": "vertical",
                   "padding": [
@@ -29098,10 +29197,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -29769,10 +29874,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -29878,9 +29989,6 @@
                     "state": "default"
                   }
                 },
-                "ISa9R/bqXWl": {
-                  "enabled": false
-                },
                 "ISa9R/CnM59": {
                   "content": "Do something"
                 },
@@ -29946,6 +30054,11 @@
               "height": 900,
               "theme": {
                 "mode": "dark"
+              },
+              "descendants": {
+                "J9lDR": {
+                  "enabled": true
+                }
               }
             },
             {
@@ -29966,7 +30079,7 @@
           "ref": "jBenk",
           "name": "Feature Row — Main - Right Panel",
           "x": 0,
-          "y": 2760,
+          "y": 4060,
           "width": 8880,
           "descendants": {
             "O2Mve": {
@@ -29978,7 +30091,7 @@
           "type": "frame",
           "id": "fcm2a",
           "x": 0,
-          "y": 2880,
+          "y": 4180,
           "name": "Screen — Main - Right Panel — Apps Launcher",
           "clip": true,
           "width": 1440,
@@ -30251,10 +30364,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -30334,7 +30453,7 @@
           "type": "frame",
           "id": "XVLL0",
           "x": 1488,
-          "y": 2880,
+          "y": 4180,
           "name": "Screen — Main - Right Panel — Apps Loading",
           "clip": true,
           "width": 1440,
@@ -30642,7 +30761,7 @@
           "type": "frame",
           "id": "lhM2h",
           "x": 2976,
-          "y": 2880,
+          "y": 4180,
           "name": "Screen — Main - Right Panel — App Crashed",
           "clip": true,
           "width": 1440,
@@ -30980,7 +31099,7 @@
           "type": "frame",
           "id": "U9hl7",
           "x": 4464,
-          "y": 2880,
+          "y": 4180,
           "name": "Screen — Main - Right Panel — App Revoked",
           "clip": true,
           "width": 1440,
@@ -31288,7 +31407,7 @@
           "type": "frame",
           "id": "oWgt2",
           "x": 5952,
-          "y": 2880,
+          "y": 4180,
           "name": "Screen — Thread — Steering Active Turn",
           "clip": true,
           "width": 1440,
@@ -31311,10 +31430,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -31623,7 +31748,7 @@
           "type": "frame",
           "id": "DFDYE",
           "x": 7440,
-          "y": 2880,
+          "y": 4180,
           "name": "Screen — Product Capture — Apps Launcher",
           "metadata": {
             "type": "recovered-reference",
@@ -31766,10 +31891,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -31829,7 +31960,7 @@
           "ref": "jBenk",
           "name": "Feature Row — Settings - General",
           "x": 0,
-          "y": 4060,
+          "y": 5360,
           "width": 7392,
           "descendants": {
             "O2Mve": {
@@ -31841,7 +31972,7 @@
           "type": "frame",
           "id": "P3rhe3",
           "x": 0,
-          "y": 4180,
+          "y": 5480,
           "name": "Screen — Settings",
           "metadata": {
             "type": "recovered-reference",
@@ -32036,7 +32167,7 @@
           "type": "frame",
           "id": "aS32i",
           "x": 1488,
-          "y": 4180,
+          "y": 5480,
           "name": "Screen — Settings — Permissions",
           "metadata": {
             "type": "recovered-reference",
@@ -32138,7 +32269,7 @@
           "type": "frame",
           "id": "lZFaB",
           "x": 2976,
-          "y": 4180,
+          "y": 5480,
           "name": "Screen — Settings — Apps",
           "metadata": {
             "type": "recovered-reference",
@@ -32253,7 +32384,7 @@
           "type": "frame",
           "id": "bQq5u",
           "x": 4464,
-          "y": 4180,
+          "y": 5480,
           "name": "Screen — Settings — Appearance",
           "metadata": {
             "type": "recovered-reference",
@@ -32381,7 +32512,7 @@
           "type": "frame",
           "id": "Z5URGt",
           "x": 5952,
-          "y": 4180,
+          "y": 5480,
           "name": "Screen — Settings — Account",
           "metadata": {
             "type": "recovered-reference",
@@ -32445,7 +32576,7 @@
           "ref": "jBenk",
           "name": "Feature Row — Settings - Spaces",
           "x": 0,
-          "y": 5360,
+          "y": 6660,
           "width": 4416,
           "descendants": {
             "O2Mve": {
@@ -32457,7 +32588,7 @@
           "type": "frame",
           "id": "F86LyT",
           "x": 0,
-          "y": 5480,
+          "y": 6780,
           "name": "Screen — Settings — Spaces — Overview",
           "clip": true,
           "width": 1440,
@@ -32610,7 +32741,7 @@
           "type": "frame",
           "id": "upk1m",
           "x": 1488,
-          "y": 5480,
+          "y": 6780,
           "name": "Screen — Settings — Spaces — Personal Expanded",
           "metadata": {
             "type": "recovered-reference",
@@ -32777,7 +32908,7 @@
           "ref": "jBenk",
           "name": "Feature Row — Settings - Agents",
           "x": 0,
-          "y": 6660,
+          "y": 7960,
           "width": 8880,
           "descendants": {
             "O2Mve": {
@@ -32789,7 +32920,7 @@
           "type": "frame",
           "id": "eoDi5",
           "x": 0,
-          "y": 6780,
+          "y": 8080,
           "name": "Screen — Settings — Agents",
           "metadata": {
             "type": "recovered-reference",
@@ -33005,7 +33136,7 @@
           "type": "frame",
           "id": "YSisk",
           "x": 1488,
-          "y": 6780,
+          "y": 8080,
           "name": "Screen — Settings — Agents — Claude — No Connections",
           "metadata": {
             "type": "recovered-reference",
@@ -33223,7 +33354,7 @@
           "type": "frame",
           "id": "aqPFg",
           "x": 2976,
-          "y": 6780,
+          "y": 8080,
           "name": "Screen — Settings — Agents — ChatGPT — No Connections",
           "metadata": {
             "type": "recovered-reference",
@@ -33462,7 +33593,7 @@
           "type": "frame",
           "id": "dijV4",
           "x": 5952,
-          "y": 6780,
+          "y": 8080,
           "name": "Screen — Settings — Agents — API Entry Inline",
           "metadata": {
             "type": "recovered-reference",
@@ -33745,7 +33876,7 @@
           "type": "frame",
           "id": "Y0LLy",
           "x": 7440,
-          "y": 6780,
+          "y": 8080,
           "name": "Screen — Settings — Agents — Add API Key Inline",
           "metadata": {
             "type": "recovered-reference",
@@ -34013,7 +34144,7 @@
           "ref": "jBenk",
           "name": "Feature Row — Onboarding — Getting Started",
           "x": 0,
-          "y": 7960,
+          "y": 9260,
           "width": 2928,
           "descendants": {
             "O2Mve": {
@@ -34025,7 +34156,7 @@
           "type": "frame",
           "id": "Vzpx0",
           "x": 0,
-          "y": 8080,
+          "y": 9380,
           "name": "Screen — Welcome",
           "metadata": {
             "type": "recovered-reference",
@@ -34068,7 +34199,7 @@
           "type": "frame",
           "id": "HKAkV",
           "x": 1488,
-          "y": 8080,
+          "y": 9380,
           "name": "Screen — Connect an Agent",
           "metadata": {
             "type": "recovered-reference",
@@ -34154,7 +34285,7 @@
           "ref": "jBenk",
           "name": "Feature Row — Onboarding — Agent Connections",
           "x": 0,
-          "y": 9260,
+          "y": 10560,
           "width": 4416,
           "descendants": {
             "O2Mve": {
@@ -34166,7 +34297,7 @@
           "type": "frame",
           "id": "BiK9J",
           "x": 0,
-          "y": 9380,
+          "y": 10680,
           "name": "Screen — Manage Claude Connections",
           "metadata": {
             "type": "recovered-reference",
@@ -34210,7 +34341,7 @@
           "type": "frame",
           "id": "pQHTj",
           "x": 1488,
-          "y": 9380,
+          "y": 10680,
           "name": "Screen — Enter API Key",
           "metadata": {
             "type": "recovered-reference",
@@ -34254,7 +34385,7 @@
           "type": "frame",
           "id": "vRbM1",
           "x": 2976,
-          "y": 9380,
+          "y": 10680,
           "name": "Screen — Connect Claude",
           "metadata": {
             "type": "recovered-reference",
@@ -34480,7 +34611,7 @@
           "ref": "jBenk",
           "name": "Feature Row — Main - Search",
           "x": 0,
-          "y": 10560,
+          "y": 11860,
           "width": 5904,
           "descendants": {
             "O2Mve": {
@@ -34492,7 +34623,7 @@
           "type": "frame",
           "id": "S7ZFFu",
           "x": 0,
-          "y": 10680,
+          "y": 11980,
           "name": "Screen — Search — Overlay Open",
           "metadata": {
             "type": "recovered-reference",
@@ -35087,10 +35218,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -35170,7 +35307,7 @@
           "type": "frame",
           "id": "EneXb",
           "x": 1488,
-          "y": 10680,
+          "y": 11980,
           "name": "Screen — Search — Recent (no query)",
           "metadata": {
             "type": "recovered-reference",
@@ -35765,10 +35902,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -36188,7 +36331,7 @@
           "type": "frame",
           "id": "u6sRlE",
           "x": 2976,
-          "y": 10680,
+          "y": 11980,
           "name": "Screen — Search — No Matches",
           "metadata": {
             "type": "recovered-reference",
@@ -36783,10 +36926,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -36930,7 +37079,7 @@
           "type": "frame",
           "id": "szbxn",
           "x": 4464,
-          "y": 10680,
+          "y": 11980,
           "name": "Screen — Search — Import Thread",
           "metadata": {
             "type": "recovered-reference",
@@ -37525,10 +37674,16 @@
                     "state": "default"
                   }
                 },
+                "jc1be": {
+                  "enabled": true
+                },
                 "w6JYDF": {
                   "theme": {
                     "state": "default"
                   }
+                },
+                "J9lDR": {
+                  "enabled": false
                 },
                 "rnyF3": {
                   "theme": {
@@ -37970,7 +38125,7 @@
           "type": "frame",
           "id": "A6cxn5",
           "x": 2976,
-          "y": 5480,
+          "y": 6780,
           "name": "Screen — Settings — Spaces — Choose Claude Default",
           "metadata": {
             "type": "recovered-reference",
@@ -38143,7 +38298,7 @@
           "type": "frame",
           "id": "Z4wFXO",
           "x": 4464,
-          "y": 6780,
+          "y": 8080,
           "name": "Screen — Settings — Agents — OpenCode — No Connections",
           "metadata": {
             "type": "recovered-reference",
@@ -38408,8 +38563,8 @@
         {
           "type": "frame",
           "id": "b7ug2y",
-          "x": 12960,
-          "y": 1580,
+          "x": 0,
+          "y": 2880,
           "name": "Screen — Thread — Multi-Thread Deck",
           "theme": {
             "mode": "dark"
@@ -38437,7 +38592,7 @@
               "y": 0,
               "name": "Thread Deck / Tab Bar",
               "width": 780,
-              "height": 40,
+              "height": 46,
               "fill": "$color-background-surface-under",
               "gap": 2,
               "padding": [
@@ -38462,7 +38617,8 @@
                       "theme": {
                         "state": "selected",
                         "harness": "codex",
-                        "pin-state": "unpinned"
+                        "pin-state": "unpinned",
+                        "work-status": "running"
                       },
                       "descendants": {
                         "nof3n": {
@@ -38477,6 +38633,17 @@
                       }
                     },
                     {
+                      "type": "frame",
+                      "id": "idTbf",
+                      "x": 115,
+                      "y": 10,
+                      "name": "Tab Divider",
+                      "enabled": false,
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
                       "id": "aFrQU",
                       "type": "ref",
                       "ref": "nqcTR",
@@ -38484,7 +38651,8 @@
                       "theme": {
                         "state": "default",
                         "harness": "claude",
-                        "pin-state": "unpinned"
+                        "pin-state": "unpinned",
+                        "work-status": "attention"
                       },
                       "descendants": {
                         "nof3n": {
@@ -38500,7 +38668,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "FmdLJ",
+                      "id": "Ucj9P",
                       "name": "Tab Divider",
                       "width": 1,
                       "height": 20,
@@ -38514,7 +38682,8 @@
                       "theme": {
                         "state": "default",
                         "harness": "codex",
-                        "pin-state": "unpinned"
+                        "pin-state": "unpinned",
+                        "work-status": "done"
                       },
                       "descendants": {
                         "nof3n": {
@@ -38554,22 +38723,23 @@
               "ref": "y0DmC",
               "name": "Middle Panel — Thread",
               "x": 240,
-              "y": 40,
+              "y": 46,
               "width": 780,
-              "height": 860,
+              "height": 854,
               "descendants": {
                 "xpS1E": {
                   "id": "wOQ0M",
                   "type": "ref",
                   "ref": "Kpx7i",
                   "name": "Top Bar",
-                  "width": "fill_container",
+                  "width": 780,
                   "height": 46,
                   "theme": {
                     "state": "default",
                     "harness": "codex",
                     "pin-state": "unpinned"
                   },
+                  "enabled": false,
                   "descendants": {
                     "q7dTkt": {
                       "content": "HIPAA audit"
@@ -38587,8 +38757,8 @@
         {
           "type": "frame",
           "id": "WVAGw",
-          "x": 17928,
-          "y": 1580,
+          "x": 1068,
+          "y": 2880,
           "name": "Screen — Thread — New Thread Added",
           "theme": {
             "mode": "dark"
@@ -38615,22 +38785,23 @@
               "ref": "y0DmC",
               "name": "Middle Panel — Thread",
               "x": 240,
-              "y": 40,
+              "y": 46,
               "width": 780,
-              "height": 860,
+              "height": 854,
               "descendants": {
                 "xpS1E": {
                   "id": "EPqNN",
                   "type": "ref",
                   "ref": "Kpx7i",
                   "name": "Top Bar",
-                  "width": "fill_container",
+                  "width": 780,
                   "height": 46,
                   "theme": {
                     "state": "default",
                     "harness": "codex",
                     "pin-state": "unpinned"
                   },
+                  "enabled": false,
                   "descendants": {
                     "q7dTkt": {
                       "content": "Untitled"
@@ -38650,7 +38821,7 @@
               "y": 0,
               "name": "Thread Deck / Tab Bar",
               "width": 780,
-              "height": 40,
+              "height": 46,
               "fill": "$color-background-surface-under",
               "gap": 2,
               "padding": [
@@ -38675,9 +38846,15 @@
                       "theme": {
                         "state": "default",
                         "harness": "codex",
-                        "pin-state": "unpinned"
+                        "pin-state": "unpinned",
+                        "work-status": "running"
                       },
                       "descendants": {
+                        "D2Vvc": {
+                          "theme": {
+                            "close-state": "hover"
+                          }
+                        },
                         "nof3n": {
                           "theme": {
                             "harness": "codex",
@@ -38691,7 +38868,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "tmf76",
+                      "id": "eR0ji",
                       "name": "Tab Divider",
                       "width": 1,
                       "height": 20,
@@ -38705,7 +38882,8 @@
                       "theme": {
                         "state": "default",
                         "harness": "claude",
-                        "pin-state": "unpinned"
+                        "pin-state": "unpinned",
+                        "work-status": "attention"
                       },
                       "descendants": {
                         "nof3n": {
@@ -38721,7 +38899,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "XnGLS",
+                      "id": "vL3yF",
                       "name": "Tab Divider",
                       "width": 1,
                       "height": 20,
@@ -38735,7 +38913,8 @@
                       "theme": {
                         "state": "default",
                         "harness": "codex",
-                        "pin-state": "unpinned"
+                        "pin-state": "unpinned",
+                        "work-status": "done"
                       },
                       "descendants": {
                         "nof3n": {
@@ -38750,14 +38929,26 @@
                       }
                     },
                     {
+                      "type": "frame",
+                      "id": "wiyN2",
+                      "x": 352,
+                      "y": 10,
+                      "name": "Tab Divider",
+                      "enabled": false,
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
                       "id": "ark2S",
                       "type": "ref",
                       "ref": "nqcTR",
-                      "name": "Untitled",
+                      "name": "New thread",
                       "theme": {
                         "state": "selected",
                         "harness": "codex",
-                        "pin-state": "unpinned"
+                        "pin-state": "unpinned",
+                        "work-status": "idle"
                       },
                       "descendants": {
                         "nof3n": {
@@ -38767,7 +38958,7 @@
                           }
                         },
                         "rpkrD": {
-                          "content": "Untitled"
+                          "content": "New thread"
                         }
                       }
                     }
@@ -38796,8 +38987,8 @@
         {
           "type": "frame",
           "id": "twkyU",
-          "x": 19068,
-          "y": 1580,
+          "x": 4692,
+          "y": 2880,
           "name": "Screen — Thread — Multi-Thread Deck — Right Panel Collapsed",
           "theme": {
             "mode": "dark"
@@ -38824,22 +39015,23 @@
               "ref": "y0DmC",
               "name": "Middle Panel — Thread",
               "x": 240,
-              "y": 40,
+              "y": 46,
               "width": 1200,
-              "height": 860,
+              "height": 854,
               "descendants": {
                 "xpS1E": {
                   "id": "d1hct",
                   "type": "ref",
                   "ref": "Kpx7i",
                   "name": "Top Bar",
-                  "width": "fill_container",
+                  "width": 1200,
                   "height": 46,
                   "theme": {
                     "state": "default",
                     "harness": "codex",
                     "pin-state": "unpinned"
                   },
+                  "enabled": false,
                   "descendants": {
                     "q7dTkt": {
                       "content": "HIPAA audit"
@@ -38859,10 +39051,12 @@
               "y": 0,
               "name": "Thread Deck / Tab Bar",
               "width": 1200,
-              "height": 40,
+              "height": 46,
               "fill": "$color-background-surface-under",
               "gap": 2,
               "padding": [
+                0,
+                47,
                 0,
                 8
               ],
@@ -38884,7 +39078,8 @@
                       "theme": {
                         "state": "selected",
                         "harness": "codex",
-                        "pin-state": "unpinned"
+                        "pin-state": "unpinned",
+                        "work-status": "running"
                       },
                       "descendants": {
                         "nof3n": {
@@ -38899,6 +39094,17 @@
                       }
                     },
                     {
+                      "type": "frame",
+                      "id": "fGcrS",
+                      "x": 115,
+                      "y": 10,
+                      "name": "Tab Divider",
+                      "enabled": false,
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
                       "id": "t4L6O8",
                       "type": "ref",
                       "ref": "nqcTR",
@@ -38906,7 +39112,8 @@
                       "theme": {
                         "state": "default",
                         "harness": "claude",
-                        "pin-state": "unpinned"
+                        "pin-state": "unpinned",
+                        "work-status": "attention"
                       },
                       "descendants": {
                         "nof3n": {
@@ -38922,7 +39129,7 @@
                     },
                     {
                       "type": "frame",
-                      "id": "l3izl",
+                      "id": "Y0bRTj",
                       "name": "Tab Divider",
                       "width": 1,
                       "height": 20,
@@ -38936,7 +39143,8 @@
                       "theme": {
                         "state": "default",
                         "harness": "codex",
-                        "pin-state": "unpinned"
+                        "pin-state": "unpinned",
+                        "work-status": "done"
                       },
                       "descendants": {
                         "nof3n": {
@@ -38976,10 +39184,1087 @@
               "ref": "TFUWH",
               "name": "Apps Launcher (Fixed)",
               "x": 1401,
+              "y": 4,
+              "theme": {
+                "state": "default"
+              }
+            }
+          ]
+        },
+        {
+          "id": "XSahC",
+          "type": "ref",
+          "ref": "jBenk",
+          "name": "Feature Row — Main - Thread Deck",
+          "x": 0,
+          "y": 2760,
+          "width": 7200,
+          "descendants": {
+            "O2Mve": {
+              "content": "Main - Thread Deck"
+            }
+          }
+        },
+        {
+          "type": "frame",
+          "id": "wfGdn",
+          "x": 2136,
+          "y": 2880,
+          "name": "Screen — Thread Deck — New Thread from Plus",
+          "theme": {
+            "mode": "dark"
+          },
+          "clip": true,
+          "width": 1020,
+          "height": 900,
+          "fill": "$canvas",
+          "layout": "none",
+          "children": [
+            {
+              "id": "D33kTi",
+              "type": "ref",
+              "ref": "UPCCE",
+              "name": "Left Rail — Spaces",
+              "x": 0,
+              "y": 0,
+              "width": 240,
+              "height": 900
+            },
+            {
+              "id": "w0VeXH",
+              "type": "ref",
+              "ref": "T0KEEB",
+              "name": "Middle Panel — New Thread from Plus",
+              "x": 240,
+              "y": 46,
+              "width": 780,
+              "height": 854,
+              "theme": {
+                "mode": "dark"
+              },
+              "descendants": {
+                "DGjLV": {
+                  "enabled": false,
+                  "width": 780
+                },
+                "ISa9R/DxWas/eQt4v/M11Gy": {
+                  "enabled": false
+                }
+              }
+            },
+            {
+              "type": "frame",
+              "id": "kRgGn",
+              "x": 240,
+              "y": 0,
+              "name": "Thread Deck / Tab Bar",
+              "width": 780,
+              "height": 46,
+              "fill": "$color-background-surface-under",
+              "gap": 2,
+              "padding": [
+                0,
+                8
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "VrAuC",
+                  "name": "Tabs",
+                  "height": "fill_container",
+                  "gap": 2,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "id": "Kraaj",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "HIPAA audit",
+                      "theme": {
+                        "state": "default",
+                        "harness": "codex",
+                        "pin-state": "unpinned",
+                        "work-status": "running"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "HIPAA audit"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "x4A6V",
+                      "name": "Tab Divider",
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "ol4ZB",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Flaky test",
+                      "theme": {
+                        "state": "default",
+                        "harness": "claude",
+                        "pin-state": "unpinned",
+                        "work-status": "attention"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "claude",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Flaky test"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "lcye6",
+                      "name": "Tab Divider",
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "Mig1q",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Release notes",
+                      "theme": {
+                        "state": "default",
+                        "harness": "codex",
+                        "pin-state": "unpinned",
+                        "work-status": "done"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Release notes"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "m3v9V",
+                      "x": 352,
+                      "y": 10,
+                      "name": "Tab Divider",
+                      "enabled": false,
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "xQpGe",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "New thread",
+                      "theme": {
+                        "state": "selected",
+                        "harness": "codex",
+                        "pin-state": "unpinned",
+                        "work-status": "idle"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "New thread"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "BkfKM",
+                  "name": "Spacer",
+                  "width": "fill_container",
+                  "height": 1,
+                  "fill": "#00000000"
+                },
+                {
+                  "id": "RmdM0",
+                  "type": "ref",
+                  "ref": "zwljJ",
+                  "name": "New Thread",
+                  "width": 26,
+                  "height": 26
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "DVXsz",
+          "x": 3204,
+          "y": 2880,
+          "name": "Screen — Thread Deck — Apps Panel Open",
+          "clip": true,
+          "width": 1440,
+          "height": 900,
+          "fill": "$canvas",
+          "layout": "none",
+          "children": [
+            {
+              "id": "d7xlaG",
+              "type": "ref",
+              "ref": "y0DmC",
+              "name": "Middle Panel — Thread",
+              "x": 240,
+              "y": 46,
+              "width": 780,
+              "height": 854,
+              "descendants": {
+                "xpS1E": {
+                  "enabled": false
+                },
+                "v4gowy": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "v4gowy/I7pRgK": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "v4gowy/I7pRgK/d86ma8": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "v4gowy/I7pRgK/HTwkk": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "kqawW": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "kqawW/qbQ0d": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "kqawW/qbQ0d/FVVGC": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "kqawW/qbQ0d/uvgSq": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "suiRU": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "suiRU/I7pRgK": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "suiRU/I7pRgK/d86ma8": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "suiRU/I7pRgK/HTwkk": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "cLs2Y": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "cLs2Y/qbQ0d": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "cLs2Y/qbQ0d/FVVGC": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "cLs2Y/qbQ0d/uvgSq": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "NJr4s": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "NJr4s/I7pRgK": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "NJr4s/I7pRgK/d86ma8": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "NJr4s/I7pRgK/HTwkk": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "e3Hpk": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "e3Hpk/qbQ0d": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "e3Hpk/qbQ0d/FVVGC": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "e3Hpk/qbQ0d/uvgSq": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "Q9cWk": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "Q9cWk/I7pRgK": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "Q9cWk/I7pRgK/d86ma8": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "Q9cWk/I7pRgK/HTwkk": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "n3r1hV": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "n3r1hV/qbQ0d": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "n3r1hV/qbQ0d/FVVGC": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "n3r1hV/qbQ0d/uvgSq": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "lnAdH": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "lnAdH/I7pRgK": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "lnAdH/I7pRgK/d86ma8": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "lnAdH/I7pRgK/HTwkk": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "lhZSw": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "lhZSw/qbQ0d": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "lhZSw/qbQ0d/FVVGC": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "lhZSw/qbQ0d/uvgSq": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "s3hZPT": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "s3hZPT/DxWas": {
+                  "theme": {}
+                },
+                "s3hZPT/DxWas/C2Yo8k": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "s3hZPT/DxWas/RPqic": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "s3hZPT/DxWas/eQt4v": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "s3hZPT/DxWas/iG4bz": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "s3hZPT/DxWas/E7z8ym": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "XpmuN": {
+                  "theme": {
+                    "state": "default"
+                  }
+                }
+              }
+            },
+            {
+              "id": "lKsZ7",
+              "type": "ref",
+              "ref": "ayA7J",
+              "name": "Apps Panel",
+              "x": 1020,
+              "y": 0,
+              "width": 420,
+              "height": 900,
+              "descendants": {
+                "YzLlT": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "jc1be": {
+                  "enabled": true
+                },
+                "w6JYDF": {
+                  "theme": {
+                    "state": "default"
+                  }
+                },
+                "J9lDR": {
+                  "enabled": false
+                },
+                "rnyF3": {
+                  "theme": {
+                    "state": "selected"
+                  }
+                },
+                "yrRyL": {
+                  "enabled": true
+                },
+                "yrRyL/pBqq6": {
+                  "enabled": true
+                },
+                "yrRyL/rvWMu": {
+                  "theme": {
+                    "state": "hover"
+                  }
+                },
+                "yrRyL/xnhch": {
+                  "enabled": true,
+                  "justifyContent": "start"
+                },
+                "yrRyL/l9cXw": {
+                  "enabled": true
+                },
+                "yrRyL/aZCrl": {
+                  "content": "Search apps"
+                },
+                "yrRyL/FMKUh": {
+                  "enabled": false
+                },
+                "yrRyL/kxEsN": {
+                  "enabled": true
+                },
+                "f8mp2": {
+                  "justifyContent": "start",
+                  "alignItems": "start"
+                }
+              }
+            },
+            {
+              "id": "A6mzkq",
+              "type": "ref",
+              "ref": "o4UviR",
+              "name": "Tooltip Overlay Layer",
+              "x": 0,
+              "y": 0,
+              "width": 1440,
+              "height": 900,
+              "theme": {
+                "state": "default"
+              }
+            },
+            {
+              "id": "J2f8Xe",
+              "type": "ref",
+              "ref": "UPCCE",
+              "name": "Left Rail — Spaces",
+              "x": 0,
+              "y": 0,
+              "width": 240,
+              "height": 900
+            },
+            {
+              "id": "uq2sJ",
+              "type": "ref",
+              "ref": "TFUWH",
+              "name": "Apps Launcher (Fixed)",
+              "x": 1401,
               "y": 7,
               "theme": {
                 "state": "default"
               }
+            },
+            {
+              "type": "frame",
+              "id": "Yco35",
+              "x": 240,
+              "y": 0,
+              "name": "Thread Deck / Tab Bar",
+              "width": 780,
+              "height": 46,
+              "fill": "$color-background-surface-under",
+              "gap": 2,
+              "padding": [
+                0,
+                8
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "J1Kwx",
+                  "name": "Tabs",
+                  "height": "fill_container",
+                  "gap": 2,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "id": "r3lma",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "HIPAA audit",
+                      "theme": {
+                        "state": "selected",
+                        "harness": "codex",
+                        "pin-state": "unpinned",
+                        "work-status": "running"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "HIPAA audit"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "ig1UD",
+                      "x": 115,
+                      "y": 10,
+                      "name": "Tab Divider",
+                      "enabled": false,
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "g4PRFI",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Flaky test",
+                      "theme": {
+                        "state": "default",
+                        "harness": "claude",
+                        "pin-state": "unpinned",
+                        "work-status": "attention"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "claude",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Flaky test"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "I3E9hu",
+                      "name": "Tab Divider",
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "L3G83V",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Release notes",
+                      "theme": {
+                        "state": "default",
+                        "harness": "codex",
+                        "pin-state": "unpinned",
+                        "work-status": "done"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Release notes"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "L787ji",
+                  "name": "Spacer",
+                  "width": "fill_container",
+                  "height": 1,
+                  "fill": "#00000000"
+                },
+                {
+                  "id": "tk6GC",
+                  "type": "ref",
+                  "ref": "zwljJ",
+                  "name": "New Thread",
+                  "width": 26,
+                  "height": 26
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "ibvOZ",
+          "x": 6180,
+          "y": 2880,
+          "name": "Screen — Thread Deck — Horizontal Overflow",
+          "theme": {
+            "mode": "dark"
+          },
+          "clip": true,
+          "width": 1020,
+          "height": 900,
+          "fill": "$canvas",
+          "layout": "none",
+          "children": [
+            {
+              "id": "uefmr",
+              "type": "ref",
+              "ref": "UPCCE",
+              "name": "Left Rail — Spaces",
+              "x": 0,
+              "y": 0,
+              "width": 240,
+              "height": 900
+            },
+            {
+              "id": "hvrvH",
+              "type": "ref",
+              "ref": "y0DmC",
+              "name": "Middle Panel — Thread",
+              "x": 240,
+              "y": 46,
+              "width": 780,
+              "height": 854,
+              "descendants": {
+                "xpS1E": {
+                  "id": "ri79b",
+                  "type": "ref",
+                  "ref": "Kpx7i",
+                  "name": "Top Bar",
+                  "width": 780,
+                  "height": 46,
+                  "theme": {
+                    "state": "default",
+                    "harness": "codex",
+                    "pin-state": "unpinned"
+                  },
+                  "enabled": false,
+                  "descendants": {
+                    "q7dTkt": {
+                      "content": "Untitled"
+                    },
+                    "WicxU": {
+                      "x": 212.09,
+                      "width": 525.91
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "frame",
+              "id": "q9guGd",
+              "x": 240,
+              "y": 0,
+              "name": "Thread Deck / Tab Bar",
+              "width": 780,
+              "height": 46,
+              "fill": "$color-background-surface-under",
+              "gap": 2,
+              "padding": [
+                0,
+                8
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "T32rC",
+                  "name": "Tabs",
+                  "clip": true,
+                  "width": 700,
+                  "height": 46,
+                  "gap": 2,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "id": "bDqPg",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "HIPAA audit",
+                      "theme": {
+                        "state": "default",
+                        "harness": "codex",
+                        "pin-state": "unpinned",
+                        "work-status": "running"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "HIPAA audit"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "abKxS",
+                      "name": "Tab Divider",
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "s0Nsf3",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Flaky test",
+                      "theme": {
+                        "state": "default",
+                        "harness": "claude",
+                        "pin-state": "unpinned",
+                        "work-status": "attention"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "claude",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Flaky test"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "FURdW",
+                      "name": "Tab Divider",
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "qwMXe",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Release notes",
+                      "theme": {
+                        "state": "default",
+                        "harness": "codex",
+                        "pin-state": "unpinned",
+                        "work-status": "done"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Release notes"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "sLNow",
+                      "x": 352,
+                      "y": 10,
+                      "name": "Tab Divider",
+                      "enabled": false,
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "H5XaBI",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "New thread",
+                      "theme": {
+                        "state": "selected",
+                        "harness": "codex",
+                        "pin-state": "unpinned",
+                        "work-status": "idle"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "New thread"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "sbEXL",
+                      "x": 445,
+                      "y": 10,
+                      "name": "Tab Divider",
+                      "enabled": false,
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "cTB1b",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Implementation",
+                      "theme": {
+                        "state": "default",
+                        "harness": "codex",
+                        "pin-state": "unpinned",
+                        "work-status": "idle"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Implementation"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "EYMFB",
+                      "name": "Tab Divider",
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "WmcnN",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "QA review",
+                      "theme": {
+                        "state": "default",
+                        "harness": "claude",
+                        "pin-state": "unpinned",
+                        "work-status": "idle"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "claude",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "QA review"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "q3e9BS",
+                      "name": "Tab Divider",
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "gFDnS",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "Deployment",
+                      "theme": {
+                        "state": "default",
+                        "harness": "codex",
+                        "pin-state": "unpinned",
+                        "work-status": "idle"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "codex",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "Deployment"
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Hp0H3",
+                      "name": "Tab Divider",
+                      "width": 1,
+                      "height": 20,
+                      "fill": "$panel-divider"
+                    },
+                    {
+                      "id": "tzn7d",
+                      "type": "ref",
+                      "ref": "nqcTR",
+                      "name": "User interviews",
+                      "theme": {
+                        "state": "default",
+                        "harness": "claude",
+                        "pin-state": "unpinned",
+                        "work-status": "idle"
+                      },
+                      "descendants": {
+                        "nof3n": {
+                          "theme": {
+                            "harness": "claude",
+                            "pin-state": "unpinned"
+                          }
+                        },
+                        "rpkrD": {
+                          "content": "User interviews"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "d0wjtp",
+                  "name": "Spacer",
+                  "width": "fill_container",
+                  "height": 1,
+                  "fill": "#00000000"
+                },
+                {
+                  "id": "Jrrds",
+                  "type": "ref",
+                  "ref": "zwljJ",
+                  "name": "New Thread",
+                  "width": 26,
+                  "height": 26
+                }
+              ]
             }
           ]
         }
@@ -39164,7 +40449,7 @@
                       "id": "bC4C0",
                       "name": "Local Label",
                       "fill": "$text-primary",
-                      "content": "This Mac",
+                      "content": "This computer",
                       "fontFamily": "$font-body",
                       "fontSize": 12,
                       "fontWeight": "500"
@@ -39189,369 +40474,6 @@
                       "y": -54,
                       "width": 160,
                       "enabled": "$thread-runtime-picker-visible"
-                    }
-                  ]
-                },
-                {
-                  "type": "frame",
-                  "id": "bqXWl",
-                  "name": "Connection Trigger",
-                  "theme": {
-                    "state": "default"
-                  },
-                  "height": 26,
-                  "fill": "$row-bg",
-                  "cornerRadius": 999,
-                  "gap": 7,
-                  "padding": [
-                    0,
-                    6
-                  ],
-                  "alignItems": "center",
-                  "children": [
-                    {
-                      "id": "d15htf",
-                      "type": "ref",
-                      "ref": "UHPei",
-                      "name": "Connection Glyph",
-                      "width": 15,
-                      "height": 15
-                    },
-                    {
-                      "type": "text",
-                      "id": "C3Rko",
-                      "name": "Connection Label",
-                      "fill": "$text-primary",
-                      "content": "Work",
-                      "fontFamily": "$font-body",
-                      "fontSize": 12,
-                      "fontWeight": "500"
-                    },
-                    {
-                      "type": "icon",
-                      "id": "O3PTMk",
-                      "name": "Chevron",
-                      "width": 12,
-                      "height": 12,
-                      "icon": "chevron-down",
-                      "library": "lucide",
-                      "fill": "$text-primary"
-                    },
-                    {
-                      "type": "frame",
-                      "id": "yGHMq",
-                      "layoutPosition": "absolute",
-                      "x": 0,
-                      "y": -200,
-                      "name": "Connection Picker",
-                      "enabled": "$thread-connection-picker-visible",
-                      "metadata": {
-                        "type": "native-menu-contract",
-                        "items": [
-                          "Personal",
-                          "Work",
-                          "Production API",
-                          "Manage connections…"
-                        ],
-                        "behavior": "Picks the connection for this thread only. Never changes the Space default and never switches on its own."
-                      },
-                      "width": 244,
-                      "height": 194,
-                      "fill": "$color-background-panel",
-                      "cornerRadius": 10,
-                      "stroke": "$color-border",
-                      "strokeWidth": 1,
-                      "strokeAlignment": "inner",
-                      "layout": "vertical",
-                      "gap": 1,
-                      "padding": 7,
-                      "children": [
-                        {
-                          "type": "frame",
-                          "id": "UpQj7",
-                          "name": "Header",
-                          "width": "fill_container",
-                          "height": 26,
-                          "padding": [
-                            0,
-                            10
-                          ],
-                          "alignItems": "center",
-                          "children": [
-                            {
-                              "type": "text",
-                              "id": "HdNZw",
-                              "name": "Label",
-                              "fill": "$text-tertiary",
-                              "content": "CLAUDE",
-                              "fontFamily": "$font-body",
-                              "fontSize": 10,
-                              "fontWeight": "600",
-                              "letterSpacing": 0.5
-                            }
-                          ]
-                        },
-                        {
-                          "type": "frame",
-                          "id": "ui5vd",
-                          "name": "Active Connection",
-                          "width": "fill_container",
-                          "fill": "$surface-hover",
-                          "cornerRadius": 6,
-                          "layout": "vertical",
-                          "gap": 10,
-                          "padding": [
-                            9,
-                            10
-                          ],
-                          "children": [
-                            {
-                              "type": "frame",
-                              "id": "J5787a",
-                              "name": "Row",
-                              "width": "fill_container",
-                              "gap": 9,
-                              "alignItems": "center",
-                              "children": [
-                                {
-                                  "type": "icon",
-                                  "id": "d82l6i",
-                                  "name": "Check",
-                                  "width": 13,
-                                  "height": 13,
-                                  "icon": "check",
-                                  "library": "lucide",
-                                  "fill": "$text-primary"
-                                },
-                                {
-                                  "type": "frame",
-                                  "id": "VJwhL",
-                                  "name": "Copy",
-                                  "width": "fill_container",
-                                  "layout": "vertical",
-                                  "gap": 1,
-                                  "children": [
-                                    {
-                                      "type": "text",
-                                      "id": "eFaDO",
-                                      "name": "Name",
-                                      "fill": "$text-primary",
-                                      "content": "Work",
-                                      "fontFamily": "$font-body",
-                                      "fontSize": 13,
-                                      "fontWeight": "normal"
-                                    },
-                                    {
-                                      "type": "text",
-                                      "id": "SylDd",
-                                      "name": "Account",
-                                      "fill": "$text-tertiary",
-                                      "content": "Claude subscription",
-                                      "fontFamily": "$font-body",
-                                      "fontSize": 11,
-                                      "fontWeight": "normal"
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "type": "frame",
-                              "id": "U9i5a",
-                              "name": "Usage",
-                              "theme": {
-                                "usage-level": "normal"
-                              },
-                              "metadata": {
-                                "type": "usage-contract",
-                                "behavior": "One row per window the provider actually reports. Row count is data-driven, not fixed per provider: Claude may report 5h, weekly, per-model and credit windows; Codex reports weekly only."
-                              },
-                              "width": "fill_container",
-                              "fill": "#00000000",
-                              "layout": "vertical",
-                              "gap": 9,
-                              "children": [
-                                {
-                                  "type": "frame",
-                                  "id": "F5R8ti",
-                                  "name": "Session",
-                                  "theme": {
-                                    "usage-level": "normal"
-                                  },
-                                  "metadata": {
-                                    "type": "usage-contract",
-                                    "behavior": "One reported limit window. Bar length is server-reported utilization 0-100. Never estimated locally: when utilization is null the row is not rendered at all."
-                                  },
-                                  "width": "fill_container",
-                                  "fill": "#00000000",
-                                  "layout": "vertical",
-                                  "gap": 5,
-                                  "children": [
-                                    {
-                                      "type": "frame",
-                                      "id": "CAVEd",
-                                      "name": "Head",
-                                      "width": "fill_container",
-                                      "gap": 5,
-                                      "alignItems": "center",
-                                      "children": [
-                                        {
-                                          "type": "text",
-                                          "id": "IDZRJ",
-                                          "name": "Label",
-                                          "fill": "$text-secondary",
-                                          "content": "Session",
-                                          "fontFamily": "$font-body",
-                                          "fontSize": 12,
-                                          "fontWeight": "normal"
-                                        },
-                                        {
-                                          "type": "text",
-                                          "id": "lRWhB",
-                                          "name": "Reset",
-                                          "fill": "$text-tertiary",
-                                          "content": "· resets in 2h 14m",
-                                          "fontFamily": "$font-body",
-                                          "fontSize": 11,
-                                          "fontWeight": "normal"
-                                        },
-                                        {
-                                          "type": "frame",
-                                          "id": "gsAi4",
-                                          "name": "Spacer",
-                                          "width": "fill_container",
-                                          "height": 1,
-                                          "fill": "#00000000",
-                                          "layout": "none"
-                                        },
-                                        {
-                                          "type": "text",
-                                          "id": "t3WN9",
-                                          "name": "Value",
-                                          "fill": "$usage-value-text",
-                                          "content": "62%",
-                                          "fontFamily": "$font-body",
-                                          "fontSize": 12,
-                                          "fontWeight": "600"
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "type": "frame",
-                                      "id": "Va7Pr",
-                                      "name": "Track",
-                                      "clip": true,
-                                      "width": "fill_container",
-                                      "height": 5,
-                                      "fill": "$usage-meter-track",
-                                      "cornerRadius": 2.5,
-                                      "children": [
-                                        {
-                                          "type": "frame",
-                                          "id": "mszjI",
-                                          "name": "Fill",
-                                          "width": 130,
-                                          "height": "fill_container",
-                                          "fill": "$usage-meter-fill",
-                                          "cornerRadius": 2.5
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                },
-                                {
-                                  "type": "frame",
-                                  "id": "wIOL3",
-                                  "name": "Weekly",
-                                  "theme": {
-                                    "usage-level": "normal"
-                                  },
-                                  "metadata": {
-                                    "type": "usage-contract",
-                                    "behavior": "One reported limit window. Bar length is server-reported utilization 0-100. Never estimated locally: when utilization is null the row is not rendered at all."
-                                  },
-                                  "width": "fill_container",
-                                  "fill": "#00000000",
-                                  "layout": "vertical",
-                                  "gap": 5,
-                                  "children": [
-                                    {
-                                      "type": "frame",
-                                      "id": "L0ksa",
-                                      "name": "Head",
-                                      "width": "fill_container",
-                                      "gap": 5,
-                                      "alignItems": "center",
-                                      "children": [
-                                        {
-                                          "type": "text",
-                                          "id": "P8Pu6B",
-                                          "name": "Label",
-                                          "fill": "$text-secondary",
-                                          "content": "Weekly",
-                                          "fontFamily": "$font-body",
-                                          "fontSize": 12,
-                                          "fontWeight": "normal"
-                                        },
-                                        {
-                                          "type": "text",
-                                          "id": "rOPuz",
-                                          "name": "Reset",
-                                          "fill": "$text-tertiary",
-                                          "content": "· resets Mon",
-                                          "fontFamily": "$font-body",
-                                          "fontSize": 11,
-                                          "fontWeight": "normal"
-                                        },
-                                        {
-                                          "type": "frame",
-                                          "id": "n3g3g1",
-                                          "name": "Spacer",
-                                          "width": "fill_container",
-                                          "height": 1,
-                                          "fill": "#00000000",
-                                          "layout": "none"
-                                        },
-                                        {
-                                          "type": "text",
-                                          "id": "TWWYA",
-                                          "name": "Value",
-                                          "fill": "$usage-value-text",
-                                          "content": "31%",
-                                          "fontFamily": "$font-body",
-                                          "fontSize": 12,
-                                          "fontWeight": "600"
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "type": "frame",
-                                      "id": "wsC1g",
-                                      "name": "Track",
-                                      "clip": true,
-                                      "width": "fill_container",
-                                      "height": 5,
-                                      "fill": "$usage-meter-track",
-                                      "cornerRadius": 2.5,
-                                      "children": [
-                                        {
-                                          "type": "frame",
-                                          "id": "SSbXh",
-                                          "name": "Fill",
-                                          "width": 65,
-                                          "height": "fill_container",
-                                          "fill": "$usage-meter-fill",
-                                          "cornerRadius": 2.5
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
                     }
                   ]
                 }
@@ -58252,6 +59174,436 @@
     "connection-switcher-visible": {
       "type": "boolean",
       "value": false
+    },
+    "deck-thread-identity-visible": {
+      "type": "boolean",
+      "value": [
+        {
+          "value": true,
+          "theme": {
+            "state": "default",
+            "work-status": "idle"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "default",
+            "work-status": "running"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "default",
+            "work-status": "done"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "default",
+            "work-status": "attention"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "default",
+            "work-status": "recording"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "hover",
+            "work-status": "idle"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "hover",
+            "work-status": "running"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "hover",
+            "work-status": "done"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "hover",
+            "work-status": "attention"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "hover",
+            "work-status": "recording"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "active",
+            "work-status": "idle"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "active",
+            "work-status": "running"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "active",
+            "work-status": "done"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "active",
+            "work-status": "attention"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "active",
+            "work-status": "recording"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "selected",
+            "work-status": "idle"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "selected",
+            "work-status": "running"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "selected",
+            "work-status": "done"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "selected",
+            "work-status": "attention"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "selected",
+            "work-status": "recording"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "open",
+            "work-status": "idle"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "open",
+            "work-status": "running"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "open",
+            "work-status": "done"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "open",
+            "work-status": "attention"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "open",
+            "work-status": "recording"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "disabled",
+            "work-status": "idle"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "disabled",
+            "work-status": "running"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "disabled",
+            "work-status": "done"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "disabled",
+            "work-status": "attention"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "disabled",
+            "work-status": "recording"
+          }
+        }
+      ]
+    },
+    "deck-thread-status-visible": {
+      "type": "boolean",
+      "value": [
+        {
+          "value": false,
+          "theme": {
+            "state": "default",
+            "work-status": "idle"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "default",
+            "work-status": "running"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "default",
+            "work-status": "done"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "default",
+            "work-status": "attention"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "default",
+            "work-status": "recording"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "hover",
+            "work-status": "idle"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "hover",
+            "work-status": "running"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "hover",
+            "work-status": "done"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "hover",
+            "work-status": "attention"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "hover",
+            "work-status": "recording"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "active",
+            "work-status": "idle"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "active",
+            "work-status": "running"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "active",
+            "work-status": "done"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "active",
+            "work-status": "attention"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "active",
+            "work-status": "recording"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "selected",
+            "work-status": "idle"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "selected",
+            "work-status": "running"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "selected",
+            "work-status": "done"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "selected",
+            "work-status": "attention"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "selected",
+            "work-status": "recording"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "open",
+            "work-status": "idle"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "open",
+            "work-status": "running"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "open",
+            "work-status": "done"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "open",
+            "work-status": "attention"
+          }
+        },
+        {
+          "value": true,
+          "theme": {
+            "state": "open",
+            "work-status": "recording"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "disabled",
+            "work-status": "idle"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "disabled",
+            "work-status": "running"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "disabled",
+            "work-status": "done"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "disabled",
+            "work-status": "attention"
+          }
+        },
+        {
+          "value": false,
+          "theme": {
+            "state": "disabled",
+            "work-status": "recording"
+          }
+        }
+      ]
     }
   },
   "fileToken": "2d02d842-d6b0-4334-b69d-821bc8314f12"
