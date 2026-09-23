@@ -584,6 +584,49 @@ describe("AppTabObserver", () => {
     });
   });
 
+  it("scrolls an offscreen element into view before reporting a click", async () => {
+    const { contents, sendCommand } = makeContents();
+    let scrolled = false;
+    sendCommand.mockImplementation(async (method: string) => {
+      if (method === "Page.getFrameTree")
+        return { frameTree: { frame: { id: "frame-1", loaderId: "loader-1" } } };
+      if (method === "Page.addScriptToEvaluateOnNewDocument")
+        return { identifier: "cursor-script" };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 120 };
+      if (method === "Accessibility.getFullAXTree")
+        return {
+          nodes: [{ backendDOMNodeId: 7, role: { value: "button" }, name: { value: "Download" } }],
+        };
+      if (method === "DOM.scrollIntoViewIfNeeded") {
+        scrolled = true;
+        return {};
+      }
+      if (method === "DOM.getBoxModel")
+        return {
+          model: {
+            content: scrolled
+              ? [10, 50, 30, 50, 30, 70, 10, 70]
+              : [10, -400, 30, -400, 30, -380, 10, -380],
+          },
+        };
+      return {};
+    });
+    const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
+    await observer.snapshot("tab-1");
+    await observer.click("tab-1", "d1:e1");
+
+    const scrollIndex = sendCommand.mock.calls.findIndex(
+      ([method]) => method === "DOM.scrollIntoViewIfNeeded",
+    );
+    const pressIndex = sendCommand.mock.calls.findIndex(
+      ([method, params]) =>
+        method === "Input.dispatchMouseEvent" && params?.type === "mousePressed",
+    );
+    expect(scrollIndex).toBeGreaterThanOrEqual(0);
+    expect(pressIndex).toBeGreaterThan(scrollIndex);
+    expect(sendCommand.mock.calls[pressIndex]?.[1]).toMatchObject({ x: 20, y: 60 });
+  });
+
   it("keeps d1 references stable for one loader and rejects them after the loader changes", async () => {
     const { contents, setLoaderId } = makeContents();
     const observer = new AppTabObserver({

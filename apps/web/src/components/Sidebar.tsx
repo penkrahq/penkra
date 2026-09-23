@@ -1443,15 +1443,10 @@ export default function Sidebar() {
       }
 
       if (clicked === "archive") {
-        if (appSettings.confirmThreadArchive) {
-          const confirmed = await api.dialogs.confirm(
-            [
-              `Archive ${count} ${pluralize(count, "thread")}?`,
-              "Archived threads are hidden from the sidebar but can be restored later.",
-            ].join("\n"),
-          );
-          if (!confirmed) return;
-        }
+        const confirmed = await api.dialogs.confirm(
+          `Archive ${count} ${pluralize(count, "thread")}?`,
+        );
+        if (!confirmed) return;
 
         for (const id of ids) {
           await archiveThread(id);
@@ -1461,7 +1456,6 @@ export default function Sidebar() {
       }
     },
     [
-      appSettings.confirmThreadArchive,
       archiveThread,
       clearSelection,
       clearDismissedThreadStatus,

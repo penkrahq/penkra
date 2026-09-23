@@ -948,12 +948,22 @@ const ThreadDeleteCommand = Schema.Struct({
   type: Schema.Literal("thread.delete"),
   commandId: CommandId,
   threadId: ThreadId,
+  expectedArchivedAt: Schema.optional(IsoDateTime),
 });
 
 const ThreadArchiveCommand = Schema.Struct({
   type: Schema.Literal("thread.archive"),
   commandId: CommandId,
   threadId: ThreadId,
+  expectedUpdatedAt: Schema.optional(IsoDateTime),
+  expectedLastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+});
+
+const ThreadRetentionRecoverCommand = Schema.Struct({
+  type: Schema.Literal("thread.retention-recover"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  expectedDeletedAt: IsoDateTime,
 });
 
 const ThreadUnarchiveCommand = Schema.Struct({
@@ -1000,6 +1010,7 @@ const ThreadUpdateCommand = Schema.Struct({
   pinnedMessages: Schema.optional(ThreadPinnedMessages),
   notes: Schema.optional(ThreadNotes),
   lastVisitedAt: Schema.optional(IsoDateTime),
+  lastOpenedAt: Schema.optional(IsoDateTime),
 });
 
 const ThreadPinnedMessageAddCommand = Schema.Struct({
@@ -1400,6 +1411,7 @@ const ThreadMessageDeliverySetCommand = Schema.Struct({
 });
 
 const InternalOrchestrationCommand = Schema.Union([
+  ThreadRetentionRecoverCommand,
   ThreadSessionSetCommand,
   ThreadMessagesImportCommand,
   ThreadMessageAssistantDeltaCommand,
@@ -1627,6 +1639,7 @@ export const ThreadDeckReorderedPayload = Schema.Struct({
 
 export const ThreadArchivedPayload = Schema.Struct({
   threadId: ThreadId,
+  restoredFromRetention: Schema.optional(Schema.Boolean),
   // Required for new events, optional for legacy events
   archivedAt: Schema.optional(IsoDateTime),
   updatedAt: Schema.optional(IsoDateTime),
@@ -1654,6 +1667,7 @@ export const ThreadUpdatedPayload = Schema.Struct({
   pinnedMessages: Schema.optional(ThreadPinnedMessages),
   notes: Schema.optional(ThreadNotes),
   lastVisitedAt: Schema.optional(IsoDateTime),
+  lastOpenedAt: Schema.optional(IsoDateTime),
   updatedAt: IsoDateTime,
 });
 

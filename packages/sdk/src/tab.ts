@@ -50,6 +50,7 @@ export type {
   AppTabHandlerContext,
   AppTabNavigationHandler,
   AppTabNavigationInput,
+  AppTabPresentationInput,
   AppTabOperationHandler,
   AppTabVisibility,
   AppTransferProgressEvent,

@@ -13,6 +13,8 @@ export interface RightDockPane {
   appName: string;
   // Runtime-only presentation data. Persistence deliberately strips it.
   appIconDataUrl?: string | null;
+  appPresentationTitle?: string | null;
+  appPresentationIconUrl?: string | null;
   appRendererId?: number;
   appDocumentUrl?: string;
   appRoute: string;
@@ -36,6 +38,8 @@ export interface OpenPaneInput {
   appSlug: string;
   appName: string;
   appIconDataUrl?: string | null;
+  appPresentationTitle?: string | null;
+  appPresentationIconUrl?: string | null;
   appRendererId?: number;
   appDocumentUrl?: string;
   appRoute: string;
@@ -125,6 +129,12 @@ function createPane(input: OpenPaneInput): RightDockPane {
     appSlug: input.appSlug,
     appName: input.appName,
     ...(input.appIconDataUrl === undefined ? {} : { appIconDataUrl: input.appIconDataUrl }),
+    ...(input.appPresentationTitle === undefined
+      ? {}
+      : { appPresentationTitle: input.appPresentationTitle }),
+    ...(input.appPresentationIconUrl === undefined
+      ? {}
+      : { appPresentationIconUrl: input.appPresentationIconUrl }),
     ...(input.appRendererId === undefined ? {} : { appRendererId: input.appRendererId }),
     ...(input.appDocumentUrl === undefined ? {} : { appDocumentUrl: input.appDocumentUrl }),
     appRoute: input.appRoute,
@@ -188,7 +198,14 @@ export function updatePaneInState(
   patch: Partial<
     Pick<
       RightDockPane,
-      "appDocumentUrl" | "appIconDataUrl" | "appRendererId" | "appRoute" | "appState" | "appStatus"
+      | "appDocumentUrl"
+      | "appIconDataUrl"
+      | "appPresentationTitle"
+      | "appPresentationIconUrl"
+      | "appRendererId"
+      | "appRoute"
+      | "appState"
+      | "appStatus"
     >
   >,
 ): RightDockDeckState {
@@ -199,6 +216,8 @@ export function updatePaneInState(
     if (
       next.appDocumentUrl === pane.appDocumentUrl &&
       next.appIconDataUrl === pane.appIconDataUrl &&
+      next.appPresentationTitle === pane.appPresentationTitle &&
+      next.appPresentationIconUrl === pane.appPresentationIconUrl &&
       next.appRendererId === pane.appRendererId &&
       next.appRoute === pane.appRoute &&
       jsonValuesEqual(next.appState, pane.appState) &&

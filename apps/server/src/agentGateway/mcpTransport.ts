@@ -205,6 +205,13 @@ export function makeAgentGatewayMcpTransport(input: {
               }),
             );
             if (authorityError !== null) {
+              yield* Effect.logWarning("agent_gateway.write_rejected", {
+                callerThreadId: context.callerThreadId,
+                callerProvider: context.callerProvider,
+                toolName,
+                jsonRpcRequestId: request.id,
+                errorCode: authorityError.code,
+              });
               return jsonRpcResult(request.id, gatewayToolErrorResult(authorityError));
             }
           }
@@ -262,14 +269,19 @@ export function makeAgentGatewayMcpTransport(input: {
         };
       }
       const ingressAuthority = yield* resolveCallerTurnId(callerThread.value).pipe(
-        Effect.catch(() =>
-          Effect.succeed({
-            turnId: null,
-            activeTurnIds: [],
-            projectedTurnId: null,
-            projectedProviderTurnId: null,
-            openTurnIds: [],
-          }),
+        Effect.catch((error) =>
+          Effect.logWarning("agent_gateway.active_turn_lookup_failed", {
+            callerThreadId,
+            error: errorText(error),
+          }).pipe(
+            Effect.as({
+              turnId: null,
+              activeTurnIds: [],
+              projectedTurnId: null,
+              projectedProviderTurnId: null,
+              openTurnIds: [],
+            }),
+          ),
         ),
       );
       if (
@@ -295,6 +307,17 @@ export function makeAgentGatewayMcpTransport(input: {
       const assertCallerTurnActive = () =>
         Effect.gen(function* () {
           if (callerWriteAuthority === null) {
+            yield* Effect.logWarning("agent_gateway.caller_turn_inactive", {
+              callerThreadId,
+              sessionStatus: callerThread.value.session?.status ?? null,
+              sessionActiveTurnId: callerThread.value.session?.activeTurnId ?? null,
+              latestTurnId: callerThread.value.latestTurn?.turnId ?? null,
+              latestProviderTurnId: callerThread.value.latestTurn?.providerTurnId ?? null,
+              latestTurnState: callerThread.value.latestTurn?.state ?? null,
+              projectedTurnId: ingressAuthority.projectedTurnId,
+              projectedProviderTurnId: ingressAuthority.projectedProviderTurnId,
+              openRuntimeTurnIds: ingressAuthority.openTurnIds,
+            });
             return yield* Effect.fail(
               new GatewayToolError(
                 "caller_turn_inactive",

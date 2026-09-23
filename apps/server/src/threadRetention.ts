@@ -1,5 +1,5 @@
 // FILE: threadRetention.ts
-// Purpose: Runs the server-side retention loop that hides inactive orchestration threads.
+// Purpose: Runs the server-side retention loop that archives inactive orchestration threads.
 // Layer: Server maintenance
 // Exports: retention constants, inactive-thread selection, and scoped job startup.
 
@@ -15,13 +15,15 @@ import { randomUUID } from "node:crypto";
 import type { OrchestrationEngineShape } from "./orchestration/Services/OrchestrationEngine";
 import type { ProjectionSnapshotQueryShape } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
+import type { ThreadPurgeShape } from "./threadPurge";
 
-// Marks thread.delete commands issued by the retention sweep. Retention only
-// hides threads from the app; deletion flows use this prefix to tell retention
-// hides apart from explicit user deletes (which purge the thread's data).
+// The original prefix identifies legacy retention soft-deletes, which must not
+// be purged by the deletion reactor. Archive expiry uses a distinct prefix.
 export const THREAD_RETENTION_COMMAND_ID_PREFIX = "thread-retention:";
+export const THREAD_RETENTION_EXPIRY_COMMAND_ID_PREFIX = "thread-retention-expiry:";
 
-export const THREAD_RETENTION_UNUSED_MS = 7 * 24 * 60 * 60 * 1000;
+export const THREAD_RETENTION_UNUSED_ACTIVE_DAYS = 7;
+export const THREAD_RETENTION_ARCHIVED_ACTIVE_DAYS = 30;
 export const THREAD_RETENTION_INITIAL_SWEEP_DELAY_MS = 5 * 60 * 1000;
 export const THREAD_RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const THREAD_RETENTION_BATCH_SIZE = 25;
@@ -40,18 +42,31 @@ function parseIsoMs(value: string | null | undefined): number | null {
 }
 
 function getThreadLastActivityMs(thread: RetentionThread): number | null {
-  return (
-    parseIsoMs(thread.latestUserMessageAt) ??
-    parseIsoMs(thread.updatedAt) ??
-    parseIsoMs(thread.createdAt)
-  );
+  const activityTimes = [
+    thread.latestUserMessageAt,
+    thread.lastVisitedAt,
+    thread.updatedAt,
+    thread.createdAt,
+  ]
+    .map(parseIsoMs)
+    .filter((ms): ms is number => ms !== null);
+  return activityTimes.length > 0 ? Math.max(...activityTimes) : null;
+}
+
+export function hasActiveDaysAfter(
+  activeDays: ReadonlyArray<string>,
+  sinceIso: string,
+  requiredDays: number,
+): boolean {
+  const sinceDay = sinceIso.slice(0, 10);
+  return new Set(activeDays.filter((day) => day > sinceDay)).size >= requiredDays;
 }
 
 function isThreadBusy(thread: RetentionThread): boolean {
   if (thread.session?.status === "starting" || thread.session?.status === "running") {
     return true;
   }
-  if (thread.session?.activeTurnId !== null && thread.session?.activeTurnId !== undefined) {
+  if (thread.session?.status !== "error" && thread.session?.activeTurnId != null) {
     return true;
   }
   if (thread.latestTurn?.state === "running") {
@@ -86,7 +101,9 @@ const pauseBetweenRetentionBatches = Effect.sleep(THREAD_RETENTION_BATCH_PAUSE_M
 const publishRetentionMaintenance = Effect.fn("publishRetentionMaintenance")(function* (
   state: RetentionMaintenanceState,
   details: {
+    readonly archivedCount?: number;
     readonly deletedCount?: number;
+    readonly recoveredCount?: number;
     readonly totalCount?: number;
     readonly error?: string;
   } = {},
@@ -111,20 +128,28 @@ const publishRetentionMaintenance = Effect.fn("publishRetentionMaintenance")(fun
     );
 });
 
-// Picks inactive threads to soft-delete from the app while keeping their DB rows for stats.
+// Picks inactive threads to archive without deleting their data.
 export function getInactiveThreadIdsForRetention(
   readModel: Pick<OrchestrationReadModel, "threads"> | Pick<OrchestrationShellSnapshot, "threads">,
-  nowMs = Date.now(),
+  activeDays: ReadonlyArray<string>,
 ): ThreadId[] {
-  const cutoffMs = nowMs - THREAD_RETENTION_UNUSED_MS;
   const inactiveThreadIds: ThreadId[] = [];
 
   for (const thread of readModel.threads) {
     if ("deletedAt" in thread && thread.deletedAt !== null) continue;
+    if (thread.archivedAt !== null && thread.archivedAt !== undefined) continue;
     if (thread.isPinned === true) continue;
     if (isThreadBusy(thread)) continue;
     const lastActivityMs = getThreadLastActivityMs(thread);
-    if (lastActivityMs === null || lastActivityMs > cutoffMs) continue;
+    if (lastActivityMs === null) continue;
+    if (
+      !hasActiveDaysAfter(
+        activeDays,
+        new Date(lastActivityMs).toISOString(),
+        THREAD_RETENTION_UNUSED_ACTIVE_DAYS,
+      )
+    )
+      continue;
     inactiveThreadIds.push(thread.id);
   }
 
@@ -134,35 +159,129 @@ export function getInactiveThreadIdsForRetention(
 export const runThreadRetentionSweep = Effect.fn("runThreadRetentionSweep")(function* (
   orchestrationEngine: OrchestrationEngineShape,
   projectionSnapshotQuery: ProjectionSnapshotQueryShape,
+  threadPurge: ThreadPurgeShape,
 ) {
   const shellSnapshot = yield* projectionSnapshotQuery.getShellSnapshot();
-  const inactiveThreadIds = getInactiveThreadIdsForRetention(shellSnapshot);
+  const activeDays = yield* threadPurge.listRetentionActiveDays();
+  const inactiveThreadIds = getInactiveThreadIdsForRetention(shellSnapshot, activeDays);
+  const shellThreadsById = new Map(shellSnapshot.threads.map((thread) => [thread.id, thread]));
+  const legacyHidden = yield* threadPurge.listLegacyRetentionHidden();
+  const expiredArchives = (yield* threadPurge.listRetentionArchives()).filter((archive) =>
+    hasActiveDaysAfter(activeDays, archive.archivedAt, THREAD_RETENTION_ARCHIVED_ACTIVE_DAYS),
+  );
+  const expiredArchivesById = new Map(
+    expiredArchives.map((archive) => [archive.threadId, archive]),
+  );
   const totalCandidateCount = inactiveThreadIds.length;
+  let archivedCount = 0;
   let deletedCount = 0;
+  let recoveredCount = 0;
 
-  if (inactiveThreadIds.length > 0) {
+  if (inactiveThreadIds.length > 0 || expiredArchives.length > 0 || legacyHidden.length > 0) {
     yield* publishRetentionMaintenance("started", {
+      archivedCount,
       deletedCount,
-      totalCount: totalCandidateCount,
+      recoveredCount,
+      totalCount: totalCandidateCount + expiredArchives.length + legacyHidden.length,
     });
-    yield* Effect.logInfo("hiding inactive orchestration threads").pipe(
+    yield* Effect.logInfo("archiving inactive orchestration threads").pipe(
       Effect.annotateLogs({ count: inactiveThreadIds.length }),
     );
   }
+
+  yield* Effect.forEach(
+    legacyHidden,
+    (hidden) =>
+      orchestrationEngine
+        .dispatch({
+          type: "thread.retention-recover",
+          commandId: CommandId.makeUnsafe(
+            `${THREAD_RETENTION_COMMAND_ID_PREFIX}recover:${randomUUID()}`,
+          ),
+          threadId: hidden.threadId as ThreadId,
+          expectedDeletedAt: hidden.deletedAt,
+        })
+        .pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              recoveredCount += 1;
+            }),
+          ),
+          Effect.catch((error) =>
+            Effect.logWarning("failed to recover legacy hidden thread into Archive", {
+              threadId: hidden.threadId,
+              error: String(error),
+            }),
+          ),
+        ),
+    { concurrency: 1 },
+  ).pipe(Effect.asVoid);
 
   yield* Effect.forEach(
     chunkThreadIds(inactiveThreadIds),
     (threadBatch) =>
       Effect.forEach(
         threadBatch,
-        (threadId) =>
-          orchestrationEngine
+        (threadId) => {
+          const thread = shellThreadsById.get(threadId);
+          if (!thread) return Effect.void;
+          return orchestrationEngine
             .dispatch({
-              type: "thread.delete",
+              type: "thread.archive",
               commandId: CommandId.makeUnsafe(
                 `${THREAD_RETENTION_COMMAND_ID_PREFIX}${randomUUID()}`,
               ),
               threadId,
+              expectedUpdatedAt: thread.updatedAt,
+              expectedLastVisitedAt: thread.lastVisitedAt ?? null,
+            })
+            .pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  archivedCount += 1;
+                }),
+              ),
+              Effect.catch((error) =>
+                Effect.logWarning("failed to archive inactive thread during retention sweep").pipe(
+                  Effect.annotateLogs({
+                    threadId,
+                    error: String(error),
+                  }),
+                ),
+              ),
+            );
+        },
+        { concurrency: 1 },
+      ).pipe(
+        Effect.tap(() =>
+          publishRetentionMaintenance("progress", {
+            archivedCount,
+            deletedCount,
+            recoveredCount,
+            totalCount: totalCandidateCount + expiredArchives.length + legacyHidden.length,
+          }),
+        ),
+        Effect.tap(() => pauseBetweenRetentionBatches),
+      ),
+    { concurrency: 1 },
+  ).pipe(Effect.asVoid);
+
+  yield* Effect.forEach(
+    chunkThreadIds(expiredArchives.map((archive) => archive.threadId as ThreadId)),
+    (threadBatch) =>
+      Effect.forEach(
+        threadBatch,
+        (threadId) => {
+          const archive = expiredArchivesById.get(threadId);
+          if (!archive) return Effect.void;
+          return orchestrationEngine
+            .dispatch({
+              type: "thread.delete",
+              commandId: CommandId.makeUnsafe(
+                `${THREAD_RETENTION_EXPIRY_COMMAND_ID_PREFIX}${randomUUID()}`,
+              ),
+              threadId,
+              expectedArchivedAt: archive.archivedAt,
             })
             .pipe(
               Effect.tap(() =>
@@ -171,20 +290,21 @@ export const runThreadRetentionSweep = Effect.fn("runThreadRetentionSweep")(func
                 }),
               ),
               Effect.catch((error) =>
-                Effect.logWarning("failed to hide inactive thread during retention sweep").pipe(
-                  Effect.annotateLogs({
-                    threadId,
-                    error: String(error),
-                  }),
-                ),
+                Effect.logWarning("failed to delete expired retention archive", {
+                  threadId,
+                  error: String(error),
+                }),
               ),
-            ),
+            );
+        },
         { concurrency: 1 },
       ).pipe(
         Effect.tap(() =>
           publishRetentionMaintenance("progress", {
+            archivedCount,
             deletedCount,
-            totalCount: totalCandidateCount,
+            recoveredCount,
+            totalCount: totalCandidateCount + expiredArchives.length + legacyHidden.length,
           }),
         ),
         Effect.tap(() => pauseBetweenRetentionBatches),
@@ -192,10 +312,12 @@ export const runThreadRetentionSweep = Effect.fn("runThreadRetentionSweep")(func
     { concurrency: 1 },
   ).pipe(Effect.asVoid);
 
-  if (totalCandidateCount > 0) {
+  if (totalCandidateCount > 0 || expiredArchives.length > 0 || legacyHidden.length > 0) {
     yield* publishRetentionMaintenance("completed", {
+      archivedCount,
       deletedCount,
-      totalCount: totalCandidateCount,
+      recoveredCount,
+      totalCount: totalCandidateCount + expiredArchives.length + legacyHidden.length,
     });
   }
 });
@@ -203,15 +325,18 @@ export const runThreadRetentionSweep = Effect.fn("runThreadRetentionSweep")(func
 export const startThreadRetentionJob = Effect.fn("startThreadRetentionJob")(function* (
   orchestrationEngine: OrchestrationEngineShape,
   projectionSnapshotQuery: ProjectionSnapshotQueryShape,
+  threadPurge: ThreadPurgeShape,
 ) {
   // Give startup/projection bootstrap a short settling window, then run one
-  // hide pass promptly so desktop installs do not need to stay open for 24 hours.
+  // archive pass promptly so desktop installs do not need to stay open for 24 hours.
   yield* Effect.gen(function* () {
     yield* Effect.sleep(THREAD_RETENTION_INITIAL_SWEEP_DELAY_MS);
-    yield* runThreadRetentionSweep(orchestrationEngine, projectionSnapshotQuery);
+    yield* runThreadRetentionSweep(orchestrationEngine, projectionSnapshotQuery, threadPurge);
     yield* Effect.forever(
       Effect.sleep(THREAD_RETENTION_SWEEP_INTERVAL_MS).pipe(
-        Effect.flatMap(() => runThreadRetentionSweep(orchestrationEngine, projectionSnapshotQuery)),
+        Effect.flatMap(() =>
+          runThreadRetentionSweep(orchestrationEngine, projectionSnapshotQuery, threadPurge),
+        ),
       ),
       { disableYield: true },
     );

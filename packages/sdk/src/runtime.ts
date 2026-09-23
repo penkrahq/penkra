@@ -230,6 +230,13 @@ export interface AppTabNavigationInput {
   state?: unknown;
 }
 
+/** App-owned tab label and icon source; omitted values use the manifest defaults. */
+export interface AppTabPresentationInput {
+  title?: string;
+  /** Use this tab's hosted Browser favicon or a small App-provided raster icon. */
+  icon?: "hosted-page" | { dataUrl: string };
+}
+
 export interface AppTabVisibility {
   /** True while this tab is the visible right-panel App surface. */
   active: boolean;
@@ -604,6 +611,10 @@ export interface PenkraTabRuntimeApi {
     }>;
     /** Record the App's current route so the host can restore it after reloads and updates. */
     setRoute(input: AppTabNavigationInput): Promise<void>;
+    /** Replace this tab's runtime label/icon overrides. */
+    setPresentation(input: AppTabPresentationInput): Promise<void>;
+    /** Restore the App's manifest name and icon. */
+    resetPresentation(): Promise<void>;
     /** Open another tab for this App in the same Space and Thread Deck. */
     openSibling(input?: AppTabNavigationInput): Promise<{ tabId: string }>;
     /** Pause expensive visual work while the tab is retained but not visible. */
@@ -840,6 +851,8 @@ export const network: PenkraTabRuntimeApi["network"] = {
 export const tab: PenkraTabRuntimeApi["tab"] = {
   getContext: () => runtime().tab.getContext(),
   setRoute: (input) => runtime().tab.setRoute(input),
+  setPresentation: (input) => runtime().tab.setPresentation(input),
+  resetPresentation: () => runtime().tab.resetPresentation(),
   openSibling: (input) => runtime().tab.openSibling(input),
   onVisibilityChange: (listener) => runtime().tab.onVisibilityChange(listener),
   handle: (operation, handler) => runtime().tab.handle(operation, handler),

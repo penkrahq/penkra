@@ -68,10 +68,7 @@ interface DeleteProjectThreadsOptions {
 
 export function useSidebarThreadActions(input: {
   readonly activeSplitView: SplitView | null | undefined;
-  readonly appSettings: Pick<
-    AppSettings,
-    "confirmThreadArchive" | "confirmThreadDelete" | "sidebarThreadSortOrder"
-  >;
+  readonly appSettings: Pick<AppSettings, "confirmThreadDelete" | "sidebarThreadSortOrder">;
   readonly clearTerminalState: (threadId: ThreadId) => void;
   readonly handleNewChat: (options?: { fresh?: boolean }) => Promise<unknown>;
   readonly projectById: ReadonlyMap<FolderId, Project>;
@@ -513,20 +510,15 @@ export function useSidebarThreadActions(input: {
     async (threadId: ThreadId) => {
       const thread = sidebarThreadSummaryById[threadId];
       if (!thread) return;
-      if (appSettings.confirmThreadArchive) {
-        const api = readNativeApi();
-        const confirmationMessage = [
-          `Archive thread "${thread.title}"?`,
-          "Archived threads are hidden from the sidebar but can be restored later.",
-        ].join("\n");
-        const confirmed = api
-          ? await api.dialogs.confirm(confirmationMessage)
-          : await showConfirmDialogFallback(confirmationMessage);
-        if (!confirmed) return;
-      }
+      const api = readNativeApi();
+      const confirmationMessage = `Archive thread "${thread.title}"?`;
+      const confirmed = api
+        ? await api.dialogs.confirm(confirmationMessage)
+        : await showConfirmDialogFallback(confirmationMessage);
+      if (!confirmed) return;
       await archiveThreadWithUndo(threadId);
     },
-    [archiveThreadWithUndo, appSettings.confirmThreadArchive, sidebarThreadSummaryById],
+    [archiveThreadWithUndo, sidebarThreadSummaryById],
   );
 
   const archiveAllThreadsInProject = useCallback(
@@ -545,13 +537,10 @@ export function useSidebarThreadActions(input: {
         });
         return;
       }
-      const archiveLines = [
-        `Archive ${projectThreads.length} ${pluralize(projectThreads.length, "thread")} in "${project.name}"?`,
-        "Archived threads are hidden from the sidebar but can be restored later.",
-      ];
+      const confirmationMessage = `Archive ${projectThreads.length} ${pluralize(projectThreads.length, "thread")} in "${project.name}"?`;
       const confirmed = api
-        ? await api.dialogs.confirm(archiveLines.join("\n"))
-        : await showConfirmDialogFallback(archiveLines.join("\n"));
+        ? await api.dialogs.confirm(confirmationMessage)
+        : await showConfirmDialogFallback(confirmationMessage);
       if (!confirmed) return;
 
       let archivedCount = 0;

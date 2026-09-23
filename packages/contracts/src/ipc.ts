@@ -514,6 +514,9 @@ export interface DesktopAppTabDescriptor {
   /** Host-resolved manifest policy. Omitted manifest values resolve to true. */
   agentAddressable?: boolean;
   iconDataUrl: string | null;
+  /** Runtime App-owned overrides; null restores the manifest value. */
+  presentationTitle?: string | null;
+  presentationIconUrl?: string | null;
   spaceId: string;
   deckId: string;
   threadId: string;

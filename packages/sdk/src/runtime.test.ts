@@ -194,6 +194,8 @@ describe("framework-neutral App runtime exports", () => {
       tab: {
         getContext: vi.fn(),
         setRoute: vi.fn(async () => undefined),
+        setPresentation: vi.fn(async () => undefined),
+        resetPresentation: vi.fn(async () => undefined),
         openSibling: vi.fn(async () => ({ tabId: "tab-sibling" })),
         onVisibilityChange: vi.fn(() => vi.fn()),
         handle: vi.fn(() => vi.fn()),
@@ -209,6 +211,8 @@ describe("framework-neutral App runtime exports", () => {
     tab.onNavigate(navigationHandler);
     tab.onVisibilityChange(visibilityHandler);
     await tab.setRoute({ route: "/document", state: { documentId: "doc-1" } });
+    await tab.setPresentation({ title: "Document" });
+    await tab.resetPresentation();
     await storage.usage();
     await files.open("handle-1", "movie.mp4");
     await transfer.begin({ url: "https://uploads.example/files" });
@@ -227,6 +231,8 @@ describe("framework-neutral App runtime exports", () => {
       route: "/document",
       state: { documentId: "doc-1" },
     });
+    expect(runtime.tab.setPresentation).toHaveBeenCalledWith({ title: "Document" });
+    expect(runtime.tab.resetPresentation).toHaveBeenCalledOnce();
     expect(runtime.storage.usage).toHaveBeenCalledOnce();
     expect(runtime.files.open).toHaveBeenCalledWith("handle-1", "movie.mp4");
     expect(runtime.transfer.begin).toHaveBeenCalledWith({
@@ -300,6 +306,8 @@ describe("framework-neutral App runtime exports", () => {
       tab: {
         getContext: vi.fn(),
         setRoute: vi.fn(async () => undefined),
+        setPresentation: vi.fn(async () => undefined),
+        resetPresentation: vi.fn(async () => undefined),
         openSibling: vi.fn(async () => ({ tabId: "tab-sibling" })),
         onVisibilityChange: vi.fn(() => vi.fn()),
         handle: vi.fn(() => vi.fn()),

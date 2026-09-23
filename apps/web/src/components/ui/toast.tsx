@@ -1,7 +1,19 @@
 "use client";
 
 import { Toast, type ToastObject } from "@base-ui/react/toast";
-import { useMemo, useEffect, useState, type CSSProperties } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type RefCallback,
+  type SetStateAction,
+} from "react";
 import { useParams } from "@tanstack/react-router";
 import { ThreadId } from "@penkra/contracts";
 import {
@@ -51,6 +63,9 @@ const toastManager = Toast.createToastManager<ThreadToastData>();
 const anchoredToastManager = Toast.createToastManager<ThreadToastData>();
 type ToastId = ReturnType<typeof toastManager.add>;
 const threadToastVisibleTimeoutRemainingMs = new Map<ToastId, number>();
+
+type ToastViewportHostSetter = Dispatch<SetStateAction<HTMLElement | null>>;
+const ToastViewportHostContext = createContext<ToastViewportHostSetter | null>(null);
 
 const TOAST_ICONS = {
   error: CircleAlertIcon,
@@ -483,15 +498,43 @@ function ToastSurface({
 
 function ToastProvider({ children, position: positionProp, ...props }: ToastProviderProps) {
   const position = positionProp ?? "top-center";
+  const [viewportHost, setViewportHost] = useState<HTMLElement | null>(null);
   return (
-    <Toast.Provider toastManager={toastManager} {...props}>
-      {children}
-      <Toasts position={position} />
-    </Toast.Provider>
+    <ToastViewportHostContext.Provider value={setViewportHost}>
+      <Toast.Provider toastManager={toastManager} {...props}>
+        {children}
+        <Toasts position={position} viewportHost={viewportHost} />
+      </Toast.Provider>
+    </ToastViewportHostContext.Provider>
   );
 }
 
-function Toasts({ position: positionProp }: { position: ToastPosition }) {
+function useThreadToastViewportHostRef(): RefCallback<HTMLElement> {
+  const setViewportHost = useContext(ToastViewportHostContext);
+  const registeredHostRef = useRef<HTMLElement | null>(null);
+
+  return useCallback(
+    (host) => {
+      if (!setViewportHost) return;
+      const previousHost = registeredHostRef.current;
+      registeredHostRef.current = host;
+      if (host) {
+        setViewportHost(host);
+        return;
+      }
+      setViewportHost((currentHost) => (currentHost === previousHost ? null : currentHost));
+    },
+    [setViewportHost],
+  );
+}
+
+function Toasts({
+  position: positionProp,
+  viewportHost,
+}: {
+  position: ToastPosition;
+  viewportHost: HTMLElement | null;
+}) {
   const position = positionProp ?? "top-center";
   const { toasts } = Toast.useToastManager<ThreadToastData>();
   const visibleThreadIds = useVisibleThreadIdsFromRoute();
@@ -516,10 +559,11 @@ function Toasts({ position: positionProp }: { position: ToastPosition }) {
   }, [toasts]);
 
   return (
-    <Toast.Portal data-slot="toast-portal">
+    <Toast.Portal container={viewportHost ?? undefined} data-slot="toast-portal">
       <Toast.Viewport
         className={cn(
-          "fixed z-[200] mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-sm [--toast-inset:--spacing(4)] sm:[--toast-inset:--spacing(8)]",
+          viewportHost ? "absolute" : "fixed",
+          "pointer-events-none z-[200] mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-sm [--toast-inset:--spacing(4)] sm:[--toast-inset:--spacing(8)]",
           // Vertical positioning
           "data-[position=top-center]:top-4",
           "data-[position=top-left]:top-[calc(var(--toast-inset)+46px)]",
@@ -729,4 +773,5 @@ export {
   toastManager,
   AnchoredToastProvider,
   anchoredToastManager,
+  useThreadToastViewportHostRef,
 };

@@ -213,8 +213,19 @@ export async function resolveComposerConnectionAtAdmission(input: {
     loaded: boolean;
     connectionId: ProviderConnectionId | null | undefined;
   };
+  refreshStartedThreadBinding?: () => Promise<{
+    loaded: boolean;
+    connectionId: ProviderConnectionId | null | undefined;
+  }>;
   hasThreadStarted: boolean;
 }): Promise<ProviderConnectionId | null | undefined> {
+  const startedThreadBinding =
+    input.hasThreadStarted &&
+    !input.explicitSelection.specified &&
+    !input.startedThreadBinding.loaded &&
+    input.refreshStartedThreadBinding
+      ? await input.refreshStartedThreadBinding()
+      : input.startedThreadBinding;
   const resolve = (
     snapshot: ProviderConnectionsSnapshot,
     availableConnectionIds = input.availableConnectionIds,
@@ -225,7 +236,7 @@ export async function resolveComposerConnectionAtAdmission(input: {
       model: input.model,
       ...(availableConnectionIds === undefined ? {} : { availableConnectionIds }),
       explicitSelection: input.explicitSelection,
-      startedThreadBinding: input.startedThreadBinding,
+      startedThreadBinding,
       hasThreadStarted: input.hasThreadStarted,
     });
   const current = input.snapshot === undefined ? undefined : resolve(input.snapshot);
