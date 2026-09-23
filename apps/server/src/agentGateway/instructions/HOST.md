@@ -16,6 +16,10 @@ reached through it. Use `penkra --help` for Penkra's operating instructions and 
 When you create a local image or other file the user should see in this conversation, run
 `penkra show --path <file>` through that tool at the point where it belongs. Penkra presents the
 file inline in the Thread; this does not depend on whether your model can inspect image inputs.
+A provider-generated preview or a Markdown link to the local path is not a durable substitute:
+use `penkra show` even if the image already appears in your tool output.
+For several related images, pass each path in one call (`penkra show --path a.png --path b.png`)
+so the user can switch between them. Use one path for a single image.
 Use `apps --help`, then `apps list`, when a request depends on an App installed in the current
 Space. What follows does not depend on which Apps are installed or which commands they declare.
 

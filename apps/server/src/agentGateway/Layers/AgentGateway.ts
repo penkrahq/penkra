@@ -59,6 +59,7 @@ import {
   decodeCreateThreadInput,
   errorText,
   readBooleanArg,
+  readStringArrayArg,
   readStringArg,
 } from "../toolInput.ts";
 import {
@@ -604,13 +605,16 @@ export const makeAgentGateway = Effect.gen(function* () {
       definition: {
         name: "penkra_show_file",
         description:
-          "Present a local file at this point in the caller Thread. Images appear inline; other files appear as downloadable cards. Penkra stores a durable copy, so the display survives source-file deletion and Thread reload. The path is resolved relative to this Thread's working directory. This operation never sends the file to another Thread or external service.",
+          "Present local files at this point in the caller Thread. One image appears inline; multiple images in one call form a switchable gallery. Other files appear as downloadable cards. Penkra stores durable copies, so the display survives source-file deletion and Thread reload. Paths are resolved relative to this Thread's working directory. This operation never sends files to another Thread or external service.",
         inputSchema: {
           type: "object",
           properties: {
             path: {
-              type: "string",
-              description: "Local file path to present in this conversation.",
+              type: "array",
+              items: { type: "string", minLength: 1 },
+              minItems: 1,
+              description:
+                "Local file paths in display order. Repeat --path to present several images as one gallery.",
             },
           },
           required: ["path"],
@@ -620,7 +624,10 @@ export const makeAgentGateway = Effect.gen(function* () {
       },
       handler: (args: Record<string, unknown>, context: ToolContext) =>
         Effect.gen(function* () {
-          const requestedPath = readStringArg(args, "path", { required: true })!;
+          const requestedPaths = readStringArrayArg(args, "path");
+          if (!requestedPaths?.length) {
+            return yield* Effect.fail(new ToolInputError("At least one --path is required."));
+          }
           if (!context.callerTurnId) {
             return yield* Effect.fail(new ToolInputError("No active caller turn is available."));
           }
@@ -632,18 +639,22 @@ export const makeAgentGateway = Effect.gen(function* () {
             projectCwd: Option.isSome(folder) ? folder.value.workspaceRoot : null,
             stateDir: serverConfig.stateDir,
           });
-          const result = yield* presentFile({
-            requestedPath,
-            workingDirectory,
-            threadId: caller.id,
-            turnId: context.callerTurnId,
-            attachmentsDir: serverConfig.attachmentsDir,
-            stateDir: serverConfig.stateDir,
-            repository: managedAttachments,
-            engine: orchestrationEngine,
-            assertActive: context.assertCallerTurnActive,
-          });
-          return mcpToolResultJson(result);
+          const presentationId = requestedPaths.length > 1 ? randomUUID() : undefined;
+          const results = yield* Effect.forEach(requestedPaths, (requestedPath, index) =>
+            presentFile({
+              requestedPath,
+              workingDirectory,
+              threadId: caller.id,
+              turnId: context.callerTurnId!,
+              attachmentsDir: serverConfig.attachmentsDir,
+              stateDir: serverConfig.stateDir,
+              repository: managedAttachments,
+              engine: orchestrationEngine,
+              assertActive: context.assertCallerTurnActive,
+              ...(presentationId === undefined ? {} : { presentationId, presentationIndex: index }),
+            }),
+          );
+          return mcpToolResultJson(results.length === 1 ? results[0] : { items: results });
         }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
     } satisfies ToolEntry,
   ] as const;
@@ -654,7 +665,12 @@ export const makeAgentGateway = Effect.gen(function* () {
   };
   const gatewayCommands: ReadonlyArray<AgentGatewayCommandEntry> = [
     command(["context"], requireInternalTool("penkra_context"), "penkra context"),
-    command(["show"], requireInternalTool("penkra_show_file"), "penkra show --path ./logo.png"),
+    command(
+      ["show"],
+      requireInternalTool("penkra_show_file"),
+      "penkra show --path ./logo.png",
+      "Repeat --path in one call, in display order, to make a switchable gallery of images. A single path keeps the normal inline image or download card.",
+    ),
     command(
       ["connections", "list"],
       requireInternalTool("penkra_list_connections"),

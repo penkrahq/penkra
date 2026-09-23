@@ -47,10 +47,10 @@ import {
   SteerIcon,
 } from "~/lib/icons";
 import { pinActionLabel } from "~/lib/pin";
-import { toAttachmentPreviewUrl } from "~/lib/wsHttpUrl";
 import { Button } from "../ui/button";
 import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLabel";
 import { PenkraThreadCreationCard } from "./PenkraThreadCreationCard";
+import { PresentedMediaRow } from "./PresentedMediaRow";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { FileEntryIcon } from "./FileEntryIcon";
 import { InlineMentionChip } from "./InlineMentionChip";
@@ -1046,43 +1046,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         data-message-id={row.kind === "message" ? row.message.id : undefined}
         data-message-role={row.kind === "message" ? row.message.role : undefined}
       >
-        {row.kind === "media" &&
-          row.entry.presentedMedia &&
-          (() => {
-            const media = row.entry.presentedMedia;
-            const url = toAttachmentPreviewUrl(
-              `/attachments/${encodeURIComponent(media.attachmentId)}`,
-            );
-            return media.type === "image" ? (
-              <figure className="my-2 max-w-full" data-presented-media-id={media.attachmentId}>
-                <button
-                  type="button"
-                  className="block max-w-full overflow-hidden rounded-xl border border-border"
-                  onClick={() =>
-                    onImageExpand?.({ images: [{ src: url, name: media.name }], index: 0 })
-                  }
-                  aria-label={`Expand ${media.name}`}
-                >
-                  <img
-                    src={url}
-                    alt={media.name}
-                    className="block max-h-[28rem] max-w-full object-contain"
-                  />
-                </button>
-                <figcaption className="mt-1 text-xs text-muted-foreground">{media.name}</figcaption>
-              </figure>
-            ) : (
-              <a
-                href={url}
-                download={media.name}
-                className="my-2 inline-flex max-w-full items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm hover:bg-accent"
-                data-presented-media-id={media.attachmentId}
-              >
-                <span className="truncate">{media.name}</span>
-                <span className="text-muted-foreground">Download</span>
-              </a>
-            );
-          })()}
+        {row.kind === "media" && (
+          <PresentedMediaRow
+            items={row.entries.flatMap((entry) =>
+              entry.presentedMedia ? [entry.presentedMedia] : [],
+            )}
+            onImageExpand={onImageExpand}
+          />
+        )}
         {row.kind === "work" &&
           (() => {
             const groupId = row.id;
