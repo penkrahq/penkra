@@ -59,6 +59,7 @@ import {
   decodeCreateThreadInput,
   errorText,
   readBooleanArg,
+  readStringArrayArg,
   readStringArg,
 } from "../toolInput.ts";
 import {
@@ -66,6 +67,7 @@ import {
   IDEMPOTENT_WRITE_TOOL_ANNOTATIONS,
   WRITE_TOOL_ANNOTATIONS,
   type ToolEntry,
+  type ToolContext,
 } from "../toolRuntime.ts";
 import { makeAgentGatewayMcpTransport } from "../mcpTransport.ts";
 import {
@@ -83,6 +85,7 @@ import { requireThreadSpaceId } from "../threadSpaceContext.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderThreadSwitchCoordinator } from "../../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { attachmentPrincipalForSession } from "../../managedAttachmentPrincipal.ts";
+import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import {
   PENKRA_EXEC_COMMAND_ANNOTATIONS,
   PENKRA_EXEC_COMMAND_DESCRIPTION,
@@ -91,6 +94,7 @@ import {
 } from "../hostToolContract.ts";
 import { renderPenkraMcpServerInstructions } from "../harnessPolicy.ts";
 import { resolveAuthoritativeActiveTurn } from "../activeExecution.ts";
+import { presentFile, resolvePresentFileWorkingDirectory } from "../presentFile.ts";
 
 const TURN_INTERRUPT_CONFIRM_TIMEOUT_MS = 5_000;
 const TURN_INTERRUPT_CONFIRM_POLL_MS = 25;
@@ -141,6 +145,7 @@ export const makeAgentGateway = Effect.gen(function* () {
   const providerRuntimeEvents = yield* ProviderRuntimeEventRepository;
   const diagnostics = yield* ThreadDiagnosticsQuery;
   const serverConfig = yield* ServerConfig;
+  const managedAttachments = yield* ManagedAttachmentRepository;
   const loadProviderAvailabilities = Effect.gen(function* () {
     const [settings, statuses] = yield* Effect.all([
       serverSettings.getSettings,
@@ -594,6 +599,64 @@ export const makeAgentGateway = Effect.gen(function* () {
     interruptThread,
     archiveThread,
     unarchiveThread,
+    {
+      requiredCapability: "thread:write",
+      requiresActiveTurn: true,
+      definition: {
+        name: "penkra_show_file",
+        description:
+          "Present local files at this point in the caller Thread. One image appears inline; multiple images in one call form a switchable gallery. Other files appear as downloadable cards. Penkra stores durable copies, so the display survives source-file deletion and Thread reload. Paths are resolved relative to this Thread's working directory. This operation never sends files to another Thread or external service.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: {
+              type: "array",
+              items: { type: "string", minLength: 1 },
+              minItems: 1,
+              description:
+                "Local file paths in display order. Repeat --path to present several images as one gallery.",
+            },
+          },
+          required: ["path"],
+          additionalProperties: false,
+        },
+        annotations: { title: "Show a file in this Thread", ...WRITE_TOOL_ANNOTATIONS },
+      },
+      handler: (args: Record<string, unknown>, context: ToolContext) =>
+        Effect.gen(function* () {
+          const requestedPaths = readStringArrayArg(args, "path");
+          if (!requestedPaths?.length) {
+            return yield* Effect.fail(new ToolInputError("At least one --path is required."));
+          }
+          if (!context.callerTurnId) {
+            return yield* Effect.fail(new ToolInputError("No active caller turn is available."));
+          }
+          const caller = yield* requireThreadShell(context.callerThreadId);
+          const folder = yield* snapshotQuery.getFolderShellById(caller.folderId);
+          const workingDirectory = resolvePresentFileWorkingDirectory({
+            threadId: caller.id,
+            workingDirectory: caller.workingDirectory ?? null,
+            projectCwd: Option.isSome(folder) ? folder.value.workspaceRoot : null,
+            stateDir: serverConfig.stateDir,
+          });
+          const presentationId = requestedPaths.length > 1 ? randomUUID() : undefined;
+          const results = yield* Effect.forEach(requestedPaths, (requestedPath, index) =>
+            presentFile({
+              requestedPath,
+              workingDirectory,
+              threadId: caller.id,
+              turnId: context.callerTurnId!,
+              attachmentsDir: serverConfig.attachmentsDir,
+              stateDir: serverConfig.stateDir,
+              repository: managedAttachments,
+              engine: orchestrationEngine,
+              assertActive: context.assertCallerTurnActive,
+              ...(presentationId === undefined ? {} : { presentationId, presentationIndex: index }),
+            }),
+          );
+          return mcpToolResultJson(results.length === 1 ? results[0] : { items: results });
+        }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+    } satisfies ToolEntry,
   ] as const;
   const requireInternalTool = (name: string): ToolEntry => {
     const tool = internalCommandTools.find((candidate) => candidate.definition.name === name);
@@ -602,6 +665,12 @@ export const makeAgentGateway = Effect.gen(function* () {
   };
   const gatewayCommands: ReadonlyArray<AgentGatewayCommandEntry> = [
     command(["context"], requireInternalTool("penkra_context"), "penkra context"),
+    command(
+      ["show"],
+      requireInternalTool("penkra_show_file"),
+      "penkra show --path ./logo.png",
+      "Repeat --path in one call, in display order, to make a switchable gallery of images. A single path keeps the normal inline image or download card.",
+    ),
     command(
       ["connections", "list"],
       requireInternalTool("penkra_list_connections"),

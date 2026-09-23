@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import type { DesktopAppTabDescriptor } from "@penkra/contracts";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   APP_TAB_HOST_READY_RETRY_LIMIT,
@@ -7,6 +8,7 @@ import {
   isAppTabOutsideDeckSpace,
   shouldMountAppDockPane,
   shouldRetryAppTabHostReady,
+  restoreAppTab,
 } from "./appTabRestore.logic";
 
 describe("App tab restoration readiness", () => {
@@ -50,6 +52,46 @@ describe("App tab restoration readiness", () => {
       route: "/document/7",
       state: { page: 3 },
     });
+  });
+
+  it("adopts a native tab retained across renderer reload without opening it again", async () => {
+    const pane = {
+      id: "stable-tab",
+      kind: "app" as const,
+      appId: "com.example.canvas",
+      appSpaceId: "space-1",
+      appSlug: "canvas",
+      appName: "Canvas",
+      appRoute: "/",
+      appStatus: "unloaded" as const,
+    };
+    const tab: DesktopAppTabDescriptor = {
+      id: pane.id,
+      appId: pane.appId,
+      spaceId: pane.appSpaceId,
+      deckId: "deck-1",
+      threadId: "thread-1",
+      slug: "canvas",
+      name: "Canvas",
+      rendererId: 12,
+      iconDataUrl: null,
+      route: "/",
+      status: "ready",
+    };
+    const open = vi.fn(async () => tab);
+    await expect(
+      restoreAppTab(pane, "deck-1", "thread-1", { list: async () => [tab], open }),
+    ).resolves.toBe(tab);
+    expect(open).not.toHaveBeenCalled();
+
+    const racingOpen = vi.fn(async () => {
+      throw new Error("App tab stable-tab is already open.");
+    });
+    const list = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([tab]);
+    await expect(
+      restoreAppTab(pane, "deck-1", "thread-1", { list, open: racingOpen }),
+    ).resolves.toBe(tab);
+    expect(racingOpen).toHaveBeenCalledOnce();
   });
 
   it("never restores a pane into a different Space", () => {

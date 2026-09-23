@@ -12,6 +12,8 @@ function fixture() {
   let hostListener: ((message: unknown) => void) | null = null;
   const ready = vi.fn();
   const tabSetRoute = vi.fn(async () => undefined);
+  const tabSetPresentation = vi.fn(async () => undefined);
+  const tabResetPresentation = vi.fn(async () => undefined);
   const tabOpenSibling = vi.fn(async () => ({ tabId: "tab-sibling" }));
   let browserStateListener: ((state: import("@penkra/sdk").AppBrowserSessionState) => void) | null =
     null;
@@ -75,6 +77,8 @@ function fixture() {
     },
     ready,
     tabSetRoute,
+    tabSetPresentation,
+    tabResetPresentation,
     tabOpenSibling,
     tabGetContext: vi.fn(),
     queryPermission: vi.fn(async (name) => ({
@@ -143,6 +147,8 @@ function fixture() {
     sent,
     ready,
     tabSetRoute,
+    tabSetPresentation,
+    tabResetPresentation,
     tabOpenSibling,
     browserCall,
     simulatorCall,
@@ -168,6 +174,14 @@ describe("AppPreloadRuntime", () => {
       route: "/document",
       state: { documentId: "doc-1" },
     });
+  });
+
+  it("sets and resets tab presentation through the preload transport", async () => {
+    const test = fixture();
+    await test.runtime.api.tab.setPresentation({ title: "Example", icon: "hosted-page" });
+    await test.runtime.api.tab.resetPresentation();
+    expect(test.tabSetPresentation).toHaveBeenCalledWith({ title: "Example", icon: "hosted-page" });
+    expect(test.tabResetPresentation).toHaveBeenCalledOnce();
   });
 
   it("opens a sibling App tab through the preload transport", async () => {

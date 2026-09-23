@@ -23,6 +23,7 @@ import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import { resolveStableMessageTurnId } from "./messageTurnId.ts";
 import {
   findSpaceById,
+  findThreadById,
   listActiveSpaces,
   listThreadsByFolderId,
   requireFolder,
@@ -1148,6 +1149,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      if (
+        command.expectedArchivedAt !== undefined &&
+        (thread.archivedAt !== command.expectedArchivedAt || thread.isPinned === true)
+      ) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Thread '${command.threadId}' archive changed before retention deletion.`,
+          }),
+        );
+      }
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -1164,12 +1176,57 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.retention-recover": {
+      const thread = findThreadById(readModel, command.threadId);
+      if (!thread || thread.deletedAt !== command.expectedDeletedAt) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Thread '${command.threadId}' changed before retention recovery.`,
+          }),
+        );
+      }
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.archived",
+        payload: {
+          threadId: command.threadId,
+          archivedAt: occurredAt,
+          updatedAt: occurredAt,
+          restoredFromRetention: true,
+        },
+      };
+    }
+
     case "thread.archive": {
-      yield* requireThreadNotArchived({
+      const thread = yield* requireThreadNotArchived({
         readModel,
         command,
         threadId: command.threadId,
       });
+      if (
+        (command.expectedUpdatedAt !== undefined &&
+          thread.updatedAt !== command.expectedUpdatedAt) ||
+        (command.expectedLastVisitedAt !== undefined &&
+          (thread.lastVisitedAt ?? null) !== command.expectedLastVisitedAt) ||
+        (command.expectedUpdatedAt !== undefined &&
+          (threadHasInFlightTurn(thread) ||
+            thread.hasPendingApprovals ||
+            thread.hasPendingUserInput))
+      ) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Thread '${command.threadId}' changed before retention archive.`,
+          }),
+        );
+      }
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -1263,6 +1320,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.notes !== undefined ? { notes: command.notes } : {}),
           ...(command.lastVisitedAt !== undefined ? { lastVisitedAt: command.lastVisitedAt } : {}),
+          ...(command.lastOpenedAt !== undefined ? { lastOpenedAt: command.lastOpenedAt } : {}),
           updatedAt: visitAcknowledgementOnly ? thread.updatedAt : occurredAt,
         },
       };

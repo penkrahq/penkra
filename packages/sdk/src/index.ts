@@ -98,6 +98,7 @@ export {
   type AppTabHandlerContext,
   type AppTabNavigationHandler,
   type AppTabNavigationInput,
+  type AppTabPresentationInput,
   type AppTabOperationHandler,
   type AppTabVisibility,
   type PenkraTabRuntimeApi,

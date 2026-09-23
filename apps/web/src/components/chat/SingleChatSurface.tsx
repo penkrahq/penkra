@@ -25,14 +25,14 @@ import { resolveThreadWorkingDirectory } from "../../routes/-chatThreadRoute.log
 import ChatView from "../ChatView";
 import { RouteInsetSurface } from "../RouteInsetSurface";
 import { IconButton } from "../ui/icon-button";
-import { toastManager } from "../ui/toast";
+import { toastManager, useThreadToastViewportHostRef } from "../ui/toast";
 import { AppsIcon } from "~/lib/icons";
 import { isElectron } from "~/env";
 import { cn, isWindowsPlatform } from "~/lib/utils";
 import { useAppInstallationSnapshot } from "~/appInstallationStore";
 import { AppDockPane } from "./AppDockPane";
 import {
-  createAppTabRestoreRequest,
+  restoreAppTab,
   isAppPaneInSpace,
   isAppTabOutsideDeckSpace,
   shouldMountAppDockPane,
@@ -90,6 +90,8 @@ function appPaneFromTab(tab: DesktopAppTabDescriptor) {
     appSlug: tab.slug,
     appName: tab.name,
     appIconDataUrl: tab.iconDataUrl,
+    appPresentationTitle: tab.presentationTitle ?? null,
+    appPresentationIconUrl: tab.presentationIconUrl ?? null,
     appRendererId: tab.rendererId,
     appRoute: tab.route,
     ...(tab.state === undefined ? {} : { appState: tab.state }),
@@ -98,6 +100,7 @@ function appPaneFromTab(tab: DesktopAppTabDescriptor) {
 }
 
 export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderId | null }) {
+  const threadToastViewportHostRef = useThreadToastViewportHostRef();
   const appsLauncherRightInsetPx = resolveAppsLauncherRightInsetPx({
     isElectron,
     isWindowsDesktop: typeof navigator !== "undefined" && isWindowsPlatform(navigator.platform),
@@ -181,8 +184,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
       }
       loadingAppPaneIdsRef.current.add(pane.id);
       updatePane(deckId, pane.id, { appStatus: "loading" });
-      void bridge
-        .open(createAppTabRestoreRequest(pane, deckId, props.threadId))
+      void restoreAppTab(pane, deckId, props.threadId, bridge)
         .then((tab) => {
           setConfirmedAppPaneIds((current) => new Set(current).add(tab.id));
           openPane(deckId, appPaneFromTab(tab));
@@ -220,6 +222,8 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
       if (tab.deckId !== deckId) return;
       updatePane(deckId, tab.id, {
         appIconDataUrl: tab.iconDataUrl,
+        appPresentationTitle: tab.presentationTitle ?? null,
+        appPresentationIconUrl: tab.presentationIconUrl ?? null,
         appRendererId: tab.rendererId,
         appRoute: tab.route,
         ...(tab.state === undefined ? { appState: undefined } : { appState: tab.state }),
@@ -276,6 +280,8 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
             } else {
               updatePane(deckId, tab.id, {
                 appIconDataUrl: tab.iconDataUrl,
+                appPresentationTitle: tab.presentationTitle ?? null,
+                appPresentationIconUrl: tab.presentationIconUrl ?? null,
                 appRendererId: tab.rendererId,
                 appRoute: tab.route,
                 ...(tab.state === undefined ? { appState: undefined } : { appState: tab.state }),
@@ -496,7 +502,12 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           event.stopPropagation();
         }}
       >
-        <div className="flex h-full min-h-0 flex-1" style={{ minWidth: THREAD_PANEL_MIN_WIDTH }}>
+        <div
+          ref={threadToastViewportHostRef}
+          className="relative flex h-full min-h-0 flex-1"
+          data-thread-toast-viewport-host
+          style={{ minWidth: THREAD_PANEL_MIN_WIDTH }}
+        >
           <RouteInsetSurface
             compensateForLeftSidebar={false}
             surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}

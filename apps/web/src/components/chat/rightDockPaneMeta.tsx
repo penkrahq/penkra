@@ -10,18 +10,14 @@ import type { RightDockPane } from "~/rightDockStore.logic";
 import { SurfaceChipIcon } from "./chatHeaderControls";
 
 export function resolveRightDockPaneLabel(pane: RightDockPane): string {
-  return pane.appName;
+  return pane.appPresentationTitle || pane.appName;
 }
 
 export function resolveRightDockPaneIcon(pane: RightDockPane): ReactNode {
-  if (pane.appIconDataUrl) {
+  const iconUrl = pane.appPresentationIconUrl || pane.appIconDataUrl;
+  if (iconUrl) {
     return (
-      <img
-        alt=""
-        className="size-3.5 shrink-0 object-contain"
-        draggable={false}
-        src={pane.appIconDataUrl}
-      />
+      <img alt="" className="size-3.5 shrink-0 object-contain" draggable={false} src={iconUrl} />
     );
   }
   return <SurfaceChipIcon icon={AppsIcon} />;

@@ -4,6 +4,7 @@ import {
   parseAppTabIdRequest,
   parseAppTabRendererRequest,
   parseAppTabRouteRequest,
+  parseAppTabPresentationRequest,
   parseNavigateAppTabRequest,
   parseOpenAppFromAppsRequest,
   parseOpenAppTabRequest,
@@ -54,6 +55,18 @@ describe("App tab IPC boundary", () => {
       route: "/document",
       state: { id: "7" },
     });
+    expect(parseAppTabPresentationRequest({ title: "  My design  ", icon: "hosted-page" })).toEqual(
+      {
+        title: "My design",
+        icon: "hosted-page",
+      },
+    );
+    expect(parseAppTabPresentationRequest({})).toEqual({});
+    expect(
+      parseAppTabPresentationRequest({ icon: { dataUrl: "data:image/png;base64,YQ==" } }),
+    ).toEqual({
+      icon: { dataUrl: "data:image/png;base64,YQ==" },
+    });
     expect(parseNavigateAppTabRequest({ tabId: "tab", route: "/document" })).toEqual({
       tabId: "tab",
       route: "/document",
@@ -79,6 +92,13 @@ describe("App tab IPC boundary", () => {
     expect(() => parseOpenAppTabRequest({ appId: "app" })).toThrow();
     expect(() => parseOpenAppFromAppsRequest({ appId: "" })).toThrow();
     expect(() => parseAppTabRouteRequest({ route: "" })).toThrow();
+    expect(() => parseAppTabPresentationRequest({ title: "  " })).toThrow();
+    expect(() =>
+      parseAppTabPresentationRequest({ icon: "https://example.com/icon.png" }),
+    ).toThrow();
+    expect(() =>
+      parseAppTabPresentationRequest({ icon: { dataUrl: "data:image/svg+xml;base64,YQ==" } }),
+    ).toThrow();
     expect(() =>
       parseSetAppTabActiveRequest({
         tabId: "tab",

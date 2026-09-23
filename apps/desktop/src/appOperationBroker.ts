@@ -226,7 +226,7 @@ export class AppOperationBroker {
       ...(request.tabId === undefined ? {} : { tabId: request.tabId }),
     };
     const tab = request.tabId
-      ? this.#resolveTab(request.tabId, installedApp.appId, request.spaceId, request.threadId)
+      ? this.#resolveTab(request.tabId, installedApp.appId, request.spaceId, request.deckId)
       : undefined;
     const tabs: AppTabs = {
       open: (input) =>
@@ -346,15 +346,15 @@ export class AppOperationBroker {
     return installedApp;
   }
 
-  #resolveTab(tabId: string, appId: string, spaceId: string, threadId: string): AppTabEndpoint {
+  #resolveTab(tabId: string, appId: string, spaceId: string, deckId: string): AppTabEndpoint {
     const tab = this.#tabs.get(tabId);
     if (!tab) {
       throw new AppOperationBrokerError("tab-not-found", `App tab ${tabId} is not open.`);
     }
-    if (tab.appId !== appId || tab.spaceId !== spaceId || tab.threadId !== threadId) {
+    if (tab.appId !== appId || tab.spaceId !== spaceId || tab.deckId !== deckId) {
       throw new AppOperationBrokerError(
         "tab-target-mismatch",
-        `App tab ${tabId} does not belong to the invoked App, Space, and thread.`,
+        `App tab ${tabId} does not belong to the invoked App, Space, and Thread Deck.`,
       );
     }
     return tab;

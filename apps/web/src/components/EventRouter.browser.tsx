@@ -231,6 +231,9 @@ function observeAcknowledgement(requestBody: Record<string, unknown>): void {
 }
 
 function resolveUnaryRequest(method: string): unknown {
+  if (method === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+    return { sequence: fixture.snapshot.snapshotSequence + 1 };
+  }
   if (method === WS_METHODS.serverGetConfig) return fixture.serverConfig;
   if (method === WS_METHODS.projectsListDevServers) return { servers: [] };
   if (method === WS_METHODS.projectsSearchEntries) return { entries: [], truncated: false };

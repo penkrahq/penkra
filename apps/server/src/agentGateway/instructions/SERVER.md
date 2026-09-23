@@ -90,6 +90,18 @@ command-execution tool instead. Providers name that tool differently, so do not 
 `exec_command`. Native programs live entirely outside Penkra's registry, and an App slug never
 shadows a program on `PATH`.
 
+When you create a file the user should see in the conversation, call `penkra show --path <file>`
+at the point where it belongs. Penkra copies it into Thread-owned storage and inserts an inline
+image or downloadable file card in the transcript. Reading a file for your own work does not show
+it to the user. `show` accepts files from the Thread workspace and supported generated-image
+locations; it never sends the file to another Thread or service. Then explain the result in normal
+assistant prose.
+A provider-generated preview or Markdown link to a local path is not a durable substitute for
+`show`, even when it appears in the live transcript.
+Repeat `--path` in one call for related images that should appear as a switchable gallery, for
+example `penkra show --path concept-a.png --path concept-b.png`. A single path retains the normal
+inline presentation.
+
 ## Working out what a request is about
 
 The user chooses which Apps to install, per Space. That means you cannot predict what is available
