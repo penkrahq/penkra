@@ -56,6 +56,8 @@ function PresentedImageGallery({
   const index = Math.min(selectedIndex, items.length - 1);
   const selected = items[index]!;
   const images = items.map((item) => ({ src: mediaUrl(item.attachmentId), name: item.name }));
+  const arrowClassName =
+    "absolute top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-background/85 opacity-0 shadow-sm transition-opacity pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-background focus-visible:pointer-events-auto focus-visible:opacity-100 motion-reduce:transition-none";
 
   return (
     <figure className="my-2 w-full max-w-2xl" data-presented-gallery-id={selected.presentationId}>
@@ -76,7 +78,7 @@ function PresentedImageGallery({
           </button>
           <button
             type="button"
-            className="absolute left-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-background/85 shadow-sm hover:bg-background"
+            className={`${arrowClassName} left-2`}
             onClick={() => setSelectedIndex((index - 1 + items.length) % items.length)}
             aria-label="Previous image"
           >
@@ -84,7 +86,7 @@ function PresentedImageGallery({
           </button>
           <button
             type="button"
-            className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-background/85 shadow-sm hover:bg-background"
+            className={`${arrowClassName} right-2`}
             onClick={() => setSelectedIndex((index + 1) % items.length)}
             aria-label="Next image"
           >
