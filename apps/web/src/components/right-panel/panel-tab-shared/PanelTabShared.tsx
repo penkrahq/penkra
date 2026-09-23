@@ -33,7 +33,7 @@ export const PanelTabShared = forwardRef<HTMLButtonElement, PanelTabSharedProps>
       >
         <button
           aria-selected={active}
-          className="flex h-full min-w-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-transparent px-3 py-0 text-inherit outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)] [-webkit-app-region:no-drag]"
+          className="flex h-full max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-transparent px-3 py-0 text-inherit outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)] [-webkit-app-region:no-drag]"
           ref={ref}
           role="tab"
           type="button"
@@ -41,13 +41,13 @@ export const PanelTabShared = forwardRef<HTMLButtonElement, PanelTabSharedProps>
         >
           <span
             className={cn(
-              "inline-flex size-3.5 items-center justify-center transition-opacity [&_svg]:size-3.5",
+              "inline-flex size-3.5 shrink-0 items-center justify-center transition-opacity [&_svg]:size-3.5",
               showClose && "opacity-0",
             )}
           >
             {icon}
           </span>
-          <span className="truncate">{children}</span>
+          <span className="min-w-0 truncate">{children}</span>
         </button>
         {onClose ? (
           <button
