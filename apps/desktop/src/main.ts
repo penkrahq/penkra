@@ -324,6 +324,7 @@ import {
   parseAppTabIdRequest,
   parseAppTabRendererRequest,
   parseAppTabRouteRequest,
+  parseAppTabPresentationRequest,
   parseNavigateAppTabRequest,
   parseOpenAppFromAppsRequest,
   parseOpenAppTabRequest,
@@ -924,12 +925,13 @@ const pendingThreadApiRequests = new Map<
     timer: ReturnType<typeof setTimeout>;
   }
 >();
-const turnOriginSurfaceByTurnId = new Map<string, number>();
+const turnOriginSurfaceByTurnId = new Map<string, number | null>();
 
-function resolveTurnOriginSurface(turnId: string): number | null {
-  const surfaceId = turnOriginSurfaceByTurnId.get(turnId) ?? null;
-  if (surfaceId === null || shellWindowRegistry.windowForWebContentsId(surfaceId) === null) {
-    if (surfaceId !== null) turnOriginSurfaceByTurnId.delete(turnId);
+function resolveTurnOriginSurface(turnId: string): number | null | undefined {
+  const surfaceId = turnOriginSurfaceByTurnId.get(turnId);
+  if (surfaceId === undefined || surfaceId === null) return surfaceId;
+  if (shellWindowRegistry.windowForWebContentsId(surfaceId) === null) {
+    turnOriginSurfaceByTurnId.set(turnId, null);
     return null;
   }
   return surfaceId;
@@ -5598,6 +5600,18 @@ function registerIpcHandlers(): void {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
     runtime.appTabs.setRoute(identity.tabId, parseAppTabRouteRequest(input));
+  });
+  ipcMain.removeHandler(IPC.appRuntime.tabSetPresentation);
+  ipcMain.handle(IPC.appRuntime.tabSetPresentation, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
+    runtime.appTabs.setPresentation(identity.tabId, parseAppTabPresentationRequest(input));
+  });
+  ipcMain.removeHandler(IPC.appRuntime.tabResetPresentation);
+  ipcMain.handle(IPC.appRuntime.tabResetPresentation, async (event) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
+    runtime.appTabs.resetPresentation(identity.tabId);
   });
   ipcMain.removeHandler(IPC.appRuntime.tabOpenSibling);
   ipcMain.handle(IPC.appRuntime.tabOpenSibling, async (event, input: unknown) => {

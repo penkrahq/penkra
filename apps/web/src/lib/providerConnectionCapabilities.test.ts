@@ -264,6 +264,26 @@ describe("provider Connection capabilities", () => {
     expect(refreshCount).toBe(1);
   });
 
+  it("loads an existing Thread's exact binding before deciding that its Connection is missing", async () => {
+    let bindingReads = 0;
+    await expect(
+      resolveComposerConnectionAtAdmission({
+        snapshot,
+        refreshSnapshot: async () => snapshot,
+        provider: "opencode",
+        model: "opencode-go/kimi-k2.5",
+        explicitSelection: { specified: false, connectionId: undefined },
+        startedThreadBinding: { loaded: false, connectionId: undefined },
+        refreshStartedThreadBinding: async () => {
+          bindingReads += 1;
+          return { loaded: true, connectionId: goConnectionId };
+        },
+        hasThreadStarted: true,
+      }),
+    ).resolves.toBe(goConnectionId);
+    expect(bindingReads).toBe(1);
+  });
+
   it("re-reads exact model routes after a Connection login invalidates discovery", async () => {
     let modelRefreshCount = 0;
     await expect(

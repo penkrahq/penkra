@@ -796,6 +796,12 @@ export class AppTabObserver {
 
   async click(tabId: string, reference: string, observe = false, human = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
+    await this.#cdp(
+      target.webContents,
+      "DOM.scrollIntoViewIfNeeded",
+      { backendNodeId: node.backendNodeId },
+      target.cdpSessionId,
+    );
     const point = await this.#nodeCenter(target, node.backendNodeId);
     await this.#moveCursor(target, point, human);
     await this.#cdp(

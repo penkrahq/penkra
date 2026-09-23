@@ -883,6 +883,14 @@ async function openDocument(documentId) {
 Call `tab.setRoute(...)` when navigation originates inside the App, such as clicking a document in
 its own library. This records the current App route in the host so Penkra can restore the same view
 after an App update or host restart; it does not navigate the App or call `tab.onNavigate` again.
+
+An App may replace its tab label with `tab.setPresentation({ title: document.title })` and return
+to its manifest name and icon with `tab.resetPresentation()`. Browser Apps may request the favicon
+of their own hosted page with `tab.setPresentation({ title: page.title, icon: "hosted-page" })`.
+The host owns the favicon URL; the App cannot supply an arbitrary icon URL. Presentation overrides
+are runtime state, so Apps should reissue them when restoring their route.
+For an App-owned icon, pass `icon: { dataUrl: "data:image/png;base64,..." }` instead. The host
+accepts PNG, JPEG, or WebP data up to 256 KiB and rejects external icon URLs.
 Use `tab.onNavigate(...)` only to receive navigation initiated by Penkra, an operation, or another
 App, and do not record that same route again from the handler. Ordinary navigation completes for
 its caller once this handler is registered and invoked; it does not wait for asynchronous data
@@ -922,7 +930,8 @@ is scoped to that operation result; durable files belong in App storage. The tru
 validates the content blocks and validates
 `structuredContent` against the manifest output schema before anything reaches the caller.
 
-When an invocation includes `tabId`, `context.tab` addresses exactly that validated App tab. Use
+When an invocation includes `tabId`, `context.tab` addresses exactly that validated App tab in
+the invoking Space and Thread Deck. Switching the active Thread does not change tab ownership. Use
 `context.tab.invoke` for an in-place UI function and `context.tab.navigate` to change its App route.
 Call `context.tab.close()` to close that same validated, App-owned tab; do not retain a handle across
 invocations. Resolve the target again from each invocation so ownership and liveness are rechecked.
@@ -930,7 +939,7 @@ Without a target, use `context.tabs.open`. Use `ForResult` variants only when an
 waits for a person. Cancellation includes tab close, timeout, disable, uninstall, and host shutdown.
 
 Use `context.apps.open({ slug })` when an App operation needs to open another enabled App in the
-same Space and invoking Thread. The slug must come from the installed App catalog.
+same Space and invoking Thread Deck. The slug must come from the installed App catalog.
 
 Inside the visual App, `tab.setRoute` records App-owned navigation without causing a second
 navigation event. Penkra uses that latest recorded route and state when it recreates the tab.

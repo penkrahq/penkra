@@ -52,6 +52,7 @@ import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ensureDefaultSpaces } from "./orchestration/defaultSpacesBootstrap";
 import { startThreadRetentionJob } from "./threadRetention";
+import { ThreadPurge } from "./threadPurge";
 import { runStartupStage } from "./startupTiming";
 import {
   consumeDesktopParentPidFromEnvironment,
@@ -441,9 +442,10 @@ const makeServerProgram = (input: CliInput) => {
         : undefined;
 
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+    const threadPurge = yield* ThreadPurge;
     // Start the retention loop after the server is live so startup can serve
-    // existing history first, then hide inactive threads from the app in the background.
-    yield* startThreadRetentionJob(orchestrationEngine, projectionSnapshotQuery);
+    // existing history first, then archive inactive threads in the background.
+    yield* startThreadRetentionJob(orchestrationEngine, projectionSnapshotQuery, threadPurge);
     yield* startAutomaticProviderUpdates({
       providerHealth,
       projectionSnapshotQuery,

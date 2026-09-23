@@ -410,6 +410,16 @@ export function ThreadDeckBar(props: {
   };
 
   const archive = async (threadId: ThreadId) => {
+    const draftThread = draftThreadsByThreadId[threadId];
+    if (!draftThread) {
+      const thread = threadShellById[threadId];
+      if (!thread) return;
+      const api = readNativeApi();
+      if (!api) return;
+      const confirmed = await api.dialogs.confirm(`Archive thread "${thread.title}"?`);
+      if (!confirmed) return;
+    }
+
     await removeDeckThreadPreservingNavigation({
       threadIds: tabs.map((tab) => tab.id),
       removedThreadId: threadId,
@@ -417,7 +427,7 @@ export function ThreadDeckBar(props: {
       isVisible: () => true,
       activate,
       remove: async (removedThreadId) => {
-        if (draftThreadsByThreadId[removedThreadId]) {
+        if (draftThread) {
           clearDraftThread(removedThreadId);
           return;
         }

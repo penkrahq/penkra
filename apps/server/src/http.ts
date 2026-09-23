@@ -1217,6 +1217,14 @@ export const attachmentsEffectRouteLayer = HttpRouter.add(
       headers: {
         "Cache-Control": "private, no-store",
         Pragma: "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        ...(Option.isSome(managedBlob) &&
+        managedBlob.value.ownerKind === "presented-media" &&
+        managedBlob.value.kind === "file"
+          ? {
+              "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(managedBlob.value.originalName)}`,
+            }
+          : {}),
       },
     });
   }).pipe(Effect.catchTag("AuthError", (error) => Effect.succeed(authErrorResponse(error)))),

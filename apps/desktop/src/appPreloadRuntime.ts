@@ -19,6 +19,8 @@ export interface AppPreloadTransport {
   onHostMessage(listener: (message: unknown) => void): () => void;
   ready(): void;
   tabSetRoute(input: import("@penkra/sdk").AppTabNavigationInput): Promise<void>;
+  tabSetPresentation(input: import("@penkra/sdk").AppTabPresentationInput): Promise<void>;
+  tabResetPresentation(): Promise<void>;
   tabOpenSibling(input?: import("@penkra/sdk").AppTabNavigationInput): Promise<{ tabId: string }>;
   tabGetContext(): Promise<{
     deckId: string;
@@ -394,6 +396,8 @@ export class AppPreloadRuntime {
       tab: {
         getContext: () => this.#transport.tabGetContext(),
         setRoute: (input) => this.#transport.tabSetRoute(input),
+        setPresentation: (input) => this.#transport.tabSetPresentation(input),
+        resetPresentation: () => this.#transport.tabResetPresentation(),
         openSibling: (input) => this.#transport.tabOpenSibling(input),
         onVisibilityChange: (listener) => {
           if (typeof listener !== "function") {

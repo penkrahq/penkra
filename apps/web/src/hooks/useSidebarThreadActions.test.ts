@@ -235,7 +235,6 @@ function render(
   return useSidebarThreadActions({
     activeSplitView: overrides.activeSplitView ?? null,
     appSettings: {
-      confirmThreadArchive: false,
       confirmThreadDelete: false,
       sidebarThreadSortOrder: "updated_at",
     },
@@ -386,6 +385,17 @@ describe("useSidebarThreadActions", () => {
     await expect(render().archiveThread(THREAD_ID)).resolves.toBe(true);
 
     expect(harness.archiveThread).toHaveBeenCalledWith(expect.anything(), THREAD_ID);
+  });
+
+  it("requires native confirmation before archiving a thread", async () => {
+    harness.confirm.mockResolvedValue(false);
+
+    await render().confirmAndArchiveThread(THREAD_ID);
+
+    expect(harness.confirm).toHaveBeenCalledWith(
+      expect.stringContaining(`Archive thread "${THREAD_ID}"?`),
+    );
+    expect(harness.archiveThread).not.toHaveBeenCalled();
   });
 
   it("serializes archives and navigates the active thread to its fallback", async () => {

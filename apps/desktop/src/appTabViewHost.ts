@@ -110,6 +110,7 @@ interface AppTabRecord {
   unregisterRpc: (reason?: OperationCancellationCode) => void;
   releaseIdentity: () => void;
   navigation: { route: string; state?: unknown };
+  presentationIconSource: "hosted-page" | { dataUrl: string } | null;
   openedAt: number;
   themeCssKey: string | null;
   typographyCssKey: string | null;
@@ -1415,6 +1416,27 @@ export class AppTabViewHost implements AppTabHost {
     });
   }
 
+  setPresentation(
+    tabId: string,
+    input: { title?: string; icon?: "hosted-page" | { dataUrl: string } },
+  ): void {
+    const record = this.#require(tabId);
+    record.presentationIconSource = input.icon ?? null;
+    record.descriptor = {
+      ...record.descriptor,
+      presentationTitle: input.title ?? null,
+      presentationIconUrl:
+        record.presentationIconSource === "hosted-page"
+          ? (record.page?.state.faviconUrl ?? null)
+          : (record.presentationIconSource?.dataUrl ?? null),
+    };
+    this.#state.publish(record.descriptor);
+  }
+
+  resetPresentation(tabId: string): void {
+    this.setPresentation(tabId, {});
+  }
+
   setContext(tabId: string, input: { deckId: string; threadId: string }): void {
     const record = this.#require(tabId);
     if (record.descriptor.deckId !== input.deckId) {
@@ -1674,6 +1696,7 @@ export class AppTabViewHost implements AppTabHost {
       const unregisterBroker = this.#broker.registerTab(endpoint);
       rollback.defer("operation-broker", unregisterBroker);
       const record: AppTabRecord = {
+        presentationIconSource: null,
         descriptor,
         endpoint,
         app: input.app,
@@ -1945,8 +1968,47 @@ export class AppTabViewHost implements AppTabHost {
         pageId: page.id,
         rendererId: contents.id,
       });
+      if (!contents.isLoadingMainFrame() || page.state.isLoading) return;
       page.state = { ...page.state, isLoading: true, lastError: null };
       this.#hostedPageChanged(record);
+    };
+    const didStartNavigation = (
+      details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>,
+    ) => {
+      traceAppTabHost("hosted-page-frame-navigation-started", {
+        tabId: record.descriptor.id,
+        pageId: page.id,
+        rendererId: contents.id,
+        isMainFrame: details.isMainFrame,
+        isSameDocument: details.isSameDocument,
+        frameProcessId: details.frame?.processId ?? null,
+        frameRoutingId: details.frame?.routingId ?? null,
+        urlOrigin: new URL(details.url).origin,
+      });
+      if (details.isMainFrame && !details.isSameDocument) {
+        page.state = {
+          ...page.state,
+          title: defaultHostedPageTitle(details.url),
+          faviconUrl: null,
+        };
+        this.#hostedPageChanged(record);
+      }
+    };
+    const didFrameFinishLoad = (
+      _event: Electron.Event,
+      isMainFrame: boolean,
+      frameProcessId: number,
+      frameRoutingId: number,
+    ) => {
+      traceAppTabHost("hosted-page-frame-load-finished", {
+        tabId: record.descriptor.id,
+        pageId: page.id,
+        rendererId: contents.id,
+        isMainFrame,
+        frameProcessId,
+        frameRoutingId,
+      });
+      if (isMainFrame) this.#syncHostedPage(record, page);
     };
     const didStopLoading = () => {
       traceAppTabHost("hosted-page-load-stopped", {
@@ -1954,7 +2016,7 @@ export class AppTabViewHost implements AppTabHost {
         pageId: page.id,
         rendererId: contents.id,
       });
-      this.#syncHostedPage(record, page);
+      if (page.state.isLoading) this.#syncHostedPage(record, page);
     };
     const didNavigate = () => {
       traceAppTabHost("hosted-page-navigated", {
@@ -1971,7 +2033,7 @@ export class AppTabViewHost implements AppTabHost {
         rendererId: contents.id,
         isMainFrame,
       });
-      this.#syncHostedPage(record, page);
+      if (isMainFrame) this.#syncHostedPage(record, page);
     };
     const pageTitleUpdated = (event: Electron.Event, title: string) => {
       event.preventDefault();
@@ -2013,6 +2075,8 @@ export class AppTabViewHost implements AppTabHost {
     };
     contents.on("before-input-event", beforeInput);
     contents.on("did-start-loading", didStartLoading);
+    contents.on("did-start-navigation", didStartNavigation);
+    contents.on("did-frame-finish-load", didFrameFinishLoad);
     contents.on("did-stop-loading", didStopLoading);
     contents.on("did-navigate", didNavigate);
     contents.on("did-navigate-in-page", didNavigateInPage);
@@ -2022,6 +2086,8 @@ export class AppTabViewHost implements AppTabHost {
     page.disposers.push(
       () => contents.removeListener("before-input-event", beforeInput),
       () => contents.removeListener("did-start-loading", didStartLoading),
+      () => contents.removeListener("did-start-navigation", didStartNavigation),
+      () => contents.removeListener("did-frame-finish-load", didFrameFinishLoad),
       () => contents.removeListener("did-stop-loading", didStopLoading),
       () => contents.removeListener("did-navigate", didNavigate),
       () => contents.removeListener("did-navigate-in-page", didNavigateInPage),
@@ -2203,7 +2269,7 @@ export class AppTabViewHost implements AppTabHost {
       url,
       title: contents.getTitle() || defaultHostedPageTitle(url),
       status: "live",
-      isLoading: contents.isLoading(),
+      isLoading: contents.isLoadingMainFrame(),
       canGoBack: canHostedPageGoBack(contents),
       canGoForward: canHostedPageGoForward(contents),
       lastCommittedUrl: committed || page.state.lastCommittedUrl,
@@ -2214,6 +2280,13 @@ export class AppTabViewHost implements AppTabHost {
 
   #hostedPageChanged(record: AppTabRecord): void {
     record.browserVersion += 1;
+    if (record.presentationIconSource === "hosted-page") {
+      const iconUrl = record.page?.state.faviconUrl ?? null;
+      if (record.descriptor.presentationIconUrl !== iconUrl) {
+        record.descriptor = { ...record.descriptor, presentationIconUrl: iconUrl };
+        this.#state.publish(record.descriptor);
+      }
+    }
     this.#layoutApp(record);
     this.#layoutPage(record);
     this.#emitBrowserState(record);
@@ -2315,10 +2388,33 @@ export class AppTabViewHost implements AppTabHost {
       width: sourceBounds.width,
       height: Math.max(0, sourceBounds.height - record.pageTop),
     };
+    const currentBounds = record.page.view.getBounds();
+    const currentVisible = record.page.view.getVisible();
+    const visible =
+      record.visibleRequested && record.freezeDepth === 0 && this.#shouldShowPage(record);
+    if (
+      currentVisible !== visible ||
+      currentBounds.x !== bounds.x ||
+      currentBounds.y !== bounds.y ||
+      currentBounds.width !== bounds.width ||
+      currentBounds.height !== bounds.height
+    ) {
+      traceAppTabHost("hosted-page-view-layout-change", {
+        tabId: record.descriptor.id,
+        pageId: record.page.id,
+        rendererId: record.page.view.webContents.id,
+        currentBounds,
+        bounds,
+        currentVisible,
+        visible,
+        visibleRequested: record.visibleRequested,
+        freezeDepth: record.freezeDepth,
+        ownerWindowVisible: record.ownerWindowVisible,
+        pageHasError: record.page.state.lastError !== null,
+      });
+    }
     record.page.view.setBounds(bounds);
-    record.page.view.setVisible(
-      record.visibleRequested && record.freezeDepth === 0 && this.#shouldShowPage(record),
-    );
+    record.page.view.setVisible(visible);
   }
 
   #layoutApp(record: AppTabRecord, sourceBounds: Rectangle = record.bounds): void {

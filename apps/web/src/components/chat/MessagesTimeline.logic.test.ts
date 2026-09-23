@@ -578,6 +578,96 @@ describe("deriveMessagesTimelineRows", () => {
   const collapsedSignature = (row: MessageTimelineRow): string[] =>
     (row.collapsedTurnItems ?? []).map((item) => `${item.kind}:${String(item.id)}`);
 
+  it("keeps a presented image between narration and the final answer after settlement", () => {
+    const imageAt = "2026-01-01T00:00:02Z";
+    const timelineEntries: TimelineEntry[] = [
+      userEntry("u1", "2026-01-01T00:00:00Z"),
+      assistantEntry("a1", "2026-01-01T00:00:01Z", { turnId: "t1", text: "Here is the image." }),
+      {
+        id: "entry-image",
+        kind: "work",
+        createdAt: imageAt,
+        entry: {
+          id: "image",
+          createdAt: imageAt,
+          tone: "info",
+          label: "Showed logo.png",
+          activityKind: "media.presented",
+          presentedMedia: {
+            attachmentId: "att_v2_abc",
+            name: "logo.png",
+            mimeType: "image/png",
+            sizeBytes: 200,
+            type: "image",
+          },
+        },
+      },
+      assistantEntry("a2", "2026-01-01T00:00:03Z", {
+        turnId: "t1",
+        text: "Done.",
+        completedAt: "2026-01-01T00:00:04Z",
+      }),
+    ];
+    const live = deriveMessagesTimelineRows({
+      ...baseInput,
+      isWorking: true,
+      activeTurnInProgress: true,
+      activeTurnId: TurnId.makeUnsafe("t1"),
+      timelineEntries,
+    });
+    const settled = deriveMessagesTimelineRows({ ...baseInput, timelineEntries });
+    expect(live.map((row) => row.kind)).toEqual([
+      "message",
+      "message",
+      "media",
+      "message",
+      "working",
+    ]);
+    expect(settled.map((row) => row.kind)).toEqual(["message", "message", "media", "message"]);
+    expect(settled[2]).toMatchObject({
+      kind: "media",
+      entries: [{ presentedMedia: { name: "logo.png" } }],
+    });
+  });
+
+  it("groups images from one presentation into one ordered gallery row", () => {
+    const mediaEntry = (id: string, name: string, presentationIndex: number): TimelineEntry => ({
+      id,
+      kind: "work",
+      createdAt: `2026-01-01T00:00:0${presentationIndex + 1}Z`,
+      entry: {
+        id,
+        createdAt: `2026-01-01T00:00:0${presentationIndex + 1}Z`,
+        tone: "info",
+        label: `Showed ${name}`,
+        activityKind: "media.presented",
+        presentedMedia: {
+          attachmentId: `att_v2_${id}`,
+          name,
+          mimeType: "image/png",
+          sizeBytes: 200,
+          type: "image",
+          presentationId: "presentation-one",
+          presentationIndex,
+        },
+      },
+    });
+    const rows = deriveMessagesTimelineRows({
+      ...baseInput,
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        mediaEntry("second", "B.png", 1),
+        mediaEntry("first", "A.png", 0),
+        assistantEntry("a1", "2026-01-01T00:00:04Z", { turnId: "t1", text: "Here they are." }),
+      ],
+    });
+    expect(rows.map((row) => row.kind)).toEqual(["message", "media", "message"]);
+    expect(rows[1]).toMatchObject({
+      kind: "media",
+      entries: [{ presentedMedia: { name: "A.png" } }, { presentedMedia: { name: "B.png" } }],
+    });
+  });
+
   it("keeps a Connection change standalone before the message that uses it", () => {
     const boundaryAt = "2026-01-01T00:01:00Z";
     const rows = deriveMessagesTimelineRows({

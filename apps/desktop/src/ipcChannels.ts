@@ -82,6 +82,8 @@ export const DESKTOP_IPC_CHANNELS = {
     ready: "penkra-app:ready",
     call: "penkra-app:call",
     tabSetRoute: "penkra-app:tab-set-route",
+    tabSetPresentation: "penkra-app:tab-set-presentation",
+    tabResetPresentation: "penkra-app:tab-reset-presentation",
     tabOpenSibling: "penkra-app:tab-open-sibling",
     tabGetContext: "penkra-app:tab-get-context",
     permissionQuery: "penkra-app:permission-query",

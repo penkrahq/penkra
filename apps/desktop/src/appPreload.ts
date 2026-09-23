@@ -35,6 +35,9 @@ const runtime = new AppPreloadRuntime({
   onEvent: onRuntimeEvent,
   ready: () => ipcRenderer.send(APP_RUNTIME_IPC_CHANNELS.ready),
   tabSetRoute: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.tabSetRoute, input),
+  tabSetPresentation: (input) =>
+    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.tabSetPresentation, input),
+  tabResetPresentation: () => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.tabResetPresentation),
   tabOpenSibling: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.tabOpenSibling, input),
   tabGetContext: () => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.tabGetContext),
   queryPermission: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.permissionQuery, name),

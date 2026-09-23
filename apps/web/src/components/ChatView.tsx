@@ -2189,6 +2189,31 @@ export default function ChatView({
   }, [activeThread?.id]);
 
   useEffect(() => {
+    const openedThreadId = activeThread?.id;
+    if (!openedThreadId) return;
+    const recordOpen = () => {
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+      const api = readNativeApi();
+      if (!api) return;
+      void api.orchestration
+        .dispatchCommand({
+          type: "thread.update",
+          commandId: newCommandId(),
+          threadId: openedThreadId,
+          lastOpenedAt: new Date().toISOString(),
+        })
+        .catch((error) => console.warn("Failed to record thread open for retention", error));
+    };
+    recordOpen();
+    window.addEventListener("focus", recordOpen);
+    document.addEventListener("visibilitychange", recordOpen);
+    return () => {
+      window.removeEventListener("focus", recordOpen);
+      document.removeEventListener("visibilitychange", recordOpen);
+    };
+  }, [activeThread?.id]);
+
+  useEffect(() => {
     if (!activeThread?.id) return;
     if (isThreadReadAcknowledgementDeferred(activeThread.id)) return;
     if (
@@ -6889,6 +6914,10 @@ export default function ChatView({
           startedThreadBinding: {
             loaded: startedThreadBindingLoaded,
             connectionId: startedThreadBindingConnectionId,
+          },
+          refreshStartedThreadBinding: async () => {
+            const result = await api.provider.getThreadBinding({ threadId: activeThread.id });
+            return { loaded: true, connectionId: result.binding?.connectionId };
           },
           hasThreadStarted,
         });

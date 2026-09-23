@@ -20,6 +20,70 @@ const layer = it.layer(
 );
 
 layer("ThreadPurge", (it) => {
+  it.effect("lists only current automatic archives for active-day expiry", () =>
+    Effect.gen(function* () {
+      const folders = yield* ProjectionFolderRepository;
+      const threads = yield* ProjectionThreadRepository;
+      const purge = yield* ThreadPurge;
+      const sql = yield* SqlClient.SqlClient;
+      const old = "2026-08-01T00:00:00.000Z";
+      const recent = "2026-09-10T00:00:00.000Z";
+      const folderId = FolderId.makeUnsafe("folder-archive-expiry");
+      yield* folders.upsert({
+        folderId,
+        title: "Archive expiry",
+        workspaceRoot: null,
+        defaultModelSelection: { provider: "codex", model: "gpt-5.5" },
+        scripts: [],
+        isPinned: false,
+        spaceId: SpaceId.makeUnsafe("penkra-personal"),
+        createdAt: old,
+        updatedAt: old,
+        deletedAt: null,
+      });
+      for (const [name, archivedAt, commandId] of [
+        ["automatic-old", old, "thread-retention:recover:auto-old"],
+        ["manual-old", old, "manual-archive"],
+        ["automatic-recent", recent, "thread-retention:auto-recent"],
+        ["restored", null, "thread-retention:restored"],
+      ] as const) {
+        const threadId = ThreadId.makeUnsafe(`thread-${name}`);
+        yield* threads.upsert({
+          threadId,
+          deckId: singletonThreadDeckId(threadId),
+          deckSortOrder: 0,
+          folderId,
+          title: name,
+          modelSelection: { provider: "codex", model: "gpt-5.5" },
+          runtimeMode: "full-access",
+          latestTurnId: null,
+          pinnedMessages: null,
+          notes: null,
+          latestUserMessageAt: null,
+          pendingApprovalCount: 0,
+          pendingUserInputCount: 0,
+          createdAt: old,
+          updatedAt: archivedAt ?? recent,
+          archivedAt,
+          deletedAt: null,
+        });
+        yield* sql`
+          INSERT INTO orchestration_events (
+            event_id, aggregate_kind, stream_id, stream_version, event_type,
+            occurred_at, command_id, actor_kind, payload_json, metadata_json
+          ) VALUES (
+            ${`event-${name}`}, 'thread', ${threadId}, 0, 'thread.archived',
+            ${old}, ${commandId}, 'server', '{}', '{}'
+          )
+        `;
+      }
+      assert.deepEqual(yield* purge.listRetentionArchives(), [
+        { threadId: "thread-automatic-old", archivedAt: old },
+        { threadId: "thread-automatic-recent", archivedAt: recent },
+      ]);
+    }),
+  );
+
   it.effect("purges transcript, pending input, binding, and queues native-state deletion", () =>
     Effect.gen(function* () {
       const folders = yield* ProjectionFolderRepository;
@@ -59,6 +123,21 @@ layer("ThreadPurge", (it) => {
         updatedAt: now,
         deletedAt: now,
       });
+      yield* sql`
+        INSERT INTO orchestration_events (
+          event_id, aggregate_kind, stream_id, stream_version, event_type,
+          occurred_at, command_id, actor_kind, payload_json, metadata_json
+        ) VALUES (
+          'event-legacy-retention', 'thread', ${threadId}, 0, 'thread.deleted',
+          ${now}, 'thread-retention:legacy', 'server', '{}', '{}'
+        )
+      `;
+      assert.deepEqual(yield* purge.listLegacyRetentionHidden(), [{ threadId, deletedAt: now }]);
+      yield* sql`
+        UPDATE orchestration_consumer_state
+        SET last_acked_sequence = (SELECT MAX(sequence) FROM orchestration_events)
+        WHERE consumer_name = 'provider-command-reactor.v1'
+      `;
       yield* sql`
         INSERT INTO provider_native_state_generations (
           native_state_generation_id, harness_kind, adapter_schema_version,

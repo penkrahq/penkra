@@ -55,6 +55,7 @@ import {
   CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME,
 } from "./composerPickerStyles";
 import { cn } from "~/lib/utils";
+import { useThreadToastViewportHostRef } from "../ui/toast";
 
 const SPLIT_RATIO_MIN = 0.25;
 const SPLIT_RATIO_MAX = 0.75;
@@ -395,6 +396,7 @@ function SplitPaneSurface(props: {
 }
 
 export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadId: ThreadId }) {
+  const threadToastViewportHostRef = useThreadToastViewportHostRef();
   const navigate = useNavigate();
   const { handleNewChat } = useHandleNewChat();
   const selectAllThreads = createAllThreadsSelector();
@@ -687,7 +689,9 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
   return (
     <>
       <div
+        ref={threadToastViewportHostRef}
         className={cn(CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME, CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME)}
+        data-thread-toast-viewport-host
       >
         <PaneRenderer
           pane={activeSplitView.root}
