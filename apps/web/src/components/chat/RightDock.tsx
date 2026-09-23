@@ -75,7 +75,7 @@ function RightDockTab(props: {
       active={props.active}
       title={props.label}
       icon={props.icon ?? resolveRightDockPaneIcon(props.pane)}
-      className={props.pane.appStatus === "unloaded" ? "opacity-50" : undefined}
+      className={cn("max-w-52", props.pane.appStatus === "unloaded" && "opacity-50")}
       onClick={props.onSelect}
       onClose={props.onClose}
     >
