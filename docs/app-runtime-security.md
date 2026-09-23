@@ -64,7 +64,7 @@ First-party and third-party App packages receive the same runtime boundaries and
 
 App and hosted-page text remains untrusted after Penkra validates, bounds, redacts, and returns an
 observation. The runtime enforces where an agent may observe and act: the exact tab must belong to
-the caller's Thread and Space, references expire after a newer snapshot or document navigation, protected
+the caller's Thread Deck and Space, references expire after a newer snapshot or document navigation, protected
 values are redacted, and every later operation still crosses its own schema, capability, permission,
 and authorization boundary. App content cannot call agent tools or grant itself authority.
 
