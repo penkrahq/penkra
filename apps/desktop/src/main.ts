@@ -924,12 +924,13 @@ const pendingThreadApiRequests = new Map<
     timer: ReturnType<typeof setTimeout>;
   }
 >();
-const turnOriginSurfaceByTurnId = new Map<string, number>();
+const turnOriginSurfaceByTurnId = new Map<string, number | null>();
 
-function resolveTurnOriginSurface(turnId: string): number | null {
-  const surfaceId = turnOriginSurfaceByTurnId.get(turnId) ?? null;
-  if (surfaceId === null || shellWindowRegistry.windowForWebContentsId(surfaceId) === null) {
-    if (surfaceId !== null) turnOriginSurfaceByTurnId.delete(turnId);
+function resolveTurnOriginSurface(turnId: string): number | null | undefined {
+  const surfaceId = turnOriginSurfaceByTurnId.get(turnId);
+  if (surfaceId === undefined || surfaceId === null) return surfaceId;
+  if (shellWindowRegistry.windowForWebContentsId(surfaceId) === null) {
+    turnOriginSurfaceByTurnId.set(turnId, null);
     return null;
   }
   return surfaceId;

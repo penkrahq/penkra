@@ -83,8 +83,9 @@ hosted browser or simulator control, context menus, and tab-local routing are no
 
 ## Tab
 
-An App **tab** is one retained instance of an App inside a Penkra Thread. Penkra gives it a stable,
-host-owned tab identifier so operations and observation commands can target the exact surface.
+An App **tab** is one retained instance of an App in a Penkra Thread Deck and Space. Penkra gives it
+a stable, host-owned tab identifier so operations and observation commands can target the exact
+surface. Switching Threads within the deck does not move or replace the tab.
 
 An App tab is not a browser tab. An App such as Browser may host web pages inside its own App tab,
 but those pages remain separate, isolated surfaces. Closing or reloading an App tab invalidates its
