@@ -49,6 +49,79 @@ function relativePath(attachmentId: string) {
 }
 
 describe("managed attachment process-loss recovery", () => {
+  it("keeps presented media during message pruning and deletes it with its Thread", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-presented-media-cleanup-"));
+    temporaryRoots.push(root);
+    const runtime = makeRuntime(root);
+    try {
+      const repository = await runtime.runPromise(Effect.service(ManagedAttachmentRepository));
+      const attachmentId = "att_v2_00000000000000000000000000000099";
+      const now = new Date().toISOString();
+      const reserved = await runtime.runPromise(
+        repository.reserve({
+          attachmentId,
+          ownerThreadId: "thread-media",
+          ownerKind: "presented-media",
+          ownerId: "thread-media",
+          kind: "image",
+          originalName: "logo.png",
+          mimeType: "image/png",
+          reservedBytes: 4,
+          relativePath: `objects/00/${attachmentId}.png`,
+          now,
+        }),
+      );
+      expect(reserved.status).toBe("reserved");
+      await runtime.runPromise(
+        repository.finalizeStaged({
+          attachmentId,
+          ownerThreadId: "thread-media",
+          ownerKind: "presented-media",
+          ownerId: "thread-media",
+          sizeBytes: 4,
+          sha256: "a".repeat(64),
+          stagingExpiresAt: "2099-01-01T00:00:00.000Z",
+          now,
+        }),
+      );
+      const claim = await runtime.runPromise(
+        repository.claimForAcceptedTurn({
+          attachmentIds: [attachmentId],
+          ownerThreadId: "thread-media",
+          ownerKind: "presented-media",
+          ownerId: "thread-media",
+          commandId: "show-command",
+          messageId: "media-activity",
+          now,
+        }),
+      );
+      expect(claim.status).toBe("claimed");
+      expect(
+        await runtime.runPromise(
+          repository.markUnreferencedClaimedForCleanup({
+            ownerThreadId: "thread-media",
+            retainedAttachmentIds: [],
+            reason: "message-pruned",
+            requestedAt: now,
+          }),
+        ),
+      ).toEqual([]);
+      expect((await runtime.runPromise(repository.findClaimedById({ attachmentId })))._tag).toBe(
+        "Some",
+      );
+      expect(
+        await runtime.runPromise(
+          repository.markCleanupByThread({
+            ownerThreadId: "thread-media",
+            reason: "thread-deleted",
+            requestedAt: now,
+          }),
+        ),
+      ).toEqual([attachmentId]);
+    } finally {
+      await runtime.dispose();
+    }
+  });
   it("converges reserve/write/rename/finalize windows while preserving a claimed blob", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-attachment-recovery-"));
     temporaryRoots.push(root);

@@ -12,6 +12,27 @@ import {
 import { makeActivity } from "./storeTestFixtures";
 
 describe("deriveWorkLogEntries", () => {
+  it("keeps a presented file as a sequenced transcript entry independent of provider", () => {
+    const activity = makeActivity({
+      id: "shown-image",
+      kind: "media.presented",
+      summary: "Showed logo.png",
+      tone: "info",
+      sequence: 14,
+      payload: {
+        attachmentId: "att_v2_abc",
+        name: "logo.png",
+        mimeType: "image/png",
+        sizeBytes: 123,
+        type: "image",
+      },
+    });
+    expect(deriveWorkLogEntries([activity], undefined)[0]).toMatchObject({
+      id: "shown-image",
+      sequence: 14,
+      presentedMedia: { attachmentId: "att_v2_abc", type: "image" },
+    });
+  });
   it.each(["codex", "claudeAgent", "opencode"] as const)(
     "preserves public entry identity for an unchanged %s history prefix",
     (provider) => {

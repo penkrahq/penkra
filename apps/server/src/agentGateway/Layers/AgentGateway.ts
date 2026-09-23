@@ -66,6 +66,7 @@ import {
   IDEMPOTENT_WRITE_TOOL_ANNOTATIONS,
   WRITE_TOOL_ANNOTATIONS,
   type ToolEntry,
+  type ToolContext,
 } from "../toolRuntime.ts";
 import { makeAgentGatewayMcpTransport } from "../mcpTransport.ts";
 import {
@@ -83,6 +84,7 @@ import { requireThreadSpaceId } from "../threadSpaceContext.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderThreadSwitchCoordinator } from "../../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { attachmentPrincipalForSession } from "../../managedAttachmentPrincipal.ts";
+import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import {
   PENKRA_EXEC_COMMAND_ANNOTATIONS,
   PENKRA_EXEC_COMMAND_DESCRIPTION,
@@ -91,6 +93,7 @@ import {
 } from "../hostToolContract.ts";
 import { renderPenkraMcpServerInstructions } from "../harnessPolicy.ts";
 import { resolveAuthoritativeActiveTurn } from "../activeExecution.ts";
+import { presentFile, resolvePresentFileWorkingDirectory } from "../presentFile.ts";
 
 const TURN_INTERRUPT_CONFIRM_TIMEOUT_MS = 5_000;
 const TURN_INTERRUPT_CONFIRM_POLL_MS = 25;
@@ -141,6 +144,7 @@ export const makeAgentGateway = Effect.gen(function* () {
   const providerRuntimeEvents = yield* ProviderRuntimeEventRepository;
   const diagnostics = yield* ThreadDiagnosticsQuery;
   const serverConfig = yield* ServerConfig;
+  const managedAttachments = yield* ManagedAttachmentRepository;
   const loadProviderAvailabilities = Effect.gen(function* () {
     const [settings, statuses] = yield* Effect.all([
       serverSettings.getSettings,
@@ -594,6 +598,54 @@ export const makeAgentGateway = Effect.gen(function* () {
     interruptThread,
     archiveThread,
     unarchiveThread,
+    {
+      requiredCapability: "thread:write",
+      requiresActiveTurn: true,
+      definition: {
+        name: "penkra_show_file",
+        description:
+          "Present a local file at this point in the caller Thread. Images appear inline; other files appear as downloadable cards. Penkra stores a durable copy, so the display survives source-file deletion and Thread reload. The path is resolved relative to this Thread's working directory. This operation never sends the file to another Thread or external service.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description: "Local file path to present in this conversation.",
+            },
+          },
+          required: ["path"],
+          additionalProperties: false,
+        },
+        annotations: { title: "Show a file in this Thread", ...WRITE_TOOL_ANNOTATIONS },
+      },
+      handler: (args: Record<string, unknown>, context: ToolContext) =>
+        Effect.gen(function* () {
+          const requestedPath = readStringArg(args, "path", { required: true })!;
+          if (!context.callerTurnId) {
+            return yield* Effect.fail(new ToolInputError("No active caller turn is available."));
+          }
+          const caller = yield* requireThreadShell(context.callerThreadId);
+          const folder = yield* snapshotQuery.getFolderShellById(caller.folderId);
+          const workingDirectory = resolvePresentFileWorkingDirectory({
+            threadId: caller.id,
+            workingDirectory: caller.workingDirectory ?? null,
+            projectCwd: Option.isSome(folder) ? folder.value.workspaceRoot : null,
+            stateDir: serverConfig.stateDir,
+          });
+          const result = yield* presentFile({
+            requestedPath,
+            workingDirectory,
+            threadId: caller.id,
+            turnId: context.callerTurnId,
+            attachmentsDir: serverConfig.attachmentsDir,
+            stateDir: serverConfig.stateDir,
+            repository: managedAttachments,
+            engine: orchestrationEngine,
+            assertActive: context.assertCallerTurnActive,
+          });
+          return mcpToolResultJson(result);
+        }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+    } satisfies ToolEntry,
   ] as const;
   const requireInternalTool = (name: string): ToolEntry => {
     const tool = internalCommandTools.find((candidate) => candidate.definition.name === name);
@@ -602,6 +654,7 @@ export const makeAgentGateway = Effect.gen(function* () {
   };
   const gatewayCommands: ReadonlyArray<AgentGatewayCommandEntry> = [
     command(["context"], requireInternalTool("penkra_context"), "penkra context"),
+    command(["show"], requireInternalTool("penkra_show_file"), "penkra show --path ./logo.png"),
     command(
       ["connections", "list"],
       requireInternalTool("penkra_list_connections"),

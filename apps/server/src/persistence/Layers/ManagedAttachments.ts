@@ -377,6 +377,7 @@ const makeRepository = (limits: ManagedAttachmentLimits) =>
                     updated_at = ${input.requestedAt}
                 WHERE owner_thread_id = ${input.ownerThreadId}
                   AND state = 'claimed'
+                  AND owner_kind <> 'presented-media'
                 RETURNING attachment_id AS "attachmentId"
               `
               : yield* sql<{ readonly attachmentId: string }>`
@@ -387,6 +388,7 @@ const makeRepository = (limits: ManagedAttachmentLimits) =>
                     updated_at = ${input.requestedAt}
                 WHERE owner_thread_id = ${input.ownerThreadId}
                   AND state = 'claimed'
+                  AND owner_kind <> 'presented-media'
                   AND attachment_id NOT IN ${sql.in(retainedAttachmentIds)}
                 RETURNING attachment_id AS "attachmentId"
               `;

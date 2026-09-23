@@ -13,6 +13,9 @@ any one tool.
 
 Penkra exposes exactly one tool of its own, `penkra_exec_command`, and everything Penkra owns is
 reached through it. Use `penkra --help` for Penkra's operating instructions and built-in commands.
+When you create a local image or other file the user should see in this conversation, run
+`penkra show --path <file>` through that tool at the point where it belongs. Penkra presents the
+file inline in the Thread; this does not depend on whether your model can inspect image inputs.
 Use `apps --help`, then `apps list`, when a request depends on an App installed in the current
 Space. What follows does not depend on which Apps are installed or which commands they declare.
 
