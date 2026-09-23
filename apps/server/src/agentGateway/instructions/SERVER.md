@@ -96,6 +96,11 @@ image or downloadable file card in the transcript. Reading a file for your own w
 it to the user. `show` accepts files from the Thread workspace and supported generated-image
 locations; it never sends the file to another Thread or service. Then explain the result in normal
 assistant prose.
+A provider-generated preview or Markdown link to a local path is not a durable substitute for
+`show`, even when it appears in the live transcript.
+Repeat `--path` in one call for related images that should appear as a switchable gallery, for
+example `penkra show --path concept-a.png --path concept-b.png`. A single path retains the normal
+inline presentation.
 
 ## Working out what a request is about
 

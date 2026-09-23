@@ -74,16 +74,20 @@ export interface WorkLogEntry {
   // (e.g. user-input.requested -> question glyph) instead of the generic
   // tone fallback. Same rationale as `toolName` below.
   activityKind?: OrchestrationThreadActivity["kind"];
-  presentedMedia?: {
-    attachmentId: string;
-    name: string;
-    mimeType: string;
-    sizeBytes: number;
-    type: "image" | "file";
-  };
+  presentedMedia?: WorkLogPresentedMedia;
   // Provider-native event type carried through the activity payload (e.g.
   // "background_tasks_changed") so the timeline can pick a specific icon.
   nativeEventType?: string;
+}
+
+export interface WorkLogPresentedMedia {
+  attachmentId: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  type: "image" | "file";
+  presentationId?: string;
+  presentationIndex?: number;
 }
 
 export type WorkLogLiveActivityState =
@@ -569,6 +573,15 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       mimeType: payload.mimeType,
       sizeBytes: payload.sizeBytes,
       type: payload.type,
+      ...(typeof payload.presentationId === "string" &&
+      typeof payload.presentationIndex === "number" &&
+      Number.isInteger(payload.presentationIndex) &&
+      payload.presentationIndex >= 0
+        ? {
+            presentationId: payload.presentationId,
+            presentationIndex: payload.presentationIndex,
+          }
+        : {}),
     };
   }
   const itemType = extractWorkLogItemType(payload);

@@ -199,7 +199,7 @@ export interface TimelineDurationMessage {
 }
 
 export type MessagesTimelineRow =
-  | { kind: "media"; id: string; createdAt: string; entry: WorkLogEntry }
+  | { kind: "media"; id: string; createdAt: string; entries: ReadonlyArray<WorkLogEntry> }
   | {
       kind: "work";
       id: string;
@@ -416,11 +416,33 @@ export function deriveMessagesTimelineRows(input: {
     if (timelineEntry.kind === "work") {
       if (timelineEntry.entry.presentedMedia) {
         flushPendingWorkGroup();
+        const entries = [timelineEntry.entry];
+        const presentationId = timelineEntry.entry.presentedMedia.presentationId;
+        if (presentationId) {
+          let cursor = index + 1;
+          while (cursor < input.timelineEntries.length) {
+            const nextEntry = input.timelineEntries[cursor];
+            if (
+              nextEntry?.kind !== "work" ||
+              nextEntry.entry.presentedMedia?.presentationId !== presentationId
+            ) {
+              break;
+            }
+            entries.push(nextEntry.entry);
+            cursor += 1;
+          }
+          index = cursor - 1;
+          entries.sort(
+            (left, right) =>
+              (left.presentedMedia?.presentationIndex ?? 0) -
+              (right.presentedMedia?.presentationIndex ?? 0),
+          );
+        }
         nextRows.push({
           kind: "media",
           id: timelineEntry.id,
           createdAt: timelineEntry.createdAt,
-          entry: timelineEntry.entry,
+          entries,
         });
         continue;
       }
@@ -835,6 +857,8 @@ function workLogEntryContentEqual(a: WorkLogEntry, b: WorkLogEntry): boolean {
     a.presentedMedia?.mimeType === b.presentedMedia?.mimeType &&
     a.presentedMedia?.sizeBytes === b.presentedMedia?.sizeBytes &&
     a.presentedMedia?.type === b.presentedMedia?.type &&
+    a.presentedMedia?.presentationId === b.presentedMedia?.presentationId &&
+    a.presentedMedia?.presentationIndex === b.presentedMedia?.presentationIndex &&
     a.toolName === b.toolName &&
     a.toolCallId === b.toolCallId &&
     a.toolStatus === b.toolStatus &&
@@ -884,7 +908,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "media":
       return (
         a.createdAt === (b as typeof a).createdAt &&
-        workLogEntryContentEqual(a.entry, (b as typeof a).entry)
+        workLogEntryArraysEqual(a.entries, (b as typeof a).entries)
       );
     case "working":
       return a.createdAt === (b as typeof a).createdAt;

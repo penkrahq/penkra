@@ -25,12 +25,19 @@ describe("deriveWorkLogEntries", () => {
         mimeType: "image/png",
         sizeBytes: 123,
         type: "image",
+        presentationId: "gallery-1",
+        presentationIndex: 0,
       },
     });
     expect(deriveWorkLogEntries([activity], undefined)[0]).toMatchObject({
       id: "shown-image",
       sequence: 14,
-      presentedMedia: { attachmentId: "att_v2_abc", type: "image" },
+      presentedMedia: {
+        attachmentId: "att_v2_abc",
+        type: "image",
+        presentationId: "gallery-1",
+        presentationIndex: 0,
+      },
     });
   });
   it.each(["codex", "claudeAgent", "opencode"] as const)(

@@ -98,6 +98,8 @@ describe("penkra show file", () => {
           repository,
           engine,
           assertActive: () => Effect.void,
+          presentationId: "gallery-1",
+          presentationIndex: 2,
         }),
       );
       expect(result.attachment.type).toBe("image");
@@ -107,7 +109,13 @@ describe("penkra show file", () => {
         activity: {
           kind: "media.presented",
           turnId: "turn-active",
-          payload: { attachmentId: result.attachment.id, name: "logo.png", type: "image" },
+          payload: {
+            attachmentId: result.attachment.id,
+            name: "logo.png",
+            type: "image",
+            presentationId: "gallery-1",
+            presentationIndex: 2,
+          },
         },
       });
       await fs.unlink(sourcePath);

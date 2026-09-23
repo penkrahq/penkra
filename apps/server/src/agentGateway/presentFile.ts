@@ -73,6 +73,8 @@ export function presentFile(input: {
   readonly repository: ManagedAttachmentRepositoryShape;
   readonly engine: OrchestrationEngineShape;
   readonly assertActive: () => Effect.Effect<void, Error>;
+  readonly presentationId?: string;
+  readonly presentationIndex?: number;
 }) {
   return Effect.gen(function* () {
     const allowed = yield* Effect.promise(() =>
@@ -164,6 +166,12 @@ export function presentFile(input: {
         mimeType,
         sizeBytes: source.bytes.byteLength,
         type,
+        ...(input.presentationId === undefined
+          ? {}
+          : {
+              presentationId: input.presentationId,
+              presentationIndex: input.presentationIndex,
+            }),
       },
       turnId: TurnId.makeUnsafe(input.turnId),
       createdAt: new Date().toISOString(),

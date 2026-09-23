@@ -28,6 +28,7 @@ export {
   orderedActivities,
   type TimelineEntry,
   type WorkLogEntry,
+  type WorkLogPresentedMedia,
   type WorkLogLiveActivity,
   type WorkLogLiveActivityState,
   type WorkLogSubagent,
