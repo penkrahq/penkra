@@ -123,6 +123,15 @@ describe("AppCommandPipeServer", () => {
       slug: "sales",
       name: "Sales",
     };
+    const soleCanvasTab = {
+      ...current,
+      id: "tab-canvas",
+      rendererId: 105,
+      appId: "com.penkra.canvas",
+      slug: "canvas",
+      name: "Canvas",
+      threadId: "thread-2",
+    };
     const snapshot = vi.fn(async () => ({ snapshot: "" }));
     const screenshot = vi.fn(async () => ({ kind: "image" }));
     const act = vi.fn(async () => ({ steps: [] }));
@@ -143,13 +152,14 @@ describe("AppCommandPipeServer", () => {
       } as never,
       broker: { invoke } as never,
       tabs: {
-        list: () => [current, secondTab, otherThreadTab, soleSalesTab],
+        list: () => [current, secondTab, otherThreadTab, soleSalesTab, soleCanvasTab],
         current: () => current,
         close: vi.fn(),
         currentFor: (_spaceId, deckId, surfaceId) =>
           deckId === "deck-1" ? (surfaceId === 202 ? secondTab : current) : null,
       },
-      resolveTurnSurface: (turnId) => (turnId === "turn-origin" ? 202 : null),
+      resolveTurnSurface: (turnId) =>
+        turnId === "turn-origin" ? 202 : turnId === "turn-closed" ? null : undefined,
       runOnSurface,
       observer: {
         runOnSurface,
@@ -194,8 +204,28 @@ describe("AppCommandPipeServer", () => {
       spaceId: "personal",
       deckId: "deck-1",
       threadId: "thread-1",
-      tabId: "tab-1",
       signal: expect.any(AbortSignal),
+    });
+
+    await expect(
+      send(path, {
+        id: "request-explicit-deck-tab",
+        token: "secret",
+        method: "operations.invoke",
+        params: {
+          app: "linear",
+          operation: "issues.create",
+          input: {},
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-1",
+          tabId: "tab-other-thread",
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-explicit-deck-tab",
+      result: { created: true },
     });
 
     await expect(
@@ -222,6 +252,37 @@ describe("AppCommandPipeServer", () => {
       deckId: "deck-1",
       threadId: "thread-1",
       tabId: "tab-sales",
+      signal: expect.any(AbortSignal),
+    });
+
+    await expect(
+      send(path, {
+        id: "request-deck-canvas-tab",
+        token: "secret",
+        method: "operations.invoke",
+        params: {
+          app: "canvas",
+          operation: "documents.execute",
+          input: { id: "document-1" },
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-1",
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-deck-canvas-tab",
+      result: { created: true },
+    });
+    expect(invoke).toHaveBeenLastCalledWith({
+      app: "canvas",
+      callerKind: "agent",
+      operation: "documents.execute",
+      input: { id: "document-1" },
+      spaceId: "personal",
+      deckId: "deck-1",
+      threadId: "thread-1",
+      tabId: "tab-canvas",
       signal: expect.any(AbortSignal),
     });
 
@@ -303,7 +364,7 @@ describe("AppCommandPipeServer", () => {
     ).resolves.toEqual({
       ok: true,
       id: "request-tabs",
-      result: [current, secondTab, otherThreadTab, soleSalesTab],
+      result: [current, secondTab, otherThreadTab, soleSalesTab, soleCanvasTab],
     });
 
     await expect(
@@ -316,7 +377,7 @@ describe("AppCommandPipeServer", () => {
     ).resolves.toEqual({
       ok: true,
       id: "request-tabs-other-thread",
-      result: [current, secondTab, otherThreadTab, soleSalesTab],
+      result: [current, secondTab, otherThreadTab, soleSalesTab, soleCanvasTab],
     });
 
     await expect(
@@ -422,7 +483,89 @@ describe("AppCommandPipeServer", () => {
       id: "request-origin-snapshot",
       result: { snapshot: "" },
     });
-    expect(observedSurfaceIds.at(-1)).toBe(202);
+    expect(observedSurfaceIds.at(-1)).toBeNull();
+
+    await expect(
+      send(path, {
+        id: "request-unbound-operation",
+        token: "secret",
+        method: "operations.invoke",
+        params: {
+          app: "linear",
+          operation: "issues.create",
+          input: {},
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-2",
+          callerTurnId: "turn-unbound",
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-unbound-operation",
+      result: { created: true },
+    });
+    expect(observedSurfaceIds.at(-1)).toBeNull();
+
+    await expect(
+      send(path, {
+        id: "request-unbound-snapshot",
+        token: "secret",
+        method: "tabs.snapshot",
+        params: {
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-2",
+          tabId: "tab-1",
+          callerTurnId: "turn-unbound",
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-unbound-snapshot",
+      result: { snapshot: "" },
+    });
+
+    await expect(
+      send(path, {
+        id: "request-closed-origin-operation",
+        token: "secret",
+        method: "operations.invoke",
+        params: {
+          app: "canvas",
+          operation: "documents.execute",
+          input: { id: "document-1" },
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-2",
+          tabId: "tab-canvas",
+          callerTurnId: "turn-closed",
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-closed-origin-operation",
+      result: { created: true },
+    });
+
+    await expect(
+      send(path, {
+        id: "request-closed-origin-snapshot",
+        token: "secret",
+        method: "tabs.snapshot",
+        params: {
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-2",
+          tabId: "tab-canvas",
+          callerTurnId: "turn-closed",
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-closed-origin-snapshot",
+      result: { snapshot: "" },
+    });
 
     await expect(
       send(path, {
@@ -449,6 +592,42 @@ describe("AppCommandPipeServer", () => {
       surfaceId: 202,
       method: "select",
       value: { threadId: "thread-2" },
+    });
+
+    await expect(
+      send(path, {
+        id: "request-unbound-shell-action",
+        token: "secret",
+        method: "threads.select",
+        params: {
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-1",
+          callerTurnId: "turn-unbound",
+          input: { threadId: "thread-2" },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "TURN_ORIGIN_MISSING" },
+    });
+
+    await expect(
+      send(path, {
+        id: "request-closed-shell-action",
+        token: "secret",
+        method: "threads.select",
+        params: {
+          spaceId: "personal",
+          deckId: "deck-1",
+          threadId: "thread-1",
+          callerTurnId: "turn-closed",
+          input: { threadId: "thread-2" },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "TURN_ORIGIN_WINDOW_CLOSED" },
     });
 
     await expect(

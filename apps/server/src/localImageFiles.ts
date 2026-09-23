@@ -149,12 +149,14 @@ export async function resolveAllowedLocalPreviewFile(input: {
   readonly codexHomePath?: string;
   readonly allowAbsoluteLocalPreviewFile?: boolean;
   readonly previewGrant?: string | null;
+  /** Explicit show-file operations may present non-preview files from the caller workspace. */
+  readonly allowAnyWorkspaceFile?: boolean;
 }): Promise<ResolvedLocalPreviewFile | null> {
   const requestedPath = input.requestedPath?.trim();
   if (
     !requestedPath ||
     requestedPath.includes("\0") ||
-    !isSupportedLocalPreviewFilePath(requestedPath)
+    (!input.allowAnyWorkspaceFile && !isSupportedLocalPreviewFilePath(requestedPath))
   ) {
     return null;
   }
@@ -163,7 +165,10 @@ export async function resolveAllowedLocalPreviewFile(input: {
     ? path.resolve(requestedPath)
     : path.resolve(input.cwd ?? process.cwd(), requestedPath);
   const realFilePath = await realpathOrNull(resolvedRequestedPath);
-  if (!realFilePath || !isSupportedLocalPreviewFilePath(realFilePath)) {
+  if (
+    !realFilePath ||
+    (!input.allowAnyWorkspaceFile && !isSupportedLocalPreviewFilePath(realFilePath))
+  ) {
     return null;
   }
 

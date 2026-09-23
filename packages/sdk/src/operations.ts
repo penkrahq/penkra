@@ -14,7 +14,7 @@ export interface OperationInvocation<Input = unknown> extends OperationAddress {
   deckId: string;
   /** Thread active in that deck when the invocation began. */
   threadId: string;
-  /** Explicitly targeted existing App tab, when the operation needs one. */
+  /** Explicitly targeted existing App tab in the invoking Thread Deck, when needed. */
   tabId?: string;
   input: Input;
 }

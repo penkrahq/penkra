@@ -167,7 +167,7 @@ export class AppCommandPipeServer {
       surfaceId?: number,
     ): DesktopAppTabDescriptor | null;
   };
-  readonly #resolveTurnSurface: ((turnId: string) => number | null) | null;
+  readonly #resolveTurnSurface: ((turnId: string) => number | null | undefined) | null;
   readonly #runOnSurface:
     | (<T>(surfaceId: number | null, operation: () => Promise<T>) => Promise<T>)
     | null;
@@ -225,7 +225,7 @@ export class AppCommandPipeServer {
         surfaceId?: number,
       ): DesktopAppTabDescriptor | null;
     };
-    resolveTurnSurface?: (turnId: string) => number | null;
+    resolveTurnSurface?: (turnId: string) => number | null | undefined;
     runOnSurface?: <T>(surfaceId: number | null, operation: () => Promise<T>) => Promise<T>;
     observer: AppTabObserverBridge;
     registry?: AppRegistryClient | null;
@@ -626,22 +626,18 @@ export class AppCommandPipeServer {
         const slug = requiredString(params.app, "app");
         const operation = requiredString(params.operation, "operation");
         const requestedTabId = optionalString(params.tabId, "tabId");
-        const tabId =
-          requestedTabId ??
-          (context.slug === slug ? context.id : this.#implicitOperationTab(params, slug)?.id);
-        const result = await this.#onSurface(this.#surfaceId(params), () =>
-          this.#broker.invoke({
-            app: slug,
-            operation,
-            input: params.input ?? {},
-            spaceId: context.spaceId,
-            deckId: context.deckId,
-            threadId: context.threadId,
-            callerKind: "agent",
-            signal,
-            ...(tabId === undefined ? {} : { tabId }),
-          }),
-        );
+        const tabId = requestedTabId ?? this.#implicitOperationTab(context, slug)?.id;
+        const result = await this.#broker.invoke({
+          app: slug,
+          operation,
+          input: params.input ?? {},
+          spaceId: context.spaceId,
+          deckId: context.deckId,
+          threadId: context.threadId,
+          callerKind: "agent",
+          signal,
+          ...(tabId === undefined ? {} : { tabId }),
+        });
         return { ok: true, id: request.id, result };
       }
       case "developer.publishers.list":
@@ -866,18 +862,13 @@ export class AppCommandPipeServer {
         ? this.#tabs.current()
         : undefined;
     if (explicitSpaceId !== null && explicitDeckId !== null && explicitThreadId !== null) {
-      if (
-        tab &&
-        (tab.spaceId !== explicitSpaceId ||
-          tab.deckId !== explicitDeckId ||
-          tab.threadId !== explicitThreadId)
-      ) {
+      if (tab && (tab.spaceId !== explicitSpaceId || tab.deckId !== explicitDeckId)) {
         throw new Error(
-          `App tab ${tab.id} does not belong to the requested Space, Thread Deck, and Thread.`,
+          `App tab ${tab.id} does not belong to the requested Space and Thread Deck.`,
         );
       }
-      return (
-        tab ?? {
+      return {
+        ...(tab ?? {
           id: "",
           rendererId: -1,
           appId: "",
@@ -889,8 +880,9 @@ export class AppCommandPipeServer {
           threadId: explicitThreadId,
           route: "/",
           status: "ready",
-        }
-      );
+        }),
+        threadId: explicitThreadId,
+      };
     }
     if (!tab)
       throw new Error(
@@ -920,27 +912,26 @@ export class AppCommandPipeServer {
       .filter((tab) => tab.spaceId === scope.spaceId && tab.deckId === scope.deckId);
   }
 
-  #scopedCurrentTab(params: Record<string, unknown>): DesktopAppTabDescriptor | null {
-    const scope = this.#scope(params);
-    const surfaceId = this.#surfaceId(params);
-    const current = this.#tabs.currentFor
-      ? this.#tabs.currentFor(scope.spaceId, scope.deckId, surfaceId ?? undefined)
-      : this.#tabs.current();
-    return current?.spaceId === scope.spaceId && current.deckId === scope.deckId ? current : null;
-  }
-
   #surfaceId(params: Record<string, unknown>): number | null {
     const turnId = optionalString(params.callerTurnId, "callerTurnId");
     if (turnId === null) return null;
-    const surfaceId = this.#resolveTurnSurface?.(turnId) ?? null;
+    const surfaceId = this.#resolveTurnSurface?.(turnId);
+    if (surfaceId === undefined) {
+      throw Object.assign(new Error("No Penkra window was recorded for this agent turn."), {
+        code: "TURN_ORIGIN_MISSING",
+      });
+    }
     if (surfaceId === null) {
-      throw new Error("The window where this agent turn originated is no longer available.");
+      throw Object.assign(new Error("The Penkra window for this agent turn was closed."), {
+        code: "TURN_ORIGIN_WINDOW_CLOSED",
+      });
     }
     return surfaceId;
   }
 
-  #observe<T>(params: Record<string, unknown>, operation: () => Promise<T>): Promise<T> {
-    return this.#observer.runOnSurface?.(this.#surfaceId(params), operation) ?? operation();
+  #observe<T>(_params: Record<string, unknown>, operation: () => Promise<T>): Promise<T> {
+    // The observer resolves the exact App WebContents from tabId; a shell window is not its owner.
+    return this.#observer.runOnSurface?.(null, operation) ?? operation();
   }
 
   #onSurface<T>(surfaceId: number | null, operation: () => Promise<T>): Promise<T> {
@@ -948,15 +939,16 @@ export class AppCommandPipeServer {
   }
 
   #implicitOperationTab(
-    params: Record<string, unknown>,
+    context: Pick<DesktopAppTabDescriptor, "spaceId" | "deckId">,
     slug: string,
   ): DesktopAppTabDescriptor | undefined {
-    const matching = this.#scopedTabs(params).filter((tab) => tab.slug === slug);
+    const matching = this.#tabs
+      .list()
+      .filter(
+        (tab) =>
+          tab.spaceId === context.spaceId && tab.deckId === context.deckId && tab.slug === slug,
+      );
     if (matching.length === 1) return matching[0];
-    if (matching.length > 1) {
-      const current = this.#scopedCurrentTab(params);
-      if (current?.slug === slug) return current;
-    }
     return undefined;
   }
 

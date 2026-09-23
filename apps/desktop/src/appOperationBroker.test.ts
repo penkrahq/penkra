@@ -215,9 +215,9 @@ describe("AppOperationBroker", () => {
     expect(tabB.invoke).toHaveBeenCalledOnce();
   });
 
-  it("rejects a tab outside the invocation's App, Space, or thread", async () => {
+  it("rejects a tab outside the invocation's Thread Deck", async () => {
     const runtime = broker(enabledState);
-    runtime.registerTab(tab("other-thread", { threadId: "thread-2" }));
+    runtime.registerTab(tab("other-deck", { deckId: "deck-2" }));
     runtime.registerController({
       appId: "com.acme.linear",
       spaceId: "personal",
@@ -230,7 +230,7 @@ describe("AppOperationBroker", () => {
       spaceId: "personal",
       deckId: "deck-1",
       threadId: "thread-1",
-      tabId: "other-thread",
+      tabId: "other-deck",
       input: {},
     });
     await expect(invocation).rejects.toMatchObject({
@@ -238,7 +238,29 @@ describe("AppOperationBroker", () => {
     });
   });
 
-  it("opens tabs through the host with App, Space, and thread ownership", async () => {
+  it("accepts a deck-owned tab while another thread in that deck is currently selected", async () => {
+    const runtime = broker(enabledState);
+    runtime.registerTab(tab("deck-tab", { threadId: "thread-2" }));
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: { "issues.create": async () => ({ updated: true }) },
+    });
+
+    await expect(
+      runtime.invoke({
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        deckId: "deck-1",
+        threadId: "thread-1",
+        tabId: "deck-tab",
+        input: {},
+      }),
+    ).resolves.toEqual({ updated: true });
+  });
+
+  it("opens tabs through the host with App, Space, and deck ownership", async () => {
     const open = vi.fn(async () => tab("new-tab"));
     const runtime = broker(enabledState, { open });
     runtime.registerController({

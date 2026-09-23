@@ -74,9 +74,20 @@ export interface WorkLogEntry {
   // (e.g. user-input.requested -> question glyph) instead of the generic
   // tone fallback. Same rationale as `toolName` below.
   activityKind?: OrchestrationThreadActivity["kind"];
+  presentedMedia?: WorkLogPresentedMedia;
   // Provider-native event type carried through the activity payload (e.g.
   // "background_tasks_changed") so the timeline can pick a specific icon.
   nativeEventType?: string;
+}
+
+export interface WorkLogPresentedMedia {
+  attachmentId: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  type: "image" | "file";
+  presentationId?: string;
+  presentationIndex?: number;
 }
 
 export type WorkLogLiveActivityState =
@@ -547,6 +558,32 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     ...(toolCallId ? { toolCallId } : {}),
     ...(toolStatus ? { toolStatus } : {}),
   };
+  if (
+    activity.kind === "media.presented" &&
+    typeof payload?.attachmentId === "string" &&
+    payload.attachmentId.startsWith("att_v2_") &&
+    typeof payload.name === "string" &&
+    typeof payload.mimeType === "string" &&
+    typeof payload.sizeBytes === "number" &&
+    (payload.type === "image" || payload.type === "file")
+  ) {
+    entry.presentedMedia = {
+      attachmentId: payload.attachmentId,
+      name: payload.name,
+      mimeType: payload.mimeType,
+      sizeBytes: payload.sizeBytes,
+      type: payload.type,
+      ...(typeof payload.presentationId === "string" &&
+      typeof payload.presentationIndex === "number" &&
+      Number.isInteger(payload.presentationIndex) &&
+      payload.presentationIndex >= 0
+        ? {
+            presentationId: payload.presentationId,
+            presentationIndex: payload.presentationIndex,
+          }
+        : {}),
+    };
+  }
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
   if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {

@@ -32,7 +32,8 @@ function withTurnOriginBinding(api: NativeApi): NativeApi {
 
 export function readNativeApi(): NativeApi | undefined {
   if (typeof window === "undefined") return undefined;
-  if (cachedDesktopApi && window.nativeApi === cachedDesktopApi) return cachedDesktopApi;
+  if (cachedDesktopApi && window.nativeApi === cachedDesktopApi)
+    return withTurnOriginBinding(cachedDesktopApi);
 
   if (window.nativeApi) {
     cachedDesktopApi = window.nativeApi;

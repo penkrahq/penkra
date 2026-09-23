@@ -56,6 +56,7 @@ import {
   type AgentGatewayCreationAdmission,
 } from "../../persistence/Services/AgentGatewayCreationAdmissions.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
+import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import { AgentGateway } from "../Services/AgentGateway.ts";
 import { AgentGatewayCredentials } from "../Services/AgentGatewayCredentials.ts";
 import { AgentGatewayLive } from "./AgentGateway.ts";
@@ -937,7 +938,15 @@ function makeHarnessLayer(
     Layer.provide(eventDeliveriesLayer),
     Layer.provide(providerRuntimeEventsLayer),
     Layer.provide(ServerConfig.layerTest(process.cwd(), process.cwd())),
-    Layer.provide(NodeServices.layer),
+    Layer.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        Layer.succeed(
+          ManagedAttachmentRepository,
+          {} as (typeof ManagedAttachmentRepository)["Service"],
+        ),
+      ),
+    ),
   );
 
   const makeHarness = Effect.gen(function* () {

@@ -2,6 +2,7 @@ import { ServiceMap } from "effect";
 
 export type ManagedAttachmentPrincipal =
   | { readonly ownerKind: "session"; readonly ownerId: string }
+  | { readonly ownerKind: "presented-media"; readonly ownerId: string }
   | { readonly ownerKind: "local-loopback"; readonly ownerId: "local-loopback" };
 
 export const LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL: ManagedAttachmentPrincipal = {
