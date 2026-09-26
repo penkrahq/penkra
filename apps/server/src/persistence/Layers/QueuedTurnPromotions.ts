@@ -229,6 +229,21 @@ const make = Effect.gen(function* () {
     Effect.mapError(toPersistenceSqlError("QueuedTurnPromotion.listPendingThreadIds")),
   );
 
+  const countPendingByThreadIds: QueuedTurnPromotionRepositoryShape["countPendingByThreadIds"] = (
+    threadIds,
+  ) =>
+    threadIds.length === 0
+      ? Effect.succeed([])
+      : sql<{ readonly threadId: string; readonly count: number }>`
+            SELECT thread_id AS "threadId", COUNT(*) AS count
+            FROM queued_turn_promotions
+            WHERE thread_id IN ${sql.in([...new Set(threadIds)])}
+              AND state IN ('queued', 'promoting')
+            GROUP BY thread_id
+          `.pipe(
+          Effect.mapError(toPersistenceSqlError("QueuedTurnPromotion.countPendingByThreadIds")),
+        );
+
   return {
     getBySequence,
     getPendingMessage,
@@ -241,6 +256,7 @@ const make = Effect.gen(function* () {
     cancelThread,
     hasPendingMessage,
     listPendingThreadIds,
+    countPendingByThreadIds,
   } satisfies QueuedTurnPromotionRepositoryShape;
 });
 

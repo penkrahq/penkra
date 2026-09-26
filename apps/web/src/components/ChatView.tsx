@@ -9553,7 +9553,23 @@ export default function ChatView({
         status={shouldShowProviderHealthBanner ? visibleActiveProviderStatus : null}
         onDismiss={dismissActiveProviderHealthBanner}
       />
-      <ThreadErrorBanner error={activeThread.error} onDismiss={dismissActiveThreadError} />
+      <ThreadErrorBanner
+        error={activeThread.error}
+        onDismiss={dismissActiveThreadError}
+        onRetry={() => {
+          const connectionId = threadProviderBindingQuery.data?.binding?.connectionId;
+          const api = readNativeApi();
+          if (!connectionId || !api) return;
+          void api.provider.retryAuthConnection({ connectionId }).catch((error) =>
+            toastManager.add({
+              type: "error",
+              title: "Could not retry the Connection",
+              description: String(error),
+            }),
+          );
+        }}
+        onReauthenticate={handleManageConnections}
+      />
       <RateLimitBanner
         rateLimitStatus={visibleActiveRateLimitStatus}
         onDismiss={dismissActiveRateLimitBanner}

@@ -126,6 +126,7 @@ import type {
   ProviderConnection,
   ProviderConnectionsSnapshot,
   ProviderConnectionsSnapshotInput,
+  RetryProviderAuthConnectionInput,
   TerminateProviderConnectionInput,
   ThreadProviderBindingSnapshot,
   ThreadProviderBindingSnapshotInput,
@@ -1050,6 +1051,7 @@ export interface NativeApi {
     getConnections: (
       input?: ProviderConnectionsSnapshotInput,
     ) => Promise<ProviderConnectionsSnapshot>;
+    retryAuthConnection: (input: RetryProviderAuthConnectionInput) => Promise<void>;
     getThreadBinding: (
       input: ThreadProviderBindingSnapshotInput,
     ) => Promise<ThreadProviderBindingSnapshot>;

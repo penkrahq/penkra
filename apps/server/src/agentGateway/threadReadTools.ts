@@ -16,6 +16,7 @@ import { Effect, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns.ts";
+import type { QueuedTurnPromotionRepositoryShape } from "../persistence/Services/QueuedTurnPromotions.ts";
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
 import { resolveDefaultConnection } from "../provider/defaultConnection.ts";
 import { PENKRA_INSTRUCTION_SET_VERSION } from "./harnessPolicy.ts";
@@ -245,6 +246,7 @@ export interface ThreadReadToolsInput {
   readonly loadSettings: Effect.Effect<ServerSettings, unknown>;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
   readonly projectionTurns: ProjectionTurnRepositoryShape;
+  readonly queuedTurnPromotions: QueuedTurnPromotionRepositoryShape;
   readonly providerDiscovery: ProviderDiscoveryServiceShape;
   readonly loadProviderAvailabilities: Effect.Effect<
     ReadonlyMap<ProviderKind, AgentGatewayProviderAvailability>,
@@ -264,6 +266,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const {
     snapshotQuery,
     projectionTurns,
+    queuedTurnPromotions,
     providerDiscovery,
     loadProviderAvailabilities,
     requireThreadShell,
@@ -744,14 +747,12 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
               : true,
           );
         const page = matching.slice(0, limit);
-        const pageTurns = yield* projectionTurns
-          .listByThreadIds(page.map((thread) => thread.id))
+        const pendingCounts = yield* queuedTurnPromotions
+          .countPendingByThreadIds(page.map((thread) => thread.id))
           .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
-        const queuedCountByThread = new Map<string, number>();
-        for (const turn of pageTurns) {
-          if (turn.state !== "queued") continue;
-          queuedCountByThread.set(turn.threadId, (queuedCountByThread.get(turn.threadId) ?? 0) + 1);
-        }
+        const queuedCountByThread = new Map(
+          pendingCounts.map(({ threadId, count }) => [threadId, count]),
+        );
         const threads = page.map((thread) =>
           summarizeThreadShell(
             thread,

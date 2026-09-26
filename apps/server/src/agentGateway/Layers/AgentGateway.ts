@@ -29,6 +29,7 @@ import { ServerConfig } from "../../config.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
+import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationEventDeliveryRepository } from "../../persistence/Services/OrchestrationEventDeliveries.ts";
 import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
@@ -141,6 +142,7 @@ export const makeAgentGateway = Effect.gen(function* () {
   const creationAdmissions = yield* AgentGatewayCreationAdmissionRepository;
   const commandReceipts = yield* OrchestrationCommandReceiptRepository;
   const projectionTurns = yield* ProjectionTurnRepository;
+  const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const eventStore = yield* OrchestrationEventStore;
   const eventDeliveries = yield* OrchestrationEventDeliveryRepository;
   const providerRuntimeEvents = yield* ProviderRuntimeEventRepository;
@@ -244,6 +246,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     loadSettings: serverSettings.getSettings,
     snapshotQuery,
     projectionTurns,
+    queuedTurnPromotions,
     providerDiscovery,
     loadProviderAvailabilities,
     requireThreadShell,

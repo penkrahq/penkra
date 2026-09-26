@@ -1351,6 +1351,11 @@ const makeWsRpcHandlersLayer = () =>
             }),
             "Failed to load Connections",
           ),
+        [WS_METHODS.providerRetryAuthConnection]: (input) =>
+          rpcEffect(
+            providerCommandReactor.retryAuthConnection(input.connectionId),
+            "Failed to retry the Connection",
+          ),
         [WS_METHODS.providerGetThreadBinding]: (input) =>
           rpcEffect(
             Effect.all({
