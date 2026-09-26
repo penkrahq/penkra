@@ -1,4 +1,4 @@
-import type { ResolvedKeybindingsConfig } from "@penkra/contracts";
+import { ThreadDeckId, type ResolvedKeybindingsConfig } from "@penkra/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -30,6 +30,8 @@ import { startFreshChatForActiveSurface } from "../lib/startContainerChat";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { resolveShortcutCommand } from "../keybindings";
+import { closeSelectedPanelTabForDeck } from "../lib/panelShortcuts";
+import { useRightDockStore } from "../rightDockStore";
 import { useStore } from "../store";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
@@ -498,6 +500,11 @@ function ChatRouteGlobalShortcuts() {
     }
 
     const unsubscribe = onMenuAction((action) => {
+      if (action === "open-find") {
+        setChatSearchOpen(true);
+        setChatSearchFocusRequest((current) => current + 1);
+        return;
+      }
       if (action === "toggle-sidebar") {
         toggleSidebar();
         return;
@@ -510,6 +517,21 @@ function ChatRouteGlobalShortcuts() {
       unsubscribe?.();
     };
   }, [navigate, toggleSidebar]);
+
+  useEffect(() => {
+    return window.desktopBridge?.panelFocus?.onClosePanelTab(({ deckId }) => {
+      const store = useRightDockStore.getState();
+      closeSelectedPanelTabForDeck({
+        deckId,
+        state: store.dockStateByDeckId[deckId],
+        closeNativeTab: (tabId) => {
+          void window.desktopBridge?.appTabs?.close({ tabId }).catch(() => undefined);
+        },
+        closePane: (targetDeckId, paneId) =>
+          store.closePane(ThreadDeckId.makeUnsafe(targetDeckId), paneId),
+      });
+    });
+  }, []);
 
   return (
     <>
