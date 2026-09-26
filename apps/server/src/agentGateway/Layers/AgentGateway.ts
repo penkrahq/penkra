@@ -436,7 +436,7 @@ export const makeAgentGateway = Effect.gen(function* () {
                 ),
             ),
           );
-const turnsBefore = yield* projectionTurns.listByThreadId({ threadId: target.id });
+        const turnsBefore = yield* projectionTurns.listByThreadId({ threadId: target.id });
         const queuedBefore = turnsBefore.filter((turn) => turn.state === "queued");
         const blockingTurn =
           turnsBefore.find((turn) => turn.state === "running") ??
@@ -450,36 +450,34 @@ const turnsBefore = yield* projectionTurns.listByThreadId({ threadId: target.id 
         const messageId = MessageId.makeUnsafe(`agent:${suffix}:message`);
         const turnId = TurnId.makeUnsafe(`turn:${commandId}`);
         const cwd = target.workingDirectory;
-        yield* providerThreadSwitchCoordinator
-          .dispatchTurnStart({
-            command: {
-              type: "thread.turn.start",
-              commandId,
-              threadId: target.id,
-              turnId,
-              message: {
-                messageId,
-                role: "user",
-                text: message,
-                attachments: [],
-              },
-              dispatchMode,
-              dispatchOrigin: "agent",
-              senderThreadId: ThreadId.makeUnsafe(context.callerThreadId),
-              runtimeMode: target.runtimeMode,
-              ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
-              ...(input.modelSelection !== undefined
-                ? { modelSelection: input.modelSelection }
-                : Option.isNone(runtimeBinding)
-                  ? { modelSelection: target.modelSelection }
-                  : {}),
-              bindingRevision: Option.isSome(runtimeBinding) ? runtimeBinding.value.revision : 0,
-              createdAt: isoNow(),
+        yield* providerThreadSwitchCoordinator.dispatchTurnStart({
+          command: {
+            type: "thread.turn.start",
+            commandId,
+            threadId: target.id,
+            turnId,
+            message: {
+              messageId,
+              role: "user",
+              text: message,
+              attachments: [],
             },
-            attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
-            ...(cwd ? { cwd } : {}),
-          })
-          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
+            dispatchMode,
+            dispatchOrigin: "agent",
+            senderThreadId: ThreadId.makeUnsafe(context.callerThreadId),
+            runtimeMode: target.runtimeMode,
+            ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+            ...(input.modelSelection !== undefined
+              ? { modelSelection: input.modelSelection }
+              : Option.isNone(runtimeBinding)
+                ? { modelSelection: target.modelSelection }
+                : {}),
+            bindingRevision: Option.isSome(runtimeBinding) ? runtimeBinding.value.revision : 0,
+            createdAt: isoNow(),
+          },
+          attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
+          ...(cwd ? { cwd } : {}),
+        });
         const admittedTurn = Option.getOrUndefined(
           yield* projectionTurns.getByTurnId({ threadId: target.id, turnId }),
         );
@@ -862,7 +860,7 @@ const turnsBefore = yield* projectionTurns.listByThreadId({ threadId: target.id 
 
   const penkraExecCommand: ToolEntry = {
     requiredCapability: "thread:read",
-    requiresActiveTurn: true,
+    requiresThreadAuthority: true,
     definition: {
       name: PENKRA_EXEC_COMMAND_NAME,
       description: PENKRA_EXEC_COMMAND_DESCRIPTION,
@@ -892,14 +890,14 @@ const turnsBefore = yield* projectionTurns.listByThreadId({ threadId: target.id 
             new ToolInputError("This provider session cannot execute mutable Penkra commands."),
           );
         }
-        yield* context.assertCallerThreadAuthorized();
+        yield* context.assertCallerTurnActive();
         const result = yield* Effect.tryPromise({
           try: () =>
             executePenkraExecCommand(commandInput, {
               spaceId: callerSpaceId,
               deckId: caller.deckId,
               threadId: caller.id,
-              callerTurnId: context.callerTurnId,
+              callerTurnId: context.callerWriteTurnId,
               workingDirectory: caller.workingDirectory ?? null,
               additionalCoreCommands: agentGatewayCommandCatalog(gatewayCommands),
             }),

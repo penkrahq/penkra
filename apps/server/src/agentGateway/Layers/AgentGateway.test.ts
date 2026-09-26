@@ -1169,8 +1169,14 @@ describe("AgentGateway", () => {
           const turnStarts = harness.dispatched.filter(
             (command) => command.type === "thread.turn.start",
           );
-          assert.isFalse(isToolError(response.result), toolErrorText(response.result));
-          assert.equal(turnStarts.length, 1);
+          if (replacement === "same-native-steer") {
+            assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+            assert.equal(turnStarts.length, 1);
+          } else {
+            assert.isTrue(isToolError(response.result));
+            assert.include(toolErrorText(response.result), "no longer active");
+            assert.equal(turnStarts.length, 0);
+          }
         }).pipe(Effect.provide(gatewayLayer));
       }),
     );
