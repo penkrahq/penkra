@@ -1431,6 +1431,35 @@ describe("CodexStderrRecordFramer", () => {
 });
 
 describe("Codex MCP startup diagnostics", () => {
+  it("emits stable diagnostic metadata for a missing custom-tool result", () => {
+    const manager = new CodexAppServerManager();
+    const events: ProviderEvent[] = [];
+    manager.on("event", (event) => events.push(event));
+    const context = { session: { threadId: asThreadId("thread-missing-output") } };
+    const internals = manager as unknown as {
+      handleCodexStderrRecord: (context: unknown, record: string) => void;
+    };
+
+    internals.handleCodexStderrRecord(
+      context,
+      "2026-09-15T13:00:35.067479Z ERROR rmcp::transport::worker: Custom tool call output is missing for call id: call-1",
+    );
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        method: "process/stderr",
+        message: "Custom tool call output is missing for call id: call-1",
+        payload: {
+          diagnostic: {
+            key: "codex:missing-tool-output:call-1",
+            fingerprint: "call-1",
+            state: "active",
+          },
+        },
+      }),
+    ]);
+  });
+
   it("emits one named warning for repeated status reads of one failed server", async () => {
     const manager = new CodexAppServerManager();
     const sendRequest = vi
@@ -1549,7 +1578,8 @@ describe("Codex MCP startup diagnostics", () => {
     await internals.refreshComputerUseCapabilityHealth(context, "provider-thread");
     await internals.refreshComputerUseCapabilityHealth(context, "provider-thread");
 
-    expect(events).toHaveLength(2);
+    expect(events.filter((event) => event.method === "mcpServer/startupFailed")).toHaveLength(2);
+    expect(events.filter((event) => event.method === "mcpServer/startupRecovered")).toHaveLength(1);
   });
 });
 

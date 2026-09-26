@@ -90,7 +90,9 @@ describe("store event reducer", () => {
       dispatchOrigin: "user",
     });
     expect(threadsOf(editedState)[0]?.messages[0]?.senderThreadId).toBeUndefined();
-it("keeps two subscribed renderer projections converged on queued turns and thread selection", () => {
+  });
+
+  it("keeps two subscribed renderer projections converged on queued turns and thread selection", () => {
     const threadId = ThreadId.makeUnsafe("thread-shared-queue");
     const messageId = MessageId.makeUnsafe("message-shared-queue");
     const initial = makeState(makeThread({ id: threadId }));

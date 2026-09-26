@@ -750,14 +750,16 @@ describe("AppTabObserver", () => {
   });
 
   it("scrolls an offscreen element into view before reporting a click", async () => {
-    const { contents, sendCommand } = makeContents();
+    const { contents, sendCommand, emitDebugger } = makeContents();
     let scrolled = false;
-    sendCommand.mockImplementation(async (method: string) => {
+    sendCommand.mockImplementation(async (method: string, rawParams?: unknown) => {
       if (method === "Page.getFrameTree")
         return { frameTree: { frame: { id: "frame-1", loaderId: "loader-1" } } };
       if (method === "Page.addScriptToEvaluateOnNewDocument")
         return { identifier: "cursor-script" };
       if (method === "Page.createIsolatedWorld") return { executionContextId: 120 };
+      if (method === "DOM.resolveNode") return { object: { objectId: "download-button" } };
+      if (method === "Runtime.callFunctionOn") return { result: { value: true } };
       if (method === "Accessibility.getFullAXTree")
         return {
           nodes: [{ backendDOMNodeId: 7, role: { value: "button" }, name: { value: "Download" } }],
@@ -774,6 +776,20 @@ describe("AppTabObserver", () => {
               : [10, -400, 30, -400, 30, -380, 10, -380],
           },
         };
+      if (
+        method === "Input.dispatchMouseEvent" &&
+        (rawParams as { type?: string } | undefined)?.type === "mouseReleased"
+      ) {
+        const callParams = sendCommand.mock.calls.find(
+          ([calledMethod]) => calledMethod === "Runtime.callFunctionOn",
+        )?.[1];
+        const args = callParams?.arguments as Array<{ value?: unknown }> | undefined;
+        emitDebugger("Runtime.bindingCalled", {
+          name: args?.[2]?.value,
+          executionContextId: 120,
+          payload: "trusted",
+        });
+      }
       return {};
     });
     const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });

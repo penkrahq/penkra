@@ -30,6 +30,26 @@ describe("AgentGatewaySessionRegistry", () => {
     assert.equal(registry.verify(second.token)?.threadId, "thread-1");
   });
 
+  it("binds writes to one live provider session and invalidates that authority on revoke", () => {
+    const registry = makeAgentGatewaySessionRegistry({ randomId: () => "session-one" });
+    const issued = registry.issue(ThreadId.makeUnsafe("thread-1"), "codex");
+    const authority = registry.bindWriteAuthority(issued.token, "turn-1");
+
+    assert.deepEqual(authority, {
+      sessionKey: issued.sessionKey,
+      threadId: issued.threadId,
+      provider: "codex",
+      turnId: "turn-1",
+    });
+    assert.isTrue(registry.verifyWriteAuthority(authority!));
+    assert.isFalse(
+      registry.verifyWriteAuthority({ ...authority!, turnId: "turn-2", provider: "opencode" }),
+    );
+
+    registry.revoke(issued.token);
+    assert.isFalse(registry.verifyWriteAuthority(authority!));
+  });
+
   it("keeps credentials valid for a long-lived provider session but not across restart", () => {
     let time = 1_000;
     const firstRegistry = makeAgentGatewaySessionRegistry({

@@ -1,4 +1,6 @@
-import { NonNegativeInt, ProviderRuntimeEvent } from "@penkra/contracts";
+import { createHash } from "node:crypto";
+
+import { EventId, NonNegativeInt, ProviderRuntimeEvent } from "@penkra/contracts";
 import { Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { observeRuntimeJournalTiming } from "../runtimeJournalMetrics.ts";
@@ -161,6 +163,76 @@ const make = Effect.gen(function* () {
   // One SQLite statement is already atomic. The conflict path only validates
   // immutable content, so live delivery does not need an explicit transaction.
   const append: ProviderRuntimeEventRepositoryShape["append"] = appendInCurrentTransaction;
+
+  const appendWithDiagnosticAdmission: ProviderRuntimeEventRepositoryShape["appendWithDiagnosticAdmission"] =
+    (event) => {
+      const diagnostic = event.type === "runtime.warning" ? event.payload.diagnostic : undefined;
+      if (!diagnostic) return append(event);
+
+      return sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* sql<{
+              readonly fingerprint: string;
+              readonly episode: number;
+              readonly state: "active" | "resolved";
+            }>`
+              SELECT fingerprint, episode, state
+              FROM provider_runtime_diagnostic_episodes
+              WHERE thread_id = ${event.threadId}
+                AND provider = ${event.provider}
+                AND diagnostic_key = ${diagnostic.key}
+            `;
+            const previous = rows[0];
+            if (diagnostic.state === "resolved") {
+              if (previous?.state === "active") {
+                yield* sql`
+                  UPDATE provider_runtime_diagnostic_episodes
+                  SET state = 'resolved', updated_at = ${event.createdAt}
+                  WHERE thread_id = ${event.threadId}
+                    AND provider = ${event.provider}
+                    AND diagnostic_key = ${diagnostic.key}
+                `;
+              }
+              return null;
+            }
+            if (previous?.state === "active" && previous.fingerprint === diagnostic.fingerprint) {
+              return null;
+            }
+
+            const episode = (previous?.episode ?? 0) + 1;
+            const digest = createHash("sha256")
+              .update(`${event.threadId}\0${event.provider}\0${diagnostic.key}\0${episode}`)
+              .digest("hex");
+            const admittedEvent = {
+              ...event,
+              eventId: EventId.makeUnsafe(`diagnostic:${event.provider}:${digest}`),
+            } satisfies ProviderRuntimeEvent;
+            yield* sql`
+              INSERT INTO provider_runtime_diagnostic_episodes (
+                thread_id, provider, diagnostic_key, fingerprint, episode,
+                state, active_event_id, updated_at
+              ) VALUES (
+                ${event.threadId}, ${event.provider}, ${diagnostic.key},
+                ${diagnostic.fingerprint}, ${episode}, 'active',
+                ${admittedEvent.eventId}, ${event.createdAt}
+              )
+              ON CONFLICT (thread_id, provider, diagnostic_key) DO UPDATE SET
+                fingerprint = excluded.fingerprint,
+                episode = excluded.episode,
+                state = excluded.state,
+                active_event_id = excluded.active_event_id,
+                updated_at = excluded.updated_at
+            `;
+            return yield* appendInCurrentTransaction(admittedEvent);
+          }),
+        )
+        .pipe(
+          Effect.mapError(
+            toPersistenceSqlError("ProviderRuntimeEvent.appendWithDiagnosticAdmission"),
+          ),
+        );
+    };
 
   const getHighWaterSequence = sql<{ readonly highWaterSequence: number }>`
     SELECT COALESCE(MAX(sequence), 0) AS "highWaterSequence"
@@ -1131,6 +1203,7 @@ const make = Effect.gen(function* () {
 
   return {
     append,
+    appendWithDiagnosticAdmission,
     getHighWaterSequence,
     readAfter,
     readPendingThreadHeads,

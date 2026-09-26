@@ -781,7 +781,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_read_thread",
       description:
-        "Read durable Penkra transcript items, search indexed message text, inspect exact context anchors, or poll one dispatched turn. Every non-null turnId is a Penkra handle accepted by --turn-id; provider-native ids appear only as providerTurnId when known. Use queries for several literal substrings in one operation and deterministic scope, role, turn, date, and order filters. Use aroundMessageId(s) to read bounded surrounding turns after identifying likely hits. With threadId alone, reads begin at the tail. Always follow search and transcript pageInfo.nextCursor when present.",
+        "Read durable Penkra transcript items, search indexed message text, inspect exact context anchors, or poll one queued or running turn. A queued turn has not seen its message; its exact read includes queue position. Transcript message delivery distinguishes queued, pending, delivered, and failed. Every non-null turnId is a Penkra handle accepted by --turn-id; provider-native ids appear only as providerTurnId when known. Use queries for several literal substrings in one operation and deterministic scope, role, turn, date, and order filters. Use aroundMessageId(s) to read bounded surrounding turns after identifying likely hits. With threadId alone, reads begin at the tail. Always follow search and transcript pageInfo.nextCursor when present.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1376,6 +1376,13 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           return true;
         };
         const cursor = decodeThreadReadCursor(cursorValue, threadId, turnId);
+        const queuedPositions = new Map(
+          (yield* projectionTurns.listByThreadId({ threadId: shell.id }))
+            .filter(
+              (candidate) => candidate.state === "queued" && candidate.pendingMessageId !== null,
+            )
+            .map((candidate, index) => [candidate.pendingMessageId!, index + 1] as const),
+        );
 
         let pageBefore = cursor?.pageBefore ?? undefined;
         let page: OrchestrationGetThreadTurnsPageResult;
@@ -1395,6 +1402,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
                 )
               : page.messages,
             activities: turn ? page.activities.filter(belongsToRequestedTurn) : page.activities,
+            queuedPositions,
             include,
             ...(cursor?.anchor ? { anchor: cursor.anchor } : {}),
             limit,

@@ -102,6 +102,8 @@ import {
 import { renderPenkraMcpServerInstructions } from "../harnessPolicy.ts";
 import { resolveAuthoritativeActiveTurn } from "../activeExecution.ts";
 import { presentFile, resolvePresentFileWorkingDirectory } from "../presentFile.ts";
+import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
+import type { AgentThreadSendResult } from "@penkra/sdk";
 
 const TURN_INTERRUPT_CONFIRM_TIMEOUT_MS = 5_000;
 const TURN_INTERRUPT_CONFIRM_POLL_MS = 25;
@@ -303,6 +305,7 @@ export const makeAgentGateway = Effect.gen(function* () {
   const createThread: ToolEntry = {
     requiredCapability: "thread:write",
     requiresThreadAuthority: true,
+    requiresActiveTurn: true,
     definition: {
       name: "penkra_create_thread",
       description:
@@ -358,7 +361,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           kind: "provider-session",
           callerThreadId: context.callerThreadId,
           callerTurnId: context.callerTurnId,
-          assertAuthority: context.assertCallerThreadAuthorized,
+          assertAuthority: context.assertCallerTurnActive,
           attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
         }),
       ).pipe(Effect.catchDefect((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
@@ -367,10 +370,11 @@ export const makeAgentGateway = Effect.gen(function* () {
   const sendMessage: ToolEntry = {
     requiredCapability: "thread:write",
     requiresThreadAuthority: true,
+    requiresActiveTurn: true,
     definition: {
       name: "penkra_send_message",
       description:
-        "Post an agent-authored follow-up into another existing Penkra thread. Never target the caller thread. By default the message waits behind the thread's running and queued work, in order. Pass now only when it must take effect right away; Penkra chooses the provider-specific way to deliver it. To switch the target thread's Connection or model, pass connectionId, modelSelection, or both. The switch takes effect when this message's turn starts and stays for later turns. The provider cannot change: to use another provider, create a new thread. Penkra never falls back to another account. The returned turnId is a Penkra handle accepted by --turn-id; provider-native ids, when known, appear separately as providerTurnId in thread reads.",
+        "Post an agent-authored follow-up into another existing Penkra thread. Never target the caller thread. By default the message waits behind the thread's running and queued work, in order. Pass now only when it must take effect right away; Penkra chooses the provider-specific way to deliver it. To switch the target thread's Connection or model, pass connectionId, modelSelection, or both. The switch takes effect when this message's turn starts and stays for later turns. The provider cannot change: to use another provider, create a new thread. Penkra never falls back to another account. The returned turnId is a Penkra handle accepted by --turn-id; provider-native ids, when known, appear separately as providerTurnId in thread reads. The delivery field describes routing, not provider completion: queued means not yet delivered, started means a new turn was requested, and steered/interrupted describe how an active turn was handled. Check `penkra threads read` for actual state.",
       inputSchema: {
         type: "object",
         properties: {
@@ -386,7 +390,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           now: {
             type: "boolean",
             description:
-              "Deliver regardless of running or queued work. The host may steer natively or interrupt according to provider capability.",
+              "Request action during a running turn: native steer where supported, otherwise interrupt that turn and run this message afterward. Without now, wait in FIFO until the running turn ends.",
           },
           connectionId: {
             type: ["string", "null"],
@@ -432,6 +436,11 @@ export const makeAgentGateway = Effect.gen(function* () {
                 ),
             ),
           );
+const turnsBefore = yield* projectionTurns.listByThreadId({ threadId: target.id });
+        const queuedBefore = turnsBefore.filter((turn) => turn.state === "queued");
+        const blockingTurn =
+          turnsBefore.find((turn) => turn.state === "running") ??
+          (target.latestTurn?.state === "running" ? target.latestTurn : undefined);
         // Pass the requested mode through unchanged: the reactor checks live
         // provider state (authoritative, unlike this projection snapshot) and
         // already downgrades steers whose turn is not actually live.
@@ -469,14 +478,63 @@ export const makeAgentGateway = Effect.gen(function* () {
             },
             attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
             ...(cwd ? { cwd } : {}),
-          });
-        return mcpToolResultJson({ threadId: target.id, messageId, turnId });
+          })
+          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
+        const admittedTurn = Option.getOrUndefined(
+          yield* projectionTurns.getByTurnId({ threadId: target.id, turnId }),
+        );
+        const queued =
+          (admittedTurn?.state === "queued" && (!now || !blockingTurn)) ||
+          (admittedTurn === undefined &&
+            !now &&
+            target.parentThreadId === null &&
+            (blockingTurn !== undefined || queuedBefore.length > 0));
+        const provider = target.session?.providerName ?? target.modelSelection.provider;
+        const queuedAfter =
+          queued && admittedTurn
+            ? (yield* projectionTurns.listByThreadId({ threadId: target.id })).filter(
+                (turn) => turn.state === "queued",
+              )
+            : undefined;
+        const projectedPosition = queuedAfter?.findIndex((turn) => turn.turnId === turnId);
+        const queuePosition = queued
+          ? projectedPosition !== undefined && projectedPosition >= 0
+            ? projectedPosition + 1
+            : queuedBefore.length + 1
+          : undefined;
+        const result: AgentThreadSendResult = queued
+          ? {
+              threadId: target.id,
+              messageId,
+              turnId,
+              delivery: "queued",
+              queuePosition: queuePosition!,
+              ...(blockingTurn
+                ? {
+                    blockingTurnId: blockingTurn.turnId,
+                    blockingTurnStartedAt: blockingTurn.startedAt,
+                  }
+                : {}),
+            }
+          : {
+              threadId: target.id,
+              messageId,
+              turnId,
+              delivery:
+                now && blockingTurn
+                  ? providerSupportsNativeTurnSteering(provider)
+                    ? "steered"
+                    : "interrupted"
+                  : "started",
+            };
+        return mcpToolResultJson(result);
       }).pipe(Effect.catch((error) => Effect.succeed(sendMessageErrorResult(error)))),
   };
 
   const interruptThread: ToolEntry = {
     requiredCapability: "thread:write",
     requiresThreadAuthority: true,
+    requiresActiveTurn: true,
     definition: {
       name: "penkra_interrupt_thread",
       description:
@@ -603,6 +661,7 @@ export const makeAgentGateway = Effect.gen(function* () {
   const makeSetThreadArchived = (archived: boolean): ToolEntry => ({
     requiredCapability: "thread:write",
     requiresThreadAuthority: true,
+    requiresActiveTurn: true,
     definition: {
       name: archived ? "penkra_archive_thread" : "penkra_unarchive_thread",
       description: archived
@@ -656,6 +715,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     {
       requiredCapability: "thread:write",
       requiresThreadAuthority: true,
+      requiresActiveTurn: true,
       definition: {
         name: "penkra_show_file",
         description:
@@ -802,6 +862,7 @@ export const makeAgentGateway = Effect.gen(function* () {
 
   const penkraExecCommand: ToolEntry = {
     requiredCapability: "thread:read",
+    requiresActiveTurn: true,
     definition: {
       name: PENKRA_EXEC_COMMAND_NAME,
       description: PENKRA_EXEC_COMMAND_DESCRIPTION,
@@ -873,6 +934,8 @@ export const makeAgentGateway = Effect.gen(function* () {
   const handleMcpPost = makeAgentGatewayMcpTransport({
     credentials,
     snapshotQuery,
+    projectionTurns,
+    providerRuntimeEvents,
     tools,
     instructions: () => Effect.succeed(renderPenkraMcpServerInstructions()),
     requireThreadShell,

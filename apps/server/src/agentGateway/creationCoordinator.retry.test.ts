@@ -176,7 +176,6 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     getFolderShellById: () => Effect.succeed(Option.some(FOLDER)),
     getSpaceShellById: () => Effect.die("unused snapshot method"),
     getFirstActiveThreadIdByFolderId: () => Effect.die("unused snapshot method"),
-    listGeneratedImageActivitiesByTurn: () => Effect.die("unused snapshot method"),
     getThreadShellById: () => Effect.succeed(Option.none()),
     findSyntheticSubagentParentThread: () => Effect.die("unused snapshot method"),
     getThreadDetailById: () => Effect.die("unused snapshot method"),

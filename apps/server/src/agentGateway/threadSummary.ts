@@ -184,7 +184,8 @@ export interface AgentTranscriptMessageItem extends AgentTranscriptItemBase {
   readonly text: string;
   readonly textRange?: { readonly start: number; readonly end: number; readonly total: number };
   readonly streaming: boolean;
-  readonly delivery: "queued" | "delivered";
+  readonly delivery: "queued" | "pending" | "delivered" | "failed";
+  readonly position?: number;
   readonly dispatchOrigin?: string;
 }
 
@@ -235,6 +236,22 @@ function transcriptOrder(
   return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 }
 
+function summarizeMessageDelivery(
+  message: OrchestrationMessage,
+): "queued" | "pending" | "delivered" | "failed" {
+  switch (message.delivery?.state) {
+    case "queued":
+      return "queued";
+    case "starting":
+    case "steering":
+      return "pending";
+    case "failed":
+      return "failed";
+    default:
+      return "delivered";
+  }
+}
+
 /**
  * Pack one durable transcript page within a server-owned response budget.
  * Long content is continued by an item identity plus character offset; text is
@@ -243,6 +260,7 @@ function transcriptOrder(
 export function packAgentTranscriptPage(input: {
   readonly messages: ReadonlyArray<OrchestrationMessage>;
   readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
+  readonly queuedPositions?: ReadonlyMap<string, number>;
   readonly include?: ReadonlySet<AgentTranscriptInclude>;
   readonly anchor?: AgentTranscriptCursorAnchor;
   readonly limit?: number;
@@ -291,6 +309,14 @@ export function packAgentTranscriptPage(input: {
     }),
   ].toSorted(transcriptOrder);
 
+  const queuedPositions = new Map<string, number>(
+    input.messages
+      .filter((message) => message.delivery?.state === "queued")
+      .map((message, index) => [message.id, index + 1] as const),
+  );
+  for (const [messageId, position] of input.queuedPositions ?? []) {
+    queuedPositions.set(messageId, position);
+  }
   let index = source.length - 1;
   if (input.anchor) {
     index = source.findIndex(
@@ -330,10 +356,10 @@ export function packAgentTranscriptPage(input: {
           ? { textRange: { start, end, total: item.message.text.length } }
           : {}),
         streaming: item.message.streaming,
-        delivery:
-          item.message.delivery?.queued === true && item.message.delivery.state === "queued"
-            ? "queued"
-            : "delivered",
+        delivery: summarizeMessageDelivery(item.message),
+        ...(queuedPositions.has(item.message.id)
+          ? { position: queuedPositions.get(item.message.id)! }
+          : {}),
         ...(item.message.dispatchOrigin !== undefined
           ? { dispatchOrigin: item.message.dispatchOrigin }
           : {}),
@@ -398,6 +424,8 @@ export interface AgentThreadMessageSummary {
   readonly text: string;
   readonly truncated: boolean;
   readonly dispatchOrigin?: string;
+  readonly delivery: "queued" | "pending" | "delivered" | "failed";
+  readonly position?: number;
   readonly createdAt: string;
 }
 
@@ -427,6 +455,7 @@ function truncateMessageText(
  */
 export function paginateThreadMessages(input: {
   readonly messages: ReadonlyArray<OrchestrationMessage>;
+  readonly queuedMessageIds?: ReadonlyArray<string>;
   readonly cursor?: string | undefined;
   readonly messageLimit?: number | undefined;
   readonly maxMessageChars?: number | undefined;
@@ -456,6 +485,14 @@ export function paginateThreadMessages(input: {
     }
   }
   const startInclusive = Math.max(0, endExclusive - limit);
+  const queuedMessageIds =
+    input.queuedMessageIds ??
+    input.messages
+      .filter((message) => message.delivery?.state === "queued")
+      .map((message) => message.id);
+  const queuedPositions = new Map(
+    queuedMessageIds.map((messageId, index) => [messageId, index + 1] as const),
+  );
   const messages = input.messages.slice(startInclusive, endExclusive).map((message, offset) => {
     const { text, truncated } = truncateMessageText(message.text, maxChars);
     return {
@@ -463,6 +500,8 @@ export function paginateThreadMessages(input: {
       role: message.role,
       text,
       truncated,
+      delivery: summarizeMessageDelivery(message),
+      ...(queuedPositions.has(message.id) ? { position: queuedPositions.get(message.id)! } : {}),
       ...(message.dispatchOrigin !== undefined ? { dispatchOrigin: message.dispatchOrigin } : {}),
       createdAt: message.createdAt,
     } satisfies AgentThreadMessageSummary;
@@ -503,6 +542,7 @@ export function summarizeThreadDetail(input: {
   const { thread } = input;
   const page = paginateThreadMessages({
     messages: thread.messages,
+    ...(thread.queuedMessageIds ? { queuedMessageIds: thread.queuedMessageIds } : {}),
     cursor: input.cursor,
     messageLimit: input.messageLimit,
     maxMessageChars: input.maxMessageChars,

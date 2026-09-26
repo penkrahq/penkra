@@ -938,6 +938,9 @@ export default function ChatView({
   const removeQueuedComposerTurnFromDraft = useComposerDraftStore(
     (store) => store.removeQueuedTurn,
   );
+  const insertQueuedComposerTurnIntoDraft = useComposerDraftStore(
+    (store) => store.insertQueuedTurn,
+  );
   const capturePendingStartRecovery = useComposerDraftStore(
     (store) => store.capturePendingStartRecovery,
   );
@@ -2263,8 +2266,7 @@ export default function ChatView({
     stickyConnectionByProvider,
     threadId,
     serverSettings,
-    serverThread?.connectionId,
-    serverThread?.modelSelection.provider,
+    serverThread,
   ]);
   const setSelectedConnectionByProvider = useCallback(
     (update: (current: PendingConnectionSelection) => PendingConnectionSelection) => {
@@ -3348,15 +3350,22 @@ export default function ChatView({
   const [queuedComposerActionInFlightIds, setQueuedComposerActionInFlightIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  const queuedComposerActionInFlightActionsRef = useRef(
+    new Map<string, "steer" | "delete" | "edit">(),
+  );
   const runQueuedActionWhilePending = useCallback(
     <A,>(
       queuedTurn: QueuedComposerTurn,
-      _action: "steer" | "delete" | "edit",
+      action: "steer" | "delete" | "edit",
       operation: () => Promise<A>,
     ): Promise<A | undefined> => {
-      if (queuedComposerActionInFlightIds.has(queuedTurn.id)) return Promise.resolve(undefined);
+      if (queuedComposerActionInFlightActionsRef.current.has(queuedTurn.id)) {
+        return Promise.resolve(undefined);
+      }
+      queuedComposerActionInFlightActionsRef.current.set(queuedTurn.id, action);
       setQueuedComposerActionInFlightIds((current) => new Set(current).add(queuedTurn.id));
       return operation().finally(() => {
+        queuedComposerActionInFlightActionsRef.current.delete(queuedTurn.id);
         setQueuedComposerActionInFlightIds((current) => {
           const next = new Set(current);
           next.delete(queuedTurn.id);
@@ -6013,6 +6022,7 @@ export default function ChatView({
     [
       activeThread,
       resolveSelectedConnection,
+      restoreQueuedTurnToComposer,
       recoverCancelledQueuedTurn,
       runtimeMode,
       selectedModel,
@@ -6054,6 +6064,29 @@ export default function ChatView({
       if (!api) {
         return false;
       }
+      let optimisticEditOwnershipKey: string | null = null;
+      const previousDraft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+      const previousQueuedIndex =
+        previousDraft?.queuedTurns.findIndex((turn) => turn.id === resolvedQueuedTurn.id) ?? -1;
+      if (restoreForEdit) {
+        if (!recoverCancelledQueuedTurn(threadId, resolvedQueuedTurn)) {
+          setThreadError(threadId, "Clear the composer before editing a queued message.");
+          return false;
+        }
+        optimisticEditOwnershipKey = composerDraftContentOwnershipKey(
+          useComposerDraftStore.getState().draftsByThreadId[threadId],
+        );
+      }
+      const rollbackOptimisticEdit = () => {
+        if (!restoreForEdit || optimisticEditOwnershipKey === null) return;
+        const currentDraft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+        if (composerDraftContentOwnershipKey(currentDraft) === optimisticEditOwnershipKey) {
+          clearComposerDraftContent(threadId);
+        }
+        if (previousQueuedIndex >= 0) {
+          insertQueuedComposerTurnIntoDraft(threadId, resolvedQueuedTurn, previousQueuedIndex);
+        }
+      };
       try {
         await api.orchestration.dispatchCommand({
           type: "thread.turn.cancel-queued",
@@ -6062,15 +6095,13 @@ export default function ChatView({
           messageId,
           createdAt: new Date().toISOString(),
         });
-        // Suppress reconstruction only after the server accepted cancellation.
-        if (restoreForEdit) {
-          recoverCancelledQueuedTurn(threadId, resolvedQueuedTurn);
-        } else {
+        if (!restoreForEdit) {
           removeQueuedComposerTurnFromDraft(threadId, resolvedQueuedTurn.id);
         }
         setThreadError(threadId, null);
         return true;
       } catch (error) {
+        rollbackOptimisticEdit();
         setThreadError(
           threadId,
           error instanceof Error ? error.message : "Failed to cancel queued message.",
@@ -6084,6 +6115,9 @@ export default function ChatView({
       setThreadError,
       threadId,
       recoverCancelledQueuedTurn,
+      clearComposerDraftContent,
+      insertQueuedComposerTurnIntoDraft,
+      removeQueuedComposerTurnFromDraft,
     ],
   );
 
@@ -6107,6 +6141,12 @@ export default function ChatView({
     queuedTurn?: QueuedComposerChatTurn,
   ): Promise<boolean> => {
     e?.preventDefault();
+    if (
+      !queuedTurn &&
+      [...queuedComposerActionInFlightActionsRef.current.values()].includes("edit")
+    ) {
+      return false;
+    }
     const api = readNativeApi();
     const lateSendHandlers = lateComposerSendHandlersRef.current;
     if (!api || !lateSendHandlers || !activeThread || isVoiceTranscribing) {
