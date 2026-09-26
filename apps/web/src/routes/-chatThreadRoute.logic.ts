@@ -47,6 +47,13 @@ export function resolveSingleFolderId(input: {
   return input.threadFolderId ?? input.draftFolderId ?? null;
 }
 
+export function shouldRedirectArchivedThreadRoute(input: {
+  archived: boolean;
+  localArchiveNavigationPending: boolean;
+}): boolean {
+  return input.archived && !input.localArchiveNavigationPending;
+}
+
 // Expanding a split pane exits split mode entirely; the selected chat becomes the single surface.
 export function resolveSplitPaneMaximizeDecision(input: {
   splitViewId: string;
