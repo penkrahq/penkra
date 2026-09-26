@@ -129,6 +129,8 @@ function writeOpenCodeModelCache(
 
 export const providerDiscoveryQueryKeys = {
   all: ["provider-discovery"] as const,
+  modelsForProvider: (provider: ProviderKind) =>
+    ["provider-discovery", "models", provider] as const,
   composerCapabilities: (provider: ProviderKind) =>
     ["provider-discovery", "composer-capabilities", provider] as const,
   commands: (
@@ -344,6 +346,7 @@ export function providerModelsQueryOptions(input: {
       const api = ensureNativeApi();
       const result = await api.provider.listModels({
         provider: input.provider,
+        presentation: "picker",
         ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
         ...(input.internalProviderId !== undefined
           ? { internalProviderId: input.internalProviderId }

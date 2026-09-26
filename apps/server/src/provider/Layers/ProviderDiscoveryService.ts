@@ -8,6 +8,7 @@ import {
   ProviderListAgentsInput,
   ProviderListCommandsInput,
   ProviderListModelsInput,
+  type ProviderListModelsResult,
   ProviderListPluginsInput,
   ProviderListSkillsInput,
   type ProviderListSkillsResult,
@@ -41,6 +42,7 @@ import {
   providerAgentDiscoveryStateIdentity,
   providerModelDiscoveryStateIdentity,
 } from "../providerDiscoveryStateIdentity.ts";
+import { filterProviderModelsForPicker } from "../providerModelPresentation.ts";
 
 const decodeInputOrValidationError = <S extends Schema.Top>(input: {
   readonly operation: string;
@@ -320,11 +322,19 @@ const make = Effect.gen(function* () {
       }
       if (!manifest) {
         const { connectionId, internalProviderId, ...adapterInput } = parsed;
-        return yield* adapter.listModels({
-          ...adapterInput,
-          ...(connectionId !== undefined ? { connectionId } : {}),
-          ...(internalProviderId !== undefined ? { internalProviderId } : {}),
-        });
+        return yield* adapter
+          .listModels({
+            ...adapterInput,
+            ...(connectionId !== undefined ? { connectionId } : {}),
+            ...(internalProviderId !== undefined ? { internalProviderId } : {}),
+          })
+          .pipe(
+            Effect.map((result) =>
+              parsed.presentation === "picker"
+                ? filterProviderModelsForPicker(parsed.provider, result)
+                : result,
+            ),
+          );
       }
 
       const installation = (yield* installations
@@ -503,13 +513,16 @@ const make = Effect.gen(function* () {
         connectionId: routes[0]!.connectionId ?? "anonymous",
         modelCount: models.size,
       });
-      return {
+      const catalog: ProviderListModelsResult = {
         models: [...models.values()],
         source: "managed-connection",
         cached:
           results.length > 0 &&
           results.every((entry) => entry._tag === "Failure" || entry.result.cached === true),
       };
+      return parsed.presentation === "picker"
+        ? filterProviderModelsForPicker(parsed.provider, catalog)
+        : catalog;
     });
 
   const listAgents: ProviderDiscoveryServiceShape["listAgents"] = (input) =>

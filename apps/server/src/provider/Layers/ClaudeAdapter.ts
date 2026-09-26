@@ -497,39 +497,29 @@ function mapSupportedCommands(commands: SlashCommand[]): ProviderListCommandsRes
   };
 }
 
-function claudeModelDisplayName(model: ModelInfo): string {
-  const descriptionLabel = model.description.split("·", 1)[0]?.trim() ?? "";
-  return descriptionLabel.split(/\s+/u).filter(Boolean).length >= 2
-    ? descriptionLabel
-    : model.displayName.trim();
+function claudeModelDisplayName(model: ModelInfo, slug: string, isDefault: boolean): string {
+  const displayName = model.displayName.trim();
+  const name = displayName || slug;
+  return isDefault ? `${name} (Default)` : name;
 }
 
 function mapSupportedModels(models: ModelInfo[]): ProviderListModelsResult {
-  const seenSlugs = new Set<string>();
   const descriptors: Array<ProviderListModelsResult["models"][number]> = [];
-  const defaultModelSlug = models
-    .find((model) => model.value.trim().toLowerCase() === "default")
-    ?.resolvedModel?.replace(/\[[^\]]+\]$/u, "")
-    .trim();
-
+  const modelIndexes = new Map<string, number>();
+  const rowRanks = new Map<string, number>();
+  const defaultSelector = models.find((model) => model.value.trim().toLowerCase() === "default");
+  const defaultModelSlug = defaultSelector?.resolvedModel?.trim();
   for (const model of models) {
-    const isDefaultSelector = model.value.trim().toLowerCase() === "default";
-    if (isDefaultSelector && !model.resolvedModel?.trim()) {
+    const value = model.value.trim();
+    const slug = model.resolvedModel?.trim() || value;
+    if (!slug || (value.toLowerCase() === "default" && !model.resolvedModel?.trim())) {
       continue;
     }
 
-    // Claude Code exposes stable canonical identity separately from its selector
-    // value. Persist and render that canonical id without a Penkra alias table.
-    const slug = (model.resolvedModel ?? model.value).replace(/\[[^\]]+\]$/u, "").trim();
-    if (!slug || seenSlugs.has(slug)) {
-      continue;
-    }
-    seenSlugs.add(slug);
-
-    descriptors.push({
+    const descriptor: ProviderListModelsResult["models"][number] = {
       slug,
-      name: claudeModelDisplayName(model),
-      ...(isDefaultSelector || defaultModelSlug === slug ? { isDefault: true as const } : {}),
+      name: claudeModelDisplayName(model, slug, defaultModelSlug === slug),
+      ...(defaultModelSlug === slug ? { isDefault: true as const } : {}),
       ...(model.description.trim() ? { description: model.description.trim() } : {}),
       ...(model.supportedEffortLevels && model.supportedEffortLevels.length > 0
         ? {
@@ -538,7 +528,21 @@ function mapSupportedModels(models: ModelInfo[]): ProviderListModelsResult {
         : {}),
       ...(model.supportsFastMode !== undefined ? { supportsFastMode: model.supportsFastMode } : {}),
       ...(model.supportsAdaptiveThinking === true ? { supportsThinkingToggle: false } : {}),
-    });
+    };
+
+    const existingIndex = modelIndexes.get(slug);
+    const isCanonicalRow = value === slug;
+    const rowRank = isCanonicalRow ? 2 : value.toLowerCase() === "default" ? 0 : 1;
+    if (existingIndex === undefined) {
+      modelIndexes.set(slug, descriptors.length);
+      descriptors.push(descriptor);
+      rowRanks.set(slug, rowRank);
+    } else if (rowRank > (rowRanks.get(slug) ?? -1)) {
+      // Keep SDK ordering by the alias's first occurrence, but prefer metadata
+      // from the canonical row, then from a named alias over `default`.
+      descriptors[existingIndex] = descriptor;
+      rowRanks.set(slug, rowRank);
+    }
   }
 
   return {
