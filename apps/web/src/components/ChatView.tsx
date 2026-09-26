@@ -1970,8 +1970,7 @@ export default function ChatView({
     ],
   );
   const activeThread = serverThread ?? localDraftThread;
-  const runtimeMode =
-    composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
+  const runtimeMode = composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const threadDetailHydration = resolveThreadDetailHydration({
@@ -2220,7 +2219,8 @@ export default function ChatView({
   ]);
 
   const sessionProvider = activeThread?.session?.provider ?? null;
-  const selectedProviderByThreadId = composerDraft.activeProvider ?? null;
+  const selectedProviderByThreadId =
+    serverThread?.modelSelection.provider ?? composerDraft.activeProvider ?? null;
   const threadProvider =
     activeThread?.modelSelection.provider ?? activeProject?.defaultModelSelection?.provider ?? null;
   const hasThreadStarted = Boolean(
@@ -2258,6 +2258,9 @@ export default function ChatView({
         if (connectionId !== undefined) defaults[provider] = connectionId;
       }
     }
+    if (serverThread?.connectionId !== undefined) {
+      return { ...defaults, [serverThread.modelSelection.provider]: serverThread.connectionId };
+    }
     return hasThreadStarted
       ? pendingConnectionByProvider
       : { ...defaults, ...pendingConnectionByProvider };
@@ -2267,6 +2270,8 @@ export default function ChatView({
     stickyConnectionByProvider,
     threadId,
     serverSettings,
+    serverThread?.connectionId,
+    serverThread?.modelSelection.provider,
   ]);
   const setSelectedConnectionByProvider = useCallback(
     (update: (current: PendingConnectionSelection) => PendingConnectionSelection) => {
@@ -2334,8 +2339,8 @@ export default function ChatView({
     const draftSelections = composerDraft.modelSelectionByProvider;
 
     const resolveHint = (provider: ProviderKind): string | null =>
-      draftSelections[provider]?.model ??
       (threadModelSelection?.provider === provider ? threadModelSelection.model : null) ??
+      draftSelections[provider]?.model ??
       (projectModelSelection?.provider === provider ? projectModelSelection.model : null);
 
     return {
@@ -2569,16 +2574,35 @@ export default function ChatView({
           description: String(error),
         }),
       );
-    setSelectedConnectionByProvider((current) => ({
-      ...current,
-      [selectedProvider]: connectionId,
-    }));
     useComposerDraftStore.setState((state) => ({
       stickyConnectionByProvider: {
         ...state.stickyConnectionByProvider,
         [selectedProvider]: connectionId,
       },
     }));
+    if (serverThread) {
+      const api = readNativeApi();
+      if (api) {
+        void api.orchestration
+          .dispatchCommand({
+            type: "thread.update",
+            commandId: newCommandId(),
+            threadId: serverThread.id,
+            connectionId,
+          })
+          .catch((error: unknown) =>
+            setStoreThreadError(
+              serverThread.id,
+              error instanceof Error ? error.message : "Could not update thread Connection.",
+            ),
+          );
+      }
+    } else {
+      setSelectedConnectionByProvider((current) => ({
+        ...current,
+        [selectedProvider]: connectionId,
+      }));
+    }
   };
   const handleManageConnections = useCallback(() => {
     void navigate({ to: "/settings", search: { section: "providers" } });
@@ -5800,7 +5824,27 @@ export default function ChatView({
         provider,
         model: resolvedModel,
       };
-      setComposerDraftModelSelectionAndSticky(activeThread.id, nextModelSelection);
+      useComposerDraftStore.getState().setStickyModelSelection(nextModelSelection);
+      if (serverThread) {
+        const api = readNativeApi();
+        if (api) {
+          void api.orchestration
+            .dispatchCommand({
+              type: "thread.update",
+              commandId: newCommandId(),
+              threadId: activeThread.id,
+              modelSelection: nextModelSelection,
+            })
+            .catch((error: unknown) =>
+              setStoreThreadError(
+                activeThread.id,
+                error instanceof Error ? error.message : "Could not update thread model.",
+              ),
+            );
+        }
+      } else {
+        setComposerDraftModelSelectionAndSticky(activeThread.id, nextModelSelection);
+      }
       scheduleComposerFocus();
     },
     [
@@ -5810,6 +5854,8 @@ export default function ChatView({
       setComposerDraftModelSelectionAndSticky,
       customModelsByProvider,
       selectableModelOptionsByProvider,
+      serverThread,
+      setStoreThreadError,
     ],
   );
 
@@ -6425,6 +6471,7 @@ export default function ChatView({
     }
     const followsDispatchingSend = getComposerDispatchedSendOwner(activeThread.id) !== null;
     const shouldQueueCapturedSend =
+      !isServerThread &&
       (queuedTurn === undefined || queuedTurn === null) &&
       dispatchMode === "queue" &&
       (phase === "connecting" ||
@@ -7045,7 +7092,7 @@ export default function ChatView({
     // A follow-up can be captured while the preceding send is still waiting
     // for provider admission. Queue admission above is deliberately allowed in
     // that window; only a second direct dispatch must be rejected.
-    if (sendInFlightRef.current) {
+    if (sendInFlightRef.current && !isServerThread) {
       releaseSendPreflight({ restoreComposer: true });
       return false;
     }

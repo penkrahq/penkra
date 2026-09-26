@@ -2428,6 +2428,7 @@ const make = Effect.gen(function* () {
           );
         }
         const nextQueuedTurn = sourceEvent.payload;
+        const currentThread = yield* resolveThread(threadId);
         pendingQueuedDispatchBySessionThread.set(sessionThreadId, {
           queuedThreadId: threadId,
           messageId: nextQueuedTurn.messageId,
@@ -2440,12 +2441,12 @@ const make = Effect.gen(function* () {
           threadId,
           turnId: nextQueuedTurn.turnId ?? TurnId.makeUnsafe(`turn:${sourceEvent.commandId}`),
           messageId: nextQueuedTurn.messageId,
-          ...(nextQueuedTurn.modelSelection !== undefined
-            ? { modelSelection: nextQueuedTurn.modelSelection }
-            : {}),
-          ...(nextQueuedTurn.connectionId !== undefined
-            ? { connectionId: nextQueuedTurn.connectionId }
-            : {}),
+          ...(currentThread ? { modelSelection: currentThread.modelSelection } : {}),
+          ...(currentThread?.connectionId !== undefined
+            ? { connectionId: currentThread.connectionId }
+            : nextQueuedTurn.connectionId !== undefined
+              ? { connectionId: nextQueuedTurn.connectionId }
+              : {}),
           ...(nextQueuedTurn.bindingRevision !== undefined
             ? { bindingRevision: nextQueuedTurn.bindingRevision }
             : {}),

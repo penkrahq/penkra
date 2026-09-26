@@ -742,6 +742,7 @@ export function projectEvent(
               ...(payload.modelSelection !== undefined
                 ? { modelSelection: payload.modelSelection }
                 : {}),
+              ...(payload.connectionId !== undefined ? { connectionId: payload.connectionId } : {}),
               ...(payload.workingDirectory !== undefined
                 ? { workingDirectory: payload.workingDirectory }
                 : {}),
