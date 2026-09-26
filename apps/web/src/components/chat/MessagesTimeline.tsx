@@ -49,6 +49,7 @@ import {
 import { pinActionLabel } from "~/lib/pin";
 import { Button } from "../ui/button";
 import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLabel";
+import { useStore } from "../../store";
 import { PenkraThreadCreationCard } from "./PenkraThreadCreationCard";
 import { PresentedMediaRow } from "./PresentedMediaRow";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
@@ -201,17 +202,52 @@ function UserDispatchModeChip({
   dispatchMode,
   dispatchOrigin,
   hasLeadingMedia,
+  senderThreadId,
+  onOpenThread,
 }: {
   dispatchMode: TimelineMessage["dispatchMode"];
   dispatchOrigin: TimelineMessage["dispatchOrigin"];
   hasLeadingMedia: boolean;
+  senderThreadId?: TimelineMessage["senderThreadId"];
+  onOpenThread?: (threadId: ThreadId) => void;
 }) {
+  const senderThread = useStore((state) =>
+    senderThreadId ? state.threadShellById?.[senderThreadId] : undefined,
+  );
   const markerKind = resolveUserTurnMarker({ dispatchMode, dispatchOrigin });
   if (!markerKind) {
     return null;
   }
 
   const { Icon, label } = USER_TURN_MARKER_PRESENTATION[markerKind];
+  const senderLabel =
+    senderThread && !senderThread.archivedAt ? `Sent by ${senderThread.title}` : label;
+  const content = (
+    <>
+      <Icon className="size-3 shrink-0 text-muted-foreground/75" />
+      <span>{senderLabel}</span>
+    </>
+  );
+  if (
+    markerKind === "agent" &&
+    senderThread &&
+    !senderThread.archivedAt &&
+    senderThreadId &&
+    onOpenThread
+  ) {
+    return (
+      <button
+        type="button"
+        className={cn(
+          "inline-flex items-center gap-1.5 self-end px-0 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/78 hover:text-foreground/82",
+          hasLeadingMedia ? "mb-3" : "mb-1.5",
+        )}
+        onClick={() => onOpenThread(senderThreadId)}
+      >
+        {content}
+      </button>
+    );
+  }
   return (
     <div
       className={cn(
@@ -219,8 +255,7 @@ function UserDispatchModeChip({
         hasLeadingMedia ? "mb-3" : "mb-1.5",
       )}
     >
-      <Icon className="size-3 shrink-0 text-muted-foreground/75" />
-      <span>{label}</span>
+      {content}
     </div>
   );
 }
@@ -1249,6 +1284,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         dispatchMode={row.message.dispatchMode}
                         dispatchOrigin={row.message.dispatchOrigin}
                         hasLeadingMedia={hasLeadingMedia}
+                        {...(row.message.senderThreadId
+                          ? { senderThreadId: row.message.senderThreadId }
+                          : {})}
+                        {...(onOpenThread ? { onOpenThread } : {})}
                       />
                     )}
                     {renderedAssistantSelections.length > 0 && (

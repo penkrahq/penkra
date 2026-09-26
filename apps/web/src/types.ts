@@ -105,6 +105,7 @@ export interface ChatMessage {
   mentions?: ProviderMentionReference[];
   dispatchMode?: TurnDispatchMode;
   dispatchOrigin?: MessageDispatchOrigin;
+  senderThreadId?: ThreadId;
   delivery?: MessageDelivery;
   /** First durable message event sequence, used with delivery.sequence for causal placement. */
   sequence?: number;

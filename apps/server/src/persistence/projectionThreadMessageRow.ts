@@ -1,6 +1,7 @@
 import {
   ChatAttachment,
   MessageDispatchOrigin,
+  ThreadId,
   MessageDeliveryState,
   NonNegativeInt,
   ProviderMentionReference,
@@ -23,6 +24,9 @@ export const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFie
     mentions: Schema.NullOr(Schema.fromJsonString(Schema.Array(ProviderMentionReference))),
     dispatchMode: Schema.NullOr(TurnDispatchMode),
     dispatchOrigin: Schema.NullOr(MessageDispatchOrigin),
+    senderThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
+      Schema.withDecodingDefault(() => null),
+    ),
     deliveryState: Schema.optional(Schema.NullOr(MessageDeliveryState)).pipe(
       Schema.withDecodingDefault(() => null),
     ),
@@ -65,6 +69,7 @@ export function projectionThreadMessageFromRow(
     ...(row.mentions !== null ? { mentions: row.mentions } : {}),
     ...(row.dispatchMode ? { dispatchMode: row.dispatchMode } : {}),
     ...(row.dispatchOrigin ? { dispatchOrigin: row.dispatchOrigin } : {}),
+    ...(row.senderThreadId ? { senderThreadId: row.senderThreadId } : {}),
     ...(row.deliveryState !== null
       ? {
           deliveryState: row.deliveryState,
@@ -93,6 +98,7 @@ export function orchestrationMessageFromProjectionRow(
     ...(row.mentions !== null ? { mentions: row.mentions } : {}),
     ...(row.dispatchMode ? { dispatchMode: row.dispatchMode } : {}),
     ...(row.dispatchOrigin ? { dispatchOrigin: row.dispatchOrigin } : {}),
+    ...(row.senderThreadId ? { senderThreadId: row.senderThreadId } : {}),
     ...(row.deliveryState !== null &&
     row.deliveryState !== undefined &&
     row.deliverySequence !== null &&
