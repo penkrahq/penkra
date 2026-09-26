@@ -58,8 +58,8 @@ import {
   PROVIDER_KINDS,
   ToolInputError,
   decodeCreateThreadInput,
+  decodeSendMessageInput,
   errorText,
-  readBooleanArg,
   readStringArrayArg,
   readStringArg,
 } from "../toolInput.ts";
@@ -67,6 +67,8 @@ import {
   DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS,
   IDEMPOTENT_WRITE_TOOL_ANNOTATIONS,
   WRITE_TOOL_ANNOTATIONS,
+  GatewayToolError,
+  gatewayToolErrorResult,
   type ToolEntry,
   type ToolContext,
 } from "../toolRuntime.ts";
@@ -85,7 +87,10 @@ import { executePenkraExecCommand } from "../../appRuntimeCli.ts";
 import type { PenkraExecCommandInput } from "../../appRuntimeCli.ts";
 import { requireThreadSpaceId } from "../threadSpaceContext.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
-import { ProviderThreadSwitchCoordinator } from "../../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
+import {
+  ProviderThreadSwitchCoordinator,
+  ProviderThreadSwitchCoordinatorError,
+} from "../../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { attachmentPrincipalForSession } from "../../managedAttachmentPrincipal.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import {
@@ -116,15 +121,26 @@ function isPenkraExecImage(
 function command(
   words: ReadonlyArray<string>,
   tool: ToolEntry,
-  example: string,
+  example: string | ReadonlyArray<{ readonly name: string; readonly command: string }>,
   instructions?: string,
 ): AgentGatewayCommandEntry {
   return {
     words,
     tool,
-    examples: [{ name: `Use ${["penkra", ...words].join(" ")}`, command: example }],
+    examples:
+      typeof example === "string"
+        ? [{ name: `Use ${["penkra", ...words].join(" ")}`, command: example }]
+        : example,
     ...(instructions === undefined ? {} : { instructions }),
   };
+}
+
+function sendMessageErrorResult(error: unknown) {
+  if (error instanceof GatewayToolError) return gatewayToolErrorResult(error);
+  if (error instanceof ProviderThreadSwitchCoordinatorError) {
+    return gatewayToolErrorResult(new GatewayToolError(error.code, error.message));
+  }
+  return mcpToolResultError(errorText(error));
 }
 
 export const makeAgentGateway = Effect.gen(function* () {
@@ -311,6 +327,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           },
           target: {
             ...MODEL_SELECTION_INPUT_SCHEMA,
+            description: "Provider and model for the new thread.",
           },
           connectionId: {
             type: ["string", "null"],
@@ -353,7 +370,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_send_message",
       description:
-        "Use to post an agent-authored follow-up into a different existing Penkra thread. Never target the caller thread. The returned turnId is a Penkra handle accepted by --turn-id. Provider-native ids, when known, appear separately as providerTurnId in thread reads. By default the host preserves FIFO ordering. Pass now only when the message must take effect regardless of current or queued work; Penkra chooses the provider-specific mechanism.",
+        "Post an agent-authored follow-up into another existing Penkra thread. Never target the caller thread. By default the message waits behind the thread's running and queued work, in order. Pass now only when it must take effect right away; Penkra chooses the provider-specific way to deliver it. To switch the target thread's Connection or model, pass connectionId, modelSelection, or both. The switch takes effect when this message's turn starts and stays for later turns. The provider cannot change: to use another provider, create a new thread. Penkra never falls back to another account. The returned turnId is a Penkra handle accepted by --turn-id; provider-native ids, when known, appear separately as providerTurnId in thread reads.",
       inputSchema: {
         type: "object",
         properties: {
@@ -371,6 +388,16 @@ export const makeAgentGateway = Effect.gen(function* () {
             description:
               "Deliver regardless of running or queued work. The host may steer natively or interrupt according to provider capability.",
           },
+          connectionId: {
+            type: ["string", "null"],
+            description:
+              "Exact Connection ID from `penkra connections list`. Omit to keep the thread's current Connection. Pass null only to request the provider's anonymous route where it is authorized. Never substitutes another account.",
+          },
+          modelSelection: {
+            ...MODEL_SELECTION_INPUT_SCHEMA,
+            description:
+              "Model to use from this turn on. provider must be the thread's current provider. Omit to keep the current model.",
+          },
         },
         required: ["threadId", "message"],
         additionalProperties: false,
@@ -382,17 +409,29 @@ export const makeAgentGateway = Effect.gen(function* () {
     },
     handler: (args, context) =>
       Effect.gen(function* () {
-        const threadId = readStringArg(args, "threadId", { required: true })!;
-        const message = readStringArg(args, "message", { required: true })!;
+        const input = decodeSendMessageInput(args);
+        const threadId = input.threadId;
+        const message = input.message;
         if (threadId === context.callerThreadId) {
           throw new ToolInputError(
             "Cannot send to the caller Thread: send writes an agent-authored message with user role and starts another turn on top of the current turn.",
           );
         }
-        const now = readBooleanArg(args, "now") ?? false;
+        const now = input.now ?? false;
         const caller = yield* requireThreadShell(context.callerThreadId);
         const target = yield* requireThreadShell(threadId);
         yield* assertCallerMayDriveThread(caller, target);
+        const runtimeBinding = yield* threadBindings
+          .getRuntimeBinding(target.id)
+          .pipe(
+            Effect.mapError(
+              () =>
+                new GatewayToolError(
+                  "selection_failed",
+                  "Could not read the thread's runtime binding.",
+                ),
+            ),
+          );
         // Pass the requested mode through unchanged: the reactor checks live
         // provider state (authoritative, unlike this projection snapshot) and
         // already downgrades steers whose turn is not actually live.
@@ -418,14 +457,20 @@ export const makeAgentGateway = Effect.gen(function* () {
               dispatchMode,
               dispatchOrigin: "agent",
               runtimeMode: target.runtimeMode,
+              ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+              ...(input.modelSelection !== undefined
+                ? { modelSelection: input.modelSelection }
+                : Option.isNone(runtimeBinding)
+                  ? { modelSelection: target.modelSelection }
+                  : {}),
+              bindingRevision: Option.isSome(runtimeBinding) ? runtimeBinding.value.revision : 0,
               createdAt: isoNow(),
             },
             attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
             ...(cwd ? { cwd } : {}),
-          })
-          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
+          });
         return mcpToolResultJson({ threadId: target.id, messageId, turnId });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(sendMessageErrorResult(error)))),
   };
 
   const interruptThread: ToolEntry = {
@@ -727,11 +772,16 @@ export const makeAgentGateway = Effect.gen(function* () {
       createThread,
       'penkra threads create --input \'{"requestId":"review-api","prompt":"Review the API contract.","target":{...}}\'',
     ),
-    command(
-      ["threads", "send"],
-      sendMessage,
-      "penkra threads send --thread-id <thread-id> --message 'Continue the review.'",
-    ),
+    command(["threads", "send"], sendMessage, [
+      {
+        name: "Send a follow-up",
+        command: "penkra threads send --thread-id <thread-id> --message 'Continue the review.'",
+      },
+      {
+        name: "Send and switch model and Connection",
+        command: `penkra threads send --input '{"threadId":"<thread-id>","message":"Continue the review.","connectionId":"<connection-id>","modelSelection":{"provider":"codex","model":"gpt-6-sol"}}'`,
+      },
+    ]),
     command(
       ["threads", "interrupt"],
       interruptThread,

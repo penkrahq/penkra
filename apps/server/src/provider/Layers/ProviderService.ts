@@ -1519,7 +1519,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             if (options?.resolveManagedLaunch) {
               return yield* toValidationError(
                 "ProviderService.startSession",
-                "A started thread cannot change its provider harness.",
+                "This thread uses a different provider. To use another provider, start a new thread.",
               );
             }
 

@@ -113,7 +113,9 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
         }
         if (staticMethod) {
           if (!connection.value.credentialRef || connection.value.profileRef) {
-            return yield* fail("The selected Connection credential backend is incompatible.");
+            return yield* fail(
+              "The selected Connection's sign-in method doesn't work with this model.",
+            );
           }
           const secret = yield* credentials.readOnce(connection.value.credentialRef).pipe(
             Effect.mapError(
