@@ -65,6 +65,7 @@ import { getRouter } from "../router";
 import { useSplitViewStore } from "../splitViewStore";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useStore } from "../store";
+import { getThreadFromState } from "../threadDerivation";
 import { initialState } from "../storeState";
 import { makeDomainEvent } from "../storeTestFixtures";
 import {
@@ -3193,6 +3194,55 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
     } finally {
       await mounted.cleanup();
+    }
+  });
+
+  it("hides Play without a thread error after a stale continue rejection", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi({
+      dispatchError: Object.assign(new Error("stale continue"), { code: "THREAD_CONTINUE_STALE" }),
+    });
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-stale-continue-target" as MessageId,
+      targetText: "Continue target",
+    });
+    const turnId = TurnId.makeUnsafe("turn-stale-continue");
+    const hydrated = {
+      ...snapshot,
+      threads: snapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? {
+              ...thread,
+              latestTurn: {
+                turnId,
+                state: "interrupted" as const,
+                requestedAt: NOW_ISO,
+                startedAt: NOW_ISO,
+                completedAt: NOW_ISO,
+                assistantMessageId: null,
+              },
+              session: thread.session && {
+                ...thread.session,
+                status: "stopped" as const,
+                activeTurnId: null,
+              },
+            }
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot: hydrated });
+    try {
+      const play = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
+        "Play did not appear for the interrupted turn.",
+      );
+      play.click();
+      await vi.waitFor(() => {
+        expect(document.querySelector('button[aria-label="Continue"]')).toBeNull();
+        expect(getThreadFromState(useStore.getState(), THREAD_ID)?.error).toBeNull();
+      });
+    } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
     }
   });
 

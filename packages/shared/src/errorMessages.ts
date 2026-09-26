@@ -8,7 +8,6 @@
 // client (which detects an Undo that raced another restore) reference one source
 // of truth and cannot silently drift apart when the wording is edited.
 export const THREAD_NOT_ARCHIVED_INVARIANT_MARKER = "is not archived for command";
-export const CONTINUE_THREAD_CHANGED_INVARIANT_MARKER = "continue-thread-changed";
 
 export function collectErrorMessages(
   error: unknown,

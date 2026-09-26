@@ -29,10 +29,6 @@ import {
   RuntimeMode,
 } from "@penkra/contracts";
 import { getModelCapabilities, normalizeModelSlug } from "@penkra/shared/model";
-import {
-  collectErrorMessages,
-  CONTINUE_THREAD_CHANGED_INVARIANT_MARKER,
-} from "@penkra/shared/errorMessages";
 import { resolveTailUserMessageEditTarget } from "@penkra/shared/conversationEdit";
 import { threadExportBlockedReason } from "@penkra/shared/threadExport";
 import { pendingRequestInstanceKey } from "@penkra/shared/threadSummary";
@@ -3966,7 +3962,25 @@ export default function ChatView({
     sessionUpdatedAt: string | null;
   } | null>(null);
   const continueInFlightRef = useRef(false);
+  const pendingContinueCommandIdRef = useRef<string | null>(null);
   const [hiddenContinueTurnId, setHiddenContinueTurnId] = useState<TurnId | null>(null);
+  useEffect(() => {
+    const commandId = pendingContinueCommandIdRef.current;
+    if (commandId === null) return;
+    const failed = threadActivities.some(
+      (activity) =>
+        activity.kind === "provider.turn.start.failed" &&
+        activity.payload !== null &&
+        typeof activity.payload === "object" &&
+        "responseCommandId" in activity.payload &&
+        activity.payload.responseCommandId === commandId,
+    );
+    if (!failed || activeThreadId === null) return;
+    pendingContinueCommandIdRef.current = null;
+    continueInFlightRef.current = false;
+    setContinueInFlight(null);
+    setThreadError(activeThreadId, "Couldn't continue this turn.");
+  }, [activeThreadId, setThreadError, threadActivities]);
   useEffect(() => {
     if (!continueInFlight) return;
     if (
@@ -4006,11 +4020,13 @@ export default function ChatView({
       sessionUpdatedAt: activeThread.session?.updatedAt ?? null,
     };
     setContinueInFlight(target);
+    const commandId = newCommandId();
+    pendingContinueCommandIdRef.current = commandId;
     try {
       await api.orchestration.dispatchCommand({
         type: "thread.turn.recover",
         reason: "play",
-        commandId: newCommandId(),
+        commandId,
         threadId: target.threadId,
         turnId: target.turnId,
         interruptedTurnId: target.turnId,
@@ -4020,12 +4036,14 @@ export default function ChatView({
         createdAt: new Date().toISOString(),
       });
     } catch (error) {
+      pendingContinueCommandIdRef.current = null;
       continueInFlightRef.current = false;
       setContinueInFlight(null);
       if (
-        collectErrorMessages(error).some((message) =>
-          message.includes(CONTINUE_THREAD_CHANGED_INVARIANT_MARKER),
-        )
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "THREAD_CONTINUE_STALE"
       ) {
         setHiddenContinueTurnId(target.turnId);
       } else {

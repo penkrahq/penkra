@@ -18,7 +18,6 @@ import {
 import { Effect } from "effect";
 import { normalizeEntityName } from "@penkra/shared/entityNames";
 import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
-import { CONTINUE_THREAD_CHANGED_INVARIANT_MARKER } from "@penkra/shared/errorMessages";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -1411,7 +1410,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           command.reason === "play"
             ? new OrchestrationCommandInvariantError({
                 commandType: command.type,
-                detail: CONTINUE_THREAD_CHANGED_INVARIANT_MARKER,
+                detail: "Thread changed before continuation.",
+                code: "THREAD_CONTINUE_STALE",
               })
             : error,
         ),
@@ -1424,7 +1424,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: CONTINUE_THREAD_CHANGED_INVARIANT_MARKER,
+          detail: "Thread changed before continuation.",
+          code: "THREAD_CONTINUE_STALE",
         });
       }
       if (threadHasInFlightTurn(thread)) {
