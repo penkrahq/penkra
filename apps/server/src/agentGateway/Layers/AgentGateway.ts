@@ -282,7 +282,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_create_thread",
       description:
-        "Use when work should run in a separate Penkra conversation. Create one standalone Thread from a self-contained prompt and a target returned by `penkra models list --availability available`; optionally choose a Connection from `penkra connections list` and a folder from `penkra folders list`. Retrying the same requestId is idempotent. Separate create calls are independent and non-atomic, so retain successful Thread ids if a later call fails.",
+        "Use when work should run in a separate Penkra conversation. The returned turnId is a Penkra handle accepted by --turn-id; provider-native ids, when known, are reported separately as providerTurnId. Create one standalone Thread from a self-contained prompt and a target returned by `penkra models list --availability available`; optionally choose a Connection from `penkra connections list` and a folder from `penkra folders list`. Retrying the same requestId is idempotent. Separate create calls are independent and non-atomic, so retain successful Thread ids if a later call fails.",
       inputSchema: {
         type: "object",
         properties: {
@@ -345,7 +345,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_send_message",
       description:
-        "Use to post an agent-authored follow-up into a different existing Penkra thread. Never target the caller thread. The returned turnId is the stable handle for polling with `penkra threads read --thread-id ... --turn-id ...`. By default the host preserves FIFO ordering. Pass now only when the message must take effect regardless of current or queued work; Penkra chooses the provider-specific mechanism.",
+        "Use to post an agent-authored follow-up into a different existing Penkra thread. Never target the caller thread. The returned turnId is a Penkra handle accepted by --turn-id. Provider-native ids, when known, appear separately as providerTurnId in thread reads. By default the host preserves FIFO ordering. Pass now only when the message must take effect regardless of current or queued work; Penkra chooses the provider-specific mechanism.",
       inputSchema: {
         type: "object",
         properties: {
@@ -687,7 +687,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     command(
       ["threads", "read"],
       requireInternalTool("penkra_read_thread"),
-      "penkra threads read --thread-id <thread-id>",
+      "penkra threads read --thread-id <thread-id> [--turn-id <penkra-turn-handle>]",
     ),
     command(
       ["diagnostics", "threads", "activity"],

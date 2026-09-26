@@ -85,6 +85,7 @@ export interface AgentThreadListItem {
   readonly isSelf: boolean;
   readonly latestTurn: {
     readonly turnId: string;
+    readonly providerTurnId?: string;
     readonly state: string;
   } | null;
   readonly queuedTurns: number;
@@ -109,7 +110,13 @@ export function summarizeThreadShell(
     archived: (thread.archivedAt ?? null) !== null,
     isSelf: thread.id === callerThreadId,
     latestTurn: thread.latestTurn
-      ? { turnId: thread.latestTurn.turnId, state: thread.latestTurn.state }
+      ? {
+          turnId: thread.latestTurn.turnId,
+          ...(thread.latestTurn.providerTurnId
+            ? { providerTurnId: thread.latestTurn.providerTurnId }
+            : {}),
+          state: thread.latestTurn.state,
+        }
       : null,
     queuedTurns,
     updatedAt: thread.updatedAt,
@@ -141,8 +148,33 @@ export interface AgentTranscriptCursorAnchor {
 
 interface AgentTranscriptItemBase {
   readonly turnId: string | null;
+  readonly providerTurnId?: string | null;
   readonly sequence: number | null;
   readonly createdAt: string;
+}
+
+export function normalizeTranscriptTurnIdentity(
+  rawTurnId: string | null | undefined,
+  logicalTurnByProviderTurnId: ReadonlyMap<string, string>,
+  provider?: string,
+): { readonly turnId: string | null; readonly providerTurnId?: string } {
+  if (!rawTurnId) return { turnId: null };
+  if (rawTurnId.startsWith("turn:")) return { turnId: rawTurnId };
+  const logicalTurnId = logicalTurnByProviderTurnId.get(rawTurnId);
+  return logicalTurnId
+    ? { turnId: logicalTurnId, providerTurnId: rawTurnId }
+    : isKnownProviderNativeTurnId(provider, rawTurnId)
+      ? { turnId: null, providerTurnId: rawTurnId }
+      : { turnId: rawTurnId };
+}
+
+function isKnownProviderNativeTurnId(provider: string | undefined, turnId: string): boolean {
+  return (
+    (provider === "opencode" && turnId.startsWith("opencode-turn-")) ||
+    (provider === "codex" && /^01[a-f0-9]{2}/iu.test(turnId)) ||
+    (provider === "claudeAgent" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(turnId))
+  );
 }
 
 export interface AgentTranscriptMessageItem extends AgentTranscriptItemBase {
@@ -328,6 +360,9 @@ export function packAgentTranscriptPage(input: {
       type: item.classified.type,
       activityId: item.activity.id,
       turnId: item.activity.turnId ?? null,
+      ...(item.activity.providerTurnId === undefined
+        ? {}
+        : { providerTurnId: item.activity.providerTurnId }),
       sequence: item.activity.sequence ?? null,
       lifecycle: item.activity.kind,
       summary: item.activity.summary,
