@@ -77,6 +77,7 @@ const shellOnlyReadModel: OrchestrationReadModel = {
 describe("message delivery decisions", () => {
   it("preserves the admitted logical turn id when a queued turn is promoted", async () => {
     const turnId = TurnId.makeUnsafe("turn:agent:queued-handle:send");
+    const senderThreadId = ThreadId.makeUnsafe("sender-before-queue-promotion");
     const decided = await Effect.runPromise(
       decideOrchestrationCommand({
         readModel: shellOnlyReadModel,
@@ -86,6 +87,8 @@ describe("message delivery decisions", () => {
           threadId,
           turnId,
           messageId,
+          dispatchOrigin: "agent",
+          senderThreadId,
           runtimeMode: "full-access",
           createdAt: NOW,
         },
@@ -94,7 +97,7 @@ describe("message delivery decisions", () => {
 
     expect(decided).toMatchObject({
       type: "thread.turn-start-requested",
-      payload: { threadId, turnId, messageId },
+      payload: { threadId, turnId, messageId, dispatchOrigin: "agent", senderThreadId },
     });
   });
 

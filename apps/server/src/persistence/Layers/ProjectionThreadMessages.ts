@@ -105,7 +105,10 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
             excluded.dispatch_origin,
             projection_thread_messages.dispatch_origin
           ),
-          sender_thread_id = COALESCE(excluded.sender_thread_id, projection_thread_messages.sender_thread_id),
+          sender_thread_id = CASE
+            WHEN excluded.dispatch_origin IS NOT NULL AND excluded.dispatch_origin != 'agent' THEN NULL
+            ELSE COALESCE(excluded.sender_thread_id, projection_thread_messages.sender_thread_id)
+          END,
           delivery_state = CASE
             WHEN excluded.delivery_sequence IS NOT NULL
               AND (projection_thread_messages.delivery_sequence IS NULL
