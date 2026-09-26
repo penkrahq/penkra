@@ -102,6 +102,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
+import { RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
 
 const TEST_CONNECTION_ID = ProviderConnectionId.makeUnsafe("test-managed-connection");
 const TEST_INSTALLATION_ID = ProviderInstallationId.makeUnsafe("test-managed-installation");
@@ -1173,7 +1174,7 @@ describe("ProviderCommandReactor", () => {
     expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
       threadId,
       clientMessageId: recoveryMessageId,
-      input: expect.stringContaining("Continue the existing task from the current state"),
+      input: RESTART_TURN_RECOVERY_PROMPT,
     });
     await harness.drain();
 

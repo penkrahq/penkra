@@ -184,6 +184,30 @@ it.effect("keeps generic conversation rollback internal-only", () =>
   }),
 );
 
+it.effect("allows client Play recovery while keeping restart recovery server-only", () =>
+  Effect.gen(function* () {
+    const command = {
+      type: "thread.turn.recover",
+      reason: "play",
+      commandId: "cmd-play",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      interruptedTurnId: "turn-1",
+      recoveryMessageId: "message-play",
+      connectionId: null,
+      bindingRevision: 0,
+      createdAt: "2026-09-26T00:00:00.000Z",
+    };
+    const parsed = yield* decodeClientOrchestrationCommand(command);
+    assert.strictEqual(parsed.type, "thread.turn.recover");
+    assert.strictEqual(parsed.reason, "play");
+    const restart = yield* Effect.exit(
+      decodeClientOrchestrationCommand({ ...command, reason: "restart" }),
+    );
+    assert.strictEqual(restart._tag, "Failure");
+  }),
+);
+
 it.effect("trims branded ids and command string fields at decode boundaries", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeFolderCreateCommand({

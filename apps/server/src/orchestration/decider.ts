@@ -17,6 +17,8 @@ import {
 } from "@penkra/shared/conversationEdit";
 import { Effect } from "effect";
 import { normalizeEntityName } from "@penkra/shared/entityNames";
+import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
+import { CONTINUE_THREAD_CHANGED_INVARIANT_MARKER } from "@penkra/shared/errorMessages";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -1404,7 +1406,27 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         readModel,
         command,
         threadId: command.threadId,
-      });
+      }).pipe(
+        Effect.mapError((error) =>
+          command.reason === "play"
+            ? new OrchestrationCommandInvariantError({
+                commandType: command.type,
+                detail: CONTINUE_THREAD_CHANGED_INVARIANT_MARKER,
+              })
+            : error,
+        ),
+      );
+      if (
+        command.reason === "play" &&
+        (command.interruptedTurnId === undefined ||
+          command.turnId !== command.interruptedTurnId ||
+          !canContinueLatestTurn(thread, command.interruptedTurnId))
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: CONTINUE_THREAD_CHANGED_INVARIANT_MARKER,
+        });
+      }
       if (threadHasInFlightTurn(thread)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -1436,6 +1458,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.interruptedTurnId !== undefined
             ? { recoveryOfTurnId: command.interruptedTurnId }
             : {}),
+          recoveryReason: command.reason ?? "restart",
           restartRecovery: true,
           connectionId: command.connectionId,
           bindingRevision: command.bindingRevision,

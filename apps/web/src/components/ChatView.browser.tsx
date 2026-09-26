@@ -3079,6 +3079,123 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("switches Stop, Play, Send, and disabled Send as the latest turn changes", async () => {
+    let snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-continue-button-target" as MessageId,
+      targetText: "Finish the existing task",
+    });
+    const turnId = TurnId.makeUnsafe("turn-continue-button");
+    const update = (
+      change: (
+        thread: OrchestrationReadModel["threads"][number],
+      ) => OrchestrationReadModel["threads"][number],
+    ) => {
+      snapshot = {
+        ...snapshot,
+        snapshotSequence: snapshot.snapshotSequence + 1,
+        threads: snapshot.threads.map((thread) =>
+          thread.id === THREAD_ID ? change(thread) : thread,
+        ),
+      };
+      fixture = { ...fixture, snapshot };
+      useStore.getState().syncServerReadModel(snapshot);
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      const send = await waitForSendButton();
+      expect(send.disabled).toBe(true);
+      update((thread) => ({
+        ...thread,
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: NOW_ISO,
+          startedAt: NOW_ISO,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        session: thread.session && { ...thread.session, status: "running", activeTurnId: turnId },
+      }));
+      await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        "Stop did not appear for a running turn.",
+      );
+      update((thread) => ({
+        ...thread,
+        latestTurn: thread.latestTurn && {
+          ...thread.latestTurn,
+          state: "interrupted",
+          completedAt: NOW_ISO,
+        },
+        session: thread.session && { ...thread.session, status: "stopped", activeTurnId: null },
+      }));
+      const play = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
+        "Play did not appear after Stop.",
+      );
+      expect(play.title).toBe("Continue");
+      await page.getByTestId("composer-editor").fill("New instruction");
+      await vi.waitFor(() => {
+        expect(document.querySelector('button[aria-label="Continue"]')).toBeNull();
+        expect(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled,
+        ).toBe(false);
+      });
+      await page.getByTestId("composer-editor").fill("");
+      const playAgain = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
+        "Play did not return after clearing the composer.",
+      );
+      playAgain.click();
+      await vi.waitFor(() => {
+        expect(hasDispatchedCommandType("thread.turn.recover")).toBe(true);
+        expect(document.querySelector('button[aria-label="Continue"]')).toBeNull();
+      });
+      const command = wsRequests
+        .map(readDispatchedCommand)
+        .find((candidate) => candidate?.type === "thread.turn.recover");
+      expect(command).toMatchObject({ reason: "play", turnId, interruptedTurnId: turnId });
+      expect(
+        snapshot.threads[0]?.messages.some((message) => message.id === command?.recoveryMessageId),
+      ).toBe(false);
+      update((thread) => ({
+        ...thread,
+        latestTurn: thread.latestTurn && {
+          ...thread.latestTurn,
+          state: "error",
+          completedAt: NOW_ISO,
+        },
+        session: thread.session && {
+          ...thread.session,
+          status: "error",
+          activeTurnId: null,
+          updatedAt: isoAt(99),
+        },
+      }));
+      await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
+        "Play did not return after a failed continuation.",
+      );
+      update((thread) => ({
+        ...thread,
+        latestTurn: thread.latestTurn && {
+          ...thread.latestTurn,
+          state: "completed",
+          completedAt: NOW_ISO,
+        },
+        session: thread.session && { ...thread.session, status: "ready", activeTurnId: null },
+      }));
+      await vi.waitFor(() => {
+        expect(document.querySelector('button[aria-label="Continue"]')).toBeNull();
+        expect(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled,
+        ).toBe(true);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps send chrome live through durable, starting, and lagging ready snapshots", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     let currentSnapshot = createSnapshotForTargetUser({

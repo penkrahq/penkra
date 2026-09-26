@@ -24,6 +24,7 @@ import {
   Stream,
 } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { CONTINUE_THREAD_CHANGED_INVARIANT_MARKER } from "@penkra/shared/errorMessages";
 
 import { ServerConfig } from "../../config.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../../persistence/Errors.ts";
@@ -811,6 +812,32 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         let nextCommandReadModel = commandReadModel;
         let disposition: "applied" | "skipped" = "applied";
         let admittedEventBases = eventBases;
+
+        if (command.type === "thread.turn.recover" && command.reason === "play") {
+          const bindingOption =
+            threadProviderBindings === undefined
+              ? Option.none()
+              : yield* threadProviderBindings.getRuntimeBinding(command.threadId).pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new OrchestrationCommandInvariantError({
+                        commandType: command.type,
+                        detail: `The runtime binding could not be read: ${cause.message}`,
+                      }),
+                  ),
+                );
+          const binding = Option.getOrUndefined(bindingOption);
+          if (
+            !binding?.modelId ||
+            binding.connectionId !== command.connectionId ||
+            binding.revision !== command.bindingRevision
+          ) {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: CONTINUE_THREAD_CHANGED_INVARIANT_MARKER,
+            });
+          }
+        }
 
         if (command.type === "thread.session.set" && hasProviderLifecycleGuard(envelope)) {
           const expectedGeneration = envelope.expectedProviderLifecycleGeneration;
