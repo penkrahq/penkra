@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  detachedHostLayoutBounds,
   dockTransitionProgress,
   resolveAppTabPresentationMode,
   resizedAppTabBounds,
@@ -9,6 +10,15 @@ import {
   shouldKeepPresentationAnimation,
   shouldPresentAppView,
 } from "./appTabViewHost";
+
+describe("detachedHostLayoutBounds", () => {
+  it("keeps both Browser documents at their own host origin", () => {
+    expect(detachedHostLayoutBounds({ x: 920, y: 48, width: 600, height: 700 }, 48)).toEqual({
+      app: { x: 0, y: 0, width: 600, height: 700 },
+      page: { x: 0, y: -48, width: 600, height: 700 },
+    });
+  });
+});
 
 describe("resolveAppTabPresentationMode", () => {
   it("uses the captured replica while the owner window is hidden", () => {

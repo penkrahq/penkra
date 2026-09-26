@@ -234,6 +234,21 @@ export function resizedAppTabBounds(input: {
   };
 }
 
+export function detachedHostLayoutBounds(
+  bounds: Rectangle,
+  pageTop: number,
+): {
+  app: Rectangle;
+  page: Rectangle;
+} {
+  // CDP mouse coordinates are relative to a WebContents viewport. Keep each view
+  // at the host's origin and compensate for the Browser toolbar inset in layout.
+  return {
+    app: { x: 0, y: 0, width: bounds.width, height: bounds.height },
+    page: { x: 0, y: -pageTop, width: bounds.width, height: bounds.height },
+  };
+}
+
 let appTabHostTraceSequence = 0;
 
 function traceAppTabHost(event: string, details: Record<string, unknown> = {}): void {
@@ -256,6 +271,7 @@ export class AppTabViewHost implements AppTabHost {
   readonly #ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
   readonly #preloadPath: string;
   readonly #windowById: (windowId: number) => BrowserWindow | null;
+  readonly #hasShellWindow: () => boolean;
   readonly #onBeforeInput: (event: Electron.Event, input: Electron.Input) => void;
   readonly #opened: ProtectedPublisher<DesktopAppTabOpened>;
   readonly #state: ProtectedPublisher<DesktopAppTabDescriptor>;
@@ -273,6 +289,7 @@ export class AppTabViewHost implements AppTabHost {
   readonly #resolveIconDataUrl: typeof resolveInstalledAppIconDataUrl;
   readonly #diagnostics: ProtectedPublisher<AppRuntimeDiagnosticInput>;
   readonly #records = new Map<string, AppTabRecord>();
+  readonly #detachedHostByWebContentsId = new Map<number, BrowserWindow>();
   readonly #presentationsByTabId = new Map<string, Map<number, AppTabWindowPresentation>>();
   readonly #replicaFrameByTabId = new Map<string, AppTabReplicaFrame>();
   readonly #overlayDepthByWindowId = new Map<number, number>();
@@ -295,6 +312,7 @@ export class AppTabViewHost implements AppTabHost {
     ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
     preloadPath: string;
     windowById: (windowId: number) => BrowserWindow | null;
+    hasShellWindow?: () => boolean;
     onBeforeInput?: (event: Electron.Event, input: Electron.Input) => void;
     onOpened: (descriptor: DesktopAppTabOpened) => void;
     onState: (descriptor: DesktopAppTabDescriptor) => void;
@@ -321,6 +339,10 @@ export class AppTabViewHost implements AppTabHost {
     this.#ipcBridge = input.ipcBridge;
     this.#preloadPath = input.preloadPath;
     this.#windowById = input.windowById;
+    this.#hasShellWindow =
+      input.hasShellWindow ??
+      (() =>
+        BrowserWindow.getAllWindows().some((window) => this.#windowById(window.id) === window));
     this.#onBeforeInput = input.onBeforeInput ?? (() => undefined);
     const onNotificationError =
       input.onNotificationError ??
@@ -795,6 +817,7 @@ export class AppTabViewHost implements AppTabHost {
     for (const presentations of this.#presentationsByTabId.values()) presentations.delete(windowId);
     this.#overlayDepthByWindowId.delete(windowId);
     this.releaseWindow(windowId);
+    if (!this.#hasShellWindow()) this.#closeDetachedHosts();
     for (const tabId of owned) {
       const fallback = this.#latestVisiblePresentation(tabId, windowId);
       if (fallback) {
@@ -939,6 +962,7 @@ export class AppTabViewHost implements AppTabHost {
           record.visibleRequested = false;
           record.appView.setVisible(false);
           record.page?.view.setVisible(false);
+          this.#attachDetachedHostAfterHide(record);
         },
       );
     } else {
@@ -946,6 +970,7 @@ export class AppTabViewHost implements AppTabHost {
       record.visibleRequested = false;
       record.appView.setVisible(false);
       record.page?.view.setVisible(false);
+      this.#attachDetachedHostAfterHide(record);
     }
     if (this.#lastVisibleTabId === tabId) this.#lastVisibleTabId = null;
     this.#sendEvent(record, "lifecycle.visibility", { active: false });
@@ -980,8 +1005,8 @@ export class AppTabViewHost implements AppTabHost {
     this.#stopAnimation(record);
     record.hiddenByDock = false;
     record.bounds = normalizeBounds(bounds);
-    this.#layoutApp(record);
-    this.#layoutPage(record);
+    this.#layoutApp(record, this.#detachedAppBounds(record));
+    this.#layoutPageAt(record, this.#detachedPageBounds(record));
   }
 
   async freeze(tabId: string): Promise<NativeImage> {
@@ -1008,9 +1033,10 @@ export class AppTabViewHost implements AppTabHost {
     const record = this.#require(tabId);
     record.freezeDepth = Math.max(0, record.freezeDepth - 1);
     if (record.freezeDepth > 0) return;
-    const visible = shouldKeepNativeAppViewVisible(record);
+    const detached = this.#isDetachedHostView(record.appView);
+    const visible = detached || shouldKeepNativeAppViewVisible(record);
     record.appView.setVisible(visible);
-    record.page?.view.setVisible(visible && this.#shouldShowPage(record));
+    record.page?.view.setVisible((detached || visible) && this.#shouldShowPage(record));
     record.lastFrame = null;
     traceAppTabHost("thaw-visibility-applied", {
       tabId,
@@ -1319,9 +1345,9 @@ export class AppTabViewHost implements AppTabHost {
     for (const record of this.#records.values()) {
       if (record.ownerWindowId !== windowId) continue;
       record.ownerWindowVisible = false;
-      const visible = shouldKeepNativeAppViewVisible(record);
-      record.appView.setVisible(visible);
-      record.page?.view.setVisible(visible && this.#shouldShowPage(record));
+      record.appView.setVisible(false);
+      record.page?.view.setVisible(false);
+      this.#attachDetachedHostAfterHide(record);
       traceAppTabHost("window-hide-applied", {
         tabId: record.descriptor.id,
         windowId,
@@ -1353,7 +1379,10 @@ export class AppTabViewHost implements AppTabHost {
 
   releaseWindow(windowId: number): void {
     for (const record of this.#records.values()) {
-      if (record.ownerWindowId === windowId) this.#detach(record);
+      if (record.ownerWindowId === windowId) {
+        this.#detach(record);
+        this.#attachDetachedHost(record);
+      }
     }
   }
 
@@ -1682,11 +1711,13 @@ export class AppTabViewHost implements AppTabHost {
         page: null,
         popupOpeners: [],
         ownerWindowId: null,
-        bounds: { x: 0, y: 0, width: 0, height: 0 },
+        bounds: { x: 0, y: 0, width: 600, height: 700 },
         dockWidth: 0,
         rightInset: 0,
         bottom: 0,
-        pageTop: 0,
+        // Browser's toolbar measures itself with ResizeObserver/rAF, which may not run
+        // until the tab is presented. Reserve its normal toolbar height immediately.
+        pageTop: input.app.appId === "com.penkra.browser" ? 48 : 0,
         browserVersion: 0,
         lastFrame: null,
         freezeDepth: 0,
@@ -1706,6 +1737,8 @@ export class AppTabViewHost implements AppTabHost {
         typographyCssKey: null,
       };
       this.#records.set(id, record);
+      this.#attachDetachedHost(record);
+      this.#layoutApp(record, this.#detachedAppBounds(record));
       traceAppTabHost("app-renderer-created", {
         tabId: id,
         rendererId,
@@ -2094,7 +2127,11 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   #attachPage(record: AppTabRecord): void {
-    if (!record.page || record.ownerWindowId === null) return;
+    if (!record.page) return;
+    if (record.ownerWindowId === null) {
+      this.#attachDetachedView(record, record.page.view);
+      return;
+    }
     const window = this.#windowById(record.ownerWindowId);
     if (!window || window.isDestroyed()) return;
     try {
@@ -2119,6 +2156,7 @@ export class AppTabViewHost implements AppTabHost {
         // Already detached.
       }
     }
+    if (record.ownerWindowId === null) this.#detachDetachedView(page.view);
     for (const dispose of page.disposers.splice(0)) dispose();
     if (close && !page.view.webContents.isDestroyed()) {
       if (page.view.webContents.debugger.isAttached()) {
@@ -2286,25 +2324,135 @@ export class AppTabViewHost implements AppTabHost {
     );
   }
 
-  #detach(record: AppTabRecord): void {
-    this.#stopAnimation(record);
-    if (record.ownerWindowId === null) return;
-    const window = this.#windowById(record.ownerWindowId);
-    if (window && !window.isDestroyed()) {
-      try {
-        window.contentView.removeChildView(record.appView);
-        if (record.page) window.contentView.removeChildView(record.page.view);
-      } catch {
-        // Already detached while the window was closing.
+  #ensureDetachedHost(view: WebContentsView, bounds: Rectangle): BrowserWindow {
+    const key = view.webContents.id;
+    const width = Math.max(640, Math.ceil(bounds.width));
+    const height = Math.max(720, Math.ceil(bounds.height));
+    let host = this.#detachedHostByWebContentsId.get(key);
+    if (!host || host.isDestroyed()) {
+      host = new BrowserWindow({
+        show: false,
+        x: 0,
+        y: 0,
+        width,
+        height,
+        frame: false,
+        transparent: true,
+        backgroundColor: "#00000000",
+        opacity: 0,
+        focusable: false,
+        skipTaskbar: true,
+        hasShadow: false,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: false,
+      });
+      this.#detachedHostByWebContentsId.set(key, host);
+      host.once("closed", () => {
+        if (this.#detachedHostByWebContentsId.get(key) === host) {
+          this.#detachedHostByWebContentsId.delete(key);
+        }
+      });
+    } else {
+      const current = host.getBounds();
+      if (width > current.width || height > current.height) {
+        host.setBounds({
+          ...current,
+          width: Math.max(width, current.width),
+          height: Math.max(height, current.height),
+        });
       }
     }
+    host.setOpacity(0);
+    return host;
+  }
+
+  #showDetachedHost(host: BrowserWindow): void {
+    host.setIgnoreMouseEvents(true, { forward: true });
+    if (!host.isVisible()) host.showInactive();
+    host.setOpacity(0);
+  }
+
+  #removeChildView(window: BrowserWindow, view: WebContentsView): void {
+    if (!window.isDestroyed() && window.contentView.children.includes(view)) {
+      window.contentView.removeChildView(view);
+    }
+  }
+
+  #attachDetachedView(record: AppTabRecord, view: WebContentsView): void {
+    const host = this.#ensureDetachedHost(view, record.bounds);
+    this.#removeChildView(host, view);
+    host.contentView.addChildView(view);
+    view.setVisible(
+      record.freezeDepth === 0 && (view === record.appView || this.#shouldShowPage(record)),
+    );
+    if (view === record.appView) this.#layoutApp(record, this.#detachedAppBounds(record));
+    else this.#layoutPageAt(record, this.#detachedPageBounds(record));
+    this.#showDetachedHost(host);
+  }
+
+  #attachDetachedHost(record: AppTabRecord): void {
+    this.#attachDetachedView(record, record.appView);
+    if (record.page) this.#attachDetachedView(record, record.page.view);
+  }
+
+  #attachDetachedHostAfterHide(record: AppTabRecord): void {
+    if (record.ownerWindowId !== null) this.#detach(record);
+    this.#attachDetachedHost(record);
+  }
+
+  #detachedAppBounds(record: AppTabRecord): Rectangle {
+    return this.#isDetachedHostView(record.appView)
+      ? detachedHostLayoutBounds(record.bounds, record.pageTop).app
+      : record.bounds;
+  }
+
+  #detachedPageBounds(record: AppTabRecord): Rectangle {
+    return this.#isDetachedHostView(record.page?.view)
+      ? detachedHostLayoutBounds(record.bounds, record.pageTop).page
+      : record.bounds;
+  }
+
+  #isDetachedHostView(view: WebContentsView | undefined): boolean {
+    return view !== undefined && this.#detachedHostByWebContentsId.has(view.webContents.id);
+  }
+
+  #detachDetachedView(view: WebContentsView): void {
+    const key = view.webContents.id;
+    const host = this.#detachedHostByWebContentsId.get(key);
+    if (!host) return;
+    this.#removeChildView(host, view);
+    this.#detachedHostByWebContentsId.delete(key);
+    if (!host.isDestroyed()) host.close();
+  }
+
+  #closeDetachedHosts(): void {
+    const hosts = new Set(this.#detachedHostByWebContentsId.values());
+    this.#detachedHostByWebContentsId.clear();
+    for (const host of hosts) {
+      if (!host.isDestroyed()) host.close();
+    }
+  }
+
+  #detach(record: AppTabRecord): void {
+    this.#stopAnimation(record);
+    if (record.ownerWindowId !== null) {
+      const window = this.#windowById(record.ownerWindowId);
+      if (window && !window.isDestroyed()) {
+        this.#removeChildView(window, record.appView);
+        if (record.page) this.#removeChildView(window, record.page.view);
+      }
+    }
+    this.#detachDetachedView(record.appView);
+    if (record.page) this.#detachDetachedView(record.page.view);
     record.ownerWindowId = null;
     record.ownerWindowVisible = false;
   }
 
   #layoutPage(record: AppTabRecord): void {
     if (!record.page) return;
-    this.#layoutPageAt(record, record.bounds);
+    this.#layoutPageAt(record, this.#detachedPageBounds(record));
   }
 
   #layoutPageAt(record: AppTabRecord, sourceBounds: Rectangle): void {
@@ -2317,11 +2465,13 @@ export class AppTabViewHost implements AppTabHost {
     };
     record.page.view.setBounds(bounds);
     record.page.view.setVisible(
-      record.visibleRequested && record.freezeDepth === 0 && this.#shouldShowPage(record),
+      (this.#isDetachedHostView(record.page.view) || record.visibleRequested) &&
+        record.freezeDepth === 0 &&
+        this.#shouldShowPage(record),
     );
   }
 
-  #layoutApp(record: AppTabRecord, sourceBounds: Rectangle = record.bounds): void {
+  #layoutApp(record: AppTabRecord, sourceBounds = this.#detachedAppBounds(record)): void {
     const bounds = {
       ...sourceBounds,
       height:
