@@ -17,6 +17,7 @@ import {
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
 import { isSessionRunningTurn, latestTurnMatchesTurnId } from "./session-logic";
+import { shouldInterruptProvisionalCompletion } from "@penkra/shared/turnContinuation";
 import {
   MAX_THREAD_MESSAGES,
   arraysShallowEqual,
@@ -257,6 +258,24 @@ function reconcileLatestTurnFromSession(
   session: NonNullable<ReadModelThread["session"]>,
   error: string | null,
 ): Thread["latestTurn"] {
+  if (
+    shouldInterruptProvisionalCompletion({
+      previousSession: thread.session,
+      nextSession: session,
+      turn: thread.latestTurn,
+    }) &&
+    thread.latestTurn
+  ) {
+    return buildLatestTurn({
+      previous: thread.latestTurn,
+      turnId: thread.latestTurn.turnId,
+      state: "interrupted",
+      requestedAt: thread.latestTurn.requestedAt,
+      startedAt: thread.latestTurn.startedAt,
+      completedAt: session.updatedAt,
+      assistantMessageId: thread.latestTurn.assistantMessageId,
+    });
+  }
   if (isSessionRunningTurn(session)) {
     const matchedLatestTurn = latestTurnMatchesTurnId(thread.latestTurn, session.activeTurnId)
       ? thread.latestTurn

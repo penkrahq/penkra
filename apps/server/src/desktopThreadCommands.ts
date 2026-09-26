@@ -208,6 +208,7 @@ export class DesktopThreadCommands {
           type: "thread.archive",
           commandId: commandId(),
           threadId: target.id,
+          createdAt: new Date().toISOString(),
         });
         return { selectedThreadId };
       }

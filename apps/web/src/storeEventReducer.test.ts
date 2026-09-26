@@ -42,6 +42,180 @@ import type { ComposerDraftStoreState } from "./composerDraftDomain";
 import { resolveThreadStatusPill } from "./components/Sidebar.logic";
 
 describe("store event reducer", () => {
+  it.each(["assistant", "delivery"] as const)(
+    "settles a provisional %s completion when the owning session is interrupted",
+    (completion) => {
+      const threadId = ThreadId.makeUnsafe("thread-1");
+      const turnId = TurnId.makeUnsafe(`turn-${completion}-stop`);
+      const messageId = MessageId.makeUnsafe(`message-${completion}-stop`);
+      const startedAt = "2026-09-26T21:04:38.903Z";
+      const stoppedAt = "2026-09-26T21:04:49.812Z";
+      const initial = makeState(
+        makeThread({
+          session: {
+            provider: "codex",
+            status: "running",
+            orchestrationStatus: "running",
+            activeTurnId: turnId,
+            createdAt: startedAt,
+            updatedAt: startedAt,
+          },
+          latestTurn: {
+            turnId,
+            state: "running",
+            requestedAt: startedAt,
+            startedAt,
+            completedAt: null,
+            assistantMessageId: null,
+          },
+        }),
+      );
+      const completed =
+        completion === "assistant"
+          ? makeDomainEvent(
+              "thread.message-sent",
+              {
+                threadId,
+                messageId,
+                role: "assistant",
+                text: "Partial reply",
+                turnId,
+                streaming: false,
+                source: "native",
+                createdAt: startedAt,
+                updatedAt: stoppedAt,
+                attachments: [],
+              },
+              { sequence: 1 },
+            )
+          : makeDomainEvent(
+              "thread.message-delivery-set",
+              {
+                threadId,
+                messageId,
+                turnId,
+                state: "accepted",
+                terminalState: "completed",
+                terminalCompletedAt: stoppedAt,
+                updatedAt: stoppedAt,
+              },
+              { sequence: 1 },
+            );
+      const interrupted = makeDomainEvent(
+        "thread.session-set",
+        {
+          threadId,
+          session: {
+            threadId,
+            status: "interrupted",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: stoppedAt,
+          },
+        },
+        { sequence: 2 },
+      );
+      const after = applyOrchestrationEvents(initial, [completed, interrupted]);
+      expect(threadsOf(after)[0]?.latestTurn?.state).toBe("interrupted");
+      const ready = applyOrchestrationEvents(
+        makeState(
+          makeThread({
+            ...threadsOf(initial)[0],
+            session: {
+              ...threadsOf(initial)[0]!.session!,
+              status: "ready",
+              orchestrationStatus: "ready",
+              activeTurnId: undefined,
+            },
+            latestTurn: {
+              ...threadsOf(initial)[0]!.latestTurn!,
+              state: "completed",
+              completedAt: stoppedAt,
+            },
+          }),
+        ),
+        [interrupted],
+      );
+      expect(threadsOf(ready)[0]?.latestTurn?.state).toBe("completed");
+      const retainedActiveTurn = makeDomainEvent(
+        "thread.session-set",
+        {
+          threadId,
+          session: { ...interrupted.payload.session, activeTurnId: turnId },
+        },
+        { sequence: 2 },
+      );
+      expect(
+        threadsOf(applyOrchestrationEvents(initial, [completed, retainedActiveTurn]))[0]?.latestTurn
+          ?.state,
+      ).toBe("completed");
+    },
+  );
+
+  it("keeps an interrupted turn interrupted when the assistant completion arrives later", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("reverse-order-stop");
+    const startedAt = "2026-09-26T21:04:38.903Z";
+    const initial = makeState(
+      makeThread({
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: turnId,
+          createdAt: startedAt,
+          updatedAt: startedAt,
+        },
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: startedAt,
+          startedAt,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+    const events = [
+      makeDomainEvent(
+        "thread.session-set",
+        {
+          threadId,
+          session: {
+            threadId,
+            status: "interrupted",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: startedAt,
+          },
+        },
+        { sequence: 1 },
+      ),
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId: MessageId.makeUnsafe("reverse-order-assistant"),
+          role: "assistant",
+          text: "Partial",
+          turnId,
+          streaming: false,
+          source: "native",
+          createdAt: startedAt,
+          updatedAt: startedAt,
+          attachments: [],
+        },
+        { sequence: 2 },
+      ),
+    ];
+    expect(threadsOf(applyOrchestrationEvents(initial, events))[0]?.latestTurn?.state).toBe(
+      "interrupted",
+    );
+  });
   it("keeps agent sender metadata and clears it on a user-origin resend", () => {
     const threadId = ThreadId.makeUnsafe("thread-agent-message-edit");
     const messageId = MessageId.makeUnsafe("message-agent-message-edit");

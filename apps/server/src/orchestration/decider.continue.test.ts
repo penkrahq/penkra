@@ -179,6 +179,59 @@ describe("archived thread admission", () => {
     ).rejects.toMatchObject({ code: "thread_archived" });
   });
 
+  it.each(["thread.message.edit-and-resend", "thread.conversation.rollback"] as const)(
+    "refuses %s before emitting a transcript event",
+    async (type) => {
+      const command = {
+        type,
+        ...base,
+        messageId: MessageId.makeUnsafe("previous-message"),
+        numTurns: 1,
+        text: "edited",
+        runtimeMode: "full-access",
+        connectionId: null,
+        bindingRevision: 0,
+        createdAt: now,
+      } as unknown as OrchestrationCommand;
+      await expect(decide(threadWith({ archivedAt: now }), command)).rejects.toMatchObject({
+        code: "thread_archived",
+        detail: "This thread is archived. Unarchive it to send messages.",
+      });
+    },
+  );
+
+  it.each([
+    "thread.update",
+    "thread.pinned-message.add",
+    "thread.pinned-message.remove",
+    "thread.pinned-message.done.set",
+    "thread.pinned-message.label.set",
+    "thread.runtime-mode.set",
+    "thread.turn.steer-queued",
+    "thread.task.background",
+    "thread.approval.respond",
+    "thread.user-input.respond",
+    "thread.messages.import",
+    "thread.message.assistant.delta",
+    "thread.message.assistant.complete",
+    "thread.conversation.rollback.complete",
+    "thread.message.delivery.set",
+    "thread.activity.append",
+    "thread.activity-read-model.touch",
+  ] as const)("refuses other archived thread mutation: %s", async (type) => {
+    const command = {
+      type,
+      ...base,
+      title: "Changed",
+      messageId: MessageId.makeUnsafe("previous-message"),
+      messages: [],
+      createdAt: now,
+    } as unknown as OrchestrationCommand;
+    await expect(decide(threadWith({ archivedAt: now }), command)).rejects.toMatchObject({
+      code: "thread_archived",
+    });
+  });
+
   it.each([
     ["running latest turn", { latestTurn: { ...threadWith().latestTurn, state: "running" } }],
     ["pending start", { pendingTurnStartMessageId: MessageId.makeUnsafe("pending") }],

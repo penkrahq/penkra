@@ -157,6 +157,140 @@ function now() {
 }
 
 describe("OrchestrationEngine", () => {
+  it.each(["assistant", "delivery"] as const)(
+    "projects a %s completion before an interrupted session as interrupted",
+    async (completion) => {
+      const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+      const threadId = ThreadId.makeUnsafe(`thread-${completion}-interrupted-order`);
+      const folderId = asFolderId(`folder-${completion}-interrupted-order`);
+      const turnId = asTurnId(`turn-${completion}-interrupted-order`);
+      const messageId = asMessageId(`message-${completion}-interrupted-order`);
+      const createdAt = now();
+      try {
+        await system.run(
+          system.engine.dispatch({
+            type: "folder.create",
+            commandId: CommandId.makeUnsafe(`folder-${completion}-order`),
+            folderId,
+            spaceId: TEST_SPACE_ID,
+            title: "Ordering",
+            workspaceRoot: null,
+            defaultModelSelection: null,
+            createdAt,
+          }),
+        );
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.makeUnsafe(`thread-${completion}-order`),
+            threadId,
+            deckId: singletonThreadDeckId(threadId),
+            folderId,
+            title: "Ordering",
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            createdAt,
+          }),
+        );
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.makeUnsafe(`start-${completion}-order`),
+            threadId,
+            message: { messageId, role: "user", text: "Work", attachments: [] },
+            runtimeMode: "full-access",
+            createdAt,
+          }),
+        );
+        const session = {
+          threadId,
+          providerName: "codex" as const,
+          runtimeMode: "full-access" as const,
+          activeTurnId: turnId,
+          lastError: null,
+          updatedAt: createdAt,
+        };
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.makeUnsafe(`running-${completion}-order`),
+            threadId,
+            session: { ...session, status: "running" },
+            createdAt,
+          }),
+        );
+        if (completion === "assistant") {
+          await system.run(
+            system.engine.dispatch({
+              type: "thread.message.assistant.complete",
+              commandId: CommandId.makeUnsafe("assistant-complete-order"),
+              threadId,
+              messageId: asMessageId("assistant-order"),
+              turnId,
+              finalText: "Partial reply",
+              createdAt,
+            }),
+          );
+        } else {
+          await system.run(
+            system.engine.dispatch({
+              type: "thread.message.delivery.set",
+              commandId: CommandId.makeUnsafe("delivery-complete-order"),
+              threadId,
+              messageId,
+              turnId,
+              state: "accepted",
+              terminalState: "completed",
+              terminalCompletedAt: createdAt,
+              createdAt,
+            }),
+          );
+        }
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.makeUnsafe(`interrupted-${completion}-order`),
+            threadId,
+            session: { ...session, status: "interrupted", activeTurnId: null },
+            createdAt,
+          }),
+        );
+        const turns = await system.run(
+          system.sql<{
+            readonly state: string;
+          }>`SELECT state FROM projection_turns WHERE thread_id = ${threadId} ORDER BY requested_at DESC`,
+        );
+        expect(turns[0]?.state).toBe("interrupted");
+        const readModel = await system.run(system.engine.getReadModel());
+        expect(readModel.threads.find((thread) => thread.id === threadId)?.latestTurn?.state).toBe(
+          "interrupted",
+        );
+        if (completion === "assistant") {
+          const interruptedTurnId = readModel.threads.find((thread) => thread.id === threadId)
+            ?.latestTurn?.turnId;
+          expect(interruptedTurnId).toBeDefined();
+          await expect(
+            system.run(
+              system.engine.dispatch({
+                type: "thread.turn.recover",
+                reason: "play",
+                commandId: CommandId.makeUnsafe("play-after-assistant-order"),
+                threadId,
+                turnId: interruptedTurnId!,
+                interruptedTurnId: interruptedTurnId!,
+                recoveryMessageId: asMessageId("recovery-after-assistant-order"),
+                connectionId: null,
+                bindingRevision: 0,
+                createdAt,
+              }),
+            ),
+          ).resolves.toMatchObject({ sequence: expect.any(Number) });
+        }
+      } finally {
+        await system.dispose();
+      }
+    },
+  );
   it("refuses a send to an archived thread without creating a turn, and drops queued rows on archive", async () => {
     const system = await createOrchestrationSystem({ withRuntimeBinding: true });
     const threadId = ThreadId.makeUnsafe("thread-archived-engine-guard");
@@ -209,22 +343,28 @@ describe("OrchestrationEngine", () => {
       await system.run(system.sql`
         INSERT INTO queued_turn_promotions (
           queued_event_sequence, thread_id, message_id, dispatch_mode, state,
-          attempt_count, created_at, updated_at
-        ) VALUES (${imported.sequence}, ${threadId}, ${queuedMessageId}, 'queue', 'queued', 0, ${createdAt}, ${createdAt})
+          attempt_count, created_at, updated_at, action_kind, action_event_id
+        ) VALUES (${imported.sequence}, ${threadId}, ${queuedMessageId}, 'queue', 'queued', 0, ${createdAt}, ${createdAt}, 'cancel', 'stale-action')
       `);
       await system.run(
         system.engine.dispatch({
           type: "thread.archive",
           commandId: CommandId.makeUnsafe("archive-command"),
           threadId,
+          createdAt,
         }),
       );
       const queueRows = await system.run(
         system.sql<{
           readonly state: string;
-        }>`SELECT state FROM queued_turn_promotions WHERE thread_id = ${threadId}`,
+          readonly updatedAt: string;
+          readonly actionKind: string | null;
+          readonly actionEventId: string | null;
+        }>`SELECT state, updated_at AS "updatedAt", action_kind AS "actionKind", action_event_id AS "actionEventId" FROM queued_turn_promotions WHERE thread_id = ${threadId}`,
       );
-      expect(queueRows).toMatchObject([{ state: "cancelled" }]);
+      expect(queueRows).toMatchObject([
+        { state: "cancelled", updatedAt: createdAt, actionKind: null, actionEventId: null },
+      ]);
       const messages = await system.run(
         system.sql<{
           readonly messageId: string;
