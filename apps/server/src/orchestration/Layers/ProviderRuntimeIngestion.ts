@@ -53,6 +53,10 @@ import {
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProviderRuntimeEventRepositoryLive } from "../../persistence/Layers/ProviderRuntimeEvents.ts";
+import {
+  observeRuntimeJournalTiming,
+  takeRuntimeJournalTimings,
+} from "../../persistence/runtimeJournalMetrics.ts";
 import { ProviderSessionRuntimeRepositoryLive } from "../../persistence/Layers/ProviderSessionRuntime.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
@@ -176,6 +180,7 @@ type RuntimeIngestionInput =
       source: "runtime";
       sequence: number;
       event: ProviderRuntimeEvent;
+      persistedAt?: string;
     }
   | {
       source: "domain";
@@ -2665,10 +2670,12 @@ const make = Effect.gen(function* () {
   let runtimeCommitsPendingThisPage: Array<{
     readonly input: Extract<RuntimeIngestionInput, { readonly source: "runtime" }>;
     readonly canonicalEvent: ProviderRuntimeEvent | undefined;
+    readonly processedAt: number;
   }> = [];
 
   const processInput = (input: RuntimeIngestionInput): Effect.Effect<void, unknown> => {
     if (input.source !== "runtime") return processDomainEvent(input.event);
+    const processingStartedAt = performance.now();
     if (
       input.event.type === "content.delta" &&
       input.event.providerRefs === undefined &&
@@ -2679,8 +2686,20 @@ const make = Effect.gen(function* () {
       return bufferNonAssistantContentDelta(input.event).pipe(
         Effect.andThen(
           Effect.sync(() => {
-            runtimeCommitsPendingThisPage.push({ input, canonicalEvent: undefined });
+            runtimeCommitsPendingThisPage.push({
+              input,
+              canonicalEvent: undefined,
+              processedAt: Date.now(),
+            });
           }),
+        ),
+        Effect.ensuring(
+          Effect.sync(() =>
+            observeRuntimeJournalTiming(
+              "journalEventProcessing",
+              performance.now() - processingStartedAt,
+            ),
+          ),
         ),
       );
     }
@@ -2692,8 +2711,16 @@ const make = Effect.gen(function* () {
     ).pipe(
       Effect.andThen(
         Effect.sync(() => {
-          runtimeCommitsPendingThisPage.push({ input, canonicalEvent });
+          runtimeCommitsPendingThisPage.push({ input, canonicalEvent, processedAt: Date.now() });
         }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() =>
+          observeRuntimeJournalTiming(
+            "journalEventProcessing",
+            performance.now() - processingStartedAt,
+          ),
+        ),
       ),
     );
   };
@@ -2836,19 +2863,52 @@ const make = Effect.gen(function* () {
     capacity: PROVIDER_RUNTIME_INGESTION_CAPACITY,
   });
   const runtimeJournalDrainLock = yield* Semaphore.make(1);
+  let lastJournalMetricsAt = 0;
+  let lastReplayFenceSequence = 0;
+  let lastProcessedSequence = 0;
+  let oldestPendingWorkerAt: number | null = null;
+  const lastSlowEventLogAtByThread = new Map<string, number>();
+  let suppressedSlowEventCount = 0;
+
+  const reportJournalMetrics = (replayFenceSequence: number) =>
+    Effect.gen(function* () {
+      if (Date.now() - lastJournalMetricsAt < 10_000) return;
+      lastJournalMetricsAt = Date.now();
+      const highWaterSequence = yield* runtimeEvents.getHighWaterSequence;
+      const workerStatus = yield* worker.status;
+      yield* Effect.logInfo("provider runtime journal metrics", {
+        highWaterSequence,
+        replayFenceSequence,
+        lastProcessedSequence,
+        sequenceDistanceToHighWater: Math.max(0, highWaterSequence - lastProcessedSequence),
+        workerOutstandingCount: workerStatus.outstanding,
+        workerCapacity: workerStatus.capacity,
+        oldestPendingWorkerAgeMs:
+          oldestPendingWorkerAt === null ? null : Math.max(0, Date.now() - oldestPendingWorkerAt),
+        suppressedSlowEventCount,
+        ...takeRuntimeJournalTimings(),
+      });
+      suppressedSlowEventCount = 0;
+    });
 
   const drainRuntimeJournalThrough = (throughSequenceInclusive?: number) =>
     runtimeJournalDrainLock.withPermits(1)(
       Effect.gen(function* () {
         const replayFence = throughSequenceInclusive ?? (yield* runtimeEvents.getHighWaterSequence);
+        lastReplayFenceSequence = replayFence;
         runtimeThreadsBlockedThisDrain = new Set<string>();
         while (true) {
+          const pageStartedAt = performance.now();
           const page = yield* runtimeEvents.readPendingThreadEvents({
             throughSequenceInclusive: replayFence,
             limit: PROVIDER_RUNTIME_REPLAY_PAGE_SIZE,
             maxPerThread: PROVIDER_RUNTIME_REPLAY_EVENTS_PER_THREAD,
           });
-          if (page.length === 0) return;
+          observeRuntimeJournalTiming("journalPageRead", performance.now() - pageStartedAt);
+          if (page.length === 0) {
+            lastProcessedSequence = Math.max(lastProcessedSequence, replayFence);
+            return;
+          }
 
           const processablePage = page.filter(
             (entry) => !runtimeThreadsBlockedThisDrain.has(entry.event.threadId),
@@ -2856,11 +2916,13 @@ const make = Effect.gen(function* () {
           if (processablePage.length === 0) return;
 
           runtimeCommitsPendingThisPage = [];
+          oldestPendingWorkerAt ??= Date.now();
           yield* Effect.forEach(processablePage, (entry) =>
             worker.enqueue({
               source: "runtime",
               sequence: entry.sequence,
               event: entry.event,
+              ...(entry.persistedAt ? { persistedAt: entry.persistedAt } : {}),
             }),
           );
           yield* worker.drain;
@@ -2891,7 +2953,39 @@ const make = Effect.gen(function* () {
                 { concurrency: 1, discard: true },
               ),
             );
+            const committedAt = Date.now();
+            for (const { input, processedAt } of pendingCommits) {
+              lastProcessedSequence = Math.max(lastProcessedSequence, input.sequence);
+              const receivedAt = Date.parse(input.event.createdAt);
+              const persistedAt = input.persistedAt ? Date.parse(input.persistedAt) : NaN;
+              const pendingBeforeProcessMs =
+                processedAt - (Number.isFinite(persistedAt) ? persistedAt : receivedAt);
+              const receiveToCommitMs = committedAt - receivedAt;
+              if (pendingBeforeProcessMs >= 5_000 || receiveToCommitMs >= 5_000) {
+                const lastLoggedAt = lastSlowEventLogAtByThread.get(input.event.threadId) ?? 0;
+                if (committedAt - lastLoggedAt < 60_000) {
+                  suppressedSlowEventCount++;
+                  continue;
+                }
+                if (lastSlowEventLogAtByThread.size >= 1_024) lastSlowEventLogAtByThread.clear();
+                lastSlowEventLogAtByThread.set(input.event.threadId, committedAt);
+                yield* Effect.logWarning("provider runtime journal slow event", {
+                  threadId: input.event.threadId,
+                  turnId: input.event.turnId ?? null,
+                  eventId: input.event.eventId,
+                  sequence: input.sequence,
+                  eventType: input.event.type,
+                  adapterReceivedAt: input.event.createdAt,
+                  persistedAt: input.persistedAt ?? null,
+                  processingFinishedAt: new Date(processedAt).toISOString(),
+                  cursorCommittedAt: new Date(committedAt).toISOString(),
+                  pendingBeforeProcessMs,
+                  receiveToCommitMs,
+                });
+              }
+            }
           }
+          oldestPendingWorkerAt = null;
         }
       }),
     );
@@ -3142,6 +3236,22 @@ const make = Effect.gen(function* () {
   const start: ProviderRuntimeIngestionShape["start"] = startDrainableWorkerProducers(
     worker,
     Effect.gen(function* () {
+      // The exact pending aggregate scans the retained event table. Run it in
+      // its own fiber so a slow diagnostic query never holds the drain lock.
+      yield* Effect.forkScoped(
+        Effect.forever(
+          Effect.sleep(Duration.seconds(10)).pipe(
+            Effect.andThen(Effect.suspend(() => reportJournalMetrics(lastReplayFenceSequence))),
+            Effect.catchCause((cause) =>
+              Cause.hasInterruptsOnly(cause)
+                ? Effect.failCause(cause)
+                : Effect.logWarning("provider runtime journal metrics failed", {
+                    cause: Cause.pretty(cause),
+                  }),
+            ),
+          ),
+        ),
+      );
       yield* Effect.forkScoped(
         Effect.forever(
           Queue.take(runtimeJournalWake).pipe(

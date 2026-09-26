@@ -278,7 +278,7 @@ export const makeAgentGateway = Effect.gen(function* () {
 
   const createThread: ToolEntry = {
     requiredCapability: "thread:write",
-    requiresActiveTurn: true,
+    requiresThreadAuthority: true,
     definition: {
       name: "penkra_create_thread",
       description:
@@ -333,7 +333,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           kind: "provider-session",
           callerThreadId: context.callerThreadId,
           callerTurnId: context.callerTurnId,
-          assertAuthority: context.assertCallerTurnActive,
+          assertAuthority: context.assertCallerThreadAuthorized,
           attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
         }),
       ).pipe(Effect.catchDefect((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
@@ -341,7 +341,7 @@ export const makeAgentGateway = Effect.gen(function* () {
 
   const sendMessage: ToolEntry = {
     requiredCapability: "thread:write",
-    requiresActiveTurn: true,
+    requiresThreadAuthority: true,
     definition: {
       name: "penkra_send_message",
       description:
@@ -422,7 +422,7 @@ export const makeAgentGateway = Effect.gen(function* () {
 
   const interruptThread: ToolEntry = {
     requiredCapability: "thread:write",
-    requiresActiveTurn: true,
+    requiresThreadAuthority: true,
     definition: {
       name: "penkra_interrupt_thread",
       description:
@@ -548,7 +548,7 @@ export const makeAgentGateway = Effect.gen(function* () {
 
   const makeSetThreadArchived = (archived: boolean): ToolEntry => ({
     requiredCapability: "thread:write",
-    requiresActiveTurn: true,
+    requiresThreadAuthority: true,
     definition: {
       name: archived ? "penkra_archive_thread" : "penkra_unarchive_thread",
       description: archived
@@ -601,7 +601,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     unarchiveThread,
     {
       requiredCapability: "thread:write",
-      requiresActiveTurn: true,
+      requiresThreadAuthority: true,
       definition: {
         name: "penkra_show_file",
         description:
@@ -628,9 +628,6 @@ export const makeAgentGateway = Effect.gen(function* () {
           if (!requestedPaths?.length) {
             return yield* Effect.fail(new ToolInputError("At least one --path is required."));
           }
-          if (!context.callerTurnId) {
-            return yield* Effect.fail(new ToolInputError("No active caller turn is available."));
-          }
           const caller = yield* requireThreadShell(context.callerThreadId);
           const folder = yield* snapshotQuery.getFolderShellById(caller.folderId);
           const workingDirectory = resolvePresentFileWorkingDirectory({
@@ -645,12 +642,12 @@ export const makeAgentGateway = Effect.gen(function* () {
               requestedPath,
               workingDirectory,
               threadId: caller.id,
-              turnId: context.callerTurnId!,
+              turnId: context.callerTurnId,
               attachmentsDir: serverConfig.attachmentsDir,
               stateDir: serverConfig.stateDir,
               repository: managedAttachments,
               engine: orchestrationEngine,
-              assertActive: context.assertCallerTurnActive,
+              assertActive: context.assertCallerThreadAuthorized,
               ...(presentationId === undefined ? {} : { presentationId, presentationIndex: index }),
             }),
           );
@@ -775,7 +772,7 @@ export const makeAgentGateway = Effect.gen(function* () {
             new ToolInputError("This provider session cannot execute mutable Penkra commands."),
           );
         }
-        yield* context.assertCallerTurnActive();
+        yield* context.assertCallerThreadAuthorized();
         const result = yield* Effect.tryPromise({
           try: () =>
             executePenkraExecCommand(commandInput, {
@@ -817,8 +814,6 @@ export const makeAgentGateway = Effect.gen(function* () {
   const handleMcpPost = makeAgentGatewayMcpTransport({
     credentials,
     snapshotQuery,
-    projectionTurns,
-    providerRuntimeEvents,
     tools,
     instructions: () => Effect.succeed(renderPenkraMcpServerInstructions()),
     requireThreadShell,
@@ -832,6 +827,7 @@ export const makeAgentGateway = Effect.gen(function* () {
         method: "tools/call",
         params: { name: input.name, arguments: input.arguments },
       },
+      ...(input.originTurnId !== undefined ? { originTurnId: input.originTurnId } : {}),
     }).pipe(
       Effect.map((response) => {
         if (response.status !== 200 || !response.body || typeof response.body !== "object") {
