@@ -173,6 +173,7 @@ import Migration0164 from "./Migrations/164_ThreadDecks.ts";
 import Migration0165 from "./Migrations/165_ProviderRuntimeDiagnosticEpisodes.ts";
 import Migration0166 from "./Migrations/166_RetentionActiveDays.ts";
 import Migration0167 from "./Migrations/167_ProviderAuthCircuits.ts";
+import Migration0168 from "./Migrations/168_ProjectionThreadConnectionSelection.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -345,6 +346,7 @@ export const migrationEntries = [
   [165, "ProviderRuntimeDiagnosticEpisodes", Migration0165],
   [166, "RetentionActiveDays", Migration0166],
   [167, "ProviderAuthCircuits", Migration0167],
+  [168, "ProjectionThreadConnectionSelection", Migration0168],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

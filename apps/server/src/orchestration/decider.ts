@@ -1243,6 +1243,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
+          ...(command.connectionId !== undefined ? { connectionId: command.connectionId } : {}),
           ...resolveThreadWorkspaceMetadataPatch(command),
           ...(command.isPinned !== undefined ? { isPinned: command.isPinned } : {}),
           ...(command.isPinned !== undefined && command.isPinned !== thread.isPinned
