@@ -1958,6 +1958,133 @@ describe("store event reducer", () => {
     ).toBe(true);
   });
 
+  it("keeps the logical turn ID after a tool outlives two Stop requests", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("turn:5e4001b7-a59c-42de-b1dd-20e7d27640be");
+    const providerTurnId = TurnId.makeUnsafe("a3f9d56b-1701-49a9-9787-d529072d9b5f");
+    const messageId = MessageId.makeUnsafe("a810f055-436d-49ad-a1bf-96d4519798de");
+    const requestedAt = "2026-09-26T22:18:03.115Z";
+    const runningAt = "2026-09-26T22:18:03.790Z";
+    const stoppedAt = "2026-09-26T22:18:15.938Z";
+    const initial = makeState(
+      makeThread({
+        latestTurn: {
+          turnId: TurnId.makeUnsafe("turn:previous"),
+          state: "completed",
+          requestedAt: "2026-09-26T22:17:35.707Z",
+          startedAt: "2026-09-26T22:17:37.133Z",
+          completedAt: "2026-09-26T22:17:42.559Z",
+          assistantMessageId: null,
+        },
+        session: {
+          provider: "claudeAgent",
+          status: "ready",
+          orchestrationStatus: "ready",
+          activeTurnId: undefined,
+          createdAt: "2026-09-26T22:17:42.559Z",
+          updatedAt: "2026-09-26T22:17:42.559Z",
+        },
+      }),
+    );
+    const session = (
+      status: "running" | "interrupted",
+      activeTurnId: TurnId | null,
+      updatedAt: string,
+    ) =>
+      makeDomainEvent("thread.session-set", {
+        threadId,
+        session: {
+          threadId,
+          status,
+          providerName: "claudeAgent",
+          runtimeMode: "full-access",
+          activeTurnId,
+          lastError: null,
+          updatedAt,
+        },
+      });
+    const activity = (kind: string, at: string) =>
+      makeDomainEvent("thread.activity-appended", {
+        threadId,
+        activity: {
+          id: EventId.makeUnsafe(`activity-${kind}-${at}`),
+          kind,
+          tone: "info",
+          summary: kind,
+          payload: {},
+          turnId: providerTurnId,
+          createdAt: at,
+        },
+      });
+    const next = applyOrchestrationEvents(initial, [
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "user",
+          text: "Run a long tool",
+          turnId,
+          streaming: false,
+          source: "native",
+          createdAt: requestedAt,
+          updatedAt: requestedAt,
+          attachments: [],
+        },
+        { sequence: 559913 },
+      ),
+      makeDomainEvent(
+        "thread.turn-start-requested",
+        {
+          threadId,
+          turnId,
+          messageId,
+          runtimeMode: "full-access",
+          dispatchMode: "queue",
+          createdAt: requestedAt,
+        },
+        { sequence: 559914 },
+      ),
+      makeDomainEvent(
+        "thread.message-delivery-set",
+        { threadId, messageId, turnId, state: "accepted", updatedAt: runningAt },
+        { sequence: 559915 },
+      ),
+      { ...session("running", providerTurnId, runningAt), sequence: 559916 },
+      { ...session("running", providerTurnId, runningAt), sequence: 559917 },
+      { ...activity("tool.started", "2026-09-26T22:18:04.000Z"), sequence: 559919 },
+      makeDomainEvent(
+        "thread.turn-interrupt-requested",
+        { threadId, turnId, createdAt: "2026-09-26T22:18:06.813Z" },
+        { sequence: 559921 },
+      ),
+      makeDomainEvent(
+        "thread.turn-interrupt-requested",
+        { threadId, turnId, createdAt: "2026-09-26T22:18:10.063Z" },
+        { sequence: 559922 },
+      ),
+      { ...activity("tool.completed", "2026-09-26T22:18:15.800Z"), sequence: 559924 },
+      { ...session("interrupted", null, stoppedAt), sequence: 559926 },
+      { ...activity("turn.completed", stoppedAt), sequence: 559927 },
+    ]);
+    const thread = threadsOf(next)[0]!;
+    expect(thread.latestTurn).toMatchObject({ turnId, providerTurnId, state: "interrupted" });
+    expect(
+      shouldShowComposerContinue({
+        thread,
+        isServerThread: true,
+        hydration: "ready",
+        binding: { modelId: "claude-haiku-4-5-20251001" },
+        hiddenTurnId: null,
+        continueInFlight: false,
+        sendBusy: false,
+        sendPreflight: false,
+        connecting: false,
+        hasSendableContent: false,
+      }),
+    ).toBe(true);
+  });
+
   it("adopts runtime mode from user-dispatched turns", () => {
     const initialState = makeState(makeThread({ runtimeMode: "approval-required" }));
 

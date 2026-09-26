@@ -55,6 +55,7 @@ import {
 } from "./managedAttachmentPrincipal";
 import { Open, resolveAvailableEditors } from "./open";
 import { makeDispatchCommandNormalizer } from "./orchestration/dispatchCommandNormalization";
+import { describeRejectedPlay } from "./orchestration/playRejectionDiagnostics";
 import { makeImportThreadHandler } from "./orchestration/importThreadRoute";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProviderCommandReactor } from "./orchestration/Services/ProviderCommandReactor";
@@ -835,12 +836,32 @@ const makeWsRpcHandlersLayer = () =>
                   ),
                 ),
                 Effect.tapError((cause) =>
-                  Effect.logWarning("orchestration command rejected").pipe(
-                    Effect.annotateLogs({
-                      ...lifecycleLogContext,
-                      cause: cause instanceof Error ? cause.message : String(cause),
-                    }),
-                  ),
+                  Effect.gen(function* () {
+                    const playContext =
+                      normalizedCommand.type === "thread.turn.recover" &&
+                      normalizedCommand.reason === "play"
+                        ? yield* Effect.gen(function* () {
+                            const thread = yield* projectionReadModelQuery
+                              .getThreadDetailById(normalizedCommand.threadId)
+                              .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+                            const binding = yield* threadProviderBindings
+                              .getRuntimeBinding(normalizedCommand.threadId)
+                              .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+                            return describeRejectedPlay(
+                              normalizedCommand,
+                              Option.getOrNull(thread),
+                              Option.getOrNull(binding),
+                            );
+                          })
+                        : {};
+                    yield* Effect.logWarning("orchestration command rejected").pipe(
+                      Effect.annotateLogs({
+                        ...lifecycleLogContext,
+                        ...playContext,
+                        cause: cause instanceof Error ? cause.message : String(cause),
+                      }),
+                    );
+                  }),
                 ),
               );
               return result;
