@@ -2980,7 +2980,7 @@ const make = Effect.gen(function* () {
       readonly failureCode?: typeof PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE;
     },
   ) =>
-    (event.commandId === null
+    event.commandId === null
       ? Effect.void
       : appendProviderFailureActivity({
           threadId: event.payload.threadId,
@@ -3005,7 +3005,7 @@ const make = Effect.gen(function* () {
           ...(event.payload.lifecycleGeneration === undefined
             ? {}
             : { lifecycleGeneration: event.payload.lifecycleGeneration }),
-        }).pipe(Effect.asVoid));
+        }).pipe(Effect.asVoid);
 
   const claimInteractionResponse = Effect.fnUntraced(function* (input: {
     readonly event: InteractionResponseEvent;
