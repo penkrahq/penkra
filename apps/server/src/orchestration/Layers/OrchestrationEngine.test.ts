@@ -37,6 +37,7 @@ import {
 } from "../Services/ProjectionPipeline.ts";
 import { ServerConfig } from "../../config.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
 
 /**
  * Command ids whose fingerprinting throws synchronously, standing in for any
@@ -156,6 +157,127 @@ function now() {
 }
 
 describe("OrchestrationEngine", () => {
+  it("admits Play after a started turn is interrupted by user Stop", async () => {
+    const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+    const threadId = ThreadId.makeUnsafe("thread-play-after-user-stop");
+    const folderId = asFolderId("folder-play-after-user-stop");
+    const turnId = asTurnId("turn-play-after-user-stop");
+    const requestedAt = "2026-09-26T21:04:38.548Z";
+    const startedAt = "2026-09-26T21:04:38.903Z";
+    const stoppedAt = "2026-09-26T21:04:49.812Z";
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "folder.create",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-folder"),
+          folderId,
+          spaceId: TEST_SPACE_ID,
+          title: "Play after Stop",
+          workspaceRoot: null,
+          defaultModelSelection: null,
+          createdAt: requestedAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-thread"),
+          threadId,
+          deckId: singletonThreadDeckId(threadId),
+          folderId,
+          title: "Play after Stop",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          createdAt: requestedAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-start"),
+          threadId,
+          turnId,
+          message: {
+            messageId: asMessageId("msg-play-stop"),
+            role: "user",
+            text: "Finish the task",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          connectionId: null,
+          bindingRevision: 0,
+          createdAt: requestedAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-running"),
+          threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: turnId,
+            lastError: null,
+            updatedAt: startedAt,
+          },
+          createdAt: startedAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.turn.interrupt",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-interrupt"),
+          threadId,
+          turnId,
+          createdAt: stoppedAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-terminal"),
+          threadId,
+          session: {
+            threadId,
+            status: "interrupted",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: stoppedAt,
+          },
+          createdAt: stoppedAt,
+        }),
+      );
+      const thread = (await system.run(system.engine.getReadModel())).threads.find(
+        (candidate) => candidate.id === threadId,
+      )!;
+      expect(thread.latestTurn).toMatchObject({ turnId, state: "interrupted" });
+      expect(canContinueLatestTurn(thread, turnId)).toBe(true);
+      await expect(
+        system.run(
+          system.engine.dispatch({
+            type: "thread.turn.recover",
+            reason: "play",
+            commandId: CommandId.makeUnsafe("cmd-play-stop-recover"),
+            threadId,
+            turnId,
+            interruptedTurnId: turnId,
+            recoveryMessageId: asMessageId("msg-play-stop-recovery"),
+            connectionId: null,
+            bindingRevision: 0,
+            createdAt: stoppedAt,
+          }),
+        ),
+      ).resolves.toMatchObject({ sequence: expect.any(Number) });
+    } finally {
+      await system.dispose();
+    }
+  });
+
   it.each(["queued message", "pending approval"] as const)(
     "rejects Play through the engine with a persisted %s",
     async (blocker) => {
