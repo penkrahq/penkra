@@ -24,7 +24,6 @@ import { DesktopWindowControls } from "../components/DesktopWindowControls";
 import { DesktopActiveWorkPowerSync } from "../components/DesktopActiveWorkPowerSync";
 import { DesktopThreadApiBridge } from "../components/DesktopThreadApiBridge";
 import { DesktopOnboardingGate } from "../components/onboarding/DesktopOnboardingGate";
-import { QueuedComposerTurnDispatcher } from "../components/QueuedComposerTurnDispatcher";
 import { FeedbackDialog } from "../components/FeedbackDialog";
 import { SETTINGS_TARGETS } from "../settingsNavigation";
 import ShortcutsDialog from "../components/ShortcutsDialog";
@@ -234,7 +233,6 @@ function RootRouteView() {
               <TaskCompletionNotifications />
               <ProviderUpdateNotifications />
               <ConnectionDefaultsMigration />
-              <QueuedComposerTurnDispatcher />
               <Outlet />
             </AnchoredToastProvider>
           </VoiceSessionCoordinatorProvider>

@@ -170,7 +170,6 @@ export interface ComposerThreadDraftState {
   queuedTurns: QueuedComposerTurn[];
   pendingStartRecoveriesByMessageId?: Partial<Record<MessageId, PendingStartRecoveryRecord>>;
   pendingMessageEdit: PendingMessageEdit | null;
-  queuePaused: boolean;
   modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
   activeProvider: ProviderKind | null;
   runtimeMode: RuntimeMode | null;
@@ -333,7 +332,6 @@ export interface ComposerDraftStoreState {
   ) => void;
   advanceQueuedTurnDispatchAttempt: (threadId: ThreadId, queuedTurnId: string) => void;
   removeQueuedTurn: (threadId: ThreadId, queuedTurnId: string) => void;
-  setQueuePaused: (threadId: ThreadId, paused: boolean) => void;
   addImage: (threadId: ThreadId, image: ComposerImageAttachment) => void;
   addImages: (threadId: ThreadId, images: ComposerImageAttachment[]) => void;
   removeImage: (threadId: ThreadId, imageId: string) => void;
@@ -504,7 +502,6 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
     queuedTurns: [],
     pendingStartRecoveriesByMessageId: {},
     pendingMessageEdit: null,
-    queuePaused: false,
     modelSelectionByProvider: {},
     activeProvider: null,
     runtimeMode: null,
@@ -799,7 +796,6 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.queuedTurns.length === 0 &&
     Object.keys(draft.pendingStartRecoveriesByMessageId ?? {}).length === 0 &&
     draft.pendingMessageEdit === null &&
-    !draft.queuePaused &&
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
     draft.runtimeMode === null
@@ -850,7 +846,6 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   queuedTurns: EMPTY_QUEUED_TURNS,
   pendingStartRecoveriesByMessageId: {},
   pendingMessageEdit: null,
-  queuePaused: false,
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
   activeProvider: null,
   runtimeMode: null,

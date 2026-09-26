@@ -85,6 +85,24 @@ describe("store event reducer", () => {
         { sequence: 3 },
       ),
       makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "user",
+          text: "edited shared queued prompt",
+          attachments: [],
+          dispatchMode: "queue",
+          delivery: { state: "queued", queued: true },
+          turnId: null,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-26T12:00:00.000Z",
+          updatedAt: "2026-09-26T12:00:03.000Z",
+        },
+        { sequence: 4 },
+      ),
+      makeDomainEvent(
         "thread.turn-start-cancelled",
         {
           threadId,
@@ -92,25 +110,26 @@ describe("store event reducer", () => {
           turnId: TurnId.makeUnsafe("turn-shared-queue"),
           cancelledAt: "2026-09-26T12:00:02.000Z",
         },
-        { sequence: 4 },
+        { sequence: 5 },
       ),
     ];
 
-    const rendererA = applyOrchestrationEvents(initial, admittedEvents.slice(0, 3));
-    const rendererB = applyOrchestrationEvents(initial, admittedEvents.slice(0, 3));
+    const rendererA = applyOrchestrationEvents(initial, admittedEvents.slice(0, 4));
+    const rendererB = applyOrchestrationEvents(initial, admittedEvents.slice(0, 4));
     const threadA = threadsOf(rendererA)[0]!;
     const threadB = threadsOf(rendererB)[0]!;
 
     expect(threadA.queuedMessageIds).toEqual([messageId]);
     expect(threadB.queuedMessageIds).toEqual(threadA.queuedMessageIds);
     expect(threadB.messages).toEqual(threadA.messages);
+    expect(threadA.messages[0]?.text).toBe("edited shared queued prompt");
     expect(threadA.modelSelection).toEqual({ provider: "opencode", model: "openai/gpt-5.6" });
     expect(threadB.modelSelection).toEqual(threadA.modelSelection);
     expect(threadA.connectionId).toBe("connection-shared");
     expect(threadB.connectionId).toBe(threadA.connectionId);
 
-    const removedA = applyOrchestrationEvents(rendererA, [admittedEvents[3]!]);
-    const removedB = applyOrchestrationEvents(rendererB, [admittedEvents[3]!]);
+    const removedA = applyOrchestrationEvents(rendererA, [admittedEvents[4]!]);
+    const removedB = applyOrchestrationEvents(rendererB, [admittedEvents[4]!]);
     expect(threadsOf(removedA)[0]?.queuedMessageIds).toEqual([]);
     expect(threadsOf(removedB)[0]?.queuedMessageIds).toEqual([]);
     expect(threadsOf(removedB)[0]?.messages).toEqual(threadsOf(removedA)[0]?.messages);

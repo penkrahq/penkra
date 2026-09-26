@@ -19,6 +19,8 @@ function deckStates(deckId: string): ReadonlyArray<AppThreadState> {
   const deck = state.decks.find((candidate) => candidate.id === deckId);
   if (!deck) return [];
   const drafts = useComposerDraftStore.getState().draftsByThreadId;
+  const queuedCountForThread = (threadId: ThreadId) =>
+    state.threadTurnStateById?.[threadId]?.queuedMessageIds?.length ?? 0;
   return deck.threadIds.flatMap((threadId) => {
     const shell = state.threadShellById?.[threadId];
     if (!shell) return [];
@@ -28,7 +30,7 @@ function deckStates(deckId: string): ReadonlyArray<AppThreadState> {
       deriveUnmountedThreadLiveState(
         threadId,
         state.sidebarThreadSummaryById[threadId],
-        draft?.queuedTurns.length ?? 0,
+        queuedCountForThread(threadId),
       );
     const hasDraft =
       !!draft &&
@@ -62,7 +64,7 @@ function deckStates(deckId: string): ReadonlyArray<AppThreadState> {
           composeId: null,
         },
         queued: {
-          count: live?.queuedCount ?? draft?.queuedTurns.length ?? 0,
+          count: live?.queuedCount ?? queuedCountForThread(threadId),
           hasAppSubmission: false,
         },
         steering: { pending: live?.steeringPending ?? false, hasAppSubmission: false },

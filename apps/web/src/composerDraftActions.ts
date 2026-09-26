@@ -1163,17 +1163,7 @@ export const createComposerDraftStoreState =
           current.mentions.length > 0;
         const queuedTurns = [...current.queuedTurns];
         if (hasNewerComposerContent) {
-          if (queuedTurnIndex >= 0) queuedTurns[queuedTurnIndex] = localTurn;
-          else queuedTurns.push(localTurn);
-          return {
-            draftsByThreadId: {
-              ...state.draftsByThreadId,
-              // This is cancellation recovery, not a retry request. Keep the
-              // recovered row editable but outside the automatic drain until
-              // the user explicitly chooses what to do with it.
-              [threadId]: { ...current, queuedTurns, queuePaused: true },
-            },
-          };
+          return state;
         }
         if (queuedTurnIndex >= 0) queuedTurns.splice(queuedTurnIndex, 1);
         restored = true;
@@ -1338,7 +1328,6 @@ export const createComposerDraftStoreState =
           nextDraft = {
             ...current,
             queuedTurns,
-            queuePaused: true,
             pendingStartRecoveriesByMessageId: {
               ...(current.pendingStartRecoveriesByMessageId ?? {}),
               [messageId]: {
@@ -1651,28 +1640,6 @@ export const createComposerDraftStoreState =
         const nextDraft: ComposerThreadDraftState = {
           ...current,
           queuedTurns: current.queuedTurns.filter((entry) => entry.id !== queuedTurnId),
-        };
-        const nextDraftsByThreadId = { ...state.draftsByThreadId };
-        if (shouldRemoveDraft(nextDraft)) {
-          delete nextDraftsByThreadId[threadId];
-        } else {
-          nextDraftsByThreadId[threadId] = nextDraft;
-        }
-        return { draftsByThreadId: nextDraftsByThreadId };
-      });
-    },
-    setQueuePaused: (threadId, paused) => {
-      if (threadId.length === 0) {
-        return;
-      }
-      set((state) => {
-        const current = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
-        if (current.queuePaused === paused) {
-          return state;
-        }
-        const nextDraft: ComposerThreadDraftState = {
-          ...current,
-          queuePaused: paused,
         };
         const nextDraftsByThreadId = { ...state.draftsByThreadId };
         if (shouldRemoveDraft(nextDraft)) {
