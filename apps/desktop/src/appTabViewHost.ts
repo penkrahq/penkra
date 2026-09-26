@@ -295,8 +295,17 @@ export function detachedHostPlatformPolicy(input: {
 export function hasRegisteredShellWindow<T extends { webContents: { id: number } }>(
   windows: ReadonlyArray<T>,
   windowByRendererId: (rendererId: number) => T | null,
+  detachedHosts: ReadonlySet<T> = new Set(),
 ): boolean {
-  return windows.some((window) => windowByRendererId(window.webContents.id) === window);
+  return windows.some(
+    (window) => !detachedHosts.has(window) && windowByRendererId(window.webContents.id) === window,
+  );
+}
+
+export function setDetachedHostMousePassthrough(window: {
+  setIgnoreMouseEvents(ignore: boolean): void;
+}): void {
+  window.setIgnoreMouseEvents(true);
 }
 
 let appTabHostTraceSequence = 0;
@@ -394,7 +403,12 @@ export class AppTabViewHost implements AppTabHost {
     this.#windowById = input.windowById;
     this.#hasShellWindow =
       input.hasShellWindow ??
-      (() => hasRegisteredShellWindow(BrowserWindow.getAllWindows(), this.#windowById));
+      (() =>
+        hasRegisteredShellWindow(
+          BrowserWindow.getAllWindows(),
+          this.#windowById,
+          new Set(this.#detachedHostByWebContentsId.values()),
+        ));
     const platform = input.platform ?? process.platform;
     this.#detachedHostPolicy = detachedHostPlatformPolicy({
       platform,
@@ -2434,7 +2448,7 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   #showDetachedHost(host: BrowserWindow): void {
-    host.setIgnoreMouseEvents(true);
+    setDetachedHostMousePassthrough(host);
     if (this.#detachedHostPolicy.visibleHost && !host.isVisible()) host.showInactive();
     host.setOpacity(0);
   }
