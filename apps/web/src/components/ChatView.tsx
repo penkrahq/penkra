@@ -110,6 +110,7 @@ import {
   recordChatScrollDiagnostic,
 } from "../chatScrollDiagnostics";
 import {
+  recordChatComposerContinueDiagnostic,
   recordChatLifecycleDiagnostic,
   recordChatLifecycleUiDiagnostic,
 } from "../chatLifecycleDiagnostics";
@@ -3998,6 +3999,61 @@ export default function ChatView({
     connecting: isConnecting,
     hasSendableContent: composerSendState.hasSendableContent,
   });
+  const unresolvedContinueInteractionCount =
+    activeThread?.pendingInteractions?.filter((interaction) => interaction.resolvedAt === null)
+      .length ?? 0;
+  const continueHiddenForTurn =
+    activeLatestTurnId !== null && activeLatestTurnId === hiddenContinueTurnId;
+  useEffect(() => {
+    if (activeThreadId === null) return;
+    recordChatComposerContinueDiagnostic({
+      threadId: activeThreadId,
+      turnId: activeLatestTurnId,
+      turnState: activeLatestTurn?.state ?? null,
+      sessionStatus: activeThread?.session?.status ?? null,
+      orchestrationStatus: activeThread?.session?.orchestrationStatus ?? null,
+      activeTurnId: activeSessionTurnId,
+      isServerThread,
+      hydration: threadDetailHydration,
+      bindingModelAvailable: bindingForContinue?.modelId != null,
+      archived: activeThread?.archivedAt != null,
+      queuedMessageCount: activeThread?.queuedMessageIds?.length ?? 0,
+      pendingTurnStart: activeThread?.pendingTurnStartMessageId != null,
+      pendingInteractionCount: unresolvedContinueInteractionCount,
+      hasPendingApprovals: activeThread?.hasPendingApprovals === true,
+      hasPendingUserInput: activeThread?.hasPendingUserInput === true,
+      hiddenTurn: continueHiddenForTurn,
+      continueInFlight: continueInFlight !== null,
+      sendBusy: isSendBusy,
+      sendPreflight: hasSendPreflight,
+      connecting: isConnecting,
+      hasSendableContent: composerSendState.hasSendableContent,
+      canShowContinue,
+    });
+  }, [
+    activeLatestTurn?.state,
+    activeLatestTurnId,
+    activeSessionTurnId,
+    activeThread?.archivedAt,
+    activeThread?.hasPendingApprovals,
+    activeThread?.hasPendingUserInput,
+    activeThread?.pendingTurnStartMessageId,
+    activeThread?.queuedMessageIds?.length,
+    activeThread?.session?.orchestrationStatus,
+    activeThread?.session?.status,
+    activeThreadId,
+    bindingForContinue?.modelId,
+    canShowContinue,
+    composerSendState.hasSendableContent,
+    continueHiddenForTurn,
+    continueInFlight,
+    hasSendPreflight,
+    isConnecting,
+    isSendBusy,
+    isServerThread,
+    threadDetailHydration,
+    unresolvedContinueInteractionCount,
+  ]);
   const onContinue = useCallback(async () => {
     if (!canShowContinue || !activeThread || !activeLatestTurn || !bindingForContinue) return;
     if (continueInFlightRef.current) return;
