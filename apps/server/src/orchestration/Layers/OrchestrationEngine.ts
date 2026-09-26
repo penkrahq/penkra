@@ -24,7 +24,6 @@ import {
   Stream,
 } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { CONTINUE_THREAD_CHANGED_INVARIANT_MARKER } from "@penkra/shared/errorMessages";
 
 import { ServerConfig } from "../../config.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../../persistence/Errors.ts";
@@ -566,6 +565,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       case "thread.conversation.rollback":
       case "thread.message.edit-and-resend":
       case "thread.message.assistant.complete":
+      case "thread.turn.recover":
         return loadThreadDetailForDecider(command, commandReadModel, command.threadId);
       default:
         return Effect.succeed(commandReadModel);
@@ -834,7 +834,8 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           ) {
             return yield* new OrchestrationCommandInvariantError({
               commandType: command.type,
-              detail: CONTINUE_THREAD_CHANGED_INVARIANT_MARKER,
+              detail: "Thread changed before continuation.",
+              code: "THREAD_CONTINUE_STALE",
             });
           }
         }

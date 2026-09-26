@@ -106,7 +106,7 @@ import { bufferLiveUiStream, type LiveUiStreamDropReport } from "./wsStreamBackp
 import { makeDurableOrchestrationStream } from "./wsDurableOrchestrationStream";
 import { makeCursorSafeSnapshotLiveStream } from "./wsSnapshotLiveStream";
 import { makeSyncAcknowledgements } from "./wsSyncAcknowledgements";
-import { bindingRevisionErrorCode } from "./wsRpcErrorMapping";
+import { wsRpcErrorCode } from "./wsRpcErrorMapping";
 
 const MAX_DIAGNOSTIC_CHILD_PROCESSES = 80;
 const MAX_DIAGNOSTIC_ARGS_CHARS = 500;
@@ -214,7 +214,7 @@ function readDescendantProcesses(rootPid: number): Promise<ProcessTableRow[]> {
 }
 
 function toWsRpcError(cause: unknown, fallbackMessage: string) {
-  const code = bindingRevisionErrorCode(cause);
+  const code = wsRpcErrorCode(cause);
   return Schema.is(WsRpcError)(cause)
     ? cause
     : new WsRpcError({

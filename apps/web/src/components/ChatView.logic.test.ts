@@ -100,7 +100,9 @@ describe("composer Continue eligibility", () => {
       { queuedMessageIds: ["queued"] },
       { hasPendingApprovals: true },
       { hasPendingUserInput: true },
+      { pendingTurnStartMessageId: "pending-start" },
       { archivedAt: "2026-09-26T00:00:00.000Z" },
+      { deletedAt: "2026-09-26T00:00:00.000Z" },
     ]) {
       expect(
         shouldShowComposerContinue({ ...baseline, thread: { ...thread, ...change } as Thread }),

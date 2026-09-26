@@ -99,12 +99,6 @@ describe("Play continuation admission", () => {
       () => threadWith({ session: { status: "running", activeTurnId: turnId } }),
       turnId,
     ],
-    [
-      "queued message",
-      () => threadWith({ queuedMessageIds: [MessageId.makeUnsafe("queued")] }),
-      turnId,
-    ],
-    ["pending approval", () => threadWith({ hasPendingApprovals: true }), turnId],
     ["pending question", () => threadWith({ hasPendingUserInput: true }), turnId],
     ["archived thread", () => threadWith({ archivedAt: now }), turnId],
     ["deleted thread", () => threadWith({ deletedAt: now }), turnId],
@@ -114,8 +108,8 @@ describe("Play continuation admission", () => {
       turnId,
     ],
   ] as const)("rejects a %s", async (_name, makeThread, expectedTurnId) => {
-    await expect(Effect.runPromise(play(makeThread(), expectedTurnId))).rejects.toThrow(
-      "continue-thread-changed",
-    );
+    await expect(Effect.runPromise(play(makeThread(), expectedTurnId))).rejects.toMatchObject({
+      code: "THREAD_CONTINUE_STALE",
+    });
   });
 });

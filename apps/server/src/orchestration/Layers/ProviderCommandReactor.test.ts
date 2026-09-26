@@ -102,7 +102,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
-import { RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
+import { PLAY_TURN_RECOVERY_PROMPT, RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
 
 const TEST_CONNECTION_ID = ProviderConnectionId.makeUnsafe("test-managed-connection");
 const TEST_INSTALLATION_ID = ProviderInstallationId.makeUnsafe("test-managed-installation");
@@ -457,12 +457,12 @@ describe("ProviderCommandReactor", () => {
       streamEvents: Stream.fromPubSub(runtimeEventPubSub),
     };
 
-    const orchestrationLayer = OrchestrationEngineLive.pipe(
-      Layer.provide(OrchestrationProjectionPipelineLive),
-      Layer.provide(OrchestrationProjectionSnapshotQueryLive),
-      Layer.provide(OrchestrationEventStoreLive),
-      Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-    );
+    const resolvedBindingSelections: Array<{
+      readonly threadId: ThreadId;
+      readonly modelSelection?: ModelSelection;
+      readonly connectionId?: ProviderConnectionId | null;
+      readonly bindingRevision?: number;
+    }> = [];
     const managedBindingLayer = Layer.mergeAll(
       Layer.succeed(ProviderTurnSelectionResolver, {
         resolveNewThreadConnection: () => Effect.succeed(TEST_CONNECTION_ID),
@@ -472,8 +472,9 @@ describe("ProviderCommandReactor", () => {
           readonly modelSelection?: ModelSelection;
           readonly connectionId?: ProviderConnectionId | null;
           readonly bindingRevision?: number;
-        }) =>
-          Effect.succeed({
+        }) => {
+          resolvedBindingSelections.push(selection);
+          return Effect.succeed({
             threadId: selection.threadId,
             harness: selection.modelSelection?.provider ?? modelSelection.provider,
             connectionId: selection.connectionId ?? TEST_CONNECTION_ID,
@@ -487,7 +488,8 @@ describe("ProviderCommandReactor", () => {
             stateRevision: 0,
             bindingRevision: selection.bindingRevision ?? 0,
             changed: false,
-          }),
+          });
+        },
       } as never),
       Layer.succeed(ProviderLaunchResolver, {
         resolveProfile: () => Effect.die("not used"),
@@ -532,6 +534,13 @@ describe("ProviderCommandReactor", () => {
             }),
           ),
       } as never),
+    );
+    const orchestrationLayer = OrchestrationEngineLive.pipe(
+      Layer.provide(OrchestrationProjectionPipelineLive),
+      Layer.provide(OrchestrationProjectionSnapshotQueryLive),
+      Layer.provide(OrchestrationEventStoreLive),
+      Layer.provide(OrchestrationCommandReceiptRepositoryLive),
+      Layer.provideMerge(managedBindingLayer),
     );
     const switchCoordinatorLayer = Layer.effect(
       ProviderThreadSwitchCoordinator,
@@ -700,6 +709,7 @@ describe("ProviderCommandReactor", () => {
 
     return {
       engine,
+      resolvedBindingSelections,
       reactor,
       startSession,
       sendTurn,
@@ -1185,6 +1195,95 @@ describe("ProviderCommandReactor", () => {
       activeTurnId: "turn-1",
     });
   });
+
+  it.each(["dispatch", "live race"] as const)(
+    "handles Play recovery at the provider for %s",
+    async (scenario) => {
+      const harness = await createHarness({
+        threadModelSelection: { provider: "codex", model: "gpt-5-codex" },
+      });
+      const threadId = ThreadId.makeUnsafe("thread-1");
+      const turnId = asTurnId("turn-before-play");
+      const recoveryMessageId = asMessageId(`play-recovery-${scenario}`);
+      const createdAt = new Date().toISOString();
+      for (const [status, activeTurnId] of [
+        ["running", turnId],
+        ["stopped", null],
+      ] as const) {
+        await Effect.runPromise(
+          harness.engine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.makeUnsafe(`cmd-play-${scenario}-${status}`),
+            threadId,
+            session: {
+              threadId,
+              status,
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId,
+              lastError: null,
+              updatedAt: createdAt,
+            },
+            createdAt,
+          }),
+        );
+      }
+      if (scenario === "live race") {
+        harness.setRuntimeSessionTurnState({
+          threadId,
+          status: "running",
+          activeTurnId: asTurnId("provider-live-turn"),
+        });
+      }
+      const commandId = CommandId.makeUnsafe(`cmd-play-${scenario}`);
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.recover",
+          reason: "play",
+          commandId,
+          threadId,
+          turnId,
+          interruptedTurnId: turnId,
+          recoveryMessageId,
+          connectionId: TEST_CONNECTION_ID,
+          bindingRevision: 0,
+          createdAt,
+        }),
+      );
+      await harness.drain();
+      if (scenario === "dispatch") {
+        expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+        expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+          threadId,
+          clientMessageId: recoveryMessageId,
+          input: PLAY_TURN_RECOVERY_PROMPT,
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        });
+        expect(harness.resolvedBindingSelections).toContainEqual(
+          expect.objectContaining({
+            threadId,
+            connectionId: TEST_CONNECTION_ID,
+            bindingRevision: 0,
+          }),
+        );
+      } else {
+        expect(harness.sendTurn).not.toHaveBeenCalled();
+        const thread = await readHarnessThread(harness);
+        expect(thread?.latestTurn).toMatchObject({ turnId, state: "error" });
+        expect(thread?.session?.lastError).toBe("Couldn't continue this turn.");
+        expect(thread?.activities).toContainEqual(
+          expect.objectContaining({
+            kind: "provider.turn.start.failed",
+            payload: expect.objectContaining({ responseCommandId: commandId }),
+          }),
+        );
+        const markers = await Effect.runPromise(harness.sql<{ threadId: string }>`
+          SELECT thread_id AS "threadId" FROM restart_turn_recoveries WHERE thread_id = ${threadId}
+        `);
+        expect(markers).toHaveLength(0);
+      }
+    },
+  );
 
   it("REL-01B gate: delivers intents committed before the reactor subscribes", async () => {
     const harness = await createHarness({ startReactor: false });
