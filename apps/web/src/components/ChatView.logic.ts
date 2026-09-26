@@ -10,6 +10,7 @@ import {
 } from "@penkra/contracts";
 import { isGenericChatThreadTitle } from "@penkra/shared/chatThreads";
 import { isGenericTerminalThreadTitle } from "@penkra/shared/terminalThreads";
+import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
 import {
   type ChatMessage,
   type SessionPhase,
@@ -338,6 +339,35 @@ export function resolveCycledModelSlug(input: {
 }
 
 export type ThreadDetailHydration = "ready" | "loading" | "failed";
+
+export function shouldShowComposerContinue(input: {
+  readonly thread: Thread | undefined;
+  readonly isServerThread: boolean;
+  readonly hydration: ThreadDetailHydration;
+  readonly binding: { readonly modelId: string | null } | null | undefined;
+  readonly hiddenTurnId: string | null;
+  readonly continueInFlight: boolean;
+  readonly sendBusy: boolean;
+  readonly sendPreflight: boolean;
+  readonly connecting: boolean;
+  readonly hasSendableContent: boolean;
+}): boolean {
+  const turnId = input.thread?.latestTurn?.turnId;
+  return (
+    input.isServerThread &&
+    input.hydration === "ready" &&
+    input.thread !== undefined &&
+    turnId !== undefined &&
+    turnId !== input.hiddenTurnId &&
+    input.binding?.modelId != null &&
+    !input.continueInFlight &&
+    !input.sendBusy &&
+    !input.sendPreflight &&
+    !input.connecting &&
+    !input.hasSendableContent &&
+    canContinueLatestTurn(input.thread, turnId)
+  );
+}
 
 /**
  * Visible chat activity follows admitted or active work, not provider transport
