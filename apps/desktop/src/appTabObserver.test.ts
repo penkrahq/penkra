@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import { AppTabObserver } from "./appTabObserver";
+import {
+  APP_TAB_CLICK_HIT_TEST_DECLARATION,
+  AppTabObserver,
+  appTabComposedContains,
+  appTabElementAtPoint,
+} from "./appTabObserver";
 
 const descriptor: DesktopAppTabDescriptor = {
   id: "tab-1",
@@ -26,7 +31,15 @@ function makeContents(contentsId = 12) {
   let loaderId = "loader-1";
   const listeners = new Map<string, () => void>();
   const listenerSets = new Map<string, Set<() => void>>();
-  const debuggerListeners = new Map<string, (...args: unknown[]) => void>();
+  const debuggerListeners = new Map<string, Set<(...args: unknown[]) => void>>();
+  const mainWorldContextId = contentsId;
+  let isolatedWorldContextId = contentsId * 10;
+  let clickBinding: string | null = null;
+  let clickWillDeliver = true;
+  let clickPageForgery = false;
+  let pageClickBehavior: "stop-immediate" | "synthetic" | null = null;
+  let pageActivationCount = 0;
+  let hitFrameId = `frame-${contentsId}`;
   const sendCommand = vi.fn(
     async (method: string, _params?: Record<string, unknown>): Promise<unknown> => {
       if (method === "Page.getFrameTree") {
@@ -34,7 +47,10 @@ function makeContents(contentsId = 12) {
       }
       if (method === "Page.addScriptToEvaluateOnNewDocument")
         return { identifier: `cursor-script-${contentsId}` };
-      if (method === "Page.createIsolatedWorld") return { executionContextId: contentsId * 10 };
+      if (method === "Page.createIsolatedWorld")
+        return { executionContextId: isolatedWorldContextId };
+      if (method === "DOM.describeNode") return { node: { backendNodeId: 7 } };
+      if (method === "DOM.getNodeForLocation") return { frameId: hitFrameId };
       if (method === "Accessibility.getFullAXTree") {
         return {
           nodes: [
@@ -57,6 +73,48 @@ function makeContents(contentsId = 12) {
       if (method === "DOM.getBoxModel") {
         return { model: { content: [0, 0, 100, 0, 100, 40, 0, 40] } };
       }
+      if (method === "Runtime.addBinding") clickBinding = String(_params?.name);
+      if (method === "Runtime.resolveNode" || method === "DOM.resolveNode")
+        return { object: { objectId: "button-object" } };
+      if (method === "Runtime.callFunctionOn") {
+        return { result: { value: true } };
+      }
+      if (
+        method === "Input.dispatchMouseEvent" &&
+        _params?.type === "mouseReleased" &&
+        clickBinding
+      ) {
+        if (pageClickBehavior === "stop-immediate") {
+          // An earlier page window-capture listener handles the action and blocks
+          // the observer's later listener on the same EventTarget.
+          pageActivationCount += 1;
+          return {};
+        }
+        for (const listener of debuggerListeners.get("message") ?? []) {
+          if (clickPageForgery) {
+            // Page script calling the binding itself runs in the main world, so the
+            // notification carries the page's execution context, not the host's.
+            listener({}, "Runtime.bindingCalled", {
+              name: clickBinding,
+              payload: "trusted",
+              executionContextId: mainWorldContextId,
+            });
+          } else if (clickWillDeliver) {
+            listener({}, "Runtime.bindingCalled", {
+              name: clickBinding,
+              payload: "trusted",
+              executionContextId: isolatedWorldContextId,
+            });
+            if (pageClickBehavior === "synthetic") {
+              listener({}, "Runtime.bindingCalled", {
+                name: clickBinding,
+                payload: "untrusted",
+                executionContextId: isolatedWorldContextId,
+              });
+            }
+          }
+        }
+      }
       return {};
     },
   );
@@ -64,10 +122,13 @@ function makeContents(contentsId = 12) {
     isAttached: () => true,
     attach: vi.fn(),
     sendCommand,
-    on: (event: string, listener: (...args: unknown[]) => void) =>
-      debuggerListeners.set(event, listener),
+    on: (event: string, listener: (...args: unknown[]) => void) => {
+      const listeners = debuggerListeners.get(event) ?? new Set();
+      listeners.add(listener);
+      debuggerListeners.set(event, listeners);
+    },
     removeListener: (event: string, listener: (...args: unknown[]) => void) => {
-      if (debuggerListeners.get(event) === listener) debuggerListeners.delete(event);
+      debuggerListeners.get(event)?.delete(listener);
     },
   };
   const contents = {
@@ -113,20 +174,115 @@ function makeContents(contentsId = 12) {
   } as unknown as WebContents;
   return {
     contents,
+    setClickWillDeliver: (value: boolean) => {
+      clickWillDeliver = value;
+    },
+    setClickPageForgery: (value: boolean) => {
+      clickPageForgery = value;
+    },
+    setPageClickBehavior: (value: "stop-immediate" | "synthetic") => {
+      pageClickBehavior = value;
+    },
+    pageActivationCount: () => pageActivationCount,
+    setHitFrameId: (value: string) => {
+      hitFrameId = value;
+    },
+    setIsolatedWorldContextId: (value: number) => {
+      isolatedWorldContextId = value;
+    },
     listeners,
     listenerCount: (event: string) => listenerSets.get(event)?.size ?? 0,
     sendCommand,
     setLoaderId: (value: string) => {
       loaderId = value;
     },
-    emitDebugger: (method: string, params: Record<string, unknown>, sessionId?: string) =>
-      debuggerListeners.get("message")?.({}, method, params, sessionId),
-    emitDebuggerDetach: () => debuggerListeners.get("detach")?.({}, "target closed"),
+    emitDebugger: (method: string, params: Record<string, unknown>, sessionId?: string) => {
+      for (const listener of debuggerListeners.get("message") ?? [])
+        listener({}, method, params, sessionId);
+    },
+    emitDebuggerDetach: () => {
+      for (const listener of debuggerListeners.get("detach") ?? []) listener({}, "target closed");
+    },
     emitDestroyed: () => {
       destroyed = true;
       for (const listener of [...(listenerSets.get("destroyed") ?? [])]) listener();
     },
   };
+}
+
+interface FakeShadowRoot {
+  elementFromPoint: (x: number, y: number) => FakeElement | null;
+  parentNode: null;
+  host: FakeElement;
+}
+
+interface FakeElement {
+  shadowRoot: FakeShadowRoot | null;
+  parentNode: FakeShadowRoot | FakeElement | null;
+  host?: FakeElement;
+  contains: (candidate: unknown) => boolean;
+  addEventListener: () => void;
+  removeEventListener: () => void;
+}
+
+function fakeElement(overrides: Partial<FakeElement> = {}): FakeElement {
+  return {
+    shadowRoot: null,
+    parentNode: null,
+    contains: () => false,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    ...overrides,
+  };
+}
+
+function fakeShadowRoot(host: FakeElement, hit: () => FakeElement | null): FakeShadowRoot {
+  return { elementFromPoint: hit, parentNode: null, host };
+}
+
+function runHitTestDeclaration(
+  declaration: string,
+  target: FakeElement,
+  doc: { elementFromPoint: (x: number, y: number) => FakeElement | null },
+): boolean {
+  const globals = globalThis as unknown as Record<string, unknown>;
+  const savedDocument = globals.document;
+  const savedWindow = globals.window;
+  const savedInnerWidth = globals.innerWidth;
+  const savedInnerHeight = globals.innerHeight;
+  globals.document = doc;
+  const windowListeners = new Set<(event: unknown) => void>();
+  globals.window = {
+    addEventListener: (_type: string, listener: (event: unknown) => void, capture: boolean) => {
+      if (capture) windowListeners.add(listener);
+    },
+    removeEventListener: (_type: string, listener: (event: unknown) => void) => {
+      windowListeners.delete(listener);
+    },
+  };
+  globals.innerWidth = 1000;
+  globals.innerHeight = 1000;
+  try {
+    const factory = new Function(`return (${declaration});`);
+    const probe = factory() as (
+      this: FakeElement,
+      x: number,
+      y: number,
+      binding: string,
+      cleanup: string,
+    ) => boolean;
+    const installed = probe.call(target, 5, 5, "__penkra_test_binding", "__penkra_test_cleanup");
+    (globals as Record<string, unknown>).__penkra_test_dispatch = (event: unknown) => {
+      for (const listener of windowListeners) listener(event);
+    };
+    return installed;
+  } finally {
+    delete globals.__penkra_test_cleanup;
+    globals.window = savedWindow;
+    globals.document = savedDocument;
+    globals.innerWidth = savedInnerWidth;
+    globals.innerHeight = savedInnerHeight;
+  }
 }
 
 describe("AppTabObserver", () => {
@@ -287,8 +443,9 @@ describe("AppTabObserver", () => {
   });
 
   it("installs the cursor overlay, glides, ripples, and highlights through CDP", async () => {
-    const { contents, sendCommand } = makeContents();
-    sendCommand.mockImplementation(async (method: string) => {
+    const { contents, sendCommand, emitDebugger } = makeContents();
+    let clickBinding: string | null = null;
+    sendCommand.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
       if (method === "Page.getFrameTree")
         return { frameTree: { frame: { id: "frame-12", loaderId: "loader-1" } } };
       if (method === "Page.addScriptToEvaluateOnNewDocument")
@@ -301,6 +458,14 @@ describe("AppTabObserver", () => {
       if (method === "DOM.getBoxModel")
         return { model: { content: [10, 10, 30, 10, 30, 30, 10, 30] } };
       if (method === "DOM.resolveNode") return { object: { objectId: "button-1" } };
+      if (method === "Runtime.addBinding") clickBinding = String(params?.name);
+      if (method === "Runtime.callFunctionOn") return { result: { value: true } };
+      if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased" && clickBinding)
+        emitDebugger("Runtime.bindingCalled", {
+          name: clickBinding,
+          payload: "trusted",
+          executionContextId: 120,
+        });
       return {};
     });
     const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
@@ -758,6 +923,243 @@ describe("AppTabObserver", () => {
     };
     expect(result.clicked).toBe(true);
     expect(result.observation.snapshot).toContain('- button "Save" [ref=d1:e1]');
+  });
+
+  it("does not claim an undispatched click succeeded", async () => {
+    const { contents, setClickWillDeliver } = makeContents();
+    setClickWillDeliver(false);
+    const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
+    await observer.snapshot("tab-1");
+    await expect(observer.click("tab-1", "d1:e1")).rejects.toMatchObject({
+      code: "CLICK_NOT_DELIVERED",
+      message: expect.stringContaining("Present the tab"),
+    });
+  });
+
+  it("observes a trusted click at window capture before an ancestor stops propagation", () => {
+    const button = fakeElement();
+    const received: string[] = [];
+    const globals = globalThis as unknown as Record<string, unknown>;
+    globals.__penkra_test_binding = (value: string) => received.push(value);
+    const doc = { elementFromPoint: () => button };
+    try {
+      expect(runHitTestDeclaration(APP_TAB_CLICK_HIT_TEST_DECLARATION, button, doc)).toBe(true);
+      const event = {
+        target: button,
+        isTrusted: true,
+        composedPath: () => [button, {}, globals.window],
+      };
+      (globals.__penkra_test_dispatch as (event: unknown) => void)(event);
+      // A page capture listener runs after window capture and may stop propagation;
+      // it cannot prevent the observation already made at window capture.
+      const stopPropagation = vi.fn();
+      stopPropagation();
+      expect(received).toEqual(["trusted"]);
+    } finally {
+      delete globals.__penkra_test_binding;
+      delete globals.__penkra_test_dispatch;
+    }
+  });
+
+  it("does not reactivate when an earlier window capture listener stops immediate propagation", async () => {
+    const { contents, pageActivationCount, setPageClickBehavior } = makeContents();
+    setPageClickBehavior("stop-immediate");
+    const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
+    await observer.snapshot("tab-1");
+    await expect(observer.click("tab-1", "d1:e1")).rejects.toMatchObject({
+      code: "CLICK_NOT_DELIVERED",
+    });
+    expect(pageActivationCount()).toBe(1);
+  });
+
+  it("keeps the original pointer delivery when page code dispatches a synthetic click", () => {
+    const button = fakeElement();
+    const received: string[] = [];
+    const globals = globalThis as unknown as Record<string, unknown>;
+    globals.__penkra_test_binding = (value: string) => received.push(value);
+    const doc = { elementFromPoint: () => button };
+    try {
+      expect(runHitTestDeclaration(APP_TAB_CLICK_HIT_TEST_DECLARATION, button, doc)).toBe(true);
+      const dispatch = globals.__penkra_test_dispatch as (event: unknown) => void;
+      const event = (isTrusted: boolean) => ({
+        target: button,
+        isTrusted,
+        composedPath: () => [button, {}, globals.window],
+      });
+      dispatch(event(true));
+      // The page handles the original after window capture and dispatches a
+      // synthetic click. It is ignored; the original delivery remains confirmed.
+      dispatch(event(false));
+      expect(received).toEqual(["trusted"]);
+    } finally {
+      delete globals.__penkra_test_binding;
+      delete globals.__penkra_test_dispatch;
+    }
+  });
+
+  it("does not dispatch a second click when page capture converts the pointer click to synthetic", async () => {
+    const { contents, setPageClickBehavior } = makeContents();
+    setPageClickBehavior("synthetic");
+    const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
+    await observer.snapshot("tab-1");
+    await expect(observer.click("tab-1", "d1:e1")).resolves.toMatchObject({
+      clicked: true,
+      deliveryMethod: "cdp-pointer",
+      trusted: true,
+    });
+  });
+
+  it("uses the actual containing frame for an ordinary node inside a same-process iframe", async () => {
+    const { contents, sendCommand, setHitFrameId, setIsolatedWorldContextId } = makeContents();
+    setHitFrameId("child-frame");
+    setIsolatedWorldContextId(4242);
+    const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
+    await observer.snapshot("tab-1");
+    await observer.click("tab-1", "d1:e1");
+    expect(sendCommand).toHaveBeenCalledWith(
+      "DOM.getNodeForLocation",
+      expect.objectContaining({ x: 50, y: 20 }),
+    );
+    expect(sendCommand).toHaveBeenCalledWith(
+      "Page.createIsolatedWorld",
+      expect.objectContaining({ frameId: "child-frame" }),
+    );
+  });
+
+  it("ignores a page-forged binding call that pretends a click was delivered", async () => {
+    const { contents, sendCommand, setClickWillDeliver, setClickPageForgery } = makeContents();
+    setClickWillDeliver(false);
+    setClickPageForgery(true);
+    const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
+    await observer.snapshot("tab-1");
+    await expect(observer.click("tab-1", "d1:e1")).rejects.toMatchObject({
+      code: "CLICK_NOT_DELIVERED",
+    });
+    expect(sendCommand).toHaveBeenCalledWith(
+      "Runtime.addBinding",
+      expect.objectContaining({
+        executionContextName: expect.stringContaining("penkra-agent-click:"),
+      }),
+    );
+  });
+
+  it("returns an actionable error when pointer input cannot be confirmed for a detached tab", async () => {
+    const { contents, sendCommand, setClickWillDeliver } = makeContents();
+    setClickWillDeliver(false);
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents, isPresented: () => false }),
+    });
+    await observer.snapshot("tab-1");
+    await expect(observer.click("tab-1", "d1:e1")).rejects.toMatchObject({
+      code: "CLICK_NOT_DELIVERED",
+      message: expect.stringContaining("Present the tab in a visible window"),
+    });
+    expect(sendCommand.mock.calls.some((call) => String(call[1]).includes("target.click"))).toBe(
+      false,
+    );
+  });
+
+  it("rejects detached pointer input on platforms without a safe delivery path", async () => {
+    const { contents, sendCommand } = makeContents();
+    const observer = new AppTabObserver({
+      resolve: () => ({
+        descriptor,
+        webContents: contents,
+        isPresented: () => false,
+        canDeliverPointerInput: () => false,
+      }),
+    });
+    await observer.snapshot("tab-1");
+    await expect(observer.click("tab-1", "d1:e1")).rejects.toMatchObject({
+      code: "CLICK_NOT_DELIVERED",
+      message: expect.stringContaining("Present the tab in a window"),
+    });
+    expect(
+      sendCommand.mock.calls.some(([method]) => method === "Input.dispatchMouseEvent"),
+    ).toBe(false);
+  });
+
+  it("hit-tests through an open shadow root", () => {
+    const button = fakeElement();
+    const host = fakeElement();
+    const shadowRoot = fakeShadowRoot(host, () => button);
+    host.shadowRoot = shadowRoot;
+    button.parentNode = shadowRoot;
+    const doc = { elementFromPoint: () => host };
+
+    expect(appTabElementAtPoint(doc as unknown as Document, 5, 5)).toBe(button);
+    expect(appTabComposedContains(host as unknown as Node, button as unknown as Node)).toBe(true);
+    expect(appTabComposedContains(button as unknown as Node, host as unknown as Node)).toBe(false);
+    expect(runHitTestDeclaration(APP_TAB_CLICK_HIT_TEST_DECLARATION, button, doc)).toBe(true);
+  });
+
+  it("hit-tests through nested open shadow roots", () => {
+    const inner = fakeElement();
+    const host2 = fakeElement();
+    const shadowRoot2 = fakeShadowRoot(host2, () => inner);
+    host2.shadowRoot = shadowRoot2;
+    inner.parentNode = shadowRoot2;
+
+    const host1 = fakeElement();
+    const shadowRoot1 = fakeShadowRoot(host1, () => host2);
+    host1.shadowRoot = shadowRoot1;
+    host2.parentNode = shadowRoot1;
+
+    const doc = { elementFromPoint: () => host1 };
+
+    expect(appTabElementAtPoint(doc as unknown as Document, 5, 5)).toBe(inner);
+    expect(appTabComposedContains(host1 as unknown as Node, inner as unknown as Node)).toBe(true);
+    expect(appTabComposedContains(host2 as unknown as Node, inner as unknown as Node)).toBe(true);
+    expect(runHitTestDeclaration(APP_TAB_CLICK_HIT_TEST_DECLARATION, host2, doc)).toBe(true);
+    expect(runHitTestDeclaration(APP_TAB_CLICK_HIT_TEST_DECLARATION, inner, doc)).toBe(true);
+  });
+
+  it("rejects a point covered by an unrelated element", () => {
+    const target = fakeElement();
+    const cover = fakeElement();
+    const doc = { elementFromPoint: () => cover };
+
+    expect(runHitTestDeclaration(APP_TAB_CLICK_HIT_TEST_DECLARATION, target, doc)).toBe(false);
+  });
+
+  it("directs visual commands to present an undisplayed tab", async () => {
+    const { contents } = makeContents();
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents, isPresented: () => false }),
+    });
+    for (const action of [
+      () => observer.screenshot("tab-1"),
+      () => observer.record("tab-1", "d1", 20, "/unused.webm"),
+      () => observer.trace("tab-1", "d1", 20, "/unused.json"),
+    ]) {
+      await expect(action()).rejects.toMatchObject({
+        code: "SCREENSHOT_NEVER_PAINTED",
+        message: expect.stringContaining("Present the tab in a visible window"),
+      });
+    }
+    expect(contents.capturePage).not.toHaveBeenCalled();
+  });
+
+  it("rejects a trace that collected metadata but no visual frame", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "penkra-tab-trace-"));
+    try {
+      const outputPath = join(directory, "trace.json");
+      const { contents, emitDebugger } = makeContents();
+      const observer = new AppTabObserver({
+        resolve: () => ({ descriptor, webContents: contents, isPresented: () => true }),
+      });
+      const result = observer.trace("tab-1", "d1", 20, outputPath);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      emitDebugger("Tracing.dataCollected", { value: [{ name: "thread_name" }] });
+      emitDebugger("Tracing.tracingComplete", {});
+      await expect(result).rejects.toMatchObject({
+        code: "SCREENSHOT_NEVER_PAINTED",
+        message: expect.stringContaining("No visual frame events"),
+      });
+      await expect(readFile(outputPath)).rejects.toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("validates App-storage paths before assigning a file input", async () => {
