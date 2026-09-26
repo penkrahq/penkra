@@ -291,8 +291,16 @@ function reconcileLatestTurnFromSession(
           : null;
   if (
     settledState !== null &&
-    thread.latestTurn?.state === "running" &&
-    (session.activeTurnId == null || settledState === "error")
+    thread.latestTurn !== null &&
+    ((thread.latestTurn.state === "running" &&
+      (session.activeTurnId == null || settledState === "error")) ||
+      // The provider can finish an assistant message before reporting that a
+      // user Stop interrupted its turn. Message completion is provisional in
+      // that ordering; the terminal session state owns the outcome.
+      ((settledState === "interrupted" || settledState === "error") &&
+        thread.latestTurn.state === "completed" &&
+        isSessionRunningTurn(thread.session) &&
+        latestTurnMatchesTurnId(thread.latestTurn, thread.session.activeTurnId)))
   ) {
     return buildLatestTurn({
       previous: thread.latestTurn,

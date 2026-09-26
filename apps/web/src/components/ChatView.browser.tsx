@@ -3197,6 +3197,96 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("shows Play after Stop when the final assistant message arrives before the interrupted session", async () => {
+    const turnId = TurnId.makeUnsafe("turn-stop-after-assistant-complete");
+    const assistantMessageId = MessageId.makeUnsafe("assistant-stop-after-complete");
+    const startedAt = isoAt(20);
+    const completedAt = isoAt(22);
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("msg-stop-after-assistant-complete"),
+      targetText: "Finish the existing task",
+    });
+    const runningSnapshot = {
+      ...snapshot,
+      threads: snapshot.threads.map((thread) => ({
+        ...thread,
+        latestTurn: {
+          turnId,
+          state: "running" as const,
+          requestedAt: startedAt,
+          startedAt,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        session: thread.session && {
+          ...thread.session,
+          status: "running" as const,
+          activeTurnId: turnId,
+          updatedAt: startedAt,
+        },
+      })),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot: runningSnapshot });
+    try {
+      await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        "Stop did not appear for a running turn.",
+      );
+      useStore.getState().applyOrchestrationEvents([
+        makeDomainEvent(
+          "thread.turn-interrupt-requested",
+          {
+            threadId: THREAD_ID,
+            turnId,
+            createdAt: isoAt(21),
+          },
+          { sequence: 100 },
+        ),
+        makeDomainEvent(
+          "thread.message-sent",
+          {
+            threadId: THREAD_ID,
+            messageId: assistantMessageId,
+            role: "assistant",
+            text: "Partial reply",
+            turnId,
+            streaming: false,
+            source: "native",
+            createdAt: startedAt,
+            updatedAt: completedAt,
+            attachments: [],
+          },
+          { sequence: 101 },
+        ),
+        makeDomainEvent(
+          "thread.session-set",
+          {
+            threadId: THREAD_ID,
+            session: {
+              threadId: THREAD_ID,
+              status: "interrupted",
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: completedAt,
+            },
+          },
+          { sequence: 102 },
+        ),
+      ]);
+      await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
+        "Play did not appear after the interrupted terminal event.",
+      );
+      expect(getThreadFromState(useStore.getState(), THREAD_ID)?.latestTurn?.state).toBe(
+        "interrupted",
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("hides Play without a thread error after a stale continue rejection", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi({
       dispatchError: Object.assign(new Error("stale continue"), { code: "THREAD_CONTINUE_STALE" }),
