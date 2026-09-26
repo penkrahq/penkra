@@ -268,7 +268,7 @@ const dependencies = Layer.mergeAll(
           credentialRef: id === connectionId ? "provider-secret:selection" : null,
           profileRef:
             id === claudeConnectionId || id === codexConnectionId ? `provider-profile:${id}` : null,
-          providerIdentityId: null,
+          providerIdentityId: id === claudeConnectionId ? "alice@example.com" : null,
           health: connectionLifecycle === "active" ? "ready" : "unavailable",
           healthReason: null,
           lastCheckedAt: timestamp,
