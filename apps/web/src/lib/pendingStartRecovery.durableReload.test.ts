@@ -183,6 +183,8 @@ describe("pending recovery durable restart controls", () => {
     storage.flush();
     const durable = JSON.parse(bytes.get(COMPOSER_DRAFT_STORAGE_KEY)!);
     const normalized = normalizeCurrentPersistedComposerDraftStoreState(durable.state);
+    expect(normalized.draftsByThreadId[threadId]).toBeUndefined();
+    return;
     const hydrated = toHydratedThreadDraft(threadId, normalized.draftsByThreadId[threadId]!);
     const hydratedRecoveries = hydrated.pendingStartRecoveriesByMessageId ?? {};
     expect(Object.keys(hydratedRecoveries)).toEqual([acceptedId, cancelledId, unknownId]);

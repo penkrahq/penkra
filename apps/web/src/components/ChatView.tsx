@@ -5373,7 +5373,7 @@ export default function ChatView({
         .filter((message) => message.dispatchMode === "steer")
         .map((message) => message.id),
     );
-    const visibleLocalTurns = queuedComposerTurns.filter(
+    const visibleLocalTurns = (isServerThread ? [] : queuedComposerTurns).filter(
       (queuedTurn) =>
         !transcriptSteerMessageIds.has(queuedComposerTurnServerMessageId(queuedTurn)) &&
         !queuedComposerActionInFlightIds.has(queuedTurn.id) &&
@@ -5443,6 +5443,7 @@ export default function ChatView({
   }, [
     activeThread?.messages,
     activeThread?.queuedMessageIds,
+    isServerThread,
     providerOptionsForDispatch,
     queuedComposerActionInFlightIds,
     locallyOwnedQueuedActionMessageIds,
@@ -6471,15 +6472,6 @@ export default function ChatView({
       return false;
     }
     const followsDispatchingSend = getComposerDispatchedSendOwner(activeThread.id) !== null;
-    const shouldQueueCapturedSend =
-      !isServerThread &&
-      (queuedTurn === undefined || queuedTurn === null) &&
-      dispatchMode === "queue" &&
-      (phase === "connecting" ||
-        phase === "running" ||
-        isSendBusy ||
-        hasPendingTurnStart ||
-        followsDispatchingSend);
     if (activePendingProgress) {
       const activeQuestion = activePendingProgress.activeQuestion;
       const liveComposerSnapshot = composerEditorRef.current?.readSnapshot() ?? null;
@@ -6851,7 +6843,6 @@ export default function ChatView({
         assistantSelections: composerAssistantSelectionsForSend,
       });
     const setPreflightProjection = (images: readonly ComposerImageAttachment[]) => {
-      if (shouldQueueCapturedSend) return;
       const attachments = buildOptimisticAttachments(images);
       armTranscriptAutoFollow(activeThread.id);
       setComposerSendPreflightProjection(sendPreflightOwner, {
@@ -7028,71 +7019,6 @@ export default function ChatView({
       releaseSendPreflight({ restoreComposer: true });
       return false;
     }
-    if (shouldQueueCapturedSend) {
-      if (queuedTurn == null) window.desktopBridge?.threadHome?.send({ threadId: activeThread.id });
-      return runImmediatelyWithRelease(async () => {
-        const clearOwnership = resolveComposerClearOwnership(activeThread.id);
-        if (clearOwnership === "active") {
-          clearComposerInput(activeThread.id);
-        } else if (clearOwnership === "old-thread") {
-          clearComposerDraftContent(activeThread.id, {
-            preservePreviewUrls: true,
-          });
-        }
-        scheduleComposerFocus();
-        const queuedImagesForPersistence = await Promise.all(
-          composerImagesForSend.map(async (image) => {
-            try {
-              return {
-                ...image,
-                previewUrl: await readFileAsDataUrl(image.file),
-              };
-            } catch {
-              return image;
-            }
-          }),
-        );
-        if (!sendPreflightOwner.activeRunStopRequested) {
-          setComposerQueuePaused(activeThread.id, false);
-        }
-        enqueueQueuedComposerTurn(activeThread.id, {
-          id: randomUUID(),
-          kind: "chat",
-          createdAt: new Date().toISOString(),
-          previewText: buildQueuedComposerPreviewText({
-            trimmedPrompt: trimmed,
-            images: queuedImagesForPersistence,
-            files: composerFilesForSend,
-            assistantSelections: composerAssistantSelectionsForSend,
-            terminalContexts: sendableComposerTerminalContexts,
-            fileComments: composerFileCommentsForSend,
-            pastedTexts: sendableComposerPastedTexts,
-          }),
-          prompt: promptForSend,
-          images: queuedImagesForPersistence,
-          files: composerFilesForSend,
-          assistantSelections: composerAssistantSelectionsForSend,
-          fileComments: composerFileCommentsForSend,
-          terminalContexts: sendableComposerTerminalContexts,
-          pastedTexts: sendableComposerPastedTexts,
-          skills: selectedComposerSkillsForSend,
-          mentions: selectedComposerMentionsForSend,
-          selectedProvider: selectedProviderForSend,
-          selectedModel: selectedModelForSend,
-          selectedPromptEffort: selectedPromptEffortForSend,
-          modelSelection: selectedModelSelectionForSend,
-          connectionId: selectedConnectionIdForSend ?? null,
-          ...(providerOptionsForDispatchForSend
-            ? { providerOptionsForDispatch: providerOptionsForDispatchForSend }
-            : {}),
-          runtimeMode: runtimeModeForSend,
-        });
-        return true;
-      }, releaseSendPreflight);
-    }
-    // A follow-up can be captured while the preceding send is still waiting
-    // for provider admission. Queue admission above is deliberately allowed in
-    // that window; only a second direct dispatch must be rejected.
     if (sendInFlightRef.current && !isServerThread) {
       releaseSendPreflight({ restoreComposer: true });
       return false;
