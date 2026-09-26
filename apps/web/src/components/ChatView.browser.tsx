@@ -65,6 +65,7 @@ import { getRouter } from "../router";
 import { useSplitViewStore } from "../splitViewStore";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useStore } from "../store";
+import { getThreadFromState } from "../threadDerivation";
 import { initialState } from "../storeState";
 import { makeDomainEvent } from "../storeTestFixtures";
 import {
@@ -3074,6 +3075,172 @@ describe("ChatView timeline estimator parity (full app)", () => {
       if (patchedScrollContainer && originalScrollTo) {
         patchedScrollContainer.scrollTo = originalScrollTo;
       }
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+  it("switches Stop, Play, Send, and disabled Send as the latest turn changes", async () => {
+    let snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-continue-button-target" as MessageId,
+      targetText: "Finish the existing task",
+    });
+    const turnId = TurnId.makeUnsafe("turn-continue-button");
+    const update = (
+      change: (
+        thread: OrchestrationReadModel["threads"][number],
+      ) => OrchestrationReadModel["threads"][number],
+    ) => {
+      snapshot = {
+        ...snapshot,
+        snapshotSequence: snapshot.snapshotSequence + 1,
+        threads: snapshot.threads.map((thread) =>
+          thread.id === THREAD_ID ? change(thread) : thread,
+        ),
+      };
+      fixture = { ...fixture, snapshot };
+      useStore.getState().syncServerReadModel(snapshot);
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      const send = await waitForSendButton();
+      expect(send.disabled).toBe(true);
+      update((thread) => ({
+        ...thread,
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: NOW_ISO,
+          startedAt: NOW_ISO,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        session: thread.session && { ...thread.session, status: "running", activeTurnId: turnId },
+      }));
+      await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        "Stop did not appear for a running turn.",
+      );
+      update((thread) => ({
+        ...thread,
+        latestTurn: thread.latestTurn && {
+          ...thread.latestTurn,
+          state: "interrupted",
+          completedAt: NOW_ISO,
+        },
+        session: thread.session && { ...thread.session, status: "stopped", activeTurnId: null },
+      }));
+      const play = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
+        "Play did not appear after Stop.",
+      );
+      expect(play.title).toBe("Continue");
+      await page.getByTestId("composer-editor").fill("New instruction");
+      await vi.waitFor(() => {
+        expect(document.querySelector('button[aria-label="Continue"]')).toBeNull();
+        expect(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled,
+        ).toBe(false);
+      });
+      await page.getByTestId("composer-editor").fill("");
+      const playAgain = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
+        "Play did not return after clearing the composer.",
+      );
+      playAgain.click();
+      await vi.waitFor(() => {
+        expect(hasDispatchedCommandType("thread.turn.recover")).toBe(true);
+        expect(document.querySelector('button[aria-label="Continue"]')).toBeNull();
+      });
+      const command = wsRequests
+        .map(readDispatchedCommand)
+        .find((candidate) => candidate?.type === "thread.turn.recover");
+      expect(command).toMatchObject({ reason: "play", turnId, interruptedTurnId: turnId });
+      expect(
+        snapshot.threads[0]?.messages.some((message) => message.id === command?.recoveryMessageId),
+      ).toBe(false);
+      update((thread) => ({
+        ...thread,
+        latestTurn: thread.latestTurn && {
+          ...thread.latestTurn,
+          state: "error",
+          completedAt: NOW_ISO,
+        },
+        session: thread.session && {
+          ...thread.session,
+          status: "error",
+          activeTurnId: null,
+          updatedAt: isoAt(99),
+        },
+      }));
+      await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
+        "Play did not return after a failed continuation.",
+      );
+      update((thread) => ({
+        ...thread,
+        latestTurn: thread.latestTurn && {
+          ...thread.latestTurn,
+          state: "completed",
+          completedAt: NOW_ISO,
+        },
+        session: thread.session && { ...thread.session, status: "ready", activeTurnId: null },
+      }));
+      await vi.waitFor(() => {
+        expect(document.querySelector('button[aria-label="Continue"]')).toBeNull();
+        expect(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled,
+        ).toBe(true);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("hides Play without a thread error after a stale continue rejection", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi({
+      dispatchError: Object.assign(new Error("stale continue"), { code: "THREAD_CONTINUE_STALE" }),
+    });
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-stale-continue-target" as MessageId,
+      targetText: "Continue target",
+    });
+    const turnId = TurnId.makeUnsafe("turn-stale-continue");
+    const hydrated = {
+      ...snapshot,
+      threads: snapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? {
+              ...thread,
+              latestTurn: {
+                turnId,
+                state: "interrupted" as const,
+                requestedAt: NOW_ISO,
+                startedAt: NOW_ISO,
+                completedAt: NOW_ISO,
+                assistantMessageId: null,
+              },
+              session: thread.session && {
+                ...thread.session,
+                status: "stopped" as const,
+                activeTurnId: null,
+              },
+            }
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot: hydrated });
+    try {
+      const play = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
+        "Play did not appear for the interrupted turn.",
+      );
+      play.click();
+      await vi.waitFor(() => {
+        expect(document.querySelector('button[aria-label="Continue"]')).toBeNull();
+        expect(getThreadFromState(useStore.getState(), THREAD_ID)?.error).toBeNull();
+      });
+    } finally {
       await mounted.cleanup();
       restoreNativeApi();
     }

@@ -1180,15 +1180,25 @@ const ThreadDispatchQueuedTurnCommand = Schema.Struct({
 
 const ThreadTurnRecoverCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.recover"),
+  reason: Schema.optional(Schema.Literals(["restart", "play"])).pipe(
+    Schema.withDecodingDefault(() => "restart" as const),
+  ),
   commandId: CommandId,
   threadId: ThreadId,
-  /** Identity of the new continuation turn, distinct from interruptedTurnId. */
+  /** Recovery reopens this logical turn when it matches interruptedTurnId. */
   turnId: Schema.optional(TurnId),
   recoveryMessageId: MessageId,
   interruptedTurnId: Schema.optional(TurnId),
   connectionId: Schema.NullOr(ProviderConnectionId),
   bindingRevision: NonNegativeInt,
   createdAt: IsoDateTime,
+});
+
+const ThreadTurnPlayCommand = Schema.Struct({
+  ...ThreadTurnRecoverCommand.fields,
+  reason: Schema.Literal("play"),
+  turnId: TurnId,
+  interruptedTurnId: TurnId,
 });
 
 const ThreadApprovalRespondCommand = Schema.Struct({
@@ -1284,6 +1294,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadPinnedMessageLabelSetCommand,
   ThreadRuntimeModeSetCommand,
   ThreadTurnStartCommand,
+  ThreadTurnPlayCommand,
   ThreadTurnInterruptCommand,
   ThreadQueuedTurnCancelCommand,
   ThreadQueuedTurnSteerCommand,
@@ -1323,6 +1334,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadPinnedMessageLabelSetCommand,
   ThreadRuntimeModeSetCommand,
   ClientThreadTurnStartCommand,
+  ThreadTurnPlayCommand,
   ThreadTurnInterruptCommand,
   ThreadQueuedTurnCancelCommand,
   ThreadQueuedTurnSteerCommand,
@@ -1757,7 +1769,10 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   messageId: MessageId,
   /** Server-only continuation source. No user-visible message exists for this id. */
   recoveryOfTurnId: Schema.optional(TurnId),
-  /** Invisible restart continuation, including admission before a provider turn id exists. */
+  recoveryReason: Schema.optional(Schema.Literals(["restart", "play"])).pipe(
+    Schema.withDecodingDefault(() => "restart" as const),
+  ),
+  /** Invisible continuation, including admission before a provider turn id exists. */
   restartRecovery: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   modelSelection: Schema.optional(ModelSelection),
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
