@@ -66,6 +66,7 @@ import { useSplitViewStore } from "../splitViewStore";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useStore } from "../store";
 import { getThreadFromState } from "../threadDerivation";
+import { getChatLifecycleDiagnosticSamples } from "../chatLifecycleDiagnostics";
 import { initialState } from "../storeState";
 import { makeDomainEvent } from "../storeTestFixtures";
 import {
@@ -3282,6 +3283,20 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(getThreadFromState(useStore.getState(), THREAD_ID)?.latestTurn?.state).toBe(
         "interrupted",
       );
+      await vi.waitFor(() => {
+        expect(
+          getChatLifecycleDiagnosticSamples(THREAD_ID).some(
+            (sample) =>
+              sample.event === "composer-continue-state" &&
+              sample.turnId === turnId &&
+              sample.turnState === "interrupted" &&
+              sample.orchestrationStatus === "interrupted" &&
+              sample.queuedMessageCount === 0 &&
+              sample.pendingInteractionCount === 0 &&
+              sample.canShowContinue,
+          ),
+        ).toBe(true);
+      });
     } finally {
       await mounted.cleanup();
     }
