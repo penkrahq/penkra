@@ -38,13 +38,38 @@ export const ResolvedProviderTurnSelection = Schema.Struct({
 });
 export type ResolvedProviderTurnSelection = typeof ResolvedProviderTurnSelection.Type;
 
-export class ProviderTurnSelectionResolutionError extends Data.TaggedError(
-  "ProviderTurnSelectionResolutionError",
-)<{
+export const ProviderTurnSelectionFailureCode = [
+  "selection_failed",
+  "connection_unavailable",
+  "provider_mismatch",
+  "connection_unauthorized",
+  "model_unavailable",
+  "binding_revision_required",
+  "binding_revision_stale",
+  "thread_binding_missing",
+] as const;
+export type ProviderTurnSelectionFailureCode = (typeof ProviderTurnSelectionFailureCode)[number];
+
+type ProviderTurnSelectionResolutionErrorFields = {
+  readonly code: ProviderTurnSelectionFailureCode;
   readonly detail: string;
   readonly reason?: "binding-revision-required" | "binding-revision-stale";
   readonly cause?: unknown;
-}> {
+};
+
+const ProviderTurnSelectionResolutionErrorBase = Data.TaggedError(
+  "ProviderTurnSelectionResolutionError",
+)<ProviderTurnSelectionResolutionErrorFields>;
+
+export class ProviderTurnSelectionResolutionError extends ProviderTurnSelectionResolutionErrorBase {
+  constructor(
+    input: Omit<ProviderTurnSelectionResolutionErrorFields, "code"> & {
+      readonly code?: ProviderTurnSelectionFailureCode;
+    },
+  ) {
+    super({ ...input, code: input.code ?? "selection_failed" });
+  }
+
   override get message(): string {
     return this.detail;
   }

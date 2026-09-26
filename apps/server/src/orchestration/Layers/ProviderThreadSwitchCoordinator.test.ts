@@ -26,7 +26,9 @@ import {
   type ProviderThreadSwitchOperationRecord,
 } from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
+import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
+import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import {
@@ -43,6 +45,8 @@ import {
   ProviderTurnSelectionResolver,
   type ResolvedProviderTurnSelection,
 } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
+import { ProviderTurnSelectionResolverLive } from "../../provider/Layers/ProviderTurnSelectionResolver.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ProviderThreadSwitchCoordinator } from "../Services/ProviderThreadSwitchCoordinator.ts";
@@ -530,6 +534,99 @@ const layer = it.layer(
     ProviderThreadSwitchCoordinatorLive.pipe(Layer.provide(dependencies)),
   ),
 );
+
+const realSelectionDependencies = Layer.mergeAll(
+  Layer.succeed(ProviderAdapterRegistry, {
+    getByProvider: () =>
+      Effect.succeed({
+        listModels: () =>
+          Effect.succeed({
+            models: [
+              { slug: "opencode-go/kimi-k2.5", name: "Kimi K2.5" },
+              { slug: "opencode-go/glm-5.1", name: "GLM 5.1" },
+            ],
+          }),
+      } as never),
+    listProviders: () => Effect.succeed(["opencode"]),
+  }),
+  Layer.succeed(ProviderConnectionRepository, {
+    getRecord: (id: ProviderConnectionId) =>
+      Effect.succeed(
+        [sourceConnectionId, targetConnectionId].includes(id)
+          ? Option.some({
+              id,
+              harness: "opencode",
+              authenticationTargetId: "opencode-go",
+              authenticationMethodId: "api-key",
+              label: id === sourceConnectionId ? "Personal" : "Work",
+              credentialRef: `provider-secret:${id}`,
+              profileRef: null,
+              providerIdentityId: null,
+              health: "ready",
+              healthReason: null,
+              lastCheckedAt: timestamp,
+              lifecycle: "active",
+              terminationReason: null,
+              terminatedAt: null,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            })
+          : Option.none(),
+      ),
+    list: () => Effect.succeed([]),
+  } as never),
+  Layer.succeed(ProviderInstallationRepository, {
+    list: () =>
+      Effect.succeed([
+        {
+          id: installationId,
+          harness: "opencode",
+          version: "1.18.10",
+          platform: "darwin",
+          architecture: "arm64",
+          adapterVersion: "1",
+          protocolVersion: "v1",
+          lifecycle: "active",
+          healthReason: null,
+          installedAt: timestamp,
+          activatedAt: timestamp,
+          retiredAt: null,
+        },
+      ]),
+    getRecord: () =>
+      Effect.succeed(
+        Option.some({
+          id: installationId,
+          harness: "opencode",
+          version: "1.18.10",
+          platform: "darwin",
+          architecture: "arm64",
+          executablePath: "/managed/opencode",
+          artifactSource: "github-release",
+          artifactUrl: "https://example.invalid/opencode",
+          artifactSha256: "a".repeat(64),
+          adapterVersion: "1",
+          protocolVersion: "v1",
+          lifecycle: "active",
+          healthReason: null,
+          installedAt: timestamp,
+          activatedAt: timestamp,
+          retiredAt: null,
+        }),
+      ),
+    activate: () => Effect.die("not expected"),
+    reactivate: () => Effect.die("not expected"),
+  } as never),
+  ServerSettingsService.layerTest(),
+);
+
+const resolverWithDependencies = ProviderTurnSelectionResolverLive.pipe(
+  Layer.provideMerge(Layer.mergeAll(dependencies, realSelectionDependencies)),
+);
+const realCoordinatorLayer = ProviderThreadSwitchCoordinatorLive.pipe(
+  Layer.provide(resolverWithDependencies),
+);
+const realCoordinator = it.layer(realCoordinatorLayer);
 
 layer("ProviderThreadSwitchCoordinator", (it) => {
   it.effect("adds the exact durable binding to an unchanged agent send", () =>
@@ -1155,6 +1252,76 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         "committed",
       ]);
       projectedForkSourceThreadId = null;
+    }),
+  );
+});
+
+realCoordinator("ProviderThreadSwitchCoordinator with live selection resolution", (it) => {
+  it.effect("admits a same-provider Connection switch with the exact current revision", () =>
+    Effect.gen(function* () {
+      hasBinding = true;
+      activeTurn = false;
+      unchangedSelection = false;
+      modelOnlySelection = false;
+      runtimeUpgradeSelection = false;
+      operation = undefined;
+      nativeForkOperation = undefined;
+      dispatchedCommand = undefined;
+      acceptedProviderSwitchContext = undefined;
+      const coordinator = yield* ProviderThreadSwitchCoordinator;
+      const result = yield* coordinator.dispatchTurnStart({
+        command: {
+          ...command,
+          commandId: CommandId.makeUnsafe("command-live-connection-switch"),
+          connectionId: targetConnectionId,
+          modelSelection: { provider: "opencode", model: "opencode-go/kimi-k2.5" },
+          bindingRevision: 4,
+        },
+        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+      });
+
+      assert.strictEqual(result.sequence, 42);
+      const sent = currentDispatchedCommand();
+      assert.strictEqual(sent?.type, "thread.turn.start");
+      if (sent?.type === "thread.turn.start") {
+        assert.strictEqual(sent.connectionId, targetConnectionId);
+        assert.strictEqual(sent.bindingRevision, 5);
+      }
+      assert.isDefined(acceptedProviderSwitchContext);
+    }),
+  );
+
+  it.effect("admits a model switch through the live resolver", () =>
+    Effect.gen(function* () {
+      hasBinding = true;
+      activeTurn = false;
+      unchangedSelection = false;
+      modelOnlySelection = false;
+      runtimeUpgradeSelection = false;
+      operation = undefined;
+      nativeForkOperation = undefined;
+      dispatchedCommand = undefined;
+      acceptedProviderSwitchContext = undefined;
+      const coordinator = yield* ProviderThreadSwitchCoordinator;
+      const result = yield* coordinator.dispatchTurnStart({
+        command: {
+          ...command,
+          commandId: CommandId.makeUnsafe("command-live-model-switch"),
+          connectionId: sourceConnectionId,
+          modelSelection: { provider: "opencode", model: "opencode-go/glm-5.1" },
+          bindingRevision: 4,
+        },
+        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+      });
+
+      assert.strictEqual(result.sequence, 42);
+      const sent = currentDispatchedCommand();
+      assert.strictEqual(sent?.type, "thread.turn.start");
+      if (sent?.type === "thread.turn.start") {
+        assert.strictEqual(sent.modelSelection?.model, "opencode-go/glm-5.1");
+        assert.strictEqual(sent.bindingRevision, 5);
+      }
+      assert.isDefined(acceptedProviderSwitchContext);
     }),
   );
 });

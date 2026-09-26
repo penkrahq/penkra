@@ -5,7 +5,7 @@ import {
   ThreadId,
 } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer, Option } from "effect";
+import { Cause, Effect, Layer, Option } from "effect";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ServerConfig } from "../../config.ts";
 
@@ -30,6 +30,11 @@ const installationId = ProviderInstallationId.makeUnsafe("selection-installation
 const activeInstallationId = ProviderInstallationId.makeUnsafe("selection-active-installation");
 const claudeInstallationId = ProviderInstallationId.makeUnsafe("selection-claude-installation");
 const timestamp = "2026-08-08T00:00:00.000Z";
+
+function failedWithCode(exit: { readonly _tag: "Failure"; readonly cause: Cause.Cause<unknown> }) {
+  const failure = Cause.findErrorOption(exit.cause);
+  return Option.isSome(failure) ? (failure.value as { readonly code?: string }).code : undefined;
+}
 
 it("allows Claude subscription continuation only with the same account identity", () => {
   const account = {
@@ -417,15 +422,46 @@ layer("ProviderTurnSelectionResolver", (it) => {
         }),
       );
       assert.strictEqual(providerMismatch._tag, "Failure");
+      if (providerMismatch._tag === "Failure") {
+        assert.strictEqual(failedWithCode(providerMismatch), "provider_mismatch");
+      }
 
-      const implicitAnonymous = yield* Effect.exit(
+      const unauthorized = yield* Effect.exit(
+        resolver.resolveExisting({
+          threadId,
+          modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
+          connectionId,
+          bindingRevision: 7,
+        }),
+      );
+      assert.strictEqual(unauthorized._tag, "Failure");
+      if (unauthorized._tag === "Failure") {
+        assert.strictEqual(failedWithCode(unauthorized), "connection_unauthorized");
+      }
+
+      const currentConnectionUnauthorized = yield* Effect.exit(
         resolver.resolveExisting({
           threadId,
           modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
           bindingRevision: 7,
         }),
       );
-      assert.strictEqual(implicitAnonymous._tag, "Failure");
+      assert.strictEqual(currentConnectionUnauthorized._tag, "Failure");
+      if (currentConnectionUnauthorized._tag === "Failure") {
+        assert.strictEqual(failedWithCode(currentConnectionUnauthorized), "connection_unauthorized");
+      }
+
+      const missingRevision = yield* Effect.exit(
+        resolver.resolveExisting({
+          threadId,
+          modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
+          connectionId: null,
+        }),
+      );
+      assert.strictEqual(missingRevision._tag, "Failure");
+      if (missingRevision._tag === "Failure") {
+        assert.strictEqual(failedWithCode(missingRevision), "binding_revision_required");
+      }
 
       const stale = yield* Effect.exit(
         resolver.resolveExisting({
@@ -436,6 +472,9 @@ layer("ProviderTurnSelectionResolver", (it) => {
         }),
       );
       assert.strictEqual(stale._tag, "Failure");
+      if (stale._tag === "Failure") {
+        assert.strictEqual(failedWithCode(stale), "binding_revision_stale");
+      }
 
       const anonymous = yield* resolver.resolveExisting({
         threadId,
@@ -461,6 +500,16 @@ layer("ProviderTurnSelectionResolver", (it) => {
       );
       assert.strictEqual(disconnected._tag, "Failure");
       assert.strictEqual(unavailableExactConnection._tag, "Failure");
+      if (unavailableExactConnection._tag === "Failure") {
+        assert.strictEqual(failedWithCode(unavailableExactConnection), "connection_unavailable");
+      }
+      hasRuntimeBinding = false;
+      const missingBinding = yield* Effect.exit(resolver.resolveExisting({ threadId }));
+      hasRuntimeBinding = true;
+      assert.strictEqual(missingBinding._tag, "Failure");
+      if (missingBinding._tag === "Failure") {
+        assert.strictEqual(failedWithCode(missingBinding), "thread_binding_missing");
+      }
     }),
   );
 
@@ -502,6 +551,9 @@ layer("ProviderTurnSelectionResolver", (it) => {
       );
       modelAvailable = true;
       assert.strictEqual(unavailable._tag, "Failure");
+      if (unavailable._tag === "Failure") {
+        assert.strictEqual(failedWithCode(unavailable), "model_unavailable");
+      }
     }),
   );
 

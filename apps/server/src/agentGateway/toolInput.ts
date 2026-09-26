@@ -11,7 +11,6 @@ export const PROVIDER_KINDS: ReadonlyArray<ProviderKind> = ["codex", "claudeAgen
 
 export const MODEL_SELECTION_INPUT_SCHEMA = {
   type: "object",
-  description: AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION,
   properties: {
     provider: {
       type: "string",
