@@ -24,6 +24,12 @@ interface RestartTurnRecoveryRow {
 export const recoverRestartInterruptedTurns = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const engine = yield* OrchestrationEngineService;
+  yield* sql`
+    DELETE FROM restart_turn_recoveries
+    WHERE thread_id IN (
+      SELECT thread_id FROM projection_threads WHERE archived_at IS NOT NULL
+    )
+  `;
   const recoveries = yield* sql<RestartTurnRecoveryRow>`
     SELECT recovery.thread_id AS "threadId", recovery.turn_id AS "turnId",
            binding.connection_id AS "connectionId",

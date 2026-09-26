@@ -36,6 +36,7 @@ import {
   requireThread,
   requireThreadAbsent,
   requireThreadArchived,
+  requireThreadCanTakeWork,
   requireThreadNotArchived,
   threadHasInFlightTurn,
 } from "./commandInvariants.ts";
@@ -1166,13 +1167,25 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.archive": {
-      yield* requireThreadNotArchived({
+      const thread = yield* requireThreadNotArchived({
         readModel,
         command,
         threadId: command.threadId,
       });
+      if (
+        thread.latestTurn?.state === "running" ||
+        thread.session?.status === "starting" ||
+        (thread.session?.status !== "error" && thread.session?.activeTurnId != null) ||
+        thread.pendingTurnStartMessageId != null
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          code: "thread_running",
+          detail: "This thread is still running. Stop it before archiving.",
+        });
+      }
       const occurredAt = nowIso();
-      return {
+      const archivedEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -1186,6 +1199,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: occurredAt,
         },
       };
+      const cancelledEvents: ReadonlyArray<Omit<OrchestrationEvent, "sequence">> = (
+        thread.queuedMessageIds ?? []
+      ).map((messageId) => ({
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.turn-start-cancelled" as const,
+        payload: { threadId: command.threadId, messageId, cancelledAt: occurredAt },
+      }));
+      return cancelledEvents.length === 0 ? archivedEvent : [...cancelledEvents, archivedEvent];
     }
 
     case "thread.unarchive": {
@@ -1401,13 +1427,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.turn.recover": {
-      const thread = yield* requireThread({
+      const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
       }).pipe(
         Effect.mapError((error) =>
-          command.reason === "play"
+          command.reason === "play" && error.code !== "thread_archived"
             ? new OrchestrationCommandInvariantError({
                 commandType: command.type,
                 detail: "Thread changed before continuation.",
@@ -1473,7 +1499,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.turn.start": {
-      const targetThread = yield* requireThread({
+      const targetThread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1689,7 +1715,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.turn.dispatch-queued": {
-      const thread = yield* requireThread({
+      const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,

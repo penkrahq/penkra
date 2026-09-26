@@ -1274,13 +1274,20 @@ export function projectEvent(
             return nextBase;
           }
           const messages = thread.messages.filter((message) => message.id !== payload.messageId);
-          if (messages.length === thread.messages.length) {
+          const queuedMessageIds = thread.queuedMessageIds?.filter(
+            (messageId) => messageId !== payload.messageId,
+          );
+          if (
+            messages.length === thread.messages.length &&
+            queuedMessageIds?.length === thread.queuedMessageIds?.length
+          ) {
             return nextBase;
           }
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
               messages,
+              queuedMessageIds,
               pendingTurnStartMessageId:
                 thread.pendingTurnStartMessageId === payload.messageId
                   ? null

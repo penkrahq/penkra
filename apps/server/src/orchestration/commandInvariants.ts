@@ -291,6 +291,26 @@ export function requireThreadNotArchived(input: {
   );
 }
 
+export function requireThreadCanTakeWork(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly threadId: ThreadId;
+}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+  return requireThread(input).pipe(
+    Effect.flatMap((thread) =>
+      thread.archivedAt == null
+        ? Effect.succeed(thread)
+        : Effect.fail(
+            new OrchestrationCommandInvariantError({
+              commandType: input.command.type,
+              code: "thread_archived",
+              detail: "This thread is archived. Unarchive it to send messages.",
+            }),
+          ),
+    ),
+  );
+}
+
 export function requireNonNegativeInteger(input: {
   readonly commandType: OrchestrationCommand["type"];
   readonly field: string;

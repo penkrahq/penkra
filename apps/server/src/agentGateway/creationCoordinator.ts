@@ -17,6 +17,7 @@ import { Cause, Effect, Option, Schema } from "effect";
 
 import type { ManagedAttachmentPrincipal } from "../managedAttachmentPrincipal.ts";
 import { fingerprintOrchestrationCommand } from "../orchestration/commandFingerprint.ts";
+import { findThreadGuardInvariant } from "../orchestration/Errors.ts";
 import type { OrchestrationEngineShape } from "../orchestration/Services/OrchestrationEngine.ts";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProviderThreadSwitchCoordinatorShape } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
@@ -433,6 +434,12 @@ export const makeCreateThreadHandler = Effect.fn(function* (
       Effect.catch((error) => {
         if (error instanceof GatewayToolError || error instanceof AgentGatewayTargetError) {
           return Effect.succeed(gatewayToolErrorResult(error));
+        }
+        const threadGuard = findThreadGuardInvariant(error);
+        if (threadGuard?.code === "thread_archived") {
+          return Effect.succeed(
+            gatewayToolErrorResult(new GatewayToolError(threadGuard.code, threadGuard.detail)),
+          );
         }
 
         const provenance = extractGatewayErrorProvenance(error);
