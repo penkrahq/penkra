@@ -492,7 +492,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
               }),
           });
           if (recorded !== null && !claudeConnectionsShareAccount(recorded, connection)) {
-            return yield* fail("Claude subscription continuation requires the same account.");
+            return yield* fail("This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.");
           }
           if (connectionId !== binding.value.connectionId && binding.value.connectionId !== null) {
             const previous = yield* connections.getRecord(binding.value.connectionId).pipe(
@@ -508,7 +508,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
               Option.isNone(previous) ||
               !claudeConnectionsShareAccount(previous.value, connection)
             ) {
-              return yield* fail("Claude subscription continuation requires the same account.");
+              return yield* fail("This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.");
             }
           }
           if (recorded === null) {

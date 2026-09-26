@@ -62,7 +62,7 @@ it("refuses to expose a Thread's Claude project to a different subscription acco
         providerIdentityId: "bob@example.com",
       },
     }),
-    /same account/,
+    /different Claude account/,
   );
   await assert.rejects(access(Path.join(configB, "projects", claudeThreadProjectName(threadId))));
 });
