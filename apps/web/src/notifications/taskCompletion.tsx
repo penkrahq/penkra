@@ -25,6 +25,7 @@ import {
   collectCompletedTerminalCandidates,
   collectInputNeededThreadCandidates,
   collectTerminalAttentionCandidates,
+  focusAvailableNotificationThread,
   isNotificationRuntimeFreshTimestamp,
   shouldShowThreadNotificationToast,
 } from "./taskCompletion.logic";
@@ -78,10 +79,16 @@ interface ThreadNotificationCopy {
 // Notification opens are generic thread activations, so they clear splitViewId
 // instead of resurrecting a hidden split pairing.
 function focusThread(threadId: Thread["id"], navigate: ReturnType<typeof useNavigate>): void {
-  void navigate({
-    to: "/$threadId",
-    params: { threadId },
-    search: (previous) => ({ ...previous, splitViewId: undefined }),
+  focusAvailableNotificationThread({
+    threadId,
+    state: useStore.getState(),
+    navigate: (availableThreadId) => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: availableThreadId },
+        search: (previous) => ({ ...previous, splitViewId: undefined }),
+      });
+    },
   });
 }
 

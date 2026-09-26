@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   resolveSingleFolderId,
+  shouldRedirectArchivedThreadRoute,
   resolveSplitPaneCloseDecision,
   resolveSplitPaneMaximizeDecision,
   resolveThreadPickerTitle,
@@ -13,6 +14,17 @@ const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
 
 describe("Thread route logic", () => {
+  it("redirects a remotely archived thread and leaves the archiving window to choose its fallback", () => {
+    expect(
+      shouldRedirectArchivedThreadRoute({ archived: true, localArchiveNavigationPending: false }),
+    ).toBe(true);
+    expect(
+      shouldRedirectArchivedThreadRoute({ archived: true, localArchiveNavigationPending: true }),
+    ).toBe(false);
+    expect(
+      shouldRedirectArchivedThreadRoute({ archived: false, localArchiveNavigationPending: false }),
+    ).toBe(false);
+  });
   it("resolves the Thread's effective working directory", () => {
     expect(
       resolveThreadWorkingDirectory({

@@ -18,6 +18,7 @@ import {
 import { useComposerDraftStore } from "../composerDraftStore";
 import { parseChatRouteSearch } from "../chatRouteSearch";
 import { readNativeApi } from "../nativeApi";
+import { isLocalThreadArchiveNavigationPending } from "../lib/threadArchiveNavigation";
 import { isSplitRoute } from "../splitViewRoute";
 import {
   resolveSplitViewFocusedThreadId,
@@ -29,7 +30,7 @@ import { useStore } from "../store";
 import { createThreadExistsSelector, createThreadFolderIdSelector } from "../storeSelectors";
 import { SingleChatSurface } from "../components/chat/SingleChatSurface";
 import { SplitChatSurface } from "../components/chat/SplitChatSurface";
-import { resolveSingleFolderId } from "./-chatThreadRoute.logic";
+import { resolveSingleFolderId, shouldRedirectArchivedThreadRoute } from "./-chatThreadRoute.logic";
 
 function ChatThreadRouteView() {
   const threadsHydrated = useStore((store) => store.threadsHydrated);
@@ -42,6 +43,7 @@ function ChatThreadRouteView() {
   const threadExistsSelector = createThreadExistsSelector(threadId);
   const threadFolderId: FolderId | null = useStore(threadFolderIdSelector);
   const threadExists = useStore(threadExistsSelector);
+  const threadArchived = useStore((store) => store.threadShellById?.[threadId]?.archivedAt != null);
   const persistedDeckId = useStore((store) => store.threadShellById?.[threadId]?.deckId ?? null);
   const draftThreadState = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
@@ -70,7 +72,7 @@ function ChatThreadRouteView() {
 
   useEffect(() => {
     const home = window.desktopBridge?.threadHome;
-    if (!routeThreadExists) {
+    if (!routeThreadExists || (threadArchived && !isSplitRoute(search))) {
       home?.leave();
       return;
     }
@@ -95,7 +97,7 @@ function ChatThreadRouteView() {
     recordView();
     window.addEventListener("focus", recordView);
     return () => window.removeEventListener("focus", recordView);
-  }, [homeDeckId, routeThreadExists, search, splitView, threadId]);
+  }, [homeDeckId, routeThreadExists, search, splitView, threadArchived, threadId]);
 
   useEffect(() => {
     const home = window.desktopBridge?.threadHome;
@@ -130,6 +132,18 @@ function ChatThreadRouteView() {
 
   useEffect(() => {
     if (!threadsHydrated || !splitViewsHydrated) {
+      return;
+    }
+
+    if (threadArchived && !isSplitRoute(search)) {
+      if (
+        shouldRedirectArchivedThreadRoute({
+          archived: true,
+          localArchiveNavigationPending: isLocalThreadArchiveNavigationPending(threadId),
+        })
+      ) {
+        void navigate({ to: "/", replace: true });
+      }
       return;
     }
 
@@ -199,8 +213,13 @@ function ChatThreadRouteView() {
     splitView,
     splitViewsHydrated,
     threadId,
+    threadArchived,
     threadsHydrated,
   ]);
+
+  if (threadArchived && !isSplitRoute(search)) {
+    return null;
+  }
 
   if (
     !threadsHydrated ||

@@ -138,12 +138,20 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
 
     const availableThreadIds = new Set<ThreadId>();
     for (const threadId of Object.keys(sidebarThreadSummaryById)) {
-      availableThreadIds.add(ThreadId.makeUnsafe(threadId));
+      if (sidebarThreadSummaryById[threadId]?.archivedAt == null) {
+        availableThreadIds.add(ThreadId.makeUnsafe(threadId));
+      }
     }
     for (const threadId of Object.keys(draftThreadsByThreadId)) {
-      availableThreadIds.add(ThreadId.makeUnsafe(threadId));
+      if (sidebarThreadSummaryById[threadId]?.archivedAt == null) {
+        availableThreadIds.add(ThreadId.makeUnsafe(threadId));
+      }
     }
-    if (activeDraftThread && activeContextThreadId) {
+    if (
+      activeDraftThread &&
+      activeContextThreadId &&
+      sidebarThreadSummaryById[activeContextThreadId]?.archivedAt == null
+    ) {
       availableThreadIds.add(activeContextThreadId);
     }
 
