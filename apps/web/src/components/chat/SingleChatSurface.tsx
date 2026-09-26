@@ -251,7 +251,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
     let readinessAttempt = 0;
     const reconcile = () => {
       void bridge
-        .list()
+        .list({ deckId })
         .then((tabs) => {
           if (cancelled) return;
           const currentTabs = tabs.filter(
@@ -271,7 +271,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
             if (!stateForThread?.panes.some((pane) => pane.id === tab.id)) {
               openPane(deckId, {
                 ...appPaneFromTab(tab),
-                preserveSelection: true,
+                preserveSelection: tab.selection !== "activate",
               });
             } else {
               updatePane(deckId, tab.id, {
@@ -281,6 +281,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
                 ...(tab.state === undefined ? { appState: undefined } : { appState: tab.state }),
                 appStatus: tab.status,
               });
+              if (tab.selection === "activate") setActivePane(deckId, tab.id);
             }
           }
           for (const pane of dockState.panes) {

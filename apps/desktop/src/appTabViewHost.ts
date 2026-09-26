@@ -378,6 +378,7 @@ export class AppTabViewHost implements AppTabHost {
     threadId: string;
     route: string;
     state?: unknown;
+    initiator?: "agent" | "user";
   }): Promise<DesktopAppTabDescriptor> {
     return this.#openInstalled(input, false);
   }
@@ -391,6 +392,7 @@ export class AppTabViewHost implements AppTabHost {
       threadId: string;
       route: string;
       state?: unknown;
+      initiator?: "agent" | "user";
     },
     deferNavigation: boolean,
   ): Promise<DesktopAppTabDescriptor> {
@@ -456,6 +458,7 @@ export class AppTabViewHost implements AppTabHost {
   async openInstalledFromRenderer(
     rendererId: number,
     input: { appId: string },
+    initiator: "agent" | "user" = "user",
   ): Promise<DesktopAppTabDescriptor> {
     const origin = [...this.#records.values()].find((record) => record.rendererId === rendererId);
     if (!origin) throw new Error("The originating App tab is unavailable.");
@@ -463,6 +466,7 @@ export class AppTabViewHost implements AppTabHost {
       appId: input.appId,
       spaceId: origin.descriptor.spaceId,
       deckId: origin.descriptor.deckId,
+      initiator,
     });
     if (existing) return this.#require(existing.id).descriptor;
     return this.openInstalled({
@@ -471,21 +475,24 @@ export class AppTabViewHost implements AppTabHost {
       deckId: origin.descriptor.deckId,
       threadId: origin.descriptor.threadId,
       route: "/",
+      initiator,
     });
   }
 
   async openSiblingFromRenderer(
     rendererId: number,
     input: { route: string; state?: unknown },
+    initiator: "agent" | "user" = "user",
   ): Promise<{ tabId: string }> {
     const origin = [...this.#records.values()].find((record) => record.rendererId === rendererId);
     if (!origin) throw new Error("The originating App tab is unavailable.");
-    return this.openSibling(origin.descriptor.id, input);
+    return this.openSibling(origin.descriptor.id, input, initiator);
   }
 
   async openSibling(
     tabId: string,
     input: { route: string; state?: unknown },
+    initiator: "agent" | "user" = "user",
   ): Promise<{ tabId: string }> {
     const origin = this.#require(tabId);
     const descriptor = await this.openInstalled({
@@ -494,6 +501,7 @@ export class AppTabViewHost implements AppTabHost {
       deckId: origin.descriptor.deckId,
       threadId: origin.descriptor.threadId,
       route: input.route,
+      initiator,
       ...(input.state === undefined ? {} : { state: input.state }),
     });
     return { tabId: descriptor.id };
@@ -503,6 +511,7 @@ export class AppTabViewHost implements AppTabHost {
     appId: string;
     spaceId: string;
     deckId: string;
+    initiator?: "agent" | "user";
   }): AppTabEndpoint | null {
     const record = [...this.#records.values()].find(
       (candidate) =>
@@ -511,7 +520,7 @@ export class AppTabViewHost implements AppTabHost {
         candidate.descriptor.deckId === input.deckId,
     );
     if (!record) return null;
-    this.present(record.descriptor.id);
+    this.present(record.descriptor.id, undefined, undefined, false, undefined, input.initiator);
     return record.endpoint;
   }
 
@@ -852,10 +861,11 @@ export class AppTabViewHost implements AppTabHost {
     bounds?: Rectangle,
     animate = false,
     animationStartedAtEpochMs?: number,
+    initiator: "agent" | "user" = "user",
   ): void {
     const record = this.#require(tabId);
     if (windowId === undefined || bounds === undefined) {
-      this.#opened.publish({ ...record.descriptor, selection: "activate" });
+      this.#opened.publish({ ...record.descriptor, selection: "activate", initiator });
       return;
     }
     const targetWindow = this.#windowById(windowId);
@@ -1777,6 +1787,7 @@ export class AppTabViewHost implements AppTabHost {
       this.#opened.publish({
         ...record.descriptor,
         selection: input.tabId === undefined ? "activate" : "preserve",
+        initiator: input.initiator ?? "user",
       });
       this.#diagnostics.publish({
         kind: "tab-opened",
