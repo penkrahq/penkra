@@ -2905,7 +2905,7 @@ const make = Effect.gen(function* () {
           ...(event.payload.lifecycleGeneration === undefined
             ? {}
             : { lifecycleGeneration: event.payload.lifecycleGeneration }),
-        })).pipe(Effect.asVoid);
+        }).pipe(Effect.asVoid));
 
   const claimInteractionResponse = Effect.fnUntraced(function* (input: {
     readonly event: InteractionResponseEvent;
