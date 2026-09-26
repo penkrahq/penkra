@@ -167,7 +167,6 @@ async function mountClaudePicker(props?: {
       mentions: [],
       queuedTurns: [],
       pendingMessageEdit: null,
-      queuePaused: false,
       modelSelectionByProvider: props?.skipDraftModelOptions
         ? {}
         : {
@@ -440,7 +439,6 @@ async function mountCodexPicker(props: { model?: string; options?: CodexModelOpt
       mentions: [],
       queuedTurns: [],
       pendingMessageEdit: null,
-      queuePaused: false,
       modelSelectionByProvider: {
         codex: {
           provider: "codex",
@@ -669,7 +667,6 @@ async function mountOpenCodePicker(props?: {
       mentions: [],
       queuedTurns: [],
       pendingMessageEdit: null,
-      queuePaused: false,
       assistantSelections: [],
       modelSelectionByProvider: {
         opencode: {

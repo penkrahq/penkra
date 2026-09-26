@@ -132,14 +132,13 @@ describe("composerDraftStore queued edit reconciliation", () => {
     expect(draft.queuedTurns).toEqual([]);
   });
 
-  it("preserves newer prompt and images and retains a local queued copy", () => {
+  it("preserves newer prompt and images without creating a local queue row", () => {
     const queuedTurn = {
       ...makeQueuedChatTurn("queued-edit"),
       serverAcceptedAt: "2026-03-13T12:01:00.000Z",
     };
     const newerImage = makeImage({ id: "newer-image", previewUrl: "blob:newer-image" });
     const store = useComposerDraftStore.getState();
-    store.enqueueQueuedTurn(threadId, queuedTurn);
     store.setPrompt(threadId, "newer prompt");
     store.addImage(threadId, newerImage);
 
@@ -148,10 +147,7 @@ describe("composerDraftStore queued edit reconciliation", () => {
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId]!;
     expect(draft.prompt).toBe("newer prompt");
     expect(draft.images).toEqual([newerImage]);
-    expect(draft.queuePaused).toBe(true);
-    expect(draft.queuedTurns).toHaveLength(1);
-    expect(draft.queuedTurns[0]?.id).toBe(`${queuedTurn.id}:edit-recovery`);
-    expect(draft.queuedTurns[0]).not.toHaveProperty("serverAcceptedAt");
+    expect(draft.queuedTurns).toEqual([]);
   });
 });
 

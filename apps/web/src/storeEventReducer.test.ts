@@ -6,6 +6,7 @@ import {
   CommandId,
   EventId,
   MessageId,
+  ProviderConnectionId,
   FolderId,
   SpaceId,
   ThreadDeckId,
@@ -89,6 +90,100 @@ describe("store event reducer", () => {
       dispatchOrigin: "user",
     });
     expect(threadsOf(editedState)[0]?.messages[0]?.senderThreadId).toBeUndefined();
+it("keeps two subscribed renderer projections converged on queued turns and thread selection", () => {
+    const threadId = ThreadId.makeUnsafe("thread-shared-queue");
+    const messageId = MessageId.makeUnsafe("message-shared-queue");
+    const initial = makeState(makeThread({ id: threadId }));
+    const admittedEvents = [
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "user",
+          text: "shared queued prompt",
+          attachments: [],
+          dispatchMode: "queue",
+          delivery: { state: "queued", queued: true },
+          turnId: null,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-26T12:00:00.000Z",
+          updatedAt: "2026-09-26T12:00:00.000Z",
+        },
+        { sequence: 1 },
+      ),
+      makeDomainEvent(
+        "thread.turn-queued",
+        {
+          threadId,
+          messageId,
+          turnId: TurnId.makeUnsafe("turn-shared-queue"),
+          dispatchMode: "queue",
+          runtimeMode: "full-access",
+          createdAt: "2026-09-26T12:00:00.000Z",
+        },
+        { sequence: 2 },
+      ),
+      makeDomainEvent(
+        "thread.updated",
+        {
+          threadId,
+          modelSelection: { provider: "opencode", model: "openai/gpt-5.6" },
+          connectionId: ProviderConnectionId.makeUnsafe("connection-shared"),
+          updatedAt: "2026-09-26T12:00:01.000Z",
+        },
+        { sequence: 3 },
+      ),
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "user",
+          text: "edited shared queued prompt",
+          attachments: [],
+          dispatchMode: "queue",
+          delivery: { state: "queued", queued: true },
+          turnId: null,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-26T12:00:00.000Z",
+          updatedAt: "2026-09-26T12:00:03.000Z",
+        },
+        { sequence: 4 },
+      ),
+      makeDomainEvent(
+        "thread.turn-start-cancelled",
+        {
+          threadId,
+          messageId,
+          turnId: TurnId.makeUnsafe("turn-shared-queue"),
+          cancelledAt: "2026-09-26T12:00:02.000Z",
+        },
+        { sequence: 5 },
+      ),
+    ];
+
+    const rendererA = applyOrchestrationEvents(initial, admittedEvents.slice(0, 4));
+    const rendererB = applyOrchestrationEvents(initial, admittedEvents.slice(0, 4));
+    const threadA = threadsOf(rendererA)[0]!;
+    const threadB = threadsOf(rendererB)[0]!;
+
+    expect(threadA.queuedMessageIds).toEqual([messageId]);
+    expect(threadB.queuedMessageIds).toEqual(threadA.queuedMessageIds);
+    expect(threadB.messages).toEqual(threadA.messages);
+    expect(threadA.messages[0]?.text).toBe("edited shared queued prompt");
+    expect(threadA.modelSelection).toEqual({ provider: "opencode", model: "openai/gpt-5.6" });
+    expect(threadB.modelSelection).toEqual(threadA.modelSelection);
+    expect(threadA.connectionId).toBe("connection-shared");
+    expect(threadB.connectionId).toBe(threadA.connectionId);
+
+    const removedA = applyOrchestrationEvents(rendererA, [admittedEvents[4]!]);
+    const removedB = applyOrchestrationEvents(rendererB, [admittedEvents[4]!]);
+    expect(threadsOf(removedA)[0]?.queuedMessageIds).toEqual([]);
+    expect(threadsOf(removedB)[0]?.queuedMessageIds).toEqual([]);
+    expect(threadsOf(removedB)[0]?.messages).toEqual(threadsOf(removedA)[0]?.messages);
   });
 
   it("projects raw deck reorder and cross-deck move events into deck and thread shell order", () => {

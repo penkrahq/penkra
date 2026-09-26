@@ -99,7 +99,7 @@ describe("composerDraftStore persisted-state hydration", () => {
     expect(normalized.stickyConnectionByProvider).toEqual({ codex: connectionId });
   });
 
-  it("preserves durable file metadata in drafts, history snapshots, and queued turns", () => {
+  it("preserves durable file metadata in drafts and history snapshots but drops local queue rows", () => {
     const threadId = ThreadId.makeUnsafe("thread-file-hydration");
     const file = {
       id: "file-durable",
@@ -137,9 +137,7 @@ describe("composerDraftStore persisted-state hydration", () => {
     expect(normalized.draftsByThreadId[threadId]?.promptHistorySavedDraft).toMatchObject({
       files: [file],
     });
-    expect(normalized.draftsByThreadId[threadId]?.queuedTurns?.[0]).toMatchObject({
-      files: [file],
-    });
+    expect(normalized.draftsByThreadId[threadId]).not.toHaveProperty("queuedTurns");
   });
 });
 
@@ -512,28 +510,6 @@ describe("composerDraftStore queued follow-ups", () => {
     });
   });
 
-  it("persists an explicit queue pause across restart", () => {
-    const store = useComposerDraftStore.getState();
-    store.enqueueQueuedTurn(threadId, makeQueuedTurn("queued-paused"));
-    store.setQueuePaused(threadId, true);
-
-    const persistedState = partializeComposerDraftStoreState(useComposerDraftStore.getState());
-    const persistApi = useComposerDraftStore.persist as unknown as {
-      getOptions: () => {
-        merge: (
-          persistedState: unknown,
-          currentState: ReturnType<typeof useComposerDraftStore.getState>,
-        ) => ReturnType<typeof useComposerDraftStore.getState>;
-      };
-    };
-    const mergedState = persistApi
-      .getOptions()
-      .merge(persistedState, useComposerDraftStore.getInitialState());
-
-    expect(mergedState.draftsByThreadId[threadId]?.queuePaused).toBe(true);
-    expect(mergedState.draftsByThreadId[threadId]?.queuedTurns).toHaveLength(1);
-  });
-
   it("drops the draft entry once the last queued turn is removed", () => {
     const store = useComposerDraftStore.getState();
 
@@ -543,7 +519,7 @@ describe("composerDraftStore queued follow-ups", () => {
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
   });
 
-  it("persists queued chat turns for refresh and restart rehydration", () => {
+  it("does not persist renderer queue rows for refresh or restart", () => {
     const queuedImage = makeImage({
       id: "queued-image-persisted",
       previewUrl: "data:image/png;base64,AA==",
@@ -567,24 +543,16 @@ describe("composerDraftStore queued follow-ups", () => {
       draftsByThreadId?: Record<string, { queuedTurns?: Array<Record<string, unknown>> }>;
     };
 
-    expect(persistedState.draftsByThreadId?.[threadId]?.queuedTurns).toHaveLength(1);
+    expect(persistedState.draftsByThreadId?.[threadId]?.queuedTurns).toBeUndefined();
 
     const mergedState = persistApi
       .getOptions()
       .merge(persistedState, useComposerDraftStore.getInitialState());
 
-    expect(mergedState.draftsByThreadId[threadId]?.queuedTurns).toMatchObject([
-      {
-        id: "queued-chat-1",
-        kind: "chat",
-        prompt: "queued chat prompt",
-        images: [{ name: "queued.png" }],
-        terminalContexts: [{ text: "git status\nOn branch main" }],
-      },
-    ]);
+    expect(mergedState.draftsByThreadId[threadId]).toBeUndefined();
   });
 
-  it("persists server acceptance metadata for durable queued turns", () => {
+  it("does not persist accepted rows because the thread projection owns them", () => {
     const serverAcceptedAt = "2026-08-12T18:00:00.000Z";
     const serverMessageId = MessageId.makeUnsafe("composer-queue:queued-accepted");
     const store = useComposerDraftStore.getState();
@@ -609,13 +577,7 @@ describe("composerDraftStore queued follow-ups", () => {
       .getOptions()
       .merge(persistedState, useComposerDraftStore.getInitialState());
 
-    expect(mergedState.draftsByThreadId[threadId]?.queuedTurns[0]).toMatchObject({
-      id: "queued-accepted",
-      serverAcceptedAt,
-      serverMessageId,
-      dispatchAttempt: 3,
-      dispatchBindingRevision: 8,
-    });
+    expect(mergedState.draftsByThreadId[threadId]).toBeUndefined();
   });
 
   it("persists exact queue admission identity and advances only after a revision rejection", () => {

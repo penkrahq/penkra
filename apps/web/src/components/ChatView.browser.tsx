@@ -58,10 +58,6 @@ import {
   removeInlineTerminalContextPlaceholder,
 } from "../lib/terminalContext";
 import { isMacPlatform } from "../lib/utils";
-import {
-  getQueuedComposerActionSteerTurns,
-  resetQueuedComposerActionOwnershipForTests,
-} from "../lib/queuedComposerActionOwnership";
 import { queuedComposerTurnServerMessageId } from "../lib/queuedComposerTurnDispatch";
 import { readNativeApi } from "../nativeApi";
 import { getRouter } from "../router";
@@ -2406,7 +2402,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
   beforeEach(async () => {
     resetComposerSendPreflightsForTests();
     resetPendingStartRecoveryRegistryForTests();
-    resetQueuedComposerActionOwnershipForTests();
     await resetWsNativeApiForTest();
     resetRetainedThreadDetailSubscriptionsForTests();
     await setViewport(DEFAULT_VIEWPORT);
@@ -4935,7 +4930,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]).toMatchObject({
         prompt: "newer draft after original Send",
         images: [{ id: newerImage.id }],
-        queuePaused: true,
       });
       expect(getComposerSendPreflight(THREAD_ID)).toBeNull();
       releaseBackgroundBlob();
@@ -6489,7 +6483,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]).toMatchObject({
         prompt: "newer draft while queueing",
         images: [{ id: newerImage.id }],
-        queuePaused: true,
       });
       expect(emitSyncDomainEvent).not.toBeNull();
       emitSyncDomainEvent!(
@@ -6517,7 +6510,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           .filter((command) => command?.type === "thread.turn.start"),
       ).toHaveLength(0);
       expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]).toMatchObject({
-        queuePaused: true,
         queuedTurns: [{ prompt: "held original follow-up" }],
       });
     } finally {
@@ -7087,11 +7079,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
         const actionControl = await findAction();
         actionControl.click();
-        if (action === "steer") {
-          expect(getQueuedComposerActionSteerTurns(THREAD_ID).map((turn) => turn.prompt)).toContain(
-            "queued under delayed admission",
-          );
-        }
         await vi.waitFor(() =>
           expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull(),
         );
@@ -7494,7 +7481,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(drafts[OTHER_THREAD_ID]?.images).toEqual([
         expect.objectContaining({ id: newerBImage.id }),
       ]);
-      expect(drafts[THREAD_ID]?.queuePaused).toBe(true);
       await vi.waitFor(() => {
         const recoveredMenu = document.querySelector<HTMLButtonElement>(
           'button[aria-label="Queued follow-up actions"]',
@@ -7636,12 +7622,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(commands.filter((command) => command.type === "thread.turn.steer-queued")).toEqual(
             [expect.objectContaining({ threadId: THREAD_ID, messageId })],
           );
-          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
-          expect(document.body.textContent).toContain("Steering conversation");
-          expect(document.body.textContent).toContain(prompt);
+          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
         });
-        // Admission updates delivery before the later message metadata update.
-        // The same visible row must retain its steering marker across that handoff.
         const markerStages = [document.body.textContent?.includes("Steering conversation")];
         useStore.getState().applyOrchestrationEvents([
           makeDomainEvent(
@@ -7654,6 +7636,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
             { sequence: 201 },
           ),
         ]);
+        await vi.waitFor(() => {
+          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
+          expect(document.body.textContent).toContain("Steering conversation");
+          expect(document.body.textContent).toContain(prompt);
+        });
         await waitForLayout();
         expect(document.body.textContent).toContain(prompt);
         markerStages.push(document.body.textContent?.includes("Steering conversation"));
@@ -7677,7 +7664,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ]);
         await waitForLayout();
         markerStages.push(document.body.textContent?.includes("Steering conversation"));
-        expect(markerStages).toEqual([true, true, true]);
+        expect(markerStages).toEqual([false, true, true]);
       } finally {
         spy.mockRestore();
         await mounted.cleanup();
@@ -7947,13 +7934,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(1),
       );
 
-      const presentationSamples = window.penkraQueuedComposerActions
-        ?.samples(THREAD_ID)
-        .filter((sample) => sample.event === "presentation");
-      expect(
-        presentationSamples?.filter((sample) => (sample.duplicateMessageIds?.length ?? 0) > 0),
-      ).toEqual([]);
-
       expect(observed).toEqual([
         expect.objectContaining({ phase: "queued", steeringLabel: false, queuedRowVisible: true }),
         expect.objectContaining({
@@ -8057,14 +8037,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ]);
       await waitForLayout();
       expect(document.body.textContent).toContain("Steering conversation");
-      expect(
-        window.penkraQueuedComposerActions
-          ?.samples(THREAD_ID)
-          .filter(
-            (sample) =>
-              sample.event === "presentation" && (sample.duplicateMessageIds?.length ?? 0) > 0,
-          ),
-      ).toEqual([]);
     } finally {
       await mounted.cleanup();
     }
@@ -8476,13 +8448,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
               .map(readDispatchedCommand)
               .some((command) => command?.type === "thread.turn.steer-queued"),
           ).toBe(true);
-          // The user's action owns placement immediately: clear the queue row
-          // and show the same durable message once in the transcript while the
-          // provider handoff continues in the background.
+          // The server event moves the durable row into the transcript.
           expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
-          expect(getQueuedComposerActionSteerTurns(THREAD_ID).map((turn) => turn.prompt)).toContain(
-            "queue this follow-up",
-          );
           expect(
             window.penkraChatLifecycle
               ?.samples(THREAD_ID)
