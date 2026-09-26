@@ -342,8 +342,9 @@ export function deriveEffectiveComposerModelState(input: {
     (authoritativeCodex
       ? null
       : normalizeModelSlug(threadSelection?.model, input.selectedProvider)) ??
-    (authoritativeCodex ? null : normalizeModelSlug(draftSelection?.model, input.selectedProvider)) ??
-    (authoritativeCodex ? null : normalizeModelSlug(projectSelection?.model, input.selectedProvider)) ??
+    (authoritativeCodex
+      ? null
+      : normalizeModelSlug(projectSelection?.model, input.selectedProvider)) ??
     providerDeclaredDefault ??
     availableOptions?.[0]?.slug ??
     selectedDraftModel ??

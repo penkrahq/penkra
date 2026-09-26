@@ -1970,7 +1970,8 @@ export default function ChatView({
     ],
   );
   const activeThread = serverThread ?? localDraftThread;
-  const runtimeMode = composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
+  const runtimeMode =
+    composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const threadDetailHydration = resolveThreadDetailHydration({
