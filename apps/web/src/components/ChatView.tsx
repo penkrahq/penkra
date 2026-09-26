@@ -9523,11 +9523,7 @@ export default function ChatView({
           activeThread={activeThread}
           activeComposerProvider={selectedProvider}
           defaultComposerProvider={settings.defaultProvider}
-          className={cn(
-            isElectron && "drag-region",
-            desktopTopBarTrafficLightGutterClassName,
-            desktopTopBarWindowControlsGutterClassName,
-          )}
+          className={cn(isElectron && "drag-region", desktopTopBarTrafficLightGutterClassName)}
           leftRailCollapsed={!leftRailOpen}
           onRestoreLeftRail={() => setLeftRailOpen(true)}
         />
