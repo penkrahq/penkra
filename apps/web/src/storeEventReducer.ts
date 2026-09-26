@@ -374,6 +374,10 @@ function mergeStreamingMessage(
     incomingMessage.dispatchOrigin !== undefined
       ? incomingMessage.dispatchOrigin
       : existingMessage.dispatchOrigin;
+  const nextSenderThreadId =
+    nextDispatchOrigin === "agent"
+      ? (incomingMessage.senderThreadId ?? existingMessage.senderThreadId)
+      : undefined;
   const nextDelivery =
     incomingMessage.delivery === undefined ||
     (existingMessage.delivery !== undefined &&
@@ -392,14 +396,19 @@ function mergeStreamingMessage(
     existingMessage.turnId === nextTurnId &&
     existingMessage.dispatchMode === nextDispatchMode &&
     existingMessage.dispatchOrigin === nextDispatchOrigin &&
+    existingMessage.senderThreadId === nextSenderThreadId &&
     existingMessage.delivery === nextDelivery &&
     existingMessage.source === nextSource
   ) {
     return null;
   }
 
+  const existingMessageForMerge =
+    nextDispatchOrigin !== "agent"
+      ? (({ senderThreadId: _senderThreadId, ...message }) => message)(existingMessage)
+      : existingMessage;
   return {
-    ...existingMessage,
+    ...existingMessageForMerge,
     text: nextText,
     streaming: incomingMessage.streaming,
     ...(nextAttachments ? { attachments: nextAttachments } : {}),
@@ -408,6 +417,7 @@ function mergeStreamingMessage(
     ...(nextTurnId !== undefined ? { turnId: nextTurnId } : {}),
     ...(nextDispatchMode !== undefined ? { dispatchMode: nextDispatchMode } : {}),
     ...(nextDispatchOrigin !== undefined ? { dispatchOrigin: nextDispatchOrigin } : {}),
+    ...(nextSenderThreadId !== undefined ? { senderThreadId: nextSenderThreadId } : {}),
     ...(nextDelivery !== undefined ? { delivery: nextDelivery } : {}),
     ...(nextSource !== undefined ? { source: nextSource } : {}),
     ...(nextCompletedAt !== undefined ? { completedAt: nextCompletedAt } : {}),
@@ -431,6 +441,7 @@ function applyThreadMessageSentEvent(
       text: payload.text,
       dispatchMode: payload.dispatchMode,
       dispatchOrigin: payload.dispatchOrigin,
+      senderThreadId: payload.senderThreadId,
       ...(payload.delivery !== undefined
         ? { delivery: { ...payload.delivery, sequence: event.sequence } }
         : {}),

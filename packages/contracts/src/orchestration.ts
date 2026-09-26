@@ -417,6 +417,7 @@ export const OrchestrationMessage = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
   dispatchMode: Schema.optional(TurnDispatchMode),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  senderThreadId: Schema.optional(ThreadId),
   delivery: Schema.optional(MessageDelivery),
   /** First durable message event sequence. Delivery sequence may supersede it for presentation. */
   sequence: Schema.optional(NonNegativeInt),
@@ -1078,6 +1079,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
   // Trusted server paths may set this field. ClientThreadTurnStartCommand omits it,
   // so decoding strips any spoofed value.
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  senderThreadId: Schema.optional(ThreadId),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   createdAt: IsoDateTime,
 });
@@ -1166,6 +1168,7 @@ const ThreadDispatchQueuedTurnCommand = Schema.Struct({
     Schema.withDecodingDefault(() => DEFAULT_TURN_DISPATCH_MODE),
   ),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  senderThreadId: Schema.optional(ThreadId),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   createdAt: IsoDateTime,
 });
@@ -1716,6 +1719,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
   dispatchMode: Schema.optional(TurnDispatchMode),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  senderThreadId: Schema.optional(ThreadId),
   delivery: Schema.optional(MessageDeliveryAdmission),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
@@ -1757,6 +1761,7 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   dispatchMode: TurnDispatchMode.pipe(Schema.withDecodingDefault(() => DEFAULT_TURN_DISPATCH_MODE)),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  senderThreadId: Schema.optional(ThreadId),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   createdAt: IsoDateTime,
 });
