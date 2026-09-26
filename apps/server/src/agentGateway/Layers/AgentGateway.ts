@@ -58,8 +58,8 @@ import {
   PROVIDER_KINDS,
   ToolInputError,
   decodeCreateThreadInput,
+  decodeSendMessageInput,
   errorText,
-  readBooleanArg,
   readStringArrayArg,
   readStringArg,
 } from "../toolInput.ts";
@@ -67,6 +67,8 @@ import {
   DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS,
   IDEMPOTENT_WRITE_TOOL_ANNOTATIONS,
   WRITE_TOOL_ANNOTATIONS,
+  GatewayToolError,
+  gatewayToolErrorResult,
   type ToolEntry,
   type ToolContext,
 } from "../toolRuntime.ts";
@@ -125,6 +127,25 @@ function command(
     examples: [{ name: `Use ${["penkra", ...words].join(" ")}`, command: example }],
     ...(instructions === undefined ? {} : { instructions }),
   };
+}
+
+function sendMessageErrorResult(error: unknown) {
+  const message = errorText(error);
+  const normalized = message.toLowerCase();
+  const code = normalized.includes("connection is unavailable")
+    ? "connection_unavailable"
+    : normalized.includes("cannot change the thread provider") ||
+        normalized.includes("cannot change the thread's provider") ||
+        normalized.includes("cannot change its provider harness")
+      ? "provider_mismatch"
+      : normalized.includes("cannot authorize") ||
+          normalized.includes("requires the same account") ||
+          normalized.includes("credential backend is incompatible")
+        ? "connection_unauthorized"
+        : undefined;
+  return code
+    ? gatewayToolErrorResult(new GatewayToolError(code, message))
+    : mcpToolResultError(message);
 }
 
 export const makeAgentGateway = Effect.gen(function* () {
@@ -371,6 +392,12 @@ export const makeAgentGateway = Effect.gen(function* () {
             description:
               "Deliver regardless of running or queued work. The host may steer natively or interrupt according to provider capability.",
           },
+          connectionId: {
+            type: ["string", "null"],
+            description:
+              "Exact Connection ID to use for this send. Pass null only to request the provider's authorized anonymous route; omit to keep the current Connection.",
+          },
+          modelSelection: MODEL_SELECTION_INPUT_SCHEMA,
         },
         required: ["threadId", "message"],
         additionalProperties: false,
@@ -382,14 +409,15 @@ export const makeAgentGateway = Effect.gen(function* () {
     },
     handler: (args, context) =>
       Effect.gen(function* () {
-        const threadId = readStringArg(args, "threadId", { required: true })!;
-        const message = readStringArg(args, "message", { required: true })!;
+        const input = decodeSendMessageInput(args);
+        const threadId = input.threadId;
+        const message = input.message;
         if (threadId === context.callerThreadId) {
           throw new ToolInputError(
             "Cannot send to the caller Thread: send writes an agent-authored message with user role and starts another turn on top of the current turn.",
           );
         }
-        const now = readBooleanArg(args, "now") ?? false;
+        const now = input.now ?? false;
         const caller = yield* requireThreadShell(context.callerThreadId);
         const target = yield* requireThreadShell(threadId);
         yield* assertCallerMayDriveThread(caller, target);
@@ -418,6 +446,10 @@ export const makeAgentGateway = Effect.gen(function* () {
               dispatchMode,
               dispatchOrigin: "agent",
               runtimeMode: target.runtimeMode,
+              ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+              ...(input.modelSelection !== undefined
+                ? { modelSelection: input.modelSelection }
+                : {}),
               createdAt: isoNow(),
             },
             attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
@@ -425,7 +457,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           })
           .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
         return mcpToolResultJson({ threadId: target.id, messageId, turnId });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(sendMessageErrorResult(error)))),
   };
 
   const interruptThread: ToolEntry = {
@@ -730,7 +762,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     command(
       ["threads", "send"],
       sendMessage,
-      "penkra threads send --thread-id <thread-id> --message 'Continue the review.'",
+      'penkra threads send --input \'{"threadId":"<thread-id>","message":"Continue the review.","connectionId":"<connection-id>","modelSelection":{"provider":"codex","model":"gpt-5.5","options":{"reasoningEffort":"high"}}}\'',
     ),
     command(
       ["threads", "interrupt"],

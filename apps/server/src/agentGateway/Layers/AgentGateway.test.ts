@@ -234,6 +234,7 @@ function makeHarnessLayer(
     readonly resolveConnection?: (input: unknown) => void;
     readonly discoverModels?: (input: unknown) => void;
     readonly failDispatch?: (command: OrchestrationCommand) => boolean;
+    readonly dispatchFailureMessage?: string;
     readonly dispatchDelayMs?: number;
     readonly providerStatuses?: ReadonlyArray<ServerProviderStatus>;
     readonly pauseAfterDispatch?: {
@@ -727,7 +728,9 @@ function makeHarnessLayer(
               );
             }
             const result = options.failDispatch?.(command)
-              ? Effect.fail(new Error("injected dispatch failure"))
+              ? Effect.fail(
+                  new Error(options.dispatchFailureMessage ?? "injected dispatch failure"),
+                )
               : Effect.succeed({ sequence: dispatched.length });
             if (options.pauseAfterDispatch?.commandType !== command.type) return result;
             return Deferred.succeed(options.pauseAfterDispatch.entered, undefined).pipe(
@@ -3026,6 +3029,12 @@ describe("AgentGateway", () => {
           threadId: "thread-child",
           message: "status check please",
           now: true,
+          connectionId: CONNECTION_ID,
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5.5",
+            options: { reasoningEffort: "high" },
+          },
         },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -3034,6 +3043,12 @@ describe("AgentGateway", () => {
       if (turn.type === "thread.turn.start") {
         assert.equal(turn.dispatchOrigin, "agent");
         assert.equal(turn.dispatchMode, "steer");
+        assert.equal(turn.connectionId, CONNECTION_ID);
+        assert.deepEqual(turn.modelSelection, {
+          provider: "codex",
+          model: "gpt-5.5",
+          options: { reasoningEffort: "high" },
+        });
         assert.equal(turn.threadId, "thread-child");
         assert.equal(toolResultJson(response.result).turnId, turn.turnId);
         assert.equal(toolResultJson(response.result).messageId, turn.message.messageId);
@@ -3065,6 +3080,84 @@ describe("AgentGateway", () => {
       }
     }).pipe(Effect.provide(gatewayLayer));
   });
+
+  it.effect("forwards an explicit anonymous route and model selection on queued sends", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_send_message",
+        args: {
+          threadId: "thread-child",
+          message: "Use the anonymous route for this follow-up.",
+          connectionId: null,
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5.5",
+            options: { reasoningEffort: "low" },
+          },
+        },
+      });
+      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      const turn = harness.dispatched[0];
+      assert.equal(turn?.type, "thread.turn.start");
+      if (turn?.type === "thread.turn.start") {
+        assert.equal(turn.dispatchMode, "queue");
+        assert.equal(turn.connectionId, null);
+        assert.deepEqual(turn.modelSelection, {
+          provider: "codex",
+          model: "gpt-5.5",
+          options: { reasoningEffort: "low" },
+        });
+      }
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("returns structured selection errors to the send caller", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
+      failDispatch: (command) => command.type === "thread.turn.start",
+      dispatchFailureMessage: "The selected Connection is unavailable for this thread.",
+    });
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_send_message",
+        args: { threadId: "thread-child", message: "Try the selected route." },
+      });
+      assert.isTrue(isToolError(response.result));
+      assert.deepEqual(toolResultJson(response.result), {
+        error: {
+          code: "connection_unavailable",
+          message: "The selected Connection is unavailable for this thread.",
+        },
+      });
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  for (const [message, code] of [
+    ["A started thread cannot change its provider harness.", "provider_mismatch"],
+    ["The selected Connection cannot authorize this model route.", "connection_unauthorized"],
+  ] as const) {
+    it.effect(`returns ${code} as a structured send error`, () => {
+      const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
+        failDispatch: (command) => command.type === "thread.turn.start",
+        dispatchFailureMessage: message,
+      });
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const response = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_send_message",
+          args: { threadId: "thread-child", message: "Try the selected route." },
+        });
+        assert.isTrue(isToolError(response.result));
+        const error = toolResultJson(response.result).error as { code: string };
+        assert.equal(error.code, code);
+      }).pipe(Effect.provide(gatewayLayer));
+    });
+  }
 
   it.effect("passes an idle steer through so the reactor's live-state guard decides", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
