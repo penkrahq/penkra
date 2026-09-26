@@ -6,7 +6,7 @@ import { IconPackage } from "@tabler/icons-react";
 import type { DesktopAppTabPresentation } from "@penkra/contracts";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
-import { appDockBoundsForWidth } from "../ui/sidebar";
+import { appDockBoundsForElement } from "../ui/sidebar";
 import { PanelStateMessage } from "./PanelStateMessage";
 
 export function AppDockPane(props: {
@@ -43,20 +43,20 @@ export function AppDockPane(props: {
   );
   const present = useCallback(() => {
     const bridge = window.desktopBridge?.appTabs;
-    const wrapper = rootRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
-    if (!bridge || !wrapper) {
+    const surface = rootRef.current;
+    if (!bridge || !surface) {
       trace("renderer-present-skipped", {
-        reason: bridge ? "missing-sidebar-wrapper" : "missing-desktop-bridge",
+        reason: bridge ? "missing-app-surface" : "missing-desktop-bridge",
       });
       return;
     }
-    const width = wrapper.getBoundingClientRect().width;
-    if (!Number.isFinite(width) || width <= 0) {
-      trace("renderer-present-skipped", { reason: "invalid-rendered-width", width });
+    const bounds = appDockBoundsForElement(surface);
+    if (!bounds) {
+      trace("renderer-present-skipped", { reason: "empty-app-surface" });
       return;
     }
     trace("renderer-present-requested", {
-      width,
+      bounds,
       animate: props.animateEntrance,
       status: props.status,
       paneVisible: props.visible,
@@ -69,7 +69,7 @@ export function AppDockPane(props: {
       ...(props.animationStartedAtEpochMs === null
         ? {}
         : { animationStartedAtEpochMs: props.animationStartedAtEpochMs }),
-      bounds: appDockBoundsForWidth(width),
+      bounds,
     });
   }, [
     props.animateEntrance,

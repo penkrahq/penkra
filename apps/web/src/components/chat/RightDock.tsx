@@ -22,7 +22,7 @@ import {
   SIDEBAR_OFFCANVAS_MOTION_SUPPRESSED_CLASS,
   SidebarProvider,
   SidebarRail,
-  publishNativeAppBoundsForWidth,
+  publishNativeAppBounds,
 } from "../ui/sidebar";
 import { CHAT_BACKGROUND_CLASS_NAME } from "./composerPickerStyles";
 import {
@@ -146,13 +146,11 @@ export function RightDock(props: RightDockProps) {
     const applyAvailableWidth = () => {
       const shellWidth = wrapper.parentElement?.clientWidth ?? window.innerWidth;
       const preferredWidth = props.state.width ?? Math.round(shellWidth / 2);
-      const maximumWidth = Math.max(minWidth, shellWidth - (props.contentMinWidth ?? 0));
-      const nextWidth = Math.max(minWidth, Math.min(preferredWidth, maximumWidth));
-      if (nextWidth > 0) {
-        publishNativeAppBoundsForWidth(wrapper, nextWidth);
-        wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
-        shell.style.setProperty("--right-dock-overlay-inset", `${nextWidth}px`);
-      }
+      const maximumWidth = Math.max(0, shellWidth - (props.contentMinWidth ?? 0));
+      const nextWidth = Math.min(Math.max(minWidth, preferredWidth), maximumWidth);
+      wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
+      shell.style.setProperty("--right-dock-overlay-inset", `${nextWidth}px`);
+      publishNativeAppBounds(wrapper);
     };
     const scheduleAvailableWidth = () => {
       if (resizeFrameId !== null) return;
@@ -169,6 +167,7 @@ export function RightDock(props: RightDockProps) {
     // native App bounds are reconciled in the same frame.
     const resizeObserver = new ResizeObserver(scheduleAvailableWidth);
     resizeObserver.observe(shell);
+    if (contentRef.current) resizeObserver.observe(contentRef.current);
     window.addEventListener("resize", scheduleAvailableWidth);
     const removeWindowStateListener = window.desktopBridge?.windowControls?.onState(() =>
       scheduleAvailableWidth(),
@@ -234,7 +233,8 @@ export function RightDock(props: RightDockProps) {
         gapClassName={chromeMotionClass}
         transparentSurface
         resizable={{
-          minWidth: props.minWidth,
+          // The saved resize floor yields when the shell cannot fit both panes.
+          minWidth: props.contentMinWidth === undefined ? props.minWidth : 0,
           ...(props.onResize ? { onResize: props.onResize } : {}),
           shouldAcceptWidth: props.shouldAcceptWidth,
         }}
