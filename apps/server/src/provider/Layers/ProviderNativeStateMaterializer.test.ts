@@ -8,53 +8,16 @@ import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { ServerConfig } from "../../config.ts";
-import {
-  providerConnectionProfileRoot,
-  providerNativeStateRoot,
-} from "../providerNativeStatePaths.ts";
+import { providerNativeStateRoot } from "../providerNativeStatePaths.ts";
+import { claudeThreadTranscriptPath } from "../claudeThreadNativeState.ts";
 import { ProviderNativeStateMaterializer } from "../Services/ProviderNativeStateMaterializer.ts";
 import { ProviderNativeStateMaterializerLive } from "./ProviderNativeStateMaterializer.ts";
-import { ProviderConnectionRepositoryLive } from "../../persistence/Layers/ProviderConnections.ts";
-import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
-import { runMigrations } from "../../persistence/Migrations.ts";
-import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 
 const configLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "penkra-native-state-materializer-test-",
 }).pipe(Layer.provide(NodeServices.layer));
-const sqliteLayer = NodeSqliteClient.layerMemory();
-const connectionLayer = ProviderConnectionRepositoryLive.pipe(Layer.provide(sqliteLayer));
-const materializerLayer = ProviderNativeStateMaterializerLive.pipe(
-  Layer.provide(connectionLayer),
-  Layer.provide(configLayer),
-);
-const layer = it.layer(
-  Layer.mergeAll(NodeServices.layer, sqliteLayer, configLayer, connectionLayer, materializerLayer),
-);
-
-const createClaudeConnections = (
-  sourceConnectionId: ProviderConnectionId | null,
-  targetConnectionId: ProviderConnectionId,
-) =>
-  Effect.gen(function* () {
-    yield* runMigrations();
-    const connections = yield* ProviderConnectionRepository;
-    const createdAt = new Date().toISOString();
-    for (const connectionId of [sourceConnectionId, targetConnectionId]) {
-      if (connectionId === null) continue;
-      yield* connections.create({
-        id: connectionId,
-        harness: "claudeAgent",
-        authenticationTargetId: "anthropic-first-party",
-        authenticationMethodId: "account",
-        label: `Claude ${connectionId}`,
-        credentialRef: null,
-        profileRef: `provider-profile:${connectionId}`,
-        providerIdentityId: null,
-        createdAt,
-      });
-    }
-  });
+const materializerLayer = ProviderNativeStateMaterializerLive.pipe(Layer.provide(configLayer));
+const layer = it.layer(Layer.mergeAll(NodeServices.layer, configLayer, materializerLayer));
 
 layer("ProviderNativeStateMaterializer", (it) => {
   it.effect("publishes one exact Codex clone and never reuses an existing target", () =>
@@ -124,322 +87,36 @@ layer("ProviderNativeStateMaterializer", (it) => {
     }),
   );
 
-  it.effect("copies only the exact Claude session artifacts", () =>
+  it.effect("switches a Claude Thread without copying its conversation into either profile", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig;
       const materializer = yield* ProviderNativeStateMaterializer;
-      const source = ProviderNativeStateGenerationId.makeUnsafe("materializer-claude-source");
-      const target = ProviderNativeStateGenerationId.makeUnsafe("materializer-claude-target");
-      const sourceConnectionId = ProviderConnectionId.makeUnsafe("claude-source-connection");
-      const targetConnectionId = ProviderConnectionId.makeUnsafe("claude-target-connection");
-      yield* createClaudeConnections(sourceConnectionId, targetConnectionId);
-      const sourceProfile = providerConnectionProfileRoot(config.stateDir, sourceConnectionId);
-      const targetProfile = providerConnectionProfileRoot(config.stateDir, targetConnectionId);
+      const threadId = "claude-switch-thread";
       const sessionId = "550e8400-e29b-41d4-a716-446655440000";
-      const projectRoot = `${sourceProfile}/claude-config/projects/-workspace`;
-      yield* Effect.promise(() => mkdir(projectRoot, { recursive: true, mode: 0o700 }));
-      yield* Effect.promise(() => writeFile(`${projectRoot}/${sessionId}.jsonl`, "session"));
-      yield* Effect.promise(() =>
-        writeFile(`${sourceProfile}/claude-config/.credentials.json`, "secret"),
-      );
-
-      const targetRoot = yield* materializer.clone({
-        harness: "claudeAgent",
-        providerSessionId: sessionId,
-        sourceStorage: "connection-profile",
-        sourceConnectionId,
-        targetConnectionId,
-        sourceGenerationId: source,
-        targetGenerationId: target,
-      });
-      assert.strictEqual(
-        yield* Effect.promise(() =>
-          readFile(`${targetProfile}/claude-config/projects/-workspace/${sessionId}.jsonl`, "utf8"),
-        ),
-        "session",
-      );
-      assert.strictEqual(
-        yield* Effect.promise(() =>
-          access(`${targetProfile}/claude-config/.credentials.json`).then(
-            () => true,
-            () => false,
-          ),
-        ),
-        false,
-      );
-      assert.deepStrictEqual(
-        JSON.parse(
-          yield* Effect.promise(() => readFile(`${targetRoot}/claude-session.json`, "utf8")),
-        ),
-        { providerSessionId: sessionId },
-      );
-    }),
-  );
-
-  it.effect("recovers an exact Claude conversation from retired profile lineage", () =>
-    Effect.gen(function* () {
-      const config = yield* ServerConfig;
-      const sql = yield* SqlClient.SqlClient;
-      const materializer = yield* ProviderNativeStateMaterializer;
-      const source = ProviderNativeStateGenerationId.makeUnsafe("materializer-lineage-source");
-      const target = ProviderNativeStateGenerationId.makeUnsafe("materializer-lineage-target");
-      const sourceConnectionId = ProviderConnectionId.makeUnsafe("claude-lineage-source");
-      const targetConnectionId = ProviderConnectionId.makeUnsafe("claude-lineage-target");
-      yield* createClaudeConnections(sourceConnectionId, targetConnectionId);
-      const activeProfileRef = `provider-profile:${sourceConnectionId}`;
-      const retiredProfileRef = "provider-profile:claude-lineage-retired";
-      yield* sql`
-        INSERT INTO provider_credential_profiles (
-          profile_ref, harness_kind, authentication_target_id, authentication_method_id,
-          lifecycle, connection_id, login_operation_id, created_at, updated_at, retired_at
-        ) VALUES
-          (${activeProfileRef}, 'claudeAgent', 'anthropic-first-party', 'account', 'active',
-            ${sourceConnectionId}, NULL, '2026-09-03T00:00:00.000Z',
-            '2026-09-03T02:00:00.000Z', NULL),
-          (${retiredProfileRef}, 'claudeAgent', 'anthropic-first-party', 'account', 'retired',
-            ${sourceConnectionId}, NULL, '2026-09-02T00:00:00.000Z',
-            '2026-09-03T01:00:00.000Z', '2026-09-03T01:00:00.000Z')
-      `;
-      const activeProfile = providerConnectionProfileRoot(config.stateDir, sourceConnectionId);
-      const retiredProfile = providerConnectionProfileRoot(
-        config.stateDir,
-        "claude-lineage-retired",
-      );
-      const sessionId = "550e8400-e29b-41d4-a716-446655440099";
-      for (const profile of [activeProfile, retiredProfile]) {
-        yield* Effect.promise(() =>
-          mkdir(`${profile}/claude-config/projects/-workspace`, {
-            recursive: true,
-            mode: 0o700,
-          }),
+      const source = ProviderNativeStateGenerationId.makeUnsafe("claude-switch-source");
+      const target = ProviderNativeStateGenerationId.makeUnsafe("claude-switch-target");
+      const transcript = claudeThreadTranscriptPath(config.stateDir, threadId, sessionId);
+      yield* Effect.promise(async () => {
+        await mkdir(Path.dirname(transcript), { recursive: true });
+        await writeFile(
+          transcript,
+          `${JSON.stringify({ type: "user", message: { role: "user", content: "hello" } })}\n`,
         );
-      }
-      yield* Effect.promise(() =>
-        writeFile(
-          `${activeProfile}/claude-config/projects/-workspace/${sessionId}.jsonl`,
-          JSON.stringify({ type: "last-prompt", sessionId }),
-        ),
-      );
-      const realConversation = `${JSON.stringify({
-        type: "assistant",
-        uuid: "assistant-real",
-        sessionId,
-      })}\n`;
-      yield* Effect.promise(() =>
-        writeFile(
-          `${retiredProfile}/claude-config/projects/-workspace/${sessionId}.jsonl`,
-          realConversation,
-        ),
-      );
-
-      yield* materializer.clone({
-        harness: "claudeAgent",
-        providerSessionId: sessionId,
-        sourceStorage: "connection-profile",
-        sourceConnectionId,
-        targetConnectionId,
-        sourceGenerationId: source,
-        targetGenerationId: target,
       });
-      const targetProfile = providerConnectionProfileRoot(config.stateDir, targetConnectionId);
-      assert.strictEqual(
-        yield* Effect.promise(() =>
-          readFile(`${targetProfile}/claude-config/projects/-workspace/${sessionId}.jsonl`, "utf8"),
-        ),
-        realConversation,
-      );
-    }),
-  );
-
-  it.effect("resolves the effective profile used by a static Claude API-key Connection", () =>
-    Effect.gen(function* () {
-      const config = yield* ServerConfig;
-      const connections = yield* ProviderConnectionRepository;
-      const materializer = yield* ProviderNativeStateMaterializer;
-      yield* runMigrations();
-      const sourceConnectionId = ProviderConnectionId.makeUnsafe("claude-static-source");
-      const targetConnectionId = ProviderConnectionId.makeUnsafe("claude-account-target");
-      const createdAt = new Date().toISOString();
-      yield* connections.create({
-        id: sourceConnectionId,
-        harness: "claudeAgent",
-        authenticationTargetId: "anthropic-first-party",
-        authenticationMethodId: "api-key",
-        label: "Claude API",
-        credentialRef: "credential:claude-static-source",
-        profileRef: null,
-        providerIdentityId: null,
-        createdAt,
-      });
-      yield* connections.create({
-        id: targetConnectionId,
-        harness: "claudeAgent",
-        authenticationTargetId: "anthropic-first-party",
-        authenticationMethodId: "claude-account",
-        label: "Claude account",
-        credentialRef: null,
-        profileRef: `provider-profile:${targetConnectionId}`,
-        providerIdentityId: null,
-        createdAt,
-      });
-      const sourceProfile = providerConnectionProfileRoot(config.stateDir, sourceConnectionId);
-      const targetProfile = providerConnectionProfileRoot(config.stateDir, targetConnectionId);
-      const sessionId = "550e8400-e29b-41d4-a716-446655440099";
-      const relativeSession = `claude-config/projects/-workspace/${sessionId}.jsonl`;
-      yield* Effect.promise(() =>
-        mkdir(Path.dirname(`${sourceProfile}/${relativeSession}`), {
-          recursive: true,
-          mode: 0o700,
-        }),
-      );
-      yield* Effect.promise(() => writeFile(`${sourceProfile}/${relativeSession}`, "api-session"));
-
-      const generation = ProviderNativeStateGenerationId.makeUnsafe("claude-static-generation");
-      yield* materializer.clone({
-        harness: "claudeAgent",
-        providerSessionId: sessionId,
-        sourceStorage: "connection-profile",
-        sourceConnectionId,
-        targetConnectionId,
-        sourceGenerationId: ProviderNativeStateGenerationId.makeUnsafe("unused-static-source"),
-        targetGenerationId: generation,
-      });
-
-      assert.strictEqual(
-        yield* Effect.promise(() => readFile(`${targetProfile}/${relativeSession}`, "utf8")),
-        "api-session",
-      );
-      yield* materializer.discard(generation);
-      assert.strictEqual(
-        yield* Effect.promise(() =>
-          access(`${targetProfile}/${relativeSession}`).then(
-            () => true,
-            () => false,
-          ),
-        ),
-        false,
-      );
-    }),
-  );
-
-  it.effect("replaces a stale Claude session exactly and rolls it back until finalized", () =>
-    Effect.gen(function* () {
-      const config = yield* ServerConfig;
-      const materializer = yield* ProviderNativeStateMaterializer;
-      const sourceConnectionId = ProviderConnectionId.makeUnsafe("claude-current-connection");
-      const targetConnectionId = ProviderConnectionId.makeUnsafe("claude-stale-connection");
-      yield* createClaudeConnections(sourceConnectionId, targetConnectionId);
-      const sourceProfile = providerConnectionProfileRoot(config.stateDir, sourceConnectionId);
-      const targetProfile = providerConnectionProfileRoot(config.stateDir, targetConnectionId);
-      const sessionId = "550e8400-e29b-41d4-a716-446655440010";
-      const relativeSession = `claude-config/projects/-workspace/${sessionId}.jsonl`;
-      const sourceSession = `${sourceProfile}/${relativeSession}`;
-      const targetSession = `${targetProfile}/${relativeSession}`;
-      yield* Effect.promise(() =>
-        Promise.all([
-          mkdir(Path.dirname(sourceSession), {
-            recursive: true,
-            mode: 0o700,
-          }),
-          mkdir(Path.dirname(targetSession), {
-            recursive: true,
-            mode: 0o700,
-          }),
-        ]),
-      );
-      yield* Effect.promise(() => writeFile(sourceSession, "current"));
-      yield* Effect.promise(() => writeFile(targetSession, "stale"));
-      yield* Effect.promise(() =>
-        writeFile(`${targetProfile}/claude-config/.credentials.json`, "target-secret"),
-      );
-
-      const discardedGeneration = ProviderNativeStateGenerationId.makeUnsafe(
-        "materializer-claude-replaced-discarded",
-      );
-      yield* materializer.clone({
-        harness: "claudeAgent",
-        providerSessionId: sessionId,
-        sourceStorage: "connection-profile",
-        sourceConnectionId,
-        targetConnectionId,
-        sourceGenerationId: ProviderNativeStateGenerationId.makeUnsafe("unused-source"),
-        targetGenerationId: discardedGeneration,
-      });
-      assert.strictEqual(yield* Effect.promise(() => readFile(targetSession, "utf8")), "current");
-      yield* materializer.discard(discardedGeneration);
-      assert.strictEqual(yield* Effect.promise(() => readFile(targetSession, "utf8")), "stale");
-
-      const finalizedGeneration = ProviderNativeStateGenerationId.makeUnsafe(
-        "materializer-claude-replaced-finalized",
-      );
-      yield* materializer.clone({
-        harness: "claudeAgent",
-        providerSessionId: sessionId,
-        sourceStorage: "connection-profile",
-        sourceConnectionId,
-        targetConnectionId,
-        sourceGenerationId: ProviderNativeStateGenerationId.makeUnsafe("unused-source"),
-        targetGenerationId: finalizedGeneration,
-      });
-      yield* materializer.finalize(finalizedGeneration);
-      yield* materializer.discard(finalizedGeneration);
-      assert.strictEqual(yield* Effect.promise(() => readFile(targetSession, "utf8")), "current");
-      assert.strictEqual(
-        yield* Effect.promise(() =>
-          readFile(`${targetProfile}/claude-config/.credentials.json`, "utf8"),
-        ),
-        "target-secret",
-      );
-    }),
-  );
-
-  it.effect("adopts an exact legacy Claude generation into the target Connection profile", () =>
-    Effect.gen(function* () {
-      const config = yield* ServerConfig;
-      const materializer = yield* ProviderNativeStateMaterializer;
-      const source = ProviderNativeStateGenerationId.makeUnsafe("materializer-legacy-claude");
-      const target = ProviderNativeStateGenerationId.makeUnsafe(
-        "materializer-legacy-claude-target",
-      );
-      const targetConnectionId = ProviderConnectionId.makeUnsafe("legacy-claude-target-connection");
-      yield* createClaudeConnections(null, targetConnectionId);
-      const sourceRoot = providerNativeStateRoot(config.stateDir, source);
-      const targetProfile = providerConnectionProfileRoot(config.stateDir, targetConnectionId);
-      const sessionId = "550e8400-e29b-41d4-a716-446655440001";
-      const sourceProjectRoot = `${sourceRoot}/claude-config/projects/-legacy-workspace`;
-      yield* Effect.promise(() => mkdir(sourceProjectRoot, { recursive: true, mode: 0o700 }));
-      yield* Effect.promise(() => writeFile(`${sourceProjectRoot}/${sessionId}.jsonl`, "legacy"));
-      yield* Effect.promise(() =>
-        writeFile(`${sourceRoot}/claude-config/.credentials.json`, "legacy-secret"),
-      );
-
       const targetRoot = yield* materializer.clone({
         harness: "claudeAgent",
         providerSessionId: sessionId,
-        sourceStorage: "generation",
-        sourceConnectionId: null,
-        targetConnectionId,
+        sourceStorage: "connection-profile",
+        sourceConnectionId: ProviderConnectionId.makeUnsafe("deleted-source"),
+        targetConnectionId: ProviderConnectionId.makeUnsafe("new-target"),
         sourceGenerationId: source,
         targetGenerationId: target,
+        sourceThreadId: threadId,
+        targetThreadId: threadId,
       });
-
       assert.strictEqual(
-        yield* Effect.promise(() =>
-          readFile(
-            `${targetProfile}/claude-config/projects/-legacy-workspace/${sessionId}.jsonl`,
-            "utf8",
-          ),
-        ),
-        "legacy",
-      );
-      assert.strictEqual(
-        yield* Effect.promise(() =>
-          access(`${targetProfile}/claude-config/.credentials.json`).then(
-            () => true,
-            () => false,
-          ),
-        ),
-        false,
+        yield* Effect.promise(() => readFile(transcript, "utf8")),
+        `${JSON.stringify({ type: "user", message: { role: "user", content: "hello" } })}\n`,
       );
       assert.deepStrictEqual(
         JSON.parse(
@@ -448,6 +125,96 @@ layer("ProviderNativeStateMaterializer", (it) => {
         { providerSessionId: sessionId },
       );
     }),
+  );
+
+  it.effect("marks a missing Claude file so switch reconstructs from Penkra", () =>
+    Effect.gen(function* () {
+      const materializer = yield* ProviderNativeStateMaterializer;
+      const root = yield* materializer.clone({
+        harness: "claudeAgent",
+        providerSessionId: "550e8400-e29b-41d4-a716-446655440099",
+        sourceStorage: "connection-profile",
+        sourceConnectionId: ProviderConnectionId.makeUnsafe("deleted-source-missing"),
+        targetConnectionId: ProviderConnectionId.makeUnsafe("new-target-missing"),
+        sourceGenerationId: ProviderNativeStateGenerationId.makeUnsafe("missing-source"),
+        targetGenerationId: ProviderNativeStateGenerationId.makeUnsafe("missing-target"),
+        sourceThreadId: "missing-thread",
+        targetThreadId: "missing-thread",
+      });
+      assert.deepStrictEqual(
+        JSON.parse(yield* Effect.promise(() => readFile(`${root}/claude-session.json`, "utf8"))),
+        {
+          providerSessionId: "550e8400-e29b-41d4-a716-446655440099",
+          requiresReconstruction: true,
+        },
+      );
+    }),
+  );
+
+  it.effect(
+    "copies an exact Claude fork into a different Thread and removes an uncommitted fork",
+    () =>
+      Effect.gen(function* () {
+        const config = yield* ServerConfig;
+        const materializer = yield* ProviderNativeStateMaterializer;
+        const sourceThreadId = "claude-fork-source-thread";
+        const targetThreadId = "claude-fork-target-thread";
+        const sessionId = "550e8400-e29b-41d4-a716-446655440001";
+        const sourceTranscript = claudeThreadTranscriptPath(
+          config.stateDir,
+          sourceThreadId,
+          sessionId,
+        );
+        const targetTranscript = claudeThreadTranscriptPath(
+          config.stateDir,
+          targetThreadId,
+          sessionId,
+        );
+        yield* Effect.promise(async () => {
+          await mkdir(Path.dirname(sourceTranscript), { recursive: true });
+          await writeFile(
+            sourceTranscript,
+            '{"type":"assistant","message":{"role":"assistant","content":"source"}}\n',
+          );
+        });
+        const generation = ProviderNativeStateGenerationId.makeUnsafe(
+          "claude-fork-target-generation",
+        );
+        yield* materializer.clone({
+          harness: "claudeAgent",
+          providerSessionId: sessionId,
+          sourceStorage: "connection-profile",
+          sourceConnectionId: null,
+          targetConnectionId: null,
+          sourceGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
+            "claude-fork-source-generation",
+          ),
+          targetGenerationId: generation,
+          sourceThreadId,
+          targetThreadId,
+        });
+        assert.strictEqual(
+          yield* Effect.promise(() => readFile(targetTranscript, "utf8")),
+          yield* Effect.promise(() => readFile(sourceTranscript, "utf8")),
+        );
+        yield* materializer.discard(generation);
+        assert.isFalse(
+          yield* Effect.promise(() =>
+            access(targetTranscript).then(
+              () => true,
+              () => false,
+            ),
+          ),
+        );
+        assert.isTrue(
+          yield* Effect.promise(() =>
+            access(sourceTranscript).then(
+              () => true,
+              () => false,
+            ),
+          ),
+        );
+      }),
   );
 
   it.effect("copies OpenCode conversation state without profile authentication", () =>

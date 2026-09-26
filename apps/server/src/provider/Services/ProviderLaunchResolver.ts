@@ -38,6 +38,8 @@ export interface ProviderLaunchResolverShape {
     readonly installationId: ProviderInstallationId;
     readonly internalProviderId: string | null;
     readonly nativeStateIdentity: string;
+    /** Present for a real Claude Thread; discovery launches have no conversation. */
+    readonly claudeThreadId?: ThreadId;
     /** Existing thread bindings may remain pinned to a retained installation. */
     readonly allowRetiredInstallation?: boolean;
   }) => Effect.Effect<ProviderLaunchSpec, ProviderLaunchResolutionError>;

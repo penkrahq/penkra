@@ -6,6 +6,7 @@ import { Effect, Layer, Option } from "effect";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ThreadDiagnosticsQuery } from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
 import { providerNativeResumeIdentity } from "../nativeResumeIdentity.ts";
+import { readClaudeSessionMarker } from "../claudeThreadNativeState.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import { ProviderNativeStateMaterializer } from "../Services/ProviderNativeStateMaterializer.ts";
@@ -144,7 +145,7 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
       }
 
       stage = "clone-native-state";
-      yield* materializer
+      const targetRoot = yield* materializer
         .clone({
           harness: input.selection.harness,
           providerSessionId: sourceIdentity,
@@ -153,6 +154,8 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
           targetConnectionId: input.selection.connectionId,
           sourceGenerationId: state.value.nativeStateGenerationId,
           targetGenerationId: input.targetGenerationId,
+          sourceThreadId: input.selection.threadId,
+          targetThreadId: input.selection.threadId,
         })
         .pipe(
           Effect.mapError(
@@ -163,6 +166,34 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
               }),
           ),
         );
+
+      if (input.selection.harness === "claudeAgent") {
+        stage = "read-clone-marker";
+        const marker = yield* Effect.tryPromise({
+          try: () => readClaudeSessionMarker(targetRoot),
+          catch: (cause) =>
+            new ProviderNativeContinuationVerificationError({
+              detail: "Could not read the cloned Claude session marker.",
+              cause,
+            }),
+        });
+        // The Thread-owned JSONL is gone; the switch can still rebuild from
+        // Penkra's transcript, so never fail the switch on a missing file.
+        if (marker?.requiresReconstruction === true) {
+          return {
+            kind: "reconstructed" as const,
+            generationId: input.targetGenerationId,
+            adapterSchemaVersion: "penkra-reconstructed-continuation-v1",
+            stateManifestJson: JSON.stringify({
+              format: "penkra-reconstructed-continuation-v1",
+              reason: "The exact Thread-owned Claude session is unavailable.",
+            }),
+            providerSessionId: null,
+            nativeStateLocatorJson: '{"penkraReconstruction":true}',
+            verifiedAt: new Date().toISOString(),
+          };
+        }
+      }
 
       const result = yield* Effect.gen(function* () {
         stage = "resolve-target-launch";
