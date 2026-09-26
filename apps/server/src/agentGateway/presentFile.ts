@@ -67,7 +67,7 @@ export function presentFile(input: {
   readonly requestedPath: string;
   readonly workingDirectory: string | null;
   readonly threadId: string;
-  readonly turnId: string;
+  readonly turnId: string | null;
   readonly attachmentsDir: string;
   readonly stateDir: string;
   readonly repository: ManagedAttachmentRepositoryShape;
@@ -173,7 +173,7 @@ export function presentFile(input: {
               presentationIndex: input.presentationIndex,
             }),
       },
-      turnId: TurnId.makeUnsafe(input.turnId),
+      turnId: input.turnId === null ? null : TurnId.makeUnsafe(input.turnId),
       createdAt: new Date().toISOString(),
     };
     yield* input.engine

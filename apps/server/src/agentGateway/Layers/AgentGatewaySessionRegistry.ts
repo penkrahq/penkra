@@ -5,7 +5,6 @@ import { Layer } from "effect";
 import {
   AgentGatewaySessionRegistry,
   type AgentGatewaySessionIdentity,
-  type AgentGatewayWriteAuthority,
   type AgentGatewaySessionRegistryShape,
 } from "../Services/AgentGatewaySessionRegistry.ts";
 
@@ -16,7 +15,6 @@ export function makeAgentGatewaySessionRegistry(options?: {
   const now = options?.now ?? Date.now;
   const randomId = options?.randomId ?? randomUUID;
   const sessions = new Map<string, AgentGatewaySessionIdentity>();
-  const sessionsByKey = new Map<string, AgentGatewaySessionIdentity>();
 
   return {
     issue: (threadId, provider) => {
@@ -35,7 +33,6 @@ export function makeAgentGatewaySessionRegistry(options?: {
         capabilities: new Set(["thread:read", "thread:write", "diagnostics:read"]),
       };
       sessions.set(token, identity);
-      sessionsByKey.set(sessionKey, identity);
       return { token, ...identity };
     },
     verify: (token) => {
@@ -43,29 +40,10 @@ export function makeAgentGatewaySessionRegistry(options?: {
       if (!identity) return null;
       return identity;
     },
-    bindWriteAuthority: (token, turnId) => {
-      const identity = sessions.get(token);
-      if (!identity) return null;
-      return {
-        sessionKey: identity.sessionKey,
-        threadId: identity.threadId,
-        provider: identity.provider,
-        turnId,
-      } satisfies AgentGatewayWriteAuthority;
-    },
-    verifyWriteAuthority: (authority) => {
-      const identity = sessionsByKey.get(authority.sessionKey);
-      return (
-        identity !== undefined &&
-        identity.threadId === authority.threadId &&
-        identity.provider === authority.provider
-      );
-    },
     revoke: (token) => {
       const identity = sessions.get(token);
       if (!identity) return;
       sessions.delete(token);
-      sessionsByKey.delete(identity.sessionKey);
     },
   };
 }
