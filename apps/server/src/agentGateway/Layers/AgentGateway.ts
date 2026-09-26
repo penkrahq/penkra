@@ -456,6 +456,7 @@ export const makeAgentGateway = Effect.gen(function* () {
               },
               dispatchMode,
               dispatchOrigin: "agent",
+              senderThreadId: ThreadId.makeUnsafe(context.callerThreadId),
               runtimeMode: target.runtimeMode,
               ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
               ...(input.modelSelection !== undefined

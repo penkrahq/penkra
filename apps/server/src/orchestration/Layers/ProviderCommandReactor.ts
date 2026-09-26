@@ -8,6 +8,7 @@ import {
   EventId,
   type ModelSelection,
   MessageId,
+  type MessageDispatchOrigin,
   type OrchestrationEvent,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   type ProviderMentionReference,
@@ -70,6 +71,7 @@ import {
   ProviderServiceError,
 } from "../../provider/Errors.ts";
 import { buildInlineSkillInstructions } from "../../provider/skillPromptInjection.ts";
+import { clampMentionTitle } from "../../provider/threadMentionContext.ts";
 import {
   appendThreadMentionContextBlocks,
   resolveThreadMentionPromptProjection,
@@ -1295,6 +1297,8 @@ const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly messageId: string;
     readonly messageText: string;
+    readonly dispatchOrigin?: MessageDispatchOrigin;
+    readonly senderThreadId?: ThreadId;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly skills?: ReadonlyArray<ProviderSkillReference>;
     readonly mentions?: ReadonlyArray<ProviderMentionReference>;
@@ -1323,6 +1327,25 @@ const make = Effect.gen(function* () {
     });
     const mentionContextSuffix = threadMentionContextSuffix(threadMentionProjection.contextBlocks);
     const providerMentions = threadMentionProjection.providerMentions;
+    const senderShell =
+      input.dispatchOrigin === "agent" && input.senderThreadId
+        ? Option.getOrNull(yield* projectionSnapshotQuery.getThreadShellById(input.senderThreadId))
+        : null;
+    const senderTitle = senderShell?.title;
+    const senderContext =
+      input.dispatchOrigin === "agent" && input.senderThreadId
+        ? [
+            "<agent_message_sender>",
+            "This message was written by the agent in another Penkra thread, not by the user.",
+            ...(senderTitle?.trim()
+              ? [`Thread: ${JSON.stringify(clampMentionTitle(senderTitle))}`]
+              : []),
+            `Thread ID: ${input.senderThreadId}`,
+            "</agent_message_sender>",
+            "",
+            "",
+          ].join("\n")
+        : "";
     // Subagent threads have no provider session of their own: their messages
     // steer the running child task through the parent session (mirrors the
     // interrupt seam), never the session-bootstrap path below. Parent metadata
@@ -1348,6 +1371,7 @@ const make = Effect.gen(function* () {
                 maxChars: Math.max(
                   0,
                   PROVIDER_SEND_TURN_MAX_INPUT_CHARS -
+                    senderContext.length -
                     messageText.length -
                     PROVIDER_INPUT_SAFETY_MARGIN_CHARS,
                 ),
@@ -1362,8 +1386,8 @@ const make = Effect.gen(function* () {
             )
           : "";
       const steerMessageWithSkills = steerSkillInlineText
-        ? `${messageText}\n\n${steerSkillInlineText}`
-        : messageText;
+        ? `${senderContext}${messageText}\n\n${steerSkillInlineText}`
+        : `${senderContext}${messageText}`;
       const normalizedSteerInput = toNonEmptyProviderInput(
         normalizeSkillMentionTextForProvider({
           provider: steerProvider,
@@ -1444,7 +1468,7 @@ const make = Effect.gen(function* () {
       threadSessionModelSelections.get(input.threadId)?.provider ??
       thread.session?.providerName ??
       thread.modelSelection.provider;
-    const providerInputWithMentionContext = `${input.messageText}${mentionContextSuffix}`;
+    const providerInputWithMentionContext = `${senderContext}${input.messageText}${mentionContextSuffix}`;
     // Portable skills fallback: providers that cannot load the referenced skill
     // file natively get the skill instructions inlined into the prompt.
     const skillInlineText =
@@ -1992,6 +2016,12 @@ const make = Effect.gen(function* () {
         threadId: event.payload.threadId,
         messageId: message.id,
         messageText: message.text,
+        ...(event.payload.dispatchOrigin !== undefined
+          ? { dispatchOrigin: event.payload.dispatchOrigin }
+          : {}),
+        ...("senderThreadId" in message && message.senderThreadId !== undefined
+          ? { senderThreadId: message.senderThreadId }
+          : {}),
         ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
         ...(message.skills !== undefined ? { skills: message.skills } : {}),
         ...(message.mentions !== undefined ? { mentions: message.mentions } : {}),
@@ -2344,6 +2374,9 @@ const make = Effect.gen(function* () {
               ...(sourceEvent.payload.dispatchOrigin !== undefined
                 ? { dispatchOrigin: sourceEvent.payload.dispatchOrigin }
                 : {}),
+              ...(sourceEvent.payload.senderThreadId !== undefined
+                ? { senderThreadId: sourceEvent.payload.senderThreadId }
+                : {}),
               runtimeMode: sourceEvent.payload.runtimeMode,
               createdAt: event.payload.createdAt,
             },
@@ -2461,6 +2494,9 @@ const make = Effect.gen(function* () {
           dispatchMode: nextQueuedTurn.dispatchMode,
           ...(nextQueuedTurn.dispatchOrigin !== undefined
             ? { dispatchOrigin: nextQueuedTurn.dispatchOrigin }
+            : {}),
+          ...(nextQueuedTurn.senderThreadId !== undefined
+            ? { senderThreadId: nextQueuedTurn.senderThreadId }
             : {}),
           runtimeMode: nextQueuedTurn.runtimeMode,
           createdAt: nextQueuedTurn.createdAt,

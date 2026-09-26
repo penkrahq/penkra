@@ -383,6 +383,7 @@ export const makeCreateThreadHandler = Effect.fn(function* (
         bindingRevision: 0,
         dispatchMode: "queue",
         dispatchOrigin: "agent",
+        senderThreadId: ThreadId.makeUnsafe(context.callerThreadId),
         runtimeMode,
         createdAt: admittedAt,
       } satisfies typeof OrchestrationCommand.Type;
