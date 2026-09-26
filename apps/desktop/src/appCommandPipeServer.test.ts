@@ -89,6 +89,7 @@ describe("AppCommandPipeServer", () => {
     const open = vi.fn(async () => ({ destination: "system" }));
     const sideload = vi.fn(async () => ({ status: "installed" }));
     const thread = vi.fn(async ({ method, value }) => ({ method, value }));
+    const inheritThreadHome = vi.fn();
     const current = {
       id: "tab-1",
       rendererId: 101,
@@ -136,6 +137,7 @@ describe("AppCommandPipeServer", () => {
     const screenshot = vi.fn(async () => ({ kind: "image" }));
     const act = vi.fn(async () => ({ steps: [] }));
     const observedSurfaceIds: Array<number | null> = [];
+    const presentationThreads: string[] = [];
     const runOnSurface = async <T>(surfaceId: number | null, operation: () => Promise<T>) => {
       observedSurfaceIds.push(surfaceId);
       return operation();
@@ -143,6 +145,7 @@ describe("AppCommandPipeServer", () => {
     const server = new AppCommandPipeServer({
       path,
       token: "secret",
+      adminToken: "admin-secret",
       catalog: {
         list: vi.fn(() => [
           { slug: "linear", operations: [{ key: "issues.create", input: { type: "object" } }] },
@@ -158,9 +161,10 @@ describe("AppCommandPipeServer", () => {
         currentFor: (_spaceId, deckId, surfaceId) =>
           deckId === "deck-1" ? (surfaceId === 202 ? secondTab : current) : null,
       },
-      resolveTurnSurface: (turnId) =>
-        turnId === "turn-origin" ? 202 : turnId === "turn-closed" ? null : undefined,
-      runOnSurface,
+      runOnThread: async (threadId, operation) => {
+        presentationThreads.push(threadId);
+        return operation();
+      },
       observer: {
         runOnSurface,
         snapshot,
@@ -181,12 +185,45 @@ describe("AppCommandPipeServer", () => {
       open,
       sideload,
       thread,
+      inheritThreadHome,
     });
     await server.start();
     disposers.push(async () => {
       await server.dispose();
       FS.rmSync(directory, { recursive: true, force: true });
     });
+
+    await expect(
+      send(path, {
+        id: "inherit-agent-denied",
+        token: "secret",
+        method: "thread.home.inherit",
+        params: { parentThreadId: "parent", childThreadId: "child" },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: "APP_COMMAND_FORBIDDEN" } });
+    expect(inheritThreadHome).not.toHaveBeenCalled();
+    await expect(
+      send(path, {
+        id: "inherit-backend",
+        token: "secret",
+        adminToken: "admin-secret",
+        method: "thread.home.inherit",
+        params: { parentThreadId: "parent", childThreadId: "child" },
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(inheritThreadHome).toHaveBeenCalledWith("parent", "child");
+    inheritThreadHome.mockImplementationOnce(() => {
+      throw new Error("inherit failed");
+    });
+    await expect(
+      send(path, {
+        id: "inherit-failed",
+        token: "secret",
+        adminToken: "admin-secret",
+        method: "thread.home.inherit",
+        params: { parentThreadId: "parent", childThreadId: "child" },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { message: "inherit failed" } });
 
     await expect(
       send(path, {
@@ -311,6 +348,7 @@ describe("AppCommandPipeServer", () => {
       deckId: "deck-1",
       threadId: "thread-1",
     });
+    expect(presentationThreads).toContain("thread-1");
 
     await expect(
       send(path, {
@@ -589,7 +627,6 @@ describe("AppCommandPipeServer", () => {
       spaceId: "personal",
       deckId: "deck-1",
       threadId: "thread-1",
-      surfaceId: 202,
       method: "select",
       value: { threadId: "thread-2" },
     });
@@ -603,14 +640,10 @@ describe("AppCommandPipeServer", () => {
           spaceId: "personal",
           deckId: "deck-1",
           threadId: "thread-1",
-          callerTurnId: "turn-unbound",
           input: { threadId: "thread-2" },
         },
       }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "TURN_ORIGIN_MISSING" },
-    });
+    ).resolves.toMatchObject({ ok: true });
 
     await expect(
       send(path, {
@@ -625,10 +658,7 @@ describe("AppCommandPipeServer", () => {
           input: { threadId: "thread-2" },
         },
       }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "TURN_ORIGIN_WINDOW_CLOSED" },
-    });
+    ).resolves.toMatchObject({ ok: true });
 
     await expect(
       send(path, {

@@ -1,14 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   dockTransitionProgress,
   resolveAppTabPresentationMode,
+  restoreShellFocusAfterHide,
   resizedAppTabBounds,
   shouldApplyAppTabHide,
   shouldKeepNativeAppViewVisible,
   shouldKeepPresentationAnimation,
   shouldPresentAppView,
 } from "./appTabViewHost";
+
+describe("restoreShellFocusAfterHide", () => {
+  it("refocuses the shell only while its owning OS window is focused", () => {
+    const focus = vi.fn();
+    const window = { isDestroyed: () => false, isFocused: () => false, webContents: { focus } };
+    expect(restoreShellFocusAfterHide(window)).toBe(false);
+    expect(focus).not.toHaveBeenCalled();
+    expect(restoreShellFocusAfterHide({ ...window, isFocused: () => true })).toBe(true);
+    expect(focus).toHaveBeenCalledOnce();
+    expect(restoreShellFocusAfterHide({ ...window, isDestroyed: () => true })).toBe(false);
+    expect(focus).toHaveBeenCalledOnce();
+  });
+});
 
 describe("resolveAppTabPresentationMode", () => {
   it("uses the captured replica while the owner window is hidden", () => {

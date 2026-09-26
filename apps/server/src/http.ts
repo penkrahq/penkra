@@ -61,6 +61,7 @@ import {
   type ServerShutdownController,
 } from "./serverShutdown";
 import { resolveFavicon, tryParseHost } from "./siteFaviconCache";
+import { desktopThreadRouteLayer } from "./desktopThreadRoute";
 import {
   isTrustedAppOrigin,
   normalizeCorsOrigin,
@@ -190,6 +191,7 @@ export function makeEffectHttpRouteLayer(
   return Layer.mergeAll(
     makeHealthEffectRouteLayer(readiness),
     makeDesktopShutdownEffectRouteLayer(shutdownController),
+    desktopThreadRouteLayer,
     authEffectRouteLayer,
     projectFaviconEffectRouteLayer,
     threadExportEffectRouteLayer,

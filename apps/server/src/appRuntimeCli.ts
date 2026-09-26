@@ -20,6 +20,7 @@ import { assemblePenkraInstructions } from "./agentGateway/instructions/assemble
 
 const PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
 const TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
+const ADMIN_TOKEN_ENV = "PENKRA_APP_COMMAND_ADMIN_TOKEN";
 // A 2048px RGBA screenshot can encode to just under 24 MiB as base64 JSON.
 // Keep command requests bounded separately in the desktop controller RPC.
 const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
@@ -1422,7 +1423,7 @@ async function request(method: string, params: unknown, env: NodeJS.ProcessEnv):
     );
     socket.once("connect", () => {
       socket.write(
-        `${JSON.stringify({ id, token, method, ...(params === undefined ? {} : { params }) })}\n`,
+        `${JSON.stringify({ id, token, method, ...(method === "thread.home.inherit" ? { adminToken: env[ADMIN_TOKEN_ENV] } : {}), ...(params === undefined ? {} : { params }) })}\n`,
       );
     });
     socket.on("data", (chunk) => {

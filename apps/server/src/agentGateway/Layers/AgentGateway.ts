@@ -77,6 +77,7 @@ import {
   type AgentGatewayCommandEntry,
 } from "../commandSurface.ts";
 import { makeCreateThreadHandler } from "../creationCoordinator.ts";
+import { requestAppRuntimeBridge } from "../../appRuntimeCli.ts";
 import { makeThreadReadTools } from "../threadReadTools.ts";
 import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
 import { executePenkraExecCommand } from "../../appRuntimeCli.ts";
@@ -274,6 +275,10 @@ export const makeAgentGateway = Effect.gen(function* () {
     providerThreadSwitchCoordinator,
     loadProviderAvailabilities,
     requireThreadShell,
+    onThreadCreated: (parentThreadId, childThreadId) =>
+      Effect.tryPromise(() =>
+        requestAppRuntimeBridge("thread.home.inherit", { parentThreadId, childThreadId }),
+      ).pipe(Effect.map(() => undefined)),
   });
 
   const createThread: ToolEntry = {

@@ -13,7 +13,7 @@ import {
   type ThreadRuntimeBinding,
 } from "@penkra/contracts";
 import { buildPromptThreadTitleFallback } from "@penkra/shared/chatThreads";
-import { Effect, Option, Schema } from "effect";
+import { Cause, Effect, Option, Schema } from "effect";
 
 import type { ManagedAttachmentPrincipal } from "../managedAttachmentPrincipal.ts";
 import { fingerprintOrchestrationCommand } from "../orchestration/commandFingerprint.ts";
@@ -61,6 +61,10 @@ interface CreationCoordinatorDependencies {
   readonly requireThreadShell: (
     threadId: string,
   ) => Effect.Effect<OrchestrationThreadShell, ToolInputError>;
+  readonly onThreadCreated?: (
+    parentThreadId: string,
+    childThreadId: string,
+  ) => Effect.Effect<void, unknown>;
 }
 
 export interface GatewayCreationContext {
@@ -231,6 +235,22 @@ export const makeCreateThreadHandler = Effect.fn(function* (
         yield* context.assertAuthority();
         dispatchAttempted = true;
         yield* orchestrationEngine.dispatch(createCommand);
+        if (dependencies.onThreadCreated) {
+          yield* Effect.suspend(() =>
+            dependencies.onThreadCreated!(context.callerThreadId, result.threadId),
+          ).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("agent gateway could not inherit the child Thread's home window", {
+                operationId,
+                parentThreadId: context.callerThreadId,
+                childThreadId: result.threadId,
+                error: Cause.pretty(cause),
+              }),
+            ),
+            Effect.forkDetach({ startImmediately: true }),
+            Effect.asVoid,
+          );
+        }
         yield* context.assertAuthority();
 
         const receipt = yield* commandReceipts.getByCommandId({ commandId: turnCommand.commandId });

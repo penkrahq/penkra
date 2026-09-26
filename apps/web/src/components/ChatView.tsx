@@ -6981,6 +6981,7 @@ export default function ChatView({
       return false;
     }
     if (shouldQueueCapturedSend) {
+      if (queuedTurn == null) window.desktopBridge?.threadHome?.send({ threadId: activeThread.id });
       return runImmediatelyWithRelease(async () => {
         const clearOwnership = resolveComposerClearOwnership(activeThread.id);
         if (clearOwnership === "active") {
@@ -7049,6 +7050,7 @@ export default function ChatView({
       return false;
     }
     const threadIdForSend = activeThread.id;
+    if (queuedTurn == null) window.desktopBridge?.threadHome?.send({ threadId: threadIdForSend });
     const isFirstMessage = !isServerThread || !hasNativeUserMessages;
     const firstSendCreatedAt = new Date();
     let firstComposerImageNameForTitle: string | null = null;
