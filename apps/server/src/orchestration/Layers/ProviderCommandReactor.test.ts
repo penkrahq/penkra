@@ -217,6 +217,7 @@ describe("ProviderCommandReactor", () => {
     const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
     let nextSessionIndex = 1;
     const runtimeSessions: Array<ProviderSession> = [];
+    const dispatchedTurnStarts: OrchestrationCommand[] = [];
     const modelSelection = input?.threadModelSelection ?? {
       provider: "codex",
       model: "gpt-5-codex",
@@ -501,6 +502,19 @@ describe("ProviderCommandReactor", () => {
           }),
       }),
       Layer.succeed(ThreadProviderBindingRepository, {
+        getRuntimeBinding: (threadId: ThreadId) =>
+          Effect.succeed(
+            Option.some({
+              threadId,
+              connectionId: TEST_CONNECTION_ID,
+              installationId: TEST_INSTALLATION_ID,
+              internalProviderId: null,
+              modelId: modelSelection.model,
+              revision: 0,
+              createdAt: "2026-08-08T00:00:00.000Z",
+              updatedAt: "2026-08-08T00:00:00.000Z",
+            }),
+          ),
         getHarnessState: (threadId: ThreadId) =>
           Effect.succeed(
             Option.some({
@@ -523,8 +537,10 @@ describe("ProviderCommandReactor", () => {
       Effect.gen(function* () {
         const engine = yield* OrchestrationEngineService;
         return {
-          dispatchTurnStart: ({ command }: { readonly command: OrchestrationCommand }) =>
-            engine.dispatch(command),
+          dispatchTurnStart: ({ command }: { readonly command: OrchestrationCommand }) => {
+            dispatchedTurnStarts.push(command);
+            return engine.dispatch(command);
+          },
           recoverOpen: Effect.void,
         } as never;
       }),
@@ -856,6 +872,7 @@ describe("ProviderCommandReactor", () => {
                 updated_at = excluded.updated_at
             `),
       queuedTurnPromotionRepository,
+      dispatchedTurnStarts,
       interceptEngineDispatch,
     };
   }
@@ -5877,6 +5894,46 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
     ).toBe(false);
+  });
+
+  it("steers a queued turn with the thread's current model selection", async () => {
+    const harness = await createHarness();
+    const messageId = asMessageId("msg-steer-current-model");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: asTurnId("turn-live-current-model"),
+      messageId,
+      text: "switch model before steer",
+    });
+    const modelB = { provider: "codex" as const, model: "gpt-5.6-sol" };
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.update",
+        commandId: CommandId.makeUnsafe("cmd-select-model-b-before-steer"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        modelSelection: modelB,
+      }),
+    );
+    await harness.drain();
+    const dispatchedTurnStarts = harness.dispatchedTurnStarts;
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.steer-queued",
+        commandId: CommandId.makeUnsafe("cmd-steer-current-model"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId,
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    await waitFor(() =>
+      dispatchedTurnStarts.some(
+        (command) =>
+          command.type === "thread.turn.start" && command.message.messageId === messageId,
+      ),
+    );
+    const dispatched = dispatchedTurnStarts.find(
+      (command) => command.type === "thread.turn.start" && command.message.messageId === messageId,
+    );
+    expect(dispatched).toMatchObject({ modelSelection: modelB });
   });
 
   it("steers exactly once after replaying across the post-claim failure window", async () => {

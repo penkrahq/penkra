@@ -38,6 +38,7 @@ import {
   type ComposerDraftStoreState,
   type ComposerPromptHistorySavedDraft,
   type ComposerThreadDraftState,
+  type PendingStartRecoveryRecord,
 } from "./composerDraftDomain";
 import {
   LegacyCodexFields,
@@ -152,6 +153,7 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   pastedTexts: Schema.optionalKey(Schema.Array(PersistedPastedTextDraft)),
   skills: Schema.optionalKey(Schema.Array(ProviderSkillReference)),
   mentions: Schema.optionalKey(Schema.Array(ProviderMentionReference)),
+  pendingStartRecoveriesByMessageId: Schema.optionalKey(Schema.Unknown),
   pendingMessageEdit: Schema.optionalKey(PersistedPendingMessageEdit),
   modelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
@@ -238,6 +240,91 @@ function normalizePersistedFiles(value: unknown): Array<PersistedComposerFileAtt
   return Array.isArray(value)
     ? value.filter(Schema.is(PersistedComposerFileAttachment)).map((file) => ({ ...file }))
     : [];
+}
+
+function serializePendingStartRecoveries(
+  recoveries: ComposerThreadDraftState["pendingStartRecoveriesByMessageId"],
+): Record<string, unknown> {
+  const serialized: Record<string, unknown> = {};
+  for (const [messageId, recovery] of Object.entries(recoveries ?? {})) {
+    if (!recovery) continue;
+    if ("raw" in recovery) {
+      serialized[messageId] = recovery.raw;
+      continue;
+    }
+    serialized[messageId] = {
+      ...recovery,
+      pendingTurn: {
+        ...recovery.pendingTurn,
+        images: recovery.pendingTurn.images.map((image) => ({
+          id: image.id,
+          name: image.name,
+          mimeType: image.mimeType,
+          sizeBytes: image.sizeBytes,
+          dataUrl: image.previewUrl,
+        })),
+        files: recovery.pendingTurn.files.flatMap((file) =>
+          file.assetKey
+            ? [
+                {
+                  id: file.id,
+                  name: file.name,
+                  mimeType: file.mimeType,
+                  sizeBytes: file.sizeBytes,
+                  assetKey: file.assetKey,
+                },
+              ]
+            : [],
+        ),
+      },
+    };
+  }
+  return serialized;
+}
+
+function hydratePendingStartRecoveries(
+  threadId: ThreadId,
+  raw: unknown,
+): NonNullable<ComposerThreadDraftState["pendingStartRecoveriesByMessageId"]> {
+  const hydrated: NonNullable<ComposerThreadDraftState["pendingStartRecoveriesByMessageId"]> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return hydrated;
+  for (const [messageId, value] of Object.entries(raw)) {
+    if (!value || typeof value !== "object") continue;
+    const candidate = value as Record<string, unknown>;
+    const pendingTurn = candidate.pendingTurn;
+    if (candidate.schemaVersion !== 1 || !pendingTurn || typeof pendingTurn !== "object") {
+      hydrated[MessageId.makeUnsafe(messageId)] = {
+        schemaVersion: typeof candidate.schemaVersion === "number" ? candidate.schemaVersion : 0,
+        threadId,
+        messageId: MessageId.makeUnsafe(messageId),
+        raw: value,
+      };
+      continue;
+    }
+    const turn = pendingTurn as Record<string, unknown>;
+    const images = Array.isArray(turn.images)
+      ? hydrateImagesFromPersisted(
+          turn.images.flatMap((image) => {
+            const normalized = normalizePersistedAttachment(image);
+            return normalized ? [normalized] : [];
+          }),
+        )
+      : [];
+    hydrated[MessageId.makeUnsafe(messageId)] = {
+      ...(candidate as unknown as Extract<PendingStartRecoveryRecord, { schemaVersion: 1 }>),
+      threadId,
+      messageId: MessageId.makeUnsafe(messageId),
+      pendingTurn: {
+        ...(turn as unknown as Extract<
+          PendingStartRecoveryRecord,
+          { schemaVersion: 1 }
+        >["pendingTurn"]),
+        images,
+        files: hydrateFilesFromPersisted(normalizePersistedFiles(turn.files)),
+      },
+    };
+  }
+  return hydrated;
 }
 
 function normalizePersistedPromptHistorySavedDraft(
@@ -651,6 +738,9 @@ function normalizePersistedDraftsByThreadId(
       fileComments.length === 0 &&
       pastedTexts.length === 0 &&
       !hasReferenceData &&
+      (!draftCandidate.pendingStartRecoveriesByMessageId ||
+        typeof draftCandidate.pendingStartRecoveriesByMessageId !== "object" ||
+        Object.keys(draftCandidate.pendingStartRecoveriesByMessageId).length === 0) &&
       pendingMessageEdit === undefined &&
       !hasModelData &&
       !runtimeMode
@@ -668,6 +758,10 @@ function normalizePersistedDraftsByThreadId(
       ...(pastedTexts.length > 0 ? { pastedTexts } : {}),
       ...(skills.length > 0 ? { skills } : {}),
       ...(mentions.length > 0 ? { mentions } : {}),
+      ...(draftCandidate.pendingStartRecoveriesByMessageId &&
+      typeof draftCandidate.pendingStartRecoveriesByMessageId === "object"
+        ? { pendingStartRecoveriesByMessageId: draftCandidate.pendingStartRecoveriesByMessageId }
+        : {}),
       ...(pendingMessageEdit ? { pendingMessageEdit } : {}),
       ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
@@ -706,7 +800,7 @@ export function partializeComposerDraftStoreState(
     if (typeof threadId !== "string" || threadId.length === 0) {
       continue;
     }
-    // Queue rows and failure recovery live in the thread projection.
+    // Queue rows live in the thread projection. Pending start recovery remains local because it records a command whose server outcome is still unknown.
     const hasModelData =
       Object.keys(draft.modelSelectionByProvider).length > 0 || draft.activeProvider !== null;
     const hasReferenceData = draft.skills.length > 0 || draft.mentions.length > 0;
@@ -721,6 +815,7 @@ export function partializeComposerDraftStoreState(
       draft.fileComments.length === 0 &&
       draft.pastedTexts.length === 0 &&
       !hasReferenceData &&
+      Object.keys(draft.pendingStartRecoveriesByMessageId ?? {}).length === 0 &&
       draft.pendingMessageEdit === null &&
       !hasModelData &&
       draft.runtimeMode === null
@@ -867,6 +962,14 @@ export function partializeComposerDraftStoreState(
         : {}),
       ...(draft.skills.length > 0 ? { skills: [...draft.skills] } : {}),
       ...(draft.mentions.length > 0 ? { mentions: [...draft.mentions] } : {}),
+      ...(draft.pendingStartRecoveriesByMessageId &&
+      Object.keys(draft.pendingStartRecoveriesByMessageId).length > 0
+        ? {
+            pendingStartRecoveriesByMessageId: serializePendingStartRecoveries(
+              draft.pendingStartRecoveriesByMessageId,
+            ),
+          }
+        : {}),
       ...(draft.pendingMessageEdit ? { pendingMessageEdit: draft.pendingMessageEdit } : {}),
       ...(hasModelData
         ? {
@@ -1024,8 +1127,10 @@ export function toHydratedThreadDraft(
     pastedTexts: hydratePastedTextsFromPersisted(persistedDraft.pastedTexts),
     skills: [...(persistedDraft.skills ?? [])],
     mentions: [...(persistedDraft.mentions ?? [])],
-    queuedTurns: [],
-    pendingStartRecoveriesByMessageId: {},
+    pendingStartRecoveriesByMessageId: hydratePendingStartRecoveries(
+      threadId,
+      persistedDraft.pendingStartRecoveriesByMessageId,
+    ),
     pendingMessageEdit: persistedDraft.pendingMessageEdit ?? null,
     modelSelectionByProvider,
     activeProvider,
