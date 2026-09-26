@@ -37,6 +37,7 @@ export const ProjectionThreadMessage = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
   dispatchMode: Schema.optional(TurnDispatchMode),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  senderThreadId: Schema.optional(ThreadId),
   deliveryState: Schema.optional(MessageDeliveryState),
   deliveryQueued: Schema.optional(Schema.Boolean),
   deliverySequence: Schema.optional(NonNegativeInt),

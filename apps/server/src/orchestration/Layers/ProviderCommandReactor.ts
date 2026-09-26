@@ -1295,6 +1295,7 @@ const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly messageId: string;
     readonly messageText: string;
+    readonly senderThreadId?: ThreadId;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly skills?: ReadonlyArray<ProviderSkillReference>;
     readonly mentions?: ReadonlyArray<ProviderMentionReference>;
@@ -1444,7 +1445,13 @@ const make = Effect.gen(function* () {
       threadSessionModelSelections.get(input.threadId)?.provider ??
       thread.session?.providerName ??
       thread.modelSelection.provider;
-    const providerInputWithMentionContext = `${input.messageText}${mentionContextSuffix}`;
+    const senderShell = input.senderThreadId
+      ? Option.getOrNull(yield* projectionSnapshotQuery.getThreadShellById(input.senderThreadId))
+      : null;
+    const senderContext = input.senderThreadId
+      ? `[Silent context: This message was sent by another Penkra agent thread (ID: ${input.senderThreadId}${senderShell ? `, title: ${senderShell.title}` : ""}).]\n\n`
+      : "";
+    const providerInputWithMentionContext = `${senderContext}${input.messageText}${mentionContextSuffix}`;
     // Portable skills fallback: providers that cannot load the referenced skill
     // file natively get the skill instructions inlined into the prompt.
     const skillInlineText =
@@ -1992,6 +1999,9 @@ const make = Effect.gen(function* () {
         threadId: event.payload.threadId,
         messageId: message.id,
         messageText: message.text,
+        ...("senderThreadId" in message && message.senderThreadId !== undefined
+          ? { senderThreadId: message.senderThreadId }
+          : {}),
         ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
         ...(message.skills !== undefined ? { skills: message.skills } : {}),
         ...(message.mentions !== undefined ? { mentions: message.mentions } : {}),
@@ -2344,6 +2354,9 @@ const make = Effect.gen(function* () {
               ...(sourceEvent.payload.dispatchOrigin !== undefined
                 ? { dispatchOrigin: sourceEvent.payload.dispatchOrigin }
                 : {}),
+              ...(sourceEvent.payload.senderThreadId !== undefined
+                ? { senderThreadId: sourceEvent.payload.senderThreadId }
+                : {}),
               runtimeMode: sourceEvent.payload.runtimeMode,
               createdAt: event.payload.createdAt,
             },
@@ -2461,6 +2474,9 @@ const make = Effect.gen(function* () {
           dispatchMode: nextQueuedTurn.dispatchMode,
           ...(nextQueuedTurn.dispatchOrigin !== undefined
             ? { dispatchOrigin: nextQueuedTurn.dispatchOrigin }
+            : {}),
+          ...(nextQueuedTurn.senderThreadId !== undefined
+            ? { senderThreadId: nextQueuedTurn.senderThreadId }
             : {}),
           runtimeMode: nextQueuedTurn.runtimeMode,
           createdAt: nextQueuedTurn.createdAt,
