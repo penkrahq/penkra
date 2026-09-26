@@ -60,8 +60,22 @@ describe("hasRegisteredShellWindow", () => {
     expect(lookup.mock.calls.map(([rendererId]) => rendererId)).toEqual([202]);
 
     registry.delete(secondShell.webContents.id);
-    expect(hasRegisteredShellWindow([detachedHost], lookup)).toBe(false);
-    expect(lookup.mock.calls.at(-1)?.[0]).toBe(303);
+    registry.set(detachedHost.webContents.id, detachedHost);
+    const hosts = new Set([detachedHost]);
+    expect(hasRegisteredShellWindow([detachedHost], lookup, hosts)).toBe(false);
+    expect(lookup).toHaveBeenCalledTimes(1);
+    expect(hasRegisteredShellWindow([secondShell, detachedHost], lookup, hosts)).toBe(false);
+    registry.set(firstShell.webContents.id, firstShell);
+    expect(hasRegisteredShellWindow([firstShell, detachedHost], lookup, hosts)).toBe(true);
+  });
+});
+
+describe("detached host mouse behavior", () => {
+  it("disables mouse events without enabling forwarding", async () => {
+    const { setDetachedHostMousePassthrough } = await import("./appTabViewHost");
+    const setIgnoreMouseEvents = vi.fn();
+    setDetachedHostMousePassthrough({ setIgnoreMouseEvents });
+    expect(setIgnoreMouseEvents).toHaveBeenCalledExactlyOnceWith(true);
   });
 });
 
