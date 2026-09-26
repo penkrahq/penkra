@@ -2496,10 +2496,21 @@ const make = Effect.gen(function* () {
         activityEvent.threadId === thread.id
           ? activityEvent
           : ({ ...activityEvent, threadId: thread.id } as ProviderRuntimeEvent);
+      const projectionTurnsForActivity = yield* projectionTurnRepository.listByThreadId({
+        threadId: thread.id,
+      });
+      const nativeTurnId = toTurnId(canonicalActivityEvent.turnId);
+      const logicalTurnId = projectionTurnsForActivity.find(
+        (candidate) => candidate.providerTurnId === nativeTurnId,
+      )?.turnId;
+      const activityTurnIdentity = { turnId: logicalTurnId ?? null } as const;
       const canonicalOperationMaterialized =
         canonicalOperationFromRuntimeEvent(canonicalActivityEvent) !== null;
       const canonicalNoticeMaterialized = canonicalActivityEvent.type === "runtime.warning";
-      const canonicalActivity = projectProviderRuntimeActivities(canonicalActivityEvent)[0];
+      const canonicalActivity = projectProviderRuntimeActivities(
+        canonicalActivityEvent,
+        activityTurnIdentity,
+      )[0];
       if (canonicalOperationMaterialized || canonicalNoticeMaterialized) {
         yield* dispatchProviderCommandOnce({
           type: "thread.activity-read-model.touch",
@@ -2571,10 +2582,12 @@ const make = Effect.gen(function* () {
         }
       }
 
-      yield* Effect.forEach(projectProviderRuntimeActivities(activityEvent), (activity) =>
-        canonicalOperationMaterialized || canonicalNoticeMaterialized
-          ? Effect.void
-          : dispatchActivityUpdate(activityEvent, thread.id, activity),
+      yield* Effect.forEach(
+        projectProviderRuntimeActivities(activityEvent, activityTurnIdentity),
+        (activity) =>
+          canonicalOperationMaterialized || canonicalNoticeMaterialized
+            ? Effect.void
+            : dispatchActivityUpdate(activityEvent, thread.id, activity),
       );
 
       if (isTerminalTurnEvent) {

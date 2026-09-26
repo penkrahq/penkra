@@ -1660,6 +1660,7 @@ describe("AgentGateway", () => {
         const payload = toolResultJson(response.result);
         assert.deepEqual(payload.turn, {
           turnId: logicalTurnId,
+          providerTurnId: resumedProviderTurnId,
           state: "completed",
         });
         assert.deepEqual(
@@ -1674,12 +1675,148 @@ describe("AgentGateway", () => {
         const nextPayload = toolResultJson(nextResponse.result);
         assert.deepEqual(nextPayload.turn, {
           turnId: nextLogicalTurnId,
+          providerTurnId: resumedProviderTurnId,
           state: "completed",
         });
         assert.deepEqual(
           (nextPayload.items as Array<{ text?: string }>).map((item) => item.text),
           ["provider output for the later logical steer"],
         );
+      }).pipe(Effect.provide(gatewayLayer));
+    },
+  );
+
+  it.effect(
+    "returns round-trippable Penkra turn handles for every provider transcript item",
+    () => {
+      const fixtures = [
+        {
+          provider: "codex",
+          nativeTurnId: "01a00000-codex-native",
+          logicalTurnId: "turn:agent:codex:send",
+        },
+        {
+          provider: "claudeAgent",
+          nativeTurnId: "01a00000-0000-4000-8000-000000000001",
+          logicalTurnId: "turn:agent:claude:send",
+        },
+        {
+          provider: "opencode",
+          nativeTurnId: "opencode-turn-native",
+          logicalTurnId: "turn:agent:opencode:send",
+        },
+      ] as const;
+      const targets = fixtures.map(({ provider }, index) =>
+        makeThreadShell("thread-turn-contract-" + provider, {
+          modelSelection: { provider, model: "test-model" },
+        }),
+      );
+      const details = new Map(
+        fixtures.map((fixture, index) => {
+          const target = targets[index]!;
+          const nativeTurnId = TurnId.makeUnsafe(fixture.nativeTurnId);
+          return [
+            target.id,
+            {
+              ...makeThreadDetail(target),
+              messages: [
+                {
+                  id: MessageId.makeUnsafe("message-" + fixture.provider),
+                  role: "assistant",
+                  text: "answer",
+                  turnId: nativeTurnId,
+                  streaming: false,
+                  source: "native",
+                  createdAt: NOW,
+                  updatedAt: NOW,
+                },
+              ],
+              activities: [
+                {
+                  id: EventId.makeUnsafe("activity-tool-" + fixture.provider),
+                  tone: "tool" as const,
+                  kind: "tool.completed",
+                  summary: "Tool call",
+                  payload: {},
+                  turnId: nativeTurnId,
+                  createdAt: NOW,
+                },
+                {
+                  id: EventId.makeUnsafe("activity-task-" + fixture.provider),
+                  tone: "info" as const,
+                  kind: "task.progress",
+                  summary: "Task progress",
+                  payload: {},
+                  turnId: nativeTurnId,
+                  createdAt: NOW,
+                },
+                {
+                  id: EventId.makeUnsafe("activity-turn-" + fixture.provider),
+                  tone: "info" as const,
+                  kind: "turn.completed",
+                  summary: "Turn completed",
+                  payload: {},
+                  turnId: nativeTurnId,
+                  createdAt: NOW,
+                },
+              ],
+            },
+          ] as const;
+        }),
+      );
+      const { gatewayLayer, makeHarness } = makeHarnessLayer(
+        [makeThreadShell("thread-parent"), ...targets],
+        { threadDetails: details },
+      );
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        for (let index = 0; index < fixtures.length; index += 1) {
+          const fixture = fixtures[index]!;
+          const target = targets[index]!;
+          const logicalTurnId = TurnId.makeUnsafe(fixture.logicalTurnId);
+          const nativeTurnId = TurnId.makeUnsafe(fixture.nativeTurnId);
+          harness.setProjectionTurn({
+            threadId: target.id,
+            turnId: logicalTurnId,
+            state: "completed",
+            providerTurnId: nativeTurnId,
+            providerTurnIds: [nativeTurnId],
+          });
+          const response = yield* harness.callTool({
+            token: "token-parent",
+            name: "penkra_read_thread",
+            args: { threadId: target.id },
+          });
+          const payload = toolResultJson(response.result);
+          const items = payload.items as Array<Record<string, unknown>>;
+          assert.deepEqual(items.map((item) => item.type).toSorted(), [
+            "message",
+            "task",
+            "tool",
+            "turn",
+          ]);
+          for (const item of items) {
+            assert.equal(item.turnId, logicalTurnId);
+            assert.equal(item.providerTurnId, nativeTurnId);
+            const roundTrip = yield* harness.callTool({
+              token: "token-parent",
+              name: "penkra_read_thread",
+              args: { threadId: target.id, turnId: item.turnId },
+            });
+            assert.deepEqual(toolResultJson(roundTrip.result).turn, {
+              turnId: logicalTurnId,
+              providerTurnId: nativeTurnId,
+              state: "completed",
+            });
+          }
+          const nativeIdAttempt = yield* harness.callTool({
+            token: "token-parent",
+            name: "penkra_read_thread",
+            args: { threadId: target.id, turnId: fixture.nativeTurnId },
+          });
+          assert.equal(isToolError(nativeIdAttempt.result), true);
+          assert.match(toolErrorText(nativeIdAttempt.result), /was not found/u);
+        }
       }).pipe(Effect.provide(gatewayLayer));
     },
   );
