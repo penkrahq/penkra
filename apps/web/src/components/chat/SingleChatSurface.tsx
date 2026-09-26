@@ -1,6 +1,6 @@
 import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 import { singletonThreadDeckId, type FolderId, type ThreadId } from "@penkra/contracts";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { canComposerHandlePanelWidth } from "../../lib/panelResize";
@@ -40,6 +40,7 @@ import {
 } from "./appTabRestore.logic";
 import {
   resolveAppsLauncherAction,
+  resolveAppsLauncherDeckBarReservationPx,
   resolveAppsLauncherRightInsetPx,
   resolveAppsLauncherSpaceId,
 } from "./appsLauncher.logic";
@@ -101,9 +102,11 @@ function appPaneFromTab(tab: DesktopAppTabDescriptor) {
 
 export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderId | null }) {
   const threadToastViewportHostRef = useThreadToastViewportHostRef();
+  const isWindowsDesktop =
+    typeof navigator !== "undefined" && isWindowsPlatform(navigator.platform);
   const appsLauncherRightInsetPx = resolveAppsLauncherRightInsetPx({
     isElectron,
-    isWindowsDesktop: typeof navigator !== "undefined" && isWindowsPlatform(navigator.platform),
+    isWindowsDesktop,
   });
   const draftThread = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[props.threadId] ?? null,
@@ -115,6 +118,12 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
   const threadShellById = useStore((store) => store.threadShellById ?? {});
   const deckId = persistedDeckId ?? draftThread?.deckId ?? singletonThreadDeckId(props.threadId);
   const dockState = useRightDockStore(useMemo(() => selectRightDockState(deckId), [deckId]));
+  const appsLauncherDeckBarReservationPx = resolveAppsLauncherDeckBarReservationPx({
+    appsLauncherRightInsetPx,
+    dockOpen: dockState.open,
+    isElectron,
+    isWindowsDesktop,
+  });
   const openPane = useRightDockStore((store) => store.openPane);
   const closePane = useRightDockStore((store) => store.closePane);
   const setActivePane = useRightDockStore((store) => store.setActivePane);
@@ -255,7 +264,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
     let readinessAttempt = 0;
     const reconcile = () => {
       void bridge
-        .list()
+        .list({ deckId })
         .then((tabs) => {
           if (cancelled) return;
           const currentTabs = tabs.filter(
@@ -275,7 +284,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
             if (!stateForThread?.panes.some((pane) => pane.id === tab.id)) {
               openPane(deckId, {
                 ...appPaneFromTab(tab),
-                preserveSelection: true,
+                preserveSelection: tab.selection !== "activate",
               });
             } else {
               updatePane(deckId, tab.id, {
@@ -287,6 +296,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
                 ...(tab.state === undefined ? { appState: undefined } : { appState: tab.state }),
                 appStatus: tab.status,
               });
+              if (tab.selection === "activate") setActivePane(deckId, tab.id);
             }
           }
           for (const pane of dockState.panes) {
@@ -488,6 +498,13 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           "relative",
         )}
         data-chat-surface-shell
+        data-deck-id={deckId}
+        style={
+          {
+            "--apps-launcher-right-inset": `${appsLauncherRightInsetPx}px`,
+            "--apps-launcher-deck-bar-right-reservation": `${appsLauncherDeckBarReservationPx}px`,
+          } as CSSProperties
+        }
         onContextMenuCapture={(event) => {
           if (
             !showThreadResourceContextMenu({
@@ -535,7 +552,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
         />
         <div
           className="absolute top-1.5 z-50 [-webkit-app-region:no-drag]"
-          style={{ right: appsLauncherRightInsetPx }}
+          style={{ right: "var(--apps-launcher-right-inset)" }}
         >
           <IconButton
             variant="chrome"

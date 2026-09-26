@@ -8,6 +8,7 @@ import {
   ProviderListAgentsInput,
   ProviderListCommandsInput,
   ProviderListModelsInput,
+  type ProviderListModelsResult,
   ProviderListPluginsInput,
   ProviderListSkillsInput,
   type ProviderListSkillsResult,
@@ -41,6 +42,8 @@ import {
   providerAgentDiscoveryStateIdentity,
   providerModelDiscoveryStateIdentity,
 } from "../providerDiscoveryStateIdentity.ts";
+import { selectConnectivityProbeModel } from "../connectivityProbeModel.ts";
+import { filterProviderModelsForPicker } from "../providerModelPresentation.ts";
 
 const decodeInputOrValidationError = <S extends Schema.Top>(input: {
   readonly operation: string;
@@ -320,11 +323,19 @@ const make = Effect.gen(function* () {
       }
       if (!manifest) {
         const { connectionId, internalProviderId, ...adapterInput } = parsed;
-        return yield* adapter.listModels({
-          ...adapterInput,
-          ...(connectionId !== undefined ? { connectionId } : {}),
-          ...(internalProviderId !== undefined ? { internalProviderId } : {}),
-        });
+        return yield* adapter
+          .listModels({
+            ...adapterInput,
+            ...(connectionId !== undefined ? { connectionId } : {}),
+            ...(internalProviderId !== undefined ? { internalProviderId } : {}),
+          })
+          .pipe(
+            Effect.map((result) =>
+              parsed.presentation === "picker"
+                ? filterProviderModelsForPicker(parsed.provider, result)
+                : result,
+            ),
+          );
       }
 
       const installation = (yield* installations
@@ -503,13 +514,16 @@ const make = Effect.gen(function* () {
         connectionId: routes[0]!.connectionId ?? "anonymous",
         modelCount: models.size,
       });
-      return {
+      const catalog: ProviderListModelsResult = {
         models: [...models.values()],
         source: "managed-connection",
         cached:
           results.length > 0 &&
           results.every((entry) => entry._tag === "Failure" || entry.result.cached === true),
       };
+      return parsed.presentation === "picker"
+        ? filterProviderModelsForPicker(parsed.provider, catalog)
+        : catalog;
     });
 
   const listAgents: ProviderDiscoveryServiceShape["listAgents"] = (input) =>
@@ -665,7 +679,51 @@ const make = Effect.gen(function* () {
       };
     });
 
+  const probeConnection: ProviderDiscoveryServiceShape["probeConnection"] = (input) =>
+    Effect.gen(function* () {
+      const adapter = yield* registry.getByProvider(input.provider);
+      if (!adapter.probeTurnEndpoint) return false;
+      const installation = (yield* installations
+        .list()
+        .pipe(
+          Effect.mapError(discoveryInfrastructureError("ProviderDiscoveryService.probeConnection")),
+        )).find(
+        (candidate) => candidate.harness === input.provider && candidate.lifecycle === "active",
+      );
+      if (!installation) return false;
+      const catalog = yield* listModels({
+        provider: input.provider,
+        connectionId: input.connectionId,
+        cwd: serverConfig.stateDir,
+      });
+      const selectedModel = selectConnectivityProbeModel({
+        models: catalog.models,
+        connectionId: input.connectionId,
+      });
+      if (!selectedModel) return false;
+      const managedLaunch = yield* launchResolver
+        .resolveProfile({
+          harness: input.provider,
+          connectionId: input.connectionId,
+          installationId: installation.id,
+          internalProviderId: null,
+          nativeStateIdentity: providerModelDiscoveryStateIdentity({
+            provider: input.provider,
+            connectionId: input.connectionId,
+          }),
+        })
+        .pipe(
+          Effect.mapError(discoveryInfrastructureError("ProviderDiscoveryService.probeConnection")),
+        );
+      return yield* adapter.probeTurnEndpoint({
+        cwd: serverConfig.stateDir,
+        managedLaunch,
+        ...selectedModel,
+      });
+    });
+
   return {
+    probeConnection,
     getCapabilityHealth,
     getComposerCapabilities,
     listCommands,

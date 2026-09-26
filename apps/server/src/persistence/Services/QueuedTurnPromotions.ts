@@ -73,6 +73,12 @@ export interface QueuedTurnPromotionRepositoryShape {
     readonly messageId: string;
   }) => Effect.Effect<boolean, PersistenceSqlError>;
   readonly listPendingThreadIds: Effect.Effect<ReadonlyArray<string>, PersistenceSqlError>;
+  readonly countPendingByThreadIds: (
+    threadIds: ReadonlyArray<string>,
+  ) => Effect.Effect<
+    ReadonlyArray<{ readonly threadId: string; readonly count: number }>,
+    PersistenceSqlError
+  >;
 }
 
 export class QueuedTurnPromotionRepository extends ServiceMap.Service<

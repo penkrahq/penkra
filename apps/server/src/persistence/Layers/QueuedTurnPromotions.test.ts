@@ -11,6 +11,49 @@ const layer = it.layer(
 );
 
 layer("QueuedTurnPromotionRepository", (it) => {
+  it.effect("counts only queued and promoting rows for listed threads", () =>
+    Effect.gen(function* () {
+      const repository = yield* QueuedTurnPromotionRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const now = "2026-09-25T00:00:00.000Z";
+      for (const index of [1, 2, 3]) {
+        const rows = yield* sql<{ readonly sequence: number }>`
+          INSERT INTO orchestration_events (
+            event_id, aggregate_kind, stream_id, stream_version, event_type,
+            occurred_at, command_id, causation_event_id, correlation_id,
+            actor_kind, payload_json, metadata_json
+          ) VALUES (
+            ${`evt-count-${index}`}, 'thread', 'thread-count', ${index - 1},
+            'thread.turn-queued', ${now}, ${`cmd-count-${index}`},
+            NULL, NULL, 'server', '{}', '{}'
+          ) RETURNING sequence
+        `;
+        yield* repository.enqueue({
+          queuedEventSequence: rows[0]!.sequence,
+          threadId: "thread-count",
+          messageId: `message-count-${index}`,
+          dispatchMode: "queue",
+          createdAt: now,
+        });
+      }
+      yield* repository.cancelMessage({
+        threadId: "thread-count",
+        messageId: "message-count-1",
+        updatedAt: now,
+      });
+      yield* repository.claimNext({
+        threadId: "thread-count",
+        claimOwner: "count-test",
+        claimedAt: now,
+        claimExpiresAt: "2099-01-01T00:00:00.000Z",
+      });
+      assert.deepEqual(yield* repository.countPendingByThreadIds(["thread-count", "other"]), [
+        { threadId: "thread-count", count: 2 },
+      ]);
+      yield* repository.cancelThread({ threadId: "thread-count", updatedAt: now });
+      assert.deepEqual(yield* repository.countPendingByThreadIds(["thread-count"]), []);
+    }),
+  );
   it.effect("replays only the same durable queued-message action", () =>
     Effect.gen(function* () {
       const repository = yield* QueuedTurnPromotionRepository;

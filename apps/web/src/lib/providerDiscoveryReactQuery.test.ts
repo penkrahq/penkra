@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS,
   isInitialModelDiscoveryPending,
+  providerDiscoveryQueryKeys,
   providerModelsQueryOptions,
 } from "./providerDiscoveryReactQuery";
 import * as nativeApi from "../nativeApi";
@@ -76,6 +77,31 @@ describe("providerModelsQueryOptions", () => {
       PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS,
     );
     expect(PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS).toBe(24 * 60 * 60_000);
+  });
+
+  it("requests the picker-only presentation catalog", async () => {
+    const listModels = mockListModels(vi.fn().mockResolvedValue({ models: [] }));
+    await new QueryClient().fetchQuery(providerModelsQueryOptions({ provider: "claudeAgent" }));
+    expect(listModels).toHaveBeenCalledWith({
+      provider: "claudeAgent",
+      presentation: "picker",
+    });
+  });
+
+  it("invalidates a cached Claude catalog on server welcome without touching other providers", async () => {
+    const queryClient = new QueryClient();
+    const claude = providerModelsQueryOptions({ provider: "claudeAgent" });
+    const codex = providerModelsQueryOptions({ provider: "codex" });
+    const result = { models: [{ slug: "old", name: "Old" }], source: "test", cached: true };
+    queryClient.setQueryData(claude.queryKey, result);
+    queryClient.setQueryData(codex.queryKey, result);
+
+    await queryClient.invalidateQueries({
+      queryKey: providerDiscoveryQueryKeys.modelsForProvider("claudeAgent"),
+    });
+
+    expect(queryClient.getQueryState(claude.queryKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(codex.queryKey)?.isInvalidated).toBe(false);
   });
 
   it("keeps retrying transient failures for other providers", () => {
