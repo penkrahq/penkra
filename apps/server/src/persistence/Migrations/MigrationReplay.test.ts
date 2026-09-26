@@ -41,6 +41,7 @@ const replayedEntries: ReadonlyArray<readonly [id: number, name: string]> = [
   [164, "ThreadDecks"],
   [165, "ProviderRuntimeDiagnosticEpisodes"],
   [166, "RetentionActiveDays"],
+  [167, "ProviderAuthCircuits"],
 ];
 
 const schemaObjects = (sql: SqlClient.SqlClient) =>

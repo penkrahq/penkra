@@ -25,6 +25,8 @@ export interface AgentGatewayShape {
     readonly bearerToken: string;
     readonly name: string;
     readonly arguments: Record<string, unknown>;
+    /** Best-effort turn attribution metadata; never used to authorize the call. */
+    readonly originTurnId?: string;
   }) => Effect.Effect<McpToolCallResult>;
   /**
    * Handle one MCP streamable-HTTP POST. All failures are folded into
@@ -33,6 +35,8 @@ export interface AgentGatewayShape {
   readonly handleMcpPost: (input: {
     readonly authorizationHeader: string | undefined;
     readonly body: unknown;
+    /** Best-effort turn attribution metadata; never used to authorize the call. */
+    readonly originTurnId?: string;
   }) => Effect.Effect<AgentGatewayHttpResult>;
 }
 

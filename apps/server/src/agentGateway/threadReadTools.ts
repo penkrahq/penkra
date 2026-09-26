@@ -16,6 +16,7 @@ import { Effect, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns.ts";
+import type { QueuedTurnPromotionRepositoryShape } from "../persistence/Services/QueuedTurnPromotions.ts";
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
 import { resolveDefaultConnection } from "../provider/defaultConnection.ts";
 import { PENKRA_INSTRUCTION_SET_VERSION } from "./harnessPolicy.ts";
@@ -27,6 +28,7 @@ import {
 } from "./targetResolver.ts";
 import {
   deriveAgentThreadStatus,
+  normalizeTranscriptTurnIdentity,
   summarizeThreadShell,
   packAgentTranscriptPage,
   READ_THREAD_DEFAULT_ITEM_LIMIT,
@@ -244,6 +246,7 @@ export interface ThreadReadToolsInput {
   readonly loadSettings: Effect.Effect<ServerSettings, unknown>;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
   readonly projectionTurns: ProjectionTurnRepositoryShape;
+  readonly queuedTurnPromotions: QueuedTurnPromotionRepositoryShape;
   readonly providerDiscovery: ProviderDiscoveryServiceShape;
   readonly loadProviderAvailabilities: Effect.Effect<
     ReadonlyMap<ProviderKind, AgentGatewayProviderAvailability>,
@@ -263,11 +266,29 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const {
     snapshotQuery,
     projectionTurns,
+    queuedTurnPromotions,
     providerDiscovery,
     loadProviderAvailabilities,
     requireThreadShell,
     workspacePaths: _workspacePaths,
   } = input;
+
+  const loadTurnIdentityMap = (threadId: ThreadId) =>
+    Effect.gen(function* () {
+      const turns = yield* projectionTurns
+        .listByThreadId({ threadId })
+        .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
+      const identities = new Map<string, string>();
+      for (const turn of turns) {
+        identities.set(turn.turnId, turn.turnId);
+        if (turn.providerTurnId) identities.set(turn.providerTurnId, turn.turnId);
+        const aliases = yield* projectionTurns
+          .listProviderTurnIds({ threadId, turnId: turn.turnId })
+          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
+        for (const providerTurnId of aliases) identities.set(providerTurnId, turn.turnId);
+      }
+      return identities;
+    });
 
   const contextTool: ToolEntry = {
     requiredCapability: "thread:read",
@@ -595,7 +616,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_list_threads",
       description:
-        "Use to discover existing Penkra Threads or child Threads before reading, sending, or interrupting them. Filters by folder, hierarchy, provider/model, status, title, source, and update window; archived Threads are hidden unless includeArchived is true. Use `penkra threads read` once you know the exact Thread id.",
+        "Use to discover existing Penkra Threads or child Threads before reading, sending, or interrupting them. Filters by folder, hierarchy, provider/model, status, title, source, and update window; archived Threads are hidden unless includeArchived is true. latestTurn.turnId is a Penkra handle accepted by --turn-id; latestTurn.providerTurnId is the separate provider-native id when known. Use `penkra threads read` once you know the exact Thread id.",
       inputSchema: {
         type: "object",
         properties: {
@@ -726,14 +747,12 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
               : true,
           );
         const page = matching.slice(0, limit);
-        const pageTurns = yield* projectionTurns
-          .listByThreadIds(page.map((thread) => thread.id))
+        const pendingCounts = yield* queuedTurnPromotions
+          .countPendingByThreadIds(page.map((thread) => thread.id))
           .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
-        const queuedCountByThread = new Map<string, number>();
-        for (const turn of pageTurns) {
-          if (turn.state !== "queued") continue;
-          queuedCountByThread.set(turn.threadId, (queuedCountByThread.get(turn.threadId) ?? 0) + 1);
-        }
+        const queuedCountByThread = new Map(
+          pendingCounts.map(({ threadId, count }) => [threadId, count]),
+        );
         const threads = page.map((thread) =>
           summarizeThreadShell(
             thread,
@@ -762,7 +781,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_read_thread",
       description:
-        "Read durable Penkra transcript items, search indexed message text, inspect exact context anchors, or poll one dispatched turn. Use queries for several literal substrings in one operation and deterministic scope, role, turn, date, and order filters. Use aroundMessageId(s) to read bounded surrounding turns after identifying likely hits. With threadId alone, reads begin at the tail. Always follow search and transcript pageInfo.nextCursor when present.",
+        "Read durable Penkra transcript items, search indexed message text, inspect exact context anchors, or poll one dispatched turn. Every non-null turnId is a Penkra handle accepted by --turn-id; provider-native ids appear only as providerTurnId when known. Use queries for several literal substrings in one operation and deterministic scope, role, turn, date, and order filters. Use aroundMessageId(s) to read bounded surrounding turns after identifying likely hits. With threadId alone, reads begin at the tail. Always follow search and transcript pageInfo.nextCursor when present.",
       inputSchema: {
         type: "object",
         properties: {
@@ -774,7 +793,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           turnId: {
             type: "string",
             description:
-              "Exact turn handle returned by threads create/send, or an exact search filter. Requires threadId.",
+              "Exact Penkra turn handle returned by threads create/send/list/read. Provider-native ids are shown separately as providerTurnId and are not accepted here. Requires threadId.",
           },
           spaceId: {
             type: "string",
@@ -1070,13 +1089,21 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             include,
             limit: READ_THREAD_MAX_ITEM_LIMIT,
           });
+          const identities = yield* loadTurnIdentityMap(shell.id);
           return mcpToolResultJson({
             threadId: shell.id,
             title: shell.title,
             anchorMessageIds: windows.map(({ messageId }) => messageId),
             beforeTurns,
             afterTurns,
-            items: packed.items,
+            items: packed.items.map((item) => ({
+              ...item,
+              ...normalizeTranscriptTurnIdentity(
+                item.providerTurnId ?? item.turnId,
+                identities,
+                shell.modelSelection.provider,
+              ),
+            })),
             complete: packed.exhaustedPage,
           });
         }
@@ -1168,6 +1195,22 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
                   },
                 })
               : null;
+          const identityByThread = new Map<string, ReadonlyMap<string, string>>();
+          for (const resultItem of selected) {
+            if (identityByThread.has(resultItem.threadId)) continue;
+            identityByThread.set(
+              resultItem.threadId,
+              yield* loadTurnIdentityMap(ThreadId.makeUnsafe(resultItem.threadId)),
+            );
+          }
+          const normalizedSelected = selected.map((item) => ({
+            ...item,
+            ...normalizeTranscriptTurnIdentity(
+              item.turnId,
+              identityByThread.get(item.threadId) ?? new Map(),
+              candidateById.get(item.threadId)?.modelSelection.provider,
+            ),
+          }));
           return mcpToolResultJson({
             scope: shell
               ? { kind: "thread", threadId: shell.id, title: shell.title }
@@ -1181,7 +1224,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             queryMode,
             order,
             searchPath: result.path,
-            items: selected,
+            items: normalizedSelected,
             pageInfo: { nextCursor },
           });
         }
@@ -1201,6 +1244,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           throw new ToolInputError(`Turn "${turnId}" was not found in Thread "${threadId}".`);
         }
         const turn = Option.getOrUndefined(requestedTurn);
+        const logicalTurnByProviderTurnId = yield* loadTurnIdentityMap(shell.id);
         const providerTurnIds = new Set<string>(
           turn
             ? [
@@ -1386,6 +1430,14 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           !turn && snapshotQuery.countThreadMessages
             ? yield* snapshotQuery.countThreadMessages(shell.id)
             : page.messages.length;
+        const items = packed.items.map((item) => ({
+          ...item,
+          ...normalizeTranscriptTurnIdentity(
+            item.providerTurnId ?? item.turnId,
+            logicalTurnByProviderTurnId,
+            shell.modelSelection.provider,
+          ),
+        }));
         return mcpToolResultJson({
           threadId: shell.id,
           folderId: shell.folderId,
@@ -1410,11 +1462,12 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             ? {
                 turn: {
                   turnId: turn.turnId,
+                  ...(turn.providerTurnId ? { providerTurnId: turn.providerTurnId } : {}),
                   state: turn.state,
                 },
               }
             : {}),
-          items: packed.items,
+          items,
           ...(!turn && cursor === undefined
             ? {
                 before: {

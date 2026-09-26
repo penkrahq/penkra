@@ -5,7 +5,9 @@ import {
   ThreadId,
 } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer, Option } from "effect";
+import { Cause, Effect, Layer, Option } from "effect";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { ServerConfig } from "../../config.ts";
 
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
@@ -14,23 +16,54 @@ import { ProjectionSnapshotQuery } from "../../orchestration/Services/Projection
 import { ProviderTurnSelectionResolver } from "../Services/ProviderTurnSelectionResolver.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
-import { ProviderTurnSelectionResolverLive } from "./ProviderTurnSelectionResolver.ts";
+import {
+  claudeConnectionsShareAccount,
+  ProviderTurnSelectionResolverLive,
+} from "./ProviderTurnSelectionResolver.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 
 const threadId = ThreadId.makeUnsafe("selection-thread");
 const connectionId = ProviderConnectionId.makeUnsafe("selection-go");
 const codexConnectionId = ProviderConnectionId.makeUnsafe("selection-codex-managed");
+const claudeConnectionId = ProviderConnectionId.makeUnsafe("selection-claude-managed");
 const installationId = ProviderInstallationId.makeUnsafe("selection-installation");
 const activeInstallationId = ProviderInstallationId.makeUnsafe("selection-active-installation");
+const claudeInstallationId = ProviderInstallationId.makeUnsafe("selection-claude-installation");
 const timestamp = "2026-08-08T00:00:00.000Z";
+
+function failedWithCode(exit: { readonly _tag: "Failure"; readonly cause: Cause.Cause<unknown> }) {
+  const failure = Cause.findErrorOption(exit.cause);
+  return Option.isSome(failure) ? (failure.value as { readonly code?: string }).code : undefined;
+}
+
+it("allows Claude subscription continuation only with the same account identity", () => {
+  const account = {
+    authenticationMethodId: "claude-account",
+    providerIdentityId: "same@example.com",
+  };
+  const other = {
+    authenticationMethodId: "claude-account",
+    providerIdentityId: "other@example.com",
+  };
+  const apiKey = { authenticationMethodId: "api-key", providerIdentityId: null };
+  assert.isTrue(claudeConnectionsShareAccount(account, account));
+  assert.isFalse(claudeConnectionsShareAccount(account, other));
+  assert.isFalse(claudeConnectionsShareAccount(account, apiKey));
+  assert.isFalse(claudeConnectionsShareAccount(apiKey, account));
+  assert.isTrue(claudeConnectionsShareAccount(apiKey, apiKey));
+});
 
 let connectionLifecycle: "active" | "terminated" = "active";
 let modelAvailable = true;
 let hasRuntimeBinding = true;
 let installationLifecycle: "active" | "retired" = "active";
+let threadHarness: "opencode" | "claudeAgent" = "opencode";
 let resolvedNativeStateIdentities: string[] = [];
 
 const dependencies = Layer.mergeAll(
+  ServerConfig.layerTest(process.cwd(), { prefix: "penkra-turn-selection-test-" }).pipe(
+    Layer.provide(NodeServices.layer),
+  ),
   ServerSettingsService.layerTest(),
   Layer.succeed(ProviderAdapterRegistry, {
     getByProvider: () =>
@@ -38,17 +71,22 @@ const dependencies = Layer.mergeAll(
         listModels: (input: { provider: string; internalProviderId?: string | null }) =>
           Effect.succeed({
             models: modelAvailable
-              ? [
-                  {
-                    slug:
-                      input.provider === "codex"
-                        ? "gpt-5.5"
-                        : input.internalProviderId === "opencode-go"
-                          ? "opencode-go/kimi-k2.5"
-                          : "opencode/big-pickle",
-                    name: "Available",
-                  },
-                ]
+              ? input.provider === "claudeAgent"
+                ? [
+                    { slug: "claude-opus-4-7", name: "Opus 4.7" },
+                    { slug: "claude-sonnet-5", name: "Sonnet 5" },
+                  ]
+                : [
+                    {
+                      slug:
+                        input.provider === "codex"
+                          ? "gpt-5.5"
+                          : input.internalProviderId === "opencode-go"
+                            ? "opencode-go/kimi-k2.5"
+                            : "opencode/big-pickle",
+                      name: "Available",
+                    },
+                  ]
               : [],
           }),
       } as never),
@@ -84,7 +122,7 @@ const dependencies = Layer.mergeAll(
       Effect.succeed(
         Option.some({
           threadId,
-          harness: "opencode",
+          harness: threadHarness,
           nativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe("selection-native"),
           providerSessionId: "native-session",
           nativeStateLocatorJson: '{"session":"native-session"}',
@@ -99,10 +137,12 @@ const dependencies = Layer.mergeAll(
         hasRuntimeBinding
           ? Option.some({
               threadId,
-              connectionId,
-              installationId,
-              internalProviderId: "opencode-go",
-              modelId: "opencode-go/kimi-k2.5",
+              connectionId: threadHarness === "claudeAgent" ? claudeConnectionId : connectionId,
+              installationId:
+                threadHarness === "claudeAgent" ? claudeInstallationId : installationId,
+              internalProviderId: threadHarness === "claudeAgent" ? null : "opencode-go",
+              modelId:
+                threadHarness === "claudeAgent" ? "claude-sonnet-5" : "opencode-go/kimi-k2.5",
               revision: 7,
               createdAt: timestamp,
               updatedAt: timestamp,
@@ -159,22 +199,44 @@ const dependencies = Layer.mergeAll(
           activatedAt: timestamp,
           retiredAt: null,
         },
+        {
+          id: claudeInstallationId,
+          harness: "claudeAgent",
+          version: "2.1.283",
+          platform: "darwin",
+          architecture: "arm64",
+          adapterVersion: "1",
+          protocolVersion: "v1",
+          lifecycle: "active",
+          healthReason: null,
+          installedAt: timestamp,
+          activatedAt: timestamp,
+          retiredAt: null,
+        },
       ]),
     getRecord: (id: typeof installationId) =>
       Effect.succeed(
         Option.some({
           id,
-          harness: "opencode",
-          version: id === activeInstallationId ? "1.18.20" : "1.18.10",
+          harness: id === claudeInstallationId ? "claudeAgent" : "opencode",
+          version:
+            id === claudeInstallationId
+              ? "2.1.283"
+              : id === activeInstallationId
+                ? "1.18.20"
+                : "1.18.10",
           platform: "darwin",
           architecture: "arm64",
-          executablePath: "/managed/opencode",
+          executablePath: id === claudeInstallationId ? "/managed/claude" : "/managed/opencode",
           artifactSource: "github-release",
           artifactUrl: "https://example.invalid/opencode",
           artifactSha256: "a".repeat(64),
           adapterVersion: "1",
           protocolVersion: "v1",
-          lifecycle: id === activeInstallationId ? "active" : installationLifecycle,
+          lifecycle:
+            id === claudeInstallationId || id === activeInstallationId
+              ? "active"
+              : installationLifecycle,
           healthReason: null,
           installedAt: timestamp,
           activatedAt: timestamp,
@@ -188,13 +250,30 @@ const dependencies = Layer.mergeAll(
       Effect.succeed(
         Option.some({
           id,
-          harness: id === codexConnectionId ? "codex" : "opencode",
-          authenticationTargetId: id === codexConnectionId ? "openai-first-party" : "opencode-go",
-          authenticationMethodId: id === codexConnectionId ? "chatgpt" : "api-key",
-          label: id === codexConnectionId ? "Personal" : "Go",
-          credentialRef: id === codexConnectionId ? null : "provider-secret:selection",
-          profileRef: id === codexConnectionId ? `provider-profile:${id}` : null,
-          providerIdentityId: null,
+          harness:
+            id === claudeConnectionId
+              ? "claudeAgent"
+              : id === codexConnectionId
+                ? "codex"
+                : "opencode",
+          authenticationTargetId:
+            id === claudeConnectionId
+              ? "anthropic-first-party"
+              : id === codexConnectionId
+                ? "openai-first-party"
+                : "opencode-go",
+          authenticationMethodId:
+            id === claudeConnectionId
+              ? "claude-account"
+              : id === codexConnectionId
+                ? "chatgpt"
+                : "api-key",
+          label:
+            id === claudeConnectionId ? "Claude" : id === codexConnectionId ? "Personal" : "Go",
+          credentialRef: id === connectionId ? "provider-secret:selection" : null,
+          profileRef:
+            id === claudeConnectionId || id === codexConnectionId ? `provider-profile:${id}` : null,
+          providerIdentityId: id === claudeConnectionId ? "alice@example.com" : null,
           health: connectionLifecycle === "active" ? "ready" : "unavailable",
           healthReason: null,
           lastCheckedAt: timestamp,
@@ -334,14 +413,55 @@ layer("ProviderTurnSelectionResolver", (it) => {
       assert.strictEqual(current.connectionId, connectionId);
       assert.strictEqual(current.internalProviderId, "opencode-go");
 
-      const implicitAnonymous = yield* Effect.exit(
+      const providerMismatch = yield* Effect.exit(
+        resolver.resolveExisting({
+          threadId,
+          modelSelection: { provider: "codex", model: "gpt-5.5" },
+          connectionId: codexConnectionId,
+          bindingRevision: 7,
+        }),
+      );
+      assert.strictEqual(providerMismatch._tag, "Failure");
+      if (providerMismatch._tag === "Failure") {
+        assert.strictEqual(failedWithCode(providerMismatch), "provider_mismatch");
+      }
+
+      const unauthorized = yield* Effect.exit(
+        resolver.resolveExisting({
+          threadId,
+          modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
+          connectionId,
+          bindingRevision: 7,
+        }),
+      );
+      assert.strictEqual(unauthorized._tag, "Failure");
+      if (unauthorized._tag === "Failure") {
+        assert.strictEqual(failedWithCode(unauthorized), "connection_unauthorized");
+      }
+
+      const currentConnectionUnauthorized = yield* Effect.exit(
         resolver.resolveExisting({
           threadId,
           modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
           bindingRevision: 7,
         }),
       );
-      assert.strictEqual(implicitAnonymous._tag, "Failure");
+      assert.strictEqual(currentConnectionUnauthorized._tag, "Failure");
+      if (currentConnectionUnauthorized._tag === "Failure") {
+        assert.strictEqual(failedWithCode(currentConnectionUnauthorized), "connection_unauthorized");
+      }
+
+      const missingRevision = yield* Effect.exit(
+        resolver.resolveExisting({
+          threadId,
+          modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
+          connectionId: null,
+        }),
+      );
+      assert.strictEqual(missingRevision._tag, "Failure");
+      if (missingRevision._tag === "Failure") {
+        assert.strictEqual(failedWithCode(missingRevision), "binding_revision_required");
+      }
 
       const stale = yield* Effect.exit(
         resolver.resolveExisting({
@@ -352,6 +472,9 @@ layer("ProviderTurnSelectionResolver", (it) => {
         }),
       );
       assert.strictEqual(stale._tag, "Failure");
+      if (stale._tag === "Failure") {
+        assert.strictEqual(failedWithCode(stale), "binding_revision_stale");
+      }
 
       const anonymous = yield* resolver.resolveExisting({
         threadId,
@@ -367,7 +490,26 @@ layer("ProviderTurnSelectionResolver", (it) => {
 
       connectionLifecycle = "terminated";
       const disconnected = yield* Effect.exit(resolver.resolveExisting({ threadId }));
+      const unavailableExactConnection = yield* Effect.exit(
+        resolver.resolveExisting({
+          threadId,
+          modelSelection: { provider: "opencode", model: "opencode-go/kimi-k2.5" },
+          connectionId,
+          bindingRevision: 7,
+        }),
+      );
       assert.strictEqual(disconnected._tag, "Failure");
+      assert.strictEqual(unavailableExactConnection._tag, "Failure");
+      if (unavailableExactConnection._tag === "Failure") {
+        assert.strictEqual(failedWithCode(unavailableExactConnection), "connection_unavailable");
+      }
+      hasRuntimeBinding = false;
+      const missingBinding = yield* Effect.exit(resolver.resolveExisting({ threadId }));
+      hasRuntimeBinding = true;
+      assert.strictEqual(missingBinding._tag, "Failure");
+      if (missingBinding._tag === "Failure") {
+        assert.strictEqual(failedWithCode(missingBinding), "thread_binding_missing");
+      }
     }),
   );
 
@@ -409,6 +551,26 @@ layer("ProviderTurnSelectionResolver", (it) => {
       );
       modelAvailable = true;
       assert.strictEqual(unavailable._tag, "Failure");
+      if (unavailable._tag === "Failure") {
+        assert.strictEqual(failedWithCode(unavailable), "model_unavailable");
+      }
+    }),
+  );
+
+  it.effect("accepts an SDK-supported older Claude model on a pinned thread", () =>
+    Effect.gen(function* () {
+      threadHarness = "claudeAgent";
+      connectionLifecycle = "active";
+      modelAvailable = true;
+      const resolver = yield* ProviderTurnSelectionResolver;
+      const selection = yield* resolver.resolveExisting({
+        threadId,
+        modelSelection: { provider: "claudeAgent", model: "claude-opus-4-7" },
+        bindingRevision: 7,
+      });
+      assert.strictEqual(selection.modelId, "claude-opus-4-7");
+      assert.strictEqual(selection.modelLabel, "Opus 4.7");
+      threadHarness = "opencode";
     }),
   );
 });

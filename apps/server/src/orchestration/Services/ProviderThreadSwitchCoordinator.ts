@@ -5,10 +5,27 @@ import type { OrchestrationCommand } from "@penkra/contracts";
 import { Data, Effect, ServiceMap } from "effect";
 
 import type { ManagedAttachmentPrincipal } from "../../managedAttachmentPrincipal.ts";
+import type { ProviderTurnSelectionFailureCode } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 
-export class ProviderThreadSwitchCoordinatorError extends Data.TaggedError(
+type ProviderThreadSwitchCoordinatorErrorFields = {
+  readonly code: ProviderTurnSelectionFailureCode;
+  readonly detail: string;
+  readonly cause?: unknown;
+};
+
+const ProviderThreadSwitchCoordinatorErrorBase = Data.TaggedError(
   "ProviderThreadSwitchCoordinatorError",
-)<{ readonly detail: string; readonly cause?: unknown }> {
+)<ProviderThreadSwitchCoordinatorErrorFields>;
+
+export class ProviderThreadSwitchCoordinatorError extends ProviderThreadSwitchCoordinatorErrorBase {
+  constructor(
+    input: Omit<ProviderThreadSwitchCoordinatorErrorFields, "code"> & {
+      readonly code?: ProviderTurnSelectionFailureCode;
+    },
+  ) {
+    super({ ...input, code: input.code ?? "selection_failed" });
+  }
+
   override get message(): string {
     return this.detail;
   }

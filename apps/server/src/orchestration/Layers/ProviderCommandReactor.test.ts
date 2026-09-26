@@ -73,6 +73,7 @@ import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
+import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
 import {
   TextGeneration,
   type TextGenerationShape,
@@ -205,6 +206,7 @@ describe("ProviderCommandReactor", () => {
     readonly commandEventTimeout?: Duration.Duration;
     readonly queuedTurnRecoveryInterval?: Duration.Duration;
     readonly nativeStateLocatorJson?: string;
+    readonly providerSessionId?: string;
   }) {
     const now = new Date().toISOString();
     const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "penkra-reactor-"));
@@ -470,7 +472,7 @@ describe("ProviderCommandReactor", () => {
         }) =>
           Effect.succeed({
             threadId: selection.threadId,
-            harness: selection.modelSelection?.provider ?? "codex",
+            harness: selection.modelSelection?.provider ?? modelSelection.provider,
             connectionId: selection.connectionId ?? TEST_CONNECTION_ID,
             connectionLabel: "Test",
             previousConnectionId: TEST_CONNECTION_ID,
@@ -505,7 +507,7 @@ describe("ProviderCommandReactor", () => {
               harness: modelSelection.provider,
               nativeStateGenerationId:
                 ProviderNativeStateGenerationId.makeUnsafe("test-native-generation"),
-              providerSessionId: null,
+              providerSessionId: input?.providerSessionId ?? null,
               nativeStateLocatorJson: input?.nativeStateLocatorJson ?? "null",
               lastVerifiedResumeAt: null,
               revision: 0,
@@ -546,6 +548,11 @@ describe("ProviderCommandReactor", () => {
         ? { queuedTurnRecoveryInterval: input.queuedTurnRecoveryInterval }
         : {}),
     }).pipe(
+      Layer.provideMerge(
+        Layer.succeed(ProviderDiscoveryService, {
+          probeConnection: () => Effect.succeed(false),
+        } as never),
+      ),
       Layer.provideMerge(ingestionLayer),
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(managedBindingLayer),
@@ -1010,6 +1017,68 @@ describe("ProviderCommandReactor", () => {
       expect(sent?.input).not.toContain("secret history before the retained boundary");
     },
   );
+
+  it("rebuilds an old-layout Claude Thread from Penkra on its next turn", async () => {
+    const sessionId = "550e8400-e29b-41d4-a716-446655440000";
+    const harness = await createHarness({
+      providerSessionId: sessionId,
+      nativeStateLocatorJson: JSON.stringify({ resume: sessionId }),
+      threadModelSelection: { provider: "claudeAgent", model: "claude-sonnet-5" },
+    });
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const oldProfileTranscript = path.join(
+      harness.stateDir,
+      "provider-connections",
+      "old-profile",
+      "claude-config",
+      "projects",
+      "old-cwd",
+      `${sessionId}.jsonl`,
+    );
+    fs.mkdirSync(path.dirname(oldProfileTranscript), { recursive: true });
+    fs.writeFileSync(oldProfileTranscript, '{"type":"user","message":{"role":"user"}}\n');
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.messages.import",
+        commandId: CommandId.makeUnsafe("cmd-missing-claude-import"),
+        threadId,
+        messages: [
+          {
+            messageId: asMessageId("message-missing-claude-prior"),
+            role: "assistant",
+            text: "Prior visible answer",
+            createdAt: "2026-08-08T00:00:01.000Z",
+            updatedAt: "2026-08-08T00:00:01.000Z",
+          },
+        ],
+        createdAt: "2026-08-08T00:00:01.000Z",
+      }),
+    );
+    harness.startSession.mockClear();
+    harness.sendTurn.mockClear();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        connectionId: TEST_CONNECTION_ID,
+        bindingRevision: 0,
+        commandId: CommandId.makeUnsafe("cmd-missing-claude-turn"),
+        threadId,
+        message: {
+          messageId: asMessageId("message-missing-claude-current"),
+          role: "user",
+          text: "Continue",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        createdAt: "2026-08-08T00:00:02.000Z",
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls[0]?.[1]).not.toHaveProperty("resumeCursor");
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({ resumePolicy: "fresh" });
+    expect(harness.sendTurn.mock.calls[0]?.[0]?.input).toContain("Prior visible answer");
+    expect(fs.readFileSync(oldProfileTranscript, "utf8")).toContain('"type":"user"');
+  });
 
   it("continues an interrupted turn without persisting a synthetic user message", async () => {
     const harness = await createHarness();
@@ -4257,6 +4326,12 @@ describe("ProviderCommandReactor", () => {
       providerRefs: {},
     });
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    await waitFor(
+      async () =>
+        (await readHarnessThread(harness))?.messages.find(
+          (message) => message.id === successorMessageId,
+        )?.delivery?.state === "accepted",
+    );
     const thread = await readHarnessThread(harness);
     expect(thread?.messages.find((message) => message.id === firstMessageId)?.delivery?.state).toBe(
       "accepted",

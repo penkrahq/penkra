@@ -25,12 +25,22 @@ export interface ProviderNativeStateMaterializerShape {
     readonly targetConnectionId: ProviderConnectionId | null;
     readonly sourceGenerationId: ProviderNativeStateGenerationId;
     readonly targetGenerationId: ProviderNativeStateGenerationId;
+    /** Claude's canonical state follows the Thread, not either Connection profile. */
+    readonly sourceThreadId?: string;
+    readonly targetThreadId?: string;
   }) => Effect.Effect<string, ProviderNativeStateMaterializationError>;
   readonly discard: (
     generationId: ProviderNativeStateGenerationId,
   ) => Effect.Effect<void, ProviderNativeStateMaterializationError>;
   readonly finalize: (
     generationId: ProviderNativeStateGenerationId,
+  ) => Effect.Effect<void, ProviderNativeStateMaterializationError>;
+  /**
+   * Remove state that is owned by a Thread rather than any provider generation.
+   * Called only after the Thread is deleted, so it never touches live state.
+   */
+  readonly discardThreadState: (
+    threadId: string,
   ) => Effect.Effect<void, ProviderNativeStateMaterializationError>;
 }
 

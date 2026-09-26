@@ -1,6 +1,7 @@
 import { NonNegativeInt, ProviderRuntimeEvent } from "@penkra/contracts";
 import { Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { observeRuntimeJournalTiming } from "../runtimeJournalMetrics.ts";
 
 import {
   PersistenceDecodeError,
@@ -47,6 +48,7 @@ const decodeEvent = Schema.decodeUnknownEffect(ProviderRuntimeEventJson);
 const StoredRowSchema = Schema.Struct({
   sequence: NonNegativeInt,
   eventJson: Schema.String,
+  persistedAt: Schema.optional(Schema.String),
 });
 const decodeStoredRow = Schema.decodeUnknownEffect(StoredRowSchema);
 
@@ -211,6 +213,7 @@ const make = Effect.gen(function* () {
           SELECT
             event.sequence,
             event.event_json AS "eventJson",
+            event.persisted_at AS "persistedAt",
             ROW_NUMBER() OVER (
               PARTITION BY event.thread_id
               ORDER BY event.sequence ASC
@@ -230,7 +233,7 @@ const make = Effect.gen(function* () {
                 )
             )
         )
-        SELECT sequence, "eventJson"
+        SELECT sequence, "eventJson", "persistedAt"
         FROM eligible
         WHERE thread_position = 1
         ORDER BY sequence ASC
@@ -252,7 +255,11 @@ const make = Effect.gen(function* () {
                 ),
               ),
             );
-            return { sequence: row.sequence, event } satisfies PersistedProviderRuntimeEvent;
+            return {
+              sequence: row.sequence,
+              event,
+              ...(row.persistedAt === undefined ? {} : { persistedAt: row.persistedAt }),
+            } satisfies PersistedProviderRuntimeEvent;
           }),
         { concurrency: 1 },
       );
@@ -271,6 +278,7 @@ const make = Effect.gen(function* () {
           SELECT
             event.sequence,
             event.event_json AS "eventJson",
+            event.persisted_at AS "persistedAt",
             ROW_NUMBER() OVER (
               PARTITION BY event.thread_id
               ORDER BY event.sequence ASC
@@ -290,7 +298,7 @@ const make = Effect.gen(function* () {
                 )
             )
         )
-        SELECT sequence, "eventJson"
+        SELECT sequence, "eventJson", "persistedAt"
         FROM eligible
         WHERE thread_position <= ${maxPerThread}
         ORDER BY sequence ASC
@@ -314,7 +322,11 @@ const make = Effect.gen(function* () {
                 ),
               ),
             );
-            return { sequence: row.sequence, event } satisfies PersistedProviderRuntimeEvent;
+            return {
+              sequence: row.sequence,
+              event,
+              ...(row.persistedAt === undefined ? {} : { persistedAt: row.persistedAt }),
+            } satisfies PersistedProviderRuntimeEvent;
           }),
         { concurrency: 1 },
       );
@@ -453,7 +465,8 @@ const make = Effect.gen(function* () {
         SELECT 1
         FROM projection_turns AS turn
         WHERE turn.thread_id = provider_runtime_open_turns.thread_id
-          AND turn.turn_id = provider_runtime_open_turns.turn_id
+          AND (turn.turn_id = provider_runtime_open_turns.turn_id
+            OR turn.provider_turn_id = provider_runtime_open_turns.turn_id)
           AND (
             turn.state IN ('interrupted', 'completed', 'error')
             OR turn.completed_at IS NOT NULL
@@ -497,7 +510,8 @@ const make = Effect.gen(function* () {
             SELECT 1
             FROM projection_turns AS turn
             WHERE turn.thread_id = ${input.threadId}
-              AND turn.turn_id = ${input.turnId}
+              AND (turn.turn_id = ${input.turnId}
+                OR turn.provider_turn_id = ${input.turnId})
               AND (
                 turn.state IN ('interrupted', 'completed', 'error')
                 OR turn.completed_at IS NOT NULL
@@ -611,7 +625,7 @@ const make = Effect.gen(function* () {
           return true;
         }
         retentionScanSequence = input.eventSequence;
-
+        const retentionStartedAt = performance.now();
         yield* sql`
             DELETE FROM provider_runtime_events AS event
             WHERE EXISTS (
@@ -640,6 +654,7 @@ const make = Effect.gen(function* () {
                 LIMIT ${PROVIDER_RUNTIME_EVENT_RETAIN_ACCEPTED}
               )
           `;
+        observeRuntimeJournalTiming("journalRetentionScan", performance.now() - retentionStartedAt);
         return true;
       }).pipe(
         Effect.tap(() =>
@@ -1016,8 +1031,15 @@ const make = Effect.gen(function* () {
             yield* sql`
               INSERT INTO provider_runtime_open_turns (
                 thread_id, turn_id, first_sequence, updated_at
-              ) VALUES (
-                ${event.threadId}, ${event.turnId}, ${input.eventSequence}, ${input.updatedAt}
+              )
+              SELECT ${event.threadId}, ${event.turnId}, ${input.eventSequence}, ${input.updatedAt}
+              WHERE NOT EXISTS (
+                SELECT 1 FROM projection_turns AS turn
+                WHERE turn.thread_id = ${event.threadId}
+                  AND (turn.turn_id = ${event.turnId}
+                    OR turn.provider_turn_id = ${event.turnId})
+                  AND (turn.state IN ('interrupted', 'completed', 'error')
+                    OR turn.completed_at IS NOT NULL)
               )
               ON CONFLICT (thread_id, turn_id) DO UPDATE SET
                 first_sequence = MIN(
@@ -1060,6 +1082,7 @@ const make = Effect.gen(function* () {
             return true;
           }
           retentionScanSequence = input.eventSequence;
+          const retentionStartedAt = performance.now();
 
           // Pending rows are above the cursor. Accepted rows for an open turn
           // remain replayable until its terminal output is accepted; all other
@@ -1082,6 +1105,10 @@ const make = Effect.gen(function* () {
                 LIMIT ${PROVIDER_RUNTIME_EVENT_RETAIN_ACCEPTED}
               )
           `;
+          observeRuntimeJournalTiming(
+            "journalRetentionScan",
+            performance.now() - retentionStartedAt,
+          );
           return true;
         }),
       )

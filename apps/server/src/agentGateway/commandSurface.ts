@@ -152,8 +152,8 @@ export function invokeResolvedAgentGatewayCommand(input: {
   }
   const invoke = entry.tool.handler(input.resolution.arguments, input.context);
   return (
-    entry.tool.requiresActiveTurn
-      ? input.context.assertCallerTurnActive().pipe(Effect.andThen(invoke))
+    entry.tool.requiresThreadAuthority
+      ? input.context.assertCallerThreadAuthorized().pipe(Effect.andThen(invoke))
       : invoke
   ).pipe(Effect.catch((error) => Effect.succeed(gatewayToolErrorResult(error))));
 }

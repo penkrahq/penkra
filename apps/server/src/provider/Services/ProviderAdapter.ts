@@ -356,6 +356,14 @@ export interface ProviderAdapterShape<TError> {
     },
   ) => Effect.Effect<ProviderListModelsResult, TError>;
 
+  /** Verify the provider's turn endpoint with an isolated, minimal request. */
+  readonly probeTurnEndpoint?: (input: {
+    readonly cwd: string;
+    readonly managedLaunch: ProviderManagedLaunchContext;
+    readonly model: string;
+    readonly effort?: string;
+  }) => Effect.Effect<boolean, TError>;
+
   /**
    * List agents/subagents directly from the provider runtime when supported.
    */

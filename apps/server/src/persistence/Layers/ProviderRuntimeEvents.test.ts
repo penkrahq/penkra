@@ -236,6 +236,43 @@ layer("ProviderRuntimeEventRepository", (it) => {
     }),
   );
 
+  it.effect("prunes a completed Codex turn recorded under its provider turn id", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProviderRuntimeEventRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const event = {
+        ...runtimeEvent("runtime-provider-id-stale", "late token usage"),
+        turnId: TurnId.makeUnsafe("provider-completed-id"),
+      };
+      const persisted = yield* repository.append(event);
+      yield* sql`
+        INSERT INTO projection_turns (
+          thread_id, turn_id, provider_turn_id, state, requested_at, completed_at
+        ) VALUES (
+          ${event.threadId}, ${"turn:logical-completed-id"}, ${event.turnId},
+          'completed', ${event.createdAt}, ${event.createdAt}
+        )
+      `;
+      assert.isTrue(
+        yield* repository.advanceThreadCursor({
+          threadId: event.threadId,
+          eventSequence: persisted.sequence,
+          updatedAt: event.createdAt,
+        }),
+      );
+      assert.lengthOf(yield* repository.listOpenTurnsByThreadId(event.threadId), 0);
+      yield* sql`
+        INSERT INTO provider_runtime_open_turns (thread_id, turn_id, first_sequence, updated_at)
+        VALUES (${event.threadId}, ${event.turnId}, ${persisted.sequence}, ${event.createdAt})
+      `;
+      yield* repository.pruneSettledOpenTurns;
+      assert.deepEqual(
+        (yield* repository.listOpenTurnsByThreadId(event.threadId)).map((row) => row.turnId),
+        [],
+      );
+    }),
+  );
+
   it.effect("isolates a quarantined thread while preserving its raw events for replay", () =>
     Effect.gen(function* () {
       const repository = yield* ProviderRuntimeEventRepository;

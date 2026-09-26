@@ -4,7 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { ProviderConnectionId } from "@penkra/contracts";
@@ -16,6 +16,7 @@ import { ProviderConnectionLoginRepository } from "../../persistence/Services/Pr
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ConnectionUsageFactRepository } from "../../persistence/Services/ConnectionUsageFacts.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
+import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
 import {
   readCodexManagedAccount,
@@ -42,7 +43,7 @@ import {
   secretSuffixConnectionLabel,
 } from "../providerConnectionDisplayIdentity.ts";
 import { providerCredentialProfileRoot } from "../providerNativeStatePaths.ts";
-import { synchronizeClaudeSessions } from "../claudeManagedNativeState.ts";
+import { rememberClaudeThreadAccount } from "../claudeThreadNativeState.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
 import {
   ProviderConnectionLoginCoordinator,
@@ -74,6 +75,31 @@ const providerIdentityFromSnapshot = (snapshot: unknown): string | null => {
   return typeof email === "string" && email.trim().length > 0 ? email.trim().toLowerCase() : null;
 };
 
+const cleanupRetiredManagedProfile = async (
+  harness: Parameters<typeof getProviderConnectionManifest>[0],
+  profileRoot: string,
+): Promise<void> => {
+  if (harness !== "claudeAgent") {
+    await rm(profileRoot, { recursive: true, force: true });
+    return;
+  }
+
+  // Claude's old profile layout stores conversations and their sidecars below
+  // claude-config/projects. Keep that tree in place while removing credentials
+  // and all other disposable profile state.
+  for (const entry of await readdir(profileRoot, { withFileTypes: true })) {
+    const entryPath = path.join(profileRoot, entry.name);
+    if (entry.name !== "claude-config" || !entry.isDirectory()) {
+      await rm(entryPath, { recursive: true, force: true });
+      continue;
+    }
+    for (const configEntry of await readdir(entryPath, { withFileTypes: true })) {
+      if (configEntry.name === "projects") continue;
+      await rm(path.join(entryPath, configEntry.name), { recursive: true, force: true });
+    }
+  }
+};
+
 const rateLimitsFromCodexSnapshot = (snapshot: unknown): unknown | null =>
   typeof snapshot === "object" &&
   snapshot !== null &&
@@ -91,7 +117,6 @@ export function makeProviderConnectionLoginCoordinator(
     readonly startClaudeLogin?: typeof startClaudeManagedAccountLogin;
     readonly probeAccount?: CodexManagedAccountProbe;
     readonly probeClaudeAccount?: typeof readClaudeManagedAccount;
-    readonly synchronizeClaudeProfiles?: typeof synchronizeClaudeSessions;
     readonly logout?: (input: {
       readonly binaryPath: string;
       readonly env: NodeJS.ProcessEnv;
@@ -108,6 +133,7 @@ export function makeProviderConnectionLoginCoordinator(
     const connections = yield* ProviderConnectionRepository;
     const usageFacts = yield* ConnectionUsageFactRepository;
     const installations = yield* ProviderInstallationRepository;
+    const threadBindings = yield* ThreadProviderBindingRepository;
     const credentials = yield* ProviderCredentialBroker;
     const handles = new Map<
       string,
@@ -123,47 +149,51 @@ export function makeProviderConnectionLoginCoordinator(
     const cancellationRequests = new Set<string>();
     const now = options.now ?? (() => new Date().toISOString());
     const newId = options.newId ?? randomUUID;
+
+    const rememberClaudeThreadOwners = (input: {
+      readonly harness: string;
+      readonly connectionId: ProviderConnectionId;
+      readonly authenticationMethodId: string;
+      readonly providerIdentityId: string | null;
+    }) =>
+      Effect.gen(function* () {
+        if (input.harness !== "claudeAgent") return;
+        const boundThreads = yield* threadBindings
+          .listClaudeThreadsForConnection(input.connectionId)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderConnectionLoginError({
+                  detail: "Could not inspect Claude Threads before rotating their credentials.",
+                  cause,
+                }),
+            ),
+          );
+        for (const thread of boundThreads) {
+          yield* Effect.tryPromise({
+            try: async () => {
+              await rememberClaudeThreadAccount({
+                stateDir: config.stateDir,
+                threadId: thread.threadId,
+                account: {
+                  authenticationMethodId: input.authenticationMethodId,
+                  providerIdentityId: input.providerIdentityId,
+                },
+              });
+            },
+            catch: (cause) =>
+              new ProviderConnectionLoginError({
+                detail: "Could not record a Claude Thread's account before credential rotation.",
+                cause,
+              }),
+          });
+        }
+      });
     const startLogin = options.startLogin ?? startCodexManagedAccountLogin;
     const startApiKeyImport = options.startApiKeyImport ?? startCodexManagedApiKeyImport;
     const startClaudeLogin = options.startClaudeLogin ?? startClaudeManagedAccountLogin;
     const probeAccount = options.probeAccount ?? readCodexManagedAccount;
     const probeClaudeAccount = options.probeClaudeAccount ?? readClaudeManagedAccount;
-    const synchronizeClaudeProfiles =
-      options.synchronizeClaudeProfiles ?? synchronizeClaudeSessions;
-
-    const synchronizeClaudeCredentialProfiles = (input: {
-      readonly sourceProfileRef: string;
-      readonly targetProfileRef: string;
-      readonly reason: "reauthentication" | "retired-profile-cleanup";
-    }) =>
-      Effect.gen(function* () {
-        if (input.sourceProfileRef === input.targetProfileRef) return;
-        const sourceProfileRoot = providerCredentialProfileRoot(
-          config.stateDir,
-          input.sourceProfileRef,
-        );
-        const targetProfileRoot = providerCredentialProfileRoot(
-          config.stateDir,
-          input.targetProfileRef,
-        );
-        if (sourceProfileRoot === null || targetProfileRoot === null) {
-          return yield* fail("The Claude credential-profile lineage is invalid.");
-        }
-        const result = yield* Effect.tryPromise({
-          try: () => synchronizeClaudeProfiles({ sourceProfileRoot, targetProfileRoot }),
-          catch: (cause) =>
-            new ProviderConnectionLoginError({
-              detail: "Could not preserve Claude conversations across credential rotation.",
-              cause,
-            }),
-        });
-        yield* Effect.logInfo("provider.claude_native_state.profile_synchronized", {
-          reason: input.reason,
-          sourceProfileRef: input.sourceProfileRef,
-          targetProfileRef: input.targetProfileRef,
-          ...result,
-        });
-      });
     const execFileAsync = promisify(execFile);
     const logoutCodex =
       options.logout ??
@@ -370,7 +400,7 @@ export function makeProviderConnectionLoginCoordinator(
         });
         const profileRoot = providerCredentialProfileRoot(config.stateDir, record.profileRef);
         if (profileRoot !== null) {
-          yield* Effect.tryPromise(() => rm(profileRoot, { recursive: true, force: true }));
+          yield* Effect.tryPromise(() => cleanupRetiredManagedProfile(record.harness, profileRoot));
           yield* connections.markManagedProfileRemoved({
             profileRef: record.profileRef,
             removedAt: now(),
@@ -433,18 +463,14 @@ export function makeProviderConnectionLoginCoordinator(
             ),
           );
         if (
-          record.harness === "claudeAgent" &&
           Option.isSome(existingIdentity) &&
-          existingIdentity.value.profileRef !== null &&
           existingIdentity.value.profileRef !== record.profileRef
         ) {
-          // Claude physically co-locates OAuth and conversation state. Copy the
-          // conversation state while the old profile is still canonical; only
-          // a complete copy is allowed to advance the logical Connection.
-          yield* synchronizeClaudeCredentialProfiles({
-            sourceProfileRef: existingIdentity.value.profileRef,
-            targetProfileRef: record.profileRef,
-            reason: "reauthentication",
+          yield* rememberClaudeThreadOwners({
+            harness: existingIdentity.value.harness,
+            connectionId: existingIdentity.value.id,
+            authenticationMethodId: existingIdentity.value.authenticationMethodId,
+            providerIdentityId: existingIdentity.value.providerIdentityId,
           });
         }
         const committed = yield* connections
@@ -955,7 +981,7 @@ export function makeProviderConnectionLoginCoordinator(
         });
         const profileRoot = providerCredentialProfileRoot(config.stateDir, record.profileRef);
         if (profileRoot !== null) {
-          yield* Effect.tryPromise(() => rm(profileRoot, { recursive: true, force: true }));
+          yield* Effect.tryPromise(() => cleanupRetiredManagedProfile(record.harness, profileRoot));
           yield* connections.markManagedProfileRemoved({
             profileRef: record.profileRef,
             removedAt: now(),
@@ -998,6 +1024,12 @@ export function makeProviderConnectionLoginCoordinator(
         if (record.credentialRef !== null || record.profileRef === null) {
           return yield* fail("This is not a managed account Connection.");
         }
+        yield* rememberClaudeThreadOwners({
+          harness: record.harness,
+          connectionId: record.id,
+          authenticationMethodId: record.authenticationMethodId,
+          providerIdentityId: record.providerIdentityId,
+        });
         const runtime = yield* loadManagedRuntime({
           ...record,
           profileRef: record.profileRef,
@@ -1062,7 +1094,7 @@ export function makeProviderConnectionLoginCoordinator(
         });
         const profileRoot = providerCredentialProfileRoot(config.stateDir, record.profileRef);
         if (profileRoot !== null) {
-          yield* Effect.tryPromise(() => rm(profileRoot, { recursive: true, force: true }));
+          yield* Effect.tryPromise(() => cleanupRetiredManagedProfile(record.harness, profileRoot));
           yield* connections.markManagedProfileRemoved({
             profileRef: record.profileRef,
             removedAt: now(),
@@ -1281,23 +1313,6 @@ export function makeProviderConnectionLoginCoordinator(
                 });
                 return;
               }
-              if (profile.harness === "claudeAgent" && profile.connectionId !== null) {
-                const activeConnection = yield* connections.getRecord(profile.connectionId);
-                if (
-                  Option.isSome(activeConnection) &&
-                  activeConnection.value.lifecycle === "active" &&
-                  activeConnection.value.profileRef !== null &&
-                  activeConnection.value.profileRef !== profile.profileRef
-                ) {
-                  // A retired Claude profile is not disposable until its
-                  // conversation state is durably present in the active one.
-                  yield* synchronizeClaudeCredentialProfiles({
-                    sourceProfileRef: profile.profileRef,
-                    targetProfileRef: activeConnection.value.profileRef,
-                    reason: "retired-profile-cleanup",
-                  });
-                }
-              }
               const runtime = yield* loadManagedRuntime({
                 harness: profile.harness,
                 authenticationTargetId: profile.authenticationTargetId,
@@ -1321,7 +1336,9 @@ export function makeProviderConnectionLoginCoordinator(
               );
               if (account !== null)
                 return yield* fail("The retired provider profile is signed in.");
-              yield* Effect.tryPromise(() => rm(profileRoot, { recursive: true, force: true }));
+              yield* Effect.tryPromise(() =>
+                cleanupRetiredManagedProfile(profile.harness, profileRoot),
+              );
               yield* connections.markManagedProfileRemoved({
                 profileRef: profile.profileRef,
                 removedAt: now(),

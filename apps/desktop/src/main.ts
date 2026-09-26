@@ -8,7 +8,6 @@ import * as Crypto from "node:crypto";
 import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
-import { AsyncLocalStorage } from "node:async_hooks";
 // Electron-only builtin that sees app.asar as a real file instead of a virtual
 // directory — required to stat the archive itself for swap detection.
 import * as OriginalFS from "original-fs";
@@ -181,8 +180,17 @@ import {
 } from "./updateState";
 import { registerDesktopVoiceTranscriptionHandler } from "./voiceTranscription";
 import { ShellWindowRegistry } from "./shellWindowRegistry";
+import { panelFocusState } from "./panelFocus";
+import { ThreadHomeWindow } from "./threadHomeWindow";
+import { executeDesktopThreadCommand } from "./desktopThreadClient";
+import { announceAppTabOpened as routeAppTabOpened } from "./appTabOpenedRouting";
 import {
-  isDesktopNewWindowShortcut,
+  preventBeforeInputShortcut,
+  resolvePanelShortcut,
+  resolvePanelShortcutEffect,
+  type PanelShortcutCommand,
+} from "./panelShortcuts";
+import {
   resolveDesktopMenuAccelerator,
   resolveDesktopWindowZoomAction,
   resolveKeyboardShortcutsMenuAccelerator,
@@ -480,8 +488,88 @@ const shellWindowRegistry = new ShellWindowRegistry();
 let pendingAppListingRequest: { appId: string } | null = null;
 const MAX_PENDING_APP_TAB_EVENTS = 128;
 const pendingAppTabOpened = new Map<string, DesktopAppTabOpened>();
-const appPresentationSurface = new AsyncLocalStorage<number | null>();
+const activeAgentPresentationThreads = new Map<string, number>();
+const threadHomeWindow = new ThreadHomeWindow();
+
+function inheritThreadHome(parentThreadId: string, childThreadId: string): void {
+  threadHomeWindow.inherit(parentThreadId, childThreadId);
+  console.info(`[thread-home] inherit parent=${parentThreadId} child=${childThreadId}`);
+}
+
+async function runAgentThreadOperation<T>(
+  threadId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  activeAgentPresentationThreads.set(
+    threadId,
+    (activeAgentPresentationThreads.get(threadId) ?? 0) + 1,
+  );
+  try {
+    return await operation();
+  } finally {
+    const remaining = (activeAgentPresentationThreads.get(threadId) ?? 1) - 1;
+    if (remaining > 0) activeAgentPresentationThreads.set(threadId, remaining);
+    else activeAgentPresentationThreads.delete(threadId);
+  }
+}
 let desktopAppRuntime: DesktopAppRuntime | null = null;
+
+function recordPanelInteraction(windowId: number, insidePanel: boolean, source: string): void {
+  const previous = panelFocusState.get(windowId);
+  panelFocusState.recordInteraction(windowId, insidePanel);
+  if (previous !== insidePanel) {
+    console.info(`[panel-focus] window=${windowId} focused=${insidePanel} source=${source}`);
+  }
+}
+
+function routePanelShortcut(
+  window: BrowserWindow,
+  command: PanelShortcutCommand,
+  deckId: string | null,
+  sourceId: number,
+): void {
+  if (window.isDestroyed()) return;
+  const windowId = window.id;
+  console.info(
+    `[panel-shortcut] window=${windowId} source=${sourceId} command=${command} panelFocused=${panelFocusState.get(windowId)}`,
+  );
+  const effect = resolvePanelShortcutEffect(command, panelFocusState.get(windowId), deckId);
+  switch (effect.kind) {
+    case "new-window":
+      createWindow({ cloneFrom: window });
+      return;
+    case "open-find":
+      window.webContents.send(IPC.menuAction, "open-find");
+      return;
+    case "close-panel-tab":
+      window.webContents.send(IPC.panelFocus.closePanelTab, { deckId: effect.deckId });
+      return;
+    case "none":
+      return;
+  }
+}
+
+function panelOwnerForWebContents(contents: WebContents): {
+  window: BrowserWindow;
+  tab: DesktopAppTabDescriptor | null;
+} | null {
+  const shellWindow = shellWindowForSender(contents);
+  if (shellWindow) return { window: shellWindow, tab: null };
+  const tabs = desktopAppRuntime?.appTabs;
+  if (!tabs) return null;
+  const tab =
+    tabs.list().find((candidate) => candidate.rendererId === contents.id) ??
+    (() => {
+      const hosted = tabs.hostedPageForWebContentsId(contents.id);
+      return hosted
+        ? (tabs.list().find((candidate) => candidate.id === hosted.tabId) ?? null)
+        : null;
+    })();
+  if (!tab) return null;
+  const windowId = tabs.ownerWindowId(tab.id);
+  const window = windowId === null ? null : shellWindowRegistry.windowForWebContentsId(windowId);
+  return window ? { window, tab } : null;
+}
 
 function shellWindows(): BrowserWindow[] {
   return shellWindowRegistry.list();
@@ -513,6 +601,15 @@ function announceAppTabOpened(descriptor: DesktopAppTabOpened): void {
   const readyWindows = shellWindows().filter(
     (window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
   );
+  const routed = routeAppTabOpened({
+    descriptor,
+    windows: readyWindows.map((window) => ({
+      id: window.id,
+      focused: window.isFocused(),
+    })),
+    home: threadHomeWindow,
+    panelFocus: panelFocusState,
+  });
   if (readyWindows.length === 0) {
     pendingAppTabOpened.set(descriptor.id, descriptor);
     if (pendingAppTabOpened.size > MAX_PENDING_APP_TAB_EVENTS) {
@@ -521,22 +618,21 @@ function announceAppTabOpened(descriptor: DesktopAppTabOpened): void {
     }
     return;
   }
-  const targetSurfaceId = appPresentationSurface.getStore() ?? null;
-  const targetWindow =
-    readyWindows.find((window) => window.webContents.id === targetSurfaceId) ?? readyWindows[0]!;
-  for (const window of readyWindows) {
-    window.webContents.send(IPC.appTabs.opened, {
-      ...descriptor,
-      selection:
-        window.webContents.id === targetWindow.webContents.id ? descriptor.selection : "preserve",
-    });
+  console.info(
+    `[thread-home] tab-open thread=${descriptor.threadId} deck=${descriptor.deckId} target=${routed.targetWindowId ?? "background"} initiator=${descriptor.initiator}`,
+  );
+  for (const delivery of routed.deliveries) {
+    const window = readyWindows.find((candidate) => candidate.id === delivery.windowId);
+    if (window && !window.isDestroyed()) {
+      window.webContents.send(IPC.appTabs.opened, { ...descriptor, selection: delivery.selection });
+    }
   }
 }
 
 function flushPendingAppTabs(window: BrowserWindow): void {
   if (window.isDestroyed() || pendingAppTabOpened.size === 0) return;
   for (const descriptor of pendingAppTabOpened.values()) {
-    window.webContents.send(IPC.appTabs.opened, descriptor);
+    window.webContents.send(IPC.appTabs.opened, { ...descriptor, selection: "preserve" });
   }
   pendingAppTabOpened.clear();
 }
@@ -547,13 +643,41 @@ function announceAppTabState(descriptor: DesktopAppTabDescriptor): void {
     pendingAppTabOpened.set(descriptor.id, {
       ...descriptor,
       selection: pending.selection,
+      initiator: pending.initiator,
     });
   broadcastToShellWindows(IPC.appTabs.state, descriptor);
 }
 
 function announceAppTabClosed(descriptor: DesktopAppTabClosed): void {
   pendingAppTabOpened.delete(descriptor.id);
+  threadHomeWindow.forgetTab(descriptor.id);
   broadcastToShellWindows(IPC.appTabs.closed, descriptor);
+}
+
+function announceAgentThreadSelection(
+  presentingThreadId: string,
+  deckId: string,
+  selectedThreadId: string,
+): void {
+  const ready = shellWindows().filter(
+    (window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
+  );
+  const targetId = threadHomeWindow.select(
+    presentingThreadId,
+    selectedThreadId,
+    deckId,
+    ready.map((window) => window.id),
+  );
+  const target = ready.find((window) => window.id === targetId);
+  if (!target) {
+    console.info(`[thread-home] select-deferred deck=${deckId} thread=${selectedThreadId}`);
+    return;
+  }
+  threadHomeWindow.agentNavigation(target.id, selectedThreadId);
+  target.webContents.send(IPC.threadHomeSelect, { threadId: selectedThreadId });
+  console.info(
+    `[thread-home] select window=${target.id} deck=${deckId} thread=${selectedThreadId}`,
+  );
 }
 
 function requireGrantedIdentityAudience(
@@ -636,7 +760,6 @@ async function requestAppThreadOperation(
     deckId?: string;
     threadId?: string;
     tabId?: string;
-    surfaceId?: number;
   },
   method: AppThreadOperationMethod,
   value: unknown,
@@ -664,13 +787,6 @@ async function requestAppThreadOperation(
       });
     }
   }
-  const targetSurfaceId = runtime.appTabs.ownerWindowId(identity.tabId);
-  const requestedSurfaceId = identity.surfaceId;
-  const targetWindow =
-    requestedSurfaceId === undefined
-      ? (shellWindowRegistry.windowForWebContentsId(targetSurfaceId) ?? resolveShellWindow())
-      : shellWindowRegistry.windowForWebContentsId(requestedSurfaceId);
-  if (!targetWindow) throw new Error("The Penkra shell is unavailable.");
   const base = {
     id: Crypto.randomUUID(),
     appId: identity.appId,
@@ -714,9 +830,14 @@ async function requestAppThreadOperation(
     const storage = appStorage;
     if (!storage) throw new Error("The App storage service is not ready.");
     const owner = { appId: identity.appId, spaceId: identity.spaceId };
+    const resolveAttachment = async (item: { path: string; name?: string; mimeType?: string }) => ({
+      path: await storage.resolveFile(owner, item.path),
+      name: item.name?.trim() || Path.basename(item.path),
+      mimeType: item.mimeType?.trim() || "application/octet-stream",
+    });
     const [files, images] = await Promise.all([
-      Promise.all((input.files ?? []).map((item) => storage.readComposerAttachment(owner, item))),
-      Promise.all((input.images ?? []).map((item) => storage.readComposerAttachment(owner, item))),
+      Promise.all((input.files ?? []).map(resolveAttachment)),
+      Promise.all((input.images ?? []).map(resolveAttachment)),
     ]);
     const contributed = await runtime.operationCatalog.skills(identity.spaceId);
     const ownSkills = new Map(
@@ -807,18 +928,30 @@ async function requestAppThreadOperation(
   }
   const startedAt = performance.now();
   try {
-    return await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pendingThreadApiRequests.delete(request.id);
-        reject(
-          Object.assign(new Error("The current Thread operation timed out."), {
-            code: "THREAD_API_TIMEOUT",
-          }),
-        );
-      }, 30_000);
-      pendingThreadApiRequests.set(request.id, { resolve, reject, timer });
-      targetWindow.webContents.send(IPC.threadApiRequest, request);
+    const result = await executeDesktopThreadCommand({
+      url: backendHttpUrl,
+      token: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
+      request,
     });
+    if (method === "create" && result && typeof result === "object") {
+      const childThreadId = (result as { threadId?: unknown }).threadId;
+      if (typeof childThreadId === "string") {
+        inheritThreadHome(identity.threadId, childThreadId);
+      }
+    }
+    const selectedThreadId =
+      method === "select"
+        ? (request as Extract<typeof request, { method: "select" }>).input.threadId
+        : method === "create" && request.method === "create" && request.input.select === true
+          ? result && typeof result === "object"
+            ? (result as { threadId?: string }).threadId
+            : undefined
+          : method === "archive" && result && typeof result === "object"
+            ? (result as { selectedThreadId?: string | null }).selectedThreadId
+            : undefined;
+    if (selectedThreadId)
+      announceAgentThreadSelection(identity.threadId, identity.deckId, selectedThreadId);
+    return result;
   } finally {
     if (!trustedCaller) {
       void runtime.diagnostics
@@ -851,22 +984,6 @@ function parseAppThreadDeckPosition(
     return { type: position.type, threadId: position.threadId };
   }
   throw new Error("Thread Deck position type must be start, end, before, or after.");
-}
-
-function acceptThreadApiResponse(
-  event: Electron.IpcMainEvent,
-  response: import("@penkra/contracts").DesktopThreadApiResponse,
-): void {
-  if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
-    throw new Error("Thread API responses are accepted only from the Penkra shell.");
-  }
-  if (!response || typeof response !== "object" || typeof response.id !== "string") return;
-  const pending = pendingThreadApiRequests.get(response.id);
-  if (!pending) return;
-  pendingThreadApiRequests.delete(response.id);
-  clearTimeout(pending.timer);
-  if (response.ok) pending.resolve(response.result);
-  else pending.reject(Object.assign(new Error(response.message), { code: response.code }));
 }
 
 function acceptThreadApiState(event: Electron.IpcMainEvent, input: unknown): void {
@@ -917,48 +1034,6 @@ const appAccountSubscriptions = new AppAccountSubscriptionStore();
 const runtimeV2FileHandles = new AppScopedFileHandleStore();
 const runtimeV2FileWrites = new AppScopedFileWriteStore();
 let appStorage: AppStorageService | null = null;
-const pendingThreadApiRequests = new Map<
-  string,
-  {
-    resolve(value: unknown): void;
-    reject(error: Error): void;
-    timer: ReturnType<typeof setTimeout>;
-  }
->();
-const turnOriginSurfaceByTurnId = new Map<string, number | null>();
-
-function resolveTurnOriginSurface(turnId: string): number | null | undefined {
-  const surfaceId = turnOriginSurfaceByTurnId.get(turnId);
-  if (surfaceId === undefined || surfaceId === null) return surfaceId;
-  if (shellWindowRegistry.windowForWebContentsId(surfaceId) === null) {
-    turnOriginSurfaceByTurnId.set(turnId, null);
-    return null;
-  }
-  return surfaceId;
-}
-
-function acceptThreadApiTurnOrigin(
-  event: Electron.IpcMainEvent,
-  input: unknown,
-  active: boolean,
-): void {
-  if (
-    event.sender.isDestroyed() ||
-    !shellWindowRegistry.hasWebContents(event.sender) ||
-    !input ||
-    typeof input !== "object" ||
-    Array.isArray(input)
-  ) {
-    return;
-  }
-  const turnId = (input as { turnId?: unknown }).turnId;
-  if (typeof turnId !== "string" || turnId.length === 0) return;
-  if (active) {
-    turnOriginSurfaceByTurnId.set(turnId, event.sender.id);
-  } else if (turnOriginSurfaceByTurnId.get(turnId) === event.sender.id) {
-    turnOriginSurfaceByTurnId.delete(turnId);
-  }
-}
 const runtimeV2FileWatches = new AppFileWatchStore();
 
 function revokeRuntimeV2FileScope(appId: string, spaceId: string): void {
@@ -1240,6 +1315,7 @@ async function openPenkraResource(input: {
             threadId: input.threadId,
             route: "/",
             state: { url: url.href },
+            initiator: input.callerKind ?? "agent",
           })
         : await runtime.broker.invoke({
             app: resolved.slug,
@@ -2765,11 +2841,6 @@ function handleDesktopWindowZoomShortcut(event: Electron.Event, input: Electron.
 
 function attachDesktopWindowShortcuts(webContents: Electron.WebContents): () => void {
   const beforeInputEvent = (event: Electron.Event, input: Electron.Input) => {
-    if (isDesktopNewWindowShortcut(desktopPlatform.platform, input)) {
-      event.preventDefault();
-      createWindow({ cloneFrom: shellWindowForSender(webContents) });
-      return;
-    }
     handleDesktopWindowZoomShortcut(event, input);
   };
   webContents.on("before-input-event", beforeInputEvent);
@@ -2930,7 +3001,8 @@ function configureApplicationMenu(): void {
       submenu: [
         {
           label: "New Window",
-          ...acceleratorProps("CmdOrCtrl+Shift+N"),
+          // Main routes the chord for every WebContents; a native accelerator could
+          // preempt its before-input-event and create a second window.
           click: () => createAdditionalWindow(),
         },
         { type: "separator" },
@@ -2944,7 +3016,9 @@ function configureApplicationMenu(): void {
               },
               { type: "separator" as const },
             ]),
-        { role: desktopPlatform.platform === "darwin" ? "close" : "quit" },
+        ...(desktopPlatform.platform === "darwin"
+          ? [{ label: "Close Window", click: () => resolveMenuTargetWindow()?.close() }]
+          : [{ role: "quit" as const }]),
       ],
     },
     { role: "editMenu" },
@@ -4367,7 +4441,7 @@ function backendEnv(): NodeJS.ProcessEnv {
   const env = bindDesktopParentPid(
     {
       ...process.env,
-      ...(appCommandPipeServer?.environment ?? {}),
+      ...(appCommandPipeServer?.backendEnvironment ?? {}),
       // Point the backend's HTTP static route at the same swap-immune snapshot the
       // penkra:// protocol serves, so both surfaces survive app.asar being replaced.
       ...(servedStaticRoot?.snapshotted ? { PENKRA_STATIC_DIR: servedStaticRoot.dir } : {}),
@@ -4944,23 +5018,96 @@ function requestGracefulAppQuit(reason: string): void {
 function registerIpcHandlers(): void {
   const storageSnapshotPath = resolvePenkraStorageSnapshotPath(app.getPath("userData"));
 
+  ipcMain.removeAllListeners(IPC.panelFocus.shellInteraction);
+  ipcMain.on(IPC.panelFocus.shellInteraction, (event, insidePanel: unknown) => {
+    const window = shellWindowForSender(event.sender);
+    if (window && typeof insidePanel === "boolean") {
+      recordPanelInteraction(window.id, insidePanel, "shell-input");
+    }
+    event.returnValue = true;
+  });
+  ipcMain.removeAllListeners(IPC.panelFocus.resolveShellShortcut);
+  ipcMain.on(IPC.panelFocus.resolveShellShortcut, (event, input: unknown) => {
+    const window = shellWindowForSender(event.sender);
+    if (!window || !input || typeof input !== "object" || Array.isArray(input)) return;
+    const { command, insidePanel, deckId } = input as Record<string, unknown>;
+    if (
+      (command !== "new-window" && command !== "find" && command !== "close") ||
+      typeof insidePanel !== "boolean"
+    )
+      return;
+    recordPanelInteraction(window.id, insidePanel, "shell-shortcut");
+    if (command === "close" && !insidePanel) return;
+    routePanelShortcut(
+      window,
+      command,
+      typeof deckId === "string" && deckId.length > 0 ? deckId : null,
+      event.sender.id,
+    );
+  });
+
   const requireMainRenderer = (event: Electron.IpcMainInvokeEvent): void => {
     if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
       throw new Error("Composer drafts are available only to the Penkra shell.");
     }
   };
-  ipcMain.removeListener(IPC.threadApiResponse, acceptThreadApiResponse);
-  ipcMain.on(IPC.threadApiResponse, acceptThreadApiResponse);
   ipcMain.removeListener(IPC.threadApiState, acceptThreadApiState);
   ipcMain.on(IPC.threadApiState, acceptThreadApiState);
-  ipcMain.removeAllListeners(IPC.threadApiTurnOriginBind);
-  ipcMain.on(IPC.threadApiTurnOriginBind, (event, input) =>
-    acceptThreadApiTurnOrigin(event, input, true),
-  );
-  ipcMain.removeAllListeners(IPC.threadApiTurnOriginUnbind);
-  ipcMain.on(IPC.threadApiTurnOriginUnbind, (event, input) =>
-    acceptThreadApiTurnOrigin(event, input, false),
-  );
+  ipcMain.removeAllListeners(IPC.threadHomeView);
+  ipcMain.on(IPC.threadHomeView, (event, input: unknown) => {
+    if (!shellWindowRegistry.hasWebContents(event.sender) || !input || typeof input !== "object")
+      return;
+    const { views, activeThreadId } = input as { views?: unknown; activeThreadId?: unknown };
+    if (!Array.isArray(views) || typeof activeThreadId !== "string" || views.length > 16) return;
+    const validViews: Array<{ threadId: string; deckId: string }> = [];
+    for (const view of views) {
+      if (!view || typeof view !== "object") return;
+      const { threadId, deckId } = view as { threadId?: unknown; deckId?: unknown };
+      if (typeof threadId !== "string" || typeof deckId !== "string") return;
+      validViews.push({ threadId, deckId });
+    }
+    if (!validViews.some((view) => view.threadId === activeThreadId)) return;
+    const window = shellWindowForSender(event.sender);
+    threadHomeWindow.replaceViews(
+      window!.id,
+      validViews,
+      activeThreadId,
+      window?.isFocused() ?? false,
+    );
+    for (const view of validViews) {
+      const selectedThreadId = threadHomeWindow.consumeThreadSelection(view.deckId);
+      if (selectedThreadId && selectedThreadId !== activeThreadId) {
+        threadHomeWindow.agentNavigation(window!.id, selectedThreadId);
+        window!.webContents.send(IPC.threadHomeSelect, { threadId: selectedThreadId });
+      }
+    }
+    console.info(
+      `[thread-home] view window=${event.sender.id} thread=${activeThreadId} decks=${validViews.map((view) => view.deckId).join(",")} focused=${window?.isFocused() ?? false}`,
+    );
+  });
+  ipcMain.removeAllListeners(IPC.threadHomeLeave);
+  ipcMain.on(IPC.threadHomeLeave, (event) => {
+    const window = shellWindowForSender(event.sender);
+    if (window) threadHomeWindow.leave(window.id);
+  });
+  ipcMain.removeAllListeners(IPC.threadHomeAgentNavigation);
+  ipcMain.on(IPC.threadHomeAgentNavigation, (event, input: unknown) => {
+    if (!shellWindowRegistry.hasWebContents(event.sender) || !input || typeof input !== "object")
+      return;
+    const threadId = (input as { threadId?: unknown }).threadId;
+    if (typeof threadId !== "string" || threadId.length === 0) return;
+    threadHomeWindow.agentNavigation(shellWindowForSender(event.sender)!.id, threadId);
+    console.info(`[thread-home] agent-navigation window=${event.sender.id} thread=${threadId}`);
+  });
+  ipcMain.removeAllListeners(IPC.threadHomeSend);
+  ipcMain.on(IPC.threadHomeSend, (event, input: unknown) => {
+    if (!shellWindowRegistry.hasWebContents(event.sender) || !input || typeof input !== "object")
+      return;
+    const threadId = (input as { threadId?: unknown }).threadId;
+    if (typeof threadId !== "string") return;
+    threadHomeWindow.send(shellWindowForSender(event.sender)!.id, threadId);
+    console.info(`[thread-home] send window=${event.sender.id} thread=${threadId}`);
+  });
   for (const channel of Object.values(IPC.composerDrafts)) ipcMain.removeHandler(channel);
   ipcMain.removeAllListeners(IPC.composerDrafts.publishEditRecovery);
   ipcMain.on(IPC.composerDrafts.publishEditRecovery, (event, input: unknown) => {
@@ -5617,7 +5764,14 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.appRuntime.tabOpenSibling, async (event, input: unknown) => {
     const { runtime } = requireAppRenderer(event.sender.id);
     const navigation = input === undefined ? { route: "/" } : parseAppTabRouteRequest(input);
-    return runtime.appTabs.openSiblingFromRenderer(event.sender.id, navigation);
+    const threadId = runtime.appTabs
+      .list()
+      .find((tab) => tab.rendererId === event.sender.id)?.threadId;
+    return runtime.appTabs.openSiblingFromRenderer(
+      event.sender.id,
+      navigation,
+      threadId && activeAgentPresentationThreads.has(threadId) ? "agent" : "user",
+    );
   });
   ipcMain.removeHandler(IPC.appRuntime.tabGetContext);
   ipcMain.handle(IPC.appRuntime.tabGetContext, async (event) => {
@@ -6418,9 +6572,32 @@ function registerIpcHandlers(): void {
     return desktopAppRuntime.appTabs.openInstalledFromRenderer(
       event.sender.id,
       parseOpenAppFromAppsRequest(input),
+      desktopAppRuntime.appTabs
+        .list()
+        .some(
+          (tab) =>
+            tab.rendererId === event.sender.id && activeAgentPresentationThreads.has(tab.threadId),
+        )
+        ? "agent"
+        : "user",
     );
   });
-  ipcMain.handle(IPC.appTabs.list, async (event) => requireShellAppTabs(event.sender.id).list());
+  ipcMain.handle(IPC.appTabs.list, async (event, scope: unknown) => {
+    const tabs = requireShellAppTabs(event.sender.id).list();
+    const deckId = scope && typeof scope === "object" && "deckId" in scope ? scope.deckId : null;
+    const selected =
+      typeof deckId === "string"
+        ? threadHomeWindow.consume(
+            deckId,
+            tabs.filter((tab) => tab.deckId === deckId).map((tab) => tab.id),
+          )
+        : null;
+    return tabs.map((tab) => ({
+      ...tab,
+      selection: tab.id === selected ? ("activate" as const) : ("preserve" as const),
+      initiator: "user" as const,
+    }));
+  });
   ipcMain.handle(IPC.appTabs.setContext, async (event, input: unknown) => {
     const { tabId, deckId, threadId } = parseSetAppTabContextRequest(input);
     requireShellAppTabs(event.sender.id).setContext(tabId, {
@@ -7180,6 +7357,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     },
   });
   window.on("focus", () => {
+    threadHomeWindow.focus(window.id);
     traceAppTabWindow(window, "shell-window-focus");
     const windowSpaces = spacesMenuStateByShellRendererId.get(window.webContents.id);
     if (windowSpaces) {
@@ -7362,6 +7540,8 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   });
 
   window.on("closed", () => {
+    panelFocusState.delete(window.id);
+    threadHomeWindow.close(window.id);
     void releaseAppTabWindow(rendererOwnerId);
     activeWorkPowerBlocker.releaseOwner(rendererOwnerId);
     spacesMenuStateByShellRendererId.delete(rendererOwnerId);
@@ -7551,6 +7731,39 @@ function configureMediaPermissions(): void {
 // Override Electron's userData path before the `ready` event so that
 // Chromium session data uses a filesystem-friendly directory name.
 // Must be called synchronously at the top level — before `app.whenReady()`.
+if (hasSingleInstanceLock) {
+  app.on("web-contents-created", (_event, contents) => {
+    contents.on("before-mouse-event", (_mouseEvent, input) => {
+      if (input.type !== "mouseDown") return;
+      const owner = panelOwnerForWebContents(contents);
+      if (owner?.tab) recordPanelInteraction(owner.window.id, true, "app-mouse");
+    });
+    contents.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown") return;
+      const owner = panelOwnerForWebContents(contents);
+      if (!owner) return;
+      if (owner.tab) recordPanelInteraction(owner.window.id, true, "app-key");
+      const command = resolvePanelShortcut(desktopPlatform.platform, input);
+      if (!command) return;
+      if (
+        !preventBeforeInputShortcut(
+          event,
+          command,
+          panelFocusState.get(owner.window.id),
+          !owner.tab,
+        )
+      )
+        return;
+      if (!owner.tab) {
+        // Shell W is decided by the preload's DOM capture listener. Other shell
+        // chords still resolve their focused DOM region before main routes them.
+        contents.send(IPC.panelFocus.shellShortcut, command);
+      } else {
+        routePanelShortcut(owner.window, command, owner.tab.deckId, contents.id);
+      }
+    });
+  });
+}
 if (hasSingleInstanceLock) {
   repairBrowserProfileBeforeElectronReady(userDataPath);
   const accountAuthRuntime = configurePenkraAccountAuth({
@@ -7955,6 +8168,9 @@ async function bootstrap(): Promise<void> {
           descriptor,
           document,
           webContents: desktopAppRuntime!.appTabs.target(tabId, document),
+          isPresented: () => desktopAppRuntime!.appTabs.isVisible(tabId),
+          canDeliverPointerInput: () =>
+            desktopAppRuntime!.appTabs.canDeliverPointerInput(tabId),
         };
       } catch (error) {
         throw Object.assign(
@@ -7978,14 +8194,15 @@ async function bootstrap(): Promise<void> {
   appCommandPipeServer = new AppCommandPipeServer({
     path: resolveAppCommandPipePath(app.getPath("userData")),
     token: Crypto.randomBytes(32).toString("hex"),
+    adminToken: Crypto.randomBytes(32).toString("hex"),
     catalog: desktopAppRuntime.operationCatalog,
     broker: desktopAppRuntime.broker,
     tabs: desktopAppRuntime.appTabs,
-    resolveTurnSurface: resolveTurnOriginSurface,
-    runOnSurface: (surfaceId, operation) => appPresentationSurface.run(surfaceId, operation),
+    runOnThread: runAgentThreadOperation,
+    inheritThreadHome,
     observer: appTabObserver,
     providerCredentialVault: desktopAppRuntime.providerCredentialVault,
-    thread: async ({ spaceId, deckId, threadId, surfaceId, method, value }) =>
+    thread: async ({ spaceId, deckId, threadId, method, value }) =>
       requestAppThreadOperation(
         desktopAppRuntime!,
         {
@@ -7994,7 +8211,6 @@ async function bootstrap(): Promise<void> {
           deckId,
           threadId,
           tabId: `host:${threadId}`,
-          ...(surfaceId === undefined ? {} : { surfaceId }),
         },
         method,
         value,

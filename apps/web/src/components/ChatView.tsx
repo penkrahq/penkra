@@ -7010,6 +7010,7 @@ export default function ChatView({
       return false;
     }
     if (shouldQueueCapturedSend) {
+      if (queuedTurn == null) window.desktopBridge?.threadHome?.send({ threadId: activeThread.id });
       return runImmediatelyWithRelease(async () => {
         const clearOwnership = resolveComposerClearOwnership(activeThread.id);
         if (clearOwnership === "active") {
@@ -7078,6 +7079,7 @@ export default function ChatView({
       return false;
     }
     const threadIdForSend = activeThread.id;
+    if (queuedTurn == null) window.desktopBridge?.threadHome?.send({ threadId: threadIdForSend });
     const isFirstMessage = !isServerThread || !hasNativeUserMessages;
     const firstSendCreatedAt = new Date();
     let firstComposerImageNameForTitle: string | null = null;
@@ -9550,11 +9552,7 @@ export default function ChatView({
           activeThread={activeThread}
           activeComposerProvider={selectedProvider}
           defaultComposerProvider={settings.defaultProvider}
-          className={cn(
-            isElectron && "drag-region",
-            desktopTopBarTrafficLightGutterClassName,
-            desktopTopBarWindowControlsGutterClassName,
-          )}
+          className={cn(isElectron && "drag-region", desktopTopBarTrafficLightGutterClassName)}
           leftRailCollapsed={!leftRailOpen}
           onRestoreLeftRail={() => setLeftRailOpen(true)}
         />
@@ -9580,7 +9578,23 @@ export default function ChatView({
         status={shouldShowProviderHealthBanner ? visibleActiveProviderStatus : null}
         onDismiss={dismissActiveProviderHealthBanner}
       />
-      <ThreadErrorBanner error={activeThread.error} onDismiss={dismissActiveThreadError} />
+      <ThreadErrorBanner
+        error={activeThread.error}
+        onDismiss={dismissActiveThreadError}
+        onRetry={() => {
+          const connectionId = threadProviderBindingQuery.data?.binding?.connectionId;
+          const api = readNativeApi();
+          if (!connectionId || !api) return;
+          void api.provider.retryAuthConnection({ connectionId }).catch((error) =>
+            toastManager.add({
+              type: "error",
+              title: "Could not retry the Connection",
+              description: String(error),
+            }),
+          );
+        }}
+        onReauthenticate={handleManageConnections}
+      />
       <RateLimitBanner
         rateLimitStatus={visibleActiveRateLimitStatus}
         onDismiss={dismissActiveRateLimitBanner}

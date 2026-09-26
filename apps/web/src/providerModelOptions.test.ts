@@ -65,7 +65,7 @@ describe("mergeDynamicModelOptions", () => {
     ]);
   });
 
-  it("does not expose Codex's internal auto-review model", () => {
+  it("preserves models received from provider discovery", () => {
     expect(
       mergeDynamicModelOptions({
         provider: "codex",
@@ -75,7 +75,10 @@ describe("mergeDynamicModelOptions", () => {
           { slug: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
         ],
       }),
-    ).toEqual([{ slug: "gpt-5.6-luna", name: "GPT-5.6 Luna" }]);
+    ).toEqual([
+      { slug: "codex-auto-review", name: "Codex Auto Review" },
+      { slug: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
+    ]);
   });
 
   it("uses Claude's provider-derived display label without rewriting future models", () => {
@@ -104,14 +107,33 @@ describe("mergeDynamicModelOptions", () => {
     ]);
   });
 
-  it("keeps a live Claude selector alias provider-owned instead of mapping it to an old model", () => {
+  it("preserves Claude SDK IDs and raw ID fallback labels", () => {
     expect(
       mergeDynamicModelOptions({
         provider: "claudeAgent",
         staticOptions: [{ slug: "claude-opus-4-8", name: "Claude Opus 4.8" }],
-        dynamicModels: [{ slug: "opus", name: "Opus", description: "Opus 6" }],
+        dynamicModels: [
+          { slug: "claude-opus-6[1m]", name: "claude-opus-6[1m]", description: "Opus 6" },
+        ],
       }),
-    ).toEqual([{ slug: "opus", name: "Opus", description: "Opus 6" }]);
+    ).toEqual([{ slug: "claude-opus-6[1m]", name: "claude-opus-6[1m]", description: "Opus 6" }]);
+  });
+
+  it("keeps the ordered Claude server catalog in the picker", () => {
+    const options = mergeDynamicModelOptions({
+      provider: "claudeAgent",
+      staticOptions: [],
+      dynamicModels: [
+        { slug: "claude-opus-5-5", name: "Opus 5.5", isDefault: true },
+        { slug: "claude-haiku-4-5-20251001", name: "Haiku 4.5" },
+        { slug: "claude-sonnet-5", name: "Sonnet 5" },
+      ],
+    });
+    expect(options.map((option) => option.slug)).toEqual([
+      "claude-opus-5-5",
+      "claude-haiku-4-5-20251001",
+      "claude-sonnet-5",
+    ]);
   });
 
   it("preserves runtime descriptions without inventing them for custom models", () => {
