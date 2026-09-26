@@ -968,6 +968,8 @@ describe("orchestration projector", () => {
             messageId: "message-edit-replay-time",
             role: "user",
             text: "original text",
+            dispatchOrigin: "agent",
+            senderThreadId: "source-thread",
             turnId: "turn-original",
             streaming: false,
             source: "native",
@@ -1014,6 +1016,7 @@ describe("orchestration projector", () => {
             messageId: "message-edit-replay-time",
             role: "user",
             text: "edited text",
+            dispatchOrigin: "user",
             turnId: "turn-replay",
             streaming: false,
             source: "native",
@@ -1031,6 +1034,7 @@ describe("orchestration projector", () => {
       createdAt: replayAt,
       updatedAt: replayAt,
     });
+    expect(replayedMessage.threads[0]?.messages[0]?.senderThreadId).toBeUndefined();
   });
 
   it("keeps activity order while appending and replacing without a full sort", async () => {

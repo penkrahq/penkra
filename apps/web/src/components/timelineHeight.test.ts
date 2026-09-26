@@ -6,6 +6,17 @@ import { buildInlineTerminalContextText } from "./chat/userMessageTerminalContex
 import { estimateTimelineMessageHeight, estimateTimelineWorkGroupHeight } from "./timelineHeight";
 
 describe("estimateTimelineMessageHeight", () => {
+  it("reserves one fixed marker row for agent messages regardless of sender title length", () => {
+    const ordinaryMessage = estimateTimelineMessageHeight({ role: "user", text: "hello" });
+    const agentMessage = estimateTimelineMessageHeight({
+      role: "user",
+      text: "hello",
+      dispatchOrigin: "agent",
+    });
+
+    expect(agentMessage - ordinaryMessage).toBe(30);
+  });
+
   it("uses assistant sizing rules for assistant messages", () => {
     expect(
       estimateTimelineMessageHeight({

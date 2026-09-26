@@ -1591,6 +1591,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           // originally dispatched by a non-user source must overwrite the
           // stale origin instead of inheriting it.
           dispatchOrigin: command.dispatchOrigin ?? "user",
+          ...(command.dispatchOrigin === "agent" && command.senderThreadId !== undefined
+            ? { senderThreadId: command.senderThreadId }
+            : {}),
           delivery: {
             state: shouldQueue ? "queued" : dispatchMode === "steer" ? "steering" : "starting",
             queued: shouldQueue,
@@ -1618,6 +1621,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         assistantDeliveryMode: command.assistantDeliveryMode ?? DEFAULT_ASSISTANT_DELIVERY_MODE,
         dispatchMode,
         dispatchOrigin: command.dispatchOrigin ?? "user",
+        ...(command.dispatchOrigin === "agent" && command.senderThreadId !== undefined
+          ? { senderThreadId: command.senderThreadId }
+          : {}),
         runtimeMode: command.runtimeMode,
         createdAt: command.createdAt,
       } as const;
@@ -1689,6 +1695,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           assistantDeliveryMode: command.assistantDeliveryMode ?? DEFAULT_ASSISTANT_DELIVERY_MODE,
           dispatchMode: command.dispatchMode ?? "queue",
           dispatchOrigin: command.dispatchOrigin ?? "user",
+          ...(command.dispatchOrigin === "agent" && command.senderThreadId !== undefined
+            ? { senderThreadId: command.senderThreadId }
+            : {}),
           runtimeMode: command.runtimeMode,
           createdAt: command.createdAt,
         },

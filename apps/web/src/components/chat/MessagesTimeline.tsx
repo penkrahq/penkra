@@ -10,6 +10,7 @@ import {
   type TurnId,
 } from "@penkra/contracts";
 import { resolveLatestTailUserMessageEditTarget } from "@penkra/shared/conversationEdit";
+import { clampMentionTitle } from "@penkra/shared/threadMentions";
 import {
   memo,
   useCallback,
@@ -49,6 +50,7 @@ import {
 import { pinActionLabel } from "~/lib/pin";
 import { Button } from "../ui/button";
 import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLabel";
+import { useStore } from "../../store";
 import { PenkraThreadCreationCard } from "./PenkraThreadCreationCard";
 import { PresentedMediaRow } from "./PresentedMediaRow";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
@@ -201,26 +203,71 @@ function UserDispatchModeChip({
   dispatchMode,
   dispatchOrigin,
   hasLeadingMedia,
+  senderThreadId,
+  onOpenThread,
 }: {
   dispatchMode: TimelineMessage["dispatchMode"];
   dispatchOrigin: TimelineMessage["dispatchOrigin"];
   hasLeadingMedia: boolean;
+  senderThreadId?: TimelineMessage["senderThreadId"];
+  onOpenThread?: (threadId: ThreadId) => void;
 }) {
+  const senderThread = useStore((state) =>
+    senderThreadId ? state.threadShellById?.[senderThreadId] : undefined,
+  );
   const markerKind = resolveUserTurnMarker({ dispatchMode, dispatchOrigin });
   if (!markerKind) {
     return null;
   }
 
   const { Icon, label } = USER_TURN_MARKER_PRESENTATION[markerKind];
+  const senderTitle = senderThread?.title;
+  const clampedSenderTitle = senderTitle?.trim() ? clampMentionTitle(senderTitle) : undefined;
+  const hasKnownSenderTitle = clampedSenderTitle !== undefined;
+  const senderLabel =
+    markerKind === "agent" && hasKnownSenderTitle ? `Sent by ${senderTitle}` : label;
+  const content = (
+    <>
+      <Icon className="size-3 shrink-0 text-muted-foreground/75" />
+      <span
+        className="min-w-0 max-w-full truncate"
+        title={senderThread?.archivedAt ? senderTitle : undefined}
+      >
+        {senderLabel}
+      </span>
+    </>
+  );
+  if (
+    markerKind === "agent" &&
+    hasKnownSenderTitle &&
+    senderThread &&
+    !senderThread.archivedAt &&
+    senderThreadId &&
+    onOpenThread
+  ) {
+    return (
+      <button
+        type="button"
+        className={cn(
+          "inline-flex max-w-full min-w-0 items-center gap-1.5 self-end px-0 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/78 hover:text-foreground/82 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+          hasLeadingMedia ? "mb-3" : "mb-1.5",
+        )}
+        onClick={() => onOpenThread(senderThreadId)}
+        aria-label={`Open ${clampedSenderTitle}`}
+        title={clampedSenderTitle}
+      >
+        {content}
+      </button>
+    );
+  }
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-1.5 self-end px-0 text-[length:var(--app-font-size-ui-sm,11px)] font-normal tracking-[0.01em] text-muted-foreground/78",
+        "inline-flex max-w-full min-w-0 items-center gap-1.5 self-end px-0 text-[length:var(--app-font-size-ui-sm,11px)] font-normal tracking-[0.01em] text-muted-foreground/78",
         hasLeadingMedia ? "mb-3" : "mb-1.5",
       )}
     >
-      <Icon className="size-3 shrink-0 text-muted-foreground/75" />
-      <span>{label}</span>
+      {content}
     </div>
   );
 }
@@ -1249,6 +1296,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         dispatchMode={row.message.dispatchMode}
                         dispatchOrigin={row.message.dispatchOrigin}
                         hasLeadingMedia={hasLeadingMedia}
+                        {...(row.message.senderThreadId
+                          ? { senderThreadId: row.message.senderThreadId }
+                          : {})}
+                        {...(onOpenThread ? { onOpenThread } : {})}
                       />
                     )}
                     {renderedAssistantSelections.length > 0 && (
