@@ -448,6 +448,53 @@ describe("Claude Penkra harness policy", () => {
 });
 
 describe("ClaudeAdapterLive", () => {
+  it.effect("probes with an isolated tool-free query on the selected model", () => {
+    const query = new FakeClaudeQuery();
+    query.emit({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "OK",
+      session_id: "probe-only",
+      uuid: "probe-only",
+    } as unknown as SDKMessage);
+    let probeInput: Parameters<NonNullable<ClaudeAdapterLiveOptions["createQuery"]>>[0] | undefined;
+    const layer = makeClaudeAdapterLive({
+      createQuery: (input) => {
+        probeInput = input;
+        return query;
+      },
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      assert.ok(adapter.probeTurnEndpoint);
+      const success = yield* adapter.probeTurnEndpoint({
+        cwd: "/tmp/claude-probe",
+        model: "claude-haiku-catalog",
+        effort: "low",
+        managedLaunch: {
+          binaryPath: "/managed/claude",
+          isolationKey: "connection:probe",
+          profileRoot: "/isolated/profile",
+          nativeStateRoot: "/isolated/native",
+          childEnvironment: () => ({ PATH: "/managed/bin" }),
+        },
+      });
+      assert.equal(success, true);
+      assert.equal(probeInput?.options.model, "claude-haiku-catalog");
+      assert.equal(probeInput?.options.effort, "low");
+      assert.deepEqual(probeInput?.options.tools, []);
+      assert.deepEqual(probeInput?.options.allowedTools, []);
+      assert.deepEqual(probeInput?.options.mcpServers, {});
+      assert.equal(probeInput?.options.maxTurns, 1);
+      assert.equal(probeInput?.options.persistSession, false);
+      assert.equal(query.closeCalls, 1);
+      assert.deepEqual(yield* adapter.listSessions(), []);
+    }).pipe(Effect.provide(layer));
+  });
   for (const isError of [false, true]) {
     it.effect(`honors is_error=${isError} on a success-subtype result`, () => {
       const harness = makeHarness();

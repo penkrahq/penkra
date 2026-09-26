@@ -81,6 +81,7 @@ function createMockOpenCodeRuntime(options?: {
   const cliModelCalls: Array<Parameters<OpenCodeRuntimeShape["listOpenCodeCliModels"]>[0]> = [];
   const connectCalls: Array<Parameters<OpenCodeRuntimeShape["connectToOpenCodeServer"]>[0]> = [];
   const createCalls: Array<Record<string, unknown>> = [];
+  const deleteCalls: Array<Record<string, unknown>> = [];
   const updateCalls: Array<Record<string, unknown>> = [];
   const getCalls: Array<{ sessionID: string }> = [];
   const forkCalls: Array<{ sessionID: string }> = [];
@@ -112,6 +113,10 @@ function createMockOpenCodeRuntime(options?: {
         createCalls.push(input);
         if (options?.sessionCreateError) throw options.sessionCreateError;
         return { data: { id: "opencode-session-1" } };
+      },
+      delete: async (input: Record<string, unknown>) => {
+        deleteCalls.push(input);
+        return { data: true };
       },
       update: async (input: Record<string, unknown>) => {
         updateCalls.push(input);
@@ -261,6 +266,7 @@ function createMockOpenCodeRuntime(options?: {
     cliModelCalls,
     connectCalls,
     createCalls,
+    deleteCalls,
     getCalls,
     updateCalls,
     forkCalls,
@@ -520,6 +526,50 @@ describe("normalizeOpenCodeTokenUsage", () => {
 });
 
 describe("OpenCodeAdapter runtime lifecycle", () => {
+  it("probes in a temporary tool-free session and deletes it", async () => {
+    const runtime = createMockOpenCodeRuntime({
+      prompt: async () => ({ data: { info: {}, parts: [{ type: "text", text: "OK" }] } }),
+    });
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        if (!adapter.probeTurnEndpoint) throw new Error("Expected a connectivity probe.");
+        const success = yield* adapter.probeTurnEndpoint({
+          cwd: "/repo/probe",
+          model: "opencode-go/deepseek-v4.1-flash",
+          effort: "low",
+          managedLaunch: {
+            binaryPath: "/managed/opencode",
+            isolationKey: "connection:probe",
+            profileRoot: "/isolated/profile",
+            nativeStateRoot: "/isolated/native",
+            childEnvironment: () => ({ PATH: "/managed/bin" }),
+          },
+        });
+        return { success, sessions: yield* adapter.listSessions() };
+      }).pipe(
+        Effect.provide(
+          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "opencode-probe-" }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+    expect(result).toEqual({ success: true, sessions: [] });
+    expect(runtime.createCalls[0]).toMatchObject({
+      permission: [{ permission: "*", pattern: "*", action: "deny" }],
+      model: { providerID: "opencode-go", id: "deepseek-v4.1-flash", variant: "low" },
+    });
+    expect(runtime.promptCalls[0]).toMatchObject({
+      tools: { "*": false },
+      variant: "low",
+      parts: [{ type: "text", text: "Reply OK." }],
+    });
+    expect(runtime.deleteCalls).toHaveLength(1);
+  });
   it("silently verifies an exact native continuation in its managed isolation", async () => {
     let scopeClosed = false;
     const runtime = createMockOpenCodeRuntime({

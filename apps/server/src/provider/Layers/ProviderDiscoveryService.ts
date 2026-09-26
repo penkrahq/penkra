@@ -41,6 +41,7 @@ import {
   providerAgentDiscoveryStateIdentity,
   providerModelDiscoveryStateIdentity,
 } from "../providerDiscoveryStateIdentity.ts";
+import { selectConnectivityProbeModel } from "../connectivityProbeModel.ts";
 
 const decodeInputOrValidationError = <S extends Schema.Top>(input: {
   readonly operation: string;
@@ -665,7 +666,51 @@ const make = Effect.gen(function* () {
       };
     });
 
+  const probeConnection: ProviderDiscoveryServiceShape["probeConnection"] = (input) =>
+    Effect.gen(function* () {
+      const adapter = yield* registry.getByProvider(input.provider);
+      if (!adapter.probeTurnEndpoint) return false;
+      const installation = (yield* installations
+        .list()
+        .pipe(
+          Effect.mapError(discoveryInfrastructureError("ProviderDiscoveryService.probeConnection")),
+        )).find(
+        (candidate) => candidate.harness === input.provider && candidate.lifecycle === "active",
+      );
+      if (!installation) return false;
+      const catalog = yield* listModels({
+        provider: input.provider,
+        connectionId: input.connectionId,
+        cwd: serverConfig.stateDir,
+      });
+      const selectedModel = selectConnectivityProbeModel({
+        models: catalog.models,
+        connectionId: input.connectionId,
+      });
+      if (!selectedModel) return false;
+      const managedLaunch = yield* launchResolver
+        .resolveProfile({
+          harness: input.provider,
+          connectionId: input.connectionId,
+          installationId: installation.id,
+          internalProviderId: null,
+          nativeStateIdentity: providerModelDiscoveryStateIdentity({
+            provider: input.provider,
+            connectionId: input.connectionId,
+          }),
+        })
+        .pipe(
+          Effect.mapError(discoveryInfrastructureError("ProviderDiscoveryService.probeConnection")),
+        );
+      return yield* adapter.probeTurnEndpoint({
+        cwd: serverConfig.stateDir,
+        managedLaunch,
+        ...selectedModel,
+      });
+    });
+
   return {
+    probeConnection,
     getCapabilityHealth,
     getComposerCapabilities,
     listCommands,

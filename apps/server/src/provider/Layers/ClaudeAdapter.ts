@@ -5982,6 +5982,66 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         return result;
       });
 
+    const probeTurnEndpoint: NonNullable<ClaudeAdapterShape["probeTurnEndpoint"]> = (input) =>
+      Effect.tryPromise({
+        try: async () => {
+          await Effect.runPromise(teardownFailedCommandDiscoveryProcesses());
+          const processOwner: ClaudeProcessOwner = {};
+          const abortController = new AbortController();
+          const timeout = setTimeout(() => abortController.abort(), 20_000);
+          let probe: ClaudeQueryRuntime | undefined;
+          try {
+            probe = await createQuery({
+              prompt: (async function* () {
+                yield buildUserMessage({ sdkContent: [{ type: "text", text: "Reply OK." }] });
+              })(),
+              options: {
+                cwd: input.cwd,
+                pathToClaudeCodeExecutable: input.managedLaunch.binaryPath,
+                env: input.managedLaunch.childEnvironment(process.env),
+                model: input.model,
+                ...(input.effort
+                  ? { effort: input.effort as NonNullable<ClaudeQueryOptions["effort"]> }
+                  : {}),
+                maxThinkingTokens: 0,
+                maxTurns: 1,
+                maxBudgetUsd: 0.01,
+                tools: [],
+                allowedTools: [],
+                canUseTool: async () => ({
+                  behavior: "deny",
+                  message: "Connectivity probe has no tools.",
+                }),
+                mcpServers: {},
+                settingSources: [],
+                persistSession: false,
+                permissionMode: "plan" as PermissionMode,
+                abortController,
+                spawnClaudeCodeProcess: bindClaudeProcessOwner(processOwner),
+              },
+            });
+            for await (const message of probe) {
+              if (message.type === "result") return turnStatusFromResult(message) === "completed";
+            }
+            return false;
+          } finally {
+            clearTimeout(timeout);
+            try {
+              probe?.close();
+            } finally {
+              await Effect.runPromise(teardownCommandDiscoveryProcess(processOwner));
+            }
+          }
+        },
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "auth/probe",
+            detail: toMessage(cause, "Claude connectivity probe failed"),
+            cause,
+          }),
+      });
+
     const listAgents: NonNullable<ClaudeAdapterShape["listAgents"]> = (input) =>
       Effect.gen(function* () {
         const binaryPath = input.managedLaunch?.binaryPath ?? input.binaryPath ?? "claude";
@@ -6048,6 +6108,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       listCommands,
       listSkills,
       listModels,
+      probeTurnEndpoint,
       listAgents,
       streamEvents: Stream.fromQueue(runtimeEventQueue),
     } satisfies ClaudeAdapterShape;
