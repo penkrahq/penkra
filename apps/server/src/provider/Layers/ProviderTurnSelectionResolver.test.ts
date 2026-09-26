@@ -408,6 +408,16 @@ layer("ProviderTurnSelectionResolver", (it) => {
       assert.strictEqual(current.connectionId, connectionId);
       assert.strictEqual(current.internalProviderId, "opencode-go");
 
+      const providerMismatch = yield* Effect.exit(
+        resolver.resolveExisting({
+          threadId,
+          modelSelection: { provider: "codex", model: "gpt-5.5" },
+          connectionId: codexConnectionId,
+          bindingRevision: 7,
+        }),
+      );
+      assert.strictEqual(providerMismatch._tag, "Failure");
+
       const implicitAnonymous = yield* Effect.exit(
         resolver.resolveExisting({
           threadId,
@@ -441,7 +451,16 @@ layer("ProviderTurnSelectionResolver", (it) => {
 
       connectionLifecycle = "terminated";
       const disconnected = yield* Effect.exit(resolver.resolveExisting({ threadId }));
+      const unavailableExactConnection = yield* Effect.exit(
+        resolver.resolveExisting({
+          threadId,
+          modelSelection: { provider: "opencode", model: "opencode-go/kimi-k2.5" },
+          connectionId,
+          bindingRevision: 7,
+        }),
+      );
       assert.strictEqual(disconnected._tag, "Failure");
+      assert.strictEqual(unavailableExactConnection._tag, "Failure");
     }),
   );
 
