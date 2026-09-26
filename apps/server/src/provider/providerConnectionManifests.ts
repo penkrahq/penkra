@@ -166,9 +166,8 @@ const MANIFESTS = new Map<ProviderKind, ProviderConnectionManifest>([
           xdgCacheHome: `${profileRoot}/xdg-cache`,
           xdgStateHome: `${profileRoot}/xdg-state`,
         },
-        // Claude keeps authentication and sessions under one config root. Keep
-        // that whole native profile Connection-scoped; exact session artifacts
-        // are copied between profiles when the user switches Connections.
+        // Authentication stays Connection-scoped. Thread-owned project and
+        // session sidecar directories are linked into this config at launch.
         overrides: {
           CLAUDE_CONFIG_DIR: `${profileRoot}/claude-config`,
           // Claude's secure-storage namespace is independently selectable.

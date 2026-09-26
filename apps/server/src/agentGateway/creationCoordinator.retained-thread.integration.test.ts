@@ -193,6 +193,8 @@ const fixtureMaterializer: ProviderNativeStateMaterializerShape = {
   clone: () => Effect.die("fixture materializer clone is not used for initial admission"),
   discard: () => Effect.die("fixture materializer discard is not used for initial admission"),
   finalize: () => Effect.die("fixture materializer finalize is not used for initial admission"),
+  discardThreadState: () =>
+    Effect.die("fixture materializer discardThreadState is not used for initial admission"),
 };
 
 const fixtureGatewayDiscovery: ProviderDiscoveryServiceShape = {

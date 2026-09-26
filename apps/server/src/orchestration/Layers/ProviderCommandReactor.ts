@@ -90,6 +90,7 @@ import type { ProviderManagedLaunchContext } from "../../provider/Services/Provi
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { resolveProviderDispatchAttachments } from "../../provider/providerAttachmentPaths.ts";
 import { providerNativeResumeIdentity } from "../../provider/nativeResumeIdentity.ts";
+import { claudeThreadHasConversation } from "../../provider/claudeThreadNativeState.ts";
 import {
   formatReconstructedContinuation,
   selectReconstructedContinuation,
@@ -858,17 +859,31 @@ const make = Effect.gen(function* () {
             }),
         ),
       );
+    const missingClaudeConversation =
+      selection.harness === "claudeAgent" &&
+      state.providerSessionId !== null &&
+      !(yield* Effect.tryPromise(() =>
+        claudeThreadHasConversation(
+          serverConfig.stateDir,
+          input.threadId,
+          state.providerSessionId!,
+        ),
+      ));
+    const requiresReconstruction =
+      missingClaudeConversation ||
+      (state.providerSessionId === null &&
+        typeof resumeCursor === "object" &&
+        resumeCursor !== null &&
+        (resumeCursor as { readonly penkraReconstruction?: unknown }).penkraReconstruction ===
+          true);
     return {
       bindingRevision: selection.bindingRevision,
       // A first binding owns an empty managed generation but has no native
       // session identity yet. Start fresh; JSON null is a persisted sentinel,
       // not a provider resume cursor.
-      resumeCursor: state.providerSessionId === null ? undefined : resumeCursor,
-      requiresReconstruction:
-        state.providerSessionId === null &&
-        typeof resumeCursor === "object" &&
-        resumeCursor !== null &&
-        (resumeCursor as { readonly penkraReconstruction?: unknown }).penkraReconstruction === true,
+      resumeCursor:
+        state.providerSessionId === null || missingClaudeConversation ? undefined : resumeCursor,
+      requiresReconstruction,
       managedLaunch: {
         binaryPath: launch.binaryPath,
         isolationKey: launch.isolationKey,

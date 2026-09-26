@@ -22,6 +22,9 @@ export const makeProviderNativeStateDeletionCoordinator = Effect.gen(function* (
     for (const record of pending) {
       const operation = deletions.markDeleting(record.nativeStateGenerationId).pipe(
         Effect.andThen(materializer.discard(record.nativeStateGenerationId)),
+        // Provider generations live outside the Thread, so the Thread-owned
+        // directory is removed once per pending deletion of that Thread.
+        Effect.andThen(materializer.discardThreadState(record.ownerThreadId)),
         Effect.andThen(
           deletions.finalize({
             generationId: record.nativeStateGenerationId,

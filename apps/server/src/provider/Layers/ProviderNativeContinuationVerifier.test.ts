@@ -86,6 +86,7 @@ const dependencies = Layer.mergeAll(
     clone: () => Effect.succeed("/native/target"),
     discard: () => Effect.sync(() => void (discarded = true)),
     finalize: () => Effect.void,
+    discardThreadState: () => Effect.void,
   }),
   Layer.succeed(ProviderLaunchResolver, {
     resolveProfile: () => Effect.die("not used"),
