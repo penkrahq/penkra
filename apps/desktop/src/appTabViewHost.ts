@@ -85,6 +85,14 @@ export interface AppTabAuthority {
   retireTab(owner: AppTabLogicalOwner): void;
 }
 
+export function restoreShellFocusAfterHide(
+  window: { isDestroyed(): boolean; isFocused(): boolean; webContents: { focus(): void } } | null,
+): boolean {
+  if (!window || window.isDestroyed() || !window.isFocused()) return false;
+  window.webContents.focus();
+  return true;
+}
+
 interface AppTabRecord {
   descriptor: DesktopAppTabDescriptor;
   endpoint: AppTabEndpoint;
@@ -949,7 +957,7 @@ export class AppTabViewHost implements AppTabHost {
     }
     if (this.#lastVisibleTabId === tabId) this.#lastVisibleTabId = null;
     this.#sendEvent(record, "lifecycle.visibility", { active: false });
-    if (window && !window.isDestroyed()) window.webContents.focus();
+    restoreShellFocusAfterHide(window);
     traceAppTabHost("low-level-hide-completed", {
       tabId,
       windowId: record.ownerWindowId,

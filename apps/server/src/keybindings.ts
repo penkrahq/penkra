@@ -127,7 +127,6 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   // from the terminal). The `|| isMac` escape hatch fires them on macOS regardless of
   // focus, while Linux/Windows keep `!terminalFocus` so Ctrl-chords still reach the shell.
   { key: "mod+n", command: "chat.new", when: "!terminalFocus || isMac" },
-  { key: "mod+shift+n", command: "chat.newLatestProject", when: "!terminalFocus || isMac" },
   { key: "mod+alt+n", command: "chat.newChat", when: "!terminalFocus || isMac" },
   { key: "mod+shift+t", command: "chat.newTerminal", when: "!terminalFocus || isMac" },
   { key: "mod+alt+c", command: "chat.newClaude", when: "!terminalFocus || isMac" },
@@ -613,6 +612,23 @@ const RECENT_VIEW_SHORTCUT_BY_COMMAND: Partial<Record<KeybindingRule["command"],
 // regardless of focus while Linux/Windows keep yielding Ctrl-chords to the shell.
 const OUTDATED_CREATION_TERMINAL_GUARD = "!terminalFocus";
 const RELAXED_CREATION_TERMINAL_GUARD = "!terminalFocus || isMac";
+
+/** Remove only the two complete rules that Penkra shipped for this retired chord. */
+export function removeRetiredNewWindowDefault(rules: readonly KeybindingRule[]): {
+  readonly rules: KeybindingRule[];
+  readonly migratedCount: number;
+} {
+  const next = rules.filter(
+    (rule) =>
+      !(
+        rule.key === "mod+shift+n" &&
+        rule.command === "chat.newLatestProject" &&
+        (rule.when === RELAXED_CREATION_TERMINAL_GUARD ||
+          rule.when === OUTDATED_CREATION_TERMINAL_GUARD)
+      ),
+  );
+  return { rules: next, migratedCount: rules.length - next.length };
+}
 const CREATION_COMMANDS_WITH_TERMINAL_ESCAPE = new Set<KeybindingRule["command"]>([
   "chat.new",
   "chat.newLatestProject",
@@ -986,7 +1002,9 @@ const makeKeybindings = Effect.gen(function* () {
 
     const sidebarSearchMigration = migrateOutdatedSidebarSearchDefault(keybindings);
     migratedDefaultRuleCount += sidebarSearchMigration.migratedCount;
-    const relaxed = relaxCreationCommandTerminalGuards(sidebarSearchMigration.rules);
+    const retiredNewWindowDefault = removeRetiredNewWindowDefault(sidebarSearchMigration.rules);
+    migratedDefaultRuleCount += retiredNewWindowDefault.migratedCount;
+    const relaxed = relaxCreationCommandTerminalGuards(retiredNewWindowDefault.rules);
     migratedDefaultRuleCount += relaxed.migratedCount;
 
     return {

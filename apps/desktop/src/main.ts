@@ -182,7 +182,19 @@ import {
 import { registerDesktopVoiceTranscriptionHandler } from "./voiceTranscription";
 import { ShellWindowRegistry } from "./shellWindowRegistry";
 import {
-  isDesktopNewWindowShortcut,
+  flushQueuedAppTabs,
+  queueAppTabOpened,
+  resolveAppTabOpenedSelection,
+  resolveAppTabOpenedTargetWindowId,
+} from "./appTabOpenedSelection";
+import { panelFocusState } from "./panelFocus";
+import {
+  preventBeforeInputShortcut,
+  resolvePanelShortcut,
+  resolvePanelShortcutEffect,
+  type PanelShortcutCommand,
+} from "./panelShortcuts";
+import {
   resolveDesktopMenuAccelerator,
   resolveDesktopWindowZoomAction,
   resolveKeyboardShortcutsMenuAccelerator,
@@ -482,6 +494,55 @@ const pendingAppTabOpened = new Map<string, DesktopAppTabOpened>();
 const appPresentationSurface = new AsyncLocalStorage<number | null>();
 let desktopAppRuntime: DesktopAppRuntime | null = null;
 
+function recordPanelInteraction(windowId: number, insidePanel: boolean): void {
+  panelFocusState.recordInteraction(windowId, insidePanel);
+}
+
+function routePanelShortcut(
+  window: BrowserWindow,
+  command: PanelShortcutCommand,
+  deckId: string | null,
+): void {
+  if (window.isDestroyed()) return;
+  const windowId = window.webContents.id;
+  const effect = resolvePanelShortcutEffect(command, panelFocusState.get(windowId), deckId);
+  switch (effect.kind) {
+    case "new-window":
+      createWindow({ cloneFrom: window });
+      return;
+    case "open-find":
+      window.webContents.send(IPC.menuAction, "open-find");
+      return;
+    case "close-panel-tab":
+      window.webContents.send(IPC.panelFocus.closePanelTab, { deckId: effect.deckId });
+      return;
+    case "none":
+      return;
+  }
+}
+
+function panelOwnerForWebContents(contents: WebContents): {
+  window: BrowserWindow;
+  tab: DesktopAppTabDescriptor | null;
+} | null {
+  const shellWindow = shellWindowForSender(contents);
+  if (shellWindow) return { window: shellWindow, tab: null };
+  const tabs = desktopAppRuntime?.appTabs;
+  if (!tabs) return null;
+  const tab =
+    tabs.list().find((candidate) => candidate.rendererId === contents.id) ??
+    (() => {
+      const hosted = tabs.hostedPageForWebContentsId(contents.id);
+      return hosted
+        ? (tabs.list().find((candidate) => candidate.id === hosted.tabId) ?? null)
+        : null;
+    })();
+  if (!tab) return null;
+  const windowId = tabs.ownerWindowId(tab.id);
+  const window = windowId === null ? null : shellWindowRegistry.windowForWebContentsId(windowId);
+  return window ? { window, tab } : null;
+}
+
 function shellWindows(): BrowserWindow[] {
   return shellWindowRegistry.list();
 }
@@ -509,35 +570,52 @@ function broadcastToShellWindows(channel: string, ...args: unknown[]): void {
 }
 
 function announceAppTabOpened(descriptor: DesktopAppTabOpened): void {
+  const targetSurfaceId = appPresentationSurface.getStore() ?? null;
   const readyWindows = shellWindows().filter(
     (window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
   );
   if (readyWindows.length === 0) {
-    pendingAppTabOpened.set(descriptor.id, descriptor);
+    queueAppTabOpened(pendingAppTabOpened, descriptor, targetSurfaceId);
     if (pendingAppTabOpened.size > MAX_PENDING_APP_TAB_EVENTS) {
       const oldestTabId = pendingAppTabOpened.keys().next().value;
       if (oldestTabId !== undefined) pendingAppTabOpened.delete(oldestTabId);
     }
     return;
   }
-  const targetSurfaceId = appPresentationSurface.getStore() ?? null;
+  const agentOpen = targetSurfaceId !== null;
+  const targetWindowId = resolveAppTabOpenedTargetWindowId({
+    readyWindowIds: readyWindows.map((window) => window.webContents.id),
+    agentSurfaceId: targetSurfaceId,
+  });
   const targetWindow =
-    readyWindows.find((window) => window.webContents.id === targetSurfaceId) ?? readyWindows[0]!;
+    targetWindowId === null
+      ? null
+      : (readyWindows.find((window) => window.webContents.id === targetWindowId) ?? null);
+  const preserveFocusedPanel =
+    agentOpen &&
+    targetWindow !== null &&
+    panelFocusState.shouldPreserveAgentOpen(targetWindow.webContents.id, targetWindow.isFocused());
+  if (agentOpen && targetWindow && descriptor.selection === "activate" && !preserveFocusedPanel) {
+    panelFocusState.agentSwitchedPanel(targetWindow.webContents.id, targetWindow.isFocused());
+  }
   for (const window of readyWindows) {
     window.webContents.send(IPC.appTabs.opened, {
       ...descriptor,
-      selection:
-        window.webContents.id === targetWindow.webContents.id ? descriptor.selection : "preserve",
+      selection: resolveAppTabOpenedSelection({
+        windowId: window.webContents.id,
+        targetWindowId,
+        descriptorSelection: descriptor.selection,
+        preserveFocusedPanel,
+      }),
     });
   }
 }
 
 function flushPendingAppTabs(window: BrowserWindow): void {
   if (window.isDestroyed() || pendingAppTabOpened.size === 0) return;
-  for (const descriptor of pendingAppTabOpened.values()) {
+  flushQueuedAppTabs(pendingAppTabOpened, (descriptor) => {
     window.webContents.send(IPC.appTabs.opened, descriptor);
-  }
-  pendingAppTabOpened.clear();
+  });
 }
 
 function announceAppTabState(descriptor: DesktopAppTabDescriptor): void {
@@ -2764,11 +2842,6 @@ function handleDesktopWindowZoomShortcut(event: Electron.Event, input: Electron.
 
 function attachDesktopWindowShortcuts(webContents: Electron.WebContents): () => void {
   const beforeInputEvent = (event: Electron.Event, input: Electron.Input) => {
-    if (isDesktopNewWindowShortcut(desktopPlatform.platform, input)) {
-      event.preventDefault();
-      createWindow({ cloneFrom: shellWindowForSender(webContents) });
-      return;
-    }
     handleDesktopWindowZoomShortcut(event, input);
   };
   webContents.on("before-input-event", beforeInputEvent);
@@ -2929,7 +3002,8 @@ function configureApplicationMenu(): void {
       submenu: [
         {
           label: "New Window",
-          ...acceleratorProps("CmdOrCtrl+Shift+N"),
+          // Main routes the chord for every WebContents; a native accelerator could
+          // preempt its before-input-event and create a second window.
           click: () => createAdditionalWindow(),
         },
         { type: "separator" },
@@ -2943,7 +3017,9 @@ function configureApplicationMenu(): void {
               },
               { type: "separator" as const },
             ]),
-        { role: desktopPlatform.platform === "darwin" ? "close" : "quit" },
+        ...(desktopPlatform.platform === "darwin"
+          ? [{ label: "Close Window", click: () => resolveMenuTargetWindow()?.close() }]
+          : [{ role: "quit" as const }]),
       ],
     },
     { role: "editMenu" },
@@ -4942,6 +5018,33 @@ function requestGracefulAppQuit(reason: string): void {
 
 function registerIpcHandlers(): void {
   const storageSnapshotPath = resolvePenkraStorageSnapshotPath(app.getPath("userData"));
+
+  ipcMain.removeAllListeners(IPC.panelFocus.shellInteraction);
+  ipcMain.on(IPC.panelFocus.shellInteraction, (event, insidePanel: unknown) => {
+    const window = shellWindowForSender(event.sender);
+    if (window && typeof insidePanel === "boolean") {
+      recordPanelInteraction(window.webContents.id, insidePanel);
+    }
+    event.returnValue = true;
+  });
+  ipcMain.removeAllListeners(IPC.panelFocus.resolveShellShortcut);
+  ipcMain.on(IPC.panelFocus.resolveShellShortcut, (event, input: unknown) => {
+    const window = shellWindowForSender(event.sender);
+    if (!window || !input || typeof input !== "object" || Array.isArray(input)) return;
+    const { command, insidePanel, deckId } = input as Record<string, unknown>;
+    if (
+      (command !== "new-window" && command !== "find" && command !== "close") ||
+      typeof insidePanel !== "boolean"
+    )
+      return;
+    if (command === "close" && !insidePanel) return;
+    recordPanelInteraction(window.webContents.id, insidePanel);
+    routePanelShortcut(
+      window,
+      command,
+      typeof deckId === "string" && deckId.length > 0 ? deckId : null,
+    );
+  });
 
   const requireMainRenderer = (event: Electron.IpcMainInvokeEvent): void => {
     if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
@@ -7349,6 +7452,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   });
 
   window.on("closed", () => {
+    panelFocusState.delete(rendererOwnerId);
     void releaseAppTabWindow(rendererOwnerId);
     activeWorkPowerBlocker.releaseOwner(rendererOwnerId);
     spacesMenuStateByShellRendererId.delete(rendererOwnerId);
@@ -7538,6 +7642,39 @@ function configureMediaPermissions(): void {
 // Override Electron's userData path before the `ready` event so that
 // Chromium session data uses a filesystem-friendly directory name.
 // Must be called synchronously at the top level — before `app.whenReady()`.
+if (hasSingleInstanceLock) {
+  app.on("web-contents-created", (_event, contents) => {
+    contents.on("before-mouse-event", (_mouseEvent, input) => {
+      if (input.type !== "mouseDown") return;
+      const owner = panelOwnerForWebContents(contents);
+      if (owner?.tab) recordPanelInteraction(owner.window.webContents.id, true);
+    });
+    contents.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown") return;
+      const owner = panelOwnerForWebContents(contents);
+      if (!owner) return;
+      if (owner.tab) recordPanelInteraction(owner.window.webContents.id, true);
+      const command = resolvePanelShortcut(desktopPlatform.platform, input);
+      if (!command) return;
+      if (
+        !preventBeforeInputShortcut(
+          event,
+          command,
+          panelFocusState.get(owner.window.webContents.id),
+          !owner.tab,
+        )
+      )
+        return;
+      if (!owner.tab) {
+        // Shell W is decided by the preload's DOM capture listener. Other shell
+        // chords still resolve their focused DOM region before main routes them.
+        contents.send(IPC.panelFocus.shellShortcut, command);
+      } else {
+        routePanelShortcut(owner.window, command, owner.tab.deckId);
+      }
+    });
+  });
+}
 if (hasSingleInstanceLock) {
   repairBrowserProfileBeforeElectronReady(userDataPath);
   const accountAuthRuntime = configurePenkraAccountAuth({
