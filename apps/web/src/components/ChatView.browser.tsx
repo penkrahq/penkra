@@ -1606,7 +1606,9 @@ function installDeterministicSendNativeApi(options?: {
             _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
             command,
           });
-          if (command.type === "thread.turn.start") await options?.dispatchGate;
+          if (command.type === "thread.turn.start" || command.type === "thread.turn.recover") {
+            await options?.dispatchGate;
+          }
           if (options?.dispatchError) throw options.dispatchError;
           return { sequence: fixture.snapshot.snapshotSequence + 1 };
         },
@@ -3302,7 +3304,165 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("hides Play without a thread error after a stale continue rejection", async () => {
+  it("continues the logical turn after a tool outlives two Stop requests", async () => {
+    const turnId = TurnId.makeUnsafe("turn:5e4001b7-a59c-42de-b1dd-20e7d27640be");
+    const providerTurnId = TurnId.makeUnsafe("a3f9d56b-1701-49a9-9787-d529072d9b5f");
+    const messageId = MessageId.makeUnsafe("a810f055-436d-49ad-a1bf-96d4519798de");
+    const requestedAt = "2026-09-26T22:18:03.115Z";
+    const runningAt = "2026-09-26T22:18:03.790Z";
+    const stoppedAt = "2026-09-26T22:18:15.938Z";
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("browser-target-before-play"),
+      targetText: "Run a long tool",
+    });
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    let releaseDispatch!: () => void;
+    const dispatchGate = new Promise<void>((resolve) => {
+      releaseDispatch = resolve;
+    });
+    const restoreNativeApi = installDeterministicSendNativeApi({ dispatchGate });
+    try {
+      const session = (
+        status: "running" | "interrupted",
+        activeTurnId: TurnId | null,
+        updatedAt: string,
+      ) =>
+        makeDomainEvent("thread.session-set", {
+          threadId: THREAD_ID,
+          session: {
+            threadId: THREAD_ID,
+            status,
+            providerName: "claudeAgent",
+            runtimeMode: "full-access",
+            activeTurnId,
+            lastError: null,
+            updatedAt,
+          },
+        });
+      const activity = (kind: string, at: string) =>
+        makeDomainEvent("thread.activity-appended", {
+          threadId: THREAD_ID,
+          activity: {
+            id: EventId.makeUnsafe(`browser-${kind}-${at}`),
+            kind,
+            tone: "info",
+            summary: kind,
+            payload: {},
+            turnId: providerTurnId,
+            createdAt: at,
+          },
+        });
+      useStore.getState().applyOrchestrationEvents([
+        makeDomainEvent(
+          "thread.message-sent",
+          {
+            threadId: THREAD_ID,
+            messageId,
+            role: "user",
+            text: "Run a long tool",
+            turnId,
+            streaming: false,
+            source: "native",
+            createdAt: requestedAt,
+            updatedAt: requestedAt,
+            attachments: [],
+          },
+          { sequence: 559913 },
+        ),
+        makeDomainEvent(
+          "thread.turn-start-requested",
+          {
+            threadId: THREAD_ID,
+            turnId,
+            messageId,
+            runtimeMode: "full-access",
+            dispatchMode: "queue",
+            createdAt: requestedAt,
+          },
+          { sequence: 559914 },
+        ),
+        makeDomainEvent(
+          "thread.message-delivery-set",
+          { threadId: THREAD_ID, messageId, turnId, state: "accepted", updatedAt: runningAt },
+          { sequence: 559915 },
+        ),
+        { ...session("running", providerTurnId, runningAt), sequence: 559916 },
+        { ...activity("tool.started", "2026-09-26T22:18:04.000Z"), sequence: 559919 },
+        makeDomainEvent(
+          "thread.turn-interrupt-requested",
+          { threadId: THREAD_ID, turnId, createdAt: "2026-09-26T22:18:06.813Z" },
+          { sequence: 559921 },
+        ),
+        makeDomainEvent(
+          "thread.turn-interrupt-requested",
+          { threadId: THREAD_ID, turnId, createdAt: "2026-09-26T22:18:10.063Z" },
+          { sequence: 559922 },
+        ),
+        { ...activity("tool.completed", "2026-09-26T22:18:15.800Z"), sequence: 559924 },
+        { ...session("interrupted", null, stoppedAt), sequence: 559926 },
+        { ...activity("turn.completed", stoppedAt), sequence: 559927 },
+      ]);
+      const play = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
+        "Play did not appear after the delayed tool settled.",
+      );
+      play.click();
+      await vi.waitFor(() => {
+        const command = wsRequests
+          .map(readDispatchedCommand)
+          .find((item) => item?.type === "thread.turn.recover");
+        expect(command).toMatchObject({ reason: "play", turnId, interruptedTurnId: turnId });
+        expect(document.body.textContent).toContain("Thinking");
+        expect(
+          getChatLifecycleDiagnosticSamples(THREAD_ID).some(
+            (sample) =>
+              sample.event === "composer-continue-state" &&
+              sample.continueInFlight &&
+              !sample.canShowContinue,
+          ),
+        ).toBe(true);
+      });
+      releaseDispatch();
+      useStore.getState().applyOrchestrationEvents([
+        {
+          ...session(
+            "running",
+            TurnId.makeUnsafe("provider-resumed-after-play"),
+            "2026-09-26T22:18:24.000Z",
+          ),
+          sequence: 559930,
+        },
+        makeDomainEvent(
+          "thread.message-sent",
+          {
+            threadId: THREAD_ID,
+            messageId: MessageId.makeUnsafe("assistant-resumed-after-play"),
+            role: "assistant",
+            text: "Resumed stream after Play",
+            turnId,
+            streaming: true,
+            source: "native",
+            createdAt: "2026-09-26T22:18:24.100Z",
+            updatedAt: "2026-09-26T22:18:24.100Z",
+            attachments: [],
+          },
+          { sequence: 559931 },
+        ),
+      ]);
+      await vi.waitFor(() => {
+        expect(document.body.textContent).toContain("Resumed stream after Play");
+        expect(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        ).not.toBeNull();
+      });
+    } finally {
+      releaseDispatch();
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+  it("shows a thread error and records a stale continue rejection", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi({
       dispatchError: Object.assign(new Error("stale continue"), { code: "THREAD_CONTINUE_STALE" }),
     });
@@ -3343,7 +3503,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
       play.click();
       await vi.waitFor(() => {
         expect(document.querySelector('button[aria-label="Continue"]')).toBeNull();
-        expect(getThreadFromState(useStore.getState(), THREAD_ID)?.error).toBeNull();
+        expect(getThreadFromState(useStore.getState(), THREAD_ID)?.error).toBe(
+          "Couldn't continue this turn.",
+        );
+        expect(
+          getChatLifecycleDiagnosticSamples(THREAD_ID).some(
+            (sample) =>
+              sample.event === "composer-continue-rejected" &&
+              sample.targetTurnId === turnId &&
+              sample.errorCode === "THREAD_CONTINUE_STALE",
+          ),
+        ).toBe(true);
       });
     } finally {
       await mounted.cleanup();

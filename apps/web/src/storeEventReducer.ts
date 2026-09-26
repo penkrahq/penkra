@@ -234,6 +234,7 @@ function reconcilePendingInteractionsFromActivity(
 function buildLatestTurn(params: {
   previous: Thread["latestTurn"];
   turnId: NonNullable<Thread["latestTurn"]>["turnId"];
+  providerTurnId?: NonNullable<Thread["latestTurn"]>["turnId"];
   state: NonNullable<Thread["latestTurn"]>["state"];
   requestedAt: string;
   startedAt: string | null;
@@ -241,7 +242,8 @@ function buildLatestTurn(params: {
   assistantMessageId: NonNullable<Thread["latestTurn"]>["assistantMessageId"];
 }): NonNullable<Thread["latestTurn"]> {
   const providerTurnId =
-    params.previous?.turnId === params.turnId ? params.previous.providerTurnId : undefined;
+    params.providerTurnId ??
+    (params.previous?.turnId === params.turnId ? params.previous.providerTurnId : undefined);
   return {
     turnId: params.turnId,
     ...(providerTurnId !== undefined ? { providerTurnId } : {}),
@@ -280,11 +282,19 @@ function reconcileLatestTurnFromSession(
     const matchedLatestTurn = latestTurnMatchesTurnId(thread.latestTurn, session.activeTurnId)
       ? thread.latestTurn
       : null;
+    // A provider turn has its own ID. The pending user message retains the
+    // logical turn ID from thread.turn-start-requested until this session starts.
+    const pendingMessage = thread.messages.find(
+      (message) => message.id === thread.pendingTurnStartMessageId && message.role === "user",
+    );
+    const logicalTurnId =
+      matchedLatestTurn?.turnId ?? pendingMessage?.turnId ?? session.activeTurnId;
     return buildLatestTurn({
       previous: thread.latestTurn,
-      turnId: matchedLatestTurn?.turnId ?? session.activeTurnId,
+      turnId: logicalTurnId,
+      ...(logicalTurnId !== session.activeTurnId ? { providerTurnId: session.activeTurnId } : {}),
       state: "running",
-      requestedAt: matchedLatestTurn?.requestedAt ?? session.updatedAt,
+      requestedAt: matchedLatestTurn?.requestedAt ?? pendingMessage?.createdAt ?? session.updatedAt,
       startedAt:
         matchedLatestTurn !== null
           ? (matchedLatestTurn.startedAt ?? session.updatedAt)
