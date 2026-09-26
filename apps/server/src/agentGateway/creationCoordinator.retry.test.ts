@@ -344,6 +344,35 @@ function threadCreateCommands(harness: Harness) {
 }
 
 describe("create thread retry characterization", () => {
+  it("keeps child creation successful when home-window inheritance is unavailable", async () => {
+    const harness = makeHarness();
+    let resolveNotification!: () => void;
+    const notified = new Promise<void>((resolve) => {
+      resolveNotification = resolve;
+    });
+    const withUnavailableHomeBridge = {
+      ...harness,
+      dependencies: {
+        ...harness.dependencies,
+        onThreadCreated: () =>
+          Effect.tryPromise({
+            try: async () => {
+              resolveNotification();
+              throw new Error("desktop bridge timed out");
+            },
+            catch: (error) => error,
+          }),
+      },
+    };
+
+    const result = await invoke(withUnavailableHomeBridge);
+    await notified;
+
+    expect(result.isError).not.toBe(true);
+    expect(threadCreateCommands(harness)).toHaveLength(1);
+    expect(harness.successfulTurnStarts).toHaveLength(1);
+  });
+
   it("keeps deterministic thread, message, and turn IDs for the same caller execution and request ID", async () => {
     const harness = makeHarness();
     const ids = expectedIds();

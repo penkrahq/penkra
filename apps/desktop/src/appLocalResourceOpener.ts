@@ -42,7 +42,14 @@ export async function openLocalAppResource(input: {
   appTabs: {
     currentFor(spaceId: string, deckId: string): ResourceTab | null;
     list(): ReadonlyArray<ResourceTab>;
-    present(tabId: string): void;
+    present(
+      tabId: string,
+      windowId?: number,
+      bounds?: never,
+      animate?: boolean,
+      animationStartedAtEpochMs?: number,
+      initiator?: "agent" | "user",
+    ): void;
   };
   broker: {
     invoke(input: {
@@ -102,7 +109,15 @@ export async function openLocalAppResource(input: {
               tab.spaceId === input.spaceId &&
               tab.deckId === input.deckId,
           );
-  if (reusableTab) input.appTabs.present(reusableTab.id);
+  if (reusableTab)
+    input.appTabs.present(
+      reusableTab.id,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      input.callerKind ?? "agent",
+    );
   const result = await input.broker.invoke({
     app: resolved.slug,
     operation: resolved.operation,
