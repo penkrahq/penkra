@@ -247,6 +247,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           Effect.mapError(
             (cause) =>
               new ProviderThreadSwitchCoordinatorError({
+                code: cause.code,
                 detail: cause.message,
                 cause,
               }),
@@ -578,6 +579,8 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             targetConnectionId: input.selection.connectionId,
             sourceGenerationId: source.sourceState.nativeStateGenerationId,
             targetGenerationId: input.targetGenerationId,
+            sourceThreadId: input.sourceThreadId,
+            targetThreadId: input.command.threadId,
           }),
         ),
         mapOperationError("Could not materialize the native fork source generation."),
@@ -601,6 +604,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           installationId: input.selection.installationId,
           internalProviderId: input.selection.internalProviderId,
           nativeStateIdentity: input.targetGenerationId,
+          claudeThreadId: input.command.threadId,
         })
         .pipe(mapOperationError("Could not resolve the native fork target launch."));
       if (!provider.forkThread)
@@ -893,6 +897,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             Effect.mapError(
               (cause) =>
                 new ProviderThreadSwitchCoordinatorError({
+                  code: cause.code,
                   detail: cause.message,
                   cause,
                 }),
@@ -989,6 +994,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           Effect.mapError(
             (cause) =>
               new ProviderThreadSwitchCoordinatorError({
+                code: cause.code,
                 detail: cause.message,
                 cause,
               }),

@@ -183,6 +183,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     sidebarSortOrder: thread.sidebarSortOrder ?? 0,
     title: thread.title,
     modelSelection: thread.modelSelection,
+    ...(thread.connectionId !== undefined ? { connectionId: thread.connectionId } : {}),
     runtimeMode: thread.runtimeMode,
     error: thread.error,
     createdAt: thread.createdAt,

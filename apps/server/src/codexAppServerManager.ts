@@ -211,6 +211,9 @@ interface CodexSessionContext {
   stopping: boolean;
   stopPromise?: Promise<void>;
   discovery?: boolean;
+  authProbeThreadId?: string;
+  authProbeActive?: boolean;
+  authProbeCompletedTurnIds?: Set<TurnId>;
 }
 
 interface CodexSkillListInput {
@@ -370,6 +373,14 @@ const CODEX_DISCOVERY_SESSION_IDLE_MS = 10 * 60 * 1000;
 const CODEX_PENDING_SETTLE_DEADLINE_MS = 2_000;
 const CODEX_STDERR_TAIL_MAX_BYTES = 64 * 1024;
 const CODEX_STDOUT_END_GRACE_MS = 100;
+const CODEX_MISSING_TOOL_OUTPUT_REGEX =
+  /Custom tool call output is missing for call id:\s*([^\s,;]+)/;
+
+interface CodexRuntimeDiagnostic {
+  readonly key: string;
+  readonly fingerprint: string;
+  readonly state: "active" | "resolved";
+}
 const CODEX_STDERR_RECORD_IDLE_FLUSH_MS = 50;
 
 export class CodexStderrLineFramer {
@@ -2559,7 +2570,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
             ? startupStatus?.error?.trim() || "Startup failed."
             : undefined);
         if (runtimeStatus === "connected" || startupStatus?.state === "ready") {
-          context.reportedMcpStartupFailures.delete(name);
+          if (context.reportedMcpStartupFailures.delete(name)) {
+            this.emitErrorEvent(
+              context,
+              "mcpServer/startupRecovered",
+              `MCP server “${name}” recovered.`,
+              { key: `codex:mcp-startup:${name}`, fingerprint: name, state: "resolved" },
+            );
+          }
         }
         if (failureDetail) {
           this.reportMcpStartupFailure(context, name, failureDetail);
@@ -2615,6 +2633,65 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     };
     setRecentCacheEntry(this.pluginDetailCache, cacheKey, result);
     return result;
+  }
+
+  /** Send one isolated, read-only turn through the same Responses path as user turns. */
+  async probeResponses(input: {
+    readonly cwd: string;
+    readonly managedLaunch: ProviderManagedLaunchContext;
+    readonly model: string;
+    readonly effort?: string;
+  }): Promise<boolean> {
+    const context = await this.getOrCreateDiscoverySession(input.cwd, input.managedLaunch);
+    if (!context.authProbeThreadId) {
+      const opened = await this.sendRequest<Record<string, unknown>>(context, "thread/start", {
+        model: input.model,
+        cwd: input.cwd,
+        approvalPolicy: "untrusted",
+        sandbox: "read-only",
+        dynamicTools: [],
+        environments: [],
+        ephemeral: true,
+        baseInstructions: "Connectivity check. Reply OK. Do not use tools.",
+        experimentalRawEvents: false,
+      });
+      const threadId = this.readString(this.readObject(this.readObject(opened), "thread"), "id");
+      if (!threadId) throw new Error("Auth probe could not open a Codex thread.");
+      context.authProbeThreadId = threadId;
+    }
+    context.authProbeActive = true;
+    try {
+      const response = await this.sendRequest<Record<string, unknown>>(context, "turn/start", {
+        threadId: context.authProbeThreadId,
+        model: input.model,
+        ...(input.effort ? { effort: input.effort } : {}),
+        input: [
+          { type: "text", text: "Reply OK.", text_elements: [] } satisfies CodexTurnInputItem,
+        ],
+        summary: "none",
+        approvalPolicy: "untrusted",
+        sandboxPolicy: { type: "readOnly" },
+      });
+      const turn = this.readObject(this.readObject(response), "turn");
+      const rawTurnId = this.readString(turn, "id");
+      if (!rawTurnId) throw new Error("Auth probe did not receive a Codex turn id.");
+      if (this.readString(turn, "status") === "completed") return true;
+      if (this.readString(turn, "status") === "failed") return false;
+      const turnId = TurnId.makeUnsafe(rawTurnId);
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline) {
+        if (context.terminalTurnIds.has(turnId)) {
+          return context.authProbeCompletedTurnIds?.has(turnId) === true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      await this.stopDiscoverySession(
+        `${input.managedLaunch.isolationKey}\u0000${input.cwd.trim() || process.cwd()}`,
+      );
+      return false;
+    } finally {
+      context.authProbeActive = false;
+    }
   }
 
   async listModels(
@@ -3156,6 +3233,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!classified) {
       return;
     }
+    const missingToolOutputCallId = classified.record.match(CODEX_MISSING_TOOL_OUTPUT_REGEX)?.[1];
+    if (missingToolOutputCallId) {
+      this.emitErrorEvent(
+        context,
+        "process/stderr",
+        `Custom tool call output is missing for call id: ${missingToolOutputCallId}`,
+        {
+          key: `codex:missing-tool-output:${missingToolOutputCallId}`,
+          fingerprint: missingToolOutputCallId,
+          state: "active",
+        },
+      );
+      return;
+    }
     log.debug("ignored Codex stderr record", {
       threadId: context.session.threadId,
       category: classified.category,
@@ -3181,6 +3272,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       context,
       "mcpServer/startupFailed",
       `MCP server “${name}” failed to start. Its tools are unavailable for this session.`,
+      { key: `codex:mcp-startup:${name}`, fingerprint: name, state: "active" },
     );
   }
 
@@ -3364,24 +3456,25 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ? this.readString(notification.params, "delta")
         : undefined;
 
-    this.emitEvent({
-      id: EventId.makeUnsafe(randomUUID()),
-      kind: "notification",
-      provider: "codex",
-      threadId: context.session.threadId,
-      createdAt: new Date().toISOString(),
-      ...(context.lifecycleGeneration !== undefined
-        ? { lifecycleGeneration: context.lifecycleGeneration }
-        : {}),
-      method: notification.method,
-      ...(rawRoute.turnId ? { turnId: rawRoute.turnId } : {}),
-      ...(childParentTurnId ? { parentTurnId: childParentTurnId } : {}),
-      ...(rawRoute.itemId ? { itemId: rawRoute.itemId } : {}),
-      ...(providerThreadId ? { providerThreadId } : {}),
-      ...(providerParentThreadId ? { providerParentThreadId } : {}),
-      textDelta,
-      payload: notification.params,
-    });
+    if (!context.discovery)
+      this.emitEvent({
+        id: EventId.makeUnsafe(randomUUID()),
+        kind: "notification",
+        provider: "codex",
+        threadId: context.session.threadId,
+        createdAt: new Date().toISOString(),
+        ...(context.lifecycleGeneration !== undefined
+          ? { lifecycleGeneration: context.lifecycleGeneration }
+          : {}),
+        method: notification.method,
+        ...(rawRoute.turnId ? { turnId: rawRoute.turnId } : {}),
+        ...(childParentTurnId ? { parentTurnId: childParentTurnId } : {}),
+        ...(rawRoute.itemId ? { itemId: rawRoute.itemId } : {}),
+        ...(providerThreadId ? { providerThreadId } : {}),
+        ...(providerParentThreadId ? { providerParentThreadId } : {}),
+        textDelta,
+        payload: notification.params,
+      });
 
     if (notification.method === "thread/started") {
       const startedThreadId = normalizeProviderThreadId(
@@ -3440,13 +3533,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       this.clearTaskCompleteFallback(context, rawRoute.turnId);
       context.collabReceiverTurns.clear();
       context.collabReceiverParents.clear();
+      const turn = this.readObject(notification.params, "turn");
+      const status = this.readString(turn, "status");
       if (rawRoute.turnId) {
         void this.clearTemporaryResources(context, rawRoute.turnId);
         context.terminalTurnIds.add(rawRoute.turnId);
+        if (context.discovery && context.authProbeActive && status === "completed") {
+          (context.authProbeCompletedTurnIds ??= new Set()).add(rawRoute.turnId);
+        }
         context.reviewTurnIds.delete(rawRoute.turnId);
       }
-      const turn = this.readObject(notification.params, "turn");
-      const status = this.readString(turn, "status");
       const errorMessageRaw = this.readString(this.readObject(turn, "error"), "message");
       const errorMessage =
         errorMessageRaw !== undefined
@@ -3587,6 +3683,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context: CodexSessionContext,
     request: JsonRpcRequest,
   ): Promise<void> {
+    if (context.discovery && context.authProbeActive) {
+      await this.writeMessage(context, {
+        id: request.id,
+        error: { code: -32601, message: "Unavailable during provider health check." },
+      });
+      return;
+    }
     const rawRoute = this.readRouteFields(request.params);
     const resolvedCollaborationRoute = this.resolveCollaborationRoute(context, request.params);
     const {
@@ -3689,6 +3792,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const requestedThreadId = this.readString(params, "threadId");
       const activeProviderThreadId = readResumeCursorThreadId(context.session.resumeCursor);
       const toolName = this.readString(params, "tool");
+      const toolTurnId = toTurnId(this.readString(params, "turnId"));
       const namespace = params?.namespace;
       const rawArguments = params?.arguments;
       if (
@@ -3720,12 +3824,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         bearerToken: context.gatewaySessionLease.connection.bearerToken,
         name: toolName,
         arguments: rawArguments as Record<string, unknown>,
+        ...(toolTurnId ? { originTurnId: toolTurnId } : {}),
       });
       const contentItems: Array<
         { type: "inputText"; text: string } | { type: "inputImage"; imageUrl: string }
       > = [];
-      const toolTurnId =
-        toTurnId(this.readString(params, "turnId")) ?? context.session.activeTurnId;
       for (const item of result.content) {
         if (item.type === "text") {
           contentItems.push({ type: "inputText", text: item.text });
@@ -3886,7 +3989,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     });
   }
 
-  private emitErrorEvent(context: CodexSessionContext, method: string, message: string): void {
+  private emitErrorEvent(
+    context: CodexSessionContext,
+    method: string,
+    message: string,
+    diagnostic?: CodexRuntimeDiagnostic,
+  ): void {
     if (context.discovery) {
       return;
     }
@@ -3901,6 +4009,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         : {}),
       method,
       message,
+      ...(diagnostic ? { payload: { diagnostic } } : {}),
     });
   }
 

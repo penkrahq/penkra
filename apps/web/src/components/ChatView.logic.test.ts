@@ -1,4 +1,5 @@
-import { ThreadId, type ModelSlug } from "@penkra/contracts";
+import { ThreadId, TurnId, type ModelSlug } from "@penkra/contracts";
+import type { Thread } from "../types";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -24,6 +25,7 @@ import {
   resolveProjectScriptTerminalTarget,
   resolveRuntimeModeAfterApprovalDecision,
   resolveThreadDetailHydration,
+  shouldShowComposerContinue,
   shouldRenderTranscriptDuringHydration,
   sanitizeVoiceErrorMessage,
   buildExpiredTerminalContextToastCopy,
@@ -34,6 +36,80 @@ import {
   shouldRenderProviderHealthBanner,
   shouldRenderTerminalWorkspace,
 } from "./ChatView.logic";
+
+describe("composer Continue eligibility", () => {
+  const turnId = TurnId.makeUnsafe("turn-continue-test");
+  const thread = {
+    latestTurn: {
+      turnId,
+      state: "interrupted",
+      requestedAt: "2026-09-26T00:00:00.000Z",
+      startedAt: "2026-09-26T00:00:00.000Z",
+      completedAt: "2026-09-26T00:00:01.000Z",
+      assistantMessageId: null,
+    },
+    session: { status: "stopped", activeTurnId: undefined },
+    queuedMessageIds: [],
+    pendingInteractions: [],
+    archivedAt: null,
+  } as unknown as Thread;
+  const baseline = {
+    thread,
+    isServerThread: true,
+    hydration: "ready" as const,
+    binding: { modelId: "gpt-5-codex" },
+    hiddenTurnId: null,
+    continueInFlight: false,
+    sendBusy: false,
+    sendPreflight: false,
+    connecting: false,
+    hasSendableContent: false,
+  };
+
+  it("shows Play after Stop or error and hides it after completion", () => {
+    expect(shouldShowComposerContinue(baseline)).toBe(true);
+    expect(
+      shouldShowComposerContinue({
+        ...baseline,
+        thread: { ...thread, latestTurn: { ...thread.latestTurn!, state: "error" } },
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowComposerContinue({
+        ...baseline,
+        thread: { ...thread, latestTurn: { ...thread.latestTurn!, state: "completed" } },
+      }),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["content", { hasSendableContent: true }],
+    ["in-flight continue", { continueInFlight: true }],
+    ["in-flight send", { sendBusy: true }],
+    ["send preflight", { sendPreflight: true }],
+    ["hydration", { hydration: "loading" as const }],
+    ["binding", { binding: null }],
+    ["connecting", { connecting: true }],
+    ["stale rejection", { hiddenTurnId: turnId }],
+  ] as const)("hides Play during %s", (_name, change) => {
+    expect(shouldShowComposerContinue({ ...baseline, ...change })).toBe(false);
+  });
+
+  it("hides Play for queued work, pending approval, and archived threads", () => {
+    for (const change of [
+      { queuedMessageIds: ["queued"] },
+      { hasPendingApprovals: true },
+      { hasPendingUserInput: true },
+      { pendingTurnStartMessageId: "pending-start" },
+      { archivedAt: "2026-09-26T00:00:00.000Z" },
+      { deletedAt: "2026-09-26T00:00:00.000Z" },
+    ]) {
+      expect(
+        shouldShowComposerContinue({ ...baseline, thread: { ...thread, ...change } as Thread }),
+      ).toBe(false);
+    }
+  });
+});
 
 describe("chat activity", () => {
   it("is busy immediately for an admitted send and remains busy for the active turn", () => {

@@ -775,6 +775,7 @@ export function projectEvent(
               ...(payload.modelSelection !== undefined
                 ? { modelSelection: payload.modelSelection }
                 : {}),
+              ...(payload.connectionId !== undefined ? { connectionId: payload.connectionId } : {}),
               ...(payload.workingDirectory !== undefined
                 ? { workingDirectory: payload.workingDirectory }
                 : {}),
@@ -1031,6 +1032,9 @@ export function projectEvent(
             ...(payload.dispatchOrigin !== undefined
               ? { dispatchOrigin: payload.dispatchOrigin }
               : {}),
+            ...(payload.dispatchOrigin === "agent" && payload.senderThreadId !== undefined
+              ? { senderThreadId: payload.senderThreadId }
+              : {}),
             ...(payload.delivery !== undefined
               ? { delivery: { ...payload.delivery, sequence: event.sequence } }
               : {}),
@@ -1052,8 +1056,13 @@ export function projectEvent(
         if (existingIndex >= 0) {
           const entry = thread.messages[existingIndex]!;
           const nextMessages = thread.messages.slice();
+          const effectiveDispatchOrigin = message.dispatchOrigin ?? entry.dispatchOrigin;
+          const entryForMerge =
+            effectiveDispatchOrigin !== "agent"
+              ? (({ senderThreadId: _senderThreadId, ...rest }) => rest)(entry)
+              : entry;
           nextMessages[existingIndex] = {
-            ...entry,
+            ...entryForMerge,
             text: message.streaming
               ? `${entry.text}${message.text}`
               : message.text.length > 0
@@ -1079,6 +1088,9 @@ export function projectEvent(
             ...(message.dispatchMode !== undefined ? { dispatchMode: message.dispatchMode } : {}),
             ...(message.dispatchOrigin !== undefined
               ? { dispatchOrigin: message.dispatchOrigin }
+              : {}),
+            ...(message.senderThreadId !== undefined
+              ? { senderThreadId: message.senderThreadId }
               : {}),
             ...(message.delivery !== undefined &&
             (entry.delivery === undefined || message.delivery.sequence >= entry.delivery.sequence)

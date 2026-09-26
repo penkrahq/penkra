@@ -377,6 +377,7 @@ describe("AppOperationBroker", () => {
       appId: "com.acme.github",
       spaceId: "personal",
       deckId: "deck-1",
+      initiator: "user",
     });
     expect(open).not.toHaveBeenCalled();
   });

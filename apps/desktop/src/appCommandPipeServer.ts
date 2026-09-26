@@ -26,6 +26,7 @@ import {
 
 export const PENKRA_APP_COMMAND_PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
 export const PENKRA_APP_COMMAND_TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
+export const PENKRA_APP_COMMAND_ADMIN_TOKEN_ENV = "PENKRA_APP_COMMAND_ADMIN_TOKEN";
 const MAX_REQUEST_BYTES = 1024 * 1024;
 export const APP_COMMAND_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
@@ -42,11 +43,13 @@ export function assertAppTabAgentAddressable(
 type Request = {
   id: string;
   token: string;
+  adminToken?: string;
   method:
     | "catalog.list"
     | "catalog.help"
     | "skills.list"
     | "core.open"
+    | "thread.home.inherit"
     | "operations.invoke"
     | "tabs.list"
     | "tabs.close"
@@ -155,6 +158,7 @@ export class AppCommandPipeServer {
   readonly #sockets = new Set<Net.Socket>();
   readonly #path: string;
   readonly #token: string;
+  readonly #adminToken: string;
   readonly #catalog: AppOperationCatalog;
   readonly #broker: AppOperationBroker;
   readonly #tabs: {
@@ -167,10 +171,8 @@ export class AppCommandPipeServer {
       surfaceId?: number,
     ): DesktopAppTabDescriptor | null;
   };
-  readonly #resolveTurnSurface: ((turnId: string) => number | null | undefined) | null;
-  readonly #runOnSurface:
-    | (<T>(surfaceId: number | null, operation: () => Promise<T>) => Promise<T>)
-    | null;
+  readonly #runOnThread: (<T>(threadId: string, operation: () => Promise<T>) => Promise<T>) | null;
+  readonly #inheritThreadHome: ((parentThreadId: string, childThreadId: string) => void) | null;
   readonly #observer: AppTabObserverBridge;
   readonly #registry: AppRegistryClient | null;
   readonly #sideload:
@@ -184,7 +186,6 @@ export class AppCommandPipeServer {
         spaceId: string;
         deckId: string;
         threadId: string;
-        surfaceId?: number;
       }) => Promise<unknown>)
     | null;
   readonly #providerCredentialVault: ProviderCredentialVault;
@@ -192,7 +193,6 @@ export class AppCommandPipeServer {
     spaceId: string;
     deckId: string;
     threadId: string;
-    surfaceId?: number;
     method:
       | "current.read"
       | "list"
@@ -213,6 +213,7 @@ export class AppCommandPipeServer {
   constructor(input: {
     path: string;
     token: string;
+    adminToken?: string;
     catalog: AppOperationCatalog;
     broker: AppOperationBroker;
     tabs: {
@@ -225,8 +226,8 @@ export class AppCommandPipeServer {
         surfaceId?: number,
       ): DesktopAppTabDescriptor | null;
     };
-    resolveTurnSurface?: (turnId: string) => number | null | undefined;
-    runOnSurface?: <T>(surfaceId: number | null, operation: () => Promise<T>) => Promise<T>;
+    runOnThread?: <T>(threadId: string, operation: () => Promise<T>) => Promise<T>;
+    inheritThreadHome?: (parentThreadId: string, childThreadId: string) => void;
     observer: AppTabObserverBridge;
     registry?: AppRegistryClient | null;
     sideload?: (input: { sourcePath: string; spaceId?: string }) => Promise<unknown>;
@@ -237,14 +238,12 @@ export class AppCommandPipeServer {
       spaceId: string;
       deckId: string;
       threadId: string;
-      surfaceId?: number;
     }) => Promise<unknown>;
     providerCredentialVault: ProviderCredentialVault;
     thread?: (input: {
       spaceId: string;
       deckId: string;
       threadId: string;
-      surfaceId?: number;
       method:
         | "current.read"
         | "list"
@@ -262,11 +261,12 @@ export class AppCommandPipeServer {
   }) {
     this.#path = input.path;
     this.#token = input.token;
+    this.#adminToken = input.adminToken ?? Crypto.randomBytes(32).toString("hex");
     this.#catalog = input.catalog;
     this.#broker = input.broker;
     this.#tabs = input.tabs;
-    this.#resolveTurnSurface = input.resolveTurnSurface ?? null;
-    this.#runOnSurface = input.runOnSurface ?? null;
+    this.#runOnThread = input.runOnThread ?? null;
+    this.#inheritThreadHome = input.inheritThreadHome ?? null;
     this.#observer = input.observer;
     this.#registry = input.registry ?? null;
     this.#sideload = input.sideload ?? null;
@@ -285,6 +285,10 @@ export class AppCommandPipeServer {
       [PENKRA_APP_COMMAND_PIPE_ENV]: this.#path,
       [PENKRA_APP_COMMAND_TOKEN_ENV]: this.#token,
     };
+  }
+
+  get backendEnvironment(): NodeJS.ProcessEnv {
+    return { ...this.environment, [PENKRA_APP_COMMAND_ADMIN_TOKEN_ENV]: this.#adminToken };
   }
 
   async start(): Promise<void> {
@@ -508,32 +512,32 @@ export class AppCommandPipeServer {
         };
       case "threads.current.read": {
         const context = this.#context(params);
-        const surfaceId = this.#surfaceId(params);
         return {
           ok: true,
           id: request.id,
-          result: await this.#thread({
-            spaceId: context.spaceId,
-            deckId: context.deckId,
-            threadId: context.threadId,
-            ...(surfaceId === null ? {} : { surfaceId }),
-            method: "current.read",
-          }),
+          result: await this.#onThread(context.threadId, () =>
+            this.#thread({
+              spaceId: context.spaceId,
+              deckId: context.deckId,
+              threadId: context.threadId,
+              method: "current.read",
+            }),
+          ),
         };
       }
       case "threads.list": {
         const context = this.#context(params);
-        const surfaceId = this.#surfaceId(params);
         return {
           ok: true,
           id: request.id,
-          result: await this.#thread({
-            spaceId: context.spaceId,
-            deckId: context.deckId,
-            threadId: context.threadId,
-            ...(surfaceId === null ? {} : { surfaceId }),
-            method: "list",
-          }),
+          result: await this.#onThread(context.threadId, () =>
+            this.#thread({
+              spaceId: context.spaceId,
+              deckId: context.deckId,
+              threadId: context.threadId,
+              method: "list",
+            }),
+          ),
         };
       }
       case "threads.get":
@@ -546,27 +550,27 @@ export class AppCommandPipeServer {
       case "threads.compose":
       case "threads.send": {
         const context = this.#context(params);
-        const surfaceId = this.#surfaceId(params);
         return {
           ok: true,
           id: request.id,
-          result: await this.#thread({
-            spaceId: context.spaceId,
-            deckId: context.deckId,
-            threadId: context.threadId,
-            ...(surfaceId === null ? {} : { surfaceId }),
-            method: request.method.slice("threads.".length) as
-              | "get"
-              | "create"
-              | "add"
-              | "select"
-              | "reorder"
-              | "leave"
-              | "archive"
-              | "compose"
-              | "send",
-            value: params.input ?? params,
-          }),
+          result: await this.#onThread(context.threadId, () =>
+            this.#thread({
+              spaceId: context.spaceId,
+              deckId: context.deckId,
+              threadId: context.threadId,
+              method: request.method.slice("threads.".length) as
+                | "get"
+                | "create"
+                | "add"
+                | "select"
+                | "reorder"
+                | "leave"
+                | "archive"
+                | "compose"
+                | "send",
+              value: params.input ?? params,
+            }),
+          ),
         };
       }
       case "catalog.list": {
@@ -597,6 +601,26 @@ export class AppCommandPipeServer {
           id: request.id,
           result: await this.#catalog.skills(requiredString(params.spaceId, "spaceId")),
         };
+      case "thread.home.inherit": {
+        const suppliedAdmin = Buffer.from(
+          typeof request.adminToken === "string" ? request.adminToken : "",
+        );
+        const expectedAdmin = Buffer.from(this.#adminToken);
+        if (
+          suppliedAdmin.length !== expectedAdmin.length ||
+          !Crypto.timingSafeEqual(suppliedAdmin, expectedAdmin)
+        ) {
+          throw Object.assign(new Error("Thread home inheritance requires backend authority."), {
+            code: "APP_COMMAND_FORBIDDEN",
+          });
+        }
+        if (!this.#inheritThreadHome) throw new Error("Thread home inheritance is unavailable.");
+        this.#inheritThreadHome(
+          requiredString(params.parentThreadId, "parentThreadId"),
+          requiredString(params.childThreadId, "childThreadId"),
+        );
+        return { ok: true, id: request.id, result: { inherited: true } };
+      }
       case "core.open": {
         if (!this.#open) throw new Error("Penkra open is unavailable.");
         const context = this.#context(params);
@@ -604,11 +628,10 @@ export class AppCommandPipeServer {
         const url = optionalString(params.url, "url");
         if ((path === null) === (url === null)) throw new Error("Supply exactly one path or URL.");
         const requestedApp = optionalString(params.requestedApp, "requestedApp");
-        const surfaceId = this.#surfaceId(params);
         return {
           ok: true,
           id: request.id,
-          result: await this.#onSurface(surfaceId, () =>
+          result: await this.#onThread(context.threadId, () =>
             this.#open!({
               ...(path === null ? {} : { path }),
               ...(url === null ? {} : { url }),
@@ -616,7 +639,6 @@ export class AppCommandPipeServer {
               spaceId: context.spaceId,
               deckId: context.deckId,
               threadId: context.threadId,
-              ...(surfaceId === null ? {} : { surfaceId }),
             }),
           ),
         };
@@ -627,17 +649,19 @@ export class AppCommandPipeServer {
         const operation = requiredString(params.operation, "operation");
         const requestedTabId = optionalString(params.tabId, "tabId");
         const tabId = requestedTabId ?? this.#implicitOperationTab(context, slug)?.id;
-        const result = await this.#broker.invoke({
-          app: slug,
-          operation,
-          input: params.input ?? {},
-          spaceId: context.spaceId,
-          deckId: context.deckId,
-          threadId: context.threadId,
-          callerKind: "agent",
-          signal,
-          ...(tabId === undefined ? {} : { tabId }),
-        });
+        const result = await this.#onThread(context.threadId, () =>
+          this.#broker.invoke({
+            app: slug,
+            operation,
+            input: params.input ?? {},
+            spaceId: context.spaceId,
+            deckId: context.deckId,
+            threadId: context.threadId,
+            callerKind: "agent",
+            signal,
+            ...(tabId === undefined ? {} : { tabId }),
+          }),
+        );
         return { ok: true, id: request.id, result };
       }
       case "developer.publishers.list":
@@ -912,30 +936,16 @@ export class AppCommandPipeServer {
       .filter((tab) => tab.spaceId === scope.spaceId && tab.deckId === scope.deckId);
   }
 
-  #surfaceId(params: Record<string, unknown>): number | null {
-    const turnId = optionalString(params.callerTurnId, "callerTurnId");
-    if (turnId === null) return null;
-    const surfaceId = this.#resolveTurnSurface?.(turnId);
-    if (surfaceId === undefined) {
-      throw Object.assign(new Error("No Penkra window was recorded for this agent turn."), {
-        code: "TURN_ORIGIN_MISSING",
-      });
-    }
-    if (surfaceId === null) {
-      throw Object.assign(new Error("The Penkra window for this agent turn was closed."), {
-        code: "TURN_ORIGIN_WINDOW_CLOSED",
-      });
-    }
-    return surfaceId;
+  #observe<T>(params: Record<string, unknown>, operation: () => Promise<T>): Promise<T> {
+    const threadId = this.#context(params).threadId;
+    return this.#onThread(
+      threadId,
+      () => this.#observer.runOnSurface?.(null, operation) ?? operation(),
+    );
   }
 
-  #observe<T>(_params: Record<string, unknown>, operation: () => Promise<T>): Promise<T> {
-    // The observer resolves the exact App WebContents from tabId; a shell window is not its owner.
-    return this.#observer.runOnSurface?.(null, operation) ?? operation();
-  }
-
-  #onSurface<T>(surfaceId: number | null, operation: () => Promise<T>): Promise<T> {
-    return this.#runOnSurface?.(surfaceId, operation) ?? operation();
+  #onThread<T>(threadId: string, operation: () => Promise<T>): Promise<T> {
+    return this.#runOnThread?.(threadId, operation) ?? operation();
   }
 
   #implicitOperationTab(

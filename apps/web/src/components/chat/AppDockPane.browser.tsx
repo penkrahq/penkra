@@ -4,8 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import type { CSSProperties } from "react";
 import type { DesktopAppTabPresentation } from "@penkra/contracts";
+import { page } from "vitest/browser";
 
 import { AppDockPane } from "./AppDockPane";
+import { publishNativeAppBounds } from "../ui/sidebar";
 
 const originalBridge = Object.getOwnPropertyDescriptor(window, "desktopBridge");
 const originalVisibilityState = Object.getOwnPropertyDescriptor(document, "visibilityState");
@@ -21,13 +23,17 @@ afterEach(() => {
   }
 });
 
-function installBridge() {
-  const present = vi.fn(async () => undefined);
+function installBridge(zoomFactor = 1) {
+  const present = vi.fn(
+    async (_input: { bounds: { x: number; y: number; width: number; height: number } }) =>
+      undefined,
+  );
   const hide = vi.fn(async () => undefined);
   let presentationListener: ((value: DesktopAppTabPresentation) => void) | null = null;
   Object.defineProperty(window, "desktopBridge", {
     configurable: true,
     value: {
+      getZoomFactor: () => zoomFactor,
       appTabs: {
         present,
         hide,
@@ -49,6 +55,124 @@ function installBridge() {
 }
 
 describe("AppDockPane native view controller", () => {
+  it("converts the clipped host rect from CSS pixels to native DIP once", async () => {
+    await page.viewport(1280, 800);
+    const bridge = installBridge(1.25);
+    await render(
+      <div style={{ marginLeft: 200, width: 180, height: 600 }} data-slot="sidebar-container">
+        <div data-slot="sidebar-wrapper" style={{ width: 180, height: 600 }}>
+          <AppDockPane
+            deckId="deck-1"
+            threadId="thread-1"
+            appName="Apps"
+            rendererId={101}
+            status="ready"
+            tabId="zoomed-tab"
+            visible
+            animateEntrance={false}
+            animationStartedAtEpochMs={null}
+          />
+        </div>
+      </div>,
+    );
+    await vi.waitFor(() => expect(bridge.present).toHaveBeenCalledOnce());
+    expect(bridge.present.mock.lastCall?.[0].bounds).toEqual({
+      x: 250,
+      y: 0,
+      width: 225,
+      height: 750,
+    });
+  });
+
+  it("presents within the actual narrow dock host instead of a right-anchored minimum", async () => {
+    await page.viewport(1280, 800);
+    const bridge = installBridge();
+    await render(
+      <div style={{ marginLeft: 500, width: 180, height: 600 }} data-slot="sidebar-container">
+        <div data-slot="sidebar-wrapper" style={{ width: 180, height: 600 }}>
+          <AppDockPane
+            deckId="deck-1"
+            threadId="thread-1"
+            appName="Apps"
+            rendererId={101}
+            status="ready"
+            tabId="narrow-tab"
+            visible
+            animateEntrance={false}
+            animationStartedAtEpochMs={null}
+          />
+        </div>
+      </div>,
+    );
+    await vi.waitFor(() => expect(bridge.present).toHaveBeenCalledOnce());
+    expect(bridge.present).toHaveBeenCalledWith(
+      expect.objectContaining({ bounds: { x: 500, y: 0, width: 180, height: 600 } }),
+    );
+  });
+
+  it("clips a wide host to its panel and follows shrink after grow", async () => {
+    await page.viewport(1280, 800);
+    const bridge = installBridge();
+    const screen = await render(
+      <div style={{ marginLeft: 200, width: 500, height: 600 }} data-slot="sidebar-container">
+        <div data-slot="sidebar-wrapper" style={{ width: 500, height: 600 }}>
+          <AppDockPane
+            deckId="deck-1"
+            threadId="thread-1"
+            appName="Apps"
+            rendererId={101}
+            status="ready"
+            tabId="resizing-tab"
+            visible
+            animateEntrance={false}
+            animationStartedAtEpochMs={null}
+          />
+        </div>
+      </div>,
+    );
+    await vi.waitFor(() => expect(bridge.present).toHaveBeenCalledOnce());
+    const panel = screen.container.querySelector<HTMLElement>("[data-slot='sidebar-container']")!;
+    const wrapper = screen.container.querySelector<HTMLElement>("[data-slot='sidebar-wrapper']")!;
+    expect(bridge.present.mock.lastCall?.[0].bounds).toEqual({
+      x: 200,
+      y: 0,
+      width: 500,
+      height: 600,
+    });
+    expect(publishNativeAppBounds(wrapper)).toBe(false);
+    expect(bridge.present).toHaveBeenCalledOnce();
+
+    panel.style.width = "180px";
+    publishNativeAppBounds(wrapper);
+    expect(bridge.present).toHaveBeenCalledTimes(2);
+    expect(bridge.present.mock.lastCall?.[0].bounds).toEqual({
+      x: 200,
+      y: 0,
+      width: 180,
+      height: 600,
+    });
+
+    panel.style.width = "500px";
+    publishNativeAppBounds(wrapper);
+    expect(bridge.present).toHaveBeenCalledTimes(3);
+    expect(bridge.present.mock.lastCall?.[0].bounds).toEqual({
+      x: 200,
+      y: 0,
+      width: 500,
+      height: 600,
+    });
+
+    panel.style.width = "0px";
+    expect(publishNativeAppBounds(wrapper)).toBe(false);
+    expect(bridge.hide).not.toHaveBeenCalled();
+    panel.style.width = "500px";
+    expect(publishNativeAppBounds(wrapper)).toBe(true);
+    expect(bridge.present).toHaveBeenCalledTimes(4);
+
+    bridge.publishPresentation({ tabId: "resizing-tab", mode: "hidden", ownerWindowId: 1 });
+    expect(publishNativeAppBounds(wrapper)).toBe(true);
+    expect(bridge.present).toHaveBeenCalledTimes(5);
+  });
   it("presents from rendered geometry when deck re-entry precedes pixel width publication", async () => {
     const bridge = installBridge();
     const screen = await render(
@@ -58,6 +182,7 @@ describe("AppDockPane native view controller", () => {
           {
             "--sidebar-width": "max(28rem, calc(50vw - 8rem))",
             width: 500,
+            height: 600,
           } as CSSProperties
         }
       >
@@ -85,7 +210,10 @@ describe("AppDockPane native view controller", () => {
   it("presents the main-owned view without rendering an iframe or webview", async () => {
     const bridge = installBridge();
     const screen = await render(
-      <div data-slot="sidebar-wrapper" style={{ "--sidebar-width": "500px" } as CSSProperties}>
+      <div
+        data-slot="sidebar-wrapper"
+        style={{ "--sidebar-width": "500px", height: 600 } as CSSProperties}
+      >
         <AppDockPane
           deckId="deck-1"
           threadId="thread-1"
@@ -160,7 +288,10 @@ describe("AppDockPane native view controller", () => {
   it("starts presenting while the App document is still loading", async () => {
     const bridge = installBridge();
     await render(
-      <div data-slot="sidebar-wrapper" style={{ "--sidebar-width": "500px" } as CSSProperties}>
+      <div
+        data-slot="sidebar-wrapper"
+        style={{ "--sidebar-width": "500px", height: 600 } as CSSProperties}
+      >
         <AppDockPane
           deckId="deck-1"
           threadId="thread-1"
@@ -192,7 +323,10 @@ describe("AppDockPane native view controller", () => {
     });
     const bridge = installBridge();
     await render(
-      <div data-slot="sidebar-wrapper" style={{ "--sidebar-width": "500px" } as CSSProperties}>
+      <div
+        data-slot="sidebar-wrapper"
+        style={{ "--sidebar-width": "500px", height: 600 } as CSSProperties}
+      >
         <AppDockPane
           deckId="deck-1"
           threadId="thread-1"
@@ -214,7 +348,10 @@ describe("AppDockPane native view controller", () => {
   it("shows a dimmed last-frame replica and transfers ownership when clicked", async () => {
     const bridge = installBridge();
     const screen = await render(
-      <div data-slot="sidebar-wrapper" style={{ "--sidebar-width": "500px" } as CSSProperties}>
+      <div
+        data-slot="sidebar-wrapper"
+        style={{ "--sidebar-width": "500px", height: 600 } as CSSProperties}
+      >
         <AppDockPane
           deckId="deck-1"
           threadId="thread-1"

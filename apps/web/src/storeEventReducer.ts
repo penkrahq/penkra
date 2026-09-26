@@ -374,6 +374,10 @@ function mergeStreamingMessage(
     incomingMessage.dispatchOrigin !== undefined
       ? incomingMessage.dispatchOrigin
       : existingMessage.dispatchOrigin;
+  const nextSenderThreadId =
+    nextDispatchOrigin === "agent"
+      ? (incomingMessage.senderThreadId ?? existingMessage.senderThreadId)
+      : undefined;
   const nextDelivery =
     incomingMessage.delivery === undefined ||
     (existingMessage.delivery !== undefined &&
@@ -392,14 +396,19 @@ function mergeStreamingMessage(
     existingMessage.turnId === nextTurnId &&
     existingMessage.dispatchMode === nextDispatchMode &&
     existingMessage.dispatchOrigin === nextDispatchOrigin &&
+    existingMessage.senderThreadId === nextSenderThreadId &&
     existingMessage.delivery === nextDelivery &&
     existingMessage.source === nextSource
   ) {
     return null;
   }
 
+  const existingMessageForMerge =
+    nextDispatchOrigin !== "agent"
+      ? (({ senderThreadId: _senderThreadId, ...message }) => message)(existingMessage)
+      : existingMessage;
   return {
-    ...existingMessage,
+    ...existingMessageForMerge,
     text: nextText,
     streaming: incomingMessage.streaming,
     ...(nextAttachments ? { attachments: nextAttachments } : {}),
@@ -408,6 +417,7 @@ function mergeStreamingMessage(
     ...(nextTurnId !== undefined ? { turnId: nextTurnId } : {}),
     ...(nextDispatchMode !== undefined ? { dispatchMode: nextDispatchMode } : {}),
     ...(nextDispatchOrigin !== undefined ? { dispatchOrigin: nextDispatchOrigin } : {}),
+    ...(nextSenderThreadId !== undefined ? { senderThreadId: nextSenderThreadId } : {}),
     ...(nextDelivery !== undefined ? { delivery: nextDelivery } : {}),
     ...(nextSource !== undefined ? { source: nextSource } : {}),
     ...(nextCompletedAt !== undefined ? { completedAt: nextCompletedAt } : {}),
@@ -431,6 +441,7 @@ function applyThreadMessageSentEvent(
       text: payload.text,
       dispatchMode: payload.dispatchMode,
       dispatchOrigin: payload.dispatchOrigin,
+      senderThreadId: payload.senderThreadId,
       ...(payload.delivery !== undefined
         ? { delivery: { ...payload.delivery, sequence: event.sequence } }
         : {}),
@@ -742,6 +753,10 @@ function applyOrchestrationEvent(
             event.payload.modelSelection !== undefined
               ? normalizeModelSelection(event.payload.modelSelection, thread.modelSelection)
               : thread.modelSelection;
+          const connectionId =
+            event.payload.connectionId !== undefined
+              ? event.payload.connectionId
+              : (thread.connectionId ?? null);
           const nextWorkingDirectory =
             event.payload.workingDirectory !== undefined
               ? event.payload.workingDirectory
@@ -755,6 +770,7 @@ function applyOrchestrationEvent(
           if (
             (event.payload.title === undefined || event.payload.title === thread.title) &&
             modelSelection === thread.modelSelection &&
+            connectionId === (thread.connectionId ?? null) &&
             nextWorkingDirectory === (thread.workingDirectory ?? null) &&
             (event.payload.isPinned === undefined ||
               event.payload.isPinned === (thread.isPinned ?? false)) &&
@@ -780,6 +796,7 @@ function applyOrchestrationEvent(
             ...thread,
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
             modelSelection,
+            connectionId,
             workingDirectory: nextWorkingDirectory,
             ...(event.payload.isPinned !== undefined ? { isPinned: event.payload.isPinned } : {}),
             ...(event.payload.parentThreadId !== undefined

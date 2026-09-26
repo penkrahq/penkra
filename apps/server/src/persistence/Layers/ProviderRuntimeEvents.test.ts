@@ -236,6 +236,43 @@ layer("ProviderRuntimeEventRepository", (it) => {
     }),
   );
 
+  it.effect("prunes a completed Codex turn recorded under its provider turn id", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProviderRuntimeEventRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const event = {
+        ...runtimeEvent("runtime-provider-id-stale", "late token usage"),
+        turnId: TurnId.makeUnsafe("provider-completed-id"),
+      };
+      const persisted = yield* repository.append(event);
+      yield* sql`
+        INSERT INTO projection_turns (
+          thread_id, turn_id, provider_turn_id, state, requested_at, completed_at
+        ) VALUES (
+          ${event.threadId}, ${"turn:logical-completed-id"}, ${event.turnId},
+          'completed', ${event.createdAt}, ${event.createdAt}
+        )
+      `;
+      assert.isTrue(
+        yield* repository.advanceThreadCursor({
+          threadId: event.threadId,
+          eventSequence: persisted.sequence,
+          updatedAt: event.createdAt,
+        }),
+      );
+      assert.lengthOf(yield* repository.listOpenTurnsByThreadId(event.threadId), 0);
+      yield* sql`
+        INSERT INTO provider_runtime_open_turns (thread_id, turn_id, first_sequence, updated_at)
+        VALUES (${event.threadId}, ${event.turnId}, ${persisted.sequence}, ${event.createdAt})
+      `;
+      yield* repository.pruneSettledOpenTurns;
+      assert.deepEqual(
+        (yield* repository.listOpenTurnsByThreadId(event.threadId)).map((row) => row.turnId),
+        [],
+      );
+    }),
+  );
+
   it.effect("isolates a quarantined thread while preserving its raw events for replay", () =>
     Effect.gen(function* () {
       const repository = yield* ProviderRuntimeEventRepository;
@@ -431,6 +468,86 @@ layer("ProviderRuntimeEventRepository", (it) => {
 
 // Fresh (isolated in-memory) database: retention behaviour is asserted through
 // exact row counts, which only hold when no other test shares the journal.
+const diagnosticLayer = it.layer(
+  Layer.fresh(ProviderRuntimeEventRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory))),
+);
+
+diagnosticLayer("ProviderRuntimeEventRepository diagnostics", (it) => {
+  it.effect("leaves ordinary warnings unchanged for every provider", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProviderRuntimeEventRepository;
+      const persisted = yield* Effect.forEach(
+        ["codex", "claudeAgent", "opencode"] as const,
+        (provider) =>
+          repository.appendWithDiagnosticAdmission({
+            type: "runtime.warning",
+            eventId: EventId.makeUnsafe(`ordinary-${provider}`),
+            provider,
+            threadId: ThreadId.makeUnsafe(`thread-ordinary-${provider}`),
+            createdAt: "2026-07-14T00:00:00.000Z",
+            payload: { message: `${provider} ordinary warning` },
+          }),
+        { concurrency: 1 },
+      );
+      assert.deepStrictEqual(
+        persisted.map((entry) => String(entry?.event.eventId)),
+        ["ordinary-codex", "ordinary-claudeAgent", "ordinary-opencode"],
+      );
+    }),
+  );
+
+  it.effect("admits one durable warning per diagnostic episode across restarts", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProviderRuntimeEventRepository;
+      const warning = (
+        eventId: string,
+        state: "active" | "resolved",
+        createdAt: string,
+      ): ProviderRuntimeEvent => ({
+        type: "runtime.warning",
+        eventId: EventId.makeUnsafe(eventId),
+        provider: "codex",
+        threadId: ThreadId.makeUnsafe("thread-diagnostic-episode"),
+        createdAt,
+        payload: {
+          message: "Custom tool call output is missing for call id: call-1",
+          diagnostic: {
+            key: "codex:missing-tool-output:call-1",
+            fingerprint: "call-1",
+            state,
+          },
+        },
+      });
+      const first = yield* repository.appendWithDiagnosticAdmission(
+        warning("delivery-1", "active", "2026-07-14T00:00:00.000Z"),
+      );
+      const repeatedAfterRestart = yield* repository.appendWithDiagnosticAdmission(
+        warning("delivery-2", "active", "2026-07-14T00:01:00.000Z"),
+      );
+      assert.isNotNull(first);
+      assert.isNull(repeatedAfterRestart);
+      assert.isNull(
+        yield* repository.appendWithDiagnosticAdmission(
+          warning("resolved-1", "resolved", "2026-07-14T00:02:00.000Z"),
+        ),
+      );
+      const recurrence = yield* repository.appendWithDiagnosticAdmission(
+        warning("delivery-3", "active", "2026-07-14T00:03:00.000Z"),
+      );
+      assert.isNotNull(recurrence);
+      assert.notStrictEqual(first?.event.eventId, recurrence?.event.eventId);
+      assert.lengthOf(
+        yield* repository.readThreadEvents({
+          threadId: "thread-diagnostic-episode",
+          throughSequenceInclusive: yield* repository.getHighWaterSequence,
+          limit: 10,
+        }),
+        2,
+      );
+    }),
+  );
+});
+
 const retentionLayer = it.layer(
   Layer.fresh(ProviderRuntimeEventRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory))),
 );

@@ -22,6 +22,7 @@ import {
 import {
   makeInfoPlist,
   resolvePenkraDevPrimaryCheckoutRoot,
+  resolvePenkraDevInstallRoot,
   resolvePenkraDevLauncherSignArgs,
   parseAppleDevelopmentIdentity,
   resolvePenkraDevLauncherCompileArgs,
@@ -61,6 +62,16 @@ describe("Penkra Dev launcher", () => {
     expect(resolvePenkraDevPrimaryCheckoutRoot("/workspace/penkra", "/workspace/penkra/.git")).toBe(
       "/workspace/penkra",
     );
+  });
+
+  it("allows an explicit consolidated worktree to be installed for local Dev QA", () => {
+    expect(
+      resolvePenkraDevInstallRoot({
+        repositoryRoot: "/tmp/penkra-candidate",
+        gitCommonDirectory: "/workspace/penkra/.git",
+        requestedRoot: "/workspace/penkra/.penkra/userdata/dev-candidate",
+      }),
+    ).toBe("/workspace/penkra/.penkra/userdata/dev-candidate");
   });
 
   it("rejects a live supervisor owned by another configured workspace", () => {

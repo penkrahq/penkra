@@ -54,11 +54,12 @@ describe("pending recovery durable identity RED", () => {
     });
 
     const persisted = partializeComposerDraftStoreState(useComposerDraftStore.getState());
-    const reloaded = toHydratedThreadDraft(threadId, persisted.draftsByThreadId[threadId]!);
-    expect(Object.keys(reloaded.pendingStartRecoveriesByMessageId ?? {})).toEqual([
-      firstMessageId,
-      secondMessageId,
-    ]);
+    expect(
+      Object.keys(
+        persisted.draftsByThreadId[threadId]?.pendingStartRecoveriesByMessageId as object,
+      ),
+    ).toEqual([firstMessageId, secondMessageId]);
+    expect(persisted.draftsByThreadId[threadId]).not.toHaveProperty("queuedTurns");
 
     const unknownMessageId = MessageId.makeUnsafe("message-unknown-pending-red");
     const unknownRecord: PendingStartRecoveryRecord = {

@@ -35,6 +35,13 @@ export const CreateNativeStateGenerationInput = Schema.Struct({
 export type CreateNativeStateGenerationInput = typeof CreateNativeStateGenerationInput.Type;
 
 export interface ThreadProviderBindingRepositoryShape {
+  /** Visible Claude Threads whose binding still names this Connection. */
+  readonly listClaudeThreadsForConnection: (
+    connectionId: ProviderConnectionId,
+  ) => Effect.Effect<
+    ReadonlyArray<{ readonly threadId: ThreadId }>,
+    ThreadProviderBindingRepositoryError
+  >;
   readonly createNativeStateGeneration: (
     input: CreateNativeStateGenerationInput,
   ) => Effect.Effect<void, ThreadProviderBindingRepositoryError>;

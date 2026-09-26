@@ -57,7 +57,7 @@ describe("Codex discovery catalog", () => {
     ]);
   });
 
-  it("does not expose hidden Codex catalog entries as selectable models", () => {
+  it("retains Codex provider visibility for the picker presentation filter", () => {
     expect(
       parseCodexModelListResponse({
         result: {
@@ -82,8 +82,18 @@ describe("Codex discovery catalog", () => {
       }),
     ).toEqual([
       {
+        slug: "hidden-internal-model",
+        name: "Hidden internal model",
+        visibility: "hide",
+      },
+      {
+        slug: "codex-auto-review",
+        name: "Codex Auto Review",
+      },
+      {
         slug: "gpt-5.6-luna",
         name: "GPT-5.6-Luna",
+        visibility: "list",
       },
     ]);
   });

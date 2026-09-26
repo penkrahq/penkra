@@ -1,4 +1,6 @@
 import type {
+  ProviderConnectionId,
+  ProviderKind,
   ProviderComposerCapabilities,
   ProviderGetCapabilityHealthInput,
   ProviderGetCapabilityHealthResult,
@@ -31,6 +33,10 @@ export type ProviderDiscoveryError =
   | ProviderAdapterError;
 
 export interface ProviderDiscoveryServiceShape {
+  readonly probeConnection: (input: {
+    readonly provider: ProviderKind;
+    readonly connectionId: ProviderConnectionId;
+  }) => Effect.Effect<boolean, ProviderDiscoveryError>;
   readonly getComposerCapabilities: (
     input: ProviderGetComposerCapabilitiesInput,
   ) => Effect.Effect<ProviderComposerCapabilities, ProviderDiscoveryError>;

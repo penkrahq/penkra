@@ -15,6 +15,7 @@ export const PROVIDER_RUNTIME_PROJECTION_RETRY_MAX_MS = 5_000;
 export interface PersistedProviderRuntimeEvent {
   readonly sequence: number;
   readonly event: ProviderRuntimeEvent;
+  readonly persistedAt?: string;
 }
 
 export interface ProviderRuntimeOpenTurn {
@@ -49,6 +50,12 @@ export interface ProviderRuntimeEventRepositoryShape {
   readonly append: (
     event: ProviderRuntimeEvent,
   ) => Effect.Effect<PersistedProviderRuntimeEvent, ProviderRuntimeEventRepositoryError>;
+  readonly appendWithDiagnosticAdmission: (
+    event: ProviderRuntimeEvent,
+  ) => Effect.Effect<
+    PersistedProviderRuntimeEvent | null,
+    ProviderRuntimeEventRepositoryError
+  >;
   readonly getHighWaterSequence: Effect.Effect<number, PersistenceSqlError>;
   readonly readAfter: (input: {
     readonly sequenceExclusive: number;

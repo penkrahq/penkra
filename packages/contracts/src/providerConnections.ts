@@ -100,6 +100,11 @@ export const ProviderConnectionsSnapshotInput = Schema.Struct({
 });
 export type ProviderConnectionsSnapshotInput = typeof ProviderConnectionsSnapshotInput.Type;
 
+export const RetryProviderAuthConnectionInput = Schema.Struct({
+  connectionId: ProviderConnectionId,
+});
+export type RetryProviderAuthConnectionInput = typeof RetryProviderAuthConnectionInput.Type;
+
 export const ProviderConnectionsSnapshot = Schema.Struct({
   connections: Schema.Array(ProviderConnection),
   installations: Schema.Array(ProviderInstallation),

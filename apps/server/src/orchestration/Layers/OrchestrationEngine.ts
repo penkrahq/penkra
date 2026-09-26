@@ -565,6 +565,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       case "thread.conversation.rollback":
       case "thread.message.edit-and-resend":
       case "thread.message.assistant.complete":
+      case "thread.turn.recover":
         return loadThreadDetailForDecider(command, commandReadModel, command.threadId);
       default:
         return Effect.succeed(commandReadModel);
@@ -811,6 +812,33 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         let nextCommandReadModel = commandReadModel;
         let disposition: "applied" | "skipped" = "applied";
         let admittedEventBases = eventBases;
+
+        if (command.type === "thread.turn.recover" && command.reason === "play") {
+          const bindingOption =
+            threadProviderBindings === undefined
+              ? Option.none()
+              : yield* threadProviderBindings.getRuntimeBinding(command.threadId).pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new OrchestrationCommandInvariantError({
+                        commandType: command.type,
+                        detail: `The runtime binding could not be read: ${cause.message}`,
+                      }),
+                  ),
+                );
+          const binding = Option.getOrUndefined(bindingOption);
+          if (
+            !binding?.modelId ||
+            binding.connectionId !== command.connectionId ||
+            binding.revision !== command.bindingRevision
+          ) {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: "Thread changed before continuation.",
+              code: "THREAD_CONTINUE_STALE",
+            });
+          }
+        }
 
         if (command.type === "thread.session.set" && hasProviderLifecycleGuard(envelope)) {
           const expectedGeneration = envelope.expectedProviderLifecycleGeneration;

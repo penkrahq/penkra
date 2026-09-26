@@ -4,9 +4,21 @@
 // Depends on: renderToStaticMarkup and a mocked transcript virtualizer.
 
 import { MessageId, ThreadId, TurnId } from "@penkra/contracts";
+import { clampMentionTitle } from "@penkra/shared/threadMentions";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { formatShortTimestamp } from "../../timestampFormat";
+import { useStore } from "../../store";
+import { applyOrchestrationEvents } from "../../storeEventReducer";
+import { syncServerReadModel } from "../../storeProjection";
+import {
+  makeDomainEvent,
+  makeReadModel,
+  makeReadModelThread,
+  makeState,
+  makeThread,
+  threadsOf,
+} from "../../storeTestFixtures";
 import type { WorkLogEntry } from "../../workLog";
 import { COLLAPSED_USER_MESSAGE_MAX_CHARS } from "./userMessageCollapse";
 
@@ -78,6 +90,7 @@ beforeAll(() => {
   });
   vi.stubGlobal("window", {
     matchMedia,
+    location: { origin: "http://localhost" },
     addEventListener: () => {},
     removeEventListener: () => {},
     desktopBridge: undefined,
@@ -95,6 +108,127 @@ beforeAll(() => {
 });
 
 describe("MessagesTimeline", () => {
+  it.each(["live event", "snapshot hydration"] as const)(
+    "renders sender attribution after %s passes through the store",
+    async (source) => {
+      const { MessagesTimeline } = await import("./MessagesTimeline");
+      const threadId = ThreadId.makeUnsafe(`receiving-${source.replaceAll(" ", "-")}`);
+      const senderThreadId = ThreadId.makeUnsafe(`sender-${source.replaceAll(" ", "-")}`);
+      const messageId = MessageId.makeUnsafe(`message-${source.replaceAll(" ", "-")}`);
+      const createdAt = "2026-09-26T12:00:00.000Z";
+      const message = {
+        id: messageId,
+        role: "user" as const,
+        text: "hello from another agent",
+        dispatchOrigin: "agent" as const,
+        senderThreadId,
+        turnId: null,
+        streaming: false,
+        source: "native" as const,
+        createdAt,
+        updatedAt: createdAt,
+        attachments: [],
+      };
+      const initialState = makeState(makeThread({ id: threadId }));
+      const state =
+        source === "live event"
+          ? applyOrchestrationEvents(initialState, [
+              makeDomainEvent(
+                "thread.message-sent",
+                {
+                  threadId,
+                  messageId,
+                  role: "user",
+                  text: message.text,
+                  dispatchOrigin: "agent",
+                  turnId: null,
+                  streaming: false,
+                  source: "native",
+                  createdAt,
+                  updatedAt: createdAt,
+                  attachments: [],
+                },
+                { sequence: 1 },
+              ),
+              makeDomainEvent(
+                "thread.message-sent",
+                {
+                  threadId,
+                  messageId,
+                  role: "user",
+                  text: message.text,
+                  dispatchOrigin: "agent",
+                  senderThreadId,
+                  turnId: null,
+                  streaming: false,
+                  source: "native",
+                  createdAt,
+                  updatedAt: createdAt,
+                  attachments: [],
+                },
+                { sequence: 1 },
+              ),
+            ])
+          : syncServerReadModel(
+              initialState,
+              makeReadModel(
+                makeReadModelThread({
+                  id: threadId,
+                  messages: [message],
+                }),
+              ),
+            );
+      const storedMessage = threadsOf(state)[0]?.messages[0];
+      expect(storedMessage?.senderThreadId).toBe(senderThreadId);
+
+      const initialStoreState = useStore.getInitialState();
+      const initialShells = initialStoreState.threadShellById;
+      const threadShellById = {
+        ...initialShells,
+        [senderThreadId]: {
+          id: senderThreadId,
+          title: "Store sourced sender",
+          archivedAt: null,
+        } as never,
+      };
+      Object.assign(initialStoreState, { threadShellById });
+      useStore.setState(initialStoreState);
+      try {
+        const markup = renderToStaticMarkup(
+          <MessagesTimeline
+            hasMessages
+            isWorking={false}
+            activeTurnInProgress={false}
+            activeTurnStartedAt={null}
+            timelineEntries={[
+              {
+                id: `entry-${messageId}`,
+                kind: "message",
+                createdAt,
+                message: storedMessage!,
+              },
+            ]}
+            nowIso={createdAt}
+            expandedWorkGroups={{}}
+            onToggleWorkGroup={() => {}}
+            onImageExpand={() => {}}
+            markdownCwd={undefined}
+            resolvedTheme="light"
+            timestampFormat="locale"
+            workspaceRoot={undefined}
+            onOpenThread={() => {}}
+          />,
+        );
+        expect(markup).toContain("Sent by Store sourced sender");
+        expect(markup).toContain('aria-label="Open Store sourced sender"');
+      } finally {
+        Object.assign(initialStoreState, { threadShellById: initialShells });
+        useStore.setState(initialStoreState);
+      }
+    },
+    15_000,
+  );
+
   it("renders Connection and model changes as the designed transcript event", async () => {
     const { TimelineWorkEntryRow } = await import("./TimelineWorkEntryRow");
     const markup = renderToStaticMarkup(
@@ -559,8 +693,28 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("mb-1.5");
   });
 
-  it("renders a 'Sent by agent' chip above agent-dispatched user messages", async () => {
+  it("links a known active sender title and preserves steer mode for now=true sends", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
+    const senderThreadId = ThreadId.makeUnsafe("sender-thread");
+    const senderTitle = "Coordinator with a deliberately long title ".repeat(8).trim();
+    const clampedSenderTitle = clampMentionTitle(senderTitle);
+    const initialStoreState = useStore.getInitialState();
+    const initialThreadShellById = initialStoreState.threadShellById;
+    useStore.setState((state) => ({
+      ...state,
+      threadShellById: {
+        ...state.threadShellById,
+        [senderThreadId]: {
+          id: senderThreadId,
+          title: senderTitle,
+          archivedAt: null,
+        } as never,
+      },
+    }));
+    Object.assign(initialStoreState, { threadShellById: useStore.getState().threadShellById });
+    expect(useStore.getState().threadShellById?.[senderThreadId]?.title).toBe(senderTitle);
+    expect(useStore.getInitialState().threadShellById?.[senderThreadId]?.title).toBe(senderTitle);
+    const onOpenThread = vi.fn();
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -577,6 +731,133 @@ describe("MessagesTimeline", () => {
               role: "user",
               text: "status check from the coordinator",
               dispatchOrigin: "agent",
+              senderThreadId,
+              dispatchMode: "steer",
+              delivery: { state: "queued", queued: true, sequence: 1 },
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        nowIso="2026-03-17T19:12:30.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+        onOpenThread={onOpenThread}
+      />,
+    );
+
+    expect(markup).toContain(`Sent by ${senderTitle}`);
+    expect(markup).toContain("Queued · not delivered · position 1");
+    expect(markup).not.toContain("Steering conversation");
+    expect(markup).toContain(`aria-label="Open ${clampedSenderTitle}"`);
+    expect(markup).toContain(`title="${clampedSenderTitle}"`);
+    expect(markup).toContain("truncate");
+    expect(markup).toContain("focus-visible:ring-2");
+    expect(markup).not.toContain("Sent by agent");
+    Object.assign(initialStoreState, { threadShellById: initialThreadShellById });
+    useStore.setState(initialStoreState);
+  });
+  it("keeps an archived sender title as plain text and uses the generic fallback only when unknown", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const senderThreadId = ThreadId.makeUnsafe("sender-thread-archived");
+    const initialStoreState = useStore.getInitialState();
+    const initialThreadShellById = initialStoreState.threadShellById;
+    useStore.setState((state) => ({
+      ...state,
+      threadShellById: {
+        ...state.threadShellById,
+        [senderThreadId]: {
+          id: senderThreadId,
+          title: "Archived coordinator",
+          archivedAt: "2026-03-17T19:12:00.000Z",
+        } as never,
+      },
+    }));
+    Object.assign(initialStoreState, { threadShellById: useStore.getState().threadShellById });
+    const renderMarker = (id: string, senderId?: ThreadId) =>
+      renderToStaticMarkup(
+        <MessagesTimeline
+          hasMessages
+          isWorking={false}
+          activeTurnInProgress={false}
+          activeTurnStartedAt={null}
+          timelineEntries={[
+            {
+              id: `entry-${id}`,
+              kind: "message",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              message: {
+                id: MessageId.makeUnsafe(`message-${id}`),
+                role: "user",
+                text: "hello",
+                dispatchOrigin: "agent",
+                ...(senderId ? { senderThreadId: senderId } : {}),
+                createdAt: "2026-03-17T19:12:28.000Z",
+                streaming: false,
+              },
+            },
+          ]}
+          nowIso="2026-03-17T19:12:30.000Z"
+          expandedWorkGroups={{}}
+          onToggleWorkGroup={() => {}}
+          onImageExpand={() => {}}
+          markdownCwd={undefined}
+          resolvedTheme="light"
+          timestampFormat="locale"
+          workspaceRoot={undefined}
+          onOpenThread={() => {}}
+        />,
+      );
+    const archivedMarkup = renderMarker("archived", senderThreadId);
+    expect(archivedMarkup).toContain("Sent by Archived coordinator");
+    expect(archivedMarkup).not.toContain('aria-label="Open Archived coordinator"');
+
+    const unknownMarkup = renderMarker("unknown", ThreadId.makeUnsafe("unknown-sender"));
+    expect(unknownMarkup).toContain("Sent by agent");
+    expect(unknownMarkup).not.toContain('aria-label="Open unknown-sender"');
+
+    useStore.setState((state) => ({
+      ...state,
+      threadShellById: {
+        ...state.threadShellById,
+        [senderThreadId]: {
+          id: senderThreadId,
+          title: "   ",
+          archivedAt: null,
+        } as never,
+      },
+    }));
+    Object.assign(initialStoreState, { threadShellById: useStore.getState().threadShellById });
+    expect(renderMarker("empty-title", senderThreadId)).toContain("Sent by agent");
+    Object.assign(initialStoreState, { threadShellById: initialThreadShellById });
+    useStore.setState(initialStoreState);
+  });
+
+  it("does not render a sender label for a user-origin resend with stale sender metadata", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        timelineEntries={[
+          {
+            id: "entry-edited-agent-message",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("message-edited-agent"),
+              role: "user",
+              text: "edited by user",
+              dispatchOrigin: "user",
+              senderThreadId: ThreadId.makeUnsafe("stale-sender"),
+              dispatchMode: "queue",
               createdAt: "2026-03-17T19:12:28.000Z",
               streaming: false,
             },
@@ -593,8 +874,8 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Sent by agent");
-    expect(markup).not.toContain("Steering conversation");
+    expect(markup).not.toContain("Sent by");
+    expect(markup).not.toContain("Open stale-sender");
   });
 
   it("pushes the steering chip higher when the user message has chips or photos", async () => {
@@ -1185,6 +1466,100 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("+2 more tool calls");
     expect(markup).not.toContain("Tool 1");
     expect(markup).not.toContain("Tool 5");
+  });
+
+  it("renders the completed-turn disclosure before an interleaved presented image", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        timelineEntries={[
+          {
+            id: "entry-user-media-turn",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-media-turn"),
+              role: "user",
+              text: "Make an image",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "entry-assistant-preamble-media-turn",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:29.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-preamble-media-turn"),
+              role: "assistant",
+              text: "Preparing the image.",
+              createdAt: "2026-03-17T19:12:29.000Z",
+              completedAt: "2026-03-17T19:12:29.100Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "entry-presented-image-media-turn",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:29.200Z",
+            entry: {
+              id: "presented-image-media-turn",
+              createdAt: "2026-03-17T19:12:29.200Z",
+              label: "Showed concept.png",
+              tone: "info",
+              activityKind: "media.presented",
+              presentedMedia: {
+                attachmentId: "att_v2_media-turn",
+                name: "concept.png",
+                mimeType: "image/png",
+                sizeBytes: 200,
+                type: "image",
+              },
+            },
+          },
+          {
+            id: "entry-image-tool-media-turn",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:29.500Z",
+            entry: {
+              id: "image-tool-media-turn",
+              createdAt: "2026-03-17T19:12:29.500Z",
+              label: "Generated image",
+              tone: "tool",
+            },
+          },
+          {
+            id: "entry-assistant-final-media-turn",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-final-media-turn"),
+              role: "assistant",
+              text: "Here it is.",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              completedAt: "2026-03-17T19:12:30.500Z",
+              streaming: false,
+            },
+          },
+        ]}
+        nowIso="2026-03-17T19:12:31.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup.indexOf("Worked for")).toBeLessThan(markup.indexOf("concept.png"));
+    expect(markup.indexOf("concept.png")).toBeLessThan(markup.indexOf("Here it is."));
+    expect(markup).not.toContain("Preparing the image.");
   });
 
   it("renders Cursor-style inline tool rows with a uniform label", async () => {

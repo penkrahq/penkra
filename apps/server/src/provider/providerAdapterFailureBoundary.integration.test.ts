@@ -19,6 +19,7 @@ import {
 } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Duration, Effect, Exit, Layer, ManagedRuntime, Option, Scope } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -61,6 +62,8 @@ import { ProviderSessionDirectoryLive } from "./Layers/ProviderSessionDirectory.
 import { makeDurableProviderServiceLive } from "./Layers/ProviderService.ts";
 import { makeCodexAdapterLive } from "./Layers/CodexAdapter.ts";
 import { ProviderSessionRuntimeRepositoryLive } from "../persistence/Layers/ProviderSessionRuntime.ts";
+import { makeProviderAuthCircuitStore } from "./providerAuthCircuit.ts";
+import { ProviderDiscoveryService } from "./Services/ProviderDiscoveryService.ts";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-adapter-boundary");
 const TURN_ID = TurnId.makeUnsafe("turn-adapter-boundary");
@@ -244,6 +247,27 @@ class ControlledCodexManager extends CodexAppServerManager {
       payload: {},
     } satisfies ProviderEvent);
   }
+
+  emitNativeTurnCompleted(eventId: string, state: "failed" | "completed"): void {
+    const session = this.controlledSessions.get(THREAD_ID);
+    if (session) {
+      this.controlledSessions.set(THREAD_ID, {
+        ...session,
+        status: "ready",
+        activeTurnId: undefined,
+      });
+    }
+    this.emit("event", {
+      id: asEventId(eventId),
+      kind: "notification",
+      provider: "codex",
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+      createdAt: "2026-09-07T10:02:03.000Z",
+      method: "turn/completed",
+      payload: { turn: { id: TURN_ID, status: state } },
+    } satisfies ProviderEvent);
+  }
 }
 
 async function waitFor(predicate: () => Promise<boolean>, timeoutMs = 3_000): Promise<void> {
@@ -258,6 +282,7 @@ async function makeProviderRuntime(
   dbPath: string,
   manager: ControlledCodexManager,
   initialize = true,
+  probe?: () => Effect.Effect<boolean, Error>,
 ) {
   const fixtureProfileRoot = path.join(path.dirname(dbPath), "profile");
   const fixtureNativeStateRoot = path.join(path.dirname(dbPath), "native");
@@ -364,6 +389,19 @@ async function makeProviderRuntime(
         }),
     } as never),
     Layer.succeed(ThreadProviderBindingRepository, {
+      getRuntimeBinding: (threadId: ThreadId) =>
+        Effect.succeed(
+          Option.some({
+            threadId,
+            connectionId: CONNECTION_ID,
+            installationId: "fixture-installation",
+            internalProviderId: null,
+            modelId: MODEL_SELECTION.model,
+            revision: 0,
+            createdAt: "2026-09-07T10:00:00.000Z",
+            updatedAt: "2026-09-07T10:00:00.000Z",
+          }),
+        ),
       getHarnessState: (threadId: ThreadId) =>
         Effect.succeed(
           Option.some({
@@ -407,6 +445,11 @@ async function makeProviderRuntime(
   const reactorLayer = makeProviderCommandReactorLive({
     queuedTurnRecoveryInterval: Duration.millis(10),
   }).pipe(
+    Layer.provideMerge(
+      Layer.succeed(ProviderDiscoveryService, {
+        probeConnection: probe ?? (() => Effect.succeed(false)),
+      } as never),
+    ),
     Layer.provideMerge(ingestionLayer),
     Layer.provideMerge(orchestrationLayer),
     Layer.provideMerge(providerLayer),
@@ -489,6 +532,45 @@ async function makeProviderRuntime(
       createdAt: now,
     }),
   );
+  if (probe)
+    await runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`
+        INSERT INTO provider_installations (
+          installation_id, harness_kind, version, platform, architecture, executable_path,
+          artifact_source, artifact_url, artifact_sha256, adapter_version, protocol_version,
+          lifecycle, installed_at, activated_at
+        ) VALUES ('fixture-installation', 'codex', '1', 'test', 'test', '/fixture/codex',
+                  'fixture', 'fixture', ${"0".repeat(64)}, '1', '1', 'active', ${now}, ${now})
+      `;
+        yield* sql`
+        INSERT INTO provider_connections (
+          connection_id, harness_kind, authentication_target_id, authentication_method_id,
+          label, profile_ref, created_at, updated_at
+        ) VALUES (${CONNECTION_ID}, 'codex', 'openai-first-party', 'chatgpt',
+                  'Fixture', 'fixture-profile', ${now}, ${now})
+      `;
+        yield* sql`
+        INSERT INTO provider_native_state_generations (
+          native_state_generation_id, harness_kind, adapter_schema_version,
+          state_manifest_json, lifecycle, created_at, owner_thread_id
+        ) VALUES ('fixture-generation', 'codex', '1', '{}', 'active', ${now}, ${THREAD_ID})
+      `;
+        yield* sql`
+        INSERT INTO thread_harness_states (
+          thread_id, harness_kind, native_state_generation_id,
+          native_state_locator_json, created_at, updated_at
+        ) VALUES (${THREAD_ID}, 'codex', 'fixture-generation', 'null', ${now}, ${now})
+      `;
+        yield* sql`
+        INSERT INTO thread_runtime_bindings (
+          thread_id, connection_id, installation_id, model_id, created_at, updated_at
+        ) VALUES (${THREAD_ID}, ${CONNECTION_ID}, 'fixture-installation',
+                  ${MODEL_SELECTION.model}, ${now}, ${now})
+      `;
+      }),
+    );
   await runtime.runPromise(
     provider.startSession(THREAD_ID, {
       provider: "codex",
@@ -731,6 +813,106 @@ async function closeBoundaryHarnesses(
 }
 
 describe("CodexAdapter -> ProviderService failure boundary", () => {
+  it("pauses queued and newly admitted turns after a terminal 401, then resumes after recovery", async () => {
+    const fixtureRoot = await mkdtemp(path.join(tmpdir(), "penkra-provider-auth-circuit-"));
+    const dbPath = path.join(fixtureRoot, "provider-runtime.sqlite");
+    const manager = new ControlledCodexManager();
+    let harness: BoundaryHarness | undefined;
+    let recovered = false;
+    let probeCalls = 0;
+    const predecessor = MessageId.makeUnsafe("message-auth-predecessor");
+    const successor = MessageId.makeUnsafe("message-auth-successor");
+    try {
+      harness = await makeProviderRuntime(dbPath, manager, true, () => {
+        probeCalls += 1;
+        return recovered ? Effect.succeed(true) : Effect.fail(new Error("401 Unauthorized"));
+      });
+      await establishRunningPredecessorAndQueuedSuccessor(harness, manager, {
+        predecessorMessageId: predecessor,
+        predecessorText: "Auth predecessor",
+        successorMessageId: successor,
+        successorText: "Keep this queued",
+        commandPrefix: "cmd-auth-circuit",
+      });
+      expect(manager.sendInputs).toHaveLength(1);
+      manager.emitNativeNotification({
+        eventId: "evt-auth-circuit-401",
+        createdAt: "2026-09-07T10:02:02.000Z",
+        error: {
+          message: "401 Incorrect API key provided: sk-svcac…",
+          codexErrorInfo: "unauthorized",
+        },
+        willRetry: false,
+      });
+      await waitFor(
+        async () =>
+          (
+            await harness!.runtime.runPromise(
+              Effect.gen(function* () {
+                const sql = yield* SqlClient.SqlClient;
+                return yield* makeProviderAuthCircuitStore(sql).get(CONNECTION_ID);
+              }),
+            )
+          ).length === 1,
+      );
+      manager.emitNativeTurnCompleted("evt-auth-circuit-failed", "failed");
+      await harness.runtime.runPromise(harness.ingestion.drain);
+      await harness.runtime.runPromise(harness.reactor.drain);
+      expect(probeCalls).toBe(0);
+      expect(manager.sendInputs).toHaveLength(1);
+      expect(
+        (await projectedThread(harness))?.messages.find((m) => m.id === successor)?.delivery,
+      ).toMatchObject({ state: "queued", queued: true });
+      expect((await projectedThread(harness))?.session?.lastError).toContain(
+        "The provider is rejecting this Connection.",
+      );
+
+      const newMessageId = MessageId.makeUnsafe("message-auth-new-during-outage");
+      await harness.runtime.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          connectionId: CONNECTION_ID,
+          bindingRevision: 0,
+          commandId: CommandId.makeUnsafe("cmd-auth-new-during-outage"),
+          threadId: THREAD_ID,
+          message: { messageId: newMessageId, role: "user", text: "New message", attachments: [] },
+          dispatchMode: "queue",
+          modelSelection: MODEL_SELECTION,
+          runtimeMode: "full-access",
+          createdAt: "2026-09-07T10:02:04.000Z",
+        }),
+      );
+      await waitFor(
+        async () =>
+          (await projectedThread(harness!))?.messages.find((m) => m.id === newMessageId)?.delivery
+            ?.state === "queued",
+      );
+      await harness.runtime.runPromise(harness.reactor.drain);
+      expect(manager.sendInputs).toHaveLength(1);
+
+      await harness.runtime.runPromise(harness.reactor.retryAuthConnection(CONNECTION_ID));
+      expect(probeCalls).toBe(1);
+      const stillOpen = await harness.runtime.runPromise(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          return yield* makeProviderAuthCircuitStore(sql).get(CONNECTION_ID);
+        }),
+      );
+      expect(stillOpen[0]?.failureCount).toBeGreaterThanOrEqual(2);
+      expect(manager.sendInputs).toHaveLength(1);
+      recovered = true;
+      await harness.runtime.runPromise(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`UPDATE provider_auth_circuits SET next_probe_at = '2000-01-01T00:00:00.000Z' WHERE connection_id = ${CONNECTION_ID}`;
+        }),
+      );
+      await waitFor(async () => manager.sendInputs.length === 2);
+      expect(manager.sendInputs[1]?.input).toBe("Keep this queued");
+    } finally {
+      await closeBoundaryHarnesses(fixtureRoot, [harness]);
+    }
+  });
   it("journals the adapter-normalized terminal contract and retains it after offline restart", async () => {
     const fixtureRoot = await mkdtemp(path.join(tmpdir(), "penkra-provider-boundary-"));
     const dbPath = path.join(fixtureRoot, "provider-runtime.sqlite");

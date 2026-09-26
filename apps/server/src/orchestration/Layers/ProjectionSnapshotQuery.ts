@@ -56,7 +56,6 @@ import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.t
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
   ProjectionSnapshotQuery,
-  type ProjectionGeneratedImageActivityRecord,
   type ProjectionOpenTurnCount,
   type ProjectionStreamingAssistantMessage,
   type ProjectionSnapshotCounts,
@@ -81,7 +80,6 @@ const MAX_SNAPSHOT_THREAD_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.sum
 // A single opened thread keeps a much deeper window: providers emit hundreds of
 // activity rows per turn, so a 500-row tail dropped the previous turns' work log.
 const MAX_THREAD_DETAIL_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.detailActivities;
-const MAX_TURN_GENERATED_IMAGE_ACTIVITY_RECORDS = 64;
 const THREAD_TURN_PAGE_SIZE = 20;
 const ProjectionStreamingAssistantMessageRow = Schema.Struct({
   threadId: ThreadId,
@@ -122,10 +120,6 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
 );
 type PendingInteractionRow = typeof OrchestrationPendingInteraction.Type;
 const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession;
-const ProjectionGeneratedImageActivityDbRowSchema = Schema.Struct({
-  kind: Schema.String,
-  payload: Schema.fromJsonString(Schema.Unknown),
-});
 const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   threadId: ProjectionThread.fields.threadId,
   turnId: TurnId,
@@ -173,10 +167,6 @@ const ThreadIdLookupInput = Schema.Struct({
 const StaleInFlightThreadLookupInput = Schema.Struct({
   updatedBefore: IsoDateTime,
   limit: Schema.Number,
-});
-const ThreadTurnLookupInput = Schema.Struct({
-  threadId: ThreadId,
-  turnId: TurnId,
 });
 const ThreadMessagesByThreadLookupInput = Schema.Struct({
   threadId: ThreadId,
@@ -592,6 +582,7 @@ function toProjectedThreadShellFromStoredSummary(input: {
     sidebarSortOrder: threadRow.sidebarSortOrder,
     title: threadRow.title,
     modelSelection: threadRow.modelSelection,
+    connectionId: threadRow.connectionId ?? null,
     runtimeMode: threadRow.runtimeMode,
     workingDirectory: threadRow.workingDirectory,
     isPinned: threadRow.isPinned > 0,
@@ -643,6 +634,7 @@ function assembleProjectedThread(
     sidebarSortOrder: threadRow.sidebarSortOrder,
     title: threadRow.title,
     modelSelection: threadRow.modelSelection,
+    connectionId: threadRow.connectionId ?? null,
     runtimeMode: threadRow.runtimeMode,
     workingDirectory: threadRow.workingDirectory,
     isPinned: threadRow.isPinned > 0,
@@ -828,6 +820,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           folder_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
+          connection_id AS "connectionId",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
@@ -873,6 +866,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           folder_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
+          connection_id AS "connectionId",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
@@ -1015,6 +1009,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           mentions_json AS "mentions",
           dispatch_mode AS "dispatchMode",
           dispatch_origin AS "dispatchOrigin",
+          sender_thread_id AS "senderThreadId",
           delivery_state AS "deliveryState",
           delivery_queued AS "deliveryQueued",
           delivery_sequence AS "deliverySequence",
@@ -1339,6 +1334,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           folder_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
+          connection_id AS "connectionId",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
@@ -1386,6 +1382,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           folder_id AS "folderId",
           title,
           model_selection_json AS "modelSelection",
+          connection_id AS "connectionId",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
@@ -1438,6 +1435,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           mentions_json AS "mentions",
           dispatch_mode AS "dispatchMode",
           dispatch_origin AS "dispatchOrigin",
+          sender_thread_id AS "senderThreadId",
           delivery_state AS "deliveryState",
           delivery_queued AS "deliveryQueued",
           delivery_sequence AS "deliverySequence",
@@ -1629,6 +1627,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           mentions_json AS "mentions",
           dispatch_mode AS "dispatchMode",
           dispatch_origin AS "dispatchOrigin",
+          sender_thread_id AS "senderThreadId",
           delivery_state AS "deliveryState",
           delivery_queued AS "deliveryQueued",
           delivery_sequence AS "deliverySequence",
@@ -2036,28 +2035,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           CASE dispatch_mode WHEN 'steer' THEN 0 ELSE 1 END ASC,
           CASE WHEN dispatch_mode = 'steer' THEN queued_event_sequence END DESC,
           queued_event_sequence ASC
-      `,
-  });
-
-  // Generated-image references are recovered at turn settlement. Keep this query
-  // independent of the 500-row thread-detail activity window: a long-running turn
-  // can emit far more tool activities before its terminal event arrives.
-  const listGeneratedImageActivityRowsByTurn = SqlSchema.findAll({
-    Request: ThreadTurnLookupInput,
-    Result: ProjectionGeneratedImageActivityDbRowSchema,
-    execute: ({ threadId, turnId }) =>
-      sql`
-        SELECT kind, payload_json AS "payload"
-        FROM thread_activities_read
-        WHERE thread_id = ${threadId}
-          AND turn_id = ${turnId}
-          AND kind = 'tool.completed'
-          AND json_extract(payload_json, '$.itemType') = 'image_generation'
-        -- Provider replay can project the same completion more than once. Collapse
-        -- exact payload duplicates before applying the two-records-per-image cap.
-        GROUP BY kind, payload_json
-        ORDER BY MIN(created_at) ASC, MIN(activity_id) ASC
-        LIMIT ${MAX_TURN_GENERATED_IMAGE_ACTIVITY_RECORDS}
       `,
   });
 
@@ -2626,21 +2603,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           ),
         ),
         Effect.map(Option.map((row) => row.threadId)),
-      );
-
-  const listGeneratedImageActivitiesByTurn: ProjectionSnapshotQueryShape["listGeneratedImageActivitiesByTurn"] =
-    (threadId, turnId) =>
-      listGeneratedImageActivityRowsByTurn({ threadId, turnId }).pipe(
-        Effect.mapError(
-          toPersistenceSqlOrDecodeError(
-            "ProjectionSnapshotQuery.listGeneratedImageActivitiesByTurn:query",
-            "ProjectionSnapshotQuery.listGeneratedImageActivitiesByTurn:decodeRows",
-          ),
-        ),
-        Effect.map(
-          (rows): ReadonlyArray<ProjectionGeneratedImageActivityRecord> =>
-            rows.map((row) => ({ kind: row.kind, payload: row.payload })),
-        ),
       );
 
   const getThreadShellById: ProjectionSnapshotQueryShape["getThreadShellById"] = (threadId) =>
@@ -3221,6 +3183,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
              messages.mentions_json AS "mentions",
              messages.dispatch_mode AS "dispatchMode",
              messages.dispatch_origin AS "dispatchOrigin",
+             messages.sender_thread_id AS "senderThreadId",
              messages.delivery_state AS "deliveryState",
              messages.delivery_queued AS "deliveryQueued",
              messages.delivery_sequence AS "deliverySequence",
@@ -3460,7 +3423,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getFolderShellById,
     getSpaceShellById,
     getFirstActiveThreadIdByFolderId,
-    listGeneratedImageActivitiesByTurn,
     getThreadShellById,
     findSyntheticSubagentParentThread,
     getThreadDetailById,
