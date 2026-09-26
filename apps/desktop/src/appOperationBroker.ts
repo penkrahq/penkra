@@ -95,12 +95,18 @@ export interface OpenAppTabRequest {
   threadId: string;
   route: string;
   state?: unknown;
+  initiator?: "agent" | "user";
 }
 
 export interface AppTabHost {
   open(input: OpenAppTabRequest): Promise<AppTabHandle>;
   openForResult<Result = unknown>(input: OpenAppTabRequest): Promise<Result>;
-  presentExisting?(input: { appId: string; spaceId: string; deckId: string }): AppTabHandle | null;
+  presentExisting?(input: {
+    appId: string;
+    spaceId: string;
+    deckId: string;
+    initiator?: "agent" | "user";
+  }): AppTabHandle | null;
 }
 
 export interface AppOperationBrokerOptions {
@@ -235,6 +241,7 @@ export class AppOperationBroker {
           spaceId: request.spaceId,
           deckId: request.deckId,
           threadId: request.threadId,
+          initiator: request.callerKind === "agent" ? "agent" : "user",
           ...input,
         }),
       openForResult: (input) =>
@@ -243,6 +250,7 @@ export class AppOperationBroker {
           spaceId: request.spaceId,
           deckId: request.deckId,
           threadId: request.threadId,
+          initiator: request.callerKind === "agent" ? "agent" : "user",
           ...input,
         }),
     };
@@ -259,6 +267,7 @@ export class AppOperationBroker {
             appId: target.appId,
             spaceId: request.spaceId,
             deckId: request.deckId,
+            initiator: request.callerKind === "agent" ? "agent" : "user",
           });
           if (existing) return existing;
           return this.#tabHost.open({
@@ -267,6 +276,7 @@ export class AppOperationBroker {
             deckId: request.deckId,
             threadId: request.threadId,
             route: "/",
+            initiator: request.callerKind === "agent" ? "agent" : "user",
           });
         },
       },

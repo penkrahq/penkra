@@ -192,16 +192,19 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     setActiveWork: (input) => ipcRenderer.invoke(IPC.powerSetActiveWork, input),
   },
   threadApi: {
-    onRequest: (listener) => {
-      const wrapped = (_event: Electron.IpcRendererEvent, request: unknown) =>
-        listener(request as Parameters<typeof listener>[0]);
-      ipcRenderer.on(IPC.threadApiRequest, wrapped);
-      return () => ipcRenderer.removeListener(IPC.threadApiRequest, wrapped);
-    },
-    respond: (response) => ipcRenderer.send(IPC.threadApiResponse, response),
     publishState: (input) => ipcRenderer.send(IPC.threadApiState, input),
-    bindTurnOrigin: (input) => ipcRenderer.send(IPC.threadApiTurnOriginBind, input),
-    unbindTurnOrigin: (input) => ipcRenderer.send(IPC.threadApiTurnOriginUnbind, input),
+  },
+  threadHome: {
+    view: (input) => ipcRenderer.send(IPC.threadHomeView, input),
+    leave: () => ipcRenderer.send(IPC.threadHomeLeave),
+    send: (input) => ipcRenderer.send(IPC.threadHomeSend, input),
+    agentNavigation: (input) => ipcRenderer.send(IPC.threadHomeAgentNavigation, input),
+    onSelect: (listener) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, input: { threadId: string }) =>
+        listener(input);
+      ipcRenderer.on(IPC.threadHomeSelect, wrapped);
+      return () => ipcRenderer.removeListener(IPC.threadHomeSelect, wrapped);
+    },
   },
   composerDrafts: {
     readSnapshot: () => ipcRenderer.invoke(IPC.composerDrafts.readSnapshot),
@@ -290,7 +293,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     set: (input) => ipcRenderer.invoke(IPC.appOpenWith.set, input),
   },
   appTabs: {
-    list: () => ipcRenderer.invoke(IPC.appTabs.list),
+    list: (scope) => ipcRenderer.invoke(IPC.appTabs.list, scope),
     consumeListingRequest: () => ipcRenderer.invoke(IPC.appTabs.consumeListingRequest),
     open: (input) => ipcRenderer.invoke(IPC.appTabs.open, input),
     present: (input) => ipcRenderer.invoke(IPC.appTabs.present, input),
