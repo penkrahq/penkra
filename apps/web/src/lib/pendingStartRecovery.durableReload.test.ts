@@ -140,6 +140,8 @@ describe("pending recovery durable restart controls", () => {
         id: messageId,
         prompt,
         previewText: prompt,
+        images: [makeImage({ id: `image-${messageId}`, previewUrl: "data:image/png;base64,AQID" })],
+        files: [{ ...makeFile({ id: `file-${messageId}` }), assetKey: `asset-${messageId}` }],
         messageId,
       },
       settlement: "unresolved",
@@ -183,9 +185,21 @@ describe("pending recovery durable restart controls", () => {
     storage.flush();
     const durable = JSON.parse(bytes.get(COMPOSER_DRAFT_STORAGE_KEY)!);
     const normalized = normalizeCurrentPersistedComposerDraftStoreState(durable.state);
+    expect(normalized.draftsByThreadId[threadId]).toBeDefined();
     const hydrated = toHydratedThreadDraft(threadId, normalized.draftsByThreadId[threadId]!);
     const hydratedRecoveries = hydrated.pendingStartRecoveriesByMessageId ?? {};
     expect(Object.keys(hydratedRecoveries)).toEqual([acceptedId, cancelledId, unknownId]);
+    const acceptedRecovery = hydratedRecoveries[acceptedId];
+    expect(
+      acceptedRecovery &&
+        "pendingTurn" in acceptedRecovery &&
+        acceptedRecovery.pendingTurn.images[0]?.file.size,
+    ).toBe(3);
+    expect(
+      acceptedRecovery &&
+        "pendingTurn" in acceptedRecovery &&
+        acceptedRecovery.pendingTurn.files[0]?.assetKey,
+    ).toBe(`asset-${acceptedId}`);
 
     vi.resetModules();
     const { PendingStartRecoveryRegistry } = await import("./pendingStartRecoveryRegistry");
@@ -198,7 +212,7 @@ describe("pending recovery durable restart controls", () => {
     const accepted = vi.fn(async () => {});
     const cancelled = vi.fn(async () => {});
     for (const record of Object.values(hydratedRecoveries)) {
-      if (!record || "raw" in record) continue;
+      if (!record || !("pendingTurn" in record)) continue;
       registry.register({
         threadId,
         messageId: record.messageId,

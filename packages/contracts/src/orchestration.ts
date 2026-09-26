@@ -557,6 +557,8 @@ export const OrchestrationThread = Schema.Struct({
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
+  /** Thread's current preferred Connection; null means anonymous route. */
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   runtimeMode: RuntimeMode,
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
     Schema.withDecodingDefault(() => null),
@@ -627,6 +629,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   runtimeMode: RuntimeMode,
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
     Schema.withDecodingDefault(() => null),
@@ -993,6 +996,7 @@ const ThreadUpdateCommand = Schema.Struct({
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   isPinned: Schema.optional(Schema.Boolean),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
@@ -1648,6 +1652,7 @@ export const ThreadUpdatedPayload = Schema.Struct({
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   isPinned: Schema.optional(Schema.Boolean),
   sidebarSortOrder: Schema.optional(NonNegativeInt),
