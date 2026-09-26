@@ -954,6 +954,7 @@ const ThreadDeleteCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   expectedArchivedAt: Schema.optional(IsoDateTime),
+  expectedEmptyGatewayOperationId: Schema.optional(TrimmedNonEmptyString),
 });
 
 const ThreadArchiveCommand = Schema.Struct({

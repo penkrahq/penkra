@@ -225,9 +225,25 @@ export const makeCreateThreadHandler = Effect.fn(function* (
             Effect.asVoid,
           );
         }
-        yield* context.assertAuthority();
-
         const receipt = yield* commandReceipts.getByCommandId({ commandId: turnCommand.commandId });
+        yield* context.assertAuthority().pipe(
+          Effect.catch((error) =>
+            !(Option.isSome(receipt) && receipt.value.status === "accepted")
+              ? orchestrationEngine
+                  .dispatch({
+                    // The child was created but its first turn was not admitted.
+                    type: "thread.delete",
+                    commandId: CommandId.makeUnsafe(
+                      `agent:${stableGatewayDigest({ operationId, kind: "stale-create-abort" })}:abort`,
+                    ),
+                    threadId: result.threadId,
+                    expectedEmptyGatewayOperationId: operationId,
+                  })
+                  .pipe(Effect.andThen(Effect.fail(error)))
+              : Effect.fail(error),
+          ),
+        );
+
         const fingerprint = fingerprintOrchestrationCommand(turnCommand);
         if (
           Option.isSome(receipt) &&

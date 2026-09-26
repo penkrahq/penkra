@@ -1150,6 +1150,22 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         threadId: command.threadId,
       });
       if (
+        command.expectedEmptyGatewayOperationId !== undefined &&
+        (thread.gatewayOperationId !== command.expectedEmptyGatewayOperationId ||
+          thread.latestTurn !== null ||
+          thread.messages.length > 0 ||
+          thread.archivedAt !== null ||
+          thread.updatedAt !== thread.createdAt ||
+          thread.isPinned === true)
+      ) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Thread '${command.threadId}' is no longer an empty gateway creation.`,
+          }),
+        );
+      }
+      if (
         command.expectedArchivedAt !== undefined &&
         (thread.archivedAt !== command.expectedArchivedAt || thread.isPinned === true)
       ) {
