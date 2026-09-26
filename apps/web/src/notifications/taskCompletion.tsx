@@ -10,8 +10,6 @@ import { toastManager } from "../components/ui/toast";
 import { resolveVisibleToastThreadIds } from "../components/ui/toastRouteVisibility";
 import { useAppSettings } from "../appSettings";
 import { isElectron } from "../env";
-import { useChatRouteSearch } from "../hooks/useChatRouteSearch";
-import { selectSplitView, useSplitViewStore } from "../splitViewStore";
 import { useStore } from "../store";
 import { createAllThreadsSelector } from "../storeSelectors";
 import { useTerminalStateStore } from "../terminalStateStore";
@@ -75,13 +73,11 @@ interface ThreadNotificationCopy {
   body: string;
 }
 
-// Notification opens are generic thread activations, so they clear splitViewId
-// instead of resurrecting a hidden split pairing.
 function focusThread(threadId: Thread["id"], navigate: ReturnType<typeof useNavigate>): void {
   void navigate({
     to: "/$threadId",
     params: { threadId },
-    search: (previous) => ({ ...previous, splitViewId: undefined }),
+    search: () => ({}),
   });
 }
 
@@ -148,15 +144,11 @@ export function TaskCompletionNotifications() {
     select: (params) =>
       typeof params.threadId === "string" ? ThreadId.makeUnsafe(params.threadId) : null,
   });
-  const routeSearch = useChatRouteSearch();
-  const splitView = useSplitViewStore(
-    useMemo(() => selectSplitView(routeSearch.splitViewId ?? null), [routeSearch.splitViewId]),
-  );
   const [allThreadsSelector] = useState(() => createAllThreadsSelector());
   const threads = useStore(allThreadsSelector);
   const threadsHydrated = useStore((store) => store.threadsHydrated);
   const terminalStateByThreadId = useTerminalStateStore((store) => store.terminalStateByThreadId);
-  const visibleThreadIds = resolveVisibleToastThreadIds({ activeThreadId, splitView });
+  const visibleThreadIds = resolveVisibleToastThreadIds({ activeThreadId });
   const previousThreadsRef = useRef<readonly Thread[]>([]);
   const previousTerminalStateRef = useRef(terminalStateByThreadId);
   // Lazy state init: evaluated once, keeping the impure Date.now() call out

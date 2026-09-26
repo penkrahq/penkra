@@ -244,16 +244,13 @@ describe("resolveSettingsBackTarget", () => {
       resolveSettingsBackTarget({
         lastThreadRoute: {
           threadId: "thread-remembered",
-          splitViewId: "split-live",
         },
         availableThreadIds: new Set(["thread-remembered", "thread-latest"]),
-        availableSplitViewIds: new Set(["split-live"]),
         latestThreadId: "thread-latest",
       }),
     ).toEqual({
       kind: "thread",
       threadId: "thread-remembered",
-      splitViewId: "split-live",
     });
   });
 

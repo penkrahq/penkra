@@ -49,7 +49,6 @@ const STATIC_KEYBINDING_COMMANDS = [
   "chat.newClaude",
   "chat.newCodex",
   "chat.newOpenCode",
-  "chat.split",
   "view.recent.next",
   "view.recent.previous",
   "thread.jump.1",

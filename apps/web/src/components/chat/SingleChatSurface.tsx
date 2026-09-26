@@ -530,12 +530,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
             compensateForLeftSidebar={false}
             surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}
           >
-            <ChatView
-              threadId={props.threadId}
-              paneScopeId={SINGLE_CHAT_PANE_SCOPE_ID}
-              surfaceMode="single"
-              isFocusedPane
-            />
+            <ChatView threadId={props.threadId} paneScopeId={SINGLE_CHAT_PANE_SCOPE_ID} />
           </RouteInsetSurface>
         </div>
         <RightDock

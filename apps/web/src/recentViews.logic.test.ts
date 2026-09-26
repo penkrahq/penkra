@@ -54,35 +54,21 @@ describe("recent view MRU logic", () => {
     ]);
   });
 
-  it("prunes deleted views and downgrades missing split views to plain threads", () => {
+  it("prunes deleted views", () => {
     const recentViews: RecentView[] = [
-      { kind: "thread", threadId: threadId("thread-1"), splitViewId: "split-missing" },
+      { kind: "thread", threadId: threadId("thread-1") },
       { kind: "thread", threadId: threadId("thread-deleted") },
       { kind: "settings" },
     ];
 
     const pruned = pruneRecentViews(recentViews, {
       availableThreadIds: new Set([threadId("thread-1")]),
-      availableSplitViewIds: new Set(["split-1"]),
     });
 
     expect(pruned).toEqual([
       { kind: "thread", threadId: threadId("thread-1") },
       { kind: "settings" },
     ]);
-  });
-
-  it("downgrades split views that no longer contain the saved thread", () => {
-    const pruned = pruneRecentViews(
-      [{ kind: "thread", threadId: threadId("thread-1"), splitViewId: "split-1" }],
-      {
-        availableThreadIds: new Set([threadId("thread-1"), threadId("thread-2")]),
-        availableSplitViewIds: new Set(["split-1"]),
-        threadIdsBySplitViewId: new Map([["split-1", new Set([threadId("thread-2")])]]),
-      },
-    );
-
-    expect(pruned).toEqual([{ kind: "thread", threadId: threadId("thread-1") }]);
   });
 
   it("selects the previous MRU entry on the first forward cycle", () => {
@@ -115,12 +101,10 @@ describe("recent view MRU logic", () => {
         pathname: "/thread-1",
         routeThreadId: threadId("thread-1"),
         activeThreadId: threadId("thread-focused"),
-        splitViewId: "split-1",
       }),
     ).toEqual({
       kind: "thread",
       threadId: threadId("thread-focused"),
-      splitViewId: "split-1",
     });
 
     expect(

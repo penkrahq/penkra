@@ -4,11 +4,9 @@ import { describe, expect, it } from "vitest";
 import { type DraftThreadState } from "./composerDraftStore";
 import { resolveFocusedChatContext } from "./focusedChatContext";
 import type { Project, Thread } from "./types";
-import type { SplitView } from "./splitViewStore";
 
 const PROJECT_ID = FolderId.makeUnsafe("project-1");
 const THREAD_A = ThreadId.makeUnsafe("thread-a");
-const THREAD_B = ThreadId.makeUnsafe("thread-b");
 
 function makeProject(): Project {
   return {
@@ -69,104 +67,28 @@ function makeDraftThread(overrides: Partial<DraftThreadState> = {}): DraftThread
   };
 }
 
-interface SplitViewLayoutOverrides {
-  firstThreadId?: ThreadId | null;
-  secondThreadId?: ThreadId | null;
-  focusedSide?: "first" | "second";
-}
-
-function makeSplitView(overrides: SplitViewLayoutOverrides = {}): SplitView {
-  const firstLeaf = {
-    kind: "leaf" as const,
-    id: "pane-first",
-    threadId: overrides.firstThreadId === undefined ? THREAD_A : overrides.firstThreadId,
-    panel: {
-      panel: null,
-      diffTurnId: null,
-      diffFilePath: null,
-      hasOpenedPanel: false,
-      lastOpenPanel: "browser" as const,
-    },
-  };
-  const secondLeaf = {
-    kind: "leaf" as const,
-    id: "pane-second",
-    threadId: overrides.secondThreadId === undefined ? THREAD_B : overrides.secondThreadId,
-    panel: {
-      panel: null,
-      diffTurnId: null,
-      diffFilePath: null,
-      hasOpenedPanel: false,
-      lastOpenPanel: "browser" as const,
-    },
-  };
-  const focusedSide = overrides.focusedSide ?? "second";
-  return {
-    id: "split-1",
-    sourceThreadId: THREAD_A,
-    ownerFolderId: PROJECT_ID,
-    root: {
-      kind: "split",
-      id: "split-root",
-      direction: "horizontal",
-      first: firstLeaf,
-      second: secondLeaf,
-      ratio: 0.5,
-    },
-    focusedPaneId: focusedSide === "first" ? firstLeaf.id : secondLeaf.id,
-    createdAt: "2026-04-07T10:00:00.000Z",
-    updatedAt: "2026-04-07T10:00:00.000Z",
-  };
-}
-
 describe("resolveFocusedChatContext", () => {
-  it("uses the focused split pane thread instead of the route thread", () => {
+  it("uses the route thread and its project", () => {
     const context = resolveFocusedChatContext({
       routeThreadId: THREAD_A,
-      splitView: makeSplitView(),
-      threads: [makeThread(THREAD_A), makeThread(THREAD_B)],
-      folders: [makeProject()],
-      draftThreadsByThreadId: {},
-    });
-
-    expect(context.focusedThreadId).toBe(THREAD_B);
-    expect(context.activeThread?.id).toBe(THREAD_B);
-    expect(context.activeFolderId).toBe(PROJECT_ID);
-  });
-
-  it("falls back to the split owner project when the focused pane is empty", () => {
-    const context = resolveFocusedChatContext({
-      routeThreadId: THREAD_A,
-      splitView: makeSplitView({
-        secondThreadId: null,
-        focusedSide: "second",
-      }),
       threads: [makeThread(THREAD_A)],
       folders: [makeProject()],
       draftThreadsByThreadId: {},
     });
 
-    expect(context.focusedThreadId).toBeNull();
-    expect(context.activeThread).toBeNull();
+    expect(context.focusedThreadId).toBe(THREAD_A);
+    expect(context.activeThread?.id).toBe(THREAD_A);
     expect(context.activeFolderId).toBe(PROJECT_ID);
   });
 
-  it("prefers the focused draft thread when the pane points at a draft-only thread", () => {
-    const draftThreadId = ThreadId.makeUnsafe("thread-draft");
+  it("uses a draft thread when the route has no server thread yet", () => {
     const context = resolveFocusedChatContext({
       routeThreadId: THREAD_A,
-      splitView: makeSplitView({
-        secondThreadId: draftThreadId,
-        focusedSide: "second",
-      }),
-      threads: [makeThread(THREAD_A)],
+      threads: [],
       folders: [makeProject()],
-      draftThreadsByThreadId: {
-        [draftThreadId]: makeDraftThread({}),
-      },
+      draftThreadsByThreadId: { [THREAD_A]: makeDraftThread() },
     });
 
-    expect(context.focusedThreadId).toBe(draftThreadId);
     expect(context.activeDraftThread).toBeDefined();
     expect(context.activeFolderId).toBe(PROJECT_ID);
   });

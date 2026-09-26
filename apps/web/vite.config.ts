@@ -235,7 +235,6 @@ export default defineConfig({
       clientFiles: [
         "./src/routes/_chat.$threadId.tsx",
         "./src/components/chat/SingleChatSurface.tsx",
-        "./src/components/chat/SplitChatSurface.tsx",
         "./src/components/ChatView.tsx",
       ],
     },

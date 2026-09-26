@@ -58,7 +58,6 @@ describe("Sidebar.uiState", () => {
       },
       lastThreadRoute: {
         threadId: "thread-123",
-        splitViewId: "split-456",
       },
     });
 
@@ -75,7 +74,6 @@ describe("Sidebar.uiState", () => {
       },
       lastThreadRoute: {
         threadId: "thread-123",
-        splitViewId: "split-456",
       },
     });
   });
@@ -100,7 +98,7 @@ describe("Sidebar.uiState", () => {
         },
         lastThreadRoute: {
           threadId: "thread-123",
-          splitViewId: 42,
+          splitViewId: "split-old",
         },
       }),
     );
@@ -118,6 +116,22 @@ describe("Sidebar.uiState", () => {
         threadId: "thread-123",
       },
     });
+  });
+
+  it("restores one thread and removes retired split storage", () => {
+    window.localStorage.setItem(
+      "penkra:split-threads:v1",
+      JSON.stringify({ state: { splitViewsById: {} } }),
+    );
+    window.localStorage.setItem(
+      "penkra:sidebar-ui:v1",
+      JSON.stringify({
+        lastThreadRoute: { threadId: "thread-123", splitViewId: "split-old" },
+      }),
+    );
+
+    expect(readSidebarUiState().lastThreadRoute).toEqual({ threadId: "thread-123" });
+    expect(window.localStorage.getItem("penkra:split-threads:v1")).toBeNull();
   });
 
   it("migrates legacy all-or-nothing show-more state to one extra page", () => {

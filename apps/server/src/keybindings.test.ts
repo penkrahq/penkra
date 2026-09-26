@@ -765,6 +765,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
           { key: "mod+1", command: "modelPicker.jump.1" },
           { key: "mod+2", command: "composer.modelPicker.jump.2" },
           { key: "mod+alt+g", command: "chat.newGemini" },
+          { key: "mod+\\", command: "chat.split" },
           { key: "mod+k", command: "sidebar.search" },
         ]),
       );
@@ -782,6 +783,9 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       );
       assert.isFalse(
         configState.keybindings.some((entry) => String(entry.command) === "chat.newGemini"),
+      );
+      assert.isFalse(
+        configState.keybindings.some((entry) => String(entry.command) === "chat.split"),
       );
       assert.isTrue(
         configState.keybindings.some(
@@ -804,6 +808,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         persisted.some((entry) => String(entry.command).includes("modelPicker.jump.")),
       );
       assert.isFalse(persisted.some((entry) => String(entry.command) === "chat.newGemini"));
+      assert.isFalse(persisted.some((entry) => String(entry.command) === "chat.split"));
       assert.isFalse(
         persisted.some((entry) => entry.command === "modelPicker.toggle" && entry.key === "mod+1"),
       );

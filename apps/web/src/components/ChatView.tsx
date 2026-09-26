@@ -114,7 +114,6 @@ import {
   recordChatLifecycleDiagnostic,
   recordChatLifecycleUiDiagnostic,
 } from "../chatLifecycleDiagnostics";
-import { parseChatRouteSearch } from "../chatRouteSearch";
 import { openThreadUrlReference, useThreadResourceOpener } from "../lib/threadResourceOpener";
 import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
 import { readActiveSpaceId, useSpacesUiStore } from "../spacesUiStore";
@@ -140,7 +139,6 @@ import {
 } from "../lib/pendingStartRecoveryRegistry";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import { splitComposerDropzoneFiles, useComposerDropzone } from "../hooks/useComposerDropzone";
-import { useChatRouteSearch } from "../hooks/useChatRouteSearch";
 import {
   buildTranscriptAutoFollowSignal,
   deriveChatActivity,
@@ -346,11 +344,6 @@ import {
   shouldUseCompactComposerFooter,
 } from "./composerFooterLayout";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
-import {
-  resolveSplitViewFocusedThreadId,
-  selectSplitView,
-  useSplitViewStore,
-} from "../splitViewStore";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { usePinnedMessageActions } from "./chat/usePinnedMessageActions";
 import {
@@ -371,7 +364,6 @@ import { ComposerDefault } from "./middle-panel/composer-default/ComposerDefault
 import { ThreadScreen3Rails } from "./middle-panel/thread-screen-3-rails/ThreadScreen3Rails";
 import { ThreadScreenEmpty } from "./middle-panel/thread-screen-empty/ThreadScreenEmpty";
 import { ThreadShell } from "./middle-panel/thread-shell/ThreadShell";
-import { TopBarThreadAdapter } from "./middle-panel/top-bar-thread/TopBarThreadAdapter";
 import { ThreadDeckBar } from "./middle-panel/thread-deck-bar/ThreadDeckBar";
 import type { TranscriptVirtualListRef } from "./chat/TranscriptVirtualList";
 import { deriveAgentActivityTimelineState } from "./chat/agentActivity.logic";
@@ -807,12 +799,6 @@ function warnVoiceGuard(event: string, details?: Record<string, unknown>) {
 interface ChatViewProps {
   threadId: ThreadId;
   paneScopeId?: string;
-  surfaceMode?: "single" | "split";
-  isFocusedPane?: boolean;
-  onSplitSurface?: () => void;
-  onMaximizeSurface?: () => void;
-  onChangeThreadInSplitPane?: () => void;
-  onCloseThreadPane?: () => void;
 }
 
 interface LateComposerSendHandlers {
@@ -840,22 +826,11 @@ export function resetPendingStartRecoveryRegistryForTests(): void {
   }
 }
 
-export default function ChatView({
-  threadId,
-  paneScopeId: paneScopeIdProp,
-  surfaceMode: surfaceModeProp,
-  isFocusedPane: isFocusedPaneProp,
-  onSplitSurface,
-  onMaximizeSurface,
-  onChangeThreadInSplitPane,
-  onCloseThreadPane,
-}: ChatViewProps) {
+export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: ChatViewProps) {
   // Keep defaults out of the parameter list. Assignment-pattern parameters make
   // React Compiler skip this component, which turns every composer keystroke
   // into a full long-thread render.
   const paneScopeId = paneScopeIdProp ?? SINGLE_CHAT_PANE_SCOPE_ID;
-  const surfaceMode = surfaceModeProp ?? "single";
-  const isFocusedPane = isFocusedPaneProp ?? true;
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const syncServerThreadTurnsPage = useStore((store) => store.syncServerThreadTurnsPage);
@@ -878,15 +853,9 @@ export default function ChatView({
   const navigate = useNavigate();
   const { handleNewThread } = useHandleNewThread();
   const { handleNewChat } = useHandleNewChat();
-  const rawSearch = useChatRouteSearch();
-  const activeSplitView = useSplitViewStore(
-    useMemo(() => selectSplitView(rawSearch.splitViewId ?? null), [rawSearch.splitViewId]),
-  );
-  const removeThreadFromSplitViews = useSplitViewStore((store) => store.removeThreadFromSplitViews);
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
   const threadResourceOpener = useThreadResourceOpener();
-  const isInactiveSplitPane = surfaceMode === "split" && !isFocusedPane;
   const composerDraft = useComposerThreadDraft(threadId);
   const prompt = composerDraft.prompt;
   const composerPromptHistorySavedDraft = composerDraft.promptHistorySavedDraft;
@@ -2059,22 +2028,6 @@ export default function ChatView({
         });
         useComposerDraftStore.getState().clearDraftThread(terminalThreadId);
         useTerminalStateStore.getState().clearTerminalState(terminalThreadId);
-        removeThreadFromSplitViews(terminalThreadId);
-        if (activeSplitView) {
-          const nextSplitView = useSplitViewStore.getState().splitViewsById[activeSplitView.id];
-          const nextThreadId = nextSplitView
-            ? resolveSplitViewFocusedThreadId(nextSplitView)
-            : null;
-          if (nextSplitView && nextThreadId) {
-            await navigate({
-              to: "/$threadId",
-              params: { threadId: nextThreadId },
-              replace: true,
-              search: () => ({ splitViewId: nextSplitView.id }),
-            });
-            return;
-          }
-        }
         await handleNewChat({ fresh: true });
       };
 
@@ -2087,7 +2040,7 @@ export default function ChatView({
         });
       }
     },
-    [activeSplitView, handleNewChat, navigate, removeThreadFromSplitViews],
+    [handleNewChat],
   );
   const {
     terminalState,
@@ -2128,7 +2081,6 @@ export default function ChatView({
     activeThreadId,
     activeThread,
     activeProjectPresent: activeProject !== undefined,
-    isFocusedPane,
     isServerThread,
     confirmTerminalClose: settings.confirmTerminalTabClose,
     onDeletePlaceholderThread: deletePlaceholderTerminalThread,
@@ -4746,11 +4698,7 @@ export default function ChatView({
     onMessagesWheel,
   } = useTranscriptAssistantSelectionAction({
     threadId,
-    enabled:
-      Boolean(activeThread) &&
-      !isInactiveSplitPane &&
-      pendingUserInputs.length === 0 &&
-      !isComposerApprovalState,
+    enabled: Boolean(activeThread) && pendingUserInputs.length === 0 && !isComposerApprovalState,
     composerImagesRef,
     composerFilesRef,
     composerAssistantSelectionsRef,
@@ -4767,7 +4715,6 @@ export default function ChatView({
     onMessagesWheelBase,
   });
   useLayoutEffect(() => {
-    if (isInactiveSplitPane) return;
     const composerForm = composerFormRef.current;
     if (!composerForm) return;
     const measureComposerFormWidth = () => composerForm.clientWidth;
@@ -4836,10 +4783,10 @@ export default function ChatView({
     return () => {
       observer.disconnect();
     };
-  }, [activeThread?.id, composerFooterHasWideActions, isInactiveSplitPane]);
+  }, [activeThread?.id, composerFooterHasWideActions]);
 
   useLayoutEffect(() => {
-    if (isInactiveSplitPane || typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") return;
     const composerForm = composerFormRef.current;
     if (!composerForm) return;
 
@@ -4901,7 +4848,6 @@ export default function ChatView({
     };
   }, [
     activeThread?.id,
-    isInactiveSplitPane,
     recordTranscriptControllerDiagnostic,
     secondaryChromeReady,
     shouldRenderChatPaneContent,
@@ -4939,14 +4885,14 @@ export default function ChatView({
   }, [activeThread?.id]);
 
   useEffect(() => {
-    if (!activeThread?.id || terminalState.terminalOpen || isInactiveSplitPane) return;
+    if (!activeThread?.id || terminalState.terminalOpen) return;
     const frame = window.requestAnimationFrame(() => {
       focusComposer();
     });
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [activeThread?.id, focusComposer, isInactiveSplitPane, terminalState.terminalOpen]);
+  }, [activeThread?.id, focusComposer, terminalState.terminalOpen]);
 
   useEffect(() => {
     composerImagesRef.current = composerImages;
@@ -5752,10 +5698,6 @@ export default function ChatView({
   );
 
   useEffect(() => {
-    if (surfaceMode === "split" && !isFocusedPane) {
-      return;
-    }
-
     const handler = (event: globalThis.KeyboardEvent) => {
       if (!activeThreadId || event.defaultPrevented) return;
       // Mirror terminal interrupt semantics without stealing regular copy shortcuts.
@@ -5858,15 +5800,6 @@ export default function ChatView({
         return;
       }
 
-      if (command === "chat.split") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (surfaceMode === "single" && onSplitSurface) {
-          onSplitSurface();
-        }
-        return;
-      }
-
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject) return;
       const script = activeProject.scripts.find((entry) => entry.id === scriptId);
@@ -5883,17 +5816,14 @@ export default function ChatView({
     runProjectScript,
     keybindings,
     onInterrupt,
-    onSplitSurface,
     composerSubagentStripItems,
     onBackgroundAllForegroundSubagentStripItems,
-    isFocusedPane,
     hasControllableTurn,
     handleModelPickerOpenChange,
     handleTraitsPickerOpenChange,
     isComposerApprovalState,
     isVoiceRecording,
     isVoiceTranscribing,
-    surfaceMode,
     scheduleComposerFocus,
     toggleComposerFocus,
     activeThread,
@@ -8291,11 +8221,11 @@ export default function ChatView({
     runtimeMode,
     threadId,
     syncServerShellSnapshot,
-    navigateToThread: (nextThreadId, options) =>
+    navigateToThread: (nextThreadId) =>
       navigate({
         to: "/$threadId",
         params: { threadId: nextThreadId },
-        ...(options?.splitViewId ? { search: () => ({ splitViewId: options.splitViewId }) } : {}),
+        search: () => ({}),
       }),
     handleClearConversation: async () => {
       if (!activeProject) {
@@ -8718,7 +8648,7 @@ export default function ChatView({
       void navigate({
         to: "/$threadId",
         params: { threadId: nextThreadId },
-        search: (previous) => parseChatRouteSearch(previous),
+        search: () => ({}),
       });
     },
     [navigate],
@@ -9246,32 +9176,14 @@ export default function ChatView({
         )}
       />
       {/* Top bar */}
-      {surfaceMode === "single" ? (
-        <ThreadDeckBar
-          activeThread={activeThread}
-          activeComposerProvider={selectedProvider}
-          defaultComposerProvider={settings.defaultProvider}
-          className={cn(isElectron && "drag-region", desktopTopBarTrafficLightGutterClassName)}
-          leftRailCollapsed={!leftRailOpen}
-          onRestoreLeftRail={() => setLeftRailOpen(true)}
-        />
-      ) : (
-        <TopBarThreadAdapter
-          className={cn(
-            CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
-            "flex items-center",
-            isElectron && "drag-region",
-            desktopTopBarTrafficLightGutterClassName,
-            desktopTopBarWindowControlsGutterClassName,
-          )}
-          harness={activeThread.session?.provider ?? activeThread.modelSelection.provider}
-          leftRailCollapsed={!leftRailOpen}
-          onRestoreLeftRail={() => setLeftRailOpen(true)}
-          pinned={activeThread.isPinned ?? false}
-          title={activeThreadDisplayTitle}
-        />
-      )}
-
+      <ThreadDeckBar
+        activeThread={activeThread}
+        activeComposerProvider={selectedProvider}
+        defaultComposerProvider={settings.defaultProvider}
+        className={cn(isElectron && "drag-region", desktopTopBarTrafficLightGutterClassName)}
+        leftRailCollapsed={!leftRailOpen}
+        onRestoreLeftRail={() => setLeftRailOpen(true)}
+      />
       {/* Error banner */}
       <ProviderHealthBanner
         status={shouldShowProviderHealthBanner ? visibleActiveProviderStatus : null}
@@ -9415,12 +9327,10 @@ export default function ChatView({
         activeContextWindowLabel={contextWindowSelectionStatus.activeLabel}
         pendingContextWindowLabel={contextWindowSelectionStatus.pendingSelectedLabel}
       />
-      {isInactiveSplitPane ? null : (
-        <TranscriptSelectionActionLayer
-          action={pendingTranscriptSelectionAction}
-          onAddToChat={commitTranscriptAssistantSelection}
-        />
-      )}
+      <TranscriptSelectionActionLayer
+        action={pendingTranscriptSelectionAction}
+        onAddToChat={commitTranscriptAssistantSelection}
+      />
       <ExpandedImageOverlay
         expandedImage={expandedImage}
         onClose={closeExpandedImage}

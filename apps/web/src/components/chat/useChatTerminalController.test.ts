@@ -177,7 +177,6 @@ describe("useChatTerminalController", () => {
         activities: [],
       },
       activeProjectPresent: true,
-      isFocusedPane: false,
       isServerThread: true,
       confirmTerminalClose: true,
       onDeletePlaceholderThread,

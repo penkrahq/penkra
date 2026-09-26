@@ -7,6 +7,7 @@ import { normalizeWorkspaceRootForComparison } from "@penkra/shared/threadWorksp
 import type { LastThreadRoute } from "../chatRouteRestore";
 
 const SIDEBAR_UI_STATE_STORAGE_KEY = "penkra:sidebar-ui:v1";
+const RETIRED_SPLIT_VIEW_STORAGE_KEY = "penkra:split-threads:v1";
 
 export type SidebarUiState = {
   collapsedSpaceIds: string[];
@@ -63,6 +64,13 @@ export function readSidebarUiState(): SidebarUiState {
     return DEFAULT_SIDEBAR_UI_STATE;
   }
 
+  // Discard the retired split pane tree without affecting the remembered thread route.
+  try {
+    window.localStorage.removeItem(RETIRED_SPLIT_VIEW_STORAGE_KEY);
+  } catch {
+    // Storage can be disabled; route restore still works from available state.
+  }
+
   try {
     const raw = window.localStorage.getItem(SIDEBAR_UI_STATE_STORAGE_KEY);
     if (!raw) {
@@ -80,7 +88,6 @@ export function readSidebarUiState(): SidebarUiState {
       dismissedThreadStatusKeyByThreadId?: Record<string, string>;
       lastThreadRoute?: {
         threadId?: unknown;
-        splitViewId?: unknown;
       } | null;
     };
 
@@ -90,10 +97,6 @@ export function readSidebarUiState(): SidebarUiState {
       parsed.lastThreadRoute.threadId.length > 0
         ? {
             threadId: parsed.lastThreadRoute.threadId,
-            ...(typeof parsed.lastThreadRoute.splitViewId === "string" &&
-            parsed.lastThreadRoute.splitViewId.length > 0
-              ? { splitViewId: parsed.lastThreadRoute.splitViewId }
-              : {}),
           }
         : null;
 
@@ -159,9 +162,6 @@ export function persistSidebarUiState(input: SidebarUiState): void {
         lastThreadRoute: input.lastThreadRoute
           ? {
               threadId: input.lastThreadRoute.threadId,
-              ...(input.lastThreadRoute.splitViewId
-                ? { splitViewId: input.lastThreadRoute.splitViewId }
-                : {}),
             }
           : null,
       }),
