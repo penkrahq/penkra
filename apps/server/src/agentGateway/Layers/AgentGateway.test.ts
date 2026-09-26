@@ -3104,20 +3104,28 @@ describe("AgentGateway", () => {
     ]);
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
+      const spoofed = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_send_message",
         args: {
           threadId: "thread-child",
           message: "status check please",
+          senderThreadId: "thread-spoofed",
           now: true,
         },
+      });
+      assert.isTrue(isToolError(spoofed.result));
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_send_message",
+        args: { threadId: "thread-child", message: "status check please", now: true },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       const turn = harness.dispatched[0]!;
       assert.equal(turn.type, "thread.turn.start");
       if (turn.type === "thread.turn.start") {
         assert.equal(turn.dispatchOrigin, "agent");
+        assert.equal(turn.senderThreadId, ThreadId.makeUnsafe("thread-parent"));
         assert.equal(turn.dispatchMode, "steer");
         assert.equal(turn.threadId, "thread-child");
         assert.equal(toolResultJson(response.result).turnId, turn.turnId);

@@ -347,6 +347,25 @@ export function makeAgentGatewayMcpTransport(input: {
                   ),
               ),
             );
+          if (caller.archivedAt !== null) {
+            return yield* Effect.fail(
+              new GatewayToolError(
+                "caller_thread_inactive",
+                "This Penkra write was rejected because the caller thread is archived.",
+                { callerThreadId },
+              ),
+            );
+          }
+          const activeProvider = caller.session?.providerName ?? caller.modelSelection.provider;
+          if (activeProvider !== callerSession.provider) {
+            return yield* Effect.fail(
+              new GatewayToolError(
+                "caller_session_inactive",
+                "This Penkra write was rejected because the provider session no longer owns its thread.",
+                { callerThreadId },
+              ),
+            );
+          }
           const activeAuthority = yield* resolveCallerTurnId(caller).pipe(
             Effect.mapError(
               (error) =>

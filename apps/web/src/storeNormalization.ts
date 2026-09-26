@@ -524,12 +524,18 @@ export function normalizeChatMessage(
       : previous?.delivery !== undefined && previous.delivery.sequence > incoming.delivery.sequence
         ? previous.delivery
         : incoming.delivery;
+  const effectiveDispatchOrigin = incoming.dispatchOrigin ?? previous?.dispatchOrigin;
+  const senderThreadId =
+    effectiveDispatchOrigin === "agent"
+      ? (incoming.senderThreadId ?? previous?.senderThreadId)
+      : undefined;
   if (
     previous &&
     previous.role === incoming.role &&
     previous.text === incoming.text &&
     previous.dispatchMode === incoming.dispatchMode &&
     previous.dispatchOrigin === incoming.dispatchOrigin &&
+    previous.senderThreadId === senderThreadId &&
     previous.delivery === delivery &&
     previous.sequence === incoming.sequence &&
     previous.turnId === incoming.turnId &&
@@ -550,6 +556,7 @@ export function normalizeChatMessage(
     text: incoming.text,
     ...(incoming.dispatchMode ? { dispatchMode: incoming.dispatchMode } : {}),
     ...(incoming.dispatchOrigin ? { dispatchOrigin: incoming.dispatchOrigin } : {}),
+    ...(senderThreadId !== undefined ? { senderThreadId } : {}),
     ...(delivery !== undefined ? { delivery } : {}),
     ...(incoming.sequence !== undefined ? { sequence: incoming.sequence } : {}),
     turnId: incoming.turnId,
@@ -616,6 +623,9 @@ function readModelMessageFromChatMessage(
     text: message.text,
     ...(message.dispatchMode ? { dispatchMode: message.dispatchMode } : {}),
     ...(message.dispatchOrigin ? { dispatchOrigin: message.dispatchOrigin } : {}),
+    ...(message.dispatchOrigin === "agent" && message.senderThreadId !== undefined
+      ? { senderThreadId: message.senderThreadId }
+      : {}),
     ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
     turnId: message.turnId ?? null,
     streaming: message.streaming,

@@ -43,6 +43,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           mentions_json,
           dispatch_mode,
           dispatch_origin,
+          sender_thread_id,
           delivery_state,
           delivery_queued,
           delivery_sequence,
@@ -66,6 +67,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           ${nextMentionsJson},
           ${row.dispatchMode ?? null},
           ${row.dispatchOrigin ?? null},
+          ${row.senderThreadId ?? null},
           ${row.deliveryState ?? null},
           ${row.deliveryQueued === undefined ? null : row.deliveryQueued ? 1 : 0},
           ${row.deliverySequence ?? null},
@@ -103,6 +105,10 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
             excluded.dispatch_origin,
             projection_thread_messages.dispatch_origin
           ),
+          sender_thread_id = CASE
+            WHEN excluded.dispatch_origin IS NOT NULL AND excluded.dispatch_origin != 'agent' THEN NULL
+            ELSE COALESCE(excluded.sender_thread_id, projection_thread_messages.sender_thread_id)
+          END,
           delivery_state = CASE
             WHEN excluded.delivery_sequence IS NOT NULL
               AND (projection_thread_messages.delivery_sequence IS NULL
@@ -167,6 +173,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           mentions_json AS "mentions",
           dispatch_mode AS "dispatchMode",
           dispatch_origin AS "dispatchOrigin",
+          sender_thread_id AS "senderThreadId",
           delivery_state AS "deliveryState",
           delivery_queued AS "deliveryQueued",
           delivery_sequence AS "deliverySequence",
@@ -222,6 +229,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           mentions_json AS "mentions",
           dispatch_mode AS "dispatchMode",
           dispatch_origin AS "dispatchOrigin",
+          sender_thread_id AS "senderThreadId",
           delivery_state AS "deliveryState",
           delivery_queued AS "deliveryQueued",
           delivery_sequence AS "deliverySequence",

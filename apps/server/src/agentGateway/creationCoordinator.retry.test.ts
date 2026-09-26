@@ -406,6 +406,10 @@ describe("create thread retry characterization", () => {
       ids.turnId,
       ids.turnId,
     ]);
+    expect(harness.successfulTurnStarts.map((command) => command.senderThreadId)).toEqual([
+      ThreadId.makeUnsafe(CALLER_THREAD_ID),
+      ThreadId.makeUnsafe(CALLER_THREAD_ID),
+    ]);
   });
 
   it("keeps an existing account A binding when the host default changes to account B", async () => {

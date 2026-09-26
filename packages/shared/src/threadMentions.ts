@@ -4,6 +4,13 @@
 // Exports: THREAD_MENTION_PATH_PREFIX, isThreadMentionPath, threadMentionPathForThreadId, threadIdFromThreadMentionPath
 
 export const THREAD_MENTION_PATH_PREFIX = "thread://";
+export const THREAD_MENTION_MAX_TITLE_CHARS = 200;
+
+export function clampMentionTitle(title: string): string {
+  return title.length > THREAD_MENTION_MAX_TITLE_CHARS
+    ? `${title.slice(0, THREAD_MENTION_MAX_TITLE_CHARS - 1)}…`
+    : title;
+}
 
 export function isThreadMentionPath(path: string): boolean {
   return path.startsWith(THREAD_MENTION_PATH_PREFIX);
