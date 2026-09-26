@@ -1404,8 +1404,17 @@ export class AppTabViewHost implements AppTabHost {
       // the last measured view that still fits the window.
       const next = clipAppTabBounds(record.bounds, { x: 0, y: 0, width, height });
       if (!next) {
+        this.#stopAnimation(record);
+        const wasVisible = record.visibleRequested;
+        record.visibleRequested = false;
         record.appView.setVisible(false);
         record.page?.view.setVisible(false);
+        const presentation = this.#presentationsByTabId.get(record.descriptor.id)?.get(windowId);
+        const presentationWasVisible = presentation?.visible === true;
+        if (presentation) presentation.visible = false;
+        if (this.#lastVisibleTabId === record.descriptor.id) this.#lastVisibleTabId = null;
+        if (wasVisible) this.#sendEvent(record, "lifecycle.visibility", { active: false });
+        if (wasVisible || presentationWasVisible) this.#emitPresentation(record.descriptor.id);
         continue;
       }
       this.setBounds(record.descriptor.id, next);
