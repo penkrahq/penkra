@@ -17,6 +17,23 @@ describe("wsRpcErrorCode", () => {
       ),
     ).toBe("THREAD_CONTINUE_STALE");
   });
+  it.each(["thread_archived", "thread_running"] as const)(
+    "preserves %s through a coordinator error",
+    (code) => {
+      expect(
+        wsRpcErrorCode(
+          new ProviderThreadSwitchCoordinatorError({
+            detail: "wrapped",
+            cause: new OrchestrationCommandInvariantError({
+              commandType: "thread.turn.start",
+              code,
+              detail: "guard",
+            }),
+          }),
+        ),
+      ).toBe(code);
+    },
+  );
   it("preserves a stale-revision reason through the coordinator boundary", () => {
     expect(
       wsRpcErrorCode(
