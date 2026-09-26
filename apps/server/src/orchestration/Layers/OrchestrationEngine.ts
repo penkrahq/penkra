@@ -40,6 +40,8 @@ import {
 import { ProviderThreadSwitchOperationRepository } from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
 import { ProviderNativeForkOperationRepository } from "../../persistence/Services/ProviderNativeForkOperations.ts";
 import { ManagedAttachmentRepositoryLive } from "../../persistence/Layers/ManagedAttachments.ts";
+import { QueuedTurnPromotionRepositoryLive } from "../../persistence/Layers/QueuedTurnPromotions.ts";
+import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import {
   LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
   type ManagedAttachmentPrincipal,
@@ -218,6 +220,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const eventStore = yield* OrchestrationEventStore;
   const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
   const managedAttachments = yield* ManagedAttachmentRepository;
+  const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const threadProviderBindings = Option.getOrUndefined(
     yield* Effect.serviceOption(ThreadProviderBindingRepository),
   );
@@ -1060,12 +1063,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         }
 
         if (command.type === "thread.archive") {
-          yield* sql`
-            UPDATE queued_turn_promotions
-            SET state = 'cancelled', claim_owner = NULL, claimed_at = NULL,
-                claim_expires_at = NULL, updated_at = ${new Date().toISOString()}
-            WHERE thread_id = ${command.threadId} AND state IN ('queued', 'promoting')
-          `;
+          yield* queuedTurnPromotions.cancelThread({
+            threadId: command.threadId,
+            updatedAt:
+              command.createdAt ?? admittedEventBases[0]?.occurredAt ?? new Date().toISOString(),
+          });
         }
 
         for (const nextEvent of admittedEventBases) {
@@ -1743,4 +1745,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 export const OrchestrationEngineLive = Layer.effect(
   OrchestrationEngineService,
   makeOrchestrationEngine,
-).pipe(Layer.provideMerge(ManagedAttachmentRepositoryLive));
+).pipe(
+  Layer.provideMerge(ManagedAttachmentRepositoryLive),
+  Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
+);

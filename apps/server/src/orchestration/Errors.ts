@@ -44,7 +44,9 @@ export function findThreadGuardInvariant(
   cause: unknown,
 ): OrchestrationCommandInvariantError | null {
   let current = cause;
-  while (current instanceof Error) {
+  const visited = new Set<Error>();
+  while (current instanceof Error && !visited.has(current)) {
+    visited.add(current);
     if (
       current instanceof OrchestrationCommandInvariantError &&
       (current.code === "thread_archived" || current.code === "thread_running")

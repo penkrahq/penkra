@@ -644,6 +644,7 @@ export const makeAgentGateway = Effect.gen(function* () {
               `agent:${randomUUID()}:${archived ? "archive" : "unarchive"}`,
             ),
             threadId: target.id,
+            ...(archived ? { createdAt: new Date().toISOString() } : {}),
           })
           .pipe(
             Effect.mapError((error) =>
