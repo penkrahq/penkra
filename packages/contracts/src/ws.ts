@@ -80,6 +80,7 @@ import {
   BeginProviderConnectionLoginInput,
   GetProviderConnectionLoginInput,
   ProviderConnectionsSnapshotInput,
+  RetryProviderAuthConnectionInput,
   TerminateProviderConnectionInput,
   ThreadProviderBindingSnapshotInput,
 } from "./providerConnections";
@@ -153,6 +154,7 @@ export const WS_METHODS = {
   providerListModels: "provider.listModels",
   providerListAgents: "provider.listAgents",
   providerGetConnections: "provider.getConnections",
+  providerRetryAuthConnection: "provider.retryAuthConnection",
   providerGetThreadBinding: "provider.getThreadBinding",
   providerCreateStaticConnection: "provider.createStaticConnection",
   providerBeginConnectionLogin: "provider.beginConnectionLogin",
@@ -277,6 +279,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.providerListModels, ProviderListModelsInput),
   tagRequestBody(WS_METHODS.providerListAgents, ProviderListAgentsInput),
   tagRequestBody(WS_METHODS.providerGetConnections, ProviderConnectionsSnapshotInput),
+  tagRequestBody(WS_METHODS.providerRetryAuthConnection, RetryProviderAuthConnectionInput),
   tagRequestBody(WS_METHODS.providerGetThreadBinding, ThreadProviderBindingSnapshotInput),
   tagRequestBody(WS_METHODS.providerCreateStaticConnection, CreateStaticProviderConnectionInput),
   tagRequestBody(WS_METHODS.providerBeginConnectionLogin, BeginProviderConnectionLoginInput),

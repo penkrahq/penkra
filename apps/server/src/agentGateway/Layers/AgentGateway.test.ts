@@ -30,6 +30,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
+import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationEventDeliveryRepository } from "../../persistence/Services/OrchestrationEventDeliveries.ts";
 import {
@@ -165,6 +166,10 @@ interface GatewayHarness {
     readonly providerTurnId?: string | null;
     readonly providerTurnIds?: ReadonlyArray<string>;
   }) => void;
+  readonly setQueuedPromotion: (
+    threadId: string,
+    state: "queued" | "promoting" | "cancelled",
+  ) => void;
   readonly setProviderStatuses: (statuses: ReadonlyArray<ServerProviderStatus>) => void;
   readonly callTool: (input: {
     readonly token: string;
@@ -336,6 +341,8 @@ function makeHarnessLayer(
       readonly providerTurnIds: ReadonlyArray<string>;
     }
   >();
+  const queuedPromotions: Array<{ threadId: string; state: "queued" | "promoting" | "cancelled" }> =
+    [];
 
   let parentShellReads = 0;
   const snapshotLayer = Layer.succeed(ProjectionSnapshotQuery, {
@@ -905,6 +912,17 @@ function makeHarnessLayer(
         };
       }),
   } as unknown as (typeof ProjectionTurnRepository)["Service"]);
+  const queuedTurnPromotionsLayer = Layer.succeed(QueuedTurnPromotionRepository, {
+    countPendingByThreadIds: (threadIds: ReadonlyArray<string>) =>
+      Effect.sync(() =>
+        threadIds.flatMap((threadId) => {
+          const count = queuedPromotions.filter(
+            (promotion) => promotion.threadId === threadId && promotion.state !== "cancelled",
+          ).length;
+          return count > 0 ? [{ threadId, count }] : [];
+        }),
+      ),
+  } as unknown as (typeof QueuedTurnPromotionRepository)["Service"]);
 
   const gatewayLayer = AgentGatewayLive.pipe(
     Layer.provide(creationAdmissionsLayer),
@@ -932,7 +950,7 @@ function makeHarnessLayer(
           ]),
       } as unknown as (typeof ProviderConnectionRepository)["Service"]),
     ),
-    Layer.provide(projectionTurnsLayer),
+    Layer.provide(Layer.mergeAll(projectionTurnsLayer, queuedTurnPromotionsLayer)),
     Layer.provide(diagnosticsLayer),
     Layer.provide(eventStoreLayer),
     Layer.provide(eventDeliveriesLayer),
@@ -997,6 +1015,9 @@ function makeHarnessLayer(
               ? []
               : [input.providerTurnId]),
         });
+      },
+      setQueuedPromotion: (threadId, state) => {
+        queuedPromotions.push({ threadId, state });
       },
       setProviderStatuses: (statuses) => {
         providerStatuses = statuses;
@@ -1409,6 +1430,7 @@ describe("AgentGateway", () => {
         turnId: "turn-list-second",
         state: "queued",
       });
+      harness.setQueuedPromotion(second.id, "queued");
       const response = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_list_threads",
@@ -1439,6 +1461,40 @@ describe("AgentGateway", () => {
           },
         ],
       );
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("does not count a stale queued projection after its promotion was cancelled", () => {
+    const stale = makeThreadShell("thread-stale-queue", {
+      latestTurn: {
+        turnId: TurnId.makeUnsafe("turn-stale-queue"),
+        state: "queued",
+        requestedAt: NOW,
+        startedAt: null,
+        completedAt: null,
+        assistantMessageId: null,
+      },
+    });
+    const { gatewayLayer, makeHarness } = makeHarnessLayer([
+      makeThreadShell("thread-parent"),
+      stale,
+    ]);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      harness.setProjectionTurn({
+        threadId: stale.id,
+        turnId: "turn-stale-queue",
+        state: "queued",
+      });
+      harness.setQueuedPromotion(stale.id, "cancelled");
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_list_threads",
+        args: { threadId: [stale.id] },
+      });
+      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      const rows = toolResultJson(response.result).threads as Array<{ queuedTurns: number }>;
+      assert.equal(rows[0]?.queuedTurns, 0);
     }).pipe(Effect.provide(gatewayLayer));
   });
 

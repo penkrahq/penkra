@@ -197,6 +197,7 @@ const fixtureMaterializer: ProviderNativeStateMaterializerShape = {
 };
 
 const fixtureGatewayDiscovery: ProviderDiscoveryServiceShape = {
+  probeConnection: () => Effect.die("fixture gateway probes are not used"),
   getComposerCapabilities: () => Effect.die("fixture gateway capabilities are not used"),
   getCapabilityHealth: () => Effect.die("fixture gateway health is not used"),
   listCommands: () => Effect.die("fixture gateway commands are not used"),

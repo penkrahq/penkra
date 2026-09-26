@@ -22,4 +22,21 @@ describe("ThreadErrorBanner", () => {
   it("renders nothing without an error", () => {
     expect(renderToStaticMarkup(<ThreadErrorBanner error={null} />)).toBe("");
   });
+
+  it("keeps a connection authentication error visible with recovery actions and hidden raw detail", () => {
+    const markup = renderToStaticMarkup(
+      <ThreadErrorBanner
+        error={
+          "The provider is rejecting this Connection. Penkra has paused new turns.\nProvider detail: 401 Incorrect API key provided"
+        }
+        onDismiss={() => {}}
+        onRetry={() => {}}
+        onReauthenticate={() => {}}
+      />,
+    );
+    expect(markup).toContain("Retry");
+    expect(markup).toContain("Re-authenticate");
+    expect(markup).toContain("<details");
+    expect(markup).not.toContain("Dismiss error");
+  });
 });

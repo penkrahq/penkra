@@ -208,6 +208,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
   };
 
   const providerDiscovery: ProviderDiscoveryServiceShape = {
+    probeConnection: () => Effect.die("unused discovery method"),
     getComposerCapabilities: () => Effect.die("unused discovery method"),
     getCapabilityHealth: () => Effect.die("unused discovery method"),
     listCommands: () => Effect.die("unused discovery method"),

@@ -46,6 +46,8 @@ import {
   isCodexGeneratedImageArtifact,
 } from "../../codexGeneratedImages.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { classifyProviderAuthFailure } from "../../provider/providerAuthFailure.ts";
+import { makeProviderAuthCircuitStore } from "../../provider/providerAuthCircuit.ts";
 import {
   classifyTerminalTurnApplicability,
   isStartedTurnApplicable,
@@ -599,6 +601,7 @@ const takeCached = <Key, Value>(cache: Cache.Cache<Key, Value>, key: Key) =>
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const authCircuits = makeProviderAuthCircuitStore(sql);
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
@@ -2406,6 +2409,20 @@ const make = Effect.gen(function* () {
       if (event.type === "runtime.error") {
         const runtimeErrorMessage =
           asString(runtimePayloadRecord(event)?.message) ?? "Provider runtime error";
+        const connection = (yield* authCircuits.connectionForThread(thread.id))[0];
+        const authFailure = connection
+          ? classifyProviderAuthFailure({
+              detail: runtimeErrorMessage,
+              authenticationMethodId: connection.authenticationMethodId,
+            })
+          : null;
+        if (connection && authFailure) {
+          yield* authCircuits.open({
+            connectionId: connection.connectionId,
+            failure: authFailure,
+            now: new Date().toISOString(),
+          });
+        }
         const erroredTurnId = eventTurnId ?? activeTurnId ?? undefined;
 
         if (eventTurnId) {
@@ -2441,7 +2458,9 @@ const make = Effect.gen(function* () {
                 providerName: event.provider,
                 runtimeMode: thread.session?.runtimeMode ?? "full-access",
                 activeTurnId: eventTurnId ?? null,
-                lastError: runtimeErrorMessage,
+                lastError: authFailure
+                  ? `${authFailure.summary}\nProvider detail: ${authFailure.detail}`
+                  : runtimeErrorMessage,
                 updatedAt: now,
               },
               createdAt: now,

@@ -2233,6 +2233,18 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           }),
       }).pipe(Effect.map((result) => result satisfies ProviderListModelsResult));
 
+    const probeTurnEndpoint: NonNullable<CodexAdapterShape["probeTurnEndpoint"]> = (input) =>
+      Effect.tryPromise({
+        try: () => manager.probeResponses(input),
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "auth/probe-responses",
+            detail: toMessage(cause, "Responses probe failed"),
+            cause,
+          }),
+      });
+
     const transcribeVoice: NonNullable<CodexAdapterShape["transcribeVoice"]> = (input) =>
       Effect.tryPromise({
         try: () => manager.transcribeVoice(input),
@@ -2370,6 +2382,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       listPlugins,
       readPlugin,
       listModels,
+      probeTurnEndpoint,
       transcribeVoice,
       streamEvents: Stream.fromQueue(runtimeEventQueue),
     } satisfies CodexAdapterShape;
